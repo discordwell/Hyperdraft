@@ -66,6 +66,7 @@ from .misc import (
     _handle_silence_target,
     _handle_transform,
     _handle_copy_stack_item,
+    _handle_exhaust_reset,
 )
 from ...saga import SAGA_EVENT_HANDLERS
 from ...face_down import _handle_turn_face_up, _handle_manifest_dread
@@ -137,6 +138,7 @@ EVENT_HANDLERS = {
     EventType.SEARCH_LIBRARY: _handle_search_library_event,
     EventType.LIBRARY_SEARCH: _handle_search_library_event,
     EventType.GRANT_CREATURE_TYPE: _handle_grant_creature_type,
+    EventType.EXHAUST_RESET: _handle_exhaust_reset,
 }
 
 # Merge in saga handlers (defined in src/engine/saga.py).

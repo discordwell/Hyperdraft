@@ -5535,6 +5535,58 @@ def make_exhaust_ability(
     )
 
 
+def make_exhaust_reset_effect(
+    source: GameObject,
+    state: GameState,
+    *,
+    target_id: Optional[str] = None,
+    ability_index: Optional[int] = None,
+    controller: Optional[str] = None,
+) -> list[Event]:
+    """Reset Exhaust ability descriptors and emit an EXHAUST_RESET marker.
+
+    Use this inside an effect_fn for cards like Aetherdrift's Elvish
+    Refueler that say "you may activate exhaust abilities as though they
+    hadn't been activated." The function:
+
+    1. Calls ``reset_exhaust`` immediately so the ``once_per_game_used``
+       flag is cleared before legal-action generation re-runs.
+    2. Returns a single ``EXHAUST_RESET`` marker event so observers /
+       logs / UI can react.
+
+    Filters (most specific to least):
+      - ``target_id`` + ``ability_index``: reset that one descriptor.
+      - ``target_id``: reset every Exhaust ability on that permanent.
+      - ``controller``: reset every Exhaust ability that player controls.
+      - none: reset every Exhaust ability in the game.
+
+    Example (whole-controller reset)::
+
+        def elvish_refueler_effect(o, st, targets):
+            return make_exhaust_reset_effect(o, st, controller=o.controller)
+    """
+    from src.engine.activated import reset_exhaust as _reset_exhaust
+    _reset_exhaust(
+        state,
+        target_id=target_id,
+        ability_index=ability_index,
+        controller=controller,
+    )
+    payload: dict = {}
+    if target_id is not None:
+        payload["target_id"] = target_id
+    if ability_index is not None:
+        payload["ability_index"] = ability_index
+    if controller is not None:
+        payload["controller"] = controller
+    return [Event(
+        type=EventType.EXHAUST_RESET,
+        payload=payload,
+        source=source.id,
+        controller=source.controller,
+    )]
+
+
 # =============================================================================
 # Planeswalker loyalty
 # =============================================================================
@@ -6215,6 +6267,7 @@ def make_sac_destroy_ability(
 __all_phase4__ = [
     "make_activated_ability",
     "make_exhaust_ability",
+    "make_exhaust_reset_effect",
     "make_activate_exhaust_trigger",
     "make_activated_cost_reduction",
     "make_pump_self_ability",

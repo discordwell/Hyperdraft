@@ -438,6 +438,23 @@ class EventType(Enum):
     #   source        - id of the damaging permanent (or None)
     PLANESWALKER_DAMAGED = auto()
 
+    # ------------------------------------------------------------------
+    # Exhaust mechanic — reset hook (Aetherdrift / TLA).
+    # Some cards (e.g. Elvish Refueler) say "you may activate exhaust
+    # abilities as though they hadn't been activated." Emitting
+    # EXHAUST_RESET clears the once_per_game_used flag for one or more
+    # ActivatedAbility descriptors, allowing them to be activated again.
+    # Payload (one of):
+    #   target_id     - object id whose Exhaust abilities should reset (all)
+    #   ability_index - optional, reset only that index on target_id
+    #   controller    - player id whose Exhaust abilities should reset
+    #                   (used for "your exhaust abilities" wording)
+    # The pipeline doesn't need a dedicated handler; the activated module
+    # exposes ``reset_exhaust(state, ...)`` for direct invocation, and
+    # cards typically emit this event so observers (logs / UI) can react.
+    # ------------------------------------------------------------------
+    EXHAUST_RESET = auto()
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to

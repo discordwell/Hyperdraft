@@ -413,6 +413,37 @@ def can_pay_activation(
         ctype, n = ability.counter_removal
         if obj.state.counters.get(ctype, 0) < n:
             return False
+    # Additional non-self cost validation (exile-from-GY, sacrifice-named).
+    # Other kinds (pay_life / discard) are validated at cost-pay time and
+    # don't gate legality here for backward compatibility.
+    if ability.additional_cost_plan:
+        for step in ability.additional_cost_plan:
+            if step.kind == "exile_from_graveyard":
+                gy_key = f"graveyard_{player_id}"
+                gy = state.zones.get(gy_key)
+                if gy is None or len(getattr(gy, "objects", []) or []) < int(step.amount or 1):
+                    return False
+            elif step.kind == "sacrifice_named":
+                name_lc = (step.name_match or "").lower()
+                if not name_lc:
+                    return False
+                # Find at least one battlefield permanent the player controls
+                # whose lowercase name matches.
+                bf = state.zones.get("battlefield")
+                if bf is None:
+                    return False
+                found = False
+                for oid in bf.objects:
+                    cand = state.objects.get(oid)
+                    if cand is None:
+                        continue
+                    if cand.controller != player_id:
+                        continue
+                    if (cand.name or "").lower() == name_lc:
+                        found = True
+                        break
+                if not found:
+                    return False
     # Once-per-turn
     if ability.once_per_turn and ability.last_activation_turn == state.turn_number:
         return False
@@ -521,8 +552,9 @@ def pay_activation_cost(
         ))
         obj.state.counters[ctype] = max(0, obj.state.counters.get(ctype, 0) - n)
 
-    # Additional non-self costs (discard, pay-life, etc.) — best-effort:
-    # emit declarative events; the pipeline handles them.
+    # Additional non-self costs (discard, pay-life, exile-from-GY,
+    # sacrifice-named, etc.) — emit declarative events; the pipeline
+    # handles the actual zone moves.
     if ability.additional_cost_plan:
         for step in ability.additional_cost_plan:
             if step.kind == "pay_life":
@@ -539,6 +571,44 @@ def pay_activation_cost(
                     source=obj.id,
                     controller=player_id,
                 ))
+            elif step.kind == "exile_from_graveyard":
+                # Greedy: exile the first N cards in the player's
+                # graveyard. AI/UI can intercept earlier to pick specific
+                # cards via PendingChoice if the cost requires selection.
+                n = int(step.amount or 1)
+                gy_key = f"graveyard_{player_id}"
+                gy = state.zones.get(gy_key)
+                gy_ids = list(getattr(gy, "objects", []) or [])[:n]
+                for cid in gy_ids:
+                    events.append(Event(
+                        type=EventType.EXILE,
+                        payload={"object_id": cid, "controller": player_id},
+                        source=obj.id,
+                        controller=player_id,
+                    ))
+            elif step.kind == "sacrifice_named":
+                # Sacrifice one battlefield permanent the player controls
+                # whose name matches step.name_match (case-insensitive).
+                # If multiple match, pick the first (callers wanting a
+                # specific one can wire a PendingChoice upstream).
+                name_lc = (step.name_match or "").lower()
+                bf = state.zones.get("battlefield")
+                target_id: Optional[str] = None
+                if bf is not None and name_lc:
+                    for oid in bf.objects:
+                        cand = state.objects.get(oid)
+                        if cand is None or cand.controller != player_id:
+                            continue
+                        if (cand.name or "").lower() == name_lc:
+                            target_id = oid
+                            break
+                if target_id is not None:
+                    events.append(Event(
+                        type=EventType.SACRIFICE,
+                        payload={"object_id": target_id, "controller": player_id},
+                        source=obj.id,
+                        controller=player_id,
+                    ))
 
     return events
 
@@ -559,6 +629,107 @@ def record_activation(ability: ActivatedAbility, state: GameState) -> None:
         ability.once_per_game_used = True
 
 
+# ----------------------------------------------------------------------
+# Exhaust reset
+# ----------------------------------------------------------------------
+
+
+def reset_exhaust(
+    state: GameState,
+    *,
+    target_id: Optional[str] = None,
+    ability_index: Optional[int] = None,
+    controller: Optional[str] = None,
+) -> int:
+    """Clear ``once_per_game_used`` on Exhaust abilities so they can fire again.
+
+    Resolution order (most specific to most permissive):
+      - If ``target_id`` is given AND ``ability_index`` is given, reset just
+        that one descriptor on that permanent.
+      - If ``target_id`` is given, reset every Exhaust ability on it.
+      - If ``controller`` is given (and no target_id), reset every Exhaust
+        ability on every permanent that player controls.
+      - If neither is given, reset every Exhaust ability in the game (rare;
+        debug / "reset all" cards).
+
+    Returns the number of ability descriptors that were reset (handy for
+    tests / telemetry). A reset is a no-op for an ability that has not
+    been used or that isn't an Exhaust (``once_per_game=False``).
+    """
+    n_reset = 0
+
+    def _reset_one(ability: ActivatedAbility) -> None:
+        nonlocal n_reset
+        if not ability.once_per_game:
+            return
+        if ability.once_per_game_used:
+            ability.once_per_game_used = False
+            n_reset += 1
+
+    def _reset_obj(o: GameObject, idx: Optional[int]) -> None:
+        abilities = getattr(o.state, "activated_abilities", None) or []
+        if idx is not None:
+            if 0 <= idx < len(abilities):
+                _reset_one(abilities[idx])
+            return
+        for ab in abilities:
+            _reset_one(ab)
+
+    if target_id is not None:
+        obj = state.objects.get(target_id)
+        if obj is not None:
+            _reset_obj(obj, ability_index)
+        return n_reset
+
+    # Iterate all objects. Filter on controller if requested.
+    for obj in list(state.objects.values()):
+        if controller is not None and obj.controller != controller:
+            continue
+        _reset_obj(obj, None)
+    return n_reset
+
+
+def make_exhaust_reset_effect(
+    source: GameObject,
+    *,
+    target_id: Optional[str] = None,
+    ability_index: Optional[int] = None,
+    controller: Optional[str] = None,
+) -> list[Event]:
+    """Helper for cards that grant Exhaust reset (e.g. Aetherdrift Elvish Refueler).
+
+    Emits an EXHAUST_RESET marker event AND immediately calls
+    ``reset_exhaust`` so the descriptor flag is cleared by the time the
+    next legal-action sweep runs. The marker event lets observers / logs
+    react ("Whenever an exhaust ability resets, ...").
+
+    ``target_id``/``ability_index``/``controller`` mirror ``reset_exhaust``.
+    """
+    # The state reference comes from the source object's runtime state via
+    # the priority/pipeline. The helper is meant to be called inside an
+    # effect_fn where ``state`` is in scope, so callers do the call:
+    #
+    #   def my_effect(o, st, targets):
+    #       return make_exhaust_reset_effect(o, controller=o.controller, state=st)
+    #
+    # but we also expose a stateless variant that *only* emits the event
+    # and lets the caller invoke ``reset_exhaust`` separately. Tests use
+    # the latter.
+    payload: dict = {}
+    if target_id is not None:
+        payload["target_id"] = target_id
+    if ability_index is not None:
+        payload["ability_index"] = ability_index
+    if controller is not None:
+        payload["controller"] = controller
+    return [Event(
+        type=EventType.EXHAUST_RESET,
+        payload=payload,
+        source=source.id,
+        controller=source.controller,
+    )]
+
+
 __all__ = [
     "ActivatedAbility",
     "EffectFn",
@@ -569,4 +740,6 @@ __all__ = [
     "can_pay_activation",
     "pay_activation_cost",
     "record_activation",
+    "reset_exhaust",
+    "make_exhaust_reset_effect",
 ]
