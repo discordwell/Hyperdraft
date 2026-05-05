@@ -50,6 +50,8 @@ def analyze_deck_quality(
     off_color_cards: list[str] = []
     land_count = 0
     nonland_count = 0
+    textless_nonland_count = 0
+    functional_nonland_count = 0
 
     for entry in deck.mainboard:
         card_def = card_pool.get(entry.card_name)
@@ -62,6 +64,14 @@ def analyze_deck_quality(
             continue
 
         nonland_count += entry.quantity
+        if not (getattr(card_def, "text", "") or "").strip():
+            textless_nonland_count += entry.quantity
+        if (
+            (getattr(card_def, "text", "") or "").strip()
+            or getattr(card_def, "setup_interceptors", None)
+            or getattr(card_def, "resolve", None)
+        ):
+            functional_nonland_count += entry.quantity
         curve_counts[_curve_bucket(card_def)] += entry.quantity
         role_counts[role_of(card_def)] += entry.quantity
         if not is_castable(card_def, deck.colors):
@@ -108,6 +118,9 @@ def analyze_deck_quality(
         "mainboard_count": mainboard_count,
         "land_count": land_count,
         "nonland_count": nonland_count,
+        "textless_nonland_count": textless_nonland_count,
+        "functional_nonland_count": functional_nonland_count,
+        "functional_nonland_ratio": round(functional_nonland_count / nonland_count, 3) if nonland_count else 0.0,
         "land_ratio": round(land_count / mainboard_count, 3) if mainboard_count else 0.0,
         "curve_counts": dict(sorted(curve_counts.items())),
         "curve_error": curve_error,

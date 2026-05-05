@@ -112,6 +112,36 @@ def _play_land_scenario(ai: AIEngine) -> ScenarioResult:
     return ScenarioResult("play_land_over_pass", observed == expected, expected, observed)
 
 
+def _answer_large_threat_scenario(ai: AIEngine) -> ScenarioResult:
+    game, p1, p2 = _game()
+    for idx in range(3):
+        _obj(game, p1.id, f"Swamp {idx}", ZoneType.BATTLEFIELD, {CardType.LAND})
+    removal = _obj(
+        game, p1.id, "Doom Blade", ZoneType.HAND,
+        {CardType.INSTANT}, text="Destroy target creature.", mana_cost="{1}{B}"
+    )
+    small_creature = _obj(
+        game, p1.id, "Small Creature", ZoneType.HAND,
+        {CardType.CREATURE}, power=1, toughness=1, mana_cost="{1}"
+    )
+    _obj(
+        game, p2.id, "Dragon", ZoneType.BATTLEFIELD,
+        {CardType.CREATURE}, text="Flying", power=6, toughness=6
+    )
+
+    action = ai.get_action(
+        p1.id,
+        game.state,
+        [
+            LegalAction(type=ActionType.CAST_SPELL, card_id=small_creature.id),
+            LegalAction(type=ActionType.CAST_SPELL, card_id=removal.id),
+        ],
+    )
+    observed = game.state.objects[action.card_id].name if action.card_id else None
+    expected = "Doom Blade"
+    return ScenarioResult("answer_large_threat_action", observed == expected, expected, observed)
+
+
 def _burn_target_scenario(ai: AIEngine) -> ScenarioResult:
     game, p1, p2 = _game()
     bolt = _obj(
@@ -260,6 +290,7 @@ def run_fixed_decision_benchmark(
 
     results = [
         _play_land_scenario(ai),
+        _answer_large_threat_scenario(ai),
         _burn_target_scenario(ai),
         _lethal_burn_scenario(ai),
         _attack_scenario(ai),

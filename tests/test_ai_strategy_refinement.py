@@ -141,15 +141,15 @@ def test_fixed_decision_benchmark_writes_trace_artifacts(tmp_path):
     summary = run_fixed_decision_benchmark(tmp_path, seed=11)
 
     assert summary["benchmark_name"] == "fixed_decision_smoke"
-    assert summary["scenario_count"] == 7
+    assert summary["scenario_count"] == 8
     assert summary["scenario_pass_rate"] == 1.0
-    assert summary["decision_count"] == 7
-    assert summary["decision_type_mix"]["action"] == 1
+    assert summary["decision_count"] == 8
+    assert summary["decision_type_mix"]["action"] == 2
     assert summary["decision_type_mix"]["pending_target"] == 2
     assert summary["decision_type_mix"]["attack"] == 2
     assert summary["decision_type_mix"]["block"] == 2
     assert summary["target_accuracy"] == 1.0
-    assert summary["selected_target_count"] == 2
+    assert summary["selected_target_count"] == 3
     assert (tmp_path / "decisions.jsonl").exists()
     assert (tmp_path / "summary.json").exists()
 
@@ -169,6 +169,7 @@ def test_strategy_pass_report_combines_ai_deck_and_variant_metrics(tmp_path):
     assert report["variants"]["high_resource"]["deviation_count"] == 3
     assert report["variant_summary"]["variant_count"] == 3
     assert report["variant_summary"]["mtg_baseline_count"] == 1
+    assert report["quality_gate"]["passed"] is True
     assert (tmp_path / "strategy_pass_summary.json").exists()
 
 
