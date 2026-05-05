@@ -906,7 +906,7 @@ def make_cost_reduction(
 
 
 # =============================================================================
-# WARD
+# WARD (CR 702.21 / CR 603)
 # =============================================================================
 #
 # Ward {N} (or "ward—pay X life", "ward—sacrifice a creature", etc.) is a
@@ -914,13 +914,25 @@ def make_cost_reduction(
 # the warded permanent. The triggered ability counters that spell unless the
 # opponent pays the ward cost.
 #
-# v1 simplifications:
+# Implementation:
+#   * ``make_ward`` is a REACT-priority interceptor with
+#     ``is_triggered_ability=True``. The pipeline queues a TriggeredStackItem
+#     onto ``state.pending_triggers`` instead of firing the effect inline.
 #   * Targets are committed to a stack item; priority emits one
-#     ``EventType.TARGET_CHOSEN`` per chosen target. Ward reacts to those.
-#   * The ward effect emits ``COUNTER_SPELL_UNLESS_PAY``; existing system
-#     interceptor treats that as an unconditional counter — it does not yet
-#     prompt the opponent to pay.
-#   * Triggered abilities targeting the warded permanent are out of scope.
+#     ``EventType.TARGET_CHOSEN`` per chosen target. Ward triggers off those.
+#   * On resolution the Ward trigger emits ``COUNTER_SPELL_UNLESS_PAY``;
+#     the system counterspell glue counters the matching stack item.
+#   * In auto-resolve mode (default for tests) the trigger drains inline
+#     after the REACT phase, preserving the previous "ward fires
+#     immediately" semantics.
+#   * Under the priority loop, the Ward trigger goes on top of the stack
+#     and resolves *before* the spell that targeted the warded creature
+#     (LIFO), per CR 603.
+#
+# v1 simplifications still in effect:
+#   * The existing system interceptor for COUNTER_SPELL_UNLESS_PAY treats
+#     it as an unconditional counter — it does not yet prompt the
+#     opponent to pay.
 # =============================================================================
 
 def make_ward(
@@ -930,7 +942,20 @@ def make_ward(
     life_cost: Optional[int] = None,
     custom_cost: Optional[str] = None,
 ) -> Interceptor:
-    """Register a Ward static ability on ``source_obj``."""
+    """Register a Ward triggered ability on ``source_obj`` (CR 702.21).
+
+    Ward is a triggered ability: when a creature with Ward becomes the target
+    of a spell or ability an opponent controls, that spell/ability is
+    countered unless its controller pays the ward cost. Per CR 603 the
+    trigger goes onto the stack (via ``TriggeredStackItem``) and resolves
+    in the next priority window — *before* the spell that targeted the
+    warded creature, since both sit on the stack in LIFO order.
+
+    In auto-resolve mode (``state.options.auto_resolve_triggers=True``,
+    default for tests) the trigger drains inline immediately after the
+    REACT phase, preserving "ward fires immediately" semantics that
+    existing tests rely on.
+    """
     source_id = source_obj.id
     controller_id = source_obj.controller
 
@@ -954,26 +979,40 @@ def make_ward(
             return False
         return True
 
-    def ward_handler(event: Event, state: GameState) -> InterceptorResult:
+    def ward_effect(event: Event, state: GameState) -> list[Event]:
+        """Resolve the Ward trigger by emitting COUNTER_SPELL_UNLESS_PAY.
+
+        The synthetic event is consumed by the system counterspell glue,
+        which counters the matching stack item unless the spell's
+        controller pays the ward cost.
+        """
         spell_id = event.payload.get('spell_id')
         if not spell_id:
+            return []
+        return [Event(
+            type=EventType.COUNTER_SPELL_UNLESS_PAY,
+            payload={
+                'spell_id': spell_id,
+                'target_id': source_id,
+                'reason': 'ward',
+                **cost_payload,
+            },
+            source=source_id,
+            controller=controller_id,
+        )]
+
+    def ward_handler(event: Event, state: GameState) -> InterceptorResult:
+        # Legacy/fallback handler — only used if a caller flips
+        # ``is_triggered_ability=False`` (e.g. tests forcing inline mode).
+        new_events = ward_effect(event, state)
+        if not new_events:
             return InterceptorResult(action=InterceptorAction.PASS)
         return InterceptorResult(
             action=InterceptorAction.REACT,
-            new_events=[Event(
-                type=EventType.COUNTER_SPELL_UNLESS_PAY,
-                payload={
-                    'spell_id': spell_id,
-                    'target_id': source_id,
-                    'reason': 'ward',
-                    **cost_payload,
-                },
-                source=source_id,
-                controller=controller_id,
-            )],
+            new_events=new_events,
         )
 
-    return Interceptor(
+    interceptor = Interceptor(
         id=new_id(),
         source=source_id,
         controller=controller_id,
@@ -981,6 +1020,9 @@ def make_ward(
         filter=ward_filter,
         handler=ward_handler,
         duration='while_on_battlefield',
+    )
+    return _mark_triggered_ability(
+        interceptor, ward_effect, description="Ward trigger",
     )
 
 
