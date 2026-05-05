@@ -93,6 +93,25 @@ def test_kamigawa_balance_report_outputs_json_without_flags():
     assert all(not profile["balance_flags"] for profile in report.values())
 
 
+def test_kamigawa_balance_report_can_focus_one_archetype():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/play/kamigawa_balance_report.py",
+            "--archetype",
+            "moonfolk",
+            "--fail-on-flags",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    report = json.loads(result.stdout)
+    assert set(report) == {"moonfolk"}
+    assert report["moonfolk"]["control_score"] >= 40
+
+
 def test_kamigawa_wet_test_requires_enough_mirror_games_for_imbalance():
     assert mirror_imbalance_anomaly("ninja", "ninja", 3, 1.0) is False
     assert mirror_imbalance_anomaly("ninja", "ninja", 5, 1.0) is True

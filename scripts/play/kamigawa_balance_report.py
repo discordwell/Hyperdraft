@@ -18,12 +18,19 @@ def main() -> int:
         action="store_true",
         help="Exit with status 1 if any archetype reports balance flags.",
     )
+    parser.add_argument("--archetype", default=None,
+                        help="optional Beyond Kamigawa archetype to report")
     args = parser.parse_args()
 
     with contextlib.redirect_stdout(sys.stderr):
         from src.cards.yugioh.beyond.kamigawa import kamigawa_balance_summary
 
     report = kamigawa_balance_summary()
+    if args.archetype:
+        if args.archetype not in report:
+            print(f"Unknown Beyond Kamigawa archetype: {args.archetype}", file=sys.stderr)
+            return 2
+        report = {args.archetype: report[args.archetype]}
     print(json.dumps(report, indent=2, sort_keys=True))
 
     if args.fail_on_flags:
