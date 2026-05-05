@@ -179,6 +179,8 @@ in-place — power, toughness, name, subtypes, types).
 
 12. **AI scoring penalises bare-keyword text.** `_is_removal_like` matches `"exile"`, `"destroy"`, `"damage"`. Flashback's reminder "(...Then exile it.)" trips it, then the no-targets path slaps a -3.0 risk penalty. Either tighten the heuristic (we did: phrase-match `"exile target"` etc., strip parentheticals) or write your card text to avoid bare keywords in flavor.
 
+13. **`ATTACH` payload uses `object_id` / `target_id` — not `source` / `target` and not `equipment_id`.** The canonical event is `Event(type=EventType.ATTACH, payload={'object_id': equipment.id, 'target_id': creature.id}, source=equipment.id)`. The subtypes-add listener (`_make_attached_subtypes_listener`, used by `make_equipment_setup(subtypes_to_add=...)`) filters on `payload['object_id']`. Tests that emit a fake ATTACH with `{'source': ..., 'target': ...}` will silently no-op for any equipment-static built through `make_equipment_setup` — the test passes the load check and fails the behavior check. Independent: some card-side triggers in the wild (e.g. DBZ's Trunks) read `payload.get('target')` directly via custom filters; if you copy that pattern blindly into a test for an `make_equipment_setup` card, you'll get a false-passing test. Always use the canonical keys.
+
 ## Testing patterns
 
 Mirror `tests/test_star_wars_spice.py` shape. The standard helper:
