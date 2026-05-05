@@ -1272,6 +1272,29 @@ class PokemonAIAdapter:
         energy_system = PokemonEnergySystem(state)
         attached = energy_system.get_attached_energy(target_id)
 
+        best_ready_energy = None
+        best_ready_score = -999.0
+        for eid in energy_cards:
+            e_obj = state.objects.get(eid)
+            if not e_obj:
+                continue
+            e_type = energy_system._get_energy_type(e_obj)
+            test_energy = dict(attached)
+            test_energy[e_type] = test_energy.get(e_type, 0) + 1
+            for attack in (target.card_def.attacks or []):
+                cost = attack.get('cost', [])
+                if energy_system.can_pay_cost(target_id, cost):
+                    continue
+                if not self._can_pay_with(test_energy, cost):
+                    continue
+                total_cost = sum(req.get('count', 0) for req in cost)
+                score = attack.get('damage', 0) / max(total_cost, 1)
+                if score > best_ready_score:
+                    best_ready_score = score
+                    best_ready_energy = eid
+        if best_ready_energy:
+            return best_ready_energy
+
         # Find what typed energy is needed
         typed_needs: dict[str, int] = {}
         for attack in (target.card_def.attacks or []):
