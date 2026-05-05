@@ -13,6 +13,26 @@ def _handle_player_loses(event: Event, state: GameState):
         state.players[player_id].has_lost = True
 
 
+def _handle_exhaust_reset(event: Event, state: GameState):
+    """Handle EXHAUST_RESET event — clear once_per_game_used on Exhaust abilities.
+
+    Delegates to ``activated.reset_exhaust`` using the payload keys:
+      - target_id     : reset Exhaust abilities on a specific permanent
+      - ability_index : (with target_id) reset just that one descriptor
+      - controller    : reset every Exhaust ability that player controls
+    Missing keys widen the scope (no target = all permanents matching
+    controller; no controller either = global reset).
+    """
+    from ...activated import reset_exhaust
+    reset_exhaust(
+        state,
+        target_id=event.payload.get('target_id'),
+        ability_index=event.payload.get('ability_index'),
+        controller=event.payload.get('controller'),
+    )
+    return None
+
+
 def _handle_copy_stack_item(event: Event, state: GameState):
     """Handle COPY_STACK_ITEM event.
 
