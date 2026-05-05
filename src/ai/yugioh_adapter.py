@@ -281,6 +281,9 @@ class YugiohAIAdapter:
                 continue
 
             if name == "Premature Burial":
+                player = state.players.get(player_id)
+                if player and getattr(player, 'lp', 0) <= 800:
+                    continue
                 target = self._find_own_gy_target(player_id, state)
                 if target:
                     return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [target]}
