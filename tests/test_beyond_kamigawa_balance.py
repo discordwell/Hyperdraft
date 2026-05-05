@@ -156,3 +156,6 @@ def test_kamigawa_wet_test_can_write_json_summary(tmp_path):
     assert report["min_mirror_games_for_imbalance"] == 5
     assert len(report["results"]) == 5
     assert report["anomalies"] == []
+    for pairing in report["results"].values():
+        assert pairing["completed_games"] == 1
+        assert 0 <= pairing["a_win_rate"] <= 1
