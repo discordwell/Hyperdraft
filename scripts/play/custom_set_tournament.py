@@ -684,6 +684,7 @@ async def play_one_game(
     max_turns: int = 25,
     per_turn_timeout_s: float = 1.5,
     wall_deadline_s: float = 7.0,
+    pre_start_hook: Optional[Any] = None,
 ) -> GameResult:
     """
     Run one MTG AI-vs-AI game and return per-card stats + outcome.
@@ -743,6 +744,12 @@ async def play_one_game(
         game.set_attack_handler(attack_handler)
         game.set_block_handler(block_handler)
         game.set_mulligan_handler(lambda pid, hand, count: True)  # always keep
+
+        # Optional hook to manipulate library state before opening hand draw.
+        # Used by the capability test to stack a focal card into p1's
+        # opening hand so we measure "card carries deck" without draw noise.
+        if pre_start_hook is not None:
+            pre_start_hook(game, p1.id, p2.id)
 
         await asyncio.wait_for(game.start_game(), timeout=10.0)
 

@@ -221,18 +221,64 @@ def _focal_metrics(result, focal_name: str) -> dict:
     return {}
 
 
+def _make_stack_focal_hook(focal_name: str, copies_to_stack: int = 1):
+    """Return a `pre_start_hook` that moves up to `copies_to_stack` copies
+    of the focal card from p1's library to the top, ensuring they're drawn
+    in the opening hand.
+
+    Reasoning: the synergy capability metric should answer "given the
+    focal lands, does the deck win?" — not "does the focal happen to be
+    drawn?". Stacking the opener removes draw-variance noise so the
+    metric reflects card strength, not luck. Real MTG playtesting
+    follows this convention (and any deck with tutors achieves it
+    indirectly).
+    """
+    def hook(game, p1_id: str, p2_id: str) -> None:
+        library = game.state.zones.get(f"library_{p1_id}")
+        if not library or not library.objects:
+            return
+        # Find indices of focal copies in p1's library.
+        focal_indices: list[int] = []
+        for i, oid in enumerate(library.objects):
+            obj = game.state.objects.get(oid)
+            if not obj:
+                continue
+            if obj.name == focal_name:
+                focal_indices.append(i)
+                if len(focal_indices) >= copies_to_stack:
+                    break
+        # Move each found copy to the top, preserving relative order.
+        # (top = position 0, drawn first.)
+        for slot, src_idx in enumerate(focal_indices):
+            # Re-find current index (it may shift after earlier swaps).
+            current = library.objects.index(library.objects[src_idx]) if src_idx < len(library.objects) else None
+            if current is None:
+                continue
+            library.objects.insert(slot, library.objects.pop(current))
+    return hook
+
+
 async def _run_one_game(
     deck1, deck2, label1, label2,
     *, max_turns: int = 14, per_turn_timeout_s: float = 4.0, wall_deadline_s: float = 25.0,
+    focal_in_opener: Optional[str] = None,
 ):
-    """One game; reuses `play_one_game` with safer-than-default timeouts."""
+    """One game; reuses `play_one_game` with safer-than-default timeouts.
+
+    When `focal_in_opener` is set, p1's library is rearranged so a copy
+    of that card is at the top — guaranteeing it's drawn in the opening
+    hand. Used by the capability test to remove draw variance from the
+    measurement.
+    """
     ai1 = AIEngine(difficulty="hard")
     ai2 = AIEngine(difficulty="hard")
+    hook = _make_stack_focal_hook(focal_in_opener) if focal_in_opener else None
     return await play_one_game(
         deck1, deck2, ai1, ai2, label1, label2,
         max_turns=max_turns,
         per_turn_timeout_s=per_turn_timeout_s,
         wall_deadline_s=wall_deadline_s,
+        pre_start_hook=hook,
     )
 
 
@@ -246,6 +292,7 @@ def run_capability_test(
     max_turns: int = 14,
     per_turn_timeout_s: float = 4.0,
     wall_deadline_s: float = 25.0,
+    focal_in_opener: bool = True,
 ) -> dict:
     """Build a synergy deck around `focal_name` and play it vs a generic
     baseline of the same set. Returns aggregated capability metrics.
@@ -280,6 +327,7 @@ def run_capability_test(
                 max_turns=max_turns,
                 per_turn_timeout_s=per_turn_timeout_s,
                 wall_deadline_s=wall_deadline_s,
+                focal_in_opener=focal_name if focal_in_opener else None,
             ))
         except Exception as exc:
             errors += 1
@@ -310,8 +358,15 @@ def run_capability_test(
     completed = wins + losses + draws
     win_rate = (wins / completed) if completed else 0.0
     cast_per_copy = (cast_total / deck_copies_total) if deck_copies_total else 0.0
+    cast_per_game = (cast_total / completed) if completed else 0.0
     win_rate_in_play = (on_winning_total / in_play_total) if in_play_total else 0.0
-    capability_score = cast_per_copy * win_rate_in_play
+    # Capability score uses cast_per_game (not cast_per_copy) because
+    # with focal_in_opener=True, only 1 of the 4 deck copies is forced
+    # to the top — cast_per_copy can't exceed 0.25 even in perfect play.
+    # cast_per_game is the natural unit: "in how many games does the
+    # focal land?" Times win-rate-when-in-play, this is the answer to
+    # "is this card actually carrying the deck?"
+    capability_score = cast_per_game * win_rate_in_play
 
     return {
         "focal": focal_name,
@@ -323,6 +378,7 @@ def run_capability_test(
         "errors": errors,
         "synergy_deck_winrate": round(win_rate, 3),
         "focal_cast_per_copy": round(cast_per_copy, 3),
+        "focal_cast_per_game": round(cast_per_game, 3),
         "focal_win_rate_in_play": round(win_rate_in_play, 3),
         "capability_score": round(capability_score, 3),
         "focal_dmg_per_game": round(dmg_total / max(completed, 1), 1),
@@ -346,6 +402,7 @@ def _print_report(report: dict) -> None:
     print(f"{'='*60}")
     print(f"  Games: {p['games_run']}  W/L/D/Err: {p['wins']}/{p['losses']}/{p['draws']}/{p['errors']}")
     print(f"  Synergy-deck winrate:  {p['synergy_deck_winrate']*100:5.1f}%")
+    print(f"  Focal cast/game:       {p['focal_cast_per_game']:.2f}")
     print(f"  Focal cast/copy:       {p['focal_cast_per_copy']:.2f}")
     print(f"  Focal WR-in-play:      {p['focal_win_rate_in_play']*100:5.1f}%")
     print(f"  Capability score:      {p['capability_score']:.2f}  "
@@ -372,6 +429,10 @@ def main():
     parser.add_argument("--wall-deadline", type=float, default=25.0)
     parser.add_argument("--out", type=str, default=None,
                         help="optional JSON output path")
+    parser.add_argument("--no-focal-in-opener", action="store_true",
+                        help="DISABLE focal-card opening-hand stacking. Default "
+                             "is to stack so cast/copy isolates 'card carries "
+                             "deck' from 'card was drawn'.")
     args = parser.parse_args()
 
     if not args.card and not args.all:
@@ -399,6 +460,7 @@ def main():
             max_turns=args.max_turns,
             per_turn_timeout_s=args.per_turn_timeout,
             wall_deadline_s=args.wall_deadline,
+            focal_in_opener=not args.no_focal_in_opener,
         )
         _print_report(rep)
         reports.append(rep)
@@ -408,11 +470,12 @@ def main():
         print(f"\n{'='*60}")
         print(f"  Summary: {args.set}  ({len(reports)} cards)")
         print(f"{'='*60}")
-        print(f"  {'Card':<35} {'Score':>6} {'Win%':>6} {'Cast':>5}  Status")
+        print(f"  {'Card':<35} {'Score':>6} {'Win%':>6} {'Cast/g':>6} {'WR-IP':>6}  Status")
         for r in sorted(reports, key=lambda r: -r["capability_score"]):
             status = "PASS" if r["passed_threshold"] else "FAIL"
             print(f"  {r['focal']:<35} {r['capability_score']:>6.2f} "
-                  f"{r['synergy_deck_winrate']*100:>5.1f}% {r['focal_cast_per_copy']:>5.2f}  {status}")
+                  f"{r['synergy_deck_winrate']*100:>5.1f}% {r['focal_cast_per_game']:>6.2f} "
+                  f"{r['focal_win_rate_in_play']*100:>5.1f}%  {status}")
 
     if args.out:
         with open(args.out, "w") as f:
