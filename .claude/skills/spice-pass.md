@@ -18,7 +18,7 @@ moved it from "untested" to a 60% win rate in the Wave-22 tournament — the
 Modern-staple tier the plan targeted. Dragon Ball followed at 217 → 225
 (8 spice picks).
 
-## The 10 broken-card patterns
+## The 11 broken-card patterns
 
 Cards that warp formats almost always exhibit one or more of these. Mark
 Rosewater's design lessons + the Draftsim broken-card taxonomy converge on
@@ -43,6 +43,65 @@ this list. **Every spice card should target 1–3 patterns.**
 9. **Tempo theft** — extra turns, extra combats, time walk
 10. **Two-card combo enablement** — explicit infinite/oppressive synergy
     with one specific other card (Splinter Twin + Pestermite)
+11. **Build-around / synergy-dependent** — vanilla in a generic deck,
+    devastating when the deck is built around it (Tifa Lockheart doubles
+    power on landfall, Sazh's Chocobo grows with each landfall, EOE
+    Hydras scale with Discover, Companion-style "if your deck contains
+    only X" mythics). The card *needs* its support to shine — and that
+    is the point. **This is the pattern most likely to fail tournament
+    measurement** because generic deckbuilders won't include the support
+    package, so a build-around card looks weak in average play.
+
+## Capability test as the design gate
+
+Tournament winrate is **not** a useful signal for build-around mythics
+(pattern 11). The Wave-22 R5 PKH spice pass shipped 8 cards and tournament
+winrate moved from 25% → 27.8% (within ±7pp noise). When we ran the
+capability test (each card placed in a hand-curated synergy deck, played
+vs the set's generic baseline), **5 of 8 cards never even entered the
+deck** because the generic builder filtered them by CMC. The 3 that did
+enter cast at 0.03–0.10. The set looked stable in the tournament because
+support cards carried the wins; the spice cards were passengers.
+
+Every spice card now must pass the capability test before commit:
+
+```
+python scripts/play/capability_test.py --set <CODE> --card "<NAME>" --games 10
+```
+
+It builds a 60-card synergy deck (4 of focal + 2 of each partner from
+`<set>_synergies.py` + filler + 24 lands), plays it vs the generic
+baseline, and reports:
+
+- **focal cast/copy** — does it actually get played?
+- **focal win-rate-when-in-play** — when it lands, does it win?
+- **capability_score = cast × winrate-in-play** (target ≥ 0.30)
+
+A passing card means: in its supported deck, the focal lands often AND
+the deck wins when it does. A failing card needs a redesign (usually:
+cheaper cost so it actually casts in 14-turn games, or a chain trigger
+that scales with the synergy package, not a standalone effect).
+
+## Synergy package convention
+
+For each spice card, declare 8–12 partner card names in the set's
+`<set>_synergies.py`. Partners should be cards that already exist in the
+set and whose presence makes the focal substantially better. Examples
+from PKH:
+
+- **Charizard, Mega Evolved** (snowballs +1/+0 + ping per red spell cast)
+  → Flamethrower, Fire Blast, Overheat, Vulpix, Charmander, Slugma, Numel,
+  Torchic, Cyndaquil, Litten, Ponyta. Without these, Charizard is a
+  vanilla 3/3 flier; with them, the deck's natural plays grow it into a
+  finisher every turn.
+- **Master Ball, Catcher Engine** (haste to every cheap creature you cast)
+  → Charizard Mega, Moltres Phoenix, Magmortar, Blaziken, Infernape,
+  Rapidash, Magmar, Hitmonchan, Lucario, Primeape — strong tutoring
+  targets.
+
+Naming convention: registry maps focal card name → list of partner names.
+The capability harness validates every partner exists in the set's pool
+(catches typos at import time).
 
 ## Process loop
 
@@ -339,3 +398,43 @@ For reference, the SW pilot's full arc:
 
 Set: 275 → 289 cards. Tests: 0 → 50. Tournament: 60% WR (Modern-staple
 tier confirmed). Same shape repeats for any set.
+
+## Lessons from PKH v1 → v2 (the build-around pivot)
+
+The Pokemon Horizons spice pass exposed two methodology gaps the prior
+sets didn't surface:
+
+1. **Standalone effects don't show up as spice in the tournament.**
+   v1 PKH shipped 8 cards with effects like "ETB deal 4 damage", "draw
+   on combat damage", "{R} less if 4 cards in graveyard." Each card was
+   a standalone power play. Tournament moved 25% → 27.8% (within noise).
+   Capability test revealed: 5 of 8 cards never made the deck because
+   the generic builder filtered MV4+ mythics. The 3 that did made the
+   deck cast at 0.03–0.10 — they weren't carrying their decks.
+
+2. **Tournament winrate is the wrong gate for build-around mythics.**
+   Cards with pattern 11 (build-around) need their support package to
+   shine. Generic deckbuilders don't include the support, so the card
+   looks weak in tournament play even when it's actually format-defining
+   in its proper deck. Capability test (per-card, in a hand-curated
+   synergy deck) is the right gate.
+
+The v2 redesign:
+
+- Lowered CMCs across the board (Charizard {2}{R}{R} → {2}{R}, Reshiram
+  {4}{R}{R} → {3}{R}{R}, Hyper Beam {2}{R}{R} → {1}{R}, etc.) so cards
+  actually cast in 14-turn games.
+- Replaced standalone effects with chain/snowball/scaling triggers —
+  Charizard pumps + pings on each red spell cast, Pikachu grows on each
+  player damage, Reshiram's ETB damage scales with creatures in your
+  graveyard.
+- Equipment with manual `equip {1}` activation didn't fire (AI doesn't
+  use it well) — moved Volcanic Mantle to a Legendary Enchantment with
+  an auto-firing global "+1/+1 + trample on attack" trigger.
+- A real bug surfaced: Hyper Beam's `resolve(spell, state, targets)`
+  signature crashed every cast — engine contract is `resolve(targets,
+  state)`. Capability test caught what the unit tests didn't.
+
+Apply this to future spice passes: target pattern 11 explicitly when
+you want a "build-around mythic" feel. Always run the capability test
+before committing the card.
