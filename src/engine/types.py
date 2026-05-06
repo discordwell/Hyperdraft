@@ -966,6 +966,7 @@ class Player:
     )
     mc_avatar_action_used: bool = False
     mc_avatar_exhausted: bool = False
+    mc_oil_counters: int = 0   # Phyrexia infect tracker; 5 counters = loss
 
     @property
     def cost_reductions(self) -> list:

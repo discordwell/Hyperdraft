@@ -190,12 +190,14 @@ export function MCGameBoard({
   const [blockAssignments, setBlockAssignments] = useState<Record<string, string>>({});
   const [attackingMobId, setAttackingMobId] = useState<string | null>(null);
   const [avatarTargeting, setAvatarTargeting] = useState(false);
+  const [showOppBiomes, setShowOppBiomes] = useState(false);
 
   const myGrid = gameState.minecraft_grid?.[playerId] || Array.from({ length: COLUMN_COUNT }, () => Array(COLUMN_COUNT).fill(null));
   const oppGrid = opponentId
     ? gameState.minecraft_grid?.[opponentId] || Array.from({ length: COLUMN_COUNT }, () => Array(COLUMN_COUNT).fill(null))
     : Array.from({ length: COLUMN_COUNT }, () => Array(COLUMN_COUNT).fill(null));
   const myBiomes = gameState.minecraft_biomes?.[playerId] || [];
+  const oppBiomes = opponentId ? (gameState.minecraft_biomes?.[opponentId] || []) : [];
 
   // Frontmost-per-column on opponent grid (what each column attack would hit).
   const columnFrontmost: (CardData | null)[] = useMemo(() => {
@@ -330,6 +332,40 @@ export function MCGameBoard({
               <div className="grid grid-cols-2 gap-2">
                 {opponentMobs.map((card) => <CardTile key={card.id} card={card} />)}
               </div>
+            </section>
+            <section>
+              <div className="mb-1 flex items-center justify-between">
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-300">Opponent Biomes</div>
+                <button
+                  onClick={() => setShowOppBiomes((v) => !v)}
+                  className="border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-300 hover:border-slate-500 hover:text-slate-100"
+                >
+                  {showOppBiomes ? 'Hide' : 'Reveal'}
+                </button>
+              </div>
+              {showOppBiomes ? (
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(94px,1fr))] gap-2">
+                  {oppBiomes.map((b, idx) => (
+                    <div
+                      key={`opp-${b.name}-${idx}`}
+                      className={`border p-2 ${b.mined ? 'border-slate-700 bg-slate-900/70' : 'border-emerald-700 bg-emerald-950/50'}`}
+                    >
+                      <div className="flex items-baseline justify-between gap-1">
+                        <div className="text-sm font-bold text-emerald-100">{b.name}</div>
+                        {b.level ? <div className="text-[10px] text-slate-400">L{b.level}</div> : null}
+                      </div>
+                      <div className="mt-1 text-[11px] text-slate-300">
+                        {Object.entries(b.yields || {}).map(([k, v]) => `${k} ${v}`).join(' / ')}
+                      </div>
+                    </div>
+                  ))}
+                  {!oppBiomes.length && <div className="text-[11px] text-slate-500">No biome data.</div>}
+                </div>
+              ) : (
+                <div className="border border-dashed border-slate-700 bg-black/20 px-2 py-3 text-center text-[11px] text-slate-500">
+                  Hidden. Click Reveal to see exploration progress.
+                </div>
+              )}
             </section>
           </div>
 

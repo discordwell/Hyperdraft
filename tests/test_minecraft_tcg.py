@@ -833,6 +833,292 @@ def test_minecraft_ai_blocks_when_avatar_at_lethal():
     assert block_map.get(ravager.id) == helper.id
 
 
+def test_phyrexian_compleated_upkeep_damages_controller():
+    """Each Compleated mob you control deals 1 to your avatar at start of turn."""
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Phyrexian")
+    p2 = game.add_player("Bystander")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+
+    negator = game.create_object(
+        name=MINECRAFT_CARDS["Phyrexian Negator"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Phyrexian Negator"].characteristics,
+        card_def=MINECRAFT_CARDS["Phyrexian Negator"],
+    )
+    negator.controller = p1.id
+    walker = game.create_object(
+        name=MINECRAFT_CARDS["Phyrexian Walker"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Phyrexian Walker"].characteristics,
+        card_def=MINECRAFT_CARDS["Phyrexian Walker"],
+    )
+    walker.controller = p1.id
+
+    initial_life = p1.life
+    mc.apply_start_turn_bonuses(game, p1.id)
+    # Two Compleated mobs → 2 damage to controller
+    assert p1.life == initial_life - 2
+
+
+def test_phyrexian_infect_keyword_adds_oil_counters():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Infector")
+    p2 = game.add_player("Victim")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    game.state.active_player = p1.id
+
+    mite = game.create_object(
+        name=MINECRAFT_CARDS["Glistening Mite"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Glistening Mite"].characteristics,
+        card_def=MINECRAFT_CARDS["Glistening Mite"],
+    )
+    mite.controller = p1.id
+    mite.state.summoning_sickness = False
+
+    ok, _msg, _ = mc.declare_attackers(
+        game, p1.id,
+        [{"attacker_id": mite.id, "target_column": 0}],
+        auto_block=True,
+    )
+    assert ok
+    # Mite (2 ATK) hits avatar → 2 oil counters + 2 HP loss
+    assert p2.mc_oil_counters == 2
+    assert p2.life == 18
+
+
+def test_phyrexian_five_oil_counters_loses_game():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Infector")
+    p2 = game.add_player("Victim")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    p2.mc_oil_counters = 5
+
+    mc.handle_avatar_deaths(game)
+    assert p2.has_lost
+
+
+def test_phyrexian_glistening_oil_converts_low_hp_mob():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Caster")
+    p2 = game.add_player("Owner")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    p1.mc_materials.update({"redstone": 5})
+
+    # Steve's Helper has HP 2 — eligible for Glistening Oil.
+    helper = game.create_object(
+        name=MINECRAFT_CARDS["Steve's Helper"].name,
+        owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Steve's Helper"].characteristics,
+        card_def=MINECRAFT_CARDS["Steve's Helper"],
+    )
+    helper.controller = p2.id
+
+    oil = _hand_card(game, p1.id, MINECRAFT_CARDS["Glistening Oil"])
+    ok, _msg, _ = mc.play_card(game, p1.id, oil.id, target_id=helper.id)
+    assert ok
+    assert helper.controller == p1.id
+    assert "Compleated" in helper.characteristics.subtypes
+
+
+def test_phyrexian_glistening_oil_rejects_high_hp_mob():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Caster")
+    p2 = game.add_player("Owner")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    p1.mc_materials.update({"redstone": 5})
+
+    iron = game.create_object(
+        name=MINECRAFT_CARDS["Iron Golem"].name,
+        owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Iron Golem"].characteristics,
+        card_def=MINECRAFT_CARDS["Iron Golem"],
+    )
+    iron.controller = p2.id
+
+    oil = _hand_card(game, p1.id, MINECRAFT_CARDS["Glistening Oil"])
+    ok, _msg, _ = mc.play_card(game, p1.id, oil.id, target_id=iron.id)
+    # Played but conversion failed; Iron Golem (HP 6) too tough.
+    assert ok
+    assert iron.controller == p2.id
+    assert "Compleated" not in iron.characteristics.subtypes
+
+
+def test_phyrexian_herobrine_destroys_target_mob():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Eye")
+    p2 = game.add_player("Doomed")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    p1.mc_materials.update({"iron": 5, "redstone": 5, "diamond": 5})
+
+    target = game.create_object(
+        name=MINECRAFT_CARDS["Iron Golem"].name,
+        owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Iron Golem"].characteristics,
+        card_def=MINECRAFT_CARDS["Iron Golem"],
+    )
+    target.controller = p2.id
+
+    herobrine = _hand_card(game, p1.id, MINECRAFT_CARDS["Herobrine, World's Eye"])
+    ok, _msg, _ = mc.play_card(game, p1.id, herobrine.id, target_id=target.id)
+    assert ok
+    assert target.zone == ZoneType.GRAVEYARD
+    assert "_my_" in MINECRAFT_CARDS["Herobrine, World's Eye"].text  # flavor preserved
+
+
+def test_phyrexian_elesh_norn_lord_buffs_compleated():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Praetor")
+    p2 = game.add_player("Defender")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+
+    norn = game.create_object(
+        name=MINECRAFT_CARDS["Elesh Norn, Grand Cenobite"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Elesh Norn, Grand Cenobite"].characteristics,
+        card_def=MINECRAFT_CARDS["Elesh Norn, Grand Cenobite"],
+    )
+    norn.controller = p1.id
+    walker = game.create_object(
+        name=MINECRAFT_CARDS["Phyrexian Walker"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Phyrexian Walker"].characteristics,
+        card_def=MINECRAFT_CARDS["Phyrexian Walker"],
+    )
+    walker.controller = p1.id
+
+    # Walker base 1 ATK + Norn lord = 2 ATK
+    assert mc._mob_attack_power(walker, game.state) == 2
+
+
+def test_phyrexian_sheoldred_drains_on_play():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Whisperer")
+    p2 = game.add_player("Victim")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    p1.mc_materials.update({"wood": 5, "iron": 5, "redstone": 5})
+    p1.life = 12  # so we see heal effect
+
+    sheo = _hand_card(game, p1.id, MINECRAFT_CARDS["Sheoldred, the Whispering One"])
+    ok, _msg, _ = mc.play_card(game, p1.id, sheo.id)
+    assert ok
+    # Drain 5: opponent at 15, you back at 17
+    assert p2.life == 15
+    assert p1.life == 17
+
+
+def test_phyrexian_compleated_dominion_deck_loads():
+    from src.cards.minecraft import MINECRAFT_STARTER_DECKS, MINECRAFT_CARDS
+    deck = MINECRAFT_STARTER_DECKS["compleated_dominion"]()
+    assert len(deck) == 50
+    names = {card.name for card in deck}
+    # Showcases Phyrexia: at least 2 praetors and Herobrine
+    praetors = {n for n in names if "Praetor" in MINECRAFT_CARDS[n].characteristics.subtypes}
+    assert len(praetors) >= 2
+    assert "Herobrine, World's Eye" in names
+
+
+def test_phyrexian_negator_sacrifices_when_damaged():
+    """Negator (5/5 for 2 wood) must sacrifice another mob when dealt damage."""
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Phyrexian")
+    p2 = game.add_player("Attacker")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+
+    negator = game.create_object(
+        name=MINECRAFT_CARDS["Phyrexian Negator"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Phyrexian Negator"].characteristics,
+        card_def=MINECRAFT_CARDS["Phyrexian Negator"],
+    )
+    negator.controller = p1.id
+    fodder = game.create_object(
+        name=MINECRAFT_CARDS["Phyrexian Walker"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Phyrexian Walker"].characteristics,
+        card_def=MINECRAFT_CARDS["Phyrexian Walker"],
+    )
+    fodder.controller = p1.id
+
+    # Deal 1 damage — fodder should be sacrificed; Negator survives.
+    game.emit(Event(type=EventType.DAMAGE, payload={"target": negator.id, "amount": 1, "source": p2.id}))
+    game.check_state_based_actions()
+    assert fodder.zone == ZoneType.GRAVEYARD
+    assert negator.zone == ZoneType.BATTLEFIELD
+
+
+def test_phyrexian_negator_destroys_self_with_no_fodder():
+    """If no other mobs to sac, Negator destroys itself."""
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Phyrexian")
+    p2 = game.add_player("Attacker")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+
+    negator = game.create_object(
+        name=MINECRAFT_CARDS["Phyrexian Negator"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Phyrexian Negator"].characteristics,
+        card_def=MINECRAFT_CARDS["Phyrexian Negator"],
+    )
+    negator.controller = p1.id
+
+    game.emit(Event(type=EventType.DAMAGE, payload={"target": negator.id, "amount": 1, "source": p2.id}))
+    game.check_state_based_actions()
+    assert negator.zone == ZoneType.GRAVEYARD
+
+
+def test_phyrexian_compleated_creeper_deathrattle_restored():
+    """Compleated Creeper's deathrattle deals 4 to its column on death."""
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Boom")
+    p2 = game.add_player("Defender")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    game.state.active_player = p1.id
+    p2.mc_materials.update({"wood": 5, "stone": 5})
+
+    bed = _hand_card(game, p2.id, MINECRAFT_CARDS["Bed"])
+    assert mc.play_card(game, p2.id, bed.id, cell={"x": 1, "y": 0})[0]
+
+    creeper = game.create_object(
+        name=MINECRAFT_CARDS["Compleated Creeper"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Compleated Creeper"].characteristics,
+        card_def=MINECRAFT_CARDS["Compleated Creeper"],
+    )
+    creeper.controller = p1.id
+    creeper.state.summoning_sickness = False
+    blocker = game.create_object(
+        name=MINECRAFT_CARDS["Snow Golem"].name,
+        owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Snow Golem"].characteristics,
+        card_def=MINECRAFT_CARDS["Snow Golem"],
+    )
+    blocker.controller = p2.id
+
+    ok, _msg, _ = mc.declare_attackers(
+        game, p1.id,
+        [{"attacker_id": creeper.id, "target_column": 1}],
+        auto_block=True,
+    )
+    assert ok
+    # Creeper dies (1 chip + 1 combat = 2 dmg). Bed eats overflow 1 (Creeper 5
+    # ATK vs Snow Golem 4 HP) plus 4 from the deathrattle = 5 total.
+    assert creeper.zone == ZoneType.GRAVEYARD
+    assert bed.state.damage == 5
+
+
 def test_create_match_minecraft_sets_up_players_decks_and_state():
     async def _run():
         response = await create_match(
@@ -860,3 +1146,286 @@ def test_create_match_minecraft_sets_up_players_decks_and_state():
         await session_manager.remove_session(response.match_id)
 
     asyncio.run(_run())
+
+
+# ===========================================================================
+# Box of Horrors set
+# ===========================================================================
+
+def _put_in_hand(game, player_id, card_def):
+    """Like _hand_card, but also registers the object in the hand zone (since
+    create_object only sets obj.zone, the zone listing is updated by the
+    pipeline on real plays). For Horror discard tests we need a populated
+    hand_{player} zone so _opp_discard can target newest-first.
+    """
+    obj = game.create_object(
+        name=card_def.name,
+        owner_id=player_id,
+        zone=ZoneType.HAND,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    hand = game.state.zones.get(f"hand_{player_id}")
+    if hand and obj.id not in hand.objects:
+        hand.objects.append(obj.id)
+    return obj
+
+
+def test_horror_whispering_curse_discards_newest_card():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Caster")
+    p2 = game.add_player("Victim")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    p1.mc_materials.update({"redstone": 3})
+
+    # Stack p2's hand: oldest -> newest. Curse should hit the rightmost (newest).
+    older = _put_in_hand(game, p2.id, MINECRAFT_CARDS["Bed"])
+    newer = _put_in_hand(game, p2.id, MINECRAFT_CARDS["Iron Sword"])
+
+    curse = _hand_card(game, p1.id, MINECRAFT_CARDS["Whispering Curse"])
+    p1_hand = game.state.zones.get(f"hand_{p1.id}")
+    if curse.id not in p1_hand.objects:
+        p1_hand.objects.append(curse.id)
+    ok, _msg, _ = mc.play_card(game, p1.id, curse.id)
+    assert ok
+    assert newer.zone == ZoneType.GRAVEYARD
+    assert older.zone == ZoneType.HAND
+
+
+def test_horror_wither_skeleton_attack_drops_target_toughness_permanently():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Wither")
+    p2 = game.add_player("Defender")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+
+    skeleton = game.create_object(
+        name=MINECRAFT_CARDS["Wither Skeleton"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Wither Skeleton"].characteristics,
+        card_def=MINECRAFT_CARDS["Wither Skeleton"],
+    )
+    skeleton.controller = p1.id
+
+    target = game.create_object(
+        name=MINECRAFT_CARDS["Iron Golem"].name,
+        owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Iron Golem"].characteristics,
+        card_def=MINECRAFT_CARDS["Iron Golem"],
+    )
+    target.controller = p2.id
+    base_tough = target.characteristics.toughness
+    # Trigger the on_attack hook directly with a target-mob payload.
+    hook = MINECRAFT_CARDS["Wither Skeleton"].mc_on_attack
+    events = hook(skeleton, game.state, target.id) or []
+    # Effect mutates state synchronously; events list may be empty.
+    assert target.characteristics.toughness == base_tough - 1
+    # Avatar payloads are ignored.
+    hook(skeleton, game.state, p2.id)
+    assert target.characteristics.toughness == base_tough - 1
+
+
+def test_horror_endermite_cluster_deathrattle_summons_token():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Cluster")
+    p2 = game.add_player("Other")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+
+    cluster = game.create_object(
+        name=MINECRAFT_CARDS["Endermite Cluster"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Endermite Cluster"].characteristics,
+        card_def=MINECRAFT_CARDS["Endermite Cluster"],
+    )
+    cluster.controller = p1.id
+    battlefield_before = set(game.state.zones["battlefield"].objects)
+
+    game.emit(Event(type=EventType.OBJECT_DESTROYED,
+                    payload={"object_id": cluster.id, "reason": "test"}))
+    game.check_state_based_actions()
+
+    new_objs = set(game.state.zones["battlefield"].objects) - battlefield_before
+    spawned = [game.state.objects[oid] for oid in new_objs]
+    assert any(o.characteristics.power == 1 and "Horror" in o.characteristics.subtypes
+               for o in spawned)
+
+
+def test_horror_lost_soul_deathrattle_draws():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Bereaved")
+    p2 = game.add_player("Other")
+    # Stack a deck so DRAW finds a card.
+    deck = [MINECRAFT_CARDS["Bed"]]
+    game.setup_minecraft_player(p1, deck)
+    game.setup_minecraft_player(p2, [])
+    hand_before = len(game.state.zones[f"hand_{p1.id}"].objects)
+
+    soul = game.create_object(
+        name=MINECRAFT_CARDS["Lost Soul"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Lost Soul"].characteristics,
+        card_def=MINECRAFT_CARDS["Lost Soul"],
+    )
+    soul.controller = p1.id
+
+    game.emit(Event(type=EventType.OBJECT_DESTROYED,
+                    payload={"object_id": soul.id, "reason": "test"}))
+    game.check_state_based_actions()
+    assert len(game.state.zones[f"hand_{p1.id}"].objects) == hand_before + 1
+
+
+def test_horror_old_watcher_lord_buffs_other_horrors():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Watcher")
+    p2 = game.add_player("Other")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+
+    watcher = game.create_object(
+        name=MINECRAFT_CARDS["The Old Watcher"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["The Old Watcher"].characteristics,
+        card_def=MINECRAFT_CARDS["The Old Watcher"],
+    )
+    watcher.controller = p1.id
+
+    crawler = game.create_object(
+        name=MINECRAFT_CARDS["Cave Crawler"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Cave Crawler"].characteristics,
+        card_def=MINECRAFT_CARDS["Cave Crawler"],
+    )
+    crawler.controller = p1.id
+
+    # Cave Crawler base 4 ATK + Watcher's +1 lord = 5
+    assert mc._mob_attack_power(crawler, game.state) == 5
+
+
+def test_horror_drag_to_the_dark_only_kills_low_hp():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Caster")
+    p2 = game.add_player("Owner")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    p1.mc_materials.update({"wood": 5, "redstone": 5})
+
+    # Helper has HP 2 — eligible for Drag to the Dark (threshold 3).
+    helper = game.create_object(
+        name=MINECRAFT_CARDS["Steve's Helper"].name,
+        owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Steve's Helper"].characteristics,
+        card_def=MINECRAFT_CARDS["Steve's Helper"],
+    )
+    helper.controller = p2.id
+
+    drag = _hand_card(game, p1.id, MINECRAFT_CARDS["Drag to the Dark"])
+    ok, _msg, _ = mc.play_card(game, p1.id, drag.id, target_id=helper.id)
+    assert ok
+    assert helper.zone == ZoneType.GRAVEYARD
+
+    # Iron Golem (HP 6) ignores it.
+    p1.mc_materials.update({"wood": 5, "redstone": 5})
+    iron = game.create_object(
+        name=MINECRAFT_CARDS["Iron Golem"].name,
+        owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Iron Golem"].characteristics,
+        card_def=MINECRAFT_CARDS["Iron Golem"],
+    )
+    iron.controller = p2.id
+    drag2 = _hand_card(game, p1.id, MINECRAFT_CARDS["Drag to the Dark"])
+    ok, _msg, _ = mc.play_card(game, p1.id, drag2.id, target_id=iron.id)
+    assert ok
+    assert iron.zone == ZoneType.BATTLEFIELD
+
+
+def test_horror_possession_steals_low_hp_mob():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Caster")
+    p2 = game.add_player("Owner")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    p1.mc_materials.update({"iron": 5, "redstone": 5})
+
+    # Allay Courier has HP 2 — eligible.
+    allay = game.create_object(
+        name=MINECRAFT_CARDS["Allay Courier"].name,
+        owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Allay Courier"].characteristics,
+        card_def=MINECRAFT_CARDS["Allay Courier"],
+    )
+    allay.controller = p2.id
+
+    poss = _hand_card(game, p1.id, MINECRAFT_CARDS["Possession"])
+    ok, _msg, _ = mc.play_card(game, p1.id, poss.id, target_id=allay.id)
+    assert ok
+    assert allay.controller == p1.id
+    assert "Horror" in allay.characteristics.subtypes
+
+
+def test_horror_mimicer_gains_power_from_target():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Mimic")
+    p2 = game.add_player("Subject")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    p1.mc_materials.update({"wood": 5, "redstone": 5})
+
+    # Wolf Pack base 3 ATK; Mimicer should grow by +3/+3.
+    wolf = game.create_object(
+        name=MINECRAFT_CARDS["Wolf Pack"].name,
+        owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Wolf Pack"].characteristics,
+        card_def=MINECRAFT_CARDS["Wolf Pack"],
+    )
+    wolf.controller = p2.id
+
+    p1.mc_materials.update({"iron": 5, "diamond": 5})
+    mimic = _hand_card(game, p1.id, MINECRAFT_CARDS["The Mimicer"])
+    base_p = mimic.characteristics.power
+    base_t = mimic.characteristics.toughness
+    ok, _msg, _ = mc.play_card(game, p1.id, mimic.id, target_id=wolf.id)
+    assert ok
+    assert mimic.characteristics.power == base_p + 3
+    assert mimic.characteristics.toughness == base_t + 3
+
+
+def test_horror_wither_storm_aoe_hits_grid_and_mobs():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Storm")
+    p2 = game.add_player("Defender")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    p1.mc_materials.update({"stone": 5, "iron": 5, "redstone": 5, "diamond": 5})
+    p2.mc_materials.update({"wood": 5, "stone": 5})
+
+    bed = _hand_card(game, p2.id, MINECRAFT_CARDS["Bed"])
+    assert mc.play_card(game, p2.id, bed.id, cell={"x": 1, "y": 0})[0]
+
+    zombie = game.create_object(
+        name=MINECRAFT_CARDS["Zombie"].name,
+        owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Zombie"].characteristics,
+        card_def=MINECRAFT_CARDS["Zombie"],
+    )
+    zombie.controller = p2.id
+
+    storm = _hand_card(game, p1.id, MINECRAFT_CARDS["Wither Storm"])
+    ok, _msg, _ = mc.play_card(game, p1.id, storm.id)
+    assert ok
+    assert bed.state.damage == 1
+    assert zombie.state.damage == 1
+
+
+def test_horror_box_of_horrors_deck_loads():
+    from src.cards.minecraft import MINECRAFT_STARTER_DECKS, MINECRAFT_CARDS
+    deck = MINECRAFT_STARTER_DECKS["box_of_horrors"]()
+    assert len(deck) == 60  # 30 names × 2 copies each
+    names = {card.name for card in deck}
+    horror_mobs = {n for n in names
+                   if "Horror" in MINECRAFT_CARDS[n].characteristics.subtypes
+                   and CardType.MC_MOB in MINECRAFT_CARDS[n].characteristics.types}
+    assert len(horror_mobs) >= 8  # plenty of horror tribal anchors
+    assert "Cave Dweller" in names
+    assert "The Man From The Fog" in names

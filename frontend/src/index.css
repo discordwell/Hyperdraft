@@ -78,6 +78,195 @@ h1, h2, h3, .title-font {
 .card-frame-blue { @apply bg-gradient-to-b from-blue-100 to-blue-200; }
 .card-frame-black { @apply bg-gradient-to-b from-gray-600 to-gray-700 text-white; }
 .card-frame-red { @apply bg-gradient-to-b from-red-100 to-red-200; }
+
+/* =====================================================================
+   Phyrexian Overworld card frame — industrial-occult voxel chrome.
+   ===================================================================== */
+
+/* Plate base: oil-slicked metal surface. Two stops + a noise SVG for grain. */
+.phx-plate {
+  background-image:
+    /* fine vertical etching */
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 2px,
+      rgba(255, 255, 255, 0.03) 2px 3px
+    ),
+    /* horizontal seam */
+    linear-gradient(
+      180deg,
+      var(--plate-top, #1a1518) 0%,
+      var(--plate-mid, #0c0a0d) 48%,
+      var(--plate-mid, #0c0a0d) 52%,
+      var(--plate-bot, #07060a) 100%
+    );
+}
+
+/* Oil-slick iridescence overlay for Compleated. */
+.phx-oil-overlay {
+  background:
+    radial-gradient(circle at 20% 30%, rgba(46, 92, 38, 0.18) 0%, transparent 35%),
+    radial-gradient(circle at 80% 70%, rgba(120, 30, 60, 0.18) 0%, transparent 40%),
+    radial-gradient(circle at 50% 90%, rgba(20, 40, 60, 0.2) 0%, transparent 45%);
+}
+
+/* Crimson rim-light along seams. */
+.phx-seam-crimson {
+  box-shadow:
+    inset 0 1px 0 rgba(220, 40, 50, 0.45),
+    inset 0 -1px 0 rgba(120, 18, 24, 0.4),
+    inset 1px 0 0 rgba(60, 6, 12, 0.6),
+    inset -1px 0 0 rgba(60, 6, 12, 0.6);
+}
+
+.phx-seam-bile {
+  box-shadow:
+    inset 0 1px 0 rgba(118, 200, 60, 0.5),
+    inset 0 -1px 0 rgba(40, 90, 24, 0.5),
+    inset 1px 0 0 rgba(20, 50, 12, 0.6),
+    inset -1px 0 0 rgba(20, 50, 12, 0.6);
+}
+
+.phx-seam-stone {
+  box-shadow:
+    inset 0 1px 0 rgba(150, 170, 200, 0.18),
+    inset 0 -1px 0 rgba(20, 30, 40, 0.7),
+    inset 1px 0 0 rgba(20, 30, 40, 0.7),
+    inset -1px 0 0 rgba(20, 30, 40, 0.7);
+}
+
+.phx-seam-bronze {
+  box-shadow:
+    inset 0 1px 0 rgba(220, 160, 80, 0.4),
+    inset 0 -1px 0 rgba(80, 50, 20, 0.6),
+    inset 1px 0 0 rgba(80, 50, 20, 0.6),
+    inset -1px 0 0 rgba(80, 50, 20, 0.6);
+}
+
+.phx-seam-gold {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 220, 130, 0.55),
+    inset 0 -1px 0 rgba(140, 100, 30, 0.6),
+    inset 1px 0 0 rgba(140, 100, 30, 0.6),
+    inset -1px 0 0 rgba(140, 100, 30, 0.6);
+}
+
+/* Stepped voxel corner — uses clip-path. */
+.phx-clip-step {
+  clip-path: polygon(
+    0  6px, 6px  6px, 6px  0,
+    calc(100% - 6px) 0, calc(100% - 6px) 6px, 100% 6px,
+    100% calc(100% - 6px), calc(100% - 6px) calc(100% - 6px), calc(100% - 6px) 100%,
+    6px 100%, 6px calc(100% - 6px), 0 calc(100% - 6px)
+  );
+}
+
+/* Heavier voxel step for Praetor / Boss frames. */
+.phx-clip-step-heavy {
+  clip-path: polygon(
+    0  10px, 4px 10px, 4px 6px, 10px 6px, 10px 0,
+    calc(100% - 10px) 0, calc(100% - 10px) 6px, calc(100% - 4px) 6px, calc(100% - 4px) 10px, 100% 10px,
+    100% calc(100% - 10px), calc(100% - 4px) calc(100% - 10px), calc(100% - 4px) calc(100% - 6px), calc(100% - 10px) calc(100% - 6px), calc(100% - 10px) 100%,
+    10px 100%, 10px calc(100% - 6px), 4px calc(100% - 6px), 4px calc(100% - 10px), 0 calc(100% - 10px)
+  );
+}
+
+/* Action card: torn / scorched edge. */
+.phx-clip-tear {
+  clip-path: polygon(
+    0 4px, 4px 4px, 4px 0,
+    14% 0, 16% 4px, 28% 0, 30% 4px, 44% 0, 46% 4px, 60% 0, 62% 4px, 76% 0, 78% 4px, 92% 0,
+    96% 4px, 100% 4px,
+    100% calc(100% - 4px),
+    96% calc(100% - 4px), 92% 100%, 78% calc(100% - 4px), 76% 100%, 62% calc(100% - 4px), 60% 100%, 46% calc(100% - 4px), 44% 100%, 30% calc(100% - 4px), 28% 100%, 16% calc(100% - 4px), 14% 100%,
+    4px 100%, 4px calc(100% - 4px), 0 calc(100% - 4px)
+  );
+}
+
+/* Subtle pixel-noise overlay applied to art slot inset. */
+.phx-noise {
+  background-image:
+    radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    radial-gradient(rgba(0, 0, 0, 0.18) 1px, transparent 1px);
+  background-size: 3px 3px, 5px 5px;
+  background-position: 0 0, 1px 2px;
+}
+
+/* Voxel rivet — small dot with inner highlight, for corner ornaments. */
+.phx-rivet {
+  width: 6px;
+  height: 6px;
+  background:
+    radial-gradient(circle at 35% 30%,
+      rgba(255, 220, 150, 0.7) 0%,
+      rgba(120, 70, 24, 0.9) 35%,
+      rgba(40, 22, 8, 1) 100%);
+  border: 1px solid rgba(0, 0, 0, 0.6);
+}
+
+/* Display headline: Cinzel with subtle stamped-in look. */
+.phx-name {
+  font-family: 'Cinzel', serif;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.9),
+    0 -1px 0 rgba(255, 255, 255, 0.06),
+    1px 0 1px rgba(0, 0, 0, 0.6);
+}
+
+/* Pixel mono for cost / stats — Minecraft callback. */
+.phx-mono {
+  font-family: 'VT323', monospace;
+  letter-spacing: 0.02em;
+}
+
+/* Body type for rules text. */
+.phx-rules {
+  font-family: 'Crimson Text', 'Garamond', serif;
+}
+
+/* Phyrexian sigil display font for the rare ornate flourish. */
+.phx-sigil {
+  font-family: 'UnifrakturCook', 'Cinzel', serif;
+}
+
+/* Type-line strip background — engraved-plate look. */
+.phx-typeline {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.6) 0%,
+      rgba(20, 18, 22, 0.9) 50%,
+      rgba(0, 0, 0, 0.6) 100%
+    );
+}
+
+/* Rules-text "parchment" panel — burned vellum lit by oil-light. */
+.phx-textbox {
+  background:
+    linear-gradient(180deg, #2a1c14 0%, #1c130d 100%);
+  background-blend-mode: multiply;
+}
+
+.phx-textbox-praetor {
+  background:
+    linear-gradient(180deg, #2a210e 0%, #1a1408 100%);
+}
+
+/* Faint cube-grid pattern used inside corner ornaments. */
+.phx-cube-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 4px 4px;
+}
+
+/* Ichor-drip drop shadow used on Compleated frames. */
+.phx-drip-shadow {
+  filter: drop-shadow(0 2px 1px rgba(40, 100, 30, 0.55))
+          drop-shadow(0 0 6px rgba(80, 200, 40, 0.18));
+}
 .card-frame-green { @apply bg-gradient-to-b from-green-100 to-green-200; }
 .card-frame-colorless { @apply bg-gradient-to-b from-gray-100 to-gray-200; }
 .card-frame-land { @apply bg-gradient-to-b from-stone-200 to-stone-300; }

@@ -20,6 +20,7 @@ const ReplayView = lazy(() => import('./pages/ReplayView'));
 const Deckbuilder = lazy(() => import('./pages/Deckbuilder'));
 const Gatherer = lazy(() => import('./pages/Gatherer'));
 const PokemonGatherer = lazy(() => import('./pages/PokemonGatherer'));
+const PhyrexianFrameDemo = lazy(() => import('./pages/PhyrexianFrameDemo'));
 
 function LoadingFallback() {
   return (
@@ -48,6 +49,7 @@ export function App() {
           <Route path="/deckbuilder" element={<Deckbuilder />} />
           <Route path="/gatherer" element={<Gatherer />} />
           <Route path="/pokemon-gatherer" element={<PokemonGatherer />} />
+          <Route path="/demo/phyrexian-frame" element={<PhyrexianFrameDemo />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

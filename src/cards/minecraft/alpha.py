@@ -242,13 +242,8 @@ def _summon_token(name: str, attack: int, health: int, subtypes=None, on_death=N
 
 def _heal_avatar(amount: int):
     def effect(obj, state, target_id=None):
-        player = state.players.get(obj.controller)
-        if not player:
-            return []
-        new_life = min(player.max_life or 20, player.life + amount)
-        delta = new_life - player.life
-        player.life = new_life
-        return [Event(type=EventType.LIFE_CHANGE, payload={"player": obj.controller, "amount": delta, "new_life": new_life}, source=obj.id)]
+        # Pipeline LIFE_CHANGE handler applies the delta and respects life_cap.
+        return [Event(type=EventType.LIFE_CHANGE, payload={"player": obj.controller, "amount": amount}, source=obj.id)]
     return effect
 
 

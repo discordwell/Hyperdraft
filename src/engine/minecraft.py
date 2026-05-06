@@ -115,7 +115,8 @@ def reset_for_turn(state: GameState, player_id: str) -> None:
 
 
 def apply_start_turn_bonuses(game, player_id: str) -> list[Event]:
-    """Apply persistent Minecraft structure bonuses at the start of a turn."""
+    """Apply persistent Minecraft structure bonuses at the start of a turn,
+    plus Phyrexian upkeep tax (1 dmg per Compleated mob you control)."""
     state = game.state
     ensure_player_state(state, player_id)
     events: list[Event] = []
@@ -123,6 +124,7 @@ def apply_start_turn_bonuses(game, player_id: str) -> list[Event]:
     if not battlefield:
         return events
 
+    compleated_count = 0
     for oid in list(battlefield.objects):
         obj = state.objects.get(oid)
         if not obj or obj.controller != player_id or obj.zone != ZoneType.BATTLEFIELD:
@@ -140,6 +142,18 @@ def apply_start_turn_bonuses(game, player_id: str) -> list[Event]:
             event = Event(type=EventType.DRAW, payload={"player": player_id, "count": draw_count}, source=obj.id)
             game.emit(event)
             events.append(event)
+        if "Compleated" in obj.characteristics.subtypes and CardType.MC_MOB in obj.characteristics.types:
+            compleated_count += 1
+
+    if compleated_count > 0:
+        oil_event = Event(
+            type=EventType.DAMAGE,
+            payload={"target": player_id, "amount": compleated_count, "source": player_id, "is_combat": False, "reason": "compleated_upkeep"},
+        )
+        game.emit(oil_event)
+        events.append(oil_event)
+        game.check_state_based_actions()
+        events.extend(handle_avatar_deaths(game))
     return events
 
 
@@ -487,6 +501,49 @@ def avatar_attack(
     return True, "Avatar attacked", [marker, damage]
 
 
+OIL_COUNTERS_TO_LOSE = 5
+
+
+def _apply_infect(
+    state: GameState,
+    attacker: Optional[GameObject],
+    target_id: Optional[str],
+    amount: int,
+    defender_id: str,
+) -> None:
+    """Deposit oil counters on the defender's avatar when an infect attacker
+    deals damage to the avatar (or grid object — current rule is avatar only)."""
+    if not attacker or amount <= 0:
+        return
+    if "infect" not in mc_keywords_of(attacker):
+        return
+    if target_id != defender_id:
+        return
+    defender = state.players.get(defender_id)
+    if not defender:
+        return
+    defender.mc_oil_counters = (getattr(defender, "mc_oil_counters", 0) or 0) + amount
+
+
+def glistening_oil_convert(state: GameState, controller: str, target_id: str) -> bool:
+    """Convert an opponent mob with HP <= 2 to your side as Compleated.
+    Returns True if the conversion succeeded."""
+    target = state.objects.get(target_id)
+    if not target or target.controller == controller:
+        return False
+    if CardType.MC_MOB not in target.characteristics.types:
+        return False
+    remaining = max(0, int(target.characteristics.toughness or 0) - int(target.state.damage or 0))
+    if remaining > 2:
+        return False
+    target.controller = controller
+    target.characteristics.subtypes.add("Compleated")
+    target.state.summoning_sickness = True
+    target.state.tapped = False
+    target.state.mc_exhausted = False
+    return True
+
+
 def has_bed(state: GameState, player_id: str) -> bool:
     grid = state.minecraft_grid.get(player_id) or []
     for row in grid:
@@ -514,7 +571,17 @@ def discard_avatar_gear(game, player_id: str) -> list[Event]:
 def handle_avatar_deaths(game) -> list[Event]:
     events: list[Event] = []
     for player in list(game.state.players.values()):
-        if player.has_lost or player.life > 0:
+        if player.has_lost:
+            continue
+        # Phyrexian compleation loss: 5+ oil counters means the avatar has been
+        # turned into a Phyrexian and the player loses regardless of HP.
+        if (getattr(player, "mc_oil_counters", 0) or 0) >= OIL_COUNTERS_TO_LOSE:
+            player.has_lost = True
+            event = Event(type=EventType.PLAYER_LOSES, payload={"player": player.id, "reason": "compleated"})
+            game.emit(event)
+            events.append(event)
+            continue
+        if player.life > 0:
             continue
         if has_bed(game.state, player.id):
             events.extend(discard_avatar_gear(game, player.id))
@@ -523,6 +590,7 @@ def handle_avatar_deaths(game) -> list[Event]:
             game.emit(event)
             events.append(event)
         else:
+            player.has_lost = True
             event = Event(type=EventType.PLAYER_LOSES, payload={"player": player.id, "reason": "avatar_no_bed"})
             game.emit(event)
             events.append(event)
@@ -989,6 +1057,7 @@ def resolve_combat(
                 overflow_event = Event(type=EventType.DAMAGE, payload={"target": overflow_target, "amount": overflow, "source": attacker.id, "is_combat": True, "overflow": True}, source=attacker.id)
                 game.emit(overflow_event)
                 events.append(overflow_event)
+                _apply_infect(state, attacker, overflow_target, overflow, defender_id)
             if "ranged" not in keywords:
                 damage_to_attacker = Event(type=EventType.DAMAGE, payload={"target": attacker.id, "amount": int(get_power(blocker, state) or 0), "source": blocker.id, "is_combat": True}, source=blocker.id)
                 game.emit(damage_to_attacker)
@@ -1002,6 +1071,7 @@ def resolve_combat(
             damage = Event(type=EventType.DAMAGE, payload={"target": target_id, "amount": attacker_power, "source": attacker.id, "is_combat": True}, source=attacker.id)
             game.emit(damage)
             events.append(damage)
+            _apply_infect(state, attacker, target_id, attacker_power, defender_id)
             # Siege: after dealing damage to a Block frontmost, also destroy it.
             if "siege" in keywords and isinstance(column, int):
                 front_oid = column_target(state, defender_id, column, keywords)
@@ -1039,6 +1109,7 @@ def register_minecraft_system_interceptors(game) -> None:
             EventType.ZONE_CHANGE,
             EventType.OBJECT_DESTROYED,
             EventType.EXILE,
+            EventType.DAMAGE,
         }
 
     def cleanup_handler(event: Event, state: GameState) -> InterceptorResult:
@@ -1063,6 +1134,23 @@ def register_minecraft_system_interceptors(game) -> None:
                     g = getattr(state, "_game", None)
                     if g:
                         for ev in hook(obj, state) or []:
+                            g.emit(ev)
+        # On-damage hook: Phyrexian Negator and friends pay a price for surviving.
+        elif event.type == EventType.DAMAGE:
+            target_id = event.payload.get("target")
+            target = state.objects.get(target_id) if target_id else None
+            amount = int(event.payload.get("amount", 0) or 0)
+            if (
+                target
+                and target.card_def
+                and amount > 0
+                and target.zone == ZoneType.BATTLEFIELD
+            ):
+                hook = getattr(target.card_def, "mc_on_damage", None)
+                if callable(hook):
+                    g = getattr(state, "_game", None)
+                    if g:
+                        for ev in hook(target, state, amount) or []:
                             g.emit(ev)
         cleanup_references(state)
         return InterceptorResult(action=InterceptorAction.PASS)

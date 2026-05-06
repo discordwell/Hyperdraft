@@ -723,6 +723,11 @@ class MinecraftModeAdapter(GameModeAdapter):
     def create_mana_system(self, state):
         return None
 
+    def life_cap(self, player, state):
+        # Avatar HP caps at the player's max_life (default 20). This keeps
+        # heals from exceeding the starting cap.
+        return int(getattr(player, "max_life", None) or 20)
+
     def create_combat_manager(self, state):
         from .minecraft_combat import MinecraftCombatManager
         return MinecraftCombatManager(state)
