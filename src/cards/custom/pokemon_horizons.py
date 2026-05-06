@@ -31,6 +31,8 @@ from src.cards.interceptor_helpers import (
     creatures_you_control,
     other_creatures_with_subtype, all_opponents,
     opponent_creatures_filter,
+    make_activated_ability, make_cost_reduction, make_equipment_setup,
+    make_library_search_etb_trigger, open_library_search,
 )
 from src.cards.ability_bundles import (
     etb_gain_life, etb_lose_life, etb_draw,
@@ -1869,6 +1871,409 @@ FOREST_PKH = make_land(name="Forest", subtypes={"Forest"}, supertypes={"Basic"})
 
 
 # =============================================================================
+# SPICE PASS — 8 format-defining cards (mono-red focus, follows the
+# 10-pattern taxonomy in `.claude/skills/spice-pass.md`). Wave-22 R4
+# revealed PKH at 25% — genuinely weak when opponents play their real
+# decks. These eight legendary picks give it tempo, recursion, tutoring,
+# and a finisher.
+# =============================================================================
+
+
+# --- 1. Charizard, Mega Evolved --- {2}{R}{R} 4/4 Mythic Legendary Pokemon Dragon
+# Pattern: efficiency + compression. Flying, ETB damage divided, +pump.
+def charizard_mega_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self flying. ETB: deal 4 damage divided as you choose among any
+    number of target creatures. Activated: {1}{R}: +2/+0 EOT.
+    """
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_burn(event: Event, st: GameState) -> list[Event]:
+        # Heuristic split: pick up to 2 opponent creatures, 2 dmg each.
+        targets = [
+            o for o in st.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+            and o.controller != obj.controller
+            and CardType.CREATURE in (o.characteristics.types or set())
+        ]
+        events: list[Event] = []
+        remaining = 4
+        for t in targets[:2]:
+            amount = min(2, remaining)
+            if amount <= 0:
+                break
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': t.id, 'amount': amount, 'source': obj.id},
+                source=obj.id,
+            ))
+            remaining -= amount
+        # Any leftover damage goes to a defending player as flavor flair.
+        if remaining > 0:
+            for pid in st.players:
+                if pid != obj.controller:
+                    events.append(Event(
+                        type=EventType.DAMAGE,
+                        payload={'target': pid, 'amount': remaining, 'source': obj.id},
+                        source=obj.id,
+                    ))
+                    break
+        return events
+
+    def pump_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': o.id, 'power_mod': 2, 'toughness_mod': 0,
+                     'duration': 'end_of_turn'},
+            source=o.id,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{1}{R}",
+        effect_fn=pump_effect,
+        description="{1}{R}: Charizard gets +2/+0 until end of turn.",
+        targets_required=0,
+    )
+    return [
+        make_keyword_grant(obj, ['flying'], affects_self),
+        make_etb_trigger(obj, etb_burn),
+    ]
+
+
+CHARIZARD_MEGA = make_creature(
+    name="Charizard, Mega Evolved",
+    power=4, toughness=4,
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    subtypes={"Pokemon", "Dragon"},
+    supertypes={"Legendary"},
+    text=(
+        "Flying. When Charizard enters, deal 4 damage divided as you choose "
+        "among any number of target creatures. {1}{R}: Charizard gets +2/+0 "
+        "until end of turn."
+    ),
+    setup_interceptors=charizard_mega_setup,
+)
+
+
+# --- 2. Moltres, Phoenix Reborn --- {3}{R}{R} 4/3 Mythic Legendary Pokemon Phoenix
+# Pattern: recursion (the canonical "phoenix" — comes back from graveyard).
+def moltres_phoenix_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self flying + haste. When Moltres dies, return it to your hand at
+    the beginning of your next upkeep (via a turn_data flag set on death
+    + an upkeep trigger that consumes the flag).
+    """
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def on_death(event: Event, st: GameState) -> list[Event]:
+        # Mark for return-to-hand at next upkeep.
+        st.turn_data[f'moltres_return_{obj.id}'] = True
+        return []
+
+    def upkeep_return(event: Event, st: GameState) -> list[Event]:
+        flag_key = f'moltres_return_{obj.id}'
+        active_player = getattr(st, 'active_player', None)
+        if active_player != obj.controller:
+            return []
+        if not st.turn_data.get(flag_key):
+            return []
+        # Only return if Moltres is currently in graveyard.
+        target = st.objects.get(obj.id)
+        if not target or target.zone != ZoneType.GRAVEYARD:
+            return []
+        st.turn_data.pop(flag_key, None)
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': obj.id,
+                'from_zone': 'graveyard',
+                'from_zone_type': ZoneType.GRAVEYARD,
+                'to_zone': 'hand',
+                'to_zone_type': ZoneType.HAND,
+            },
+            source=obj.id,
+        )]
+
+    return [
+        make_keyword_grant(obj, ['flying', 'haste'], affects_self),
+        make_death_trigger(obj, on_death),
+        make_upkeep_trigger(obj, upkeep_return),
+    ]
+
+
+MOLTRES_PHOENIX = make_creature(
+    name="Moltres, Phoenix Reborn",
+    power=4, toughness=3,
+    mana_cost="{3}{R}{R}",
+    colors={Color.RED},
+    subtypes={"Pokemon", "Phoenix"},
+    supertypes={"Legendary"},
+    text=(
+        "Flying, haste. When Moltres dies, return it to your hand at the "
+        "beginning of your next upkeep."
+    ),
+    setup_interceptors=moltres_phoenix_setup,
+)
+
+
+# --- 3. Pikachu, Thunder Champion --- {1}{R} 2/2 Rare Legendary Pokemon
+# Pattern: snowball (each combat damage = card draw).
+def pikachu_champion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self haste. Combat damage to a player → draw a card."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def draw_on_combat_damage(event: Event, st: GameState) -> list[Event]:
+        # Only fire when Pikachu damages a player (target is a player_id),
+        # not when damaging a creature.
+        target_id = event.payload.get('target')
+        if target_id not in st.players:
+            return []
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        )]
+
+    return [
+        make_keyword_grant(obj, ['haste'], affects_self),
+        make_damage_trigger(obj, draw_on_combat_damage, combat_only=True),
+    ]
+
+
+PIKACHU_CHAMPION = make_creature(
+    name="Pikachu, Thunder Champion",
+    power=2, toughness=2,
+    mana_cost="{1}{R}",
+    colors={Color.RED},
+    subtypes={"Pokemon", "Mouse"},
+    supertypes={"Legendary"},
+    text=(
+        "Haste. Whenever Pikachu deals combat damage to a player, "
+        "draw a card."
+    ),
+    setup_interceptors=pikachu_champion_setup,
+)
+
+
+# --- 4. Eevee, Evolution Vessel --- {R} 1/1 Mythic Legendary Pokemon
+# Pattern: tutoring at 1 mana (Eevee's evolutions are the whole pool).
+def eevee_vessel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: search your library for a creature card with mana value 3 or
+    less, reveal it, put it into your hand, then shuffle.
+    """
+    def cheap_creature_filter(card_obj: GameObject, st: GameState) -> bool:
+        chars = card_obj.characteristics
+        if CardType.CREATURE not in (chars.types or set()):
+            return False
+        cost = chars.mana_cost or ""
+        try:
+            from src.engine.mana import ManaCost
+            mv = ManaCost.parse(cost).mana_value
+        except Exception:
+            mv = 0
+        return mv <= 3
+
+    return [make_library_search_etb_trigger(
+        obj,
+        filter_fn=cheap_creature_filter,
+        destination="hand",
+        reveal=True,
+        shuffle_after=True,
+        max_count=1,
+        prompt="Choose a creature with mana value 3 or less.",
+    )]
+
+
+EEVEE_VESSEL = make_creature(
+    name="Eevee, Evolution Vessel",
+    power=1, toughness=1,
+    mana_cost="{R}",
+    colors={Color.RED},
+    subtypes={"Pokemon"},
+    supertypes={"Legendary"},
+    text=(
+        "When Eevee enters, search your library for a creature card with "
+        "mana value 3 or less, reveal it, put it into your hand, then "
+        "shuffle."
+    ),
+    setup_interceptors=eevee_vessel_setup,
+)
+
+
+# --- 5. Master Ball --- {1}{R} Mythic Legendary Artifact
+# Pattern: tutoring (any creature, no MV cap, but moderate cost + tap).
+def master_ball_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}, {T}: Search your library for a creature card, reveal it, put
+    into your hand, then shuffle. The pinnacle Pokemon-flavor tutor —
+    "catches" any Pokemon.
+    """
+    def is_creature(card_obj: GameObject, st: GameState) -> bool:
+        return CardType.CREATURE in (card_obj.characteristics.types or set())
+
+    def search_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return open_library_search(
+            st,
+            o.controller,
+            o.id,
+            filter_fn=is_creature,
+            destination="hand",
+            reveal=True,
+            shuffle_after=True,
+            max_count=1,
+            optional=True,
+            prompt="Choose any creature card to put into your hand.",
+        )
+
+    make_activated_ability(
+        obj,
+        cost="{2}, {T}",
+        effect_fn=search_effect,
+        description="{2}, {T}: Search your library for a creature card.",
+        targets_required=0,
+    )
+    return []
+
+
+MASTER_BALL = make_artifact(
+    name="Master Ball",
+    mana_cost="{1}{R}",
+    supertypes={"Legendary"},
+    text=(
+        "{2}, {T}: Search your library for a creature card, reveal it, "
+        "put it into your hand, then shuffle."
+    ),
+    setup_interceptors=master_ball_setup,
+)
+
+
+# --- 6. Volcanic Mantle --- {1}{R} Mythic Legendary Equipment
+# Pattern: efficient buff. Pure "stick this on a haste creature" pump.
+VOLCANIC_MANTLE = make_equipment(
+    name="Volcanic Mantle",
+    mana_cost="{1}{R}",
+    equip_cost="{1}",
+    supertypes={"Legendary"},
+    text=(
+        "Equipped creature gets +3/+1 and has haste and trample. Equip {1}."
+    ),
+    setup_interceptors=make_equipment_setup(
+        power_mod=3,
+        toughness_mod=1,
+        keywords=["haste", "trample"],
+        equip_cost="{1}",
+    ),
+)
+
+
+# --- 7. Reshiram, Truth Aspect --- {4}{R}{R} 6/5 Mythic Legendary Pokemon Dragon
+# Pattern: free/alt cost (graveyard count discount) + efficiency.
+def reshiram_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self flying + trample. Costs {2} less if 4+ creature cards in your
+    graveyard. ETB: deal 4 damage to any target.
+    """
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def applies_to_self(card_def, controller, st) -> bool:
+        # Cost reduction only applies when caster casts THIS card.
+        # Match by name since the cost-reduction handler queries with the
+        # card_def and a candidate controller.
+        return getattr(card_def, "name", None) == "Reshiram, Truth Aspect" and controller == obj.controller
+
+    def graveyard_threshold(st) -> bool:
+        gy = st.zones.get(f'graveyard_{obj.controller}', None) or []
+        n = sum(
+            1 for cid in gy
+            if (st.objects.get(cid) and CardType.CREATURE in (st.objects[cid].characteristics.types or set()))
+        )
+        return n >= 4
+
+    def etb_burn(event: Event, st: GameState) -> list[Event]:
+        # Deal 4 damage to the most threatening opponent creature (or
+        # opponent if board is empty).
+        candidates = sorted(
+            (
+                o for o in st.objects.values()
+                if o.zone == ZoneType.BATTLEFIELD
+                and o.controller != obj.controller
+                and CardType.CREATURE in (o.characteristics.types or set())
+            ),
+            key=lambda c: (get_power(c, st) or 0),
+            reverse=True,
+        )
+        if candidates:
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'target': candidates[0].id, 'amount': 4, 'source': obj.id},
+                source=obj.id,
+            )]
+        for pid in st.players:
+            if pid != obj.controller:
+                return [Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': pid, 'amount': 4, 'source': obj.id},
+                    source=obj.id,
+                )]
+        return []
+
+    return [
+        make_keyword_grant(obj, ['flying', 'trample'], affects_self),
+        make_etb_trigger(obj, etb_burn),
+        make_cost_reduction(
+            obj,
+            applies_to=applies_to_self,
+            amount=2,
+            condition_fn=graveyard_threshold,
+            self_only=True,
+        ),
+    ]
+
+
+RESHIRAM = make_creature(
+    name="Reshiram, Truth Aspect",
+    power=6, toughness=5,
+    mana_cost="{4}{R}{R}",
+    colors={Color.RED},
+    subtypes={"Pokemon", "Dragon"},
+    supertypes={"Legendary"},
+    text=(
+        "Flying, trample. This spell costs {2} less to cast if there are "
+        "four or more creature cards in your graveyard. When Reshiram "
+        "enters, it deals 4 damage to target creature an opponent controls."
+    ),
+    setup_interceptors=reshiram_setup,
+)
+
+
+# --- 8. Hyper Beam --- {2}{R}{R} Mythic Sorcery
+# Pattern: efficient finisher (6 damage anywhere). The "burn-them-out" closer.
+def hyper_beam_resolve(spell, state, targets):
+    """Deal 6 damage to target creature or player."""
+    if not targets:
+        return []
+    target_id = targets[0].object_id if hasattr(targets[0], 'object_id') else targets[0]
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': target_id, 'amount': 6, 'source': spell.id},
+        source=spell.id,
+    )]
+
+
+HYPER_BEAM = make_sorcery(
+    name="Hyper Beam",
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    text="Hyper Beam deals 6 damage to any target.",
+    resolve=hyper_beam_resolve,
+)
+HYPER_BEAM.targets_required = 1
+HYPER_BEAM.target_kind = "any"
+
+
+# =============================================================================
 # CARD DICTIONARY
 # =============================================================================
 
@@ -2128,6 +2533,16 @@ POKEMON_HORIZONS_CARDS = {
     "Swamp": SWAMP_PKH,
     "Mountain": MOUNTAIN_PKH,
     "Forest": FOREST_PKH,
+
+    # SPICE PASS — Wave-22 R4 lift
+    "Charizard, Mega Evolved": CHARIZARD_MEGA,
+    "Moltres, Phoenix Reborn": MOLTRES_PHOENIX,
+    "Pikachu, Thunder Champion": PIKACHU_CHAMPION,
+    "Eevee, Evolution Vessel": EEVEE_VESSEL,
+    "Master Ball": MASTER_BALL,
+    "Volcanic Mantle": VOLCANIC_MANTLE,
+    "Reshiram, Truth Aspect": RESHIRAM,
+    "Hyper Beam": HYPER_BEAM,
 }
 
 print(f"Loaded {len(POKEMON_HORIZONS_CARDS)} Pokemon Horizons cards")
@@ -2379,5 +2794,15 @@ CARDS = [
     ISLAND_PKH,
     SWAMP_PKH,
     MOUNTAIN_PKH,
-    FOREST_PKH
+    FOREST_PKH,
+
+    # SPICE PASS
+    CHARIZARD_MEGA,
+    MOLTRES_PHOENIX,
+    PIKACHU_CHAMPION,
+    EEVEE_VESSEL,
+    MASTER_BALL,
+    VOLCANIC_MANTLE,
+    RESHIRAM,
+    HYPER_BEAM,
 ]
