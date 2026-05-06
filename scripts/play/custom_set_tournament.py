@@ -65,6 +65,42 @@ BASIC_LAND_BY_COLOR: dict[Color, Any] = {
 }
 
 
+# Dual lands keyed by the unordered pair of colors they tap for.
+# Source: OTJ "Desert" cycle (`outlaws_thunder_junction.py:11212-11307`),
+# which is the only complete 10-pair "{T}: Add {X} or {Y}" cycle in the
+# real-MTG card pool. Each enters tapped + pings 1 damage to an opponent;
+# functional via text-based mana parsing (no setup_interceptor required).
+# Looked up at deck-build time via `src.cards.ALL_CARDS`.
+DUAL_LAND_NAME_BY_PAIR: dict[frozenset, str] = {
+    frozenset({Color.RED,   Color.WHITE}): "Abraded Bluffs",
+    frozenset({Color.RED,   Color.GREEN}): "Bristling Backwoods",
+    frozenset({Color.GREEN, Color.WHITE}): "Creosote Heath",
+    frozenset({Color.BLUE,  Color.RED}):   "Eroded Canyon",
+    frozenset({Color.BLACK, Color.GREEN}): "Festering Gulch",
+    frozenset({Color.WHITE, Color.BLACK}): "Forlorn Flats",
+    frozenset({Color.BLACK, Color.RED}):   "Jagged Barrens",
+    frozenset({Color.WHITE, Color.BLUE}):  "Lonely Arroyo",
+    frozenset({Color.GREEN, Color.BLUE}):  "Lush Oasis",
+    frozenset({Color.BLUE,  Color.BLACK}): "Soured Springs",
+}
+
+
+def _resolve_dual_land(primary: Color, secondary: Color):
+    """Look up the OTJ Desert dual that taps for {primary} or {secondary}.
+
+    Returns the CardDefinition or None if `ALL_CARDS` isn't loadable yet
+    (e.g. during a unit test that imports just this module).
+    """
+    name = DUAL_LAND_NAME_BY_PAIR.get(frozenset({primary, secondary}))
+    if not name:
+        return None
+    try:
+        from src.cards import ALL_CARDS
+    except Exception:
+        return None
+    return ALL_CARDS.get(name)
+
+
 def get_cmc(card_def) -> int:
     """Compute mana value of a card definition. Returns 0 if no mana cost."""
     if not getattr(card_def, "mana_cost", None):
@@ -213,6 +249,202 @@ def build_set_deck(domain: str, cards_dict) -> tuple[list, dict]:
         "land_count": sum(1 for c in deck if CardType.LAND in card_types(c)),
         "unique_spells": len({c.name for c in deck if CardType.LAND not in card_types(c)}),
         "basic_land": basic_land.name if basic_land else None,
+    }
+    return deck[:60], info
+
+
+def pick_two_color_pair(
+    cards_dict, threshold: int = 5
+) -> tuple[Color, Optional[Color]]:
+    """Pick the dominant 2-color pair for a custom set.
+
+    Counts cards whose mana cost has exactly two distinct colors, ranks
+    pairs by frequency, and returns `(primary, secondary)` for the top
+    pair when its count meets `threshold`. Otherwise returns
+    `(primary_color(cards_dict), None)` so the caller falls back to the
+    mono-color path.
+
+    `primary` is always the heavier color of the pair (more spells in the
+    set use it as a single colored cost), so the pip-weighted basic split
+    skews toward the color the set actually leans on.
+    """
+    pair_counts: dict[frozenset, int] = defaultdict(int)
+    for cd in cards_dict.values():
+        if CardType.LAND in card_types(cd):
+            continue
+        cost_str = cd.characteristics.mana_cost or ""
+        try:
+            cc = ManaCost.parse(cost_str).colors
+        except Exception:
+            cc = set()
+        if len(cc) == 2:
+            pair_counts[frozenset(cc)] += 1
+
+    if not pair_counts:
+        return primary_color(cards_dict), None
+
+    top_pair, top_n = max(pair_counts.items(), key=lambda kv: kv[1])
+    if top_n < threshold:
+        return primary_color(cards_dict), None
+
+    # Within the chosen pair, decide which color is primary by counting
+    # how many *mono* spells in the set use each color. The heavier one
+    # gets more basics; the lighter one is the secondary splash.
+    mono_counts: dict[Color, int] = defaultdict(int)
+    for cd in cards_dict.values():
+        if CardType.LAND in card_types(cd):
+            continue
+        cost_str = cd.characteristics.mana_cost or ""
+        try:
+            cc = ManaCost.parse(cost_str).colors
+        except Exception:
+            cc = set()
+        if len(cc) == 1:
+            (c,) = cc
+            if c in top_pair:
+                mono_counts[c] += 1
+
+    pair_list = list(top_pair)
+    pair_list.sort(key=lambda c: mono_counts.get(c, 0), reverse=True)
+    primary, secondary = pair_list[0], pair_list[1]
+    return primary, secondary
+
+
+def build_set_deck_2color(
+    domain: str, cards_dict, primary: Color, secondary: Color
+) -> tuple[list, dict]:
+    """Build a 60-card 2-color deck for a custom set.
+
+    Mirrors `build_set_deck` but accepts any spell whose mana-cost colors
+    are a subset of `{primary, secondary}` (so mono-primary, mono-secondary,
+    and gold cards all qualify). Mana base is 4 copies of the matching OTJ
+    Desert dual + 20 basics split by pip weight across the two colors.
+    """
+    allowed = {primary, secondary}
+
+    spells: list = []
+    for name, cd in cards_dict.items():
+        if CardType.LAND in card_types(cd):
+            continue
+        cost_str = cd.characteristics.mana_cost or ""
+        try:
+            cost_colors = ManaCost.parse(cost_str).colors
+        except Exception:
+            cost_colors = set()
+        if cost_colors - allowed:
+            continue
+        spells.append(cd)
+
+    def quality(cd) -> float:
+        is_creature = CardType.CREATURE in card_types(cd)
+        cmc = get_cmc(cd)
+        cs = card_colors(cd)
+        score = 0.0
+        score -= 5.0 if is_creature else 0.0
+        score += abs(cmc - 3)
+        # Off-color penalty against the chosen 2-color identity.
+        score += 0.0 if (not cs or cs <= allowed) else 1.5
+        if getattr(cd, "setup_interceptors", None):
+            score -= 0.5
+        if getattr(cd, "resolve", None):
+            score -= 5.5
+        return score
+
+    spells.sort(key=quality)
+
+    deck: list = []
+    seen: dict[str, int] = defaultdict(int)
+    for cd in spells:
+        if len(deck) >= 36:
+            break
+        if seen[cd.name] >= 4:
+            continue
+        copies = 2 if CardType.CREATURE in card_types(cd) else 1
+        for _ in range(copies):
+            if len(deck) >= 36 or seen[cd.name] >= 4:
+                break
+            deck.append(cd)
+            seen[cd.name] += 1
+
+    if len(deck) < 36 and spells:
+        idx = 0
+        guard = 0
+        while len(deck) < 36 and guard < 500:
+            cd = spells[idx % len(spells)]
+            if seen[cd.name] < 4:
+                deck.append(cd)
+                seen[cd.name] += 1
+            idx += 1
+            guard += 1
+
+    # Mana base: 4 dual lands + 20 basics split by pip weight. If the dual
+    # isn't resolvable (e.g. ALL_CARDS not loaded in a unit test), skip
+    # duals and fall back to 24 basics split by pip weight.
+    dual = _resolve_dual_land(primary, secondary)
+    n_dual = 4 if dual else 0
+    n_basic = 24 - n_dual
+
+    pip_weight: dict[Color, int] = defaultdict(int)
+    for cd in deck:
+        cost_str = cd.characteristics.mana_cost or ""
+        try:
+            mc = ManaCost.parse(cost_str)
+        except Exception:
+            continue
+        # ManaCost stores per-color int counts as attributes named after the color.
+        pip_weight[Color.WHITE] += getattr(mc, "white", 0)
+        pip_weight[Color.BLUE]  += getattr(mc, "blue", 0)
+        pip_weight[Color.BLACK] += getattr(mc, "black", 0)
+        pip_weight[Color.RED]   += getattr(mc, "red", 0)
+        pip_weight[Color.GREEN] += getattr(mc, "green", 0)
+
+    p_w = pip_weight.get(primary, 0)
+    s_w = pip_weight.get(secondary, 0)
+    total_w = p_w + s_w
+    if total_w <= 0:
+        # No pips at all — split evenly.
+        n_primary = n_basic // 2
+        n_secondary = n_basic - n_primary
+    else:
+        n_primary = round(n_basic * (p_w / total_w))
+        n_primary = max(1, min(n_basic - 1, n_primary)) if n_basic >= 2 else n_primary
+        n_secondary = n_basic - n_primary
+
+    # Pick basic lands (prefer set's own; fallback to Lorwyn).
+    def _basic_for(color: Color):
+        target_subtype = {
+            Color.WHITE: "Plains",
+            Color.BLUE: "Island",
+            Color.BLACK: "Swamp",
+            Color.RED: "Mountain",
+            Color.GREEN: "Forest",
+        }.get(color, "Forest")
+        for cd in cards_dict.values():
+            if CardType.LAND in card_types(cd) and target_subtype in (cd.characteristics.subtypes or set()):
+                return cd
+        return BASIC_LAND_BY_COLOR.get(color) or LORWYN_CUSTOM_CARDS.get(target_subtype)
+
+    primary_basic = _basic_for(primary)
+    secondary_basic = _basic_for(secondary)
+
+    if dual:
+        deck.extend([dual] * n_dual)
+    if primary_basic:
+        deck.extend([primary_basic] * n_primary)
+    if secondary_basic:
+        deck.extend([secondary_basic] * n_secondary)
+
+    info = {
+        "domain": domain,
+        "primary_color": primary.name,
+        "secondary_color": secondary.name,
+        "size": len(deck),
+        "spell_count": sum(1 for c in deck if CardType.LAND not in card_types(c)),
+        "land_count": sum(1 for c in deck if CardType.LAND in card_types(c)),
+        "unique_spells": len({c.name for c in deck if CardType.LAND not in card_types(c)}),
+        "basic_land": primary_basic.name if primary_basic else None,
+        "dual_land": dual.name if dual else None,
+        "deck_mode": "2color",
     }
     return deck[:60], info
 
@@ -735,21 +967,49 @@ def run_tournament_sequential(
     hard_timeout_s: float = 8.0,
     per_turn_timeout_s: float = 1.5,
     wall_deadline_s: float = 7.0,
+    decks_mode: str = "mono",
     verbose: bool = True,
 ) -> dict[str, Any]:
     """
     Sequential round-robin — single process with SIGALRM hard timeout.
     No multiprocessing. Each game wrapped in signal.alarm so CPU-bound
     hangs are bounded.
+
+    `decks_mode` selects the deckbuilder:
+      - "mono"   : 100% mono-primary-color (default; preserves baseline)
+      - "2color" : auto-pick top 2-color pair per set; falls back to mono
+                   when the top pair has < 5 cards.
     """
     import signal
 
     decks: dict[str, list] = {}
     deck_info: dict[str, dict] = {}
     for d in domains:
-        deck, info = build_set_deck(d, CUSTOM_SETS[d])
+        cards = CUSTOM_SETS[d]
+        if decks_mode == "2color":
+            primary, secondary = pick_two_color_pair(cards)
+            if secondary is not None:
+                deck, info = build_set_deck_2color(d, cards, primary, secondary)
+            else:
+                deck, info = build_set_deck(d, cards)
+                info["deck_mode"] = "mono_fallback"
+        else:
+            deck, info = build_set_deck(d, cards)
+            info["deck_mode"] = "mono"
         decks[d] = deck
         deck_info[d] = info
+        if verbose:
+            mode_tag = info.get("deck_mode", "mono")
+            colors_tag = info.get("primary_color", "?")[0]
+            sec = info.get("secondary_color")
+            if sec:
+                colors_tag += sec[0]
+            print(
+                f"  deck[{d}] mode={mode_tag} colors={colors_tag} "
+                f"spells={info.get('spell_count', 0)} "
+                f"unique={info.get('unique_spells', 0)}",
+                flush=True,
+            )
 
     if verbose:
         print(f"\n=== Decks: {len(domains)} sets ===", flush=True)
@@ -1249,6 +1509,9 @@ def main():
                         help="seconds total before the game is aborted")
     parser.add_argument("--hard-timeout", type=float, default=8.0,
                         help="SIGALRM-based outer cap per game (sequential only)")
+    parser.add_argument("--decks", choices=["mono", "2color"], default="mono",
+                        help="deck-build mode: mono (default) or 2color "
+                             "(auto-pick top 2-color pair per set)")
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -1278,6 +1541,7 @@ def main():
                 hard_timeout_s=args.hard_timeout,
                 per_turn_timeout_s=args.per_turn_timeout,
                 wall_deadline_s=args.wall_deadline,
+                decks_mode=args.decks,
                 verbose=True,
             )
         else:
