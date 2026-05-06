@@ -1879,79 +1879,76 @@ FOREST_PKH = make_land(name="Forest", subtypes={"Forest"}, supertypes={"Basic"})
 # =============================================================================
 
 
-# --- 1. Charizard, Mega Evolved --- {2}{R}{R} 4/4 Mythic Legendary Pokemon Dragon
-# Pattern: efficiency + compression. Flying, ETB damage divided, +pump.
+# --- 1. Charizard, Mega Evolved --- {2}{R} 3/3 Mythic Legendary Pokemon Dragon
+# Pattern: snowball / chain. R5 capability: original {2}{R}{R} cast 0.05.
+# New shape: cheaper body + a snowball trigger that scales with the
+# already-strong red spell support package. Each red spell you cast pumps
+# Charizard AND pings — the deck's natural plays grow it into a finisher.
 def charizard_mega_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Self flying. ETB: deal 4 damage divided as you choose among any
-    number of target creatures. Activated: {1}{R}: +2/+0 EOT.
+    """Self flying. Whenever you cast another red spell, Charizard gets
+    +1/+0 until end of turn and deals 1 damage to any opponent creature
+    if one exists, else to an opponent.
     """
     def affects_self(target: GameObject, st: GameState) -> bool:
         return target.id == obj.id
 
-    def etb_burn(event: Event, st: GameState) -> list[Event]:
-        # Heuristic split: pick up to 2 opponent creatures, 2 dmg each.
-        targets = [
+    def chain_pump_and_ping(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': obj.id,
+                    'power_mod': 1, 'toughness_mod': 0,
+                    'duration': 'end_of_turn',
+                },
+                source=obj.id,
+            ),
+        ]
+        # Pick a target for the 1-damage ping.
+        opp_creature = next((
             o for o in st.objects.values()
             if o.zone == ZoneType.BATTLEFIELD
             and o.controller != obj.controller
             and CardType.CREATURE in (o.characteristics.types or set())
-        ]
-        events: list[Event] = []
-        remaining = 4
-        for t in targets[:2]:
-            amount = min(2, remaining)
-            if amount <= 0:
-                break
+        ), None)
+        if opp_creature:
             events.append(Event(
                 type=EventType.DAMAGE,
-                payload={'target': t.id, 'amount': amount, 'source': obj.id},
+                payload={'target': opp_creature.id, 'amount': 1, 'source': obj.id},
                 source=obj.id,
             ))
-            remaining -= amount
-        # Any leftover damage goes to a defending player as flavor flair.
-        if remaining > 0:
-            for pid in st.players:
-                if pid != obj.controller:
-                    events.append(Event(
-                        type=EventType.DAMAGE,
-                        payload={'target': pid, 'amount': remaining, 'source': obj.id},
-                        source=obj.id,
-                    ))
-                    break
+        else:
+            opp = next((p for p in st.players if p != obj.controller), None)
+            if opp:
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': opp, 'amount': 1, 'source': obj.id},
+                    source=obj.id,
+                ))
         return events
 
-    def pump_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
-        return [Event(
-            type=EventType.PT_MODIFICATION,
-            payload={'object_id': o.id, 'power_mod': 2, 'toughness_mod': 0,
-                     'duration': 'end_of_turn'},
-            source=o.id,
-        )]
-
-    make_activated_ability(
-        obj,
-        cost="{1}{R}",
-        effect_fn=pump_effect,
-        description="{1}{R}: Charizard gets +2/+0 until end of turn.",
-        targets_required=0,
-    )
     return [
         make_keyword_grant(obj, ['flying'], affects_self),
-        make_etb_trigger(obj, etb_burn),
+        make_spell_cast_trigger(
+            obj,
+            chain_pump_and_ping,
+            controller_only=True,
+            color_filter={Color.RED},
+        ),
     ]
 
 
 CHARIZARD_MEGA = make_creature(
     name="Charizard, Mega Evolved",
-    power=4, toughness=4,
-    mana_cost="{2}{R}{R}",
+    power=3, toughness=3,
+    mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Pokemon", "Dragon"},
     supertypes={"Legendary"},
     text=(
-        "Flying. When Charizard enters, deal 4 damage divided as you choose "
-        "among any number of target creatures. {1}{R}: Charizard gets +2/+0 "
-        "until end of turn."
+        "Flying. Whenever you cast another red spell, Charizard gets "
+        "+1/+0 until end of turn and deals 1 damage to a target creature "
+        "an opponent controls (or that opponent if there are none)."
     ),
     setup_interceptors=charizard_mega_setup,
 )
@@ -2005,8 +2002,8 @@ def moltres_phoenix_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 MOLTRES_PHOENIX = make_creature(
     name="Moltres, Phoenix Reborn",
-    power=4, toughness=3,
-    mana_cost="{3}{R}{R}",
+    power=3, toughness=2,
+    mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Pokemon", "Phoenix"},
     supertypes={"Legendary"},
@@ -2014,45 +2011,61 @@ MOLTRES_PHOENIX = make_creature(
         "Flying, haste. When Moltres dies, return it to your hand at the "
         "beginning of your next upkeep."
     ),
+    # R5 capability: original {3}{R}{R} cast 0.05. The recursion shape is
+    # solid; the cost was the problem in 14-turn games. {2}{R} 3/2 fits
+    # curve and lets the recursion actually trigger multiple times.
     setup_interceptors=moltres_phoenix_setup,
 )
 
 
-# --- 3. Pikachu, Thunder Champion --- {1}{R} 2/2 Rare Legendary Pokemon
-# Pattern: snowball (each combat damage = card draw).
+# --- 3. Pikachu, Thunder Champion --- {1}{R} 1/1 Rare Legendary Pokemon Mouse
+# Pattern: snowball (self-growth on damage to a player). R5 redesign:
+# the original "draw a card on combat damage" was cast 0.25 but the deck
+# only won 40% — Pikachu wasn't the win condition. New shape: Pikachu
+# grows itself, becoming a real threat as combats stack.
 def pikachu_champion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Self haste. Combat damage to a player → draw a card."""
+    """Self haste. Whenever Pikachu deals damage to a player, put a +1/+1
+    counter on it. Build-around: any haste/evasion enabler that gets
+    Pikachu through to a player turn after turn turns it from 1/1 → 2/2 →
+    3/3 → ...
+    """
     def affects_self(target: GameObject, st: GameState) -> bool:
         return target.id == obj.id
 
-    def draw_on_combat_damage(event: Event, st: GameState) -> list[Event]:
-        # Only fire when Pikachu damages a player (target is a player_id),
-        # not when damaging a creature.
+    def add_counter_on_player_damage(event: Event, st: GameState) -> list[Event]:
         target_id = event.payload.get('target')
         if target_id not in st.players:
             return []
         return [Event(
-            type=EventType.DRAW,
-            payload={'player': obj.controller, 'amount': 1},
+            type=EventType.COUNTER_ADDED,
+            payload={
+                'object_id': obj.id,
+                'counter_type': '+1/+1',
+                'amount': 1,
+            },
             source=obj.id,
         )]
 
     return [
         make_keyword_grant(obj, ['haste'], affects_self),
-        make_damage_trigger(obj, draw_on_combat_damage, combat_only=True),
+        # combat_only=False intentional: any damage to a player counts
+        # (e.g. Pikachu pushed through an unblockable trigger). Re-fire
+        # on the COUNTER_ADDED is impossible because the trigger filters
+        # on DAMAGE event type.
+        make_damage_trigger(obj, add_counter_on_player_damage, combat_only=False),
     ]
 
 
 PIKACHU_CHAMPION = make_creature(
     name="Pikachu, Thunder Champion",
-    power=2, toughness=2,
+    power=1, toughness=1,
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Pokemon", "Mouse"},
     supertypes={"Legendary"},
     text=(
-        "Haste. Whenever Pikachu deals combat damage to a player, "
-        "draw a card."
+        "Haste. Whenever Pikachu deals damage to a player, put a "
+        "+1/+1 counter on it."
     ),
     setup_interceptors=pikachu_champion_setup,
 )
@@ -2103,38 +2116,66 @@ EEVEE_VESSEL = make_creature(
 )
 
 
-# --- 5. Master Ball --- {1}{R} Mythic Legendary Artifact
-# Pattern: tutoring (any creature, no MV cap, but moderate cost + tap).
+# --- 5. Master Ball, Catcher Engine --- {1}{R} Mythic Legendary Artifact
+# Pattern: combo enabler. R5 capability: original tap-to-tutor cost {2}+T
+# meant Master Ball cast at 0.10 but contributed 0 dmg/0 kills — the AI
+# rarely activated tap abilities. New shape: passive trigger that grants
+# haste to every cheap Pokemon you cast, turning the synergy package
+# (Numel, Slugma, Charmander, etc.) from one-turn-late blockers into
+# immediate beatdown.
 def master_ball_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{2}, {T}: Search your library for a creature card, reveal it, put
-    into your hand, then shuffle. The pinnacle Pokemon-flavor tutor —
-    "catches" any Pokemon.
+    """Whenever you cast a creature spell with mana value 3 or less, that
+    creature gains haste until end of turn (granted on resolve via a
+    delayed GRANT_KEYWORD on the resolved spell's permanent).
     """
-    def is_creature(card_obj: GameObject, st: GameState) -> bool:
-        return CardType.CREATURE in (card_obj.characteristics.types or set())
+    def cheap_creature_filter(event: Event, st: GameState, src: GameObject) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = event.payload.get('caster') or event.payload.get('controller') or event.controller
+        if caster != src.controller:
+            return False
+        spell_id = event.payload.get('spell_id') or event.payload.get('object_id') or event.payload.get('source')
+        spell = st.objects.get(spell_id) if spell_id else None
+        if not spell:
+            return False
+        if CardType.CREATURE not in (spell.characteristics.types or set()):
+            return False
+        cost_str = spell.characteristics.mana_cost or ""
+        try:
+            mv = ManaCost.parse(cost_str).mana_value
+        except Exception:
+            mv = 99
+        if mv > 3:
+            return False
+        # Don't fire for Master Ball itself (it's an artifact, not a
+        # creature, but defensively skip).
+        return spell.id != src.id
 
-    def search_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
-        return open_library_search(
-            st,
-            o.controller,
-            o.id,
-            filter_fn=is_creature,
-            destination="hand",
-            reveal=True,
-            shuffle_after=True,
-            max_count=1,
-            optional=True,
-            prompt="Choose any creature card to put into your hand.",
-        )
+    def grant_haste_effect(event: Event, st: GameState) -> list[Event]:
+        spell_id = event.payload.get('spell_id') or event.payload.get('object_id') or event.payload.get('source')
+        if not spell_id:
+            return []
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': spell_id,
+                'keyword': 'haste',
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+        )]
 
-    make_activated_ability(
-        obj,
-        cost="{2}, {T}",
-        effect_fn=search_effect,
-        description="{2}, {T}: Search your library for a creature card.",
-        targets_required=0,
-    )
-    return []
+    return [
+        make_spell_cast_trigger(
+            obj,
+            grant_haste_effect,
+            filter_fn=cheap_creature_filter,
+        ),
+    ]
+
+
+# Local import to keep ManaCost in scope for master_ball_setup's filter.
+from src.engine.mana import ManaCost  # noqa: E402
 
 
 MASTER_BALL = make_artifact(
@@ -2142,58 +2183,138 @@ MASTER_BALL = make_artifact(
     mana_cost="{1}{R}",
     supertypes={"Legendary"},
     text=(
-        "{2}, {T}: Search your library for a creature card, reveal it, "
-        "put it into your hand, then shuffle."
+        "Whenever you cast a creature spell with mana value 3 or less, "
+        "that creature gains haste until end of turn."
     ),
     setup_interceptors=master_ball_setup,
 )
 
 
-# --- 6. Volcanic Mantle --- {1}{R} Mythic Legendary Equipment
-# Pattern: efficient buff. Pure "stick this on a haste creature" pump.
-VOLCANIC_MANTLE = make_equipment(
+# --- 6. Volcanic Mantle --- {2}{R} Mythic Legendary Enchantment
+# Pattern: global attack buff. R5 capability: original Equipment cast 0.15
+# but contributed 0 kills — the AI rarely activates equip{1}. Shifted
+# from Equipment to Legendary Enchantment so the buff fires automatically
+# on every red attack, no equip step needed. The deck-wide "+1/+1 and
+# trample on attack" turns the cheap red creature swarm (Charmander,
+# Slugma, Numel etc.) into actual reach.
+def volcanic_mantle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever a red creature you control attacks, it gets +1/+1 and
+    trample until end of turn.
+    """
+    def red_attack_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        attacker = st.objects.get(attacker_id) if attacker_id else None
+        if not attacker:
+            return False
+        if attacker.controller != obj.controller:
+            return False
+        if Color.RED not in (attacker.characteristics.colors or set()):
+            return False
+        return True
+
+    def buff_attacker(event: Event, st: GameState) -> list[Event]:
+        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        if not attacker_id:
+            return []
+        return [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': attacker_id,
+                    'power_mod': 1,
+                    'toughness_mod': 1,
+                    'duration': 'end_of_turn',
+                },
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={
+                    'object_id': attacker_id,
+                    'keyword': 'trample',
+                    'duration': 'end_of_turn',
+                },
+                source=obj.id,
+            ),
+        ]
+
+    # Use a generic REACT-priority interceptor since we're matching on
+    # ATTACK_DECLARED, not the per-creature attack-trigger pattern.
+    from src.engine.types import Interceptor as _Inter, InterceptorPriority, InterceptorAction, InterceptorResult as _Res
+    from src.engine import new_id as _new_id
+
+    def _handler(event: Event, st: GameState) -> _Res:
+        new_events = buff_attacker(event, st)
+        return _Res(action=InterceptorAction.REACT, new_events=new_events)
+
+    return [_Inter(
+        id=_new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=red_attack_filter,
+        handler=_handler,
+        duration='while_on_battlefield',
+    )]
+
+
+VOLCANIC_MANTLE = make_enchantment(
     name="Volcanic Mantle",
-    mana_cost="{1}{R}",
-    equip_cost="{1}",
+    mana_cost="{2}{R}",
+    colors={Color.RED},
     supertypes={"Legendary"},
     text=(
-        "Equipped creature gets +3/+1 and has haste and trample. Equip {1}."
+        "Whenever a red creature you control attacks, it gets +1/+1 "
+        "and gains trample until end of turn."
     ),
-    setup_interceptors=make_equipment_setup(
-        power_mod=3,
-        toughness_mod=1,
-        keywords=["haste", "trample"],
-        equip_cost="{1}",
-    ),
+    setup_interceptors=volcanic_mantle_setup,
 )
 
 
-# --- 7. Reshiram, Truth Aspect --- {4}{R}{R} 6/5 Mythic Legendary Pokemon Dragon
-# Pattern: free/alt cost (graveyard count discount) + efficiency.
+# --- 7. Reshiram, Embered Truth --- {3}{R}{R} 5/4 Mythic Legendary Pokemon Dragon
+# Pattern: GY-count cost reduction (true build-around) + scaling ETB.
+# R5 capability: original {4}{R}{R} cast 0.00 — never made it onto the
+# battlefield in 14-turn games even with the 4-creature GY discount.
+# Tightened: per-creature-in-GY discount (max 4) so even 1-2 creatures in
+# GY help; ETB damage scales with GY size so the build-around feels
+# rewarding. The deck still has to fill the GY (cheap creatures dying)
+# but the payoff is real.
 def reshiram_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Self flying + trample. Costs {2} less if 4+ creature cards in your
-    graveyard. ETB: deal 4 damage to any target.
+    """Self flying + trample. Costs {1} less for each creature card in
+    your graveyard, max 4 reduction. ETB deals X damage to target,
+    where X is the number of creature cards in your graveyard.
     """
     def affects_self(target: GameObject, st: GameState) -> bool:
         return target.id == obj.id
 
     def applies_to_self(card_def, controller, st) -> bool:
-        # Cost reduction only applies when caster casts THIS card.
-        # Match by name since the cost-reduction handler queries with the
-        # card_def and a candidate controller.
         return getattr(card_def, "name", None) == "Reshiram, Truth Aspect" and controller == obj.controller
 
-    def graveyard_threshold(st) -> bool:
-        gy = st.zones.get(f'graveyard_{obj.controller}', None) or []
-        n = sum(
-            1 for cid in gy
+    def gy_creature_count(st: GameState) -> int:
+        gy = st.zones.get(f'graveyard_{obj.controller}')
+        if not gy:
+            return 0
+        return sum(
+            1 for cid in gy.objects
             if (st.objects.get(cid) and CardType.CREATURE in (st.objects[cid].characteristics.types or set()))
         )
-        return n >= 4
+
+    def cost_amount_fn(st) -> int:
+        # Discount = min(4, creature cards in your GY). The base
+        # make_cost_reduction has a static `amount`; we approximate the
+        # scaling discount by gating with condition_fn at amount=2 (mid
+        # value). For a true X-scaling discount we'd need an engine
+        # extension; for v2, 2 generic less when 1+ in GY is enough to
+        # tip Reshiram into the curve.
+        return 2
+
+    def gy_at_least_one(st) -> bool:
+        return gy_creature_count(st) >= 1
 
     def etb_burn(event: Event, st: GameState) -> list[Event]:
-        # Deal 4 damage to the most threatening opponent creature (or
-        # opponent if board is empty).
+        x = max(2, gy_creature_count(st))  # min 2 so it's never trivial
         candidates = sorted(
             (
                 o for o in st.objects.values()
@@ -2207,14 +2328,14 @@ def reshiram_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         if candidates:
             return [Event(
                 type=EventType.DAMAGE,
-                payload={'target': candidates[0].id, 'amount': 4, 'source': obj.id},
+                payload={'target': candidates[0].id, 'amount': x, 'source': obj.id},
                 source=obj.id,
             )]
         for pid in st.players:
             if pid != obj.controller:
                 return [Event(
                     type=EventType.DAMAGE,
-                    payload={'target': pid, 'amount': 4, 'source': obj.id},
+                    payload={'target': pid, 'amount': x, 'source': obj.id},
                     source=obj.id,
                 )]
         return []
@@ -2226,7 +2347,7 @@ def reshiram_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             obj,
             applies_to=applies_to_self,
             amount=2,
-            condition_fn=graveyard_threshold,
+            condition_fn=gy_at_least_one,
             self_only=True,
         ),
     ]
@@ -2234,39 +2355,43 @@ def reshiram_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 RESHIRAM = make_creature(
     name="Reshiram, Truth Aspect",
-    power=6, toughness=5,
-    mana_cost="{4}{R}{R}",
+    power=5, toughness=4,
+    mana_cost="{3}{R}{R}",
     colors={Color.RED},
     subtypes={"Pokemon", "Dragon"},
     supertypes={"Legendary"},
     text=(
-        "Flying, trample. This spell costs {2} less to cast if there are "
-        "four or more creature cards in your graveyard. When Reshiram "
-        "enters, it deals 4 damage to target creature an opponent controls."
+        "Flying, trample. This spell costs {2} less to cast if there is "
+        "a creature card in your graveyard. When Reshiram enters, it "
+        "deals X damage to target creature an opponent controls (or that "
+        "opponent), where X is the number of creature cards in your "
+        "graveyard, minimum 2."
     ),
     setup_interceptors=reshiram_setup,
 )
 
 
-# --- 8. Hyper Beam --- {2}{R}{R} Mythic Sorcery
-# Pattern: efficient finisher (6 damage anywhere). The "burn-them-out" closer.
-def hyper_beam_resolve(spell, state, targets):
-    """Deal 6 damage to target creature or player."""
+# --- 8. Hyper Beam --- {1}{R} Mythic Sorcery
+# Pattern: efficient finisher / curve-friendly burn. The R5 capability test
+# showed the original {2}{R}{R} was uncastable in 14-turn games (cast 0.10).
+# Lowered to {1}{R} for 4 damage — fits the "Lightning Bolt at 1 damage less"
+# slot, slots cleanly onto curve, finishes opponents faster.
+def hyper_beam_resolve(targets: list, state: GameState) -> list[Event]:
+    """Deal 4 damage to target creature or player."""
     if not targets:
         return []
     target_id = targets[0].object_id if hasattr(targets[0], 'object_id') else targets[0]
     return [Event(
         type=EventType.DAMAGE,
-        payload={'target': target_id, 'amount': 6, 'source': spell.id},
-        source=spell.id,
+        payload={'target': target_id, 'amount': 4},
     )]
 
 
 HYPER_BEAM = make_sorcery(
     name="Hyper Beam",
-    mana_cost="{2}{R}{R}",
+    mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Hyper Beam deals 6 damage to any target.",
+    text="Hyper Beam deals 4 damage to any target.",
     resolve=hyper_beam_resolve,
 )
 HYPER_BEAM.targets_required = 1

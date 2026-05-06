@@ -83,25 +83,47 @@ def test_charizard_mega_loads_with_flying():
     print(f"  Loaded with {len(cz.interceptor_ids)} interceptors")
 
 
-def test_charizard_mega_etb_emits_damage():
-    print("\n=== Charizard Mega: ETB damage ===")
+def test_charizard_mega_chains_on_red_spell_cast():
+    """Charizard's redesigned trigger: pump+ping when you cast a red spell."""
+    print("\n=== Charizard Mega: chain on red cast ===")
     game = Game()
     p1 = game.add_player("P1")
     p2 = game.add_player("P2")
-    foe1 = _make_opponent_creature(game, p2, "Foe1", power=3, toughness=3)
-    foe2 = _make_opponent_creature(game, p2, "Foe2", power=2, toughness=2)
+    foe = _make_opponent_creature(game, p2, "Foe", power=2, toughness=2)
+    cz = _put_on_battlefield(game, p1, "Charizard, Mega Evolved")
+
+    # Build a fake red spell as a GameObject so the trigger sees a red cost.
+    red_spell = game.create_object(
+        name="Lightning Bolt",
+        owner_id=p1.id,
+        zone=ZoneType.STACK,
+        characteristics=Characteristics(
+            types={CardType.INSTANT},
+            colors={Color.RED},
+        ),
+    )
 
     before = len(game.state.event_log)
-    cz = _put_on_battlefield(game, p1, "Charizard, Mega Evolved")
+    game.emit(Event(
+        type=EventType.SPELL_CAST,
+        payload={
+            'spell_id': red_spell.id,
+            'caster': p1.id,
+            'controller': p1.id,
+            'colors': {Color.RED},
+            'types': {CardType.INSTANT},
+        },
+        source=red_spell.id,
+        controller=p1.id,
+    ))
     new = game.state.event_log[before:]
-    dmg_events = [
-        e for e in new
-        if e.type == EventType.DAMAGE and e.payload.get('source') == cz.id
-    ]
-    total = sum(e.payload.get('amount', 0) for e in dmg_events)
-    assert dmg_events, f"Charizard ETB should emit DAMAGE; got {[e.type.name for e in new]}"
-    assert total == 4, f"Charizard total ETB damage should be 4; got {total}"
-    print(f"  Emitted {len(dmg_events)} damage events totaling {total}")
+    pump = [e for e in new if e.type == EventType.PT_MODIFICATION
+            and e.payload.get('object_id') == cz.id]
+    ping = [e for e in new if e.type == EventType.DAMAGE
+            and e.payload.get('source') == cz.id]
+    assert pump, f"Charizard should pump on red cast; got {[e.type.name for e in new]}"
+    assert ping, f"Charizard should ping on red cast; got {[e.type.name for e in new]}"
+    print(f"  Pump + ping emitted on red spell cast")
 
 
 # ============================================================================
@@ -152,28 +174,31 @@ def test_pikachu_loads_with_haste():
     print(f"  Loaded with {len(pk.interceptor_ids)} interceptors")
 
 
-def test_pikachu_combat_damage_to_player_emits_draw():
-    """Combat damage to player → DRAW event. Damage to creature → no draw."""
-    print("\n=== Pikachu: combat damage draw ===")
+def test_pikachu_damage_to_player_adds_counter():
+    """Pikachu's redesigned trigger: +1/+1 counter when it damages a player.
+    Counter is the snowball — Pikachu grows turn after turn.
+    """
+    print("\n=== Pikachu: damage to player adds counter ===")
     game = Game()
     p1 = game.add_player("P1")
     p2 = game.add_player("P2")
     pk = _put_on_battlefield(game, p1, "Pikachu, Thunder Champion")
 
-    # Player damage → draw fires.
+    # Player damage → counter fires.
     before = len(game.state.event_log)
     game.emit(Event(
         type=EventType.DAMAGE,
-        payload={'target': p2.id, 'amount': 2, 'source': pk.id, 'is_combat': True},
+        payload={'target': p2.id, 'amount': 1, 'source': pk.id, 'is_combat': True},
         source=pk.id,
     ))
     new = game.state.event_log[before:]
-    draws = [e for e in new if e.type == EventType.DRAW
-             and e.payload.get('player') == p1.id]
-    assert draws, f"Pikachu should DRAW on player combat damage; got {[e.type.name for e in new]}"
-    print(f"  Player damage → {len(draws)} DRAW event(s)")
+    counters = [e for e in new if e.type == EventType.COUNTER_ADDED
+                and e.payload.get('object_id') == pk.id
+                and e.payload.get('counter_type') == '+1/+1']
+    assert counters, f"Pikachu should gain a +1/+1 counter; got {[e.type.name for e in new]}"
+    print(f"  Player damage → +1/+1 counter on Pikachu")
 
-    # Creature damage → NO draw.
+    # Creature damage → NO counter.
     foe = _make_opponent_creature(game, p2)
     before = len(game.state.event_log)
     game.emit(Event(
@@ -182,9 +207,9 @@ def test_pikachu_combat_damage_to_player_emits_draw():
         source=pk.id,
     ))
     new = game.state.event_log[before:]
-    draws = [e for e in new if e.type == EventType.DRAW]
-    assert not draws, f"Pikachu must NOT draw on creature damage; got {draws}"
-    print(f"  Creature damage → no DRAW (correct)")
+    counters = [e for e in new if e.type == EventType.COUNTER_ADDED]
+    assert not counters, f"Pikachu must NOT gain counter on creature damage; got {counters}"
+    print(f"  Creature damage → no counter (correct)")
 
 
 # ============================================================================
@@ -219,24 +244,26 @@ def test_master_ball_loads_as_legendary_artifact():
 # Volcanic Mantle
 # ============================================================================
 
-def test_volcanic_mantle_loads_as_equipment():
-    print("\n=== Volcanic Mantle: load ===")
+def test_volcanic_mantle_loads_as_legendary_enchantment():
+    print("\n=== Volcanic Mantle: load (Enchantment) ===")
     game = Game()
     p1 = game.add_player("P1")
     vm = _put_on_battlefield(game, p1, "Volcanic Mantle")
-    assert "Equipment" in vm.characteristics.subtypes
+    assert CardType.ENCHANTMENT in vm.characteristics.types
     assert "Legendary" in (vm.characteristics.supertypes or set())
     print(f"  Loaded with {len(vm.interceptor_ids)} interceptors")
 
 
-def test_volcanic_mantle_grants_pt_haste_trample_on_attach():
-    """ATTACH event with canonical {object_id, target_id} keys grants the
-    +3/+1, haste, trample bundle."""
-    print("\n=== Volcanic Mantle: attach grants buffs ===")
+def test_volcanic_mantle_buffs_red_attacker():
+    """ATTACK_DECLARED by a red creature you control → +1/+1 + trample."""
+    print("\n=== Volcanic Mantle: red attack buff ===")
     game = Game()
     p1 = game.add_player("P1")
+    p2 = game.add_player("P2")
     vm = _put_on_battlefield(game, p1, "Volcanic Mantle")
-    creature = game.create_object(
+
+    # Red attacker triggers the buff.
+    red_attacker = game.create_object(
         name="Charmander",
         owner_id=p1.id,
         zone=ZoneType.BATTLEFIELD,
@@ -247,18 +274,47 @@ def test_volcanic_mantle_grants_pt_haste_trample_on_attach():
             power=2, toughness=1,
         ),
     )
-    base_p, base_t = get_power(creature, game.state), get_toughness(creature, game.state)
-
+    before = len(game.state.event_log)
     game.emit(Event(
-        type=EventType.ATTACH,
-        payload={'object_id': vm.id, 'target_id': creature.id},
-        source=vm.id,
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': red_attacker.id, 'attacker': red_attacker.id,
+                 'defender': p2.id},
+        source=red_attacker.id,
     ))
+    new = game.state.event_log[before:]
+    pump = [e for e in new if e.type == EventType.PT_MODIFICATION
+            and e.payload.get('object_id') == red_attacker.id
+            and e.payload.get('power_mod') == 1]
+    trample = [e for e in new if e.type == EventType.GRANT_KEYWORD
+               and e.payload.get('object_id') == red_attacker.id
+               and e.payload.get('keyword') == 'trample']
+    assert pump, f"Red attacker should get +1/+1; got {[e.type.name for e in new]}"
+    assert trample, f"Red attacker should get trample"
+    print(f"  Red attacker got +1/+1 and trample")
 
-    new_p, new_t = get_power(creature, game.state), get_toughness(creature, game.state)
-    assert new_p - base_p == 3, f"Equipped creature should get +3 power; got {new_p - base_p}"
-    assert new_t - base_t == 1, f"Equipped creature should get +1 toughness; got {new_t - base_t}"
-    print(f"  Stats: {base_p}/{base_t} → {new_p}/{new_t} (+3/+1 confirmed)")
+    # Non-red attacker: no buff.
+    blue_attacker = game.create_object(
+        name="Magikarp",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            colors={Color.BLUE},
+            power=1, toughness=1,
+        ),
+    )
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': blue_attacker.id, 'attacker': blue_attacker.id,
+                 'defender': p2.id},
+        source=blue_attacker.id,
+    ))
+    new = game.state.event_log[before:]
+    pump = [e for e in new if e.type == EventType.PT_MODIFICATION
+            and e.payload.get('object_id') == blue_attacker.id]
+    assert not pump, f"Non-red attacker should NOT be buffed; got {pump}"
+    print(f"  Blue attacker not buffed (correct)")
 
 
 # ============================================================================
@@ -315,8 +371,10 @@ def test_hyper_beam_loads_as_sorcery():
     print("  Hyper Beam is a sorcery with resolve= and 1 target")
 
 
-def test_hyper_beam_resolve_deals_6_damage():
-    """resolve() returns one DAMAGE event for 6 to the chosen target."""
+def test_hyper_beam_resolve_deals_4_damage():
+    """resolve() returns one DAMAGE event for 4 to the chosen target.
+    R5 redesign lowered cost to {1}{R} and damage to 4 (was {2}{R}{R}/6).
+    """
     print("\n=== Hyper Beam: resolve damage ===")
     cd = POKEMON_HORIZONS_CARDS["Hyper Beam"]
     game = Game()
@@ -324,18 +382,15 @@ def test_hyper_beam_resolve_deals_6_damage():
     p2 = game.add_player("P2")
     foe = _make_opponent_creature(game, p2, "Foe", power=3, toughness=6)
 
-    # Build a fake "spell object" stand-in (resolve takes a spell-shaped obj).
-    class _Spell:
-        id = "spell_stub"
     class _Tgt:
         object_id = foe.id
 
-    events = cd.resolve(_Spell(), game.state, [_Tgt()])
+    events = cd.resolve([_Tgt()], game.state)
     assert len(events) == 1
     assert events[0].type == EventType.DAMAGE
-    assert events[0].payload.get('amount') == 6
+    assert events[0].payload.get('amount') == 4
     assert events[0].payload.get('target') == foe.id
-    print("  Hyper Beam resolves to 6 damage at the chosen target")
+    print("  Hyper Beam resolves to 4 damage at the chosen target")
 
 
 # ============================================================================
@@ -361,19 +416,19 @@ def test_all_8_spice_cards_in_registry():
 
 if __name__ == "__main__":
     test_charizard_mega_loads_with_flying()
-    test_charizard_mega_etb_emits_damage()
+    test_charizard_mega_chains_on_red_spell_cast()
     test_moltres_loads_with_flying_haste()
     test_moltres_death_sets_return_flag()
     test_pikachu_loads_with_haste()
-    test_pikachu_combat_damage_to_player_emits_draw()
+    test_pikachu_damage_to_player_adds_counter()
     test_eevee_loads_with_etb_search()
     test_master_ball_loads_as_legendary_artifact()
-    test_volcanic_mantle_loads_as_equipment()
-    test_volcanic_mantle_grants_pt_haste_trample_on_attach()
+    test_volcanic_mantle_loads_as_legendary_enchantment()
+    test_volcanic_mantle_buffs_red_attacker()
     test_reshiram_loads_with_flying_trample_and_cost_reduction()
     test_reshiram_etb_emits_damage_to_threat()
     test_hyper_beam_loads_as_sorcery()
-    test_hyper_beam_resolve_deals_6_damage()
+    test_hyper_beam_resolve_deals_4_damage()
     test_all_8_spice_cards_in_registry()
     print("\n============================================================")
     print("ALL POKEMON HORIZONS SPICE TESTS PASSED!")
