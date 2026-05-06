@@ -2156,46 +2156,47 @@ EEVEE_VESSEL = make_creature(
 # (Numel, Slugma, Charmander, etc.) from one-turn-late blockers into
 # immediate beatdown.
 def master_ball_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you cast a creature spell with mana value 3 or less, that
-    creature gains haste until end of turn (granted on resolve via a
-    delayed GRANT_KEYWORD on the resolved spell's permanent).
+    """Whenever a creature with mana value 3 or less enters the battlefield
+    under your control, put a +1/+1 counter on it and it gains haste until
+    end of turn.
+
+    v4 redesign: previous spell-cast version granted the counter to the
+    spell on the stack; the counter often didn't transfer to the resolved
+    permanent (deck winrate 25%). Switching to an ETB-listener pattern
+    (ZONE_CHANGE → BATTLEFIELD filter) so the counter lands on the actual
+    creature object.
     """
-    def cheap_creature_filter(event: Event, st: GameState, src: GameObject) -> bool:
-        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+    def cheap_creature_etb_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
             return False
-        caster = event.payload.get('caster') or event.payload.get('controller') or event.controller
-        if caster != src.controller:
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
             return False
-        spell_id = event.payload.get('spell_id') or event.payload.get('object_id') or event.payload.get('source')
-        spell = st.objects.get(spell_id) if spell_id else None
-        if not spell:
+        target_id = event.payload.get('object_id')
+        target = st.objects.get(target_id) if target_id else None
+        if not target:
             return False
-        if CardType.CREATURE not in (spell.characteristics.types or set()):
+        if target.controller != obj.controller:
             return False
-        cost_str = spell.characteristics.mana_cost or ""
+        if target.id == obj.id:
+            return False
+        if CardType.CREATURE not in (target.characteristics.types or set()):
+            return False
+        cost_str = target.characteristics.mana_cost or ""
         try:
             mv = ManaCost.parse(cost_str).mana_value
         except Exception:
             mv = 99
-        if mv > 3:
-            return False
-        # Don't fire for Master Ball itself (it's an artifact, not a
-        # creature, but defensively skip).
-        return spell.id != src.id
+        return mv <= 3
 
     def buff_and_haste_effect(event: Event, st: GameState) -> list[Event]:
-        spell_id = event.payload.get('spell_id') or event.payload.get('object_id') or event.payload.get('source')
-        if not spell_id:
+        target_id = event.payload.get('object_id')
+        if not target_id:
             return []
-        # v3.5+: previous version granted only haste — capability test
-        # showed cast/game 1.00 but deck win 29% (not carrying). Adding
-        # a +1/+1 counter makes Master Ball a real lord on cheap creatures
-        # rather than just a tempo accelerator.
         return [
             Event(
                 type=EventType.GRANT_KEYWORD,
                 payload={
-                    'object_id': spell_id,
+                    'object_id': target_id,
                     'keyword': 'haste',
                     'duration': 'end_of_turn',
                 },
@@ -2204,7 +2205,7 @@ def master_ball_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             Event(
                 type=EventType.COUNTER_ADDED,
                 payload={
-                    'object_id': spell_id,
+                    'object_id': target_id,
                     'counter_type': '+1/+1',
                     'amount': 1,
                 },
@@ -2212,13 +2213,24 @@ def master_ball_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             ),
         ]
 
-    return [
-        make_spell_cast_trigger(
-            obj,
-            buff_and_haste_effect,
-            filter_fn=cheap_creature_filter,
-        ),
-    ]
+    # Generic REACT interceptor — make_etb_trigger only fires for the
+    # source object's own ETB; we need to listen for ANY cheap-creature
+    # ETB on our side.
+    from src.engine.types import Interceptor as _Inter, InterceptorPriority, InterceptorAction, InterceptorResult as _Res
+    from src.engine import new_id as _new_id
+
+    def _handler(event: Event, st: GameState) -> _Res:
+        return _Res(action=InterceptorAction.REACT, new_events=buff_and_haste_effect(event, st))
+
+    return [_Inter(
+        id=_new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=cheap_creature_etb_filter,
+        handler=_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 # Local import to keep ManaCost in scope for master_ball_setup's filter.
@@ -2230,9 +2242,9 @@ MASTER_BALL = make_artifact(
     mana_cost="{1}{R}",
     supertypes={"Legendary"},
     text=(
-        "Whenever you cast a creature spell with mana value 3 or less, "
-        "that creature enters with a +1/+1 counter and gains haste "
-        "until end of turn."
+        "Whenever a creature with mana value 3 or less enters the "
+        "battlefield under your control, put a +1/+1 counter on it "
+        "and it gains haste until end of turn."
     ),
     setup_interceptors=master_ball_setup,
 )
