@@ -73,14 +73,42 @@ It builds a 60-card synergy deck (4 of focal + 2 of each partner from
 `<set>_synergies.py` + filler + 24 lands), plays it vs the generic
 baseline, and reports:
 
-- **focal cast/copy** — does it actually get played?
-- **focal win-rate-when-in-play** — when it lands, does it win?
-- **capability_score = cast × winrate-in-play** (target ≥ 0.30)
+- **focal cast/game** — in how many games does the focal land at least
+  once? (With focal-in-opener stacking enabled by default, only 1 of 4
+  deck copies is forced to the top — `cast/copy` is capped at 0.25 even
+  in perfect play, so `cast/game` is the natural unit.)
+- **focal win-rate-when-in-play** — for permanents (creatures, equipment,
+  enchantments), the rate at which the focal is on the battlefield at
+  game end on the winning side.
+- **capability_score** = cast/game × win-correlation. **Threshold ≥ 0.30**.
 
-A passing card means: in its supported deck, the focal lands often AND
-the deck wins when it does. A failing card needs a redesign (usually:
-cheaper cost so it actually casts in 14-turn games, or a chain trigger
-that scales with the synergy package, not a standalone effect).
+The win-correlation differs by card type:
+- **Permanents**: WR-in-play (the focal is on the board at game end and
+  the deck won)
+- **One-shot spells (sorceries / instants without a creature side)**:
+  `synergy_deck_winrate` (the deck's overall winrate). Sorceries always
+  go to graveyard after resolving so WR-in-play would always be 0% — the
+  deck-winrate substitution is correct.
+
+A passing card means: in its supported deck, the focal lands in 30%+ of
+games AND the deck wins. A failing card needs redesign (usually: cheaper
+cost so it actually casts in 14-turn games, or a chain trigger that scales
+with the synergy package instead of a standalone effect).
+
+### Methodology — why focal-in-opener
+
+Without stacking the focal into the opening hand, you measure two things
+at once: "did the card get drawn?" and "did the deck win when it did?"
+Draw variance dominates the signal at small sample sizes. The right
+question for build-around testing is the second one alone — *given* the
+card lands, does it carry?
+
+The harness implements this via a `pre_start_hook` on `play_one_game`
+that moves a focal copy to the top of p1's library after shuffle. It's
+on by default; pass `--no-focal-in-opener` to opt out for a "natural
+draw" variance experiment. Real MTG playtesting follows the same
+convention — when you're testing whether a card is good, you stack the
+deck so the card is in your opening hand.
 
 ## Synergy package convention
 
@@ -438,3 +466,52 @@ The v2 redesign:
 Apply this to future spice passes: target pattern 11 explicitly when
 you want a "build-around mythic" feel. Always run the capability test
 before committing the card.
+
+### v3.5 — methodology refinements
+
+The v2 redesign + capability test cycle exposed two more measurement
+gaps. Fixed in v3.5 (commit `fbbb459` and `1a45ce8`):
+
+1. **Engine targeting passes `[[Target(...)]]` for single-target spells.**
+   The resolve function gets a double-nested list, not a single Target.
+   Spells (Hyper Beam) crashed every cast with "TypeError: unhashable
+   type: 'list'". The defensive resolve pattern now is:
+
+   ```python
+   def resolve(targets, state):
+       if not targets:
+           return []
+       t = targets[0]
+       if isinstance(t, list):       # double-nested wrapper
+           t = t[0] if t else None
+       if t is None:
+           return []
+       if isinstance(t, str):
+           target_id = t
+       elif hasattr(t, 'object_id'): # older test stubs
+           target_id = t.object_id
+       elif hasattr(t, 'id'):        # real Target dataclass
+           target_id = t.id
+       ```
+
+   `sith_resurgence_resolve` and any other custom-set resolve function
+   have the same latent bug if they use the simple `targets[0].object_id
+   if hasattr(targets[0], 'object_id') else targets[0]` pattern. Fix
+   them when you trip them.
+
+2. **Cast/copy was the wrong metric for build-around testing.** With
+   focal-in-opener stacking 1 copy and 4 in the deck, cast/copy ceiling
+   is 0.25 — the threshold of 0.30 was numerically unreachable. v3.5
+   switched to cast/game (ceiling 1.0+ per game) which is the natural
+   unit. The threshold of 0.30 means roughly "lands in 30%+ of games."
+
+3. **WR-in-play is meaningless for sorceries.** They go to graveyard
+   immediately after resolving, so the "permanent on the board at game
+   end" measurement always gives 0%. The sorcery-aware metric uses
+   `synergy_deck_winrate` for non-permanents instead — captures "did
+   the deck win in games where the spell was cast" without requiring
+   the spell to persist.
+
+After these fixes: PKH redesigned v2 cards moved from **0/8 PASS** under
+the v2 metric to **6/8 PASS** under v3.5 — same cards, same redesign,
+just measured correctly.

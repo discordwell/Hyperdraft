@@ -174,42 +174,68 @@ def test_pikachu_loads_with_haste():
     print(f"  Loaded with {len(pk.interceptor_ids)} interceptors")
 
 
-def test_pikachu_damage_to_player_adds_counter():
-    """Pikachu's redesigned trigger: +1/+1 counter when it damages a player.
-    Counter is the snowball — Pikachu grows turn after turn.
+def test_pikachu_team_player_damage_adds_counter():
+    """v3.5 redesign: Pikachu gathers +1/+1 counters when ANY of your
+    creatures (not just Pikachu) deals damage to a player. Build-around:
+    every successful attacker grows the focal, so the deck's natural
+    plays compound on Pikachu without him having to push through.
     """
-    print("\n=== Pikachu: damage to player adds counter ===")
+    print("\n=== Pikachu: team player damage adds counter ===")
     game = Game()
     p1 = game.add_player("P1")
     p2 = game.add_player("P2")
     pk = _put_on_battlefield(game, p1, "Pikachu, Thunder Champion")
 
-    # Player damage → counter fires.
+    # A different friendly creature deals damage to a player → Pikachu grows.
+    ally = game.create_object(
+        name="Charmander",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes={"Pokemon"},
+            colors={Color.RED},
+            power=2, toughness=1,
+        ),
+    )
     before = len(game.state.event_log)
     game.emit(Event(
         type=EventType.DAMAGE,
-        payload={'target': p2.id, 'amount': 1, 'source': pk.id, 'is_combat': True},
-        source=pk.id,
+        payload={'target': p2.id, 'amount': 2, 'source': ally.id, 'is_combat': True},
+        source=ally.id,
     ))
     new = game.state.event_log[before:]
     counters = [e for e in new if e.type == EventType.COUNTER_ADDED
                 and e.payload.get('object_id') == pk.id
                 and e.payload.get('counter_type') == '+1/+1']
-    assert counters, f"Pikachu should gain a +1/+1 counter; got {[e.type.name for e in new]}"
-    print(f"  Player damage → +1/+1 counter on Pikachu")
+    assert counters, f"Pikachu should gain a counter from ally damage; got {[e.type.name for e in new]}"
+    print(f"  Ally damage to player → +1/+1 counter on Pikachu")
 
-    # Creature damage → NO counter.
+    # Damage to a creature: no counter.
     foe = _make_opponent_creature(game, p2)
     before = len(game.state.event_log)
     game.emit(Event(
         type=EventType.DAMAGE,
-        payload={'target': foe.id, 'amount': 2, 'source': pk.id, 'is_combat': True},
-        source=pk.id,
+        payload={'target': foe.id, 'amount': 2, 'source': ally.id, 'is_combat': True},
+        source=ally.id,
     ))
     new = game.state.event_log[before:]
     counters = [e for e in new if e.type == EventType.COUNTER_ADDED]
-    assert not counters, f"Pikachu must NOT gain counter on creature damage; got {counters}"
+    assert not counters, f"Damage to a creature must NOT add counter; got {counters}"
     print(f"  Creature damage → no counter (correct)")
+
+    # Opponent's creature damages player: no counter (must be your team).
+    enemy = _make_opponent_creature(game, p2, "Enemy", power=2, toughness=2)
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'target': p1.id, 'amount': 2, 'source': enemy.id, 'is_combat': True},
+        source=enemy.id,
+    ))
+    new = game.state.event_log[before:]
+    counters = [e for e in new if e.type == EventType.COUNTER_ADDED]
+    assert not counters, f"Opp's creature damage must NOT grow Pikachu; got {counters}"
+    print(f"  Opponent damage → no counter (correct)")
 
 
 # ============================================================================
@@ -420,7 +446,7 @@ if __name__ == "__main__":
     test_moltres_loads_with_flying_haste()
     test_moltres_death_sets_return_flag()
     test_pikachu_loads_with_haste()
-    test_pikachu_damage_to_player_adds_counter()
+    test_pikachu_team_player_damage_adds_counter()
     test_eevee_loads_with_etb_search()
     test_master_ball_loads_as_legendary_artifact()
     test_volcanic_mantle_loads_as_legendary_enchantment()

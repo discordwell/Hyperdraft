@@ -2024,17 +2024,29 @@ MOLTRES_PHOENIX = make_creature(
 # only won 40% — Pikachu wasn't the win condition. New shape: Pikachu
 # grows itself, becoming a real threat as combats stack.
 def pikachu_champion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Self haste. Whenever Pikachu deals damage to a player, put a +1/+1
-    counter on it. Build-around: any haste/evasion enabler that gets
-    Pikachu through to a player turn after turn turns it from 1/1 → 2/2 →
-    3/3 → ...
+    """Self haste + menace. Whenever ANY creature you control deals
+    damage to a player, put a +1/+1 counter on Pikachu. v3.5 redesign:
+    the prior "self damage → self counter" required Pikachu to push
+    through every turn — once blocked, the snowball stalled. The
+    gather-counters-from-team pattern lets every successful attacker
+    grow Pikachu, so the deck's natural plays compound on the focal.
+    Menace makes Pikachu itself harder to chump-block.
     """
     def affects_self(target: GameObject, st: GameState) -> bool:
         return target.id == obj.id
 
-    def add_counter_on_player_damage(event: Event, st: GameState) -> list[Event]:
+    def add_counter_on_team_player_damage(event: Event, st: GameState) -> list[Event]:
         target_id = event.payload.get('target')
         if target_id not in st.players:
+            return []
+        # Source must be a creature you control.
+        source_id = event.payload.get('source')
+        source = st.objects.get(source_id) if source_id else None
+        if not source:
+            return []
+        if source.controller != obj.controller:
+            return []
+        if CardType.CREATURE not in (source.characteristics.types or set()):
             return []
         return [Event(
             type=EventType.COUNTER_ADDED,
@@ -2046,13 +2058,33 @@ def pikachu_champion_setup(obj: GameObject, state: GameState) -> list[Intercepto
             source=obj.id,
         )]
 
+    # Use a generic REACT-priority interceptor since make_damage_trigger
+    # filters on `payload.source == self.id` — we need to listen for
+    # damage from ANY of the controller's creatures, not just Pikachu.
+    from src.engine.types import Interceptor as _Inter, InterceptorPriority, InterceptorAction, InterceptorResult as _Res
+    from src.engine import new_id as _new_id
+
+    def _filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        target_id = event.payload.get('target')
+        return target_id in st.players
+
+    def _handler(event: Event, st: GameState) -> _Res:
+        new_events = add_counter_on_team_player_damage(event, st)
+        return _Res(action=InterceptorAction.REACT, new_events=new_events)
+
     return [
-        make_keyword_grant(obj, ['haste'], affects_self),
-        # combat_only=False intentional: any damage to a player counts
-        # (e.g. Pikachu pushed through an unblockable trigger). Re-fire
-        # on the COUNTER_ADDED is impossible because the trigger filters
-        # on DAMAGE event type.
-        make_damage_trigger(obj, add_counter_on_player_damage, combat_only=False),
+        make_keyword_grant(obj, ['haste', 'menace'], affects_self),
+        _Inter(
+            id=_new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=_filter,
+            handler=_handler,
+            duration='while_on_battlefield',
+        ),
     ]
 
 
@@ -2064,8 +2096,8 @@ PIKACHU_CHAMPION = make_creature(
     subtypes={"Pokemon", "Mouse"},
     supertypes={"Legendary"},
     text=(
-        "Haste. Whenever Pikachu deals damage to a player, put a "
-        "+1/+1 counter on it."
+        "Haste, menace. Whenever a creature you control deals damage to "
+        "a player, put a +1/+1 counter on Pikachu."
     ),
     setup_interceptors=pikachu_champion_setup,
 )
@@ -2151,24 +2183,39 @@ def master_ball_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         # creature, but defensively skip).
         return spell.id != src.id
 
-    def grant_haste_effect(event: Event, st: GameState) -> list[Event]:
+    def buff_and_haste_effect(event: Event, st: GameState) -> list[Event]:
         spell_id = event.payload.get('spell_id') or event.payload.get('object_id') or event.payload.get('source')
         if not spell_id:
             return []
-        return [Event(
-            type=EventType.GRANT_KEYWORD,
-            payload={
-                'object_id': spell_id,
-                'keyword': 'haste',
-                'duration': 'end_of_turn',
-            },
-            source=obj.id,
-        )]
+        # v3.5+: previous version granted only haste — capability test
+        # showed cast/game 1.00 but deck win 29% (not carrying). Adding
+        # a +1/+1 counter makes Master Ball a real lord on cheap creatures
+        # rather than just a tempo accelerator.
+        return [
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={
+                    'object_id': spell_id,
+                    'keyword': 'haste',
+                    'duration': 'end_of_turn',
+                },
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={
+                    'object_id': spell_id,
+                    'counter_type': '+1/+1',
+                    'amount': 1,
+                },
+                source=obj.id,
+            ),
+        ]
 
     return [
         make_spell_cast_trigger(
             obj,
-            grant_haste_effect,
+            buff_and_haste_effect,
             filter_fn=cheap_creature_filter,
         ),
     ]
@@ -2184,7 +2231,8 @@ MASTER_BALL = make_artifact(
     supertypes={"Legendary"},
     text=(
         "Whenever you cast a creature spell with mana value 3 or less, "
-        "that creature gains haste until end of turn."
+        "that creature enters with a +1/+1 counter and gains haste "
+        "until end of turn."
     ),
     setup_interceptors=master_ball_setup,
 )
