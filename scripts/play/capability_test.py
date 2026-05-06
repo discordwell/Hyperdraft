@@ -360,13 +360,21 @@ def run_capability_test(
     cast_per_copy = (cast_total / deck_copies_total) if deck_copies_total else 0.0
     cast_per_game = (cast_total / completed) if completed else 0.0
     win_rate_in_play = (on_winning_total / in_play_total) if in_play_total else 0.0
-    # Capability score uses cast_per_game (not cast_per_copy) because
-    # with focal_in_opener=True, only 1 of the 4 deck copies is forced
-    # to the top — cast_per_copy can't exceed 0.25 even in perfect play.
-    # cast_per_game is the natural unit: "in how many games does the
-    # focal land?" Times win-rate-when-in-play, this is the answer to
-    # "is this card actually carrying the deck?"
-    capability_score = cast_per_game * win_rate_in_play
+    # Capability score = cast_per_game × win-correlation. For permanents
+    # (creatures, artifacts, enchantments, equipment) the win-correlation
+    # is win-rate-when-in-play (WR-IP) — they're on the board at game
+    # end. For one-shot spells (instants, sorceries) WR-IP is always 0
+    # because the spell goes to graveyard after resolving; the natural
+    # win-correlation there is the synergy deck's overall winrate.
+    # Detect via the focal card's types.
+    focal_def = set_cards.get(focal_name)
+    is_permanent = True
+    if focal_def is not None:
+        types = focal_def.characteristics.types or set()
+        if (CardType.SORCERY in types or CardType.INSTANT in types) and CardType.CREATURE not in types:
+            is_permanent = False
+    win_correlation = win_rate_in_play if is_permanent else win_rate
+    capability_score = cast_per_game * win_correlation
 
     return {
         "focal": focal_name,
@@ -380,6 +388,7 @@ def run_capability_test(
         "focal_cast_per_copy": round(cast_per_copy, 3),
         "focal_cast_per_game": round(cast_per_game, 3),
         "focal_win_rate_in_play": round(win_rate_in_play, 3),
+        "focal_is_permanent": is_permanent,
         "capability_score": round(capability_score, 3),
         "focal_dmg_per_game": round(dmg_total / max(completed, 1), 1),
         "focal_kills_per_game": round(kills_total / max(completed, 1), 2),

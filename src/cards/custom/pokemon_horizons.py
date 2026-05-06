@@ -2377,10 +2377,28 @@ RESHIRAM = make_creature(
 # Lowered to {1}{R} for 4 damage — fits the "Lightning Bolt at 1 damage less"
 # slot, slots cleanly onto curve, finishes opponents faster.
 def hyper_beam_resolve(targets: list, state: GameState) -> list[Event]:
-    """Deal 4 damage to target creature or player."""
+    """Deal 4 damage to target creature or player.
+
+    The engine sometimes passes `targets` double-nested
+    (`[[Target(...)]]` for single-target sorceries). Handle that, plus
+    real `Target` objects (`.id`) and older test stubs (`.object_id`).
+    """
     if not targets:
         return []
-    target_id = targets[0].object_id if hasattr(targets[0], 'object_id') else targets[0]
+    t = targets[0]
+    # Unwrap the inner list if double-nested.
+    if isinstance(t, list):
+        if not t:
+            return []
+        t = t[0]
+    if isinstance(t, str):
+        target_id = t
+    elif hasattr(t, 'object_id'):
+        target_id = t.object_id
+    elif hasattr(t, 'id'):
+        target_id = t.id
+    else:
+        target_id = t
     return [Event(
         type=EventType.DAMAGE,
         payload={'target': target_id, 'amount': 4},
