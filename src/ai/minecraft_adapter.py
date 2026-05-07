@@ -209,12 +209,28 @@ MC_BIAS_PRESETS: dict[str, dict] = {
         # was previously hitting smart-blocker's threat-sort, not
         # this preset's chump rule — that's now the genuine preset
         # behavior.
+        # 2026-05-07 (v5, builder mirror Draw in 36T):
+        # weapon_no_bed_penalty 28 → 40: penalty=28 still failed to
+        # suppress weapon equip in the builder context (AI equipped
+        # Iron Sword at T6 with no Bed in play). Builder's higher
+        # structure-score base inflates overall card scores, so the
+        # same Iron Sword (15 + mc_attack=4 = 19) now nets 19-40=-21,
+        # strongly suppressed under any affordable alternative.
+        # 2026-05-07 (v8, builder mirror LOSS at T39):
+        # No knob changes this iter — pilot LOST, meaning no confirmed
+        # exploitable weakness was found, so the coach makes no patches.
+        # Flagged for future investigation: AI places Bed in the most
+        # recently cleared front slot (contested column) rather than a
+        # protected column (with Water Bucket Moat). A future
+        # `bed_prefer_protected_column` knob could bias Bed placement
+        # toward Moat-protected columns — but requires a future iter
+        # confirming this is exploitable before applying.
         worker_bonus_under_3=80, worker_bonus_first=30,
         turnbonus_struct_bonus=5, explore_map_bonus=15,
         strip_mine_bonus=15, find_diamonds_bonus=10, chop_trees_bonus=25,
         untap_worker_bonus=30, nether_expedition_bonus=10,
         early_big_mob_penalty=10, late_big_mob_bonus=5,
-        weapon_no_bed_penalty=28, bed_search_bonus=40,
+        weapon_no_bed_penalty=40, bed_search_bonus=40,  # 28→40: suppress weapon equip w/o Bed in builder context
         worker_bonus_cap=2,
         attack_priority="structure_first", block_mode="chump_anything",
     ),

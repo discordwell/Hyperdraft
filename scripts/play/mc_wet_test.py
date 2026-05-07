@@ -216,18 +216,21 @@ def cmd_start(args) -> None:
 
     asyncio.run(game.start_game())
 
+    two_pilot = getattr(args, "two_pilot", False)
     payload = {
         "game": game,
         "p1_id": p1.id,
         "p2_id": p2.id,
         "ai_bias": args.ai_bias,
+        "two_pilot": two_pilot,
         "history": [],  # log of (turn, actor, action_str)
     }
     _save(payload)
     print(f"Started game: P1={p1.id[:8]} (me, deck={args.my_deck}) vs "
-          f"P2={p2.id[:8]} (AI bias={args.ai_bias}, deck={args.ai_deck})")
-    # If P2 starts, run their turn before printing state
-    if game.state.active_player == p2.id:
+          f"P2={p2.id[:8]} (AI bias={args.ai_bias}, deck={args.ai_deck})"
+          f"{' [two-pilot]' if two_pilot else ''}")
+    # If P2 starts, run their turn before printing state (single-pilot only)
+    if not two_pilot and game.state.active_player == p2.id:
         asyncio.run(game.turn_manager.run_turn())
         payload["history"].append((game.state.turn_number, "AI", "took turn"))
         _save(payload)
@@ -367,16 +370,31 @@ def cmd_attack(args) -> None:
 
 
 def cmd_end_turn(args) -> None:
-    """End my turn, then run AI's next turn, then print state."""
+    """End active player's turn. In single-pilot mode, also runs AI's turn.
+    In two-pilot mode, just rotates active_player — no AI execution."""
     from src.engine.types import Event, EventType
     payload = _load()
     game = payload["game"]
     p1_id = payload["p1_id"]
     p2_id = payload["p2_id"]
+    two_pilot = payload.get("two_pilot", False)
     if game.is_game_over():
         print("Game already over.")
         _print_state(payload)
         return
+
+    if two_pilot:
+        # Rotate active player without running any AI.
+        current = game.state.active_player
+        next_player = p2_id if current == p1_id else p1_id
+        label = "P2" if next_player == p2_id else "P1"
+        asyncio.run(game.turn_manager.run_turn(player_id=next_player))
+        payload["history"].append((game.state.turn_number, label, "begin of turn (two-pilot)"))
+        _save(payload)
+        _print_state(payload)
+        return
+
+    # Single-pilot: hand off to AI (P2), then begin P1's next turn.
     # Manually end my turn by calling turn_manager's end-of-turn flow.
     # Simplest: call run_turn for AI (P2). That advances active_player and
     # triggers the proper begin-of-turn / draw / etc. for AI.
@@ -430,6 +448,8 @@ def main() -> None:
     p_start.add_argument("--ai-bias", default="passive_econ")
     p_start.add_argument("--decks-file", default=None,
                          help="JSON file with custom decks (same shape as deck tournament)")
+    p_start.add_argument("--two-pilot", action="store_true", default=False,
+                         help="Two-pilot mode: skip AI execution; both seats driven by LLM agents")
     p_start.set_defaults(fn=cmd_start)
 
     p_state = sub.add_parser("state")

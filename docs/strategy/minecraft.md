@@ -118,6 +118,35 @@ Adjust based on game state:
   swing, never both). Schedule the equip turn for a turn you would not
   have mined anyway — i.e., when your hand is dry and you only need to
   deploy the weapon.
+- **avatar_attack hits ONE target only — no overkill propagation.** Each
+  avatar_attack resolves against the single frontmost structure in the
+  chosen column. Any damage exceeding that structure's remaining HP is
+  lost; it does NOT carry through to the next structure behind it. A
+  3-deep column (front + mid + back + avatar) requires 4 separate Night
+  turns to reach face at 1 hit/Night = 8 game-turns minimum. Plan your
+  weapon line accordingly: use mob attackers to clear layers in parallel
+  while the avatar attacks a different layer. Never plan for avatar alone
+  to chain through a column in fewer turns than the depth allows.
+- **Water Bucket Moat blocks mob attacks but NOT avatar weapon attacks.**
+  Mob-lane attacks (mob targeting a structure) pass through Moat
+  blocking logic; avatar weapon attacks bypass it entirely. If the AI
+  has Water Bucket Moats sealing all 3 columns, mob attackers are all
+  absorbed — but avatar_attack proceeds unimpeded to the front structure
+  in any column. Use the avatar for lane-clearing when Moats are present;
+  use mobs for structure-less columns or to chump-block AI attackers.
+- **Empty-column avatar_attack routes to opponent face — but "empty" means
+  ALL three y-depths (y=0, y=1, y=2).** If ANY slot in the column contains
+  a structure at any depth, avatar_attack hits the front-most (highest-y)
+  occupied slot. Face damage only occurs when column_target returns None
+  across all three rows. This is confirmed in engine code
+  (`avatar_attack` line 489: `column_target(...) or opponent`) and verified
+  by a live test (empty col 0 → P2 HP 20→19). Pilot display bug in iter-5:
+  columns that appeared as "all dots" in the grid display had structures at
+  y=0 or y=1 that were not visually prominent — the avatar_attack hit those
+  structures (producing real damage to structure HP but no HP readout change
+  visible in the log), and the pilot misread this as "zero damage". The
+  engine does NOT silently no-op on empty columns. When planning face turns,
+  confirm the column is clear at ALL depths before expecting HP damage.
 
 ---
 
@@ -342,6 +371,21 @@ the **coach** loop should patch them in `MC_BIAS_PRESETS`.
    state, it loses its biggest damage source; force pressure into the
    AI's avatar column when it has equipped without a Bed.
 
+9. **AI places Bed in the most recently cleared front slot, not the safest
+   column.** When the AI has no Bed and a front slot (y=2) is empty,
+   `bed_search_bonus=40` causes the AI to deploy Bed there immediately —
+   regardless of whether that column is contested (recently attacked) or
+   safe (protected by Water Bucket Moats). Iter-4 confirmed: pilot cleared
+   col 1 y=2 at T32, AI placed Bed in that exact slot at T34. This means
+   clearing a front-row structure does NOT open a clean attack lane; within
+   1-2 turns the slot contains a Bed (4 HP + respawn protection). Do NOT
+   plan "clear front → exploit open lane" — the AI refills with a Bed
+   faster than that. The same clearing action that opens the slot gives the
+   AI a Bed slot, which can BACKFIRE: you've cleared a wall and handed the
+   AI respawn protection. Only clear front structures if you can capitalize
+   in the same turn or have enough combined ATK to one-shot through all
+   remaining layers before the Bed lands.
+
 ---
 
 ## Strategy doc changelog
@@ -525,6 +569,451 @@ the **coach** loop should patch them in `MC_BIAS_PRESETS`.
   deploy is correct defensive behavior; the issue isn't AI tuning, it's
   that night_rush's plan didn't account for it. Refined the night_rush
   plan rather than walking the bonus back. Other knobs unchanged.
+
+### v5 — 2026-05-07 (builder mirror vs passive_econ, Draw in 36 turns)
+
+- Pilot ran builder vs builder (AI running `passive_econ`). Game drew at
+  the 35-turn cap (T36). Neither player dealt a single point of direct
+  avatar HP damage through combat targeting across 36 turns — all damage
+  went to structures or was absorbed by respawn cycles. Format-level
+  findings:
+  - **Builder mirror is a structure war.** With both players fielding
+    Chest+Furnace+Farm Plot+Village Watchtower stacks, the avatar is
+    always behind 2-3 structure layers. Normal combat cannot reach the
+    avatar without concentrating 10+ ATK in a single column in one turn.
+  - **AI proactively blocks contested lane every turn with free or cheap
+    structures.** Oak Planks (free) and Iron Door were played reactively
+    into col 2 every time the pilot cleared it. Cycling a 5HP defensive
+    block at ~zero cost is faster than destroying it — don't chase.
+  - **AI rebuilds Village Watchtower (5 HP, W2+S2) in col 2 immediately
+    after it's destroyed.** In a builder mirror with an econ lead, the AI
+    can cycle this structure indefinitely. Clearing the same column 3+
+    times is a zero-EV spiral.
+  - **`weapon_no_bed_penalty=28` still fires in builder context (T6
+    weapon equip with no Bed present).** Iron Sword scores above the
+    penalty at builder scale (more structure-based score base).
+    Penalty raised to 40.
+  - **AI reached 4-5 Workers by endgame despite `worker_bonus_cap=2`.**
+    The cap suppresses the score bonus but the Worker still has a base
+    mob value (~22) and gets played anyway once Worker bonuses stop
+    triggering. A 5th Worker + Wolf Pack = 7 effective ATK — the builder
+    deck's intended finisher.
+- Strategy doc additions (5 bullets in new section below):
+  - Builder deck win condition clarification (structure war, not attrition)
+  - Workers mine XOR attack rule (explicit)
+  - Avatar action mine-vs-attack planning rule
+  - Builder mirror lane strategy (don't cycle, build overwhelming ATK)
+  - AI contested-lane block behavior documented
+- Heuristic AI preset patches: `weapon_no_bed_penalty` 28 → 40 in
+  `passive_econ`. See `MC_BIAS_PRESETS["passive_econ"]` in
+  `src/ai/minecraft_adapter.py`. No other knob changes this iter.
+
+---
+
+## Builder-deck strategic notes
+
+These lessons apply when piloting the builder archetype (Chest, Furnace,
+Farm Plot, Crafting Table as primary structure economy) or when facing it.
+
+- **Builder win condition is NOT attrition.** The builder deck is designed
+  for economy dominance leading to an Iron Golem (3/4) + Wolf Pack
+  (3+Workers ATK: at 4 Workers = 7 ATK) finisher that one-shots through
+  a lightly-defended column. Playing builder like aggro — using Workers as
+  attackers — is the wrong line entirely. Workers mine; dedicated mobs attack.
+
+- **Workers mine XOR attack — never both in the same turn.** A Worker that
+  uses its mining action is tapped and cannot attack that turn. If you need
+  to attack with a mob, do NOT have it mine first. Dedicated attacker mobs
+  (non-Workers) — Village Guard (2/3), Wolf Pack (3/2+), Iron Golem (3/4)
+  — are the only reliable attackers in a Worker-heavy deck.
+
+- **Avatar action: mine vs attack — plan ahead by turn.** If you want to
+  avatar_attack this turn, do NOT mine with avatar (even for day bonus).
+  The day bonus is worth ~1-2W; an Iron Sword attack is 4 direct damage.
+  On turns you want to attack, mine exclusively with Workers and let the
+  avatar swing.
+
+- **Builder mirror is a structure war — build overwhelming ATK, don't
+  cycle lanes.** In mirror, all 3 AI columns are fortified within 6-8
+  turns. The AI refills col 2 with Oak Planks (free) or Iron Door next
+  turn after every clear. Repeatedly punching through col 2 is a zero-EV
+  spiral. Instead, accumulate Wolf Pack (with ≥3 Workers = 6 ATK) as a
+  dedicated attacker; save Iron Golem (3/4) as the finisher once redstone
+  is online. The correct kill turn concentrates 10+ ATK in ONE column to
+  one-shot through 3 layers simultaneously.
+
+- **`passive_econ` blocks contested lanes every turn with free structures.**
+  Whenever a column front becomes empty, AI fills it next turn with
+  Oak Planks (free, ~3 ATK to destroy) or Iron Door. This is faster than
+  clearing — the AI rebuilds before you can exploit the opening. Build
+  overwhelming single-column ATK to clear all layers in one turn rather
+  than grinding the same lane repeatedly.
+
+- **Respawn strips ALL gear slots (weapon AND armor).** When the avatar
+  dies with a Bed up, both the weapon and armor tool slots are cleared.
+  Budget I3 (Iron Armor) + I2 (Iron Sword) = 5 iron per respawn cycle if
+  both are equipped. Avoid committing full gear into a fight where a
+  respawn is likely without accounting for the re-equip cost in the
+  following 2–3 turns.
+
+- **AI Wolf Pack scales beyond 7 ATK.** With 8 Workers on board, Wolf
+  Pack = 3+8=11 ATK — a one-turn-kill on a lightly defended avatar column
+  (clears Oak Planks 3 HP + Bed 4 HP in one swing with 4 overkill damage
+  left for the avatar). Once the AI has 5+ Workers in builder mirror,
+  maintain at least 2 structural layers at your Bed column (front + Bed
+  row) at all times. A single Oak Planks block is not sufficient.
+
+- **Col 2 weapon-attack window: ~4 Night turns.** The AI leaves col 2
+  undefended for approximately 4 Night turns. Timing varies: iter 2 saw
+  T12–T20; iter 3 saw T24–T28. The window opens when both players'
+  defensive structures stabilize and closes when AI plays Iron Door or
+  Village Watchtower into col 2. **Do not plan for a fixed turn number.**
+  Equip Iron Sword (4 ATK > Bow 3 ATK) and watch for the col-2 opening
+  each Night. Iron Sword through an open col 2 = 4 direct HP/Night; Bow
+  through open col 2 = 3 direct HP/Night. Iron Sword is preferred.
+
+- **Wolf Pack + avatar kill-turn sequencing.** On the kill turn, declare
+  Wolf Pack mob attack FIRST (clears the mid-row structure via higher ATK),
+  then declare avatar_attack second through the now-vacated column for
+  direct face damage. Iter 3 confirmed: Wolf Pack (5 ATK) cleared Village
+  Watchtower (5 HP), avatar Iron Sword (4 ATK) hit AI avatar for 4 HP in
+  the same Night turn. This is the confirmed 2-attacker kill-turn pattern.
+
+- **Strip Mine (1S→1I+1R) is mandatory at 2× copies.** In builder mirror,
+  neither player naturally generates redstone from biomes. Without Strip
+  Mine, Iron Golem stays uncastable all game. If no Strip Mine is drawn
+  by T10, the builder win condition (Iron Golem + Wolf Pack burst) is
+  locked out. Mulligan hands with Bed+structures but no Worker AND no
+  Strip Mine more aggressively than the plan suggests.
+
+- **True Kill Sequence assembly is a 5-condition problem — Chest acceleration
+  by T2-4 is mandatory.** The sequence (Iron Golem + Wolf Pack + Iron Sword
+  in one Night) requires simultaneously: (1) Strip Mine drawn and played,
+  (2) I1+R1 accumulated, (3) Iron Golem castable, (4) ≥4 Workers on board,
+  (5) target column with Bed at front and empty mid/back. With only ~2 Strip
+  Mine copies in a 30-card deck, P(not drawing either in 13 turns) ≈ 40%
+  without a draw engine. Chest deployed by T2-4 adds draw each turn; by T10
+  the pilot has drawn ~14 cards instead of 10, cutting the miss probability
+  to ~38%. More importantly: Chest must be deployed EARLY — deploying at T20
+  (as observed in iter-5) provides almost no benefit for finding Strip Mine
+  before the kill window closes. Auto-mulligan any opener without Chest OR
+  Worker when Bed is present; the kill sequence cannot be assembled without
+  both Chest-acceleration and Worker density.
+
+### v6 — 2026-05-07 (builder mirror vs passive_econ iter 2, Draw at T21 play-turns)
+
+- Pilot ran builder vs builder (AI running `passive_econ` with v5 patches:
+  `weapon_no_bed_penalty=40`, `bed_search_bonus=40`, `worker_bonus_cap=2`).
+  Game stopped at my T21 play-turns (state T42). Neither player reached
+  lethal; final HP was Me=20 (Bed-respawned twice), AI=14 HP. Different
+  approach from iter 1: abandoned pure econ and committed to a Bow + Iron
+  Sword weapon attack line targeting undefended col 2. Results:
+  - **First time direct HP damage was dealt in a builder mirror.** 6 HP
+    dealt to AI avatar (17→14 HP window) via col 2 Bow attacks across 4
+    Night turns (T12–T20). Iter 1 dealt zero.
+  - **Col 2 direct-face window is ~4 Night turns.** AI seals the third
+    column with Iron Door or Cobblestone Wall by T19–20. The window for
+    ranged-weapon direct HP damage is short — plan weapon deployment and
+    Worker availability to front-load attacks into T12–T20. After that,
+    all 3 columns are 3-deep and no unblocked path exists.
+  - **Worker drought (zero Workers through T12) broke the weapon plan.**
+    Without Workers mining, avatar must mine OR attack — not both. The
+    "weapon + Workers" synergy never activated. All 4 Night turns of
+    effective Bow attacks came from the avatar mining on Day and attacking
+    on Night, but this forfeits econ every other turn.
+  - **Respawn strips ALL gear slots (weapon + armor both).** Two
+    respawns cost I2 (Iron Sword) + I3 (Iron Armor) = 5 iron each cycle.
+    The strategy doc's "gear is discarded" language undersells the cost —
+    armor is also stripped.
+  - **AI Wolf Pack scales to 11 ATK with 8 Workers.** By T35 AI had 8
+    Workers; Wolf Pack = 3+8=11 ATK. Current doc said "4 Workers = 7 ATK"
+    as the ceiling — wrong. The AI can reach 11+ in builder mirror by T30.
+    This is a one-turn-kill on a lightly defended avatar column.
+  - **`passive_econ` iron mining (iter-2 run-specific): observed 0-5 iron
+    across 42 turns.** The AI accumulated significant stone surplus without
+    mining iron proportionally in this run. Tentatively flagged as a
+    `mining_mode="premium_first"` blind spot — but see v7 correction below.
+  - **Builder mirror is longer than T36.** Game ran to state T42 with no
+    sign of resolution. Effective cap is ~T25 play-turns, not T18.
+- Strategy doc updates:
+  - **"Critical infrastructure: Bed"**: Added note that respawn strips
+    BOTH weapon and armor slots. Budget I3+I2=5 iron per respawn cycle if
+    both equipped; don't commit full gear into a fight without considering
+    the re-equip cost after death.
+  - **"Builder-deck strategic notes"**: Added Wolf Pack scaling note (AI
+    can reach 11 ATK with 8 Workers by T30+). Added 2-layer Bed-column
+    protection rule. Added "Col 2 Bow window" bullet and Strip Mine
+    mandatory-2× rule.
+- Heuristic AI preset: no knob changes this iter. The `mining_mode` blind
+  spot (ignoring iron) was flagged for next iteration — conservative to
+  change mid-loop without a variant tournament comparison.
+  `weapon_no_bed_penalty=40` working. `bed_search_bonus=40` working.
+  `worker_bonus_cap=2` working.
+  **Coach correction (2026-05-07, after iter 3):** The iter-2 claim that
+  `passive_econ` "ignores iron despite huge stone surplus" is NOT confirmed
+  by iter-3 data. Iter-3 AI ended with 25 iron (avg 1.4/turn) via Cave
+  mining with 5 Workers. The iter-2 result appears to be run-specific
+  (fewer Workers or less Cave access). `mining_mode="premium_first"` does
+  NOT skip iron — iron ranks 3rd in the priority order
+  `(diamond, redstone, iron, stone, wood)`. The "blind spot" claimed in
+  this entry is retracted.
+
+### v7 — 2026-05-07 (builder mirror vs passive_econ iter 3, Draw at T36 / 18 play-turns)
+
+- Pilot ran Iron Golem plan (Strip Mine x2 → I1+R1 for Iron Golem) but Strip Mine was never
+  drawn in 18 player turns. Fell back to Iron Sword (T22) + Wolf Pack (T34) weapon line.
+  Final: Me=7 HP, AI=12 HP. 8 direct HP dealt (vs 6 in iter 2). New findings:
+  - **Iron Golem costs I1+R1, NOT I3+R1.** Confirmed from `src/cards/minecraft/alpha.py`:
+    `_cost(iron=1, redstone=1)`. Prior builder_plan.md said "3I+1R" — that was wrong. A single
+    Strip Mine immediately enables Iron Golem. Rewrote builder_plan.md Key cards section.
+  - **`passive_econ` mines iron at normal Cave rates.** AI ended with 25 iron (avg 1.4/turn)
+    via Cave mining with 5 Workers. The iter-2 "AI ignores iron despite 50+ stone surplus"
+    finding is NOT confirmed here. Flagged as run-specific, not a reliable heuristic weakness.
+    The `mining_mode="premium_first"` label does not mean "ignores iron."
+  - **Wolf Pack + avatar double-attack kill-turn sequencing confirmed.** Wolf Pack (5 ATK)
+    cleared Village Watchtower (5 HP), then avatar Iron Sword (4 ATK) hit AI avatar for 4 HP.
+    Declare Wolf Pack mob attack first to clear mid-row structure; avatar_attack second through
+    the vacated column. This is the confirmed 2-attacker kill-turn pattern.
+  - **Col-2 window timing is NOT fixed at T12-T20.** In iter 3 the window appeared at T24-T28
+    (shifted 12 turns vs iter 2). Window timing depends on both players' defensive stabilization,
+    not a fixed turn number. Planning "equip weapon by T8" doesn't help if col-2 doesn't open
+    until T24.
+  - **Strip Mine sparsity (~2/30) makes Iron Golem plan unreliable as primary win condition.**
+    Neither player drew Strip Mine in 18 turns. Any plan relying on Strip Mine needs a Chest
+    or Eyes of Ender draw engine to find it by T6-8 at the latest.
+  - **`weapon_no_bed_penalty=40` working in builder context.** AI held 2x Bow in hand for 10+
+    turns without equipping. Confirmed effective suppression.
+  - **Village Reinforcements (W2+I1) sorcery: Guards may not appear.** Played T4, spent W2+I1,
+    but Village Guards never appeared on battlefield. Possible engine/card resolution bug —
+    flag for investigation.
+- Strategy doc updates:
+  - **"Builder-deck strategic notes"**: Added Wolf Pack kill-turn sequencing note and
+    col-2 window timing correction (not fixed at T12-T20).
+  - **Known heuristic-AI weaknesses**: Qualified `passive_econ` iron-mining claim
+    (now "run-specific observation" not confirmed weakness).
+  - **Iron Golem cost**: Verified actual card cost as I1+R1 (not I3+R1); all doc
+    references corrected.
+  - **v6 changelog**: Added coach correction clarifying the iter-2 iron-mining claim
+    was run-specific and is retracted; `mining_mode="premium_first"` does not skip iron.
+- Heuristic AI preset: no changes this iter. All v5-v6 patches confirmed working. No new
+  weakness patched because the iter-2 iron-mining blind spot is not confirmed as consistent.
+
+### v8 — 2026-05-07 (builder mirror vs passive_econ iter 4, LOSS at T39)
+
+- Pilot ran builder vs builder (AI running `passive_econ` with v5-v7 patches).
+  LOSS at T39 — AI wins at 20 HP, pilot at 1 HP (no Bed). First loss in the
+  builder mirror loop. Root causes: Worker drought (first Worker drawn T12),
+  no Strip Mine drawn (Iron Golem path locked all game), Water Bucket Moats
+  sealed all mob attacks from T8, AI Wolf Pack reached 11 ATK with 8 Workers.
+  Despite the loss, four mechanically critical engine facts were discovered:
+
+  **1. avatar_attack damage does NOT propagate past the first structure.**
+  Prior docs implied overkill damage could chain through to the next
+  structure. This is wrong. T28: Iron Sword (4 ATK) vs Cobblestone Wall
+  (6 HP) → Wall takes 4 damage, drops to 2 HP. No damage reached the
+  Crafting Table behind it. T32: Iron Sword vs Wall (2 HP) → Wall
+  destroyed, column slot empty. No carry-through to rear structures.
+  T36: Iron Sword (4 ATK) vs Bed (4 HP) → Bed destroyed, 0 overkill.
+  Each avatar_attack hits ONE target only — the front occupied structure
+  in the column. Any damage beyond that target's HP is lost. A 3-deep
+  column (front + mid + back + avatar) requires 4 separate avatar_attack
+  turns to reach face. At 1 avatar_attack per 2 game-turns (Night only),
+  that is 8 game-turns minimum from a clear front — the weapon line is
+  fundamentally too slow without mob attackers clearing layers in parallel.
+  The "Wolf Pack clears mid-row, avatar goes face in same turn" pattern
+  from iter 3 works ONLY because Wolf Pack is a SEPARATE mob attack
+  clearing a SEPARATE structure — avatar_attack never chains through
+  multiple structures itself.
+
+  **2. AI reactively places Bed into cleared front slots (y=2).**
+  At T32 the pilot destroyed the Cobblestone Wall at AI col 1 y=2, leaving
+  the slot empty. At T34 (very next turn) the AI placed a NEW Bed in that
+  exact slot. `bed_search_bonus=40` fires when the AI has no Bed AND a
+  front slot is open, placing the Bed in the most vulnerable slot. Clearing
+  a front-row structure does NOT open a clean attack lane — the AI fills it
+  with a Bed (4 HP blocker + respawn protection) within 1 turn. You cannot
+  "soften" a lane by clearing its front structure and expect an open path.
+  Instead, you must have enough combined ATK to clear ALL layers
+  simultaneously in one swing. Documented under "Known heuristic-AI
+  weaknesses" as entry 9.
+
+  **3. Water Bucket Moat blocks mob attacks only, NOT avatar weapon attacks.**
+  AI placed Water Bucket Moats at all 3 columns. Mob attacks were absorbed
+  by chump blockers — the Moat did not trigger on mob-vs-structure combat.
+  Avatar_attack at T28 hit the Cobblestone Wall at col 1 y=2 directly,
+  bypassing any Moat check. Confirmed engine routing: Water Bucket Moat
+  intercepts mob-lane attacks (mob targeting structures), but NOT avatar
+  weapon attacks. Avatar weapon attacks target structures directly and skip
+  Moat blocking. Plan your offensive accordingly: use avatar_attack for
+  lane-clearing, mobs for specific targets.
+
+  **4. True kill sequence requires Iron Golem + Wolf Pack + Iron Sword
+  simultaneously, assembled via Strip Mine by T6.**
+  Minimum viable kill board state: Iron Golem (3/4, I1+R1) + Wolf Pack
+  (4+ ATK with ≥4 Workers) + avatar Iron Sword (4 ATK) attacking in one
+  Night turn = 3+4+4=11+ ATK minimum. Each attacker handles a separate
+  layer: Wolf Pack hits front-row Bed (4 HP, needs ≥4 ATK = 4 Workers),
+  Iron Golem hits mid-row structure (3 ATK), avatar_attack hits back-row
+  or face directly. This only works if the target column is already
+  partially cleared. Requires Strip Mine by T6 (via Chest draw engine) to
+  unlock redstone for Iron Golem. Without Strip Mine, Iron Golem is
+  inaccessible — the builder kill condition is locked out.
+
+- Strategy doc additions: see "Known heuristic-AI weaknesses" (new entry
+  9), avatar_attack section correction (no overkill propagation), and
+  Water Bucket Moat routing rule under "Avatar attacks."
+- Heuristic AI preset patches: **no changes to `passive_econ` bias knobs
+  this iter.** The pilot LOST (could not find an exploitable weakness), so
+  the coach has no confirmed gap to patch. One AI behavioral issue was
+  flagged for future investigation: AI places Bed in the most recently
+  cleared column (the contested lane) rather than in a column protected
+  by Water Bucket Moats. A `bed_prefer_protected_column` knob is noted as
+  a possible future addition — but requires a future iter to confirm it
+  closes a real exploit before applying.
+
+### v9 — 2026-05-07 (builder mirror vs passive_econ iter 5, LOSS at T27)
+
+- Pilot ran builder vs builder (AI running `passive_econ` with v5-v8 patches).
+  LOSS at T27 Night — AI wins at 20 HP, pilot at 11 HP with no Bed.
+  **True kill sequence test**: goal was Iron Golem + Wolf Pack + Iron Sword in
+  one Night. This failed completely: Strip Mine never drawn in 13 player turns
+  (0/2 copies found), both Iron Golem copies uncastable all game. First Worker
+  (Steve's Helper) deployed at T16 — 8 player turns in. Wolf Pack deployed T18
+  with 1 Worker = 4 ATK, died to a blocker T24. Bed destroyed ~T20 with no
+  replacement; HP attrition (5 HP + 4 HP = 9 HP in 2 Night turns) resulted
+  in lethal at T27.
+
+  **Critical finding: avatar_attack on empty columns DOES deal face damage —
+  pilot claim was WRONG. (Code-verified 2026-05-07.)**
+
+  The pilot reported that 3 avatar_attacks on columns displayed as fully empty
+  (all dots in the grid) returned ok=True but dealt zero HP damage. The pilot
+  concluded avatar_attack silently no-ops on empty columns. This is FALSE.
+  Code trace through `src/engine/minecraft.py::avatar_attack` (line 489):
+
+      resolved = column_target(state, opponent, target_column, weapon_keywords) or opponent
+
+  `column_target` returns `None` when the column is clear. `None or opponent`
+  resolves to `opponent` (the player ID string). The DAMAGE event fires with
+  `target = opponent_player_id`. In `src/engine/pipeline/handlers/damage.py::_handle_damage`:
+
+      if target_id in state.players:
+          adapter.apply_player_damage(player, amount, state)
+
+  `MinecraftModeAdapter.apply_player_damage` (mode_adapter.py:744) does:
+
+      player.life -= max(0, amount - reduction)
+
+  Live test confirmation: game instantiated, P2 life started at 20, avatar_attack
+  on empty col 0, P2 life dropped to 19 (HP change = 1). The routing is correct.
+
+  **What actually happened in the pilot game (most likely explanation):**
+  The columns shown as "all dots" at T8 and T12 were NOT fully empty at all
+  grid depths. The display dots may represent front-row (y=2) emptiness only,
+  while y=0 or y=1 slots contained AI structures (Water Bucket Moat at y=2
+  col 1 was placed by T8; other columns may have had structures at y=0/y=1).
+  The avatar_attack struck those non-front structures, dealt HP to them, and
+  since they didn't die (not enough damage to destroy), the visible HP display
+  showed no destroyed card and pilot interpreted this as "zero HP damage".
+  The 0 HP change was structure absorption, not engine no-op.
+
+  **CORRECTION to v6/v7 col-2 face-damage claims:** The v6 and v7 changelogs
+  describe "6 HP dealt to AI avatar via col 2 Bow attacks" and "8 direct HP
+  dealt (20→12)". These claims are accurate — when col 2 was confirmed empty
+  at all grid depths (no structures in ANY y slot), avatar_attack correctly
+  routed to the opponent player's HP. The code routing is `column_target → None
+  → fallback to opponent_player_id → apply_player_damage`. So those iter-2/3
+  HP readings were genuine face damage, not structure absorption. The engine
+  works as intended.
+
+  **Clarifying note added to strategy doc "Avatar attacks" section:** The
+  empty-column routing is explicit: if ALL grid slots in a column are empty
+  (no structure at y=0, y=1, or y=2), avatar_attack routes to the opponent
+  avatar (direct HP). If ANY slot contains a structure, avatar_attack hits
+  the FRONT-MOST structure only. The key distinction for the pilot: check
+  all three y-depths, not just the front row, before concluding a column is
+  "empty" and expecting face damage.
+
+- **Root causes of iter-5 loss (ranked):**
+  1. Strip Mine never drawn in 13 player turns — Iron Golem path locked all
+     game. P(not drawing Strip Mine in 13 draws) ≈ 40% without draw engine.
+  2. Chest draw engine deployed too late (T20 instead of T2-4) — insufficient
+     draw acceleration to find Strip Mine by the kill window.
+  3. Worker drought — first Worker at T16, Wolf Pack at 1 Worker = 4 ATK max,
+     died before scaling.
+  4. Bed lost ~T20 with no replacement — HP attrition unavoidable for final 4
+     Night turns. 9 HP in 2 Nights = lethal.
+  5. Display misread: 3 avatar_attacks believed "wasted" were actually hitting
+     structures (see above). No actual wasted engine actions.
+
+- **Kill sequence assembly difficulty confirmed.** The True Kill Sequence
+  (Iron Golem + Wolf Pack + Iron Sword in one Night) requires 5 simultaneous
+  conditions: (1) Strip Mine drawn AND played, (2) I1+R1 accumulated,
+  (3) Iron Golem castable, (4) ≥4 Workers on board, (5) target column at
+  exactly Bed-front-only with mid/back empty. Natural draw variance makes
+  this nearly impossible without deliberate Chest acceleration by T2-4.
+  Auto-mulligan any hand without Chest OR Worker if Bed is present.
+
+- **Strategy doc additions:**
+  - "Avatar attacks" section: new clarifying note on empty-column routing
+    (all y-depths must be empty for face damage; any structure = structure hit).
+  - "Builder-deck strategic notes": added iter-5 kill-sequence assembly note
+    (5 simultaneous conditions, Chest acceleration mandatory by T2-4).
+- Heuristic AI preset patches: **no changes to `passive_econ` bias knobs.**
+  Pilot lost again with no clear exploitable weakness observed — no bias surface
+  to patch. AI behavior was consistent with v5-v8 patches (Bed placed reactively,
+  `worker_bonus_cap=2` working, `weapon_no_bed_penalty=40` working).
+
+### v10 — 2026-05-07 (P2b iter 1 — two-pilot mode, both pilots stalled)
+
+**Format**: Two LLM pilots (Pilot A = builder/P1, Pilot B = miner/P2) in parallel
+dispatch. Game stalled at Turn 2-3 Night; neither pilot saw the other take their
+turn, both gave up after 10-30+ polls. No combat, no HP damage. No winner.
+
+#### Infrastructure finding (not a strategic finding)
+
+Two-pilot parallel dispatch is fragile. Each pilot polls the shared state file
+(`/tmp/mc_wet_test_state.pkl`) to detect when it is their turn, but neither pilot
+has visibility into the *other* pilot's "thinking / about to move" state. Result:
+if Pilot A finishes its turn and Pilot B's agent loop doesn't wake up in time,
+Pilot B stalls indefinitely — and vice versa. Both agents stalled in this iter
+(Pilot A gave up at T2 waiting for Pilot B; Pilot B gave up at T3 Night waiting
+for Pilot A). A `last_action_player` / `turn_ended_by` marker in the pkl payload
+would allow each pilot to verify the opponent actually completed their turn before
+declaring a stall. This is an infrastructure gap in the harness — not a strategic
+or format finding — and should not affect AI bias presets.
+
+#### Strategic findings (pre-stall observations)
+
+1. **Warden ETB clears all Workers ≤4 toughness — major builder-matchup threat.**
+   Warden's ETB deals 4 damage to ALL enemy mobs. Builder Workers (Steve's Helper
+   1/2, Alex's Scout 2/1, Village Guard 2/3) all die instantly. Panda Forager
+   (2/3) dies. Even Wolf Pack (3/2 base) dies. Only Iron Golem (3/4) survives
+   (takes 4 damage, lives at 0 — confirm exact engine ruling — but is not
+   one-shotted). If a miner pilot times Warden to land when the builder's board
+   is Worker-heavy, the entire builder mob army collapses in one ETB. Builder
+   counter: establish Iron Golem BEFORE the opponent plays Warden. See
+   builder_plan.md "Anticipated weaknesses" for the line.
+
+2. **Miner's T1 Panda Forager (skipping Bed) is an aggressive opening line.**
+   Pilot B's T0 auto-setup (Forest mine → Panda Forager W2, skipping Bed) is a
+   deliberate higher-variance ramp line distinct from the miner plan's standard
+   opener (Chop Trees + Bed + Steve's Helper). The 2/3 body has better combat
+   stats than Steve's Helper (1/2) and blocks more aggressively, but leaves miner
+   Bed-less into T2 with 0 materials and SS on the only Worker. Risk: builder
+   can deal pre-Bed lethal damage if it applies pressure T2-4 before miner's
+   Panda Forager untaps. Reward: Panda Forager's extra HP (2/3 vs 1/2) makes
+   it a more durable mining anchor once untapped.
+
+3. **Miner has stronger late-game finishers than the builder mirror demonstrates.**
+   Warden (7/8 + board wipe ETB) and Ender Dragon (6/6 Aerial + 2×creature-count
+   ETB damage) outclass builder's Iron Golem (3/4) and Wolf Pack (≤11 ATK) in
+   raw power ceiling. With 4 Workers on board, Ender Dragon ETB alone deals 8
+   face damage before combat. The miner's kill window (~T15-20) is slower than
+   builder's (~T18-25 vs mirror), but the finisher package is harder to survive
+   once it resolves. Builder must establish Iron Golem as a 3/4 body that
+   survives Warden ETB — otherwise the miner can time Warden to erase the
+   builder's board and swing with Dragon immediately after.
 
 <!-- Append new sections below as the loop runs. Each entry: date, what
 was learned, what was patched (strategy doc updates + heuristic AI

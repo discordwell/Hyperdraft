@@ -38,6 +38,7 @@ import asyncio
 import json
 import time
 from collections import defaultdict
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -51,6 +52,7 @@ class DeckGameOutcome:
     turns: int
     duration_s: float
     error: Optional[str] = None
+    card_stats: dict = field(default_factory=dict)  # populated when --log-interceptor-fires
 
 
 def _resolve_decks(deck_names: list[str], custom: dict[str, list]) -> dict[str, list]:
@@ -78,6 +80,7 @@ async def _run_one(
     p1_label: str, p2_label: str,
     bias: str,
     max_turns: int,
+    log_interceptor_fires: bool = False,
 ) -> DeckGameOutcome:
     from scripts.play.minecraft_capability_test import play_one_minecraft_game
     start = time.perf_counter()
@@ -94,6 +97,7 @@ async def _run_one(
         turns=r.turns,
         duration_s=r.duration_s,
         error=r.error,
+        card_stats=r.card_stats if log_interceptor_fires else {},
     )
 
 
@@ -103,6 +107,7 @@ async def run_deck_tournament(
     games_per_pair: int = 4,
     max_turns: int = 30,
     verbose: bool = True,
+    log_interceptor_fires: bool = False,
 ) -> list[DeckGameOutcome]:
     """Round-robin: every deck pair plays N games (alternating seats so
     first-player advantage cancels). Both seats run the same AI bias."""
@@ -130,6 +135,7 @@ async def run_deck_tournament(
         try:
             outcome = await _run_one(
                 deck_pool[d1], deck_pool[d2], d1, d2, bias, max_turns,
+                log_interceptor_fires=log_interceptor_fires,
             )
         except Exception as exc:
             outcome = DeckGameOutcome(
@@ -144,6 +150,36 @@ async def run_deck_tournament(
             print(f"    {pct:3d}% ({i+1}/{len(pairings)})  elapsed={elapsed:.1f}s",
                   flush=True)
     return outcomes
+
+
+def _aggregate_card_scores(outcomes: list[DeckGameOutcome]) -> dict[str, dict[str, int]]:
+    """Fold per-game card_stats into the card_scores shape for the P5a punchlist.
+
+    Each outcome carries stats keyed by "DECK_LABEL::Card Name". We accumulate:
+      - appearances: games the card was in the deck (deck_copies > 0 in that game)
+      - plays: total times the card entered play (cast count)
+      - wins: games where it appeared AND the deck won
+      - losses: games where it appeared AND the deck lost
+    """
+    agg: dict[str, dict[str, int]] = defaultdict(lambda: {
+        "appearances": 0, "plays": 0, "wins": 0, "losses": 0
+    })
+    for o in outcomes:
+        if not o.card_stats:
+            continue
+        winner = o.winner_deck
+        for ref, cs in o.card_stats.items():
+            if not cs.get("deck_copies", 0):
+                continue
+            deck_label = ref.split("::", 1)[0]
+            a = agg[ref]
+            a["appearances"] += 1
+            a["plays"] += int(cs.get("cast", 0))
+            if winner is not None and deck_label == winner:
+                a["wins"] += 1
+            elif winner is not None and deck_label != winner:
+                a["losses"] += 1
+    return {k: dict(v) for k, v in agg.items()}
 
 
 def aggregate(outcomes: list[DeckGameOutcome], deck_labels: list[str]) -> dict[str, Any]:
@@ -266,6 +302,8 @@ def _cli() -> None:
                         help="Games per deck pair (default 4)")
     parser.add_argument("--max-turns", type=int, default=30)
     parser.add_argument("--out", type=str, default=None)
+    parser.add_argument("--log-interceptor-fires", action="store_true", default=False,
+                        help="Collect per-card telemetry; adds card_scores to output JSON")
     args = parser.parse_args()
 
     custom: dict[str, list[str]] = {}
@@ -296,19 +334,25 @@ def _cli() -> None:
         deck_pool, bias=args.bias,
         games_per_pair=args.games,
         max_turns=args.max_turns,
+        log_interceptor_fires=args.log_interceptor_fires,
     ))
     aggregated = aggregate(outcomes, deck_names)
     print(render_report(aggregated, args.bias))
 
     if args.out:
+        payload: dict[str, Any] = {
+            "bias": args.bias,
+            "decks": deck_names,
+            "games_per_pair": args.games,
+            # Strip card_stats from individual outcomes to keep output compact
+            "outcomes": [{k: v for k, v in o.__dict__.items() if k != "card_stats"}
+                         for o in outcomes],
+            "aggregated": aggregated,
+        }
+        if args.log_interceptor_fires:
+            payload["card_scores"] = _aggregate_card_scores(outcomes)
         with open(args.out, "w") as fh:
-            json.dump({
-                "bias": args.bias,
-                "decks": deck_names,
-                "games_per_pair": args.games,
-                "outcomes": [o.__dict__ for o in outcomes],
-                "aggregated": aggregated,
-            }, fh, indent=2)
+            json.dump(payload, fh, indent=2)
         print(f"\nWrote {args.out}")
 
 
