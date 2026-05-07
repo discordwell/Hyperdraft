@@ -306,6 +306,10 @@ class ChatGPTArtClient:
 
     async def submit_prompt(self, prompt: str) -> None:
         page = self._page
+        try:
+            await page.locator(SEL_PROMPT_EDITOR).first.wait_for(state="visible", timeout=15000)
+        except Exception:
+            raise StuckError("prompt editor never mounted (post-navigation race)")
         # Clear the editor first.
         await page.evaluate(
             """

@@ -174,6 +174,7 @@ def to_filename(name: str) -> str:
     return (
         name.lower()
         .replace("'", "")
+        .replace('"', "")
         .replace(",", "")
         .replace(":", "")
         .replace("(", "")
