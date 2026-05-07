@@ -346,6 +346,65 @@ def test_minecraft_declare_attackers_auto_block_consults_ai_handler():
     assert blocker.state.damage == 0  # blocker untouched (never engaged)
 
 
+def test_minecraft_choose_blockers_chump_anything_returns_string_ids():
+    # Latent bug found in the post-engine-fix variant tournament: the
+    # chump_anything block_mode in MinecraftAIAdapter.choose_blockers was
+    # popping GameObject instances from legal_blockers() (which returns
+    # list[GameObject]) and stuffing them as block_map values. Resolves
+    # downstream to "TypeError: unhashable type: GameObject" when
+    # resolve_combat does state.objects.get(block_map.get(...)). The fix
+    # uses obj.id, so block_map is dict[str, str] as documented. This
+    # bug only surfaced once auto_block=True started routing through
+    # choose_blockers (see prior test).
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Attacker")
+    p2 = game.add_player("Defender")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    game.state.active_player = p1.id
+
+    attacker = game.create_object(
+        name=MINECRAFT_CARDS["Zombie"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Zombie"].characteristics,
+        card_def=MINECRAFT_CARDS["Zombie"],
+    )
+    attacker.controller = p1.id
+    attacker.state.summoning_sickness = False
+
+    blocker = game.create_object(
+        name=MINECRAFT_CARDS["Skeleton Archer"].name,
+        owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Skeleton Archer"].characteristics,
+        card_def=MINECRAFT_CARDS["Skeleton Archer"],
+    )
+    blocker.controller = p2.id
+    blocker.state.summoning_sickness = False
+
+    handler = MinecraftAIAdapter(bias={"block_mode": "chump_anything"})
+
+    block_map = handler.choose_blockers(
+        game.state, p2.id,
+        [{"attacker_id": attacker.id, "target_column": 1}],
+    )
+    # Must be a real dict[str, str] — both keys and values are object ids.
+    assert isinstance(block_map, dict)
+    assert all(isinstance(k, str) for k in block_map.keys())
+    assert all(isinstance(v, str) for v in block_map.values())
+    # And the chump-block actually engages the only available blocker.
+    assert block_map.get(attacker.id) == blocker.id
+
+    # End-to-end: declare_attackers with auto_block=True should resolve
+    # cleanly (it crashed with TypeError before the fix).
+    game.turn_manager.set_ai_handler(handler)
+    ok, _msg, _evs = mc.declare_attackers(
+        game, p1.id,
+        [{"attacker_id": attacker.id, "target_column": 1}],
+        auto_block=True,
+    )
+    assert ok
+
+
 def test_minecraft_ai_attacks_with_ready_hostile_instead_of_mining_it():
     async def _run():
         game = Game(mode="minecraft")

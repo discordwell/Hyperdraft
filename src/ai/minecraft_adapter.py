@@ -499,9 +499,11 @@ class MinecraftAIAdapter:
         if mode == "chump_anything":
             # Pair every attacker with any unused legal blocker, even bad
             # trades. Models the "stall everything" archetype.
+            # legal_blockers returns list[GameObject], so we want .id for
+            # the block_map values (attacker_id -> blocker_id, both strs).
             from src.engine.minecraft import legal_blockers
             block_map: dict[str, str] = {}
-            available = list(legal_blockers(state, defender_id))
+            available = [obj.id for obj in legal_blockers(state, defender_id)]
             for atk in attackers:
                 if not available:
                     break
