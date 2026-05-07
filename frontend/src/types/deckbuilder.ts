@@ -4,6 +4,19 @@
  * TypeScript types for the deckbuilder feature.
  */
 
+// Game discriminator — matches GameState.game_mode on the backend.
+export const GAMES = ['mtg', 'minecraft', 'pokemon', 'yugioh', 'hearthstone', 'depths'] as const;
+export type Game = (typeof GAMES)[number];
+
+export const GAME_LABELS: Record<Game, string> = {
+  mtg: 'Magic: The Gathering',
+  minecraft: 'Minecraft TCG',
+  pokemon: 'Pokémon TCG',
+  yugioh: 'Yu-Gi-Oh!',
+  hearthstone: 'Hearthstone',
+  depths: 'Depths: Submarine Fleet',
+};
+
 // Deck entry (card name + quantity)
 export interface DeckEntry {
   card: string;
@@ -14,6 +27,7 @@ export interface DeckEntry {
 export interface DeckData {
   id?: string;
   name: string;
+  game?: Game;
   archetype: string;
   colors: string[];
   description: string;
@@ -30,6 +44,7 @@ export interface DeckData {
 export interface DeckSummary {
   id: string;
   name: string;
+  game?: Game;
   archetype: string;
   colors: string[];
   format: string;
@@ -47,20 +62,23 @@ export interface YgoDeckSummary {
   is_optimized: boolean;
 }
 
-// Deck statistics
+// Deck statistics — generic shape; per-game extras live in `extras`.
 export interface DeckStats {
   card_count: number;
-  land_count: number;
-  creature_count: number;
-  spell_count: number;
-  average_cmc: number;
-  color_distribution: Record<string, number>;
-  mana_curve: Record<string, number>;
+  cost_curve?: Record<string, number>;
   type_breakdown: Record<string, number>;
+  extras?: Record<string, unknown>;
   validation: {
     is_valid: boolean;
     errors: string[];
   };
+  // Legacy MTG fields — populated only when game === 'mtg'.
+  land_count?: number;
+  creature_count?: number;
+  spell_count?: number;
+  average_cmc?: number;
+  color_distribution?: Record<string, number>;
+  mana_curve?: Record<string, number>;
 }
 
 // Card search filter
@@ -75,6 +93,7 @@ export interface CardFilter {
 
 // Card search request
 export interface CardSearchRequest {
+  game?: Game;
   query?: string;
   types?: string[];
   colors?: string[];
@@ -92,9 +111,12 @@ export interface CardSearchResponse {
   has_more: boolean;
 }
 
-// Card definition (from existing types, extended)
+// Card definition — generic across games. MTG-only fields stay typed for
+// back-compat; game-specific data goes in `extras`.
 export interface CardDefinitionData {
   name: string;
+  game?: Game;
+  domain?: string | null;
   mana_cost: string | null;
   types: string[];
   subtypes: string[];
@@ -102,6 +124,8 @@ export interface CardDefinitionData {
   toughness: number | null;
   text: string;
   colors: string[];
+  image_url?: string | null;
+  extras?: Record<string, unknown>;
 }
 
 // Deck list response

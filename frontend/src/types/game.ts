@@ -47,7 +47,16 @@ export type ActionType =
   | 'MC_EXPLORE_BIOME'
   | 'MC_DECLARE_ATTACKERS'
   | 'MC_DECLARE_BLOCKERS'
-  | 'MC_END_TURN';
+  | 'MC_END_TURN'
+  | 'DEPTHS_PLAY_CARD'
+  | 'DEPTHS_DIVE'
+  | 'DEPTHS_SURFACE'
+  | 'DEPTHS_LAY_MINE'
+  | 'DEPTHS_DECLARE_ATTACKERS'
+  | 'DEPTHS_DETECT'
+  | 'DEPTHS_DECLARE_INTERCEPTORS'
+  | 'DEPTHS_ACTIVATE_ABILITY'
+  | 'DEPTHS_END_TURN';
 
 export type Phase =
   | 'BEGINNING'
@@ -132,6 +141,14 @@ export interface CardData {
   mc_gear_slot?: string | null;
   mc_exhausted?: boolean;
   mc_keywords?: string[];
+  // Depths (submarine fleet) state/metadata
+  depths_cost?: { tc?: number; sc?: number };
+  depth_band?: 'SURFACE' | 'PERISCOPE' | 'MID' | 'DEEP' | 'CRUSH' | string;
+  detected?: boolean;
+  oxygen?: number;
+  hull?: number;
+  is_flagship?: boolean;
+  depths_keywords?: string[];
 }
 
 // Stack Item
@@ -204,6 +221,12 @@ export interface PlayerData {
   mc_materials?: Record<string, number>;
   mc_avatar_gear?: Record<string, string | null>;
   mc_avatar_action_used?: boolean;
+  // Depths (submarine fleet) fields
+  tc?: number;       // Torpedo Charges (current)
+  sc?: number;       // Sonar Charges (current)
+  tc_max?: number;   // Per-turn cap
+  sc_max?: number;
+  flagship_id?: string | null;
 }
 
 // Combat Data
@@ -277,7 +300,7 @@ export interface GameState {
   is_game_over: boolean;
   winner: string | null;
   pending_choice?: PendingChoice | null;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths';
   variant?: string | null;
   max_hand_size?: number;
   // Pokemon zones
@@ -298,6 +321,15 @@ export interface GameState {
   minecraft_grid?: Record<string, (CardData | null)[][]>;
   minecraft_combat?: Record<string, unknown>;
   minecraft_exposed_targets?: Record<string, string[]>;
+  // Depths (submarine fleet) state
+  depths_phase?: string;
+  depths_combat?: {
+    phase?: string;
+    attacking_player?: string;
+    defending_player?: string;
+    attackers?: { attacker_id: string; target_id?: string; firing_band?: string }[];
+    legal_interceptors?: string[];
+  };
   // Game log
   game_log?: GameLogEntry[];
 }
@@ -305,7 +337,7 @@ export interface GameState {
 // Request/Response Types
 export interface CreateMatchRequest {
   mode: MatchMode;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths';
   variant?: string;
   player_deck?: string[];
   player_deck_id?: string;
@@ -336,6 +368,11 @@ export interface PlayerActionRequest {
   cell?: { x: number; y: number };
   biome_index?: number;
   action_kind?: string;
+  // Depths-specific
+  depth_band?: string;
+  vessel_id?: string;
+  interceptors?: { attacker_id: string; interceptor_id: string }[];
+  detect_targets?: string[];
 }
 
 export interface ActionResultResponse {
@@ -347,7 +384,7 @@ export interface ActionResultResponse {
 
 // Bot Game Types
 export interface StartBotGameRequest {
-  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft';
+  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths';
   bot1_deck: string[];
   bot2_deck: string[];
   bot1_deck_id?: string;

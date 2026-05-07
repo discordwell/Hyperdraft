@@ -784,6 +784,16 @@ class MinecraftModeAdapter(GameModeAdapter):
 
 
 # =============================================================================
+# Depths (submarine fleet)
+# =============================================================================
+
+def _build_depths_adapter() -> GameModeAdapter:
+    """Construct the DepthsModeAdapter lazily to avoid an import cycle."""
+    from .depths import _depths_mode_adapter_class
+    return _depths_mode_adapter_class()()
+
+
+# =============================================================================
 # Registry
 # =============================================================================
 
@@ -793,6 +803,7 @@ _REGISTRY: dict[str, GameModeAdapter] = {
     "pokemon": PokemonModeAdapter(),
     "yugioh": YugiohModeAdapter(),
     "minecraft": MinecraftModeAdapter(),
+    "depths": _build_depths_adapter(),
 }
 
 

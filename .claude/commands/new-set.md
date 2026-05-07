@@ -1,58 +1,69 @@
 ---
-description: Build a complete new card set in an existing engine (cards + art + decks + tests + balance loop).
-argument-hint: <engine> <theme> [--cards 150]
+description: Build a complete new card set in an existing engine (cards + art + decks + tests + balance loop). Fire-and-forget — auto-picks defaults and runs without asking.
+argument-hint: <engine> <theme> [--code XXXX] [--cards 150] [--max-cycles 10]
 ---
 
 # /new-set — pipeline for a new card set in an existing engine
 
-You are about to drive a multi-stage pipeline that produces a fully tested
-card set. **This is compute-intensive and may take 1–3 hours of wall time.**
-Stages 4 and 8 spawn parallel subagents and run multi-game tournaments.
+You drive a multi-stage pipeline that produces a fully tested card set. **Fire-and-forget mode**: pick reasonable defaults, announce them, run for 1–3 hours without blocking on user input. Stages 4 and 8 spawn parallel subagents and run multi-game tournaments.
 
 ## Arguments
 
 The user invoked this with: `$ARGUMENTS`
-
-Parse them as:
 
 - **`engine`** (required): one of `mtg-custom`, `minecraft`, `pokemon`, `yugioh`, `hearthstone`. Determines:
   - Where cards live (`src/cards/<engine>/<set>/` or `src/cards/custom/<set>.py` for `mtg-custom`).
   - Which engine modules to use for AI-vs-AI testing.
   - Which `__init__.py` / `set_registry.py` `wire_set.py` edits.
 - **`theme`** (required): free-form, e.g. `"deep-sea pirates"`, `"haunted carnival"`. Drives mechanics + art style.
+- **`--code XXXX`** (optional): override the auto-picked set code (3–4 uppercase letters).
 - **`--cards N`** (optional, default 150): target card count. Range 120–200.
 - **`--max-cycles N`** (optional, default 10): balance-loop revision cap.
 - **`--games-per-pairing N`** (optional, default 50): tournament games per archetype matchup.
 
-If the user did not supply enough args (no engine or no theme), STOP and ask before starting.
+If `engine` or `theme` is missing or invalid, ask once. Otherwise **never block on user input** — auto-pick everything else.
 
-## Pre-flight (do this BEFORE creating any tasks)
+## Operating mode: fire-and-forget
 
-Before kicking off 1–3 hours of compute, do this validation pass:
+**This command does NOT call AskUserQuestion. Ever.** It does not ask "OK to start?", does not ask for clarification mid-pipeline, does not ask for permission to commit. It announces decisions in plain text and proceeds. The user can interrupt at any time by typing a message.
 
-1. **Validate engine.** Must be one of: `mtg-custom`, `minecraft`, `pokemon`, `yugioh`, `hearthstone`. If the user typed something else, suggest the closest match and stop.
+If a stage hits a genuine blocker, pick the documented fallback and log it. Halting and waiting is reserved for cases where every fallback also fails.
 
-2. **Decide set code + set label.** Pick a 3–4 letter uppercase code (e.g. `PIRT` for "deep-sea pirates"). The set code IS the set label — it's used as the registry key, the tournament `_card_ref` domain prefix, and the smoke-test `<set_label>` argument. Avoid collisions: read `src/cards/set_registry.py` first to make sure the code isn't taken.
+## Pre-flight (auto-pick defaults, ANNOUNCE, do NOT ask)
 
-3. **Decide file layout** based on engine:
-   - `mtg-custom` → single file `src/cards/custom/<set_module>.py` (matches existing pattern: `lorwyn_custom.py`, `temporal_horizons.py`, etc.). Card archetypes are organized by section comments in one module, not separate files. Stage 4 still spawns parallel agents — they coordinate by section/line ranges in the same file via merge-friendly edits.
-   - All other engines → directory `src/cards/<engine>/<set_module>/` with one file per archetype (matches minecraft: `alpha.py`, `phyrexia.py`, `horror.py`) plus an aggregating `__init__.py`. Stage 4 agents own one file each — no merge concerns.
+Pick all of the following deterministically. Print one status block, then immediately start stage 3.
 
-4. **Deck-label naming convention** (LOAD-BEARING — `balance_loop.py` and `coverage.py` filter on this):
+| Decision | Auto-pick rule |
+|---|---|
+| **Engine validation** | Must be one of `mtg-custom`, `minecraft`, `pokemon`, `yugioh`, `hearthstone`. If invalid, ask once for correction. |
+| **Set code** (`<CODE>`) | If `--code` provided, use it. Else: 3–4 uppercase letters derived from the theme (e.g. `"deep-sea pirates"` → `PIRT`, `"haunted carnival"` → `CARN`). Verify no collision against `src/cards/set_registry.py`'s `SETS` dict. On collision, append digit. |
+| **Set module name** | snake_case slug derived from the theme (e.g. `"deep-sea pirates"` → `deep_sea_pirates`). Used as the directory/file name. |
+| **File layout** | Determined by engine: `mtg-custom` → single file `src/cards/custom/<set_module>.py`. All others → directory `src/cards/<engine>/<set_module>/` with one file per archetype + aggregating `__init__.py`. |
+| **Card count** | `--cards` flag value, default 150. |
+| **Cycles cap** | `--max-cycles` flag value, default 10. |
 
-   When stage 6 builds the starter decks and stage 8 runs the tournament, **every deck label MUST start with `<SET_CODE>_`**. Examples for set code `PIRT`:
-   - ✓ `PIRT_aggro`, `PIRT_control`, `PIRT_combo`, `PIRT_midrange`
-   - ✗ `aggro_pirate`, `pirate_aggro`, `pirates_aggro` — these do not match the set filter and the analyzer will report empty `card_scores` → loop fails fast with an explicit error.
+**Deck-label naming convention** (LOAD-BEARING — `balance_loop.py` and `coverage.py` filter on this):
 
-   The tournament's `card_scores` keys are `<DECK_LABEL>::<Card Name>`, and `domain_matches_set` accepts either an exact set-code match (single mirror pool) or `<SET>_*` prefix (per-archetype pools). Deviating from this convention makes the entire balance loop blind to the set's data.
+Stage 6 builds starter decks and stage 8 runs the tournament. **Every deck label MUST start with `<SET_CODE>_`.** Examples for `PIRT`:
+- ✓ `PIRT_aggro`, `PIRT_control`, `PIRT_combo`, `PIRT_midrange`
+- ✗ `aggro_pirate`, `pirate_aggro`, `pirates_aggro` — these don't match the filter and the analyzer reports empty `card_scores` → loop fails fast with an explicit error.
 
-4. **Confirm with user.** Print a 4-line summary: engine / theme / set code / card count / max cycles / estimated wall time, and ask **"OK to start?"** before creating any tasks. Estimated wall time:
-   - 150 cards × manual ChatGPT art (~30s/card) ≈ 75 min just for stage 5
-   - 50 games × C(archetypes, 2) pairings × 10 cycles ≈ 1–2 hours for stage 8
-   - Plus 30–60 min for planning + impl + revision
-   - **Total: 3–5 hours typical** (longer if balance does not converge early)
+The tournament's `card_scores` keys are `<DECK_LABEL>::<Card Name>`. `domain_matches_set` accepts exact set-code match OR `<SET>_*` prefix. Deviating from the convention makes the balance loop blind to the set's data.
 
-Only after the user confirms do you proceed to stage 3 below.
+Status announcement format (one block, no questions, no waiting):
+```
+=== /new-set pre-flight ===
+engine:      <engine>
+theme:       <theme>
+set code:    <CODE>
+set module:  <set_module>
+cards:       <N>
+max cycles:  <K>
+estimated:   1–3h, fully unattended
+==> starting stage 3...
+```
+
+Then create tasks and begin.
 
 ## How to drive this pipeline
 
@@ -132,9 +143,43 @@ Brief each agent:
 
 After all agents return, write the aggregating `src/cards/<engine>/<set>/__init__.py` that imports each archetype dict and merges them into a single `<SET>_CARDS` dict. Also import any deck builders the agents wrote.
 
-### Stage 5 — Card art
+### Stage 4.5 — Post-parallel reconciliation (LOAD-BEARING)
 
-This stage has two sub-steps:
+Parallel agents working from the same design doc can still produce subtly incompatible interfaces — the canonical example from the depths run was AI agents returning dataclass actions while the turn manager expected dicts. The original 4 agents couldn't catch this because none of them owned both ends of the contract. This stage exists specifically to find those gaps before they cause silent failures in stages 7–8.
+
+Spawn one Agent (general-purpose). Brief:
+
+> You are the post-parallel reconciliation agent for a freshly built card set. The N parallel archetype agents in stage 4 each wrote one file from `docs/sets/<set_label>.md` without seeing each other's code. Your job: find and fix interface mismatches between their outputs (and between their outputs and the engine).
+>
+> Specifically check:
+> 1. **Card-to-card collisions** — same card name in two files (the design doc shouldn't allow it, but verify).
+> 2. **Helper-import drift** — agents importing the same helper with different argument shapes; agents reinventing helpers that already exist in `src/cards/interceptor_helpers.py`.
+> 3. **Event payload-key drift** — different agents using different keys for the same conceptual payload (e.g. one uses `target_id`, another uses `target`).
+> 4. **Cross-file references** — Card A in archetype X references "your other card B" by name; verify B exists with the expected interface.
+> 5. **Smoke test** — write a 30-line probe that imports every card, instantiates each via `game.create_object`, and runs each `setup_interceptors` (if any) without raising. This catches argument-shape errors that pure import doesn't.
+> 6. **Engine-side contracts** — every event your cards emit (DEPTHS_DIVE, ATTACH, DAMAGE, etc.) should have a handler in the engine. Cross-reference card emit calls against engine handlers; flag emit-without-handler pairs as `# RECONCILE TODO`.
+>
+> Output: a brief patch + a list of any contract drifts you couldn't fix unilaterally (those become work for stage 4.7).
+
+This stage is short (~15 minutes of compute) but high-leverage — every issue caught here saves an hour of debugging in stages 7–8.
+
+### Stage 4.7 — Engine-gap closure
+
+The card-impl agents in stage 4 each report `# TODO:` markers when a card needs an engine primitive that doesn't exist (`QUERY_COST`, prevention shields, EOT keyword grants, etc.). Without addressing these, those cards become silent no-ops, which downstream shows up as zero-play cards in the stage 8 coverage check and skews the balance loop into "fixing" cards that aren't actually broken.
+
+Aggregate the `# TODO:` markers from all stage-4 archetype files (grep is fine: `grep -rn "# TODO:" src/cards/<engine>/<set_module>/`). Cluster them by missing engine primitive. Then:
+
+- **If the cluster is small (≤3 cards affected)**: leave the TODOs. Document them in `docs/sets/<set_label>.md` under "known engine gaps". The cards will be zero-play; stage 8's balance loop will report this honestly.
+- **If the cluster is large (≥4 cards affected) AND the engine primitive is bounded (≤200 LOC, no architectural change)**: spawn one Agent to add the primitive to the relevant engine module. Brief includes: the missing primitive's expected signature, the cards that need it, the engine file to extend, and a smoke test asserting the primitive works.
+- **If the primitive is unbounded** (requires architecture changes — new pipeline phase, new zone, etc.): leave it for a follow-up `/new-game` rev or a manual engineering pass. Document loudly in `docs/sets/<set_label>.md`.
+
+Skip this stage entirely if stage 4 produced fewer than 5 total `# TODO:` markers. The cost-benefit only flips when there's enough downstream noise to warrant the engine work.
+
+### Stage 5 — Card art (placeholder pass — real art is a post-pipeline follow-up)
+
+**Pipeline policy**: stage 5 always runs `art_harness --mode local` to produce procedural placeholder PNGs. The placeholders are deterministic per card name + category and let stages 7 (smoke test) and 8 (balance loop) run with `image_url` wired through the engine. The "real" art (browser-automated ChatGPT generation, or eventually direct OpenAI API calls when the user has budget) is offered as a one-time prompt in stage 9, after the rest of the pipeline finishes.
+
+This keeps fire-and-forget honest: the user gets a complete, testable, playable set without their browser session being a hard prerequisite of the unattended run.
 
 #### Per-engine import paths (use these in commands below)
 
@@ -148,31 +193,21 @@ This stage has two sub-steps:
 
 (`mtg-custom` is single-file, so its style is a sibling `<set_module>_style.py` rather than a submodule. All others use the directory-with-submodules layout from stage Pre-flight.)
 
-#### 5a. Write the prompt pack
+#### Run the harness in local mode
 
-Substitute the cards / style paths from the table above:
+Substitute the cards / style paths from the table above (note: `<engine>/` segment matches the engine subdir):
 
 ```bash
 python -m scripts.new_set.art_harness \
     --style <STYLE_MODULE_PATH> \
     --cards <CARDS_MODULE_PATH>:<SET>_CARDS \
-    --out-dir assets/card_art/<set_module> \
-    --mode manual
+    --out-dir assets/card_art/<engine>/<set_module> \
+    --mode local
 ```
-This writes `assets/card_art/<set>/draw_prompts.json` — a JSON list of `{card, filename, prompt}` for every card.
 
-#### 5b. Browser-automate ChatGPT to generate images
-Spawn one Agent (general-purpose) with the **claude-in-chrome MCP tools loaded** (see `ToolSearch` for `mcp__claude-in-chrome__*`). Brief it:
+This produces N deterministic placeholder PNGs (procedural color blocks per category). Smoke test + balance loop don't care that they're placeholders — the engine's `image_url` wiring works on existence, not aesthetic quality.
 
-> Drive ChatGPT (https://chatgpt.com) to generate an image for every entry in `assets/card_art/<set>/draw_prompts.json`.
->
-> For each entry: open a fresh ChatGPT conversation in a new tab, paste the `prompt` field, wait for the image to render, save the resulting PNG to `assets/card_art/<set>/<filename>` at 1024×1024 (resize / center-crop if needed).
->
-> Verify the user's ChatGPT session is logged in by calling `mcp__claude-in-chrome__tabs_context_mcp` first. If not, halt with instructions for the user.
->
-> Report any cards that failed to generate. The pipeline can re-run this stage to fill gaps — the harness in --mode manual already skips entries whose PNG exists.
-
-If the agent reports gaps, re-run 5a (it will only re-emit prompts for missing PNGs) and re-spawn 5b. Cap at 3 rounds before flagging the gaps and continuing.
+Real art (browser-automated ChatGPT, or eventually direct OpenAI API calls when the user has billing budget) is offered as a one-time prompt in stage 9 — NOT here. Do NOT spawn the browser-automation agent in this stage.
 
 ### Stage 6 — Starter decks
 
@@ -270,7 +305,9 @@ for cycle in 1..max_cycles:
        failures before proceeding to next cycle.
 ```
 
-### Stage 9 — Final report
+### Stage 9 — Final report + art follow-up prompt
+
+#### 9a. Append the pipeline summary
 
 Append a "Pipeline summary" section to `docs/sets/<set>.md` containing:
 - Final card count and archetype distribution
@@ -278,13 +315,33 @@ Append a "Pipeline summary" section to `docs/sets/<set>.md` containing:
 - Balance trajectory: per-cycle archetype winrates and number of cards revised
 - Coverage final: % of cards with cast ≥ 1
 - Outstanding flags (low-sample cards, archetypes still outside band, never-in-deck)
+- Engine TODOs surfaced by stage 4.7 that were left for follow-up
 - Pointers to all artifacts (cards module, decks, art dir, smoke test, design doc)
 
-Also write a short status message to the user summarizing what shipped.
+#### 9b. Art follow-up prompt (the ONLY AskUserQuestion in this command)
+
+The pipeline shipped placeholder PNGs (stage 5 ran `--mode local`). Now that the user is presumably back at the keyboard reading the report, ask **once** whether they want to upgrade to real art:
+
+```
+AskUserQuestion: "Generate real card art now?"
+options:
+  - "Browser-automate ChatGPT (free, ~30s/card, needs your Chrome session logged in)"
+  - "OpenAI image API (fast but billed — flag this when you have budget)"
+  - "Skip — placeholders are fine for now"
+```
+
+- If user picks "Browser-automate": spawn the claude-in-chrome agent with the harness in `--mode manual` (writes draw_prompts.json), then drive ChatGPT one card at a time, saving PNGs into `assets/card_art/<engine>/<set_module>/`. Cap at 3 retry rounds for gaps.
+- If user picks "API": run `art_harness --mode api` (requires `OPENAI_API_KEY` in env). Honor the user's saved-memory note about hard billing limits — if a 401/429 is hit, halt and report.
+- If user picks "Skip" (or doesn't answer within their attention window): done. Placeholder PNGs stay; user can re-run art via `python -m scripts.new_set.art_harness ...` whenever they want.
+
+#### 9c. Status message to user
+
+A short final message summarizing what shipped, with a single "ready to commit" line. The user types `commit` themselves when ready (per their global CLAUDE.md).
 
 ## Notes for the orchestrator
 
-- **Don't run /new-game's stages 0–2.** This command assumes the engine already exists. If the user clearly meant a new engine, suggest `/new-game` instead.
-- **Card-art stage cost**: ChatGPT-driven art for 150 cards is slow but free relative to the OpenAI API (which hits hard billing limits per user's saved memory). Don't fall back to `--mode api` without confirming with the user.
-- **Tournament throughput**: for non-MTG engines, the per-engine stress-test script under `scripts/stress/` may emit a different JSON shape than `custom_set_tournament.py`. If so, write a small adapter that converts to the `{set_summary, matchup, card_scores}` shape before feeding `balance_loop.py`. Don't modify `balance_loop.py` itself — it is engine-agnostic by design.
-- **Each stage commits**: after each stage completes successfully, suggest committing what was produced. The user generally says "commit" → push remote (per their global CLAUDE.md). Confirm before pushing.
+- **Don't run /new-game's stages 0–2.** This command assumes the engine already exists. If the user clearly meant a new engine, log a note in the design doc and suggest `/new-game` to them in the final report — but don't block the pipeline asking.
+- **Card-art stage cost**: ChatGPT-driven art for 150 cards is slow but free relative to the OpenAI API (which hits hard billing limits per user's saved memory). If browser automation fails (no logged-in ChatGPT session), fall back to `--mode local` (procedural placeholders). Log the fallback in the design doc; the user can re-run stage 5 separately later.
+- **Tournament throughput**: for non-MTG engines, the per-engine stress-test script under `scripts/stress/` may emit a different JSON shape than `custom_set_tournament.py`. Write the adapter at `scripts/new_set/_adapters/<engine>_tournament_adapter.py` to convert to the `{set_summary, matchup, card_scores}` shape before feeding `balance_loop.py`. Do NOT modify `balance_loop.py` — engine-agnostic by design.
+- **No mid-pipeline commits.** Stages produce on-disk artifacts only. The orchestrator does not call `git commit` or prompt the user to commit anywhere in stages 3–9. The final report (stage 9) lists everything that changed and a single "ready to commit" line; the user types `commit` themselves when they're back at the keyboard.
+- **No mid-pipeline AskUserQuestion.** If a stage-internal decision arises (planner produces something edge-case, smoke test reveals a bug, balance loop hits cycle 10 without converging), pick the documented default and log the decision in the design doc. Do not block.

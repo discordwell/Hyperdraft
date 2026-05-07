@@ -116,6 +116,27 @@ from .plot_saddle import (
 from .variant_metrics import MTG_BASELINE_RULES, variant_rule_summary
 from .mode_metrics import NON_MTG_MODES, mode_health_summary, non_mtg_health_report
 
+from .depths import (
+    DepthBand,
+    DepthsChargeSystem,
+    ChargeCost,
+    parse_charge_cost,
+    setup_depths_player,
+    get_flagship,
+    vessels_at_depth,
+    is_vessel,
+    is_mine,
+    depth_difference,
+    count_vessels,
+    detection_cost,
+    opposing_mines_at,
+    FLAGSHIP_DEPTH,
+    FLAGSHIP_HULL,
+    OPENING_HAND_SIZE as DEPTHS_OPENING_HAND_SIZE,
+    HAND_SIZE_LIMIT as DEPTHS_HAND_SIZE_LIMIT,
+    MAX_CHARGE_CAP as DEPTHS_MAX_CHARGE_CAP,
+)
+
 from .tiered import (
     TierDefinition,
     make_tiered_setup,
@@ -225,4 +246,13 @@ __all__ = [
     'record_spree_choice', 'clear_spree_choice', 'open_spree_choice',
     'total_spree_extra_cost', 'is_spree_card', 'get_spree_modes',
     'get_spree_minmax', 'TURN_DATA_SPREE_KEY',
+
+    # Depths (submarine fleet)
+    'DepthBand', 'DepthsChargeSystem', 'ChargeCost', 'parse_charge_cost',
+    'setup_depths_player', 'get_flagship', 'vessels_at_depth',
+    'is_vessel', 'is_mine', 'depth_difference', 'count_vessels',
+    'detection_cost', 'opposing_mines_at',
+    'FLAGSHIP_DEPTH', 'FLAGSHIP_HULL',
+    'DEPTHS_OPENING_HAND_SIZE', 'DEPTHS_HAND_SIZE_LIMIT',
+    'DEPTHS_MAX_CHARGE_CAP',
 ]

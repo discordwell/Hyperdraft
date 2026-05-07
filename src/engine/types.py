@@ -309,6 +309,73 @@ class EventType(Enum):
     MC_COMBAT_DAMAGE = auto()         # Minecraft combat damage marker
     MC_END_TURN = auto()              # Minecraft turn-end action marker
 
+    # ------------------------------------------------------------------
+    # Depths (submarine fleet) mechanics. See src/engine/depths.py.
+    # All Depths events follow MTG-style {payload, source, controller}
+    # contracts. The depth ladder uses the DepthBand enum from
+    # src/engine/depths.py with numeric values (SURFACE=0, PERISCOPE=1,
+    # MID=2, DEEP=3, CRUSH=4) so depth-difference math works.
+    # ------------------------------------------------------------------
+    # DEPTHS_DIVE: a Vessel descends one or more depth bands.
+    #   Payload: {'object_id': str, 'from_band': DepthBand,
+    #             'to_band': DepthBand, 'controller': str}
+    #   Source: the Vessel id. The depths.py system interceptors check
+    #   for opposing Mines at the destination band and emit
+    #   DEPTHS_MINE_TRIGGER damage in response.
+    DEPTHS_DIVE = auto()
+    # DEPTHS_SURFACE_VESSEL: a Vessel ascends one or more depth bands.
+    #   Payload: {'object_id': str, 'from_band': DepthBand,
+    #             'to_band': DepthBand, 'controller': str}
+    #   Source: the Vessel id. Mines at the destination band also trigger.
+    #   Note: named DEPTHS_SURFACE_VESSEL (not DEPTHS_SURFACE) to avoid
+    #   colliding with the SURFACE turn phase.
+    DEPTHS_SURFACE_VESSEL = auto()
+    # DEPTHS_DETECT: a Vessel becomes "pinged" — its detected flag flips
+    # to True and it becomes a legal interceptor target.
+    #   Payload: {'object_id': str, 'detector': str (player_id),
+    #             'sonar_spent': int, 'duration': str}
+    #   duration is one of 'end_of_turn' | 'until_leaves' | 'forever'.
+    DEPTHS_DETECT = auto()
+    # DEPTHS_DETECTION_FAIL: a detection attempt fizzled (insufficient
+    # Sonar Charges or the target was protected by silent_running etc.).
+    #   Payload: {'object_id': str, 'detector': str, 'reason': str,
+    #             'sonar_required': int, 'sonar_available': int}
+    DEPTHS_DETECTION_FAIL = auto()
+    # DEPTHS_PING_DECAY: a previously-detected Vessel reverts to
+    # undetected at end-of-turn cleanup. Marker emitted by the Sonar
+    # Decay step in the Surface (end) phase.
+    #   Payload: {'object_id': str, 'controller': str}
+    DEPTHS_PING_DECAY = auto()
+    # DEPTHS_LAY_MINE: a player places a Mine at a chosen depth band.
+    #   Payload: {'object_id': str (mine), 'controller': str,
+    #             'depth_band': DepthBand}
+    #   Source: the Mine card object id. Movement onto the battlefield
+    #   already happens through ZONE_CHANGE; this is a marker so triggers
+    #   and UI can react.
+    DEPTHS_LAY_MINE = auto()
+    # DEPTHS_MINE_TRIGGER: a Mine fires because an opposing Vessel
+    # entered or attacked from the Mine's depth band.
+    #   Payload: {'mine_id': str, 'target_id': str (vessel),
+    #             'amount': int, 'depth_band': DepthBand,
+    #             'controller': str (mine controller)}
+    #   The depths system interceptor follows this with a DAMAGE event
+    #   targeting the vessel and a SACRIFICE/destroy of the mine itself
+    #   (mines are one-shot).
+    DEPTHS_MINE_TRIGGER = auto()
+    # DEPTHS_RESUPPLY: fired during the Beginning (Dive) phase to grant
+    # +1 Torpedo Charge and +1 Sonar Charge (each capped at the per-turn
+    # ceiling of min(turn_number, 10)).
+    #   Payload: {'player': str, 'tc_gained': int, 'sc_gained': int,
+    #             'cap': int}
+    DEPTHS_RESUPPLY = auto()
+    # DEPTHS_OXYGEN_TICK: a submerged Vessel's oxygen counter decrements
+    # one step (during the Surface end-step Sonar Decay sub-step). When
+    # oxygen reaches 0 the Vessel typically forces a surface or sinks;
+    # the card-level effect_fn decides.
+    #   Payload: {'object_id': str, 'controller': str,
+    #             'old_oxygen': int, 'new_oxygen': int}
+    DEPTHS_OXYGEN_TICK = auto()
+
     # Library search subsystem (player-choice-driven tutors)
     LIBSEARCH_BEGIN = auto()          # Open the search choice (creates PendingChoice)
     LIBSEARCH_REVEAL = auto()         # Reveal a chosen card (marker event for triggers)
@@ -645,6 +712,12 @@ class CardType(Enum):
     MC_TOOL = auto()         # Avatar gear
     MC_ACTION = auto()       # One-shot action card
 
+    # Depths (submarine fleet) card types — see src/engine/depths.py.
+    DEPTHS_VESSEL = auto()   # Submarine / Destroyer / Carrier / Drone / Flagship
+    DEPTHS_CREW = auto()     # Equipment-style attachment (boost host Vessel)
+    DEPTHS_WEAPON = auto()   # Attached ordnance with limited charges
+    DEPTHS_MINE = auto()     # Battlefield permanent at a chosen depth band
+
 
 class Color(Enum):
     WHITE = 'W'
@@ -816,6 +889,18 @@ class ObjectState:
     mc_last_blocked_attacker: Optional[str] = None   # When blocking, the attacker id
     death_triggered: bool = False                    # Once-only deathrattle/on_death guard
 
+    # Depths-specific (optional, unused in other modes). depth_band stores
+    # an Enum from src/engine/depths.py (DepthBand). It's stored as a plain
+    # attribute so the GameState dataclass doesn't have to import the enum;
+    # the depths module sets/reads it directly. detected is True iff the
+    # vessel has been pinged and is a legal interceptor target. oxygen is
+    # an integer counter consumed by activated abilities (Silent Hunter
+    # archetype).
+    depth_band: Optional[Any] = None      # DepthBand enum (None = not a vessel)
+    detected: bool = False                # Pinged this turn (or longer per duration)
+    detected_until: Optional[str] = None  # 'end_of_turn' | 'until_leaves' | 'forever' | None
+    oxygen: int = 0                       # Per-Vessel oxygen counter
+
 
 @dataclass
 class GameObject:
@@ -967,6 +1052,14 @@ class Player:
     mc_avatar_action_used: bool = False
     mc_avatar_exhausted: bool = False
     mc_oil_counters: int = 0   # Phyrexia infect tracker; 5 counters = loss
+
+    # Depths-specific (optional, unused in other modes). Two parallel
+    # charge pools — Torpedo (offense) and Sonar (sensors). Both grow by
+    # +1 per turn up to the per-turn cap of min(turn_number, 10).
+    # Persist across turns up to that cap.
+    tc: int = 0                            # Torpedo Charges
+    sc: int = 0                            # Sonar Charges
+    flagship_id: Optional[str] = None      # The Flagship Vessel object id
 
     @property
     def cost_reductions(self) -> list:
@@ -1277,6 +1370,12 @@ class GameState:
     minecraft_biomes: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     minecraft_grid: dict[str, list[list[Optional[str]]]] = field(default_factory=dict)
     minecraft_combat: dict[str, Any] = field(default_factory=dict)
+
+    # Depths (submarine fleet) mode state. depths_combat tracks the
+    # active engagement (analogous to minecraft_combat) — populated by
+    # DepthsCombatManager. Keys/format are owned by the combat module;
+    # depths.py only reads/initialises it.
+    depths_combat: dict[str, Any] = field(default_factory=dict)
 
     # Player choice system - when set, game is paused waiting for input
     pending_choice: Optional['PendingChoice'] = None
