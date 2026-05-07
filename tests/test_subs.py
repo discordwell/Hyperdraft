@@ -92,6 +92,58 @@ def test_card_costs_propagate_to_characteristics():
     assert not mismatched, f"Cost mismatches: {mismatched[:5]}"
 
 
+def test_deploy_honors_card_default_depth():
+    """Regression: deploy_vessel should spawn vessels at card_def.depths_default_depth
+    when no explicit depth_band is supplied. Pre-fix, all vessels spawned at
+    SURFACE regardless of design — Snorkel Stalker (designed for PERISCOPE),
+    Type-XXI Phantom (DEEP), Bottom-Crawler Probe (DEEP) all wrongly landed
+    at SURFACE. Surfaced by /ultra-loop iter-3 Pilot B.
+    """
+    import asyncio
+    from src.engine.game import Game
+    from src.engine.types import ZoneType
+    from src.engine.depths import deploy_vessel, DepthBand
+    from src.engine.depths_turn import DepthsTurnManager
+    from src.cards.depths.submarine_fleet.decks import (
+        SUBS_STARTER_DECKS, make_subs_flagship,
+    )
+
+    async def _run():
+        g = Game(mode="depths")
+        p1 = g.add_player("A"); p2 = g.add_player("B")
+        tm = DepthsTurnManager(g.state); g.turn_manager = tm
+        await tm.setup_game(
+            g, SUBS_STARTER_DECKS["SUBS_silent_hunter"](),
+            SUBS_STARTER_DECKS["SUBS_wolfpack"](),
+            make_subs_flagship(), make_subs_flagship(),
+        )
+        # Force a Snorkel Stalker (default_depth=PERISCOPE) into hand.
+        ss_id = None
+        for oid in list(g.state.zones[f"library_{p1.id}"].objects):
+            obj = g.state.objects.get(oid)
+            if obj and obj.name == "Snorkel Stalker":
+                g.state.zones[f"library_{p1.id}"].objects.remove(oid)
+                g.state.zones[f"hand_{p1.id}"].objects.append(oid)
+                obj.zone = ZoneType.HAND
+                ss_id = oid
+                break
+        if ss_id is None:
+            return None
+        p1.tc, p1.sc = 9, 9
+        ok, msg, _ = deploy_vessel(g, p1.id, card_id=ss_id)
+        assert ok, f"deploy failed: {msg!r}"
+        return g.state.objects.get(ss_id)
+
+    sub = asyncio.run(_run())
+    if sub is None:
+        return  # skip if Snorkel Stalker not in deck
+    assert sub.state.depth_band == DepthBand.PERISCOPE, (
+        f"Snorkel Stalker should spawn at PERISCOPE (its card_def.depths_default_depth) "
+        f"but landed at {sub.state.depth_band!r}. deploy_vessel must read "
+        f"card_def.depths_default_depth when no explicit depth_band given."
+    )
+
+
 def test_cast_effect_fn_actually_runs():
     """Regression: cast_spell must invoke card.cast_effect_fn after SPELL_CAST.
 

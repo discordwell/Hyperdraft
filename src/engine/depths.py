@@ -597,7 +597,13 @@ def deploy_vessel(
     if cost_str and not cs.pay_cost(player_id, cost_str):
         return False, "Cannot pay deploy cost", []
 
-    band = _coerce_depth_band(depth_band) or DepthBand.SURFACE
+    # Honour the caller's explicit choice → card_def.depths_default_depth →
+    # SURFACE fallback. Without the middle hop, every Vessel spawns at SURFACE
+    # regardless of design (Snorkel Stalker -> PERISCOPE, Type-XXI Phantom ->
+    # DEEP, etc.) — Pilot B confirmed in /ultra-loop iter-3.
+    explicit = _coerce_depth_band(depth_band)
+    default_attr = getattr(obj.card_def, "depths_default_depth", None) if obj.card_def else None
+    band = explicit or _coerce_depth_band(default_attr) or DepthBand.SURFACE
 
     events = _move_object_zone(game, obj, ZoneType.BATTLEFIELD, source=obj.id)
 

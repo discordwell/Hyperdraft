@@ -71,6 +71,14 @@ win — see Anticipated weaknesses.
   TRIGGERED ability). Strategic implication: a 2-attacker swing with
   Pack Leader on board hits at printed power. You earn the anthem
   ONLY by saturating to 3+ attackers in the same swing.
+  - **CAST-RATE FAILURE: 0/5 across iter-1 → iter-5.** Pack Leader
+    has never cast in this matchup, period. iter-5 drew copies T3 +
+    T13; both uncastable (TC starvation under chip pressure). Pilot
+    A flagged as iter-6 cut candidate. Counter-evidence:
+    `SUBS_wolfpack_lean` (cuts ONE card already, Sat Strike) lost 6-2
+    to base in tournament — cutting a second card might break the
+    deck. Decision deferred; track for iter-6 with a dedicated
+    `wolfpack_no_pl` variant test.
 - **Wolfpack Doctrine** ({3T}, **TRUE static anthem**) — `make_doctrine`
   with `make_static_pt_boost` filter on your Submarines (`wolfpack.py:982`).
   Always-on +1/+0 to your Subs while it's on the battlefield, no
@@ -102,10 +110,11 @@ win — see Anticipated weaknesses.
   Cast on the same turn as a saturation swing — it's the canonical
   Wolfpack kill turn. With both engine fixes, expected lethal range
   shifts to T15-T18 vs T20+ pre-fix.
-  - **CASTING-RATE FAILURE: 0/4 across iter-1 → iter-2 → iter-3 →
-    iter-4.** Sat Strike has not fired in 4 consecutive iters despite
-    being drawn iter-2 T6, iter-3 T7, iter-4 T8. The {2T} action slot
-    is structurally over-allocated when bank discipline is enforced
+  - **CASTING-RATE FAILURE: 0/5 across iter-1 → iter-5.** Sat Strike
+    has not fired in 5 consecutive iters of this matchup. Iter-5: not
+    drawn (deck shuffle variance, irrelevant — would have been
+    uncastable anyway under bank pressure). The {2T} action slot is
+    structurally over-allocated when bank discipline is enforced
     (Pack Leader's {3T} eats the budget every cycle). Two repair
     options:
     - **Cut Saturation Strike** (replace with cheaper trigger like
@@ -131,7 +140,18 @@ win — see Anticipated weaknesses.
 - **Auto-keep (good)**: 2× {1T} Sub + 1× {2T} Sub + any TC-ramp
   (Type-VII Veteran in hand for the bank turn).
 - **Salvage**: 3× {1T-2T} Sub with no anthem in hand. Race plan; hope
-  to draw the anthem by T7.
+  to draw the anthem by T7. **REVISED iter-5**: the salvage-keep is
+  unwinnable vs hybrid-aggressive Silent_Hunter (LP T1 + Snorkel T2).
+  Rule: if opp's likely deck is SH and the salvage hand has ≥3 cards
+  costing ≥3T, MULLIGAN; the deep-cards never cast against an
+  opponent dealing 4 dmg/turn from T3.
+- **NEW iter-5 auto-mulligan rule**: any opener WITHOUT ≥1 anthem in
+  hand against a known-SH opponent that runs Snorkel Stalker. Pilot A
+  (iter-5): "salvage opener vs Snorkel Stalker = unwinnable from
+  opener" (5-iter Pack-Leader 0/5 cast streak supports this). The
+  bank rule's exception clause (iter-4) — abandoning bank to race —
+  itself loses; the only surviving line is a hand with anthem already
+  present.
 - **Avoid keeping**: hands with 2+ {3T}+ cards and no 1-cost body.
   The early game is dead; defender will set up before you apply
   pressure.
@@ -217,6 +237,46 @@ win — see Anticipated weaknesses.
 ## Iteration log
 
 (Append after each game piloted with this deck.)
+
+- **2026-05-07 (iter-5)**: vs Silent_Hunter (LLM Pilot B, hybrid
+  aggressive — same plan as iter-4, slightly faster execution). **L
+  in 19 turns**, ME=0/25 vs OPP=12/25. Pilot A self-graded **4/10**.
+  Iter-1→2→3→4→5: 0-1 (L 38) → 21-0 (W 28) → 6-0 (W 25) → 0-20 (L 17)
+  → **0-12 (L 19)**. Engine state: clean (no new fixes shipped this
+  iter; iter-5 confirms iter-4's cumulative-damage patch + default_depth
+  fix work). The aggressive-SH wins at N=2.
+  Pilot A used the new `--depth PERISCOPE` deploy flag (iter-5 harness
+  feature) to land Pack Runner / Coastal Raiders / Wolf-cubs at
+  PERISCOPE for full damage vs flagship — mechanically successful but
+  insufficient against a 4-dmg/turn chip stream.
+  Key new findings:
+  - **Salvage-opener-vs-SH = unwinnable from the opener.** Mulligan
+    refinement above: against SH risk, mulligan ANY hand with ≥3 cards
+    costing ≥3T. The salvage rule's "hope to draw anthem by T7" never
+    pays out vs Snorkel chip pressure.
+  - **Pack Leader U-99 0/5 cast streak across all iters of this
+    matchup.** Drew T3 + T13 in iter-5; never castable. With bank
+    discipline AND with greedy aggression AND with the depth-deploy
+    flag, this card has not landed in any iter. **Open question for
+    iter-6**: cut Pack Leader and rebuild around Wolfpack Doctrine
+    (also bricked but a true static lord at least). Tournament data
+    from `logs/depths_after_iter4_fixes.json` shows
+    `SUBS_wolfpack_lean` (which cuts Sat Strike) lost 6-2 to base
+    Wolfpack — cutting one card already hurt; cutting another might
+    over-rotate. Recommend a NEW variant `wolfpack_no_pl` that cuts
+    Pack Leader specifically, then run the variant tournament.
+  - **Saturation Strike 0/5 cast streak in LLM games but tournament-
+    essential**: `SUBS_wolfpack_lean` (cuts Sat Strike) underperforms
+    base 34% vs 53% — the AI uses Sat Strike correctly but the LLM
+    pilot can't budget for it under bank discipline. This is a
+    strategic gap, not a card problem; cut would hurt.
+  - **--depth PERISCOPE flag worked mechanically.** Pack Runner T7
+    deployed at PERISCOPE chipped 2-3 dmg/turn. Coastal Raider T11
+    PERISCOPE deploy forced P2 to spend SC=4-5 to detect/intercept.
+    Net-positive but couldn't overcome the structural deficit.
+  - **Snorkel Stalker @ PERISCOPE post-fix is the dominant card in
+    this matchup.** P2 deployed it twice (T2 + T11). Recurring
+    threat, no Wolfpack answer.
 
 - **2026-05-07 (iter-4)**: vs Silent_Hunter (LLM Pilot B, hybrid
   aggressive — opened LP T1 + Snorkel T2 + 4-attacker chip rate from

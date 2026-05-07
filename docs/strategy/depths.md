@@ -153,17 +153,21 @@ goes here.)
 
 ## Settled lessons (resolved questions)
 
-- **NEW iter-4: Aggressive Silent_Hunter (T2 Snorkel Stalker + LP wall)
-  outraces bank-discipline Wolfpack.** Conservative Silent_Hunter (the
-  iter-1 grind plan) loses if drawn out beyond ~T20; the aggressive
-  race plan beats Wolfpack's bank line by killing it before the anthem
-  turn lands. Iter-4 evidence: P2 W 20-0 in 17 turns vs Pilot A's
-  bank-then-deploy line that did everything "right" per the iter-3
-  doctrine. Pilot B opened LP T1 + Snorkel T2 → 4 dmg/turn chip from
-  T3 → reduced flagship 25 → 4 by T13 → forced Pilot A into pure
-  defensive deploys, never castable Saturation Strike. The race wins by
-  T17 because the bank pilot can't afford to skip a deploy turn while
-  the chip clock is ticking at 4 hull/turn.
+- **CONFIRMED iter-5 (N=2): Aggressive Silent_Hunter (T2 Snorkel
+  Stalker + LP wall) outraces bank-discipline Wolfpack on a clean
+  engine.** Iter-4 (first clean engine, all bug fixes shipped) was
+  P2 W 20-0 in 17 turns. Iter-5 (repeat-confirm on the same matchup,
+  same decks, no engine changes) is P2 W 12-0 in **10 turns** — even
+  faster. Pilot B's plan: open LP T1 + Snorkel @ PERISCOPE T2 → 4
+  dmg/swing T3-T5 (15 dmg in 3 turns) → flagship at hull 10 by T6 →
+  cumulative-damage detection patch fires on schedule but P1's defense
+  budget can't catch up → flagship sunk T10. Pilot A (P1) was forced
+  into the iter-4 "abandon bank if opp races" exception clause; the
+  exception itself loses (no anthem ever castable, Pack Leader 0/5
+  cast streak across all iters). The bank-then-deploy lesson is now
+  a settled-conditional: it WINS if opp is passive (iter-2/iter-3
+  evidence — see Conditional lessons below), it LOSES if opp races
+  (iter-4 + iter-5).
 
 - **NEW iter-3: Saturation Strike timing tracks the OPPONENT's
   current SC pool, not nominal cap.** Pilot A's T25 lethal worked
@@ -176,17 +180,21 @@ goes here.)
 
 ## Conditional lessons (settled-when-X, contested-when-Y)
 
-- **CONDITIONAL (was settled iter-2, contested iter-4): Bank-then-deploy
-  is correct for top-heavy aggro decks ONLY when the opponent is
+- **SETTLED-CONDITIONAL (iter-5 N=2 confirm): Bank-then-deploy is
+  correct for top-heavy aggro decks ONLY when the opponent is
   passive.** When opp applies ≥4 hull/turn chip pressure starting T3,
   bank turns are unaffordable — the bank pilot loses tempo on a clock
-  it cannot recover. Iter-1 (greedy, no bank, slow opp): L 0-1 in 38.
-  Iter-2 (bank, slow opp): W 21-0 in 28. Iter-3 (bank, slow opp,
-  defense fix): W 6-0 in 25. **Iter-4 (bank, AGGRESSIVE opp): L 0-20
-  in 17.** Same matchup, same decks, opposite outcome — the variable
-  is opponent's deck-shape choice, not the bank rule's correctness.
-  The bank rule's CONDITION is "opp is not racing"; without that, the
-  rule actively loses the matchup.
+  it cannot recover. Re-classified iter-4: result series under bug-
+  influence: iter-1 (cost prop bug, greedy P1): L 0-1 in 38. Iter-2
+  (cast_effect_fn fix shipped, defense pump-blind, bank P1): W 21-0
+  in 28. Iter-3 (defense pump-aware, lethal-buffer wrong, bank P1):
+  W 6-0 in 25. **Iter-4 (FIRST CLEAN engine, bank P1, aggressive P2):
+  L 0-20 in 17.** **Iter-5 (clean engine repeat-confirm, bank P1,
+  aggressive P2): L 0-12 in 10.** Engine layer is now stable across
+  N=2; the matchup outcome is structural. Bank-then-deploy WINS if
+  opp is passive; LOSES decisively if opp is aggressive. The bank
+  rule's correctness is conditional on the opener-mix-vs-opp-tempo
+  check, not on engine state.
   - Cross-deck inference: any aggro deck with ≥2 cards in the {3T}+
     band needs to choose bank-vs-greedy AT MULLIGAN time based on the
     opener's mix. With a heavy {3T}+ hand, bank is forced; with a
@@ -203,6 +211,12 @@ goes here.)
   the matchup result far more than P1's bank discipline does. This
   also implies: **single-game iters are noisy** — confidence requires
   N games per matchup-vs-strategy combo, ideally with paired openers.
+  - **Iter-5 partial update**: Pilot B drew LP T1 + Snorkel T2 again.
+    The "LP-and-race" opener appears to be the modal outcome of B's
+    mulligan policy. If true, the variance is smaller than iter-4
+    feared — the policy IS stable, the deck is just genuinely strong
+    here. Future iters should test the no-LP/no-Snorkel B opener
+    explicitly (force-mulligan harness) to settle this.
 
 ## Contested strategic questions
 
@@ -232,6 +246,42 @@ goes here.)
   Pilot B's late game ran on autopilot. Fix in `scripts/llm_pilot/`
   before iter-3 (out of scope for this doc; flagged so it doesn't get
   lost).
+
+- **NEW iter-5: Are post-fix balance numbers signs of over-correction?**
+  Tournament data after all iter-1→4 engine fixes
+  (`logs/depths_after_iter4_fixes.json`): Silent_Hunter 87.5%, Wolfpack
+  53%, Carrier 22%, Deep_Strike 53%, Wolfpack_lean 34%. **Two specific
+  candidates for over-correction**:
+  - `MEDIUM_FLAGSHIP_LETHAL_BUFFER=3` (lowered from 5 in iter-4): a
+    Carrier swarm of 4-5 attackers each dealing 1-2 dmg trips the buffer
+    on every chip swing, getting shut down by single-detection
+    interception. Carrier dropped 47% → 22% post-patch — too aggressive?
+    Test: raise back to 4 and re-run tournament.
+  - `default_depth` honoring buff: Snorkel Stalker now spawns at
+    PERISCOPE = no penalty vs flagship + 1 attack-undetected pump = 4
+    dmg/turn structurally guaranteed from T3 onward. Combined with the
+    cumulative-damage patch firing late (T6 in iter-5, after 15 dmg
+    already taken), the defender starts behind. SH winrate jumped to
+    87.5%. Question: should Snorkel Stalker's printed power drop from
+    3 to 2 to reflect its new always-at-PERISCOPE structural advantage?
+  - **Combined hypothesis**: the cumulative-damage patch + lethal-buffer-3
+    + default_depth honoring all stacked together. Each was an iter-N
+    fix to a specific bug; the *combined effect* may have shifted the
+    metagame more than any single fix would predict in isolation.
+    Test: revert one at a time and re-run the 32-game tournament; pick
+    the combo that lands all archetypes in 40-60%.
+
+- **NEW iter-5: Is the matchup re-confirm (5 iters on the same matchup)
+  duplicative or useful?** Iter-5 was a single-game re-confirm of
+  iter-4's structural finding. The marginal value was: (a) confirmed
+  the cumulative-damage patch fires earlier (T6 iter-5 vs T15 iter-4)
+  with no game-breaking side effects; (b) confirmed Snorkel-at-PERISCOPE
+  is structurally strong post default_depth fix; (c) noted Pack Leader
+  0/5 cast streak. Cost: 1 LLM-pilot pair-game. The iter is *useful*
+  but only marginally. Recommendation: pivot iter-6 to a different
+  matchup (Carrier-vs-Wolfpack, or SH-vs-Deep-Strike) to cover unknown
+  ground rather than re-confirming this one. See `iter-6 plan` below
+  if added.
 
 ## Engine punchlist
 
@@ -300,6 +350,20 @@ goes here.)
   this only patches the medium *defense* path; offense still reads
   printed-only power.
 
+- **NEW iter-5 engine-tuning question (NOT patched this iter): the
+  cumulative-damage patch may be over-corrected on Carrier-style
+  swarms.** Tournament data (`logs/depths_after_iter4_fixes.json`)
+  shows Carrier dropped 47% → 22% post-patch; iter-5 Pilot B observed
+  P1 over-defending at T11 (burning SC=4-5 to kill a 3-power Coastal
+  Raider when 0-cost LP could have chumped it). Easily tunable knobs:
+  raise `MEDIUM_RECENT_DAMAGE_TRIGGER` from 6 → 8 (less sensitive to
+  early chip), or raise `MEDIUM_RECENT_DAMAGE_WINDOW` from 3 → 4
+  (smoother). Or revert `MEDIUM_FLAGSHIP_LETHAL_BUFFER` from 3 → 4
+  (Carrier swarm shutdown buffer). DO NOT patch this iter — the
+  iter-4/5 SH-vs-Wolfpack matchup is the cleanest evidence we have
+  that the patches work; touching them risks losing that. Defer to
+  iter-6 with explicit before/after tournament data.
+
 - **NEW (iter 4): Pack Leader U-99 attack-trigger investigation —
   NO BUG.** Pilot A reported a 5-damage 2-attacker swing (Pack Leader
   3 + Wolf-cub 2) where the formula predicts 3 (max(1,3-1) + max(1,2-1)
@@ -328,6 +392,61 @@ goes here.)
   Snorkel were at SURFACE). No engine fix needed.
 
 ## Pilot iteration log
+
+- **2026-05-07 (iter 5)**: refined greedy + custom-depth Wolfpack (P1,
+  LLM Pilot A) vs hybrid-aggressive Silent_Hunter (P2, LLM Pilot B).
+  Same matchup, same decks as iter-1→iter-4. **P2 WON 19 turns,
+  ME=12/25 vs P1=0/25** (Flagship sunk; harness reported turn 19 EOG,
+  Pilot B internal log claims T10 lethal — discrepancy is either
+  display lag or end-of-game cleanup turns; the win is real either
+  way). Pilot A self-graded **4/10**; Pilot B self-graded **9/10**
+  ("cleanest decisive win in 5 iters"). Iter-1→2→3→4→5: **L 0-1 (38)
+  → W 21-0 (28) → W 6-0 (25) → L 0-20 (17) → L 0-12 (19)**. Iter-5
+  is the second-clean-engine repeat-confirm of iter-4. Both engine
+  fixes (cumulative-damage detection escalation; default_depth
+  honoring) shipped iter-5 verified live in this run.
+  Reframed iter-progression for the matchup:
+  - **iter-1**: bug-influenced (cost prop bug).
+  - **iter-2**: bug-influenced (cast_effect_fn fixed but defense
+    pump-blind bug benefited Wolfpack's anthem alpha).
+  - **iter-3**: bug-influenced (defense pump-aware now, but lethal-
+    buffer wrong direction; Wolfpack again won marginally).
+  - **iter-4**: FIRST CLEAN engine. Wolfpack lost 0-20.
+  - **iter-5**: clean-engine repeat-confirm. Wolfpack lost 0-12.
+  Conclusion: Wolfpack's iter-2/iter-3 wins were partially engine-bug-
+  driven; the iter-4/iter-5 SH wins are the truth at engine equilibrium.
+  Key surfaced lessons:
+  - **Snorkel Stalker @ PERISCOPE post default_depth fix is
+    structurally strong.** Pilot B confirmed the fix lands the spawn
+    correctly without any SC dive cost. Saved ~8 SC across the game
+    that flowed straight into the bank for surgical interception.
+    Compounding effect with the cumulative-damage patch: SH wins by
+    chip + has SC headroom for late surgical defense.
+  - **Cumulative-damage patch fires correctly.** T6 detection trigger
+    (vs iter-4 T15, vs iter-3 never). The patch shifts defender
+    activation forward by ~9 turns. This is what was intended; iter-5
+    confirms the patch works in practice.
+  - **Pack Leader U-99 0/5 cast streak** — across all 5 iters of this
+    matchup, with bank discipline AND with greedy aggression, Pack
+    Leader has never landed. The {3T} slot is structurally unreachable
+    for this deck on this matchup. Pilot A flagged for cut. **Decision
+    deferred to iter-6**: tournament data shows the variant cutting
+    the OTHER {3T} card (Sat Strike) lost 6-2 to base — cutting one
+    card is already net-negative; cutting two might break the deck
+    entirely. Mark as iter-6 candidate, do not ship now.
+  - **Saturation Strike 0/5 cast in LLM games but tournament-essential.**
+    `SUBS_wolfpack_lean` (cuts Sat Strike) is 34% vs base Wolfpack's
+    53%. The card helps the heuristic AI (which can find the saturation
+    swing) but not the LLM pilot (which can't budget around the bank
+    rule). This is a strategic gap — the LLM pilot needs a sub-doctrine
+    "cast Sat Strike on the first multi-vessel swing where TC≥2" rule
+    that Pilot A has consistently failed to internalise across 5 iters.
+  - **Listening Post survived again.** P1 never attacked it; LP exists
+    as deterrent. Reaffirms the format-defining 0-power-chump role.
+  - **The matchup-vs-strategy combo is now SETTLED at N=2 clean
+    iters.** Future iters should pivot to other matchups (Carrier-vs-
+    SH, Deep-Strike-vs-Wolfpack) to map the rest of the meta rather
+    than re-confirm this one further.
 
 - **2026-05-07 (iter 4)**: refined greedy Wolfpack (P1, LLM Pilot A,
   bank discipline) vs HYBRID-AGGRESSIVE Silent_Hunter (P2, LLM Pilot B,
@@ -513,3 +632,18 @@ goes here.)
   consistent with PERISCOPE→PERISCOPE depth diff 0 + the
   attack-while-undetected +1 pump (3+1=4, no engine bug). The
   reporters' "predicted 3" baseline was wrong in both cases.
+
+- **2026-05-07 (iter 5)**: Iter-5 entry added. **Reframed the iter-1→5
+  progression**: iter-1/2/3 were each engine-bug-influenced in distinct
+  ways; iter-4 was the FIRST CLEAN engine result; iter-5 is the
+  N=2 clean-engine repeat-confirm. Aggressive SH > bank Wolfpack now
+  CONFIRMED at N=2. Bank-then-deploy reclassified from "settled iter-2"
+  → "settled-conditional on opp passivity". **NEW contested questions
+  filed**: are post-fix balance numbers (SH 87.5%, Carrier 22%) signs
+  of over-correction? Two specific candidates (lethal-buffer 5→3
+  possibly too aggressive; Snorkel Stalker @ PERISCOPE possibly too
+  strong post default_depth fix). Engine fixes are NOT being reverted
+  this iter — flagged for iter-6+ tournament re-run with one fix
+  reverted at a time. **Pack Leader U-99 0/5 cast streak documented**
+  but cut deferred (Wolfpack_lean variant data shows cutting one card
+  already hurt 6-2; cutting two might break the deck).

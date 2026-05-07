@@ -480,18 +480,29 @@ def cmd_state(args) -> None:
 
 
 def cmd_plan_deploy(args) -> None:
+    from src.engine.depths import DepthBand
     payload = _load()
     h, my_id, _ = _seat_handler_and_id(payload, getattr(args, "seat", "p1"))
     obj = _find_in_hand(payload["game"].state, my_id, args.card)
     if not obj:
         print(f"Not in hand: {args.card!r}")
         return
+    band = None
+    depth_arg = getattr(args, "depth", None)
+    if depth_arg:
+        try:
+            band = DepthBand[depth_arg.upper()]
+        except KeyError:
+            print(f"Bad depth {depth_arg!r}. Use SURFACE/PERISCOPE/MID/DEEP/CRUSH")
+            return
     h.maneuver_q.append({
         "action_type": "DEPTHS_DEPLOY_VESSEL",
         "card_id": obj.id,
+        "depth_band": band,  # None → engine uses card_def.default_depth or SURFACE
     })
     _save(payload)
-    print(f"+ DEPLOY {obj.name} [{obj.id[:8]}]")
+    band_label = f" @ {band.name}" if band else ""
+    print(f"+ DEPLOY {obj.name} [{obj.id[:8]}]{band_label}")
 
 
 def cmd_plan_dive(args) -> None:
@@ -1017,7 +1028,7 @@ def main() -> None:
     # All plan-* commands accept an optional --seat to route to P2's queue
     # (only valid in two-pilot mode).
     def _seat(p): p.add_argument("--seat", choices=["p1", "p2"], default="p1"); return p
-    p = _seat(sub.add_parser("plan-deploy")); p.add_argument("card"); p.set_defaults(fn=cmd_plan_deploy)
+    p = _seat(sub.add_parser("plan-deploy")); p.add_argument("card"); p.add_argument("--depth", help="SURFACE/PERISCOPE/MID/DEEP/CRUSH (default: card_def.default_depth or SURFACE)"); p.set_defaults(fn=cmd_plan_deploy)
     p = _seat(sub.add_parser("plan-dive")); p.add_argument("vessel"); p.set_defaults(fn=cmd_plan_dive)
     p = _seat(sub.add_parser("plan-surface")); p.add_argument("vessel"); p.set_defaults(fn=cmd_plan_surface)
     p = _seat(sub.add_parser("plan-attach")); p.add_argument("attachment"); p.add_argument("target"); p.set_defaults(fn=cmd_plan_attach)

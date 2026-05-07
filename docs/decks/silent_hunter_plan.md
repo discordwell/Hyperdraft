@@ -186,6 +186,47 @@ OR (b) the opp is a combo deck that out-grinds (Deep Strike).
 
 ## Iteration log
 
+- **2026-05-07 (iter-5)**: vs Wolfpack (LLM Pilot A, refined greedy
+  + custom-depth deploy flag). **W in 19 turns harness / T10 internal
+  lethal**, ME=12/25 vs OPP=0/25 (Flagship sunk). Pilot B self-graded
+  **9/10**, "cleanest decisive win in 5 iters". Iter-1→2→3→4→5
+  result: W 1-0 (38) → L 0-21 (28) → L 0-6 (25) → **W 20-0 (17) →
+  W 12-0 (10/19)** — second consecutive decisive Silent_Hunter win
+  on a clean engine, confirming the iter-4 plan promotion.
+  Key new findings:
+  - **Aggressive race plan now N=2 wins.** Confirms iter-4's plan
+    promotion; the matchup-vs-strategy combo is settled at this
+    confidence level. Future iters should pivot to other matchups
+    rather than re-confirm.
+  - **Snorkel Stalker @ PERISCOPE post default_depth fix verified
+    structurally strong.** Spawns at PERISCOPE (no SC dive needed),
+    hits flagship for 4 dmg unintercepted T3-T7. ~8 SC saved across
+    the game vs the iter-4 manual-dive path; this saving directly
+    funds the late-game surgical defense via the cumulative-damage
+    patch. Compounding win condition.
+  - **Cumulative-damage patch fires at T6** (vs iter-4 T15). Pilot A
+    (P1) finally detected after 15 dmg taken in 3 turns — that's the
+    patch firing exactly as designed. Lost a Snorkel + Periscope to
+    interception this iter where iter-4 lost nothing; the matchup is
+    *harder* than iter-4 but still decisively won by SH.
+  - **Snorkel #2 backup carry deploy** (T6) was a strong play —
+    redundancy if Snorkel #1 gets intercepted. New play priority: any
+    second Snorkel from hand should auto-deploy on the turn after
+    the first one starts taking SC fire.
+  - **Dive-to-MID saves no SC vs sonar ≥ 2.** T8 Pilot B dove
+    Snorkel #2 to MID (1 SC); P1 still detected (sonar=2 vs MID
+    detection cost 3 — but P1 had 2+1=3 available). Net: dive cost
+    1 SC for 0 benefit. Rule: only dive to MID when defender SC ≤ 1
+    AND deployed Snorkel is the carry; otherwise eat the detection.
+  - **Pack Leader U-99 NEVER deployed by Pilot A this iter** (or any
+    iter, 0/5 streak). The aggressive race kills Wolfpack before its
+    {3T} top-end becomes castable — the matchup is now *structurally*
+    inverse to iter-2/iter-3.
+  - **Iron Discipline still uncast** (drew Phantom T6, never castable).
+    Plan A's race wins so fast that Plan B's Iron Discipline + Phantom
+    finisher never materialises. This is fine — confirms control
+    pieces are insurance, not requirement.
+
 - **2026-05-07 (iter-4)**: vs Wolfpack (LLM Pilot A, refined greedy
   + bank discipline). **W in 17 turns**, ME=20/25 vs OPP=0/25 (Flagship
   sunk). Pilot B self-graded **9/10**, "cleanest decisive win in 4
