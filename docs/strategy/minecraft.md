@@ -117,6 +117,15 @@ guaranteed loss in the mirror. Auto-mulligan if rules permit.
   mob that can block.
 - **Snap-keep**: hands containing Bed + Worker + at least one ≤2-cost
   threat. This is the "actual opening" — everything else is salvage.
+- **Marginal keep (Worker-less but Bed-positive)**: a hand with **Bed
+  + a card-velocity action (Chop Trees / Villager Trade / Eyes of
+  Ender) + at least one ≤2-cost deployable** is salvageable even
+  without a Worker. Iter-2 confirmed: Bed + Chop Trees + drawing
+  Creeper turn 2 was enough to win an 8-turn raider mirror. The Bed
+  protects against the AI's weapon+1-mob race curve (preventing
+  one-shot lethal), and the velocity action finds Workers later.
+  Auto-mulliganing into a worse hand is not worth the EV trade if
+  this profile is in your opener.
 - If the harness exposes mulligan and you ship a hand: prioritize
   finding **a Worker** over finding a Bed; the deck cannot function
   without Workers because every avatar turn becomes either-mine-or-
@@ -192,6 +201,22 @@ underestimate the preset based on its name.
    avatar — it won't, because there's nothing to disrupt and it goes
    straight for face.
 
+4. **`passive_econ` becomes hyper-passive when Worker-less (v2-only,
+   patched in v3).** Iter-2 observed the AI play **zero mobs across 8
+   turns** because the v2 patches set `worker_bonus_under_3=80` while
+   `early_big_mob_penalty=20` still penalised non-Worker mobs. With no
+   Worker drawn, no card cleared the score-zero bar and the AI just
+   passed every turn. v3 lowered `early_big_mob_penalty` to 10 in
+   `passive_econ` only, so the AI now falls back to deploying a
+   non-Worker mob when no Worker is in hand. Caveat for the human
+   pilot: in the (rare) v2 build the AI's "defense" is meaningless
+   because it has nothing on the board — chump_anything requires
+   blockers it never deployed. Just attack every turn and the AI loses
+   on chip damage alone. Post-v3 this hole should be closed; if a
+   future iter still sees the AI passing with affordable cards in hand,
+   the issue is elsewhere (likely a scoring-table interaction, not the
+   Worker bonus).
+
 ## Known heuristic-AI weaknesses (exploitable when piloting)
 
 These are gaps in the current `_choose_card_to_play` / `_best_attack_column`
@@ -223,14 +248,25 @@ the **coach** loop should patch them in `MC_BIAS_PRESETS`.
    attackers and the AI can't answer them all.
 
 5. **Day/night blind:** AI doesn't time plays to day/night cycle.
-   Zombie's "+1 ATK at Night" is a free swing; AI doesn't time deploying
-   Zombies to maximize night attacks.
+   **Hostile mobs gain +1 ATK at Night** (Zombie text says so explicitly,
+   and the bonus also applies to Creeper, Pillager Patrol, and other
+   Hostile/Raider creatures). The AI doesn't time deployments around the
+   night phase, so the human can stack the swing both ways: deploy a
+   Hostile on a Day turn so it's ready for the Night attack; align
+   Bed-less lethal turns to land on Night when the +1 ATK across two
+   attackers can produce a +2-per-turn swing. **Concrete ceiling**:
+   Creeper (4/1, 2S) + Pillager Patrol (3/?, W1+I2, Raider+Hostile) at
+   Night = 4+1 + 3+1 = **9 face damage uncontested per turn** — enough
+   to kill an unprotected (Bed-less) avatar in a single attack step.
 
 6. **AI equips weapons without a Bed.** AI cheerfully equips Iron Sword
    despite no Bed protection — exactly the suicide line a human is told
-   to avoid. If the AI's avatar dies in an unequipped state, it loses
-   its biggest damage source; force pressure into the AI's avatar
-   column when it has equipped without a Bed.
+   to avoid. Iter-2 confirmed `weapon_no_bed_penalty=18` was undersized
+   (Iron Sword base = 15 + mc_attack=4 = 19, net +1 with the penalty,
+   still equipped). Penalty has been raised to 28 (net -9 for Iron
+   Sword, net -10 for Bow). If the AI's avatar dies in an unequipped
+   state, it loses its biggest damage source; force pressure into the
+   AI's avatar column when it has equipped without a Bed.
 
 ---
 
@@ -268,6 +304,57 @@ the **coach** loop should patch them in `MC_BIAS_PRESETS`.
   while undefended; new `bed_search_bonus=40` knob added (default 0)
   applied to Eyes of Ender / Villager Trade when the AI has no Bed,
   to compensate for low Bed copy density.
+
+### v3 — 2026-05-06 (raider mirror win vs passive_econ, 8 turns; v2 patch regression caught)
+
+- Pilot won 20→AI=0 in 8 turns (4 play-turns) running raider vs
+  raider with the v2-patched `passive_econ`. Net status of the v2
+  patches:
+  - **What helped (v2 patches that did their job):** the new mulligan
+    rules served as a useful reality check during the opening — the
+    pilot recognised the Worker-less hand and consciously played the
+    salvage line (Bed turn 1 + Chop Trees + day-bonus Cave) instead of
+    flailing. The "marginal keep" profile (Bed + velocity + cheap
+    deployable) is now documented as a result.
+  - **What regressed:** `worker_bonus_under_3` 60→80 and
+    `early_big_mob_penalty=20` together turned `passive_econ` hyper-
+    passive when no Worker was drawn — the AI played **zero mobs in
+    8 turns**, holding its hand instead of falling back to a non-
+    Worker threat. The pilot won uncontested by chipping with Creeper
+    + Pillager Patrol while the AI mined Cave on repeat.
+  - **What was undersized:** `weapon_no_bed_penalty=18` failed to
+    suppress Iron Sword (base score 19 → net +1 with the penalty,
+    still picked).
+  - **New combat finding (un-flagged in v2):** Hostile mobs gain
+    **+1 ATK at Night** (Zombie text states this explicitly; the
+    bonus also lifts Creeper, Pillager Patrol, and other Hostile/
+    Raider creatures). Two ≤2-cost Hostile attackers can deal **9
+    face damage uncontested per Night turn** — enough to one-shot
+    a Bed-less avatar. Documented under "Day/night blind".
+- Strategy doc updates:
+  - **Mulligan rules**: added "Marginal keep (Worker-less but Bed-
+    positive)" — Bed + velocity action + cheap deployable is salvage-
+    able without a Worker.
+  - **Strengths of `passive_econ` in mirror matchups**: added entry 4
+    on the v2-only hyper-passive failure mode (and noted that v3
+    closes the hole).
+  - **Known heuristic-AI weaknesses #5 (Day/night blind)**: expanded
+    with the +1 Night ATK math and the 9-damage-per-Night-turn
+    ceiling for two-Hostile attacks.
+  - **Known heuristic-AI weaknesses #6 (weapons without Bed)**: noted
+    that the v2 `weapon_no_bed_penalty=18` was undersized vs Iron
+    Sword's base score of 19 and that v3 raised it to 28.
+- Heuristic AI preset patches (passive_econ only — see
+  `MC_BIAS_PRESETS["passive_econ"]` in `src/ai/minecraft_adapter.py`):
+  - `weapon_no_bed_penalty` 18 → **28**: Iron Sword (15 + 4 = 19) net
+    -9, Bow (15 + 3 = 18) net -10. Both should now lose to virtually
+    any other affordable play.
+  - `early_big_mob_penalty` 20 → **10** (in `passive_econ` only):
+    keeps the +80 Worker bonus dominant when a Worker is in hand,
+    while letting the AI fall back to a non-Worker mob (e.g. Zombie,
+    Spider, Enderman) when no Worker is available — preventing the
+    iter-2 "literally pass every turn" failure mode.
+  - Other presets are unchanged.
 
 <!-- Append new sections below as the loop runs. Each entry: date, what
 was learned, what was patched (strategy doc updates + heuristic AI

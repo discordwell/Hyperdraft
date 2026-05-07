@@ -159,12 +159,23 @@ MC_BIAS_PRESETS: dict[str, dict] = {
         # weapon_no_bed_penalty=18 to stop the AI from equipping Iron
         # Sword while undefended; bed_search_bonus=40 to bias tutor /
         # draw effects toward finding the missing Bed.
+        # 2026-05-06 (v3): iter-2 found two regressions/undersizes from v2:
+        # (1) weapon_no_bed_penalty=18 was numerically too small — Iron
+        # Sword (15 + mc_attack=4 = 19) survived the penalty at net +1
+        # and was still equipped. Bumped to 28 → net -9, suppressed.
+        # (2) Worker-less openings became hyper-passive: with the +80
+        # Worker bonus only firing when a Worker is in hand, a Worker-
+        # less hand has no high-scoring play, and -20 on big mobs made
+        # the AI hold its hand for entire games (iter-2 AI played zero
+        # mobs in 8 turns). Lowered early_big_mob_penalty 20 -> 10 in
+        # this preset only, so the AI falls back to deploying SOMETHING
+        # when no Worker is drawable.
         worker_bonus_under_3=80, worker_bonus_first=30,
         turnbonus_struct_bonus=5, explore_map_bonus=15,
         strip_mine_bonus=15, find_diamonds_bonus=10, chop_trees_bonus=25,
         untap_worker_bonus=30, nether_expedition_bonus=10,
-        early_big_mob_penalty=20, late_big_mob_bonus=5,
-        weapon_no_bed_penalty=18, bed_search_bonus=40,
+        early_big_mob_penalty=10, late_big_mob_bonus=5,
+        weapon_no_bed_penalty=28, bed_search_bonus=40,
         attack_priority="structure_first", block_mode="chump_anything",
     ),
     "wood_economy": _preset(
