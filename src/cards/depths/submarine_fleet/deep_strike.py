@@ -52,6 +52,7 @@ from ._factories import (
     make_mine,
     make_vessel,
     make_weapon,
+    make_depths_end_phase_trigger,
 )
 
 
@@ -405,34 +406,22 @@ def _crush_depth_doctrine_setup(obj: GameObject, state: GameState) -> list[Inter
         return src is not None and src.zone == ZoneType.BATTLEFIELD
 
     def _handler(event: Event, st: GameState) -> InterceptorResult:
-        td = getattr(st, "turn_data", None)
-        if td is None:
-            return InterceptorResult(action=InterceptorAction.PASS)
-        bucket = td.setdefault(f"_crush_depth_changes_{src_id}", {})
+        # Balance pass 2026-05-06: original fired on the 2nd depth change
+        # per vessel per turn, which never triggered after the AI dive-loop
+        # fix (vessels only dive once now). Fire on every change so the
+        # doctrine actually pays off Deep_Strike's diving emphasis.
         oid = event.payload.get("object_id")
-        bucket[oid] = int(bucket.get(oid, 0)) + 1
-        # Fire on the 2nd change (and exactly once: only the transition
-        # from 1 -> 2 emits the damage event).
-        if bucket[oid] != 2:
-            return InterceptorResult(action=InterceptorAction.PASS)
         target = _opposing_flagship(st, obj.controller)
-        if target is None:
+        if target is None or not oid:
             return InterceptorResult(action=InterceptorAction.PASS)
         return InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=[_damage_event(obj, target.id, 1, reason="crush_depth_doctrine")],
         )
 
-    # Reset the per-turn tracker on TURN_END so it doesn't carry over.
-    def _reset_filter(event: Event, st: GameState) -> bool:
-        return event.type == EventType.TURN_END
-
-    def _reset_handler(event: Event, st: GameState) -> InterceptorResult:
-        td = getattr(st, "turn_data", None)
-        if td is not None:
-            td.pop(f"_crush_depth_changes_{src_id}", None)
-        return InterceptorResult(action=InterceptorAction.PASS)
-
+    # Per-turn tracker no longer needed (the "fire only on 2nd change"
+    # bookkeeping was removed in the same balance pass; effect now fires
+    # on every change so there's no per-turn state to reset).
     return [
         Interceptor(
             id=new_id(),
@@ -443,51 +432,22 @@ def _crush_depth_doctrine_setup(obj: GameObject, state: GameState) -> list[Inter
             handler=_handler,
             duration="while_on_battlefield",
         ),
-        Interceptor(
-            id=new_id(),
-            source=src_id,
-            controller=obj.controller,
-            priority=InterceptorPriority.REACT,
-            filter=_reset_filter,
-            handler=_reset_handler,
-            duration="while_on_battlefield",
-        ),
     ]
 
 
 # --- Sonar Hoard Doctrine: at end step, if SC >= 6, draw 1 ------------------
+# Bugfix 2026-05-06: filter previously matched payload['phase'] == 'end_step'
+# but DepthsTurnManager emits phase='surface' for the end phase.
+# Routed through the shared depths trigger helper.
 
 def _sonar_hoard_doctrine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    src_id = obj.id
-
-    def _filter(event: Event, st: GameState) -> bool:
-        if event.type != EventType.PHASE_START:
-            return False
-        if event.payload.get("phase") != "end_step":
-            return False
-        if st.active_player != obj.controller:
-            return False
-        src = st.objects.get(src_id)
-        return src is not None and src.zone == ZoneType.BATTLEFIELD
-
-    def _handler(event: Event, st: GameState) -> InterceptorResult:
+    def _effect(event: Event, st: GameState) -> list[Event]:
         player = st.players.get(obj.controller)
         if player is None or int(getattr(player, "sc", 0)) < 6:
-            return InterceptorResult(action=InterceptorAction.PASS)
-        return InterceptorResult(
-            action=InterceptorAction.REACT,
-            new_events=[_draw_event(obj, count=1)],
-        )
+            return []
+        return [_draw_event(obj, count=1)]
 
-    return [Interceptor(
-        id=new_id(),
-        source=src_id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=_filter,
-        handler=_handler,
-        duration="while_on_battlefield",
-    )]
+    return [make_depths_end_phase_trigger(obj, _effect, controller_only=True)]
 
 
 # --- Deep Vector Doctrine: first dive each turn for each Vessel is free ----
@@ -992,7 +952,7 @@ BATTERY_REROUTE = make_doctrine(
 CRUSH_DEPTH_DOCTRINE = make_doctrine(
     name="Crush-Depth Doctrine",
     cost="{2T,1S}",
-    text=("Whenever a Vessel you control changes depth 2+ bands in a turn, "
+    text=("Whenever a Vessel you control changes depth, "
           "deal 1 to opposing Flagship."),
     setup_interceptors=_crush_depth_doctrine_setup,
 )

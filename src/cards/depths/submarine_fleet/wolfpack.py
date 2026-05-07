@@ -230,6 +230,9 @@ COASTAL_RAIDER = make_vessel(
     text="",
 )
 
+# Balance pass 2026-05-06: Restored to 3/2 (round-2 nerf to 2/2 over-corrected,
+# dropping Wolfpack to 23%). Snorkel Stalker silent_running removal in round 4
+# rebalanced SH downward instead.
 SURFACE_SKIRMISHER = make_vessel(
     name="Surface Skirmisher",
     power=3,
@@ -817,10 +820,20 @@ WIRE_GUIDED_SPREAD = make_weapon(
 # ACTIONS (sorcery-speed effects)
 # ===========================================================================
 
-# Saturation Strike: your attacking Submarines get +2/+0 EOT.
+# Saturation Strike: your Submarines get +2/+0 EOT.
+# Bugfix 2026-05-06: original targeted "attacking Submarines" but Action cards
+# are sorcery-speed and cast in MANEUVER (pre-combat) where no vessel has
+# state.attacking=True yet — effect was a silent no-op. Buffs all Submarines
+# now; for Wolfpack aggro this is functionally identical (defenders are rare).
 def saturation_strike_effect(obj: GameObject, state: GameState) -> list[Event]:
     events: list[Event] = []
-    for sub in _attacking_submarines_inclusive(obj.controller, state):
+    bf = state.zones.get("battlefield")
+    if not bf:
+        return events
+    for oid in bf.objects:
+        sub = state.objects.get(oid)
+        if sub is None or sub.controller != obj.controller or not _is_submarine(sub):
+            continue
         events.append(_pt_mod_event(sub.id, obj.id, power=2))
     return events
 
@@ -828,16 +841,29 @@ def saturation_strike_effect(obj: GameObject, state: GameState) -> list[Event]:
 SATURATION_STRIKE = make_action(
     name="Saturation Strike",
     cost="{2T}",
-    text="Your attacking Submarines get +2/+0 EOT.",
+    text="Your Submarines get +2/+0 EOT.",
     cast_effect_fn=saturation_strike_effect,
 )
 
 
-# Donitz's Recall: untap up to 2 attacking Submarines you control.
+# Donitz's Recall: untap up to 2 tapped Submarines you control.
+# Bugfix 2026-05-06: original required attacking submarines but in REGROUP the
+# attackers are tapped with attacking=False (combat cleared the flag).
+# "Tapped" is the right query — works to "recall" subs that just swung.
 def donitz_recall_effect(obj: GameObject, state: GameState) -> list[Event]:
-    attackers = _attacking_submarines_inclusive(obj.controller, state)
+    bf = state.zones.get("battlefield")
+    if not bf:
+        return []
+    candidates: list[GameObject] = []
+    for oid in bf.objects:
+        sub = state.objects.get(oid)
+        if sub is None or sub.controller != obj.controller or not _is_submarine(sub):
+            continue
+        if not getattr(sub.state, "tapped", False):
+            continue
+        candidates.append(sub)
     events: list[Event] = []
-    for sub in attackers[:2]:
+    for sub in candidates[:2]:
         sub.state.tapped = False
         sub.state.attacking = False
         events.append(_untap_event(sub.id, obj.id))
@@ -847,7 +873,7 @@ def donitz_recall_effect(obj: GameObject, state: GameState) -> list[Event]:
 DONITZ_RECALL = make_action(
     name="Dönitz's Recall",
     cost="{1T,1S}",
-    text="Untap up to 2 attacking Submarines you control.",
+    text="Untap up to 2 tapped Submarines you control.",
     cast_effect_fn=donitz_recall_effect,
 )
 

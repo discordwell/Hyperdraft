@@ -615,7 +615,7 @@ class DepthsTurnManager(TurnManager):
     # Phase 5: SURFACE
     # ---------------------------------------------------------------------
     async def phase_surface(self, game, player_id: str) -> list[Event]:
-        """End of turn: discard, sonar decay, oxygen tick."""
+        """End of turn: discard, sonar decay, oxygen tick, EOT modifier sweep."""
         events: list[Event] = []
         events.extend(self._emit_phase("surface", "start", player_id))
 
@@ -634,9 +634,59 @@ class DepthsTurnManager(TurnManager):
         # --- Oxygen tick on submerged Vessels.
         events.extend(self._oxygen_tick(player_id))
 
+        # --- End-of-turn modifier sweep. Mirrors the base TurnManager cleanup
+        # in src/engine/turn.py:440-480 but skips MTG-specific bits (we don't
+        # heal damage; hull damage persists in Depths).
+        self._sweep_eot_modifiers()
+
         self._check_sba(game)
         events.extend(self._emit_phase("surface", "end", player_id))
         return events
+
+    def _sweep_eot_modifiers(self) -> None:
+        """Drop pt_modifiers / temporary abilities / interceptors whose
+        duration is end-of-turn. Without this, cards like Snorkel Stalker's
+        '+1 power EOT' trigger pump accumulate across turns indefinitely.
+        """
+        eot_aliases = {"end_of_turn", "until_end_of_turn", "until_eot", "eot",
+                       "next_end_step", "end_of_this_turn", "this_turn"}
+
+        battlefield = self.state.zones.get("battlefield")
+        if battlefield:
+            for obj_id in list(battlefield.objects):
+                obj = self.state.objects.get(obj_id)
+                if obj is None:
+                    continue
+                # Clear PT modifiers tagged with EOT durations.
+                if hasattr(obj.state, "pt_modifiers") and obj.state.pt_modifiers:
+                    obj.state.pt_modifiers = [
+                        mod for mod in obj.state.pt_modifiers
+                        if str(mod.get("duration", "")).strip().lower().replace(" ", "_")
+                        not in eot_aliases
+                    ]
+                # Clear temporary ability grants.
+                if obj.characteristics and obj.characteristics.abilities:
+                    obj.characteristics.abilities = [
+                        a for a in obj.characteristics.abilities
+                        if not (
+                            isinstance(a, dict)
+                            and a.get("_temporary") is True
+                            and a.get("_duration") == "end_of_turn"
+                        )
+                    ]
+
+        # Sweep duration='end_of_turn' interceptors out of state.interceptors.
+        to_remove = [
+            iid for iid, ic in self.state.interceptors.items()
+            if isinstance(getattr(ic, "duration", None), str)
+            and ic.duration.strip().lower().replace(" ", "_") in eot_aliases
+        ]
+        for iid in to_remove:
+            ic = self.state.interceptors.pop(iid, None)
+            if ic is not None:
+                src = self.state.objects.get(getattr(ic, "source", None))
+                if src is not None and iid in src.interceptor_ids:
+                    src.interceptor_ids.remove(iid)
 
     # =====================================================================
     # Action-loop dispatch

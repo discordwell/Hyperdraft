@@ -293,6 +293,12 @@ HARD_W_FLAGSHIP = 0.6
 HARD_W_BOARD = 0.3
 HARD_W_CHARGE = 0.1
 
+# Maneuver self-cap — the turn manager already enforces _ACTION_LOOP_CAP=200,
+# but a tighter per-turn ceiling keeps the AI from monopolising compute on
+# pathological boards (e.g. a Vessel with a {1S} ability and 10 SC). 30 is
+# generous enough for any realistic combo turn yet bounded.
+MAX_ACTIONS_PER_PHASE = 30
+
 
 # =============================================================================
 # Helpers
@@ -405,6 +411,44 @@ def _can_afford(player: 'Player', tc: int, sc: int) -> bool:
     return int(getattr(player, "tc", 0)) >= tc and int(getattr(player, "sc", 0)) >= sc
 
 
+def _parse_charge_cost_str(raw: Optional[str]) -> Optional[tuple[int, int]]:
+    """Parse a printed cost string like ``{2T, 1S}`` to ``(tc, sc)``.
+
+    Mirrors ``_parse_charge_cost`` (which takes a card object) but accepts a
+    raw string — used by the activated-ability picker. Returns None if the
+    string is empty / unparseable; ``(0, 0)`` for free costs.
+    """
+    if raw is None:
+        return None
+    cleaned = str(raw).replace("{", "").replace("}", "").replace(" ", "")
+    if not cleaned:
+        return (0, 0)
+    tc = 0
+    sc = 0
+    for token in cleaned.split(","):
+        if not token:
+            continue
+        if "/" in token or "(" in token:
+            tc += 1
+            sc += 1
+            continue
+        amount = 0
+        i = 0
+        while i < len(token) and token[i].isdigit():
+            amount = amount * 10 + int(token[i])
+            i += 1
+        if amount == 0:
+            amount = 1
+        rest = token[i:].upper()
+        if "T" in rest:
+            tc += amount
+        if "S" in rest:
+            sc += amount
+        if not rest:
+            tc += amount
+    return (tc, sc)
+
+
 def _power(obj: 'GameObject') -> int:
     return int(obj.characteristics.power or 0)
 
@@ -465,6 +509,122 @@ def _flagship_buffer(state: GameState, player_id: str) -> int:
     return _hull(fs)
 
 
+# ---------------------------------------------------------------------------
+# Crew / Weapon / Mine / ActivateAbility helpers
+# ---------------------------------------------------------------------------
+
+def _is_unattached_vessel(vessel: 'GameObject') -> bool:
+    """A Vessel is "un-attached" when it has no Crew/Weapon attached to it."""
+    attachments = getattr(vessel.state, "attachments", None) or []
+    return len(attachments) == 0
+
+
+def _is_engaged(vessel: 'GameObject') -> bool:
+    """Engaged = currently taking damage or about to attack (proxy: tapped or
+    has hull damage). Used for Crew-attach prioritisation per the design doc:
+    'prefer attaching to a Vessel that's currently engaged'."""
+    if int(getattr(vessel.state, "damage", 0)) > 0:
+        return True
+    # Vessels declared as attackers get tapped during the engagement step.
+    if getattr(vessel.state, "tapped", False):
+        return True
+    return False
+
+
+def _has_attachable_host(state: GameState, player_id: str) -> bool:
+    """Player controls at least one non-Flagship Vessel."""
+    for v in _own_vessels(state, player_id):
+        if "Flagship" not in v.characteristics.subtypes:
+            return True
+    return False
+
+
+def _own_mines(state: GameState, player_id: str) -> list['GameObject']:
+    """Mines on the battlefield controlled by ``player_id``."""
+    bf = _battlefield(state)
+    if not bf:
+        return []
+    return [
+        obj for oid in bf.objects
+        if (obj := state.objects.get(oid)) is not None
+        and obj.controller == player_id
+        and CardType.DEPTHS_MINE in obj.characteristics.types
+    ]
+
+
+def _ability_can_activate(ability, vessel: 'GameObject', state: GameState) -> bool:
+    """True if this activated ability can be activated this turn.
+
+    Honours ``once_per_turn`` (via ``last_activation_turn`` on the ability or
+    a ``activations_this_turn`` counter) and ``once_per_game`` exhaust.
+    """
+    if ability is None:
+        return False
+    # Once-per-game / Exhaust guard.
+    if getattr(ability, "once_per_game", False) or getattr(ability, "is_exhaust", False):
+        if int(getattr(ability, "activations_this_turn", 0)) > 0:
+            return False
+    # Once-per-turn guard: compare against state.turn_number.
+    if getattr(ability, "once_per_turn", False):
+        last = getattr(ability, "last_activation_turn", -1)
+        try:
+            if int(last) == int(getattr(state, "turn_number", 0)):
+                return False
+        except Exception:
+            pass
+    # own-turn-only guard (applies to most depths abilities).
+    if getattr(ability, "own_turn_only", False):
+        active_pid = getattr(state, "active_player_id", None)
+        if active_pid and active_pid != vessel.controller:
+            return False
+    # Pre-condition (rare on depths cards).
+    pre = getattr(ability, "precondition_fn", None)
+    if callable(pre):
+        try:
+            if not pre(vessel, state):
+                return False
+        except Exception:
+            return False
+    return True
+
+
+def _ability_cost(ability) -> Optional[str]:
+    """Return the cost string for an activated ability — handles both the dict
+    descriptor shape (legacy) and the ``ActivatedAbility`` dataclass shape."""
+    if ability is None:
+        return None
+    if isinstance(ability, dict):
+        return ability.get("cost") or ability.get("cost_text")
+    return getattr(ability, "cost_text", None) or getattr(ability, "cost", None)
+
+
+def _ability_emits_damage(ability) -> bool:
+    """Heuristic: True if the ability's description mentions damage / 'deal X'.
+    The effect_fn signature doesn't expose a clean 'this is removal' flag, so
+    we sniff the text. Used to bias the Medium activation picker."""
+    if ability is None:
+        return False
+    desc = ""
+    if isinstance(ability, dict):
+        desc = str(ability.get("description") or ability.get("text") or "")
+    else:
+        desc = str(getattr(ability, "description", "") or "")
+    desc = desc.lower()
+    return any(tok in desc for tok in ("deal", "damage", "destroy", "kill"))
+
+
+def _ability_is_utility_draw(ability) -> bool:
+    if ability is None:
+        return False
+    desc = ""
+    if isinstance(ability, dict):
+        desc = str(ability.get("description") or ability.get("text") or "")
+    else:
+        desc = str(getattr(ability, "description", "") or "")
+    desc = desc.lower()
+    return any(tok in desc for tok in ("draw", "untap", "gain", "scry"))
+
+
 # =============================================================================
 # DepthsAIAdapter
 # =============================================================================
@@ -485,6 +645,12 @@ class DepthsAIAdapter:
             diff = "medium"
         self.difficulty = diff
         self.rng = rng or random.Random()
+        # Per-turn action counter — keyed by (player_id, turn_number, phase_label).
+        # The maneuver loop calls this adapter once per action; we self-cap at
+        # MAX_ACTIONS_PER_PHASE per (player, turn) so a degenerate vessel + cheap
+        # ability combo can't drag a single turn out indefinitely. Phase changes
+        # are detected via state.turn_number changes (a new turn resets).
+        self._action_counter: dict[tuple[str, int], int] = {}
 
     # ─── Mulligan ──────────────────────────────────────────────────
 
@@ -505,6 +671,24 @@ class DepthsAIAdapter:
             return False
         cheap = any(_cost_total(v) <= 3 for v in vessels)
         return cheap
+
+    # ─── Per-turn action self-cap ──────────────────────────────────
+
+    def _note_action_call(self, state: GameState, player_id: str) -> bool:
+        """Increment this turn's action counter and return False once the cap
+        is reached. Returning False causes the maneuver pipeline to short-
+        circuit to ``Done()`` so the turn manager can move on. Resets when
+        ``state.turn_number`` changes.
+        """
+        turn = int(getattr(state, "turn_number", 0) or 0)
+        key = (player_id, turn)
+        # Garbage-collect older counters so the dict doesn't grow forever.
+        stale = [k for k in self._action_counter if k[1] < turn - 1]
+        for k in stale:
+            self._action_counter.pop(k, None)
+        count = self._action_counter.get(key, 0) + 1
+        self._action_counter[key] = count
+        return count <= MAX_ACTIONS_PER_PHASE
 
     # ─── Maneuver loop dispatch ────────────────────────────────────
 
@@ -567,6 +751,8 @@ class DepthsAIAdapter:
     def _easy_maneuver(self, state: GameState, player_id: str) -> ManeuverAction:
         player = state.players.get(player_id)
         if player is None:
+            return Done()
+        if not self._note_action_call(state, player_id):
             return Done()
 
         own_vessels = _own_vessels(state, player_id)
@@ -682,6 +868,12 @@ class DepthsAIAdapter:
         if player is None:
             return Done()
 
+        # Per-call action cap: prevents pathological loops where a cheap
+        # repeating activation drains the AI's budget. The turn manager has
+        # _ACTION_LOOP_CAP=200 as a hard floor; we self-limit at MAX_ACTIONS_PER_PHASE.
+        if not self._note_action_call(state, player_id):
+            return Done()
+
         hand = _hand_cards(state, player_id)
         own_vessels = _own_vessels(state, player_id)
 
@@ -690,27 +882,40 @@ class DepthsAIAdapter:
         if deploy is not None:
             return deploy
 
-        # 2. Surface any Vessel sitting on top of an opposing Mine (§8).
-        surface = self._medium_pick_surface_off_mine(state, player_id, own_vessels)
-        if surface is not None:
-            return surface
+        # 1b. Cast a Doctrine (persistent global enchantment) — earlier is
+        #     better since the effect compounds across remaining turns.
+        doctrine = self._medium_pick_doctrine(state, hand, player_id, player)
+        if doctrine is not None:
+            return doctrine
 
-        # 3. Dive an undetected, beefy Vessel (power >= 3) toward DEEP (§8).
-        dive = self._medium_pick_dive(state, player, own_vessels)
-        if dive is not None:
-            return dive
+        # 2. Lay a Mine — best done early so it's actively defending. Highest
+        #    impact when the opponent has surface vessels (PERISCOPE) or is
+        #    mid-board (MID).
+        mine = self._medium_pick_mine(state, hand, player_id, player)
+        if mine is not None:
+            return mine
 
-        # 4. Attach Crew/Weapon to a friendly Vessel if it strictly upgrades.
+        # 3. Attach Crew/Weapon to a friendly Vessel that benefits.
         attach = self._medium_pick_attach(state, hand, own_vessels, player)
         if attach is not None:
             return attach
 
-        # 5. Lay a mine if we have one and it covers a likely attack lane.
-        mine = self._medium_pick_mine(state, hand, player)
-        if mine is not None:
-            return mine
+        # 4. Surface a Vessel under threat OR for a profitable strike (§8).
+        surface = self._medium_pick_surface(state, player_id, own_vessels)
+        if surface is not None:
+            return surface
 
-        # 6. Cast an Action card with a sensible target.
+        # 5. Dive an undetected, beefy Vessel (power >= 3) toward DEEP (§8).
+        dive = self._medium_pick_dive(state, player, own_vessels)
+        if dive is not None:
+            return dive
+
+        # 6. Activate a payable ability (damage > untap/draw > other).
+        activate = self._medium_pick_activate(state, player_id, own_vessels)
+        if activate is not None:
+            return activate
+
+        # 7. Cast an Action card with a sensible target.
         action = self._medium_pick_action(state, hand, player_id, player)
         if action is not None:
             return action
@@ -734,27 +939,90 @@ class DepthsAIAdapter:
         candidates.sort(key=lambda x: x[0], reverse=True)
         return DeployVessel(card_id=candidates[0][1].id)
 
-    def _medium_pick_surface_off_mine(self, state: GameState, player_id: str,
-                                      own_vessels: list['GameObject']) -> Optional[SurfaceVessel]:
-        """Surface a Vessel out of any band that holds an opposing Mine (§8)."""
+    def _medium_pick_surface(self, state: GameState, player_id: str,
+                             own_vessels: list['GameObject']) -> Optional[SurfaceVessel]:
+        """Surface for one of two reasons (§8):
+
+        (a) Escape: a Vessel sits at a depth band that holds an opposing Mine.
+        (b) Profitable strike: the Vessel is below SURFACE, has power that
+            (after the depth-modifier penalty) would deal more damage to the
+            opposing Flagship from a shallower band than its current band.
+
+        Vessels with the ``bottom_crawler`` keyword are explicitly skipped —
+        they WANT to be deep (per the design doc keyword definition).
+        """
+        # (a) Escape from opposing Mines (free move, always safe).
         opp_mine_bands = {
             mine.state.depth_band for mine in _opp_mines(state, player_id)
             if mine.state.depth_band is not None
         }
-        if not opp_mine_bands:
-            return None
-        for vessel in own_vessels:
-            if vessel.state.depth_band in opp_mine_bands and vessel.state.depth_band != DepthBand.SURFACE:
-                # Surfacing is free per §4, so always safe to do.
-                if "Flagship" not in vessel.characteristics.subtypes:
+        if opp_mine_bands:
+            for vessel in own_vessels:
+                if "Flagship" in vessel.characteristics.subtypes:
+                    continue
+                if "bottom_crawler" in vessel.characteristics.keywords:
+                    continue
+                band = vessel.state.depth_band
+                if band in opp_mine_bands and band != DepthBand.SURFACE:
                     return SurfaceVessel(vessel_id=vessel.id)
+
+        # (b) Profitable surface→strike sequence. We surface ONLY if:
+        #   - the vessel is currently at MID/DEEP/CRUSH (not PERISCOPE — the
+        #     Flagship sits there, so the depth penalty against Flagship is 0
+        #     from PERISCOPE already).
+        #   - shallower band yields strictly more depth-modifier damage to
+        #     the opposing Flagship.
+        opp = _other_player(state, player_id)
+        opp_flagship = get_flagship(state, opp) if opp else None
+        if opp_flagship is None:
+            return None
+        flagship_band = opp_flagship.state.depth_band or DepthBand.PERISCOPE
+        for vessel in own_vessels:
+            if "Flagship" in vessel.characteristics.subtypes:
+                continue
+            if "bottom_crawler" in vessel.characteristics.keywords:
+                continue
+            if "homing" in vessel.characteristics.keywords:
+                # Homing ignores the depth penalty — surfacing buys nothing.
+                continue
+            band = vessel.state.depth_band
+            if band is None or band == DepthBand.SURFACE:
+                continue
+            try:
+                if int(band.value) <= int(DepthBand.PERISCOPE.value):
+                    continue
+            except Exception:
+                continue
+            # Compare current vs one-band-shallower expected damage.
+            current_dmg = max(1, _power(vessel) - depth_difference(band, flagship_band))
+            shallower_band = DepthBand(int(band.value) - 1)
+            new_dmg = max(1, _power(vessel) - depth_difference(shallower_band, flagship_band))
+            # Require at least one extra damage AND the vessel must be
+            # tactically useful (not a blocker we want to keep deep).
+            if new_dmg > current_dmg and _power(vessel) >= 2 and _is_ready_to_attack(vessel):
+                return SurfaceVessel(vessel_id=vessel.id)
         return None
 
     def _medium_pick_dive(self, state: GameState, player: 'Player',
                           own_vessels: list['GameObject']) -> Optional[Dive]:
-        """Dive an undetected power-3+ Vessel toward DEEP if we can pay 1 Sonar."""
+        """Dive an undetected Vessel for stealth — but only when it actually helps.
+
+        Diving past the opposing Flagship's depth costs the vessel 1 attack
+        damage per band of separation (depth-modifier rule §5) without any
+        compensating stealth benefit, since detection cost flattens at MID.
+        Without this guard, the picker dives PERISCOPE→MID and the surface
+        picker promptly surfaces back, burning 1 Sonar/turn forever.
+        """
         if int(getattr(player, "sc", 0)) < 1:
             return None
+        # Optimal attack depth = opposing flagship's band (default PERISCOPE).
+        opp = _other_player(state, getattr(player, "id", None))
+        opp_flag = get_flagship(state, opp) if opp else None
+        flagship_band = (
+            opp_flag.state.depth_band if (opp_flag and opp_flag.state.depth_band)
+            else DepthBand.PERISCOPE
+        )
+        flagship_v = int(flagship_band.value)
         for vessel in own_vessels:
             if "Flagship" in vessel.characteristics.subtypes:
                 continue
@@ -769,6 +1037,10 @@ class DepthsAIAdapter:
                 # Already at max depth (DEEP per §4 — CRUSH is implosion).
                 if int(band.value) >= int(DepthBand.DEEP.value):
                     continue
+                # Don't dive past the flagship band — losing attack damage
+                # for no stealth gain. (Detection cost flattens MID==PERISCOPE.)
+                if int(band.value) >= flagship_v:
+                    continue
             except Exception:
                 continue
             return Dive(vessel_id=vessel.id)
@@ -777,43 +1049,187 @@ class DepthsAIAdapter:
     def _medium_pick_attach(self, state: GameState, hand: list['GameObject'],
                             own_vessels: list['GameObject'],
                             player: 'Player') -> Optional[ManeuverAction]:
-        if not own_vessels:
-            return None
-        best_host = max(own_vessels, key=lambda v: _power(v) + _hull(v))
-        if "Flagship" in best_host.characteristics.subtypes:
-            # Avoid attaching to the Flagship — it can't move; spread elsewhere.
-            non_fs = [v for v in own_vessels if "Flagship" not in v.characteristics.subtypes]
-            if non_fs:
-                best_host = max(non_fs, key=lambda v: _power(v) + _hull(v))
+        """Attach a Crew/Weapon from hand to the best un-attached host.
+
+        Heuristic (per ai-extension prompt):
+          - Skip if the player has no non-Flagship Vessel.
+          - Prefer un-attached Vessels (don't double-stack a single host).
+          - For Crew with a power_mod or toughness_mod, prefer engaged
+            Vessels (taking damage or already attacking) so the boost
+            actually matters this turn.
+          - Always pick the highest-power un-attached host as a fallback.
+          - Skip if cost can't be paid.
+        """
+        # Find affordable Crew / Weapon cards in hand.
+        affordable_crew: list['GameObject'] = []
+        affordable_weapons: list['GameObject'] = []
         for card in hand:
             types = card.characteristics.types
-            if CardType.DEPTHS_CREW in types and _can_afford(player, *_parse_charge_cost(card)):
-                return AttachCrew(crew_id=card.id, vessel_id=best_host.id)
-            if CardType.DEPTHS_WEAPON in types and _can_afford(player, *_parse_charge_cost(card)):
-                return AttachWeapon(weapon_id=card.id, vessel_id=best_host.id)
+            if not _can_afford(player, *_parse_charge_cost(card)):
+                continue
+            if CardType.DEPTHS_CREW in types:
+                affordable_crew.append(card)
+            elif CardType.DEPTHS_WEAPON in types:
+                affordable_weapons.append(card)
+        if not affordable_crew and not affordable_weapons:
+            return None
+
+        # Identify candidate hosts (non-Flagship Vessels).
+        non_fs = [v for v in own_vessels if "Flagship" not in v.characteristics.subtypes]
+        if not non_fs:
+            return None
+
+        un_attached = [v for v in non_fs if _is_unattached_vessel(v)]
+        host_pool = un_attached or non_fs  # fall back to attached hosts only if all are taken
+
+        # Generic best-power host.
+        best_host = max(host_pool, key=lambda v: (_power(v), _hull(v)))
+
+        # For each Crew with stat boosts, prefer an engaged host.
+        if affordable_crew:
+            engaged = [v for v in host_pool if _is_engaged(v)]
+            for crew in affordable_crew:
+                # Crew with stat boosts → prefer engaged. Helper detection:
+                # a setup function whose card_def text mentions +/- pump.
+                cd = getattr(crew, "card_def", None)
+                text = ""
+                if cd is not None:
+                    text = (cd.text or "").lower()
+                wants_engaged = any(tok in text for tok in ("+1/", "+2/", "/+1", "/+2", "first strike", "haste"))
+                target_host = (
+                    max(engaged, key=lambda v: (_power(v), _hull(v)))
+                    if (wants_engaged and engaged) else best_host
+                )
+                return AttachCrew(crew_id=crew.id, vessel_id=target_host.id)
+
+        # Weapons: pick the highest-power un-attached host.
+        if affordable_weapons:
+            return AttachWeapon(weapon_id=affordable_weapons[0].id, vessel_id=best_host.id)
         return None
 
     def _medium_pick_mine(self, state: GameState, hand: list['GameObject'],
-                          player: 'Player') -> Optional[LayMine]:
+                          player_id: str, player: 'Player') -> Optional[LayMine]:
+        """Lay a Mine where the most opposing Vessels currently sit (or are
+        likely to dive to). Defaults per ai-extension prompt:
+
+          - PERISCOPE if the opponent has surface vessels (they'll dive
+            through PERISCOPE first).
+          - MID otherwise.
+          - Cards may carry a ``depths_default_depth`` attribute on
+            CardDefinition — honour that as a final fallback.
+        """
+        opp = _other_player(state, player_id)
+        opp_vessels = _opp_vessels(state, player_id) if opp else []
+
+        # Compute opponent vessel distribution by band.
+        band_counts: dict['DepthBand', int] = {}
+        for v in opp_vessels:
+            if v.state.depth_band is not None:
+                band_counts[v.state.depth_band] = band_counts.get(v.state.depth_band, 0) + 1
+
+        # Choose the band where opp currently has the most Vessels.
+        target_band: Optional['DepthBand'] = None
+        if band_counts:
+            target_band = max(band_counts.items(), key=lambda x: x[1])[0]
+        elif any(v.state.depth_band == DepthBand.SURFACE for v in opp_vessels):
+            # Opp has surface vessels → they'll likely dive through PERISCOPE.
+            target_band = DepthBand.PERISCOPE
+        else:
+            # No useful information; default to MID per the prompt.
+            target_band = DepthBand.MID
+
         for card in hand:
             if CardType.DEPTHS_MINE not in card.characteristics.types:
                 continue
             if not _can_afford(player, *_parse_charge_cost(card)):
                 continue
-            # Drop mines at the band where the opponent has the most Vessels;
-            # default to PERISCOPE (the highest-traffic mid-band).
-            opp = _other_player(state, card.controller)
-            band_counts: dict['DepthBand', int] = {}
-            if opp is not None:
-                for v in _own_vessels(state, opp):
-                    if v.state.depth_band is not None:
-                        band_counts[v.state.depth_band] = band_counts.get(v.state.depth_band, 0) + 1
-            if band_counts:
-                target_band = max(band_counts.items(), key=lambda x: x[1])[0]
-            else:
-                target_band = DepthBand.PERISCOPE
+            # Honour the card's printed default depth as a cheaper fallback
+            # when our heuristic is uninformative (no opp vessels visible).
+            if not band_counts and not opp_vessels:
+                card_default = getattr(getattr(card, "card_def", None),
+                                       "depths_default_depth", None)
+                if card_default is not None:
+                    target_band = card_default
             return LayMine(card_id=card.id, depth_band=target_band)
         return None
+
+    def _medium_pick_activate(self, state: GameState, player_id: str,
+                              own_vessels: list['GameObject']) -> Optional[ActivateAbility]:
+        """Activate a payable activated ability on a controlled permanent.
+
+        Priority (per ai-extension prompt):
+          1. Damage abilities — target the lowest-hull opposing Vessel.
+          2. Untap / draw / utility — for tempo.
+          3. Other — only if cheap.
+
+        Skips abilities that can't pay their cost, are once-per-turn already
+        spent, or are once-per-game and already activated.
+        """
+        player = state.players.get(player_id)
+        if player is None:
+            return None
+
+        # Also include Doctrine permanents (controlled enchantments with
+        # activated abilities) — Battery Reroute lives there, not on a Vessel.
+        bf = _battlefield(state)
+        candidates: list['GameObject'] = list(own_vessels)
+        if bf is not None:
+            for oid in bf.objects:
+                obj = state.objects.get(oid)
+                if obj is None or obj.controller != player_id or obj in own_vessels:
+                    continue
+                if getattr(obj.state, "activated_abilities", None):
+                    candidates.append(obj)
+
+        # AI-EXTENSION TODO (engine bug):
+        # ``src.engine.depths.activate_ability`` reads ``ability.cost`` and
+        # ``ability.effect`` but the ``ActivatedAbility`` dataclass uses
+        # ``cost_text`` / ``effect_fn``. Until that handler is fixed,
+        # activations succeed but pay no charge cost and run no effect. The
+        # AI still picks them so the action surface is exercised; once the
+        # engine bug is fixed nothing here needs to change.
+
+        # Score every legal activation; pick the highest-scoring.
+        best: Optional[tuple[float, ActivateAbility]] = None
+        opp = _other_player(state, player_id)
+        opp_vessels_sorted = (
+            sorted(_opp_vessels(state, player_id), key=lambda v: _hull(v))
+            if opp else []
+        )
+        opp_flagship = get_flagship(state, opp) if opp else None
+
+        for src in candidates:
+            abilities = getattr(src.state, "activated_abilities", None) or []
+            for idx, ability in enumerate(abilities):
+                if not _ability_can_activate(ability, src, state):
+                    continue
+                cost = _ability_cost(ability)
+                if cost:
+                    cs = _parse_charge_cost_str(cost)
+                    if cs is None or not _can_afford(player, *cs):
+                        continue
+
+                target_id: Optional[str] = None
+                score = 0.0
+                if _ability_emits_damage(ability):
+                    # Target the lowest-hull opposing Vessel; if none, Flagship.
+                    pool = [v for v in opp_vessels_sorted if _hull(v) > 0]
+                    if pool:
+                        target_id = pool[0].id
+                    elif opp_flagship is not None:
+                        target_id = opp_flagship.id
+                    score = 3.0  # damage > everything else
+                elif _ability_is_utility_draw(ability):
+                    score = 2.0
+                else:
+                    score = 1.0
+                if best is None or score > best[0]:
+                    best = (score, ActivateAbility(
+                        vessel_id=src.id,
+                        ability_idx=idx,
+                        target=target_id,
+                    ))
+        return best[1] if best else None
 
     def _medium_pick_action(self, state: GameState, hand: list['GameObject'],
                             player_id: str, player: 'Player') -> Optional[CastAction]:
@@ -831,6 +1247,28 @@ class DepthsAIAdapter:
                 if opp_vs:
                     target = opp_vs[0].id
             return CastAction(card_id=card.id, target=target)
+        return None
+
+    def _medium_pick_doctrine(self, state: GameState, hand: list['GameObject'],
+                              player_id: str, player: 'Player') -> Optional[CastAction]:
+        """Cast a Doctrine (ENCHANTMENT-typed persistent effect) if affordable.
+
+        Doctrines route through the same DEPTHS_CAST_SPELL action as Actions
+        (cast_spell handles all three of INSTANT / SORCERY / ENCHANTMENT and
+        moves enchantments to BATTLEFIELD). The previous picker filtered out
+        ENCHANTMENT, so the AI never deployed any anthem-style Doctrines like
+        Wolfpack Doctrine or Iron Discipline.
+        """
+        for card in hand:
+            types = card.characteristics.types
+            if CardType.ENCHANTMENT not in types:
+                continue
+            # Skip non-Doctrine enchantments if any sneak in (defensive).
+            if "Doctrine" not in card.characteristics.subtypes:
+                continue
+            if not _can_afford(player, *_parse_charge_cost(card)):
+                continue
+            return CastAction(card_id=card.id, target=None)
         return None
 
     def _medium_attackers(self, state: GameState, player_id: str) -> list[AttackerSpec]:
@@ -1002,6 +1440,8 @@ class DepthsAIAdapter:
     # ==========================================================================
 
     def _hard_maneuver(self, state: GameState, player_id: str) -> ManeuverAction:
+        if not self._note_action_call(state, player_id):
+            return Done()
         legal = self._enumerate_legal_actions(state, player_id)
         if not legal:
             return Done()
@@ -1017,7 +1457,25 @@ class DepthsAIAdapter:
             if forecast is None:
                 continue
             delta = self._score_state(forecast, player_id) - baseline
-            scored.append((delta, action))
+            # Heuristic prior: actions whose effect the simulator can't model
+            # (Attach / LayMine / ActivateAbility / CastAction) get a small
+            # positive bonus so they aren't always dominated by Done. The
+            # simulator only sees the cost paid (negative delta), so without
+            # a prior these actions are never picked. AI-EXTENSION TODO:
+            # remove this prior once _simulate_action models attach P/T grant
+            # and ability effects properly.
+            prior = 0.0
+            if isinstance(action, (AttachCrew, AttachWeapon)):
+                prior = 1.5  # roughly 1 board-value point + epsilon
+            elif isinstance(action, LayMine):
+                prior = 1.0  # mines aren't on our side of the board, but they soak
+            elif isinstance(action, ActivateAbility):
+                prior = 1.2  # most depths abilities are tempo positive
+            elif isinstance(action, CastAction):
+                prior = 0.8
+            elif isinstance(action, SurfaceVessel):
+                prior = 0.3  # free move; let the value function decide
+            scored.append((delta + prior, action))
 
         if not scored:
             return Done()
@@ -1135,6 +1593,20 @@ class DepthsAIAdapter:
         dive/surface adjusts depth; charge cost is modeled.
 
         Returns ``None`` if the action can't be approximated cleanly.
+
+        AI-EXTENSION TODO (engine bug, NOT in scope for this fix):
+          ``GameState`` carries a back-reference to ``Game`` via
+          ``state._game``, and ``Game.state`` points back to the same
+          GameState. ``copy.deepcopy(state)`` therefore hits
+          ``RecursionError: maximum recursion depth exceeded`` once a
+          turn manager is wired in. This silently disables the Hard
+          tier's lookahead in actual play — the catch below converts
+          the recursion into ``None``, which forces ``_hard_maneuver``
+          to fall through to ``Done``. Fix: either snip ``state._game``
+          out of the deepcopy via a ``__deepcopy__`` override on
+          ``GameState`` (cleanest), or build a shallow simulator that
+          tracks just the score inputs (flagship hull / board value /
+          charge totals) without copying the full state graph.
         """
         try:
             forecast = copy.deepcopy(state)
@@ -1275,6 +1747,11 @@ class DepthsAIAdapter:
         actions: list[ManeuverAction] = []
         hand = _hand_cards(state, player_id)
         own_vessels = _own_vessels(state, player_id)
+        # Non-Flagship hosts only — engine-side ``attach`` runs cost checks
+        # but Flagship-attach is generally non-productive (Flagship can't
+        # surface/dive, and equipment like Crush Capacitor wants a mover).
+        non_fs_hosts = [v for v in own_vessels if "Flagship" not in v.characteristics.subtypes]
+        un_attached_hosts = [v for v in non_fs_hosts if _is_unattached_vessel(v)]
 
         for card in hand:
             tc, sc = _parse_charge_cost(card)
@@ -1284,34 +1761,59 @@ class DepthsAIAdapter:
             if CardType.DEPTHS_VESSEL in types:
                 actions.append(DeployVessel(card_id=card.id))
             elif CardType.DEPTHS_MINE in types:
-                # Default to PERISCOPE — the most-trafficked band per §4.
-                actions.append(LayMine(card_id=card.id, depth_band=DepthBand.PERISCOPE))
-            elif CardType.DEPTHS_CREW in types and own_vessels:
-                for host in own_vessels:
+                # Honour the mine's printed default_depth, fall back to PERISCOPE.
+                cd = getattr(card, "card_def", None)
+                default = getattr(cd, "depths_default_depth", None) if cd else None
+                actions.append(LayMine(card_id=card.id,
+                                       depth_band=default or DepthBand.PERISCOPE))
+            elif CardType.DEPTHS_CREW in types and non_fs_hosts:
+                for host in (un_attached_hosts or non_fs_hosts):
                     actions.append(AttachCrew(crew_id=card.id, vessel_id=host.id))
-            elif CardType.DEPTHS_WEAPON in types and own_vessels:
-                for host in own_vessels:
+            elif CardType.DEPTHS_WEAPON in types and non_fs_hosts:
+                for host in (un_attached_hosts or non_fs_hosts):
                     actions.append(AttachWeapon(weapon_id=card.id, vessel_id=host.id))
             elif CardType.INSTANT in types or CardType.SORCERY in types:
                 actions.append(CastAction(card_id=card.id))
 
         for vessel in own_vessels:
-            if "Flagship" in vessel.characteristics.subtypes:
-                continue
-            band = vessel.state.depth_band
-            if band is None:
-                continue
-            try:
-                if int(band.value) < int(DepthBand.DEEP.value) and int(getattr(player, "sc", 0)) >= 1:
-                    actions.append(Dive(vessel_id=vessel.id))
-                if int(band.value) > int(DepthBand.SURFACE.value):
-                    actions.append(SurfaceVessel(vessel_id=vessel.id))
-            except Exception:
-                continue
+            if "Flagship" not in vessel.characteristics.subtypes:
+                band = vessel.state.depth_band
+                if band is not None:
+                    try:
+                        if int(band.value) < int(DepthBand.DEEP.value) and int(getattr(player, "sc", 0)) >= 1:
+                            actions.append(Dive(vessel_id=vessel.id))
+                        if int(band.value) > int(DepthBand.SURFACE.value):
+                            actions.append(SurfaceVessel(vessel_id=vessel.id))
+                    except Exception:
+                        pass
 
-            # Activated abilities, if the engine has registered any descriptors.
-            for idx, _desc in enumerate(getattr(vessel.state, "activated_abilities", []) or []):
-                actions.append(ActivateAbility(vessel_id=vessel.id, ability_idx=idx))
+        # Activated abilities — scan ALL controlled battlefield permanents
+        # (Vessels AND Doctrines like Battery Reroute). Skip abilities the
+        # player can't legally activate this turn (cost / once-per / pre).
+        bf = _battlefield(state)
+        scanned: set[str] = set()
+        scan_pool = list(own_vessels)
+        if bf is not None:
+            for oid in bf.objects:
+                if oid in scanned:
+                    continue
+                obj = state.objects.get(oid)
+                if obj is None or obj.controller != player_id:
+                    continue
+                if obj not in scan_pool:
+                    scan_pool.append(obj)
+                scanned.add(oid)
+        for src in scan_pool:
+            abilities = getattr(src.state, "activated_abilities", None) or []
+            for idx, ability in enumerate(abilities):
+                if not _ability_can_activate(ability, src, state):
+                    continue
+                cost = _ability_cost(ability)
+                if cost:
+                    parsed = _parse_charge_cost_str(cost)
+                    if parsed is None or not _can_afford(player, *parsed):
+                        continue
+                actions.append(ActivateAbility(vessel_id=src.id, ability_idx=idx))
 
         return actions
 

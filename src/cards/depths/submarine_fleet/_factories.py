@@ -23,6 +23,11 @@ from src.engine.types import (
     GameObject,
     GameState,
     ZoneType,
+    Interceptor,
+    InterceptorAction,
+    InterceptorPriority,
+    InterceptorResult,
+    new_id,
 )
 from src.engine.depths import DepthBand
 
@@ -87,6 +92,7 @@ def make_vessel(
         characteristics=Characteristics(
             types={CardType.DEPTHS_VESSEL},
             subtypes=subs,
+            mana_cost=cost,
             power=power,
             toughness=hull,
             abilities=_abilities(keywords),
@@ -143,6 +149,7 @@ def make_crew(
         characteristics=Characteristics(
             types={CardType.DEPTHS_CREW},
             subtypes={"Crew"},
+            mana_cost=cost,
         ),
         setup_interceptors=setup_interceptors,
     )
@@ -190,6 +197,7 @@ def make_weapon(
         characteristics=Characteristics(
             types={CardType.DEPTHS_WEAPON},
             subtypes={"Weapon"},
+            mana_cost=cost,
         ),
         setup_interceptors=setup_interceptors,
     )
@@ -224,6 +232,7 @@ def make_mine(
         characteristics=Characteristics(
             types={CardType.DEPTHS_MINE},
             subtypes={"Mine"},
+            mana_cost=cost,
         ),
     )
     return _attach(
@@ -259,6 +268,7 @@ def make_action(
         characteristics=Characteristics(
             types={CardType.INSTANT},   # reuses cast pipeline
             subtypes={"Action"},
+            mana_cost=cost,
         ),
     )
     if cast_effect_fn is not None:
@@ -292,6 +302,7 @@ def make_doctrine(
         characteristics=Characteristics(
             types={CardType.ENCHANTMENT},
             subtypes={"Doctrine"},
+            mana_cost=cost,
         ),
         setup_interceptors=setup_interceptors,
     )
@@ -325,6 +336,68 @@ def make_drone_token(
     )
 
 
+# ---------------------------------------------------------------------------
+# Depths-aware phase triggers (replace the broken end_step / upkeep helpers)
+# ---------------------------------------------------------------------------
+# `make_end_step_trigger` / `make_upkeep_trigger` from interceptor_helpers.py
+# filter on payload['phase'] == 'end_step' / 'upkeep'. The depths turn
+# manager emits payload['phase'] == 'surface' (end phase) / 'dive' (begin
+# phase). Cards using the standard helpers were silent dead text. These
+# variants subscribe to the depths phase names.
+
+def _make_depths_phase_trigger(
+    source_obj: GameObject,
+    effect_fn,
+    *,
+    phase_name: str,
+    controller_only: bool = True,
+) -> Interceptor:
+    src_id = source_obj.id
+    src_controller = source_obj.controller
+
+    def _filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        if event.payload.get("phase") != phase_name:
+            return False
+        if controller_only and state.active_player != src_controller:
+            return False
+        src = state.objects.get(src_id)
+        if src is None or src.zone != ZoneType.BATTLEFIELD:
+            return False
+        return True
+
+    def _handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=effect_fn(event, state) or [],
+        )
+
+    return Interceptor(
+        id=new_id(),
+        source=src_id,
+        controller=src_controller,
+        priority=InterceptorPriority.REACT,
+        filter=_filter,
+        handler=_handler,
+        duration="while_on_battlefield",
+    )
+
+
+def make_depths_end_phase_trigger(source_obj, effect_fn, *, controller_only=True):
+    """Run effect_fn at the start of the depths SURFACE phase (the end phase)."""
+    return _make_depths_phase_trigger(
+        source_obj, effect_fn, phase_name="surface", controller_only=controller_only,
+    )
+
+
+def make_depths_dive_phase_trigger(source_obj, effect_fn, *, controller_only=True):
+    """Run effect_fn at the start of the depths DIVE phase (the begin phase)."""
+    return _make_depths_phase_trigger(
+        source_obj, effect_fn, phase_name="dive", controller_only=controller_only,
+    )
+
+
 __all__ = [
     "make_vessel",
     "make_crew",
@@ -333,5 +406,7 @@ __all__ = [
     "make_action",
     "make_doctrine",
     "make_drone_token",
+    "make_depths_end_phase_trigger",
+    "make_depths_dive_phase_trigger",
     "DepthBand",
 ]

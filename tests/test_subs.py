@@ -62,6 +62,79 @@ def test_deck_deep_strike_builds():
         assert getattr(cd, "name", None), "deep_strike contains a nameless card"
 
 
+def test_card_costs_propagate_to_characteristics():
+    """Regression: SUBS factories must mirror mana_cost into Characteristics.
+
+    Without this, deploy_vessel's cost-pay check short-circuits on a falsy
+    cost_str (`if cost_str and not cs.pay_cost(...)`) — every card costs 0.
+    The AI's cost parser also reads `characteristics.mana_cost`, so it would
+    treat every card as free and play exponential curves.
+    """
+    missing: list[str] = []
+    mismatched: list[str] = []
+    for name, card in SUBS_CARDS.items():
+        top_cost = getattr(card, "mana_cost", None)
+        chr_cost = getattr(card.characteristics, "mana_cost", None)
+        if top_cost is None:
+            # Token-only / flagship-style; both should be None and that's fine.
+            if chr_cost is not None:
+                mismatched.append(f"{name}: top=None but characteristics.mana_cost={chr_cost!r}")
+            continue
+        if chr_cost is None:
+            missing.append(name)
+        elif top_cost != chr_cost:
+            mismatched.append(f"{name}: top={top_cost!r} but characteristics.mana_cost={chr_cost!r}")
+    assert not missing, (
+        f"{len(missing)} SUBS cards have a top-level mana_cost but "
+        f"characteristics.mana_cost is None — engine will treat them as free. "
+        f"First few: {missing[:5]}"
+    )
+    assert not mismatched, f"Cost mismatches: {mismatched[:5]}"
+
+
+def test_deploy_refuses_when_cant_pay():
+    """Regression: deploy_vessel must actually refuse when player can't afford.
+
+    Catches the silent-failure mode where the cost was None and the pay-cost
+    check was skipped entirely.
+    """
+    import asyncio
+    from src.engine.game import Game
+    from src.engine.depths import deploy_vessel
+    from src.engine.depths_turn import DepthsTurnManager
+    from src.cards.depths.submarine_fleet.decks import (
+        SUBS_STARTER_DECKS, make_subs_flagship,
+    )
+
+    async def _run():
+        g = Game(mode="depths")
+        p1 = g.add_player("A"); p2 = g.add_player("B")
+        tm = DepthsTurnManager(g.state); g.turn_manager = tm
+        await tm.setup_game(
+            g,
+            SUBS_STARTER_DECKS["SUBS_silent_hunter"](),
+            SUBS_STARTER_DECKS["SUBS_wolfpack"](),
+            make_subs_flagship(), make_subs_flagship(),
+        )
+        # Find a costly card in P1's hand and try to deploy it with TC=0.
+        hand = g.state.zones.get(f"hand_{p1.id}")
+        for oid in hand.objects:
+            obj = g.state.objects.get(oid)
+            if not obj:
+                continue
+            cost = getattr(obj.characteristics, "mana_cost", None) or ""
+            if "T" not in cost.replace("S", ""):  # need a TC-required card
+                continue
+            p1.tc, p1.sc = 0, 0
+            ok, msg, _ = deploy_vessel(g, p1.id, card_id=obj.id)
+            assert not ok, (
+                f"deploy_vessel({obj.name!r}, cost={cost}) succeeded with TC=0 — "
+                f"the cost check must refuse insufficient charges. msg={msg!r}"
+            )
+            return  # one example is enough
+        assert False, "Hand had no TC-cost cards to test with"
+    asyncio.run(_run())
+
 
 if __name__ == "__main__":
     test_every_card_loads()
@@ -69,4 +142,6 @@ if __name__ == "__main__":
     test_deck_silent_hunter_builds()
     test_deck_carrier_builds()
     test_deck_deep_strike_builds()
+    test_card_costs_propagate_to_characteristics()
+    test_deploy_refuses_when_cant_pay()
     print("OK — SUBS smoke tests pass.")

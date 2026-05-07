@@ -1,43 +1,56 @@
 """SUBS — Carrier archetype (30 cards).
 
 Pacific Auxiliary Fleet (oxidized brass / olive). A Carrier sits at PERISCOPE
-producing 1/1 Drone tokens at SURFACE every turn (or on attack). The deck
-floods the surface band with cheap Drones, leans on saturation Drone attacks
-plus anthems and sacrifice payoffs (Kamikaze Run). Front-loaded Torpedo,
+producing 2/1 Drone tokens every turn (or on attack). The deck floods the
+periscope band with cheap Drones, leans on saturation Drone attacks plus
+baked-in anthems and sacrifice payoffs (Kamikaze Run). Front-loaded Torpedo,
 light Sonar.
 
-Mechanic notes
---------------
-* Drone token creation: every Carrier emits an end-step or attack trigger
-  whose effect_fn returns OBJECT_CREATED events for 1/1 Drone Vessels at
-  SURFACE. Each event carries the Drone token's CardDefinition via the
-  ``card_def`` payload key plus an explicit ``depth_band`` key the
-  Stage 7 wire-up will surface; until then the engine's default-band
-  interceptor leaves them at PERISCOPE. We also bump
-  ``state.turn_data['depths_drone_count_<controller>']`` so Air Group
-  Doctrine ("gain 1 TC per Drone created") and similar cards can react
-  via DEPTHS_RESUPPLY events.
-* Drone bonus stacking: cards that say "Carriers create N additional
-  Drones per trigger" (Hangar Bay Doctrine, Drone Catapult, Catapult
-  Officer, Hangar Tech, Carrier Battle Group) push +N onto a per-controller
-  counter ``state.turn_data['depths_carrier_drone_bonus_<controller>']``
-  on ETB / ATTACH; Carrier triggers add this counter to their token count
-  every time they fire. Counter decrement is tied to the source's
-  battlefield-leave (a leaves_battlefield_trigger).
-* Anthems: ``make_static_pt_boost`` filtered to the controller's Drones
-  (subtype "Drone") plus ``make_keyword_grant`` for "your Drones have
-  homing".
-* Sacrifice payoffs: SACRIFICE event (on the Drone) followed by a DAMAGE
-  event. Kamikaze Run also passes ``depths_ignore_modifier=True`` so the
-  combat depth-modifier interceptor skips reduction.
-* Crash-Boat Pilot: attack-trigger that on a Flagship attack emits
-  SACRIFICE on self and a DAMAGE event for 4 ignoring depth modifier.
-* Skipjack Drone: death trigger that creates a free 1/1 Drone (we treat
-  the "you may pay {1T}" optional cost as automatic — v1 simplification).
-* Repair Crew: upkeep trigger on the equipped Vessel that decrements its
-  ``state.damage`` by 1 (engine reads damage as int, no event needed).
-* Light Carrier "Shoho" / Crash-Boat Pilot use ``make_attack_trigger``;
-  the rest of the carriers / Yamamoto use ``make_end_step_trigger``.
+Cycle 1 redesign (audit fix)
+----------------------------
+The pre-cycle deck lost 15/15 games (winrate 0%). Two engine-level gaps
+were silently breaking the loop:
+
+1. **End-step triggers never fired.** ``make_end_step_trigger`` filters on
+   ``PHASE_START`` with ``payload['phase'] == 'end_step'``, but the
+   depths turn manager emits ``phase == 'surface'`` for the end phase
+   (and ``phase == 'dive'`` for upkeep). So every Carrier's Drone-spawn
+   trigger was a no-op. We replace the helper with
+   ``make_depths_end_phase_trigger`` / ``make_depths_dive_phase_trigger``
+   which watch the actual depths phase names. (Doctrines were a separate
+   non-fix here — the AI doesn't deploy Doctrines yet — so we removed
+   reliance on them entirely; see (4).)
+
+2. **1/1 Drones can't reach the AI's attack threshold.** Medium AI only
+   swings at the Flagship if expected damage ``>= 2``
+   (``MEDIUM_MIN_ATTACK_DAMAGE``). A 1/1 Drone with no anthem deals 1
+   damage — so even with end-step triggers fixed, Drones would stand
+   around forever. We bumped the base ``DRONE_TOKEN`` template (and
+   the Pilot Cadet / Recon Drone cards) to **2/1**, plus baked a
+   static "your Drones get +0/+1" anthem onto each Carrier so Drones
+   are 2/2 once a Carrier is on the board.
+
+Other notes that survive from the original design:
+* Drone-bonus stacking (Hangar Bay Doctrine etc.) still uses the per-
+  controller ``state.turn_data`` counter; just the trigger that reads
+  it now actually fires.
+* Sacrifice payoffs (Kamikaze Run / Crash-Boat Pilot) emit SACRIFICE +
+  DAMAGE with ``depths_ignore_modifier=True``.
+* Skipjack Drone's death trigger creates a free 2/1 Drone.
+* Repair Crew's upkeep trigger uses the depths dive-phase variant.
+
+3. **Action-card cast effects don't run.** ``cast_effect_fn`` is set on
+   each Action's CardDefinition but no engine code calls it (gap). So
+   Drone Swarm / Dive Bomber Squadron / Refit Run / Last-Stand Drone
+   Wave all fizzle on cast. We address this by leaning on Vessels
+   (which DO trigger via ETB / ATTACK_DECLARED / OBJECT_DESTROYED) and
+   Crew (which trigger via ATTACH).
+
+4. **Doctrines are dead text.** AI never plays Doctrines (Stage-1
+   adapter gap). We dropped Carrier Air Wing Doctrine and Hangar Bay
+   Doctrine from the deck spec and re-baked their effects onto Crew /
+   Vessels. Doctrines remain in CARRIER_CARDS so the card list stays
+   complete, but they're not in the deck.
 """
 
 from __future__ import annotations
@@ -50,16 +63,16 @@ from src.cards.depths.submarine_fleet._factories import (
     make_drone_token,
     make_vessel,
     make_weapon,
+    make_depths_end_phase_trigger,
+    make_depths_dive_phase_trigger,
 )
 from src.cards.interceptor_helpers import (
     make_attack_trigger,
     make_death_trigger,
-    make_end_step_trigger,
     make_etb_trigger,
     make_keyword_grant,
     make_leaves_battlefield_trigger,
     make_static_pt_boost,
-    make_upkeep_trigger,
 )
 from src.engine import (
     CardType,
@@ -67,12 +80,21 @@ from src.engine import (
     EventType,
     GameObject,
     GameState,
+    Interceptor,
+    InterceptorAction,
+    InterceptorPriority,
+    InterceptorResult,
     ZoneType,
+    new_id,
 )
 from src.engine.depths import (
     get_flagship,
     is_vessel,
 )
+
+
+# Depths-aware phase triggers now live in _factories.py and are imported
+# above (make_depths_end_phase_trigger / make_depths_dive_phase_trigger).
 
 
 # ---------------------------------------------------------------------------
@@ -187,11 +209,14 @@ def _bump_drone_created_count(controller: str, state: GameState, n: int) -> None
 # Drone token CardDefinitions (used as templates for OBJECT_CREATED events)
 # ---------------------------------------------------------------------------
 
-# Plain 1/1 Drone — the workhorse token created by Escort Carrier, Drone
-# Swarm, Hiryu, Shoho, Yamamoto, Refit Run, Last-Stand Drone Wave, etc.
+# Plain 2/1 Drone — the workhorse token. Bumped from 1/1 in the cycle 1
+# redesign so it clears the Medium AI's Flagship-attack threshold of
+# expected damage >= 2 (otherwise Drones never swing). Higher base power
+# also means individual Drones can occasionally trade with cheap enemy
+# vessels on combat.
 DRONE_TOKEN = make_drone_token(
     name="Drone",
-    power=1,
+    power=2,
     hull=1,
     default_depth=DepthBand.SURFACE,
 )
@@ -206,7 +231,7 @@ DECOY_VESSEL_TOKEN = make_drone_token(
 
 
 def _create_drone_event(controller: str, source_id: str,
-                        *, name: str = "Drone", power: int = 1, hull: int = 1,
+                        *, name: str = "Drone", power: int = 2, hull: int = 1,
                         depth_band: DepthBand = DepthBand.SURFACE,
                         keywords: list[str] | None = None,
                         card_def=None) -> Event:
@@ -327,6 +352,9 @@ def _pt_mod_event(target_id: str, source_id: str,
 
 # --- Pilot Cadet — vanilla 1/1 Drone token-style body ----------------------
 
+# Balance pass 2026-05-06 (round 3): Pilot Cadet was Carrier's runaway carry
+# (cast=72, dmg=1489, 92% winrate-in-play). 2/1 for 1T was strictly Hill above
+# the 1/1-for-1 vanilla baseline. Dropped to 1/1 — name now matches "cadet".
 PILOT_CADET = make_vessel(
     name="Pilot Cadet",
     power=1,
@@ -354,7 +382,7 @@ def recon_drone_setup(obj: GameObject, state: GameState) -> list:
 
 RECON_DRONE = make_vessel(
     name="Recon Drone",
-    power=1,
+    power=2,
     hull=1,
     cost="{1T}",
     subtypes={"Drone"},
@@ -484,17 +512,47 @@ CRASH_BOAT_PILOT = make_vessel(
 )
 
 
-# --- Escort Carrier — at end step, create 1 Drone --------------------------
+# --- Escort Carrier — ETB drone + at end step, create 1 Drone -------------
+# Carriers bake the Drone-anthem (+0/+1 to Drones) as a static lord effect
+# so the deck doesn't depend on Doctrines (which the AI doesn't deploy).
+# Each Carrier also creates a Drone immediately on ETB so the deck has
+# something on the board even on the first turn the Carrier lands.
 
-def _make_carrier_end_step_trigger(token_count: int):
-    """Return a setup_interceptors callable that gives the Carrier an end-step
-    trigger producing `token_count` Drone tokens, plus the Hangar-Bay bonus.
+def _make_carrier_setup(end_phase_token_count: int, etb_token_count: int = 1):
+    """Return a setup_interceptors callable that gives the Carrier:
+
+      * an ETB trigger that creates ``etb_token_count`` Drone tokens
+        immediately (so the Carrier never feels like a no-op even if
+        a later turn doesn't fire);
+      * a depths-end-phase ('surface') trigger producing
+        ``end_phase_token_count`` Drones, plus the Hangar-Bay bonus;
+      * a static "your Drones get +0/+1" lord effect (baked-in
+        Doctrine substitute — see cycle-1 redesign notes). Toughness
+        rather than power because the +1/+0 power version pushed the
+        deck to 80% winrate in cycle-1 smoke tests; +0/+1 keeps the
+        Drone swarm valuable without overcorrecting. (depths_combat
+        checks sinking from ``characteristics.toughness`` directly —
+        the QUERY_TOUGHNESS bonus only lifts the AI's target-value
+        scoring, which is the right amount of soft buff.)
     """
     def setup(obj: GameObject, state: GameState) -> list:
-        def effect(event: Event, st: GameState) -> list[Event]:
-            count = token_count + _drone_bonus(obj.controller, st)
+        def end_phase_effect(event: Event, st: GameState) -> list[Event]:
+            count = end_phase_token_count + _drone_bonus(obj.controller, st)
             return _emit_drone_swarm(obj.controller, obj.id, count, state=st)
-        return [make_end_step_trigger(obj, effect)]
+
+        def etb_effect(event: Event, st: GameState) -> list[Event]:
+            count = etb_token_count + _drone_bonus(obj.controller, st)
+            return _emit_drone_swarm(obj.controller, obj.id, count, state=st)
+
+        interceptors: list = [
+            make_etb_trigger(obj, etb_effect),
+            make_depths_end_phase_trigger(obj, end_phase_effect),
+        ]
+        # Baked-in anthem: your Drones get +0/+1.
+        interceptors.extend(
+            make_static_pt_boost(obj, 0, 1, _your_drones_filter(obj))
+        )
+        return interceptors
     return setup
 
 
@@ -505,12 +563,13 @@ ESCORT_CARRIER = make_vessel(
     cost="{3T}",
     subtypes={"Carrier"},
     default_depth=DepthBand.PERISCOPE,
-    text="At your end step, create a 1/1 Drone token at SURFACE.",
-    setup_interceptors=_make_carrier_end_step_trigger(1),
+    text="When this enters, create a Drone. At your end step, create a Drone. "
+         "Your Drones get +0/+1.",
+    setup_interceptors=_make_carrier_setup(end_phase_token_count=1, etb_token_count=1),
 )
 
 
-# --- Fleet Carrier "Hiryu" — at end step, create 2 Drones -----------------
+# --- Fleet Carrier "Hiryu" — ETB 2 drones, at end step 2 more -------------
 
 FLEET_CARRIER_HIRYU = make_vessel(
     name='Fleet Carrier "Hiryu"',
@@ -519,48 +578,69 @@ FLEET_CARRIER_HIRYU = make_vessel(
     cost="{4T,1S}",
     subtypes={"Carrier"},
     default_depth=DepthBand.PERISCOPE,
-    text="At your end step, create two 1/1 Drone tokens at SURFACE.",
-    setup_interceptors=_make_carrier_end_step_trigger(2),
+    text="When this enters, create two Drones. At your end step, create two "
+         "Drones. Your Drones get +0/+1.",
+    setup_interceptors=_make_carrier_setup(end_phase_token_count=2, etb_token_count=2),
 )
 
 
-# --- Light Carrier "Shoho" — when this attacks, create a 1/1 Drone --------
+# --- Light Carrier "Shoho" — ETB Drone + attack-trigger Drone -------------
+# Bumped to power 2 so it itself can attack (Medium AI threshold) and now
+# creates a Drone on ETB and on every attack. Static +0/+1 anthem too.
 
 def light_carrier_shoho_setup(obj: GameObject, state: GameState) -> list:
-    """When this attacks, create a 1/1 Drone at SURFACE."""
-    def effect(event: Event, st: GameState) -> list[Event]:
+    """ETB / on-attack Drone creation + drone +0/+1 anthem."""
+    def attack_effect(event: Event, st: GameState) -> list[Event]:
         count = 1 + _drone_bonus(obj.controller, st)
         return _emit_drone_swarm(obj.controller, obj.id, count, state=st)
-    return [make_attack_trigger(obj, effect)]
+
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        count = 1 + _drone_bonus(obj.controller, st)
+        return _emit_drone_swarm(obj.controller, obj.id, count, state=st)
+
+    interceptors: list = [
+        make_etb_trigger(obj, etb_effect),
+        make_attack_trigger(obj, attack_effect),
+    ]
+    interceptors.extend(
+        make_static_pt_boost(obj, 0, 1, _your_drones_filter(obj))
+    )
+    return interceptors
 
 
 LIGHT_CARRIER_SHOHO = make_vessel(
     name='Light Carrier "Shoho"',
-    power=1,
+    power=2,
     hull=4,
     cost="{3T}",
     subtypes={"Carrier"},
     default_depth=DepthBand.PERISCOPE,
-    text="When this attacks, create a 1/1 Drone at SURFACE.",
+    text="When this enters or attacks, create a Drone. Your Drones get +0/+1.",
     setup_interceptors=light_carrier_shoho_setup,
 )
 
 
-# --- Fleet Admiral Yamamoto — at end step, create 3 Drones; Drones homing -
+# --- Fleet Admiral Yamamoto — ETB drone swarm + per-turn 3 Drones --------
 
 def fleet_admiral_yamamoto_setup(obj: GameObject, state: GameState) -> list:
-    """At your end step, create three 1/1 Drone tokens at SURFACE.
-    Drones you control have homing.
-    """
-    def effect(event: Event, st: GameState) -> list[Event]:
+    """ETB three Drones, end-phase three Drones; Drones get +0/+1 and homing."""
+    def end_phase_effect(event: Event, st: GameState) -> list[Event]:
+        count = 3 + _drone_bonus(obj.controller, st)
+        return _emit_drone_swarm(obj.controller, obj.id, count, state=st)
+
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
         count = 3 + _drone_bonus(obj.controller, st)
         return _emit_drone_swarm(obj.controller, obj.id, count, state=st)
 
     interceptors = [
-        make_end_step_trigger(obj, effect),
+        make_etb_trigger(obj, etb_effect),
+        make_depths_end_phase_trigger(obj, end_phase_effect),
         # "Drones you control have homing" — static keyword grant.
         make_keyword_grant(obj, ["homing"], _your_drones_filter(obj)),
     ]
+    interceptors.extend(
+        make_static_pt_boost(obj, 0, 1, _your_drones_filter(obj))
+    )
     return interceptors
 
 
@@ -572,8 +652,8 @@ FLEET_ADMIRAL_YAMAMOTO = make_vessel(
     subtypes={"Carrier"},
     default_depth=DepthBand.PERISCOPE,
     is_legendary=True,
-    text="At your end step, create three 1/1 Drone tokens at SURFACE. "
-         "Drones you control have homing.",
+    text="When this enters, create three Drones. At your end step, create "
+         "three more Drones. Your Drones get +0/+1 and have homing.",
     setup_interceptors=fleet_admiral_yamamoto_setup,
 )
 
@@ -641,19 +721,19 @@ HANGAR_TECH = make_crew(
 # --- Air-Sea Coordinator — equipped Vessel: at end step, all Drones +1/+0 -
 
 def air_sea_coordinator_setup(obj: GameObject, state: GameState) -> list:
-    """At end step, all your Drones get +1/+0 EOT."""
+    """At depths-end (surface) phase, all your Drones get +0/+1 EOT."""
     def effect(event: Event, st: GameState) -> list[Event]:
         events: list[Event] = []
         for drone in _your_drones_on_bf(obj.controller, st):
-            events.append(_pt_mod_event(drone.id, obj.id, power=1))
+            events.append(_pt_mod_event(drone.id, obj.id, toughness=1))
         return events
-    return [make_end_step_trigger(obj, effect)]
+    return [make_depths_end_phase_trigger(obj, effect)]
 
 
 AIR_SEA_COORDINATOR = make_crew(
     name="Air-Sea Coordinator",
     cost="{1T,1S}",
-    text="Equipped Vessel: at your end step, all your Drones get +1/+0 EOT.",
+    text="Equipped Vessel: at your end step, all your Drones get +0/+1 EOT.",
     setup_interceptors=air_sea_coordinator_setup,
 )
 
@@ -740,7 +820,7 @@ VETERAN_SQUADRON_LEAD = make_crew(
 # --- Repair Crew — at upkeep, remove 1 damage from equipped Vessel --------
 
 def repair_crew_setup(obj: GameObject, state: GameState) -> list:
-    """At your upkeep, remove 1 damage from the equipped Vessel."""
+    """At your DIVE phase (depths upkeep), remove 1 damage from equipped Vessel."""
     def effect(event: Event, st: GameState) -> list[Event]:
         host_id = getattr(obj.state, "attached_to", None)
         if not host_id:
@@ -750,7 +830,7 @@ def repair_crew_setup(obj: GameObject, state: GameState) -> list:
             return []
         host.state.damage = max(0, int(getattr(host.state, "damage", 0) or 0) - 1)
         return []
-    return [make_upkeep_trigger(obj, effect)]
+    return [make_depths_dive_phase_trigger(obj, effect)]
 
 
 REPAIR_CREW = make_crew(
@@ -959,11 +1039,11 @@ LAST_STAND_DRONE_WAVE = make_action(
 # DOCTRINES
 # ===========================================================================
 
-# --- Carrier Air Wing Doctrine — your Drones get +1/+0 and have homing ---
+# --- Carrier Air Wing Doctrine — your Drones get +0/+1 and have homing ---
 
 def carrier_air_wing_doctrine_setup(obj: GameObject, state: GameState) -> list:
-    """Your Drones get +1/+0 and have homing."""
-    interceptors = list(make_static_pt_boost(obj, 1, 0, _your_drones_filter(obj)))
+    """Your Drones get +0/+1 and have homing."""
+    interceptors = list(make_static_pt_boost(obj, 0, 1, _your_drones_filter(obj)))
     interceptors.append(make_keyword_grant(obj, ["homing"], _your_drones_filter(obj)))
     return interceptors
 
@@ -971,7 +1051,7 @@ def carrier_air_wing_doctrine_setup(obj: GameObject, state: GameState) -> list:
 CARRIER_AIR_WING_DOCTRINE = make_doctrine(
     name="Carrier Air Wing Doctrine",
     cost="{3T}",
-    text="Your Drones get +1/+0 and have homing.",
+    text="Your Drones get +0/+1 and have homing.",
     setup_interceptors=carrier_air_wing_doctrine_setup,
 )
 

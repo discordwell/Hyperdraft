@@ -38,10 +38,6 @@ from src.engine.types import (
     new_id,
 )
 
-from src.cards.interceptor_helpers import (
-    make_upkeep_trigger,
-)
-
 from src.cards.depths.submarine_fleet._factories import (
     DepthBand,
     make_action,
@@ -51,6 +47,7 @@ from src.cards.depths.submarine_fleet._factories import (
     make_vessel,
     make_weapon,
     make_drone_token,
+    make_depths_dive_phase_trigger,
 )
 from src.engine.depths import is_vessel
 
@@ -186,7 +183,7 @@ def _periscope_watch_setup(obj: GameObject, state: GameState) -> list[Intercepto
             cs = DepthsChargeSystem(st)
         cs.add_charges(obj.controller, sc=1)
         return []
-    return [make_upkeep_trigger(obj, _gain_sc)]
+    return [make_depths_dive_phase_trigger(obj, _gain_sc)]
 
 
 PERISCOPE_WATCH = make_crew(
@@ -448,7 +445,7 @@ def _bridge_logbook_setup(obj: GameObject, state: GameState) -> list[Interceptor
             source=obj.id,
             controller=obj.controller,
         )]
-    return [make_upkeep_trigger(obj, _scry)]
+    return [make_depths_dive_phase_trigger(obj, _scry)]
 
 
 BRIDGE_LOGBOOK = make_doctrine(

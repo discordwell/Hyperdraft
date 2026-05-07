@@ -41,8 +41,6 @@ from src.cards.interceptor_helpers import (
     make_static_pt_boost,
     make_dynamic_pt_boost,
     make_keyword_grant,
-    make_end_step_trigger,
-    make_upkeep_trigger,
 )
 from src.engine.depths import (
     DepthBand,
@@ -69,6 +67,8 @@ from ._factories import (
     make_mine,
     make_action,
     make_doctrine,
+    make_depths_end_phase_trigger,
+    make_depths_dive_phase_trigger,
 )
 
 
@@ -653,7 +653,7 @@ def _hydrophone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             controller=controller,
         )]
 
-    return [make_upkeep_trigger(obj, _effect, controller_only=True)]
+    return [make_depths_dive_phase_trigger(obj, _effect, controller_only=True)]
 
 
 HYDROPHONE_OPERATOR = make_crew(
@@ -916,7 +916,7 @@ def _snorkel_stalker_setup(obj: GameObject, state: GameState) -> list[Intercepto
             type=EventType.PT_MODIFICATION,
             payload={
                 "object_id": src_id,
-                "power_mod": 2,
+                "power_mod": 1,
                 "toughness_mod": 0,
                 "duration": "end_of_turn",
             },
@@ -927,14 +927,20 @@ def _snorkel_stalker_setup(obj: GameObject, state: GameState) -> list[Intercepto
     return [make_attack_trigger(obj, _effect, filter_fn=_attack_filter)]
 
 
+# Balance pass 2026-05-06 (rounds 2-5): Snorkel Stalker has been the runaway
+# Silent_Hunter carry across every tournament round (100% winrate-in-play,
+# 705 dmg / 60 casts in round 5). Iterative nerfs (trigger +2→+1, removed
+# silent_running, fixed EOT pump-stacking bug) didn't tame it because it
+# spawns at PERISCOPE for free, can't easily be intercepted (no Wolfpack
+# vessel reaches PERISCOPE turn 1), and still does 3-4 dmg/turn unintercepted.
+# Round-5 nerf: hull 2 → 1. Now any 1+ damage chip from Wolfpack sinks it.
 SNORKEL_STALKER = make_vessel(
     name="Snorkel Stalker",
     cost="{2T}",
-    power=3, hull=2,
+    power=3, hull=1,
     default_depth=DepthBand.PERISCOPE,
-    keywords=["silent_running"],
     setup_interceptors=_snorkel_stalker_setup,
-    text="Silent Running. Whenever this attacks while undetected, +2 power EOT.",
+    text="Whenever this attacks while undetected, +1 power EOT.",
 )
 
 
@@ -1315,7 +1321,7 @@ def _black_sea_doctrine_setup(obj: GameObject, state: GameState) -> list[Interce
             ))
         return events
 
-    return [make_end_step_trigger(obj, _effect, controller_only=True)]
+    return [make_depths_end_phase_trigger(obj, _effect, controller_only=True)]
 
 
 BLACK_SEA_DOCTRINE = make_doctrine(

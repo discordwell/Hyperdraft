@@ -319,10 +319,141 @@ def test_depths_ai_makes_decisions():
     )
 
 
+def test_eot_pt_modifiers_clear_at_end_of_turn():
+    """Regression: PT_MODIFICATION events with duration='end_of_turn' must
+    actually clear at the end of the active player's turn. Otherwise per-turn
+    triggers like Snorkel Stalker's '+1 power EOT when attacking undetected'
+    accumulate across turns and the card becomes a runaway carry.
+    """
+    from src.engine.types import EventType, Event
+    from src.cards.depths.submarine_fleet.decks import (
+        SUBS_STARTER_DECKS, make_subs_flagship,
+    )
+
+    async def _run():
+        game = Game(mode="depths")
+        p1 = game.add_player("A")
+        p2 = game.add_player("B")
+        tm = DepthsTurnManager(game.state)
+        game.turn_manager = tm
+        tm.set_ai_player(p1.id)
+        tm.set_ai_player(p2.id)
+        await tm.setup_game(
+            game,
+            SUBS_STARTER_DECKS["SUBS_wolfpack"](),
+            SUBS_STARTER_DECKS["SUBS_silent_hunter"](),
+            make_subs_flagship(), make_subs_flagship(),
+        )
+        # Manually create a battlefield vessel and attach an EOT pt_modifier.
+        bf = game.state.zones.get("battlefield")
+        target_obj = None
+        for oid in bf.objects:
+            obj = game.state.objects.get(oid)
+            if obj and obj.controller == p1.id:
+                target_obj = obj
+                break
+        if target_obj is None:
+            return None
+        if not hasattr(target_obj.state, "pt_modifiers") or target_obj.state.pt_modifiers is None:
+            target_obj.state.pt_modifiers = []
+        target_obj.state.pt_modifiers.append({
+            "power": 5, "toughness": 0, "duration": "end_of_turn",
+        })
+        # Run P1's turn — the EOT cleanup should sweep the modifier.
+        await tm.run_turn(p1.id)
+        return list(target_obj.state.pt_modifiers or [])
+
+    leftover = asyncio.run(_run())
+    assert leftover is not None, "Test setup failed: no battlefield object"
+    assert leftover == [], (
+        f"PT_MODIFICATION with duration='end_of_turn' was not cleared at "
+        f"end of turn. Remaining: {leftover}"
+    )
+
+
+def test_medium_ai_does_not_oscillate_dive_surface():
+    """Regression: medium AI must not Dive a vessel and then SurfaceVessel
+    the same vessel within the same turn — that pattern burns 1 Sonar/turn
+    on a no-op move (PERISCOPE→MID→PERISCOPE).
+    """
+    from src.cards.depths.submarine_fleet.decks import (
+        SUBS_STARTER_DECKS, make_subs_flagship,
+    )
+    from src.ai.depths_adapter import Dive, SurfaceVessel
+
+    async def _run():
+        game = Game(mode="depths")
+        p1 = game.add_player("A")
+        p2 = game.add_player("B")
+        tm = DepthsTurnManager(game.state)
+        game.turn_manager = tm
+
+        # Capture each AI choice per (turn, vessel) so we can detect oscillation.
+        # offence_pattern[(turn, vessel_id)] = [classes returned by AI]
+        per_vessel: dict[tuple[int, str], list[str]] = {}
+
+        class TrackingHandler:
+            def __init__(self, ai): self.ai = ai
+            def __getattr__(self, n):
+                if n == "ai":
+                    raise AttributeError(n)
+                return getattr(self.__dict__["ai"], n)
+            async def choose_maneuver_action(self, state, player_id):
+                action = self.ai.choose_maneuver_action(state, player_id)
+                if isinstance(action, (Dive, SurfaceVessel)):
+                    key = (state.turn_number, action.vessel_id)
+                    per_vessel.setdefault(key, []).append(type(action).__name__)
+                return _action_to_dict(action, "DEPTHS_END_MANEUVER")
+            async def choose_regroup_action(self, state, player_id):
+                action = self.ai.choose_maneuver_action(state, player_id)
+                if isinstance(action, (Dive, SurfaceVessel)):
+                    key = (state.turn_number, action.vessel_id)
+                    per_vessel.setdefault(key, []).append(type(action).__name__)
+                return _action_to_dict(action, "DEPTHS_END_REGROUP")
+            def choose_attackers(self, s, p): return self.ai.choose_attackers(s, p)
+            def choose_detections(self, s, d, a): return self.ai.choose_detections(s, d, a)
+            def choose_interceptors(self, s, d, a): return self.ai.choose_interceptors(s, d, a)
+            async def choose_discards(self, s, p, n):
+                h = s.zones.get(f"hand_{p}")
+                return list(h.objects)[:n] if h else []
+            def mulligan_decision(self, *a, **kw): return True
+
+        tm.set_ai_handler(TrackingHandler(DepthsAIAdapter(difficulty="medium")), p1.id)
+        tm.set_ai_handler(TrackingHandler(DepthsAIAdapter(difficulty="medium")), p2.id)
+        tm.set_ai_player(p1.id)
+        tm.set_ai_player(p2.id)
+        await tm.setup_game(
+            game,
+            SUBS_STARTER_DECKS["SUBS_wolfpack"](),
+            SUBS_STARTER_DECKS["SUBS_silent_hunter"](),
+            make_subs_flagship(), make_subs_flagship(),
+        )
+        for t in range(20):
+            if game.is_game_over():
+                break
+            active = p1.id if t % 2 == 0 else p2.id
+            await tm.run_turn(active)
+        return per_vessel
+
+    per_vessel = asyncio.run(_run())
+    bad = []
+    for (turn, vid), classes in per_vessel.items():
+        seen = set(classes)
+        if "Dive" in seen and "SurfaceVessel" in seen:
+            bad.append(f"turn={turn} vessel={vid[:8]} sequence={classes}")
+    assert not bad, (
+        "Medium AI oscillated Dive/SurfaceVessel within the same turn — "
+        f"that burns 1 Sonar per turn on a no-op move. Cases:\n  "
+        + "\n  ".join(bad[:5])
+    )
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("DEPTHS ENGINE SMOKE TEST")
     print("=" * 60)
     test_depths_ai_vs_ai_completes()
     test_depths_ai_makes_decisions()
+    test_eot_pt_modifiers_clear_at_end_of_turn()
+    test_medium_ai_does_not_oscillate_dive_surface()
     print("\nOK — all depths smoke tests passed.")
