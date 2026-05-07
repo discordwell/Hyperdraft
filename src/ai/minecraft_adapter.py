@@ -274,7 +274,7 @@ class MinecraftAIAdapter:
         player = state.players[player_id]
         weapon_id = player.mc_avatar_gear.get("weapon")
 
-        # Avatar action: attack with weapon if equipped, otherwise mine.
+        # Avatar action priority: attack (if armed) > explore > mine.
         if not player.mc_avatar_action_used and weapon_id and opponent:
             weapon = state.objects.get(weapon_id)
             kws: set[str] = set()
@@ -285,10 +285,16 @@ class MinecraftAIAdapter:
             if ok:
                 events.extend(evs)
         elif not player.mc_avatar_action_used:
-            idx = self._best_biome_to_mine(state, player_id)
-            ok, _msg, evs = mc.mine_biome(game, player_id, idx, avatar=True)
-            if ok:
-                events.extend(evs)
+            explore_idx = self._best_biome_to_explore(state, player_id)
+            if explore_idx is not None:
+                ok, _msg, evs = mc.explore_biome(game, player_id, explore_idx)
+                if ok:
+                    events.extend(evs)
+            else:
+                idx = self._best_biome_to_mine(state, player_id)
+                ok, _msg, evs = mc.mine_biome(game, player_id, idx, avatar=True)
+                if ok:
+                    events.extend(evs)
 
         events.extend(self._play_affordable_cards(state, player_id, game))
         if game.is_game_over():
@@ -463,6 +469,107 @@ class MinecraftAIAdapter:
                     return i
         return 0
 
+    def _best_biome_to_explore(self, state: GameState, player_id: str) -> int | None:
+        """
+        Return index of the best biome to upgrade via avatar explore, or None to mine instead.
+
+        Strategy: explore when doing so unlocks a new material type we can't
+        produce yet. Redstone is the highest-value unlock (gates ~70% of cards);
+        diamond second. Pure yield-volume bumps (e.g. wood×1 → wood×2) score
+        low and rarely beat mining.
+
+        Gated on explore_map_bonus >= 40 so aggro/mining presets that set it
+        lower skip this path entirely and go straight to mine.
+
+        Pilot iter-1 (box_of_horrors): T1 explore Cave→Deep Cave is almost
+        always correct for redstone-bottlenecked decks because the deck's
+        single Strip Mine is one-shot but Cave→Deep Cave is permanent
+        per-turn redstone. Encoded below as an early-game bonus when
+        redstone-bottlenecked AND a redstone-unlocking biome upgrade exists.
+        """
+        explore_bonus = int(self.bias.get("explore_map_bonus", 0))
+        if explore_bonus < 40:
+            return None
+
+        biomes = state.minecraft_biomes.get(player_id) or []
+
+        # Materials already produced by at least one biome
+        current_yields: set[str] = set()
+        for b in biomes:
+            current_yields.update((b.get("yields") or {}).keys())
+
+        NEW_MATERIAL_SCORES = {"diamond": 80, "redstone": 60, "iron": 20}
+
+        # Pilot iter-1 observation: T1-2 explore is the correct play when the
+        # deck is redstone-bottlenecked (every removal/threat needs R) and
+        # we don't yet produce redstone. Boost the redstone-unlock score in
+        # that exact window so it clears the >=40 threshold even if the
+        # preset's NEW_MATERIAL_SCORES ranking is otherwise lukewarm.
+        turn_number = int(getattr(state, "turn_number", 0) or 0)
+        is_redstone_bottlenecked = self._is_redstone_bottlenecked(state, player_id)
+
+        best_score, best_idx = 0, None
+        for i, biome in enumerate(biomes):
+            upgrade = mc.BIOME_UPGRADES.get((biome or {}).get("name"))
+            if not upgrade:
+                continue
+            score = 0
+            # Big bonus for unlocking a material type we don't produce yet
+            for mat, bonus in NEW_MATERIAL_SCORES.items():
+                if mat not in current_yields and mat in (upgrade.get("yields") or {}):
+                    score += bonus
+            # Small bonus for increasing yield of existing materials
+            for mat, new_amt in (upgrade.get("yields") or {}).items():
+                old_amt = int((biome.get("yields") or {}).get(mat, 0) or 0)
+                score += max(0, new_amt - old_amt) * 5
+            # Pilot iter-1: early-turn redstone unlock for redstone-bottlenecked
+            # decks is the highest-EV avatar action available — bump it.
+            if (
+                is_redstone_bottlenecked
+                and turn_number <= 2
+                and "redstone" not in current_yields
+                and "redstone" in (upgrade.get("yields") or {})
+            ):
+                score += 40
+            if score > best_score:
+                best_score, best_idx = score, i
+
+        # Only explore when the unlock is genuinely material (score >= 40 means
+        # at least one new material type or a substantial yield jump)
+        return best_idx if best_score >= 40 else None
+
+    def _is_redstone_bottlenecked(self, state: GameState, player_id: str) -> bool:
+        """Pilot iter-1: detect 'redstone economy not started yet'.
+
+        True iff the player produces no redstone (no biome with redstone
+        yield AND no Allay-Courier-style redstone mining bonus on board)
+        AND has zero redstone material in stock. Used to escalate
+        redstone-source cards (Strip Mine, Allay Courier) and biome
+        upgrades that unlock redstone.
+        """
+        player = state.players.get(player_id)
+        if not player:
+            return False
+        if int((player.mc_materials or {}).get("redstone", 0) or 0) > 0:
+            return False
+        # Any biome already producing redstone?
+        for biome in state.minecraft_biomes.get(player_id) or []:
+            if int(((biome or {}).get("yields") or {}).get("redstone", 0) or 0) > 0:
+                return False
+        # Any worker on board with a redstone mining bonus?
+        battlefield = state.zones.get("battlefield")
+        if battlefield:
+            for oid in battlefield.objects:
+                obj = state.objects.get(oid)
+                if not obj or obj.controller != player_id or not obj.card_def:
+                    continue
+                bonus = getattr(obj.card_def, "mc_mining_bonus", None)
+                if isinstance(bonus, dict) and int(bonus.get("redstone", 0) or 0) > 0:
+                    return False
+                if bonus == "redstone":
+                    return False
+        return True
+
     def _best_attack_column(
         self, state: GameState, defender_id: str, attacker_keywords: set[str]
     ) -> int:
@@ -593,6 +700,12 @@ class MinecraftAIAdapter:
         player = state.players.get(player_id)
         my_materials = (player.mc_materials if player else {}) or {}
 
+        # Pilot iter-1 (box_of_horrors): when redstone-bottlenecked, score
+        # redstone-source cards (Strip Mine + Allay Courier) higher than the
+        # generic Worker / Action baseline because they unlock the rest of
+        # the hand. Computed once per call.
+        redstone_bottlenecked = self._is_redstone_bottlenecked(state, player_id)
+
         candidates = []
         has_bed = mc.has_bed(state, player_id)
         for oid, obj in affordable:
@@ -608,6 +721,17 @@ class MinecraftAIAdapter:
 
             if CardType.MC_MOB in types and "Worker" in subtypes:
                 score += 20 + (obj.characteristics.power or 0) + (obj.characteristics.toughness or 0)
+                # Pilot iter-1: a Worker that mines redstone IS the redstone
+                # economy when no biome produces it. Boost above Worker
+                # baseline so the AI plays Allay Courier the turn it's
+                # affordable instead of deferring it for a bigger Worker.
+                bonus_attr = getattr(obj.card_def, "mc_mining_bonus", None)
+                gives_redstone = (
+                    (isinstance(bonus_attr, dict) and int(bonus_attr.get("redstone", 0) or 0) > 0)
+                    or bonus_attr == "redstone"
+                )
+                if redstone_bottlenecked and gives_redstone:
+                    score += 35
                 # worker_bonus_cap (default 0 = disabled): once the AI
                 # has at least N Workers on the battlefield, suppress
                 # the under-3 / first-Worker bonuses so it stops
@@ -632,6 +756,27 @@ class MinecraftAIAdapter:
                     turn_bonus = getattr(obj.card_def, "mc_turn_bonus", None) or {}
                     if turn_bonus and my_turnbonus_structures < 3:
                         score += int(bias.get("turnbonus_struct_bonus", 0))
+                        # Pilot iter-1: turn-bonus structures (Soul Forge,
+                        # Lectern, Sculk Catalyst) at 3-4 HP get one-shot
+                        # by a 4-ATK swing if deployed unprotected — both
+                        # SF (T5) and Lectern (T7) ticked zero times.
+                        # Penalize when no protected column exists yet
+                        # (no Bed AND no friendly defender / wall in any
+                        # column), so the AI defers the structure until
+                        # it has a defensive base to drop it behind.
+                        if not self._has_any_protected_column(state, player_id):
+                            score -= 15
+                    # Pilot iter-1: a turn-bonus structure that gives
+                    # redstone (Sculk Catalyst, Eldritch Altar) is the
+                    # exception — when redstone-bottlenecked it unlocks
+                    # the entire hand, so override the protection penalty
+                    # with a redstone-source bonus instead.
+                    if (
+                        redstone_bottlenecked
+                        and turn_bonus
+                        and int(turn_bonus.get("redstone", 0) or 0) > 0
+                    ):
+                        score += 30
 
             if CardType.MC_TOOL in types:
                 score += 15 + int(getattr(obj.card_def, "mc_attack", 0) or 0)
@@ -650,6 +795,12 @@ class MinecraftAIAdapter:
                     score += int(bias.get("explore_map_bonus", 0))
                 if name == "Strip Mine" and int(my_materials.get("redstone", 0) or 0) < 2:
                     score += int(bias.get("strip_mine_bonus", 0))
+                    # Pilot iter-1: when redstone-bottlenecked AND we have
+                    # zero redstone, Strip Mine is the deck's only
+                    # bootstrap — add a hard bonus so it always outranks
+                    # generic Workers / mid-cost mobs in that exact state.
+                    if redstone_bottlenecked:
+                        score += 25
                 if name == "Find Diamonds" and int(my_materials.get("diamond", 0) or 0) < 2:
                     score += int(bias.get("find_diamonds_bonus", 0))
                 if name == "Chop Trees" and (turn_number <= 4 or int(my_materials.get("wood", 0) or 0) < 2):
@@ -674,6 +825,32 @@ class MinecraftAIAdapter:
         candidates.sort(reverse=True)
         return candidates[0][1]
 
+    def _column_protected(self, state: GameState, player_id: str, column: int) -> bool:
+        """Pilot iter-1: a column counts as 'protected' if the player has a
+        Bed, Block, or any other defender in that column. Used to keep
+        fragile turn-bonus structures (Soul Forge, Lectern) out of empty
+        contested columns where they get one-shot before ticking.
+        """
+        grid = state.minecraft_grid.get(player_id) or mc.empty_grid()
+        if not (0 <= column < mc.GRID_SIZE):
+            return False
+        for y in range(mc.GRID_SIZE):
+            oid = grid[y][column]
+            if not oid:
+                continue
+            obj = state.objects.get(oid)
+            if not obj or obj.controller != player_id:
+                continue
+            # Any same-controller occupant counts as soaking damage.
+            return True
+        return False
+
+    def _has_any_protected_column(self, state: GameState, player_id: str) -> bool:
+        for column in range(mc.GRID_SIZE):
+            if self._column_protected(state, player_id, column):
+                return True
+        return False
+
     def _choose_cell_for_card(self, state: GameState, player_id: str, card_id: str):
         obj = state.objects.get(card_id)
         if not obj:
@@ -688,6 +865,27 @@ class MinecraftAIAdapter:
             preferred = [(1, 2), (0, 2), (2, 2), (1, 1), (0, 1), (2, 1)]
         else:
             preferred = [(1, 1), (0, 1), (2, 1), (1, 0), (0, 0), (2, 0)]
+
+        # Pilot iter-1: turn-bonus structures (Soul Forge, Lectern,
+        # Sculk Catalyst) at 3-4 HP get one-shot if deployed in an empty
+        # column. Reorder candidate cells so protected columns come
+        # first — same row preference (back row), but protected column
+        # before unprotected. Only reorder for non-Bed structures with a
+        # turn_bonus; Blocks already prefer the front row and Beds need
+        # the back-mid slot.
+        is_turnbonus_struct = (
+            CardType.MC_STRUCTURE in obj.characteristics.types
+            and "Bed" not in obj.characteristics.subtypes
+            and bool(getattr(obj.card_def, "mc_turn_bonus", None) or {})
+        )
+        if is_turnbonus_struct:
+            preferred.sort(
+                key=lambda xy: (
+                    0 if self._column_protected(state, player_id, xy[0]) else 1,
+                    0 if xy == (1, 1) else 1,  # original middle preference as tiebreak
+                )
+            )
+
         for x, y in preferred:
             if grid[y][x] is None:
                 return {"x": x, "y": y}

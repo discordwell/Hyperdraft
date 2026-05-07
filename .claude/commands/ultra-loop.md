@@ -1,5 +1,5 @@
 ---
-description: Engine-agnostic LLM-pilot training loop. Single mode = LLM pilot vs heuristic AI. Double mode = two LLM pilots play each other; coach synthesizes both reports. Updates strategy doc + AI bias presets after each game.
+description: Engine-agnostic LLM-pilot training loop. Single mode = LLM pilot vs heuristic AI. Double mode = two LLM pilots play each other; coach synthesizes both reports. Updates strategy doc + AI bias presets + heuristic decision logic after each game.
 argument-hint: [--game <name>] [--mode single|double] [--iterations N] [--ai-bias NAME] [--my-deck NAME] [--ai-deck NAME] [--decks-file PATH]
 ---
 
@@ -193,10 +193,53 @@ Use `Agent` tool with `subagent_type=general-purpose`. Brief:
 > 2. `docs/decks/<my-deck>_plan.md` — append iteration log; refine
 >    sections if game contradicted them.
 > 3. `src/ai/<game>_adapter.py` — patch the bias preset that lost. Be
->    conservative (single-digit weight changes).
+>    conservative (single-digit weight changes to `<UPPER>_BIAS_PRESETS`
+>    weights only — do NOT touch decision logic methods).
 >
 > Run the engine's tests after edits to verify nothing broke. Output
 > a brief change summary; don't repeat full diffs.
+
+##### 1c. Spawn heuristic encoder subagent
+
+After the coach finishes, spawn a second `general-purpose` Agent. Brief:
+
+> You are the `<game>` heuristic encoder. The LLM pilot played a game
+> and wrote `/tmp/<game>_pilot_report.md`. Your job is to read the
+> pilot's turn-by-turn log and encode any optimal decision sequences
+> into the heuristic AI's decision logic in `src/ai/<game>_adapter.py`.
+>
+> **Scope**: decision LOGIC only — method bodies, conditionals,
+> ordering, thresholds. Do NOT touch `<UPPER>_BIAS_PRESETS` weight
+> values (that's the coach's job). Do NOT touch docs.
+>
+> **Process**:
+> 1. Read `/tmp/<game>_pilot_report.md` — focus on the "Game log"
+>    and "What worked" sections. Extract decisions of the form
+>    "I did X on turn N because Y" — these are encodable rules.
+> 2. Read `src/ai/<game>_adapter.py` — understand the existing
+>    decision methods (`_best_biome_to_mine`, `_play_affordable_cards`,
+>    `take_turn`, etc.). Identify which pilot decisions the current
+>    code can't replicate.
+> 3. For each gap, write targeted code changes:
+>    - Ordering: if the pilot always played card A before card B when
+>      both were affordable, encode that priority.
+>    - Conditions: if the pilot explored on T1 before playing anything,
+>      add a condition that fires explore before mine on early turns.
+>    - Thresholds: if the pilot held a card until a condition was met
+>      (e.g. "don't play Sculk Catalyst without a defender"), encode
+>      that guard.
+>    - Sequencing: if the pilot executed a multi-turn chain (explore →
+>      Sculk Catalyst → Allay Courier), add lookahead that detects the
+>      chain is available and prioritizes it.
+> 4. Be surgical — add targeted helper methods or extend existing ones.
+>    Don't rewrite the adapter. Each change should have a one-line
+>    comment explaining which pilot observation it encodes.
+> 5. Run the engine's tests to confirm nothing broke.
+>
+> Output: list the specific pilot observations you encoded and the
+> method/line you changed for each. Note any observations you
+> couldn't encode (complex modal choices, opponent-read decisions)
+> as "deferred — needs human design."
 
 #### Double mode — for each iteration
 
@@ -276,11 +319,25 @@ After both pilots finish, spawn the coach. Brief:
 >
 > Run the engine's tests after edits. Output a brief change summary.
 
+##### 1e. Spawn heuristic encoder subagent (double mode)
+
+After the double-mode coach finishes, spawn a heuristic encoder with
+the same brief as §1c but sourcing from BOTH pilot reports:
+
+> Read `/tmp/<game>_pilot_A_report.md` AND
+> `/tmp/<game>_pilot_B_report.md`. Extract decision sequences from
+> the WINNER's game log — those are the plays the heuristic should
+> learn. Also note any decisions where BOTH pilots agreed (strong
+> signal regardless of outcome). Apply the same encoding process as
+> §1c: surgical code changes to decision logic, no weight edits, tests
+> after.
+
 ### 2. Save iteration outputs
 
 After each iteration:
 - `logs/<game>_ultra_iter<N>_pilot<A|B>.md` — copy of pilot report(s)
 - `logs/<game>_ultra_iter<N>_coach.txt` — coach's summary
+- `logs/<game>_ultra_iter<N>_encoder.txt` — heuristic encoder's change list
 
 ### 3. Final progression report
 
@@ -293,8 +350,12 @@ After all iterations:
 - **Quality check**: did pilot reports surface NEW insights, or
   re-litigate things already documented? (Same insight appearing 3x =
   strategy doc isn't capturing it well — flag.)
+- **Encoder quality**: which pilot observations were encodable vs
+  deferred? A high deferred rate means the adapter needs structural
+  changes before weight tuning can help.
 - **Mode-specific addendum**:
-  - Single: list of heuristic exploits the coach patched.
+  - Single: list of heuristic exploits the coach patched AND the
+    decision-logic changes the encoder added.
   - Double: list of contested strategic questions still open after N
     iterations — these are candidates for `/build-decks` to test or
     for a longer-running double-loop session.
@@ -302,9 +363,8 @@ After all iterations:
 ## Notes
 
 - Interactive command. User watches.
-- Single mode: ~5–10 min per iteration. 3 iterations = ~30 min.
-- Double mode: ~10–15 min per iteration (two pilots, coordination
-  overhead). 3 iterations = ~45 min.
+- Single mode: ~7–12 min per iteration (pilot + coach + encoder). 3 iterations = ~35 min.
+- Double mode: ~12–18 min per iteration (two pilots + coach + encoder). 3 iterations = ~50 min.
 - The pilot can lose. Single: that's fine, drives coach updates.
   Double: that's the *point* — coach learns from both perspectives.
 - If a single-mode pilot wins all N games, escalate `--ai-bias` to a

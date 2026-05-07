@@ -80,22 +80,27 @@ def make_compleated_dominion_deck():
 
 
 # Box of Horrors: leans on Horror tribal, mind erosion, and cursed gear.
+# 25 distinct × 2 = 50 cards (standard format). Cut Elder Phantom (needs D1),
+# Lectern of Whispers (redundant draw), Fog Wall (pure defense), Phantom Wing
+# (low synergy), Soul Sand Trap (slowest trap) to reach count.
 BOX_OF_HORRORS_NAMES = [
-    # Mana / draw structures
-    "Cursed Bed", "Lectern of Whispers", "Sculk Catalyst", "Soul Forge", "Eldritch Altar",
+    # Workers + redstone bootstrap
+    "Strip Mine", "Allay Courier", "Steve's Helper", "Villager Mason",
+    # Draw / engine structures
+    "Cursed Bed", "Sculk Catalyst", "Soul Forge", "Eldritch Altar",
     # Defensive grid
-    "Fog Wall", "Soul Sand Trap", "Stalker's Den",
+    "Stalker's Den",
     # Mobs — cheap stalkers + spirits
     "Lost Soul", "Whispering Wraith", "Shadow Crawler", "Sleep-Stealer",
-    "Endermite Cluster", "Phantom Wing", "Cave Crawler", "Ratman",
+    "Endermite Cluster", "Cave Crawler", "Ratman",
     # Mid-range threats
-    "Wither Skeleton", "Sculk Stalker", "Elder Phantom", "The Old Watcher",
-    # Bosses
-    "Cave Dweller", "The Man From The Fog", "Wither Storm",
+    "Wither Skeleton", "Sculk Stalker", "The Old Watcher",
+    # Boss
+    "Cave Dweller",
     # Removal / utility actions
     "Whispering Curse", "Drag to the Dark", "Wither Skull", "Goatman's Hex",
     # Gear
-    "Eldritch Bow", "Wraith Cloak", "Reaper's Scythe",
+    "Eldritch Bow",
 ]
 
 

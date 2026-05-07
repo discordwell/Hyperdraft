@@ -19,6 +19,17 @@ both: write the lesson here AND tighten the relevant preset.
 - Mining yield per turn is the bottleneck. Compounding mining > raw card power.
 - **Day-bonus** (first mine of the day, per player): +1 of the biome's first yield.
   Don't waste it on a low-tier biome unless that biome enables your next play.
+- **Day-craft discount** (first STRUCTURE or BLOCK played per Day phase, per
+  player): -1W OR -1S off the cost (engine checks wood first, then stone).
+  Applies to structures and blocks only — NOT mobs, actions, or tools. Does
+  NOT apply on Night turns. Per-player flag `mc_day_craft_discount_used_<pid>`
+  fires after first use; second structure on the same Day pays full cost.
+  Engine: `_discounted_cost` in `src/engine/minecraft.py:201`. Examples:
+  Cursed Bed (W1) → 0 (free), Bed (W2) → W1, Lectern of Whispers (W2) → W1,
+  Soul Forge (S2) → S1, Eldritch Altar (W1+S1+I1+R1) → S1+I1+R1,
+  Cobblestone Wall (S2) → S1, Sculk Catalyst (S1+R1) → R1. Strategic
+  implication: schedule structure deployments to land on Day turns whenever
+  possible — a 4-cost structure on Day saves 1 material vs Night.
 
 ### Biome upgrades
 
@@ -178,6 +189,16 @@ guaranteed loss in the mirror. Auto-mulligan if rules permit.
   finding **a Worker** over finding a Bed; the deck cannot function
   without Workers because every avatar turn becomes either-mine-or-
   attack and never both.
+- **Redstone-bottleneck deck rule**: decks where >50% of removal +
+  mid-curve cards require redstone (e.g., box_of_horrors with ~70%
+  redstone-gated cards) should treat redstone-source cards (Strip
+  Mine, Allay Courier, Sculk Catalyst, or any redstone-mining
+  structure) as Bed-equivalent in mulligan rules. Missing a redstone
+  source by T6 in such a deck = unrecoverable (every removal/threat
+  becomes uncastable). Auto-mulligan any redstone-bottleneck hand
+  without a redstone source. Iter-1 box_of_horrors loss confirmed:
+  pilot played Strip Mine T1 (only redstone seen all game), then
+  bricked T10-T15 with hands that were 100% redstone-gated.
 
 ## Strategic patterns
 
@@ -200,6 +221,15 @@ guaranteed loss in the mirror. Auto-mulligan if rules permit.
 - Deploy 2-3 turn-bonus structures (Crafting Table, Furnace, Chest).
 - Apply chip damage with hostiles. Even 2 dmg/turn from a Zombie wins
   by turn 12 if uncontested.
+- **Turn-bonus structure protection rule**: cheap (3-4 HP) turn-bonus
+  structures (Soul Forge 4HP, Lectern 3HP, Sculk Catalyst, Eldritch Altar)
+  cannot survive a single 4-ATK swing. Do NOT deploy them in unprotected
+  columns. Required protection options: (a) deploy with a same-turn
+  front-row defender, (b) deploy only in the Bed column (Bed forces the AI
+  to attack through the 4HP Bed first), or (c) deploy behind a wall/block.
+  A turn-bonus structure that ticks zero times before dying is a card-and-
+  mana negative. Confirmed iter-1 box_of_horrors: Soul Forge T5 and Lectern
+  T7 both died the turn AI attacked, ticking zero value.
 
 ### Late game (turns 7+)
 
@@ -219,6 +249,12 @@ guaranteed loss in the mirror. Auto-mulligan if rules permit.
   if the second mine yields ≥ 1 material (i.e., you have unmined biomes).
 - **Strip Mine (1S)**: the redstone-economy enabler. Don't skip it.
 - **Chop Trees (free)**: 2 wood from nothing. Always cast turn 1-2.
+- **Creeper deathrattle ordering**: "deal 3 to frontmost in attacked column"
+  resolves BEFORE other deathrattles' new tokens claim the frontmost slot.
+  Concrete: when an Endermite Cluster (1/1, deathrattle: spawn 1/1 Endermite
+  token) mutual-kills a Creeper, the Endermite token survives the Creeper
+  deathrattle's 3 dmg because the token's "frontmost" status doesn't resolve
+  in time. Useful for Endermite Cluster value math.
 
 ---
 
@@ -1014,6 +1050,131 @@ or format finding — and should not affect AI bias presets.
    once it resolves. Builder must establish Iron Golem as a 3/4 body that
    survives Warden ETB — otherwise the miner can time Warden to erase the
    builder's board and swing with Dragon immediately after.
+
+### v11 — 2026-05-07 (box_of_horrors iter 1 vs passive_econ raider, LOSS at T15)
+
+- Pilot ran box_of_horrors (60-card horror tribal) vs `passive_econ` raider.
+  LOSS at T15 — AI=19 HP, pilot=0 HP. Final damage dealt to AI = 1 chip
+  (Sleep-Stealer ETB). All four format-level findings below are deck-agnostic
+  and not previously documented.
+
+  **1. Day-craft discount mechanic (-1W or -1S on first structure/block per Day).**
+  The first STRUCTURE or BLOCK played during a Day phase gets -1W OR -1S
+  (whichever applies first to the cost; engine checks wood first, then stone).
+  Applies only to structures/blocks, not mobs/actions/tools. Does NOT apply on
+  Night turns. Per-player `mc_day_craft_discount_used_<pid>` flag is set after
+  first use; second structure on the same Day pays full cost. Engine code:
+  `_discounted_cost` in `src/engine/minecraft.py:201`. Concrete examples:
+  Cursed Bed (W1) → 0, Bed (W2) → W1, Lectern of Whispers (W2) → W1,
+  Soul Forge (S2) → S1, Eldritch Altar (W1+S1+I1+R1) → S1+I1+R1,
+  Cobblestone Wall (S2) → S1, Sculk Catalyst (S1+R1) → R1.
+  Strategic implication: schedule structure deployments to fall on Day turns
+  whenever possible. A 4-cost structure built on Day saves 1 material vs
+  Night. Documented under Format fundamentals as new "Day-craft discount" rule.
+
+  **2. Cheap turn-bonus structures (3-4 HP) cannot survive a single 4+ ATK
+  swing. Do NOT deploy them in unprotected columns.** Soul Forge (4 HP, S2)
+  and Lectern of Whispers (3 HP, W2) both got destroyed the SAME TURN the AI
+  attacked, before ticking ANY value. Wolf Pack at 4 ATK kills both in one
+  swing. Rule: deploy turn-bonus structures only with (a) same-turn front-row
+  defender, (b) only in the Bed column (Bed forces AI to attack through the
+  4HP Bed first), or (c) behind a wall/block. A turn-bonus structure that
+  ticks zero times is a card-and-mana negative. This applies across all
+  decks, not just box_of_horrors.
+
+  **3. Creeper deathrattle order-of-resolution quirk: "deal 3 to frontmost in
+  attacked column" resolves BEFORE other deathrattles' new tokens claim the
+  frontmost slot.** When an Endermite Cluster (1/1, deathrattle: spawn 1/1
+  Endermite token) mutual-kills a Creeper, the Endermite token survives the
+  Creeper deathrattle's 3 dmg because the token's "frontmost" status doesn't
+  resolve in time. Edge case but useful for Endermite Cluster value
+  calculations.
+
+  **4. AI's confirmed weakness #6 (no proactive non-Bed Block deploy)
+  re-confirmed in this matchup.** AI's col 0 and col 2 stayed empty all game;
+  AI hoarded 6-9 stone but never built walls on undefended lanes. Only the
+  AI's Bed column (col 1) got an Oak Planks block (T11). This means an
+  aggressive weapon-line strategy can chip undefended lanes — but the
+  exploiting deck must have a non-redstone-gated weapon (box_of_horrors
+  could not exploit because Eldritch Bow is W2+R1, redstone-gated).
+
+- Strategy doc updates:
+  - **Format fundamentals**: NEW subsection "Day-craft discount" documents
+    the -1W/-1S Day-only mechanic, examples, and per-player single-use flag.
+  - **Strategic patterns / Mid game**: NEW "Turn-bonus structure protection
+    rule" — cheap (3-4 HP) turn-bonus structures cannot survive an unprotected
+    deploy turn into AI Wolf Pack / Creeper / weapon swings. Deploy with
+    same-turn defender, in the Bed column, or behind a wall.
+  - **Card-specific notes**: NEW Creeper deathrattle ordering note.
+  - **Mulligan rules**: NEW "Redstone-bottleneck deck rule" — decks where
+    >50% of removal/mid-curve is redstone-gated should treat redstone as
+    Bed-equivalent in mulligan rules; missing a redstone source = a
+    guaranteed loss vector. Auto-mulligan any redstone-bottleneck hand
+    without Strip Mine, Allay Courier, or another redstone-mining structure.
+- Heuristic AI preset patches: **no changes this iter.** The AI played its
+  preset correctly throughout (Worker bonus capped at 2, weapon equip waited
+  for Bed, chump_anything pairing in declaration order, no proactive non-Bed
+  Block deploy — all consistent with v5-v10 patches). The loss was driven by
+  deck-construction (redstone-economy single-point-of-failure on 4/60 cards),
+  not by an exploitable AI gap. **No knobs to patch.**
+
+  Future-iter consideration only (NOT for this iter): the AI's T7 weapon
+  equip with only 2 mobs on board and no follow-up board development was
+  super-aggressive — suggests the weapon equip score doesn't account for
+  "do I have enough mob density to defend the avatar after equipping?" If
+  repeated runs show the AI dying after equipping into a weakened board,
+  consider a `weapon_with_low_mob_density_penalty` knob. But not based on
+  this single game.
+
+### v12 — 2026-05-07 (box_of_horrors deck repair + encoder session)
+
+**Summary**: box_of_horrors went from 0% → 33.3% winrate in a 5-deck tournament
+after structural repairs. The deck is now standard-format (50 cards / 25 distinct).
+
+**Root causes diagnosed**:
+
+1. **Redstone catch-22**: ~70% of boh cards cost R1, but no starting biome
+   produces redstone. Bootstrap chain identified: Strip Mine (S1 → +W1+I1+R1)
+   → Allay Courier (R1 ongoing) → or avatar_explore Cave → Deep Cave (R1/turn).
+
+2. **Uncastable diamonds**: Elder Phantom (S1+R1+D1) and 4 other D-cost cards
+   removed. Cave Dweller (2W+2I+R1) is the new boss finisher.
+
+3. **Oversized deck**: 60 cards trimmed to 50 by removing Elder Phantom (D1
+   uncastable), Lectern of Whispers (redundant draw), Fog Wall (dead defense),
+   Phantom Wing (low synergy), Soul Sand Trap (slowest trap).
+
+**Infrastructure added**:
+
+- **avatar_explore harness command**: `mc_wet_test.py avatar_explore <biome_idx>`
+  now exposes the biome upgrade mechanic to both pilots and testers. Cave → Deep
+  Cave adds R1/turn permanently for 1 avatar action — the boh deck's critical
+  T1/T2 ramp move.
+
+- **Explore heuristic** (`_best_biome_to_explore` in adapter): scores biomes
+  by new material unlocked (D=80, R=60, I=20, yield bumps=5). Fires when
+  explore_map_bonus ≥ 40. Priority: attack > explore > mine. With redstone
+  bottleneck detection, explore bias +40 on turns ≤ 2 if Cave → Deep Cave
+  is available.
+
+**Heuristic encoder changes** (encoding pilot optimal plays):
+
+- `_is_redstone_bottlenecked()`: True when player has no redstone sources in
+  structures or biomes. Used as a multiplier for early-game explore/bootstrap plays.
+- Allay Courier +35 priority when bottlenecked (must play it before anything else).
+- Strip Mine +25 when bottlenecked.
+- Sculk Catalyst +30 when bottlenecked (turn-bonus redstone structure).
+- Turn-bonus structures -15 when no protected columns (don't deploy naked).
+- `_choose_cell_for_card()` prefers protected columns for turn-bonus structures.
+
+**Deck-specific boh lessons** (see `docs/decks/box_of_horrors_plan.md`):
+
+- T1: Mine Cave (S1+I1) + Hills (S1) → play Strip Mine (S1→free) → now have R1 →
+  play Allay Courier. From T2, R1/turn guaranteed without explore.
+- Alternatively: T1 mine, avatar_explore Cave → Deep Cave → from T2 R1/turn.
+- The horror mid-curve (Wither Skeleton S1+I1+R1, Sculk Stalker S1+I1+R1) is
+  strong once the redstone bootstrap is online. Game-plan is control-with-attrition:
+  discard harassment + Stalker's Den lockdown + mid-range Horrors.
 
 <!-- Append new sections below as the loop runs. Each entry: date, what
 was learned, what was patched (strategy doc updates + heuristic AI

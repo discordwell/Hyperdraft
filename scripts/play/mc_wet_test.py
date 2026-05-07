@@ -59,8 +59,21 @@ def _print_state(payload: dict[str, Any]) -> None:
     active = getattr(state, "active_player", None)
     day_phase = getattr(state, "minecraft_day_phase", "?")
 
-    me_label = "ME (P1)" if active == p1_id else "ME (P1)"
-    ai_label = "AI (P2)" if active == p2_id else "AI (P2)"
+    two_pilot = payload.get("two_pilot", False)
+    if two_pilot:
+        # In two-pilot mode "ME" = whoever's turn it is (the acting pilot).
+        if active == p2_id:
+            me_label, ai_label = "ME (P2)", "OPP (P1)"
+            me_id, opp_id, opp = p2_id, p1_id, p1
+            me = p2
+        else:
+            me_label, ai_label = "ME (P1)", "OPP (P2)"
+            me_id, opp_id, opp = p1_id, p2_id, p2
+            me = p1
+    else:
+        me_label = "ME (P1)"
+        ai_label = "AI (P2)"
+        me_id, opp_id, me, opp = p1_id, p2_id, p1, p2
 
     print("=" * 70)
     print(f"Turn {turn}  ({day_phase.upper()})  active={active!r}")
@@ -128,20 +141,20 @@ def _print_state(payload: dict[str, Any]) -> None:
                 for line in mobs_for:
                     print(line)
 
-    _player_block(me_label, p1, p1_id)
-    _player_block(ai_label, p2, p2_id)
+    _player_block(me_label, me, me_id)
+    _player_block(ai_label, opp, opp_id)
 
     # My hand
     print(f"\n[MY HAND]")
-    hand = state.zones.get(f"hand_{p1_id}")
+    hand = state.zones.get(f"hand_{me_id}")
     if hand:
         for oid in hand.objects:
             obj = state.objects.get(oid)
             if not obj or not obj.card_def:
                 continue
-            cost = mc._discounted_cost(state, p1_id, obj) or {}
+            cost = mc._discounted_cost(state, me_id, obj) or {}
             cost_str = " ".join(f"{m[0].upper()}{v}" for m, v in cost.items() if v)
-            can_pay = "OK" if mc.can_pay(state, p1_id, cost) else "  "
+            can_pay = "OK" if mc.can_pay(state, me_id, cost) else "  "
             types = obj.characteristics.types
             type_str = (
                 "MOB" if CardType.MC_MOB in types
@@ -160,7 +173,10 @@ def _print_state(payload: dict[str, Any]) -> None:
 
     # Day/night info
     print(f"\nDay phase: {day_phase}")
-    if active == p2_id:
+    if two_pilot:
+        seat = "P2" if active == p2_id else "P1"
+        print(f"\n(YOUR turn — seat={seat}. Take actions, then call `end_turn`.)")
+    elif active == p2_id:
         print("\n(AI's turn next — call `end_turn` to let AI play and start your next turn,\n or wait for AI's actions to be reported.)")
     else:
         print("\n(YOUR turn. Take actions, then call `end_turn`.)")
@@ -255,15 +271,31 @@ def _find_card_in_hand(state, p1_id: str, name_or_prefix: str):
     return None
 
 
+def _acting_player_id(payload: dict[str, Any]) -> str:
+    """Return the player id whose actions the CLI should drive.
+
+    In two-pilot mode the CLI follows ``state.active_player`` so each pilot
+    can take actions on its own turn through the same harness. In
+    single-pilot mode we always drive P1 — the AI runs autonomously inside
+    ``end_turn``.
+    """
+    if payload.get("two_pilot"):
+        active = payload["game"].state.active_player
+        if active in (payload["p1_id"], payload["p2_id"]):
+            return active
+    return payload["p1_id"]
+
+
 def cmd_mine(args) -> None:
     from src.engine import minecraft as mc
     payload = _load()
     game = payload["game"]
-    p1_id = payload["p1_id"]
+    actor_id = _acting_player_id(payload)
     biome_idx = int(args.biome_idx)
-    ok, msg, _evs = mc.mine_biome(game, p1_id, biome_idx, avatar=True)
+    ok, msg, _evs = mc.mine_biome(game, actor_id, biome_idx, avatar=True)
     print(f"mine biome[{biome_idx}] (avatar): ok={ok} msg={msg!r}")
-    payload["history"].append((game.state.turn_number, "ME", f"avatar mine biome[{biome_idx}]"))
+    label = "P2" if actor_id == payload["p2_id"] else "ME"
+    payload["history"].append((game.state.turn_number, label, f"avatar mine biome[{biome_idx}]"))
     _save(payload)
     if ok:
         _print_state(payload)
@@ -273,7 +305,7 @@ def cmd_worker_mine(args) -> None:
     from src.engine import minecraft as mc
     payload = _load()
     game = payload["game"]
-    p1_id = payload["p1_id"]
+    actor_id = _acting_player_id(payload)
     worker_id = args.worker_id
     biome_idx = int(args.biome_idx)
     # Resolve worker_id prefix
@@ -283,15 +315,16 @@ def cmd_worker_mine(args) -> None:
     if bfield:
         for oid in bfield.objects:
             obj = state.objects.get(oid)
-            if obj and obj.controller == p1_id and obj.id.startswith(worker_id):
+            if obj and obj.controller == actor_id and obj.id.startswith(worker_id):
                 full_worker_id = obj.id
                 break
     if not full_worker_id:
         print(f"Worker id {worker_id!r} not found on my battlefield")
         return
-    ok, msg, _evs = mc.mine_biome(game, p1_id, biome_idx, actor_id=full_worker_id)
+    ok, msg, _evs = mc.mine_biome(game, actor_id, biome_idx, actor_id=full_worker_id)
     print(f"worker[{full_worker_id[:8]}] mine biome[{biome_idx}]: ok={ok} msg={msg!r}")
-    payload["history"].append((game.state.turn_number, "ME", f"worker[{full_worker_id[:8]}] mine biome[{biome_idx}]"))
+    label = "P2" if actor_id == payload["p2_id"] else "ME"
+    payload["history"].append((game.state.turn_number, label, f"worker[{full_worker_id[:8]}] mine biome[{biome_idx}]"))
     _save(payload)
     if ok:
         _print_state(payload)
@@ -301,8 +334,8 @@ def cmd_play(args) -> None:
     from src.engine import minecraft as mc
     payload = _load()
     game = payload["game"]
-    p1_id = payload["p1_id"]
-    obj = _find_card_in_hand(game.state, p1_id, args.card)
+    actor_id = _acting_player_id(payload)
+    obj = _find_card_in_hand(game.state, actor_id, args.card)
     if not obj:
         print(f"Card {args.card!r} not found in hand")
         return
@@ -310,9 +343,10 @@ def cmd_play(args) -> None:
     if args.cell_x is not None and args.cell_y is not None:
         cell = {"x": int(args.cell_x), "y": int(args.cell_y)}
     target_id = args.target_id
-    ok, msg, _evs = mc.play_card(game, p1_id, obj.id, cell=cell, target_id=target_id)
+    ok, msg, _evs = mc.play_card(game, actor_id, obj.id, cell=cell, target_id=target_id)
     print(f"play {obj.name!r}: ok={ok} msg={msg!r}")
-    payload["history"].append((game.state.turn_number, "ME", f"play {obj.name}"))
+    label = "P2" if actor_id == payload["p2_id"] else "ME"
+    payload["history"].append((game.state.turn_number, label, f"play {obj.name}"))
     _save(payload)
     if ok:
         _print_state(payload)
@@ -322,11 +356,27 @@ def cmd_avatar_attack(args) -> None:
     from src.engine import minecraft as mc
     payload = _load()
     game = payload["game"]
-    p1_id = payload["p1_id"]
+    actor_id = _acting_player_id(payload)
     column = int(args.column)
-    ok, msg, _evs = mc.avatar_attack(game, p1_id, target_column=column)
+    ok, msg, _evs = mc.avatar_attack(game, actor_id, target_column=column)
     print(f"avatar attack column[{column}]: ok={ok} msg={msg!r}")
-    payload["history"].append((game.state.turn_number, "ME", f"avatar attack col[{column}]"))
+    label = "P2" if actor_id == payload["p2_id"] else "ME"
+    payload["history"].append((game.state.turn_number, label, f"avatar attack col[{column}]"))
+    _save(payload)
+    if ok:
+        _print_state(payload)
+
+
+def cmd_avatar_explore(args) -> None:
+    from src.engine import minecraft as mc
+    payload = _load()
+    game = payload["game"]
+    actor_id = _acting_player_id(payload)
+    biome_idx = int(args.biome_idx)
+    ok, msg, _evs = mc.explore_biome(game, actor_id, biome_idx)
+    print(f"avatar explore biome[{biome_idx}]: ok={ok} msg={msg!r}")
+    label = "P2" if actor_id == payload["p2_id"] else "ME"
+    payload["history"].append((game.state.turn_number, label, f"avatar explore biome[{biome_idx}]"))
     _save(payload)
     if ok:
         _print_state(payload)
@@ -336,8 +386,7 @@ def cmd_attack(args) -> None:
     from src.engine import minecraft as mc
     payload = _load()
     game = payload["game"]
-    p1_id = payload["p1_id"]
-    p2_id = payload["p2_id"]
+    actor_id = _acting_player_id(payload)
     state = game.state
     bfield = state.zones.get("battlefield")
     declarations: list[dict] = []
@@ -351,7 +400,7 @@ def cmd_attack(args) -> None:
         if bfield:
             for oid in bfield.objects:
                 obj = state.objects.get(oid)
-                if obj and obj.controller == p1_id and obj.id.startswith(prefix):
+                if obj and obj.controller == actor_id and obj.id.startswith(prefix):
                     full_id = obj.id
                     break
         if not full_id:
@@ -361,9 +410,10 @@ def cmd_attack(args) -> None:
     if not declarations:
         print("No valid attackers — nothing to declare.")
         return
-    ok, msg, _evs = mc.declare_attackers(game, p1_id, declarations, auto_block=True)
+    ok, msg, _evs = mc.declare_attackers(game, actor_id, declarations, auto_block=True)
     print(f"declare_attackers: ok={ok} msg={msg!r}  declarations={declarations}")
-    payload["history"].append((game.state.turn_number, "ME", f"attack {declarations}"))
+    label = "P2" if actor_id == payload["p2_id"] else "ME"
+    payload["history"].append((game.state.turn_number, label, f"attack {declarations}"))
     _save(payload)
     if ok:
         _print_state(payload)
@@ -478,6 +528,10 @@ def main() -> None:
     p_aatk = sub.add_parser("avatar_attack")
     p_aatk.add_argument("column")
     p_aatk.set_defaults(fn=cmd_avatar_attack)
+
+    p_aexp = sub.add_parser("avatar_explore")
+    p_aexp.add_argument("biome_idx")
+    p_aexp.set_defaults(fn=cmd_avatar_explore)
 
     p_end = sub.add_parser("end_turn")
     p_end.set_defaults(fn=cmd_end_turn)

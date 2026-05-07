@@ -1709,14 +1709,16 @@ def test_horror_wither_storm_aoe_hits_grid_and_mobs():
 def test_horror_box_of_horrors_deck_loads():
     from src.cards.minecraft import MINECRAFT_STARTER_DECKS, MINECRAFT_CARDS
     deck = MINECRAFT_STARTER_DECKS["box_of_horrors"]()
-    assert len(deck) == 60  # 30 names × 2 copies each
+    assert len(deck) == 50  # 25 names × 2 copies each
     names = {card.name for card in deck}
     horror_mobs = {n for n in names
                    if "Horror" in MINECRAFT_CARDS[n].characteristics.subtypes
                    and CardType.MC_MOB in MINECRAFT_CARDS[n].characteristics.types}
-    assert len(horror_mobs) >= 8  # plenty of horror tribal anchors
+    assert len(horror_mobs) >= 4  # plenty of horror tribal anchors (post-diamond-removal patch)
     assert "Cave Dweller" in names
-    assert "The Man From The Fog" in names
+    # NOTE: The Man From The Fog (D-cost boss) was removed from the deck on
+    # 2026-05-07 because the deck has no diamond source. Cave Dweller (W2+I2+R1)
+    # is now the lone solo finisher.
 
 
 def test_passive_econ_worker_bonus_cap_pivots_off_workers():
