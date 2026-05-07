@@ -64,6 +64,40 @@ def test_minecraft_bed_respawns_avatar_and_discards_gear():
     assert sword.zone == ZoneType.GRAVEYARD
 
 
+def test_minecraft_bed_persists_across_multiple_respawns():
+    # Engine fact (iter-2 night_rush pilot finding): the Bed object is NOT
+    # consumed by a respawn — only the avatar's gear is discarded. A single
+    # Bed therefore protects the avatar across an unbounded number of deaths
+    # until the Bed itself is destroyed. This test pins that behavior so a
+    # future "consume Bed on respawn" change has to flag itself loudly.
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Defender")
+    p2 = game.add_player("Attacker")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    p1.mc_materials.update({"wood": 5})
+
+    bed = _hand_card(game, p1.id, MINECRAFT_CARDS["Bed"])
+    assert mc.play_card(game, p1.id, bed.id, cell={"x": 1, "y": 0})[0]
+    assert mc.has_bed(game.state, p1.id)
+
+    # Three sequential lethal hits — the Bed persists each time.
+    for _ in range(3):
+        game.emit(Event(type=EventType.DAMAGE, payload={"target": p1.id, "amount": 99}))
+        game.check_state_based_actions()
+        assert not p1.has_lost
+        assert p1.life == 20
+        assert mc.has_bed(game.state, p1.id)
+        assert bed.zone == ZoneType.BATTLEFIELD
+
+    # Once the Bed is destroyed, the next lethal hit kills.
+    mc._move_object(game, bed, ZoneType.GRAVEYARD, source=bed.id)
+    assert not mc.has_bed(game.state, p1.id)
+    game.emit(Event(type=EventType.DAMAGE, payload={"target": p1.id, "amount": 99}))
+    game.check_state_based_actions()
+    assert p1.has_lost
+
+
 def test_minecraft_avatar_without_bed_loses_on_lethal_damage():
     game = Game(mode="minecraft")
     p1 = game.add_player("No Bed")
@@ -254,6 +288,62 @@ def test_minecraft_manual_block_declaration_resolves_combat():
     assert attacker.state.damage == 2
     assert defender.state.damage == 3
     assert game.state.minecraft_combat["phase"] == "complete"
+
+
+def test_minecraft_declare_attackers_auto_block_consults_ai_handler():
+    # Iter-2 night_rush pilot finding: when a human attacks via
+    # `declare_attackers(auto_block=True)`, the engine used to call
+    # `mc.auto_blockers` directly, bypassing the defending seat's bias preset
+    # (e.g. block_mode="never" / "chump_anything"). The fix routes through
+    # `game.turn_manager.minecraft_ai_handler.choose_blockers` first, mirroring
+    # the explicit declare_blockers prompt path.
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Attacker")
+    p2 = game.add_player("Defender")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    game.state.active_player = p1.id
+    # Defender at lethal-risk HP with no Bed — `mc.auto_blockers` would chump
+    # to save the avatar (avatar_lethal branch). A "never" handler must NOT.
+    p2.life = 2
+
+    attacker = game.create_object(
+        name=MINECRAFT_CARDS["Zombie"].name,
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Zombie"].characteristics,
+        card_def=MINECRAFT_CARDS["Zombie"],
+    )
+    attacker.controller = p1.id
+    attacker.state.summoning_sickness = False
+
+    blocker = game.create_object(
+        name=MINECRAFT_CARDS["Skeleton Archer"].name,
+        owner_id=p2.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Skeleton Archer"].characteristics,
+        card_def=MINECRAFT_CARDS["Skeleton Archer"],
+    )
+    blocker.controller = p2.id
+    blocker.state.summoning_sickness = False
+
+    # Attach a "never block" handler to the defending seat. Without the
+    # routing fix, `auto_block=True` would still block the Zombie via
+    # smart `auto_blockers` (avatar at lethal). With the fix, the
+    # handler's choose_blockers governs and returns {}.
+    handler = MinecraftAIAdapter(bias={"block_mode": "never"})
+    game.turn_manager.set_ai_handler(handler)
+
+    ok, _msg, _evs = mc.declare_attackers(
+        game,
+        p1.id,
+        [{"attacker_id": attacker.id, "target_column": 1}],
+        auto_block=True,
+    )
+    assert ok
+    # Zombie 2 face damage lands unblocked: defender drops to 0, no Bed -> loses.
+    assert p2.has_lost
+    assert blocker.state.damage == 0  # blocker untouched (never engaged)
 
 
 def test_minecraft_ai_attacks_with_ready_hostile_instead_of_mining_it():

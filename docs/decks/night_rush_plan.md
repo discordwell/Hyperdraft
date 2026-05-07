@@ -107,6 +107,11 @@ the deck can't break.
   before the lord shows up.
 - **Wolf Pack** — 3/2 base, +1/Worker. With 8 Workers in the deck and
   ~3 down by T4, that's a 6/2. Strong tempo at 1W+1I.
+  **Bed-killer (iter-2 finding)**: Wolf Pack with even 1 Worker on
+  board lands at 4 ATK regardless of day/night — exactly Bed's 4 HP
+  for a clean one-shot. Allocate Wolf Pack to a Bed column when
+  initiating a multi-Bed breakthrough; the re-resolution rule means
+  the next attacker behind it hits the avatar.
 - **TNT Trap** — Block on the avatar's column. Deathrattle: 4 to
   opponent avatar. Doubly useful: the AI's `passive_econ` chump-blocks
   with Workers, so when AI attacks our TNT Trap and kills it, we eat
@@ -167,7 +172,34 @@ the deck can't break.
    no day-bonus mine to take. Equip turn should be a turn the avatar
    wasn't going to mine anyway.
 9. **TNT Blast** held for the kill turn — 4 to face is the
-   tightest-EV finisher in the deck.
+   tightest-EV finisher in the deck. **Or aim it at a Bed** if AI is
+   Bed-protected and you can't muster a 4 ATK attacker per Bed column.
+
+10. **Bed-killer attack ordering (vs Bed-protected opponent).** A Bed
+    is not consumed by the avatar respawn (engine fact — see strategy
+    doc). If the AI has 1+ Beds on the grid, ANY pure-face damage you
+    deal beyond clearing each Bed is wasted on the respawn cycle. Plan
+    your lethal swing to:
+    - Allocate one 4+ ATK attacker per AI Bed (Skel Archer Night = 4,
+      Wolf Pack with ≥1 Worker = 4, Creeper Night = 5, Pillager Night
+      = 4, Pillager+lord Night = 5).
+    - Place that attacker in the Bed's column; combat re-resolves the
+      attack target per attacker, so once the Bed dies, the next
+      attacker in that column hits the avatar.
+    - Add the rest of your face attackers in any column.
+    - Same combat step. Respawn re-checks `has_bed` only AFTER all
+      damage resolves, so kill-the-Beds + lethal-face must land
+      together. **A multi-turn drip plan does not work** against a
+      Bed: each turn the AI respawns to 20.
+
+11. **T8 Night swing rule (iter-2 lesson).** A Night attack turn vs a
+    Bed-protected AI is the most common over-extension trap. If you
+    have 4-5 attackers ready on T8 and the AI has 1+ Beds, do NOT
+    just spread for max face — you'll deal 16+ to a 14 HP AI and
+    the AI will respawn at 20 next combat. Instead, commit at least
+    one Bed-killer per Bed column; deal whatever face damage the
+    remainder allows. Save the lethal swing for the turn the AI is
+    Bed-less.
 
 ## Anticipated weaknesses
 
@@ -212,9 +244,25 @@ the deck can't break.
 - **Bed drought**: 2 copies in 50 cards = ~14% chance to see Bed in
   the opening hand of 7. With turn draws, ~50% chance by T5. **If no
   Bed by T5, accept the all-in plan** — don't equip Iron Sword/Bow
-  under any circumstances, just race. Iter-1 played this line and
-  won at 18 HP, so the all-in is viable when the AI is `passive_econ`
-  (which doesn't apply early avatar pressure).
+  under any circumstances, just race. Iter-1 and iter-2 both played
+  this line and won at 18 / 17 HP respectively, so the all-in is
+  viable when the AI is `passive_econ` (which doesn't apply early
+  avatar pressure). **Iter-2 vindicated**: even with the AI deploying
+  2 Beds, the Bed-drought all-in still hit its T10-12 target.
+
+- **Multi-Bed scenario** (NEW after iter-2). `passive_econ`'s patched
+  `bed_search_bonus=40` means the AI may deploy a 2nd Bed proactively
+  when threatened (observed: 2nd Bed at HP 16 on T9). Combined with
+  the engine's "Bed not consumed by respawn" fact, that's two
+  structures you must clear before lethal can land. Plan answers:
+  (a) Hold TNT Blast x2 for the lethal turn — 4 dmg per blast = one
+      Bed each, then face attackers swing for face.
+  (b) Lead each Bed column with a 4+ ATK attacker (Wolf Pack with
+      Worker, Skel Archer Night, Pillager Night, Creeper Night) so
+      re-resolution chains a face hit into the cleared column.
+  (c) Don't waste a lethal Night swing on stand-alone face when 1+
+      Beds are up — the AI respawns to 20 and you've burned a turn.
+  See Play priorities #10-11 for the combat order rule.
 
 ## Iteration log
 
@@ -236,3 +284,34 @@ the deck can't break.
   line is forgiving when no Bed shows. Plan revised: realistic
   lethal target T10-12 (was T6-7); added T2 Strip-Mine rule;
   flagged Piglin Raider as redstone-dependent brick.
+
+- **2026-05-06 (iter-2)**: raider/passive_econ — **W in 12 turns**
+  (final HP ME=17 AI=0). Same kill turn as iter-1, different
+  bottleneck. T2 Strip-Mine rule (the iter-1 refinement) paid off:
+  Piglin Raider deployed T10 instead of bricking. Iter-1's
+  anticipated weaknesses were vindicated — Bed drought all-in
+  plan worked even with the AI defending more aggressively.
+  Two new findings dominated:
+  (1) **Bed not consumed by respawn (engine fact).** T8 Night swing
+  dealt 16 damage into a 16 HP AI expecting lethal — AI respawned at
+  20 with the Bed still in play. Wasted a swing turn. Strategy doc
+  and play priorities #10-11 now codify the Bed-killer attack
+  ordering: 1 attacker per Bed column FIRST, then face. T10 fix
+  worked: Wolf Pack 4 ATK one-shot Bed col 0, Creeper 4 ATK
+  one-shot Bed col 1, remaining 8 face landed. Both Beds dead +
+  AI HP 12. T12 lethal then landed into a Bed-less AI for 25
+  face (6-mob Night swing).
+  (2) **AI deployed 2 Beds.** `bed_search_bonus=40` (iter-1 patch)
+  + AI drew both Bed copies → 2 Beds on grid by T9. New behavior
+  pattern. Added "Multi-Bed scenario" to Anticipated weaknesses
+  with three answers (TNT Blast tutoring, Bed-killer columns,
+  don't-waste-lethal rule).
+  Engine bug fixed: `declare_attackers(auto_block=True)` was
+  bypassing the AI handler's `choose_blockers` — so the iter-1
+  "chump_anything exploit" was actually exploiting smart-blocker's
+  threat-score sort, not the bias preset. Patch routes
+  `auto_block=True` through `game.turn_manager.minecraft_ai_handler`
+  first, mirroring `_run_pending_block_prompt`. Pinned by
+  `test_minecraft_declare_attackers_auto_block_consults_ai_handler`.
+  Bias preset unchanged this iter — `bed_search_bonus=40` left at 40
+  per the deferred-decision principle (next iter's data decides).

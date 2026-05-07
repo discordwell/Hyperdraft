@@ -969,7 +969,17 @@ def declare_attackers(
     if not auto_block:
         return True, "Awaiting blockers", pre_events
 
-    block_map = auto_blockers(state, defender_id, valid_attacks)
+    # Prefer the defending seat's AI handler if one is attached, so per-seat
+    # bias presets (e.g. block_mode="chump_anything", "never") apply on this
+    # auto_block path the same way they do on the explicit declare_blockers
+    # prompt path. Falls back to the smart engine default when no handler is
+    # available. Mirrors MinecraftTurnManager._run_pending_block_prompt.
+    handler = getattr(getattr(game, "turn_manager", None), "minecraft_ai_handler", None)
+    choose = getattr(handler, "choose_blockers", None) if handler else None
+    if callable(choose):
+        block_map = choose(state, defender_id, valid_attacks)
+    else:
+        block_map = auto_blockers(state, defender_id, valid_attacks)
     ok, msg, evs = resolve_combat(game, player_id, defender_id, valid_attacks, block_map)
     if ok:
         evs = pre_events + evs

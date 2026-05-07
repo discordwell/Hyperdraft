@@ -187,6 +187,28 @@ MC_BIAS_PRESETS: dict[str, dict] = {
         # competes on its own merit (~22 from the base mob score)
         # against defensive mobs / Blocks, fixing the "chase Worker
         # while losing" pattern.
+        # 2026-05-06 (v4, iter-2 night_rush W in 12T): bed_search_bonus
+        # =40 paid off — AI proactively deployed a 2nd Bed at HP 16 on
+        # T9 (new behavior vs iter-1). Combined with the engine fact
+        # that Bed is NOT consumed by respawn (see strategy doc /
+        # test_minecraft_bed_persists_across_multiple_respawns), the
+        # 2-Bed defense was hard to break: pilot wasted a 16-dmg T8
+        # swing on a respawn cycle. *That* problem is a deck-plan
+        # issue (night_rush had no Bed-killer attack ordering rule),
+        # not a bias-preset over-tune — so bed_search_bonus is left
+        # at 40 this iter and the deck plan was refined instead. If
+        # iter-3 confirms the AI consistently deploys 2 Beds AND
+        # decks WITHOUT Bed-killer columns are still bricked, drop
+        # bed_search_bonus to ~25 next.
+        # Other v4 fix lives in the engine (not this preset):
+        # `declare_attackers(auto_block=True)` now consults
+        # `game.turn_manager.minecraft_ai_handler.choose_blockers`
+        # before falling back to mc.auto_blockers, so block_mode
+        # ("chump_anything" / "never") is honored on the human-
+        # attacker / auto-block harness path. Iter-1's chump exploit
+        # was previously hitting smart-blocker's threat-sort, not
+        # this preset's chump rule — that's now the genuine preset
+        # behavior.
         worker_bonus_under_3=80, worker_bonus_first=30,
         turnbonus_struct_bonus=5, explore_map_bonus=15,
         strip_mine_bonus=15, find_diamonds_bonus=10, chop_trees_bonus=25,

@@ -48,11 +48,30 @@ both: write the lesson here AND tighten the relevant preset.
 ### Critical infrastructure: Bed
 
 - **Bed is mandatory.** Without a Bed, lethal damage = instant loss
-  (no respawn). With a Bed, dying respawns at 20 HP (with gear discarded).
+  (no respawn). With a Bed, dying respawns at 20 HP — only the avatar's
+  **gear is discarded; the Bed itself is NOT consumed.** A single Bed
+  therefore protects an unbounded number of respawns until the Bed
+  structure is destroyed. This is an engine fact (see
+  `handle_avatar_deaths` in `src/engine/minecraft.py`), confirmed by
+  the iter-2 night_rush pilot and pinned by
+  `test_minecraft_bed_persists_across_multiple_respawns`. Multiple Beds
+  give no extra "respawn capacity" per se (the respawn re-checks
+  `has_bed`, which is true if **any** Bed is on the grid), but they
+  multiply the work needed to clear: you must destroy **every** Bed
+  AND deal lethal in the same combat step before the respawn check
+  re-runs.
 - Play Bed turn 1-2 if it's in opening hand. If it's not, **mulligan
   toward it** if rules allow, or prioritize drawing/tutoring it.
 - An opponent without a Bed is a loss waiting to happen — apply lethal
-  pressure. Track opponent's Bed status every turn.
+  pressure. Track opponent's Bed **count** every turn (not just
+  presence). Two Beds = two structures to break before lethal can land.
+- Bed-killer attack ordering: when attacking a Bed-protected opponent,
+  allocate one 4+ ATK attacker (Skel Archer Night 4, Pillager Night 4,
+  Wolf Pack with ≥1 Worker = 4, Creeper Night 5) **per Bed column FIRST**.
+  The combat code re-resolves attack target per-attacker, so once attacker
+  1 destroys the Bed, attacker 2's column resolves to the avatar instead.
+  Don't waste lethal-overkill damage on stand-alone face attacks while
+  Beds are up — the AI just respawns and you've burned a swing turn.
 
 ---
 
@@ -174,6 +193,35 @@ guaranteed loss in the mirror. Auto-mulligan if rules permit.
 
 ---
 
+## Engine quirks affecting AI behavior
+
+These are **engine facts**, not AI-bias-preset behavior. A piloted human
+whose mental model is "the AI's `block_mode` is always honored" will
+make wrong calls until they internalize the routing rules below.
+
+1. **Bed is not consumed by respawn.** See "Critical infrastructure: Bed"
+   above. `handle_avatar_deaths` only calls `discard_avatar_gear` on the
+   avatar's tool slots; the Bed object on the grid is untouched. Pinned
+   by `test_minecraft_bed_persists_across_multiple_respawns`.
+
+2. **`declare_attackers(auto_block=True)` and the AI handler.** Confirmed
+   in iter-2 and now patched: the wet-test harness calls
+   `declare_attackers(auto_block=True)` for human-attacker turns. Before
+   the patch, that path called `mc.auto_blockers` directly, bypassing the
+   defending seat's `block_mode` (so iter-1's "exploit" of
+   `chump_anything` was actually exploiting the smart blocker's
+   threat-score sort, not the chump rule). Post-patch (current code),
+   `declare_attackers` first consults
+   `game.turn_manager.minecraft_ai_handler.choose_blockers` and falls
+   back to `mc.auto_blockers` only when no handler is attached — same
+   shape as `_run_pending_block_prompt` in `minecraft_turn.py`. Pinned by
+   `test_minecraft_declare_attackers_auto_block_consults_ai_handler`.
+   **Implication for the strategy doc**: weaknesses keyed to
+   `chump_anything` (e.g. "multi-column attack defeats first-attacker-
+   first-blocker pairing") are now the genuine `chump_anything` exploit
+   when piloting against `passive_econ`, not just a smart-blocker
+   side-effect.
+
 ## Strengths of `passive_econ` in mirror matchups
 
 These are things `passive_econ` does **well** — humans should not
@@ -259,13 +307,19 @@ the **coach** loop should patch them in `MC_BIAS_PRESETS`.
    This is a structural exploit of `passive_econ`, not a tuning bug —
    the heuristic's vocabulary doesn't include "best block target."
 
-6. **`passive_econ` doesn't proactively deploy Blocks.** Even sitting
-   on 9-10 stone for 3+ turns, the AI mines more stone instead of
-   deploying Cobblestone Wall / Oak Planks. A human running aggro can
-   plan around the AI never putting Walls in the way of attackers,
-   even on Day turns when the AI is stone-heavy. Force the AI to spend
-   stone reactively only — it won't shore up defense proactively, so
-   sustained multi-turn pressure can't be answered with a Wall stack.
+6. **`passive_econ` doesn't proactively deploy non-Bed Blocks.** Even
+   sitting on 9-10 stone for 3+ turns, the AI mines more stone instead
+   of deploying Cobblestone Wall / Oak Planks. A human running aggro can
+   plan around the AI never putting Walls in the way of attackers, even
+   on Day turns when the AI is stone-heavy. Force the AI to spend stone
+   reactively only — it won't shore up defense proactively, so sustained
+   multi-turn pressure can't be answered with a Wall stack.
+   **Iter-2 night_rush amendment**: the AI WILL proactively deploy a
+   second Bed when threatened (observed: AI played a 2nd Bed at HP 16 on
+   T9, driven by `bed_search_bonus=40` plus available wood). So "doesn't
+   deploy structures" is too strong — the gap is specifically non-Bed
+   Blocks (Cobblestone Wall 2S, Oak Planks 1W). The Bed-search bonus is
+   wired; the Wall-deploy heuristic is not.
 
 7. **Day/night blind:** AI doesn't time plays to day/night cycle.
    **Hostile mobs gain +1 ATK at Night** (Zombie text says so explicitly,
@@ -423,6 +477,54 @@ the **coach** loop should patch them in `MC_BIAS_PRESETS`.
     cause (Workers out-scoring everything else under the +80
     bonus) so a single cap closes both holes — no new low-HP-panic
     knob needed for this iter.
+
+### v4 — 2026-05-06 (night_rush iter-2 vs passive_econ, 12-turn W; Bed-respawn lesson + engine fix)
+
+- Pilot ran night_rush vs `passive_econ` (post v3 patches: cap=2,
+  weapon_no_bed=28, bed_search=40). Won 17→0 in 12 turns. Same kill turn
+  as iter-1 but for different reasons:
+  - **AI deployed 2 Beds** (T1 from opener, T9 reactive deploy under
+    pressure). `bed_search_bonus=40` paid off — AI *did* prioritize the
+    Bed pivot when threatened.
+  - **Bed-respawn engine fact**: a Bed is NOT consumed when the avatar
+    respawns. Pilot dealt 16 damage on T8 expecting lethal, but AI
+    respawned at 20 with the Bed still in play. To actually kill, you
+    must destroy every Bed AND deal lethal in the same combat step
+    (the respawn check re-runs `has_bed` after damage resolves). T10
+    fix: 1 attacker per Bed column + 4 face = 8 face + 2 Beds dead;
+    T12 lethal then landed into a Bed-less AI.
+  - **`auto_block=True` path was bypassing the AI handler** — confirmed
+    by reading `declare_attackers` (line 972 was calling
+    `mc.auto_blockers` directly). Iter-1's "chump_anything exploit" was
+    actually exploiting `auto_blockers`' smart threat-score sort, not
+    the bias preset.
+- Strategy doc updates:
+  - **Critical infrastructure: Bed** — rewrote with the not-consumed
+    fact, multi-Bed counting rule, and Bed-killer attack ordering.
+  - **NEW Engine quirks affecting AI behavior** section — documents
+    Bed-not-consumed and the `auto_block`/handler routing fact, both
+    pinned by regression tests.
+  - **Known heuristic-AI weaknesses #6** — annotated that the AI WILL
+    proactively deploy a 2nd Bed under pressure (observed iter-2); the
+    gap is specifically non-Bed Walls/Planks.
+- Engine patch: `declare_attackers` now consults
+  `game.turn_manager.minecraft_ai_handler.choose_blockers` on the
+  `auto_block=True` path before falling back to `mc.auto_blockers`,
+  mirroring `_run_pending_block_prompt`. So the defending seat's
+  `block_mode` is honored regardless of which entry point the harness
+  uses. New tests:
+  - `test_minecraft_bed_persists_across_multiple_respawns` — three
+    sequential lethal hits with one Bed, all survived; Bed destruction
+    then loses on the next hit.
+  - `test_minecraft_declare_attackers_auto_block_consults_ai_handler` —
+    `block_mode="never"` handler attached, `auto_block=True` declared at
+    avatar-lethal HP; Zombie face damage lands unblocked (without the
+    fix, smart `auto_blockers` would chump to save the avatar).
+- Heuristic AI preset: kept `bed_search_bonus=40` for now per the
+  pilot's "let next iter's data decide" recommendation. The 2-Bed
+  deploy is correct defensive behavior; the issue isn't AI tuning, it's
+  that night_rush's plan didn't account for it. Refined the night_rush
+  plan rather than walking the bonus back. Other knobs unchanged.
 
 <!-- Append new sections below as the loop runs. Each entry: date, what
 was learned, what was patched (strategy doc updates + heuristic AI

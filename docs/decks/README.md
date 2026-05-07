@@ -11,7 +11,7 @@ This directory holds per-deck strategy plans. Each file is named
   *this deck* wants to do (win condition, target turn, key cards,
   mulligan policy, anticipated weaknesses).
 
-The pilot subagent in `/mc-ultra-loop` reads BOTH before each game.
+The pilot subagent in `/ultra-loop --game minecraft` reads BOTH before each game.
 Both are persistent across sessions — fresh Claude instances bootstrap
 their understanding from these files.
 
