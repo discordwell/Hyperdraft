@@ -102,6 +102,21 @@ win — see Anticipated weaknesses.
   Cast on the same turn as a saturation swing — it's the canonical
   Wolfpack kill turn. With both engine fixes, expected lethal range
   shifts to T15-T18 vs T20+ pre-fix.
+  - **CASTING-RATE FAILURE: 0/4 across iter-1 → iter-2 → iter-3 →
+    iter-4.** Sat Strike has not fired in 4 consecutive iters despite
+    being drawn iter-2 T6, iter-3 T7, iter-4 T8. The {2T} action slot
+    is structurally over-allocated when bank discipline is enforced
+    (Pack Leader's {3T} eats the budget every cycle). Two repair
+    options:
+    - **Cut Saturation Strike** (replace with cheaper trigger like
+      Pack Runner ×4 → ×5 or +1 Sea Wolf Scout). Accept that the
+      named "kill turn" doesn't exist; rely on Pack Leader anthem.
+    - **Add explicit "cast on first multi-vessel swing where TC ≥ 2"
+      rule** to the play priorities, BEFORE Pack Leader / Doctrine
+      deploys. Trades one anthem turn for a guaranteed Sat Strike
+      cast, which the iter-2 11-damage alpha shows is enough.
+    Either is testable; recommend the "cast first" version for iter-5
+    since cutting risks losing the deck's defining burst.
 - **Admiral Dönitz** ({5T}, legendary) — top-end finisher. Not
   reachable in any iter so far; reachable only with a successful
   bank-turn line + Type-VII Veteran TC-ramp.
@@ -134,6 +149,16 @@ win — see Anticipated weaknesses.
    This is the **MOST IMPORTANT** non-obvious priority in this deck.
    Iter-1 violated this rule and lost; iter-2 banked T9 + T10 and won
    21-vs-0 on T28.
+   - **EXCEPTION CLAUSE (iter-4 add): if opp applies ≥4 hull/turn chip
+     pressure starting T3, ABANDON the bank line — switch to
+     emergency aggressive deploys to contest board.** Iter-4 evidence:
+     Pilot A persisted with bank discipline through T9 while Pilot B
+     chipped 4 dmg/turn from T3; flagship reached 4 hull before any
+     anthem fired. The bank rule's correctness is conditional on opp
+     being passive. Heuristic for "opp is racing": opp has ≥3 attackers
+     on board by T7 OR opp has dealt ≥6 hull in the last 2 turns. If
+     either fires, abandon bank and emergency-deploy whatever max-cost
+     body is castable (preferring 2-power chips that contest detection).
 4. **Anthem T8-T11** — Pack Leader U-99 OR Wolfpack Doctrine. The
    anthem is the deck's win condition; everything else is enabler.
 5. **Pack Runner deploy on a turn ≥3 attackers will swing** — its
@@ -192,6 +217,41 @@ win — see Anticipated weaknesses.
 ## Iteration log
 
 (Append after each game piloted with this deck.)
+
+- **2026-05-07 (iter-4)**: vs Silent_Hunter (LLM Pilot B, hybrid
+  aggressive — opened LP T1 + Snorkel T2 + 4-attacker chip rate from
+  T7). **L in 17 turns**, ME=0/25 vs OPP=20/25 (Flagship sunk). Pilot
+  A self-graded **3/10**. Iter-1→2→3→4 result: 0-1 (L 38) → 21-0
+  (W 28) → 6-0 (W 25) → 0-20 (L 17). **Bank discipline applied
+  per the doctrine** (T7 bank, Pack Leader T9, Wolf-cub deploys T11+T13)
+  — and the deck still lost decisively. The doctrine was correct in
+  isolation; the matchup adaptation was missing.
+  Key new findings:
+  - **Bank rule is conditional on opp passivity, not unconditional**.
+    Codified as exception clause in Play priorities #3. When opp
+    chips ≥4 hull/turn from T3, abandon bank → emergency aggressive
+    deploys to contest board.
+  - **Saturation Strike 0/4 cast rate** across all iters. Drew T8,
+    never castable through T17. The {2T} slot starvation is the same
+    pattern as iter-2/iter-3 but for a tighter reason: bank discipline
+    + Pack Leader + the chip-defense pressure all draw on the same
+    1-2 TC pool. Two repair options documented in Key cards above.
+    Recommend "cast on first multi-vessel swing" rule for iter-5.
+  - **Wolfpack Doctrine 0/3 cast rate** (drew iter-2 T3, iter-3 T3,
+    not in iter-4 opener). The {3T} slot can hold ONE of {Pack Leader,
+    Doctrine, Hammerhead, Dönitz} — all four have been bricked across
+    iters. Cut Doctrine + Hammerhead + Dönitz → +3 cheap Wolf-cubs is
+    the iter-5 Plan B variant if "cast first" doesn't land.
+  - **Pack Leader U-99 attack-trigger gate verified correct**
+    (`wolfpack.py:289-310`): requires ≥2 OTHER attackers (excludes
+    self via `_attacking_allied_submarines` filter on line 106-107).
+    Pilot A's reported 5-damage 2-attacker swing was depth-related
+    (both attackers at PERISCOPE, no penalty), not a bug. Logged in
+    strategy doc Engine punchlist as resolved.
+  - **Defense AI under-detection persists despite iter-4 lethal-buffer
+    fix.** Pilot A's defense ate 4 unintercepted swings T9-T13 with
+    SC=4-9 available. The cumulative-damage patch shipped this pass
+    (see strategy doc Engine punchlist) should fix this in iter-5.
 
 - **2026-05-07 (iter-3)**: vs Silent_Hunter (LLM Pilot B, no-Listening-Post
   pivot to aggressive). **W in 25 turns**, ME=6/25 vs OPP=0/25 (Flagship

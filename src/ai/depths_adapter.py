@@ -280,7 +280,18 @@ MEDIUM_DIVE_POWER_THRESHOLD = 3
 
 # §8 Medium: Flagship "lethal buffer" — detect attackers whose
 # unintercepted damage would push Flagship below this much hull headroom.
-MEDIUM_FLAGSHIP_LETHAL_BUFFER = 5
+# Lowered from 5 → 3 in iter-4 (2026-05-07) per coach finding: under-detection
+# of mid-game chip swings (Pilot B's 3-attacker swings T14/T18/T22 in iter-3
+# all uncontested with P1 at 4-9 SC because cumulative damage didn't reach
+# the lethal threshold).
+MEDIUM_FLAGSHIP_LETHAL_BUFFER = 3
+
+# §8 Medium: cumulative-damage detection escalation (iter-5 patch).
+# Track damage taken in the last N turns; if total exceeds the threshold,
+# add it to the lethal-buffer projection so the AI starts intercepting
+# *streams* of chip damage, not just single lethal-projecting swings.
+MEDIUM_RECENT_DAMAGE_WINDOW = 3
+MEDIUM_RECENT_DAMAGE_TRIGGER = 6  # 6+ hull lost in last 3 turns starts the escalation
 
 # §8 Medium: minimum expected damage to Flagship before AI will swing.
 MEDIUM_MIN_ATTACK_DAMAGE = 2
@@ -672,6 +683,9 @@ class DepthsAIAdapter:
         # ability combo can't drag a single turn out indefinitely. Phase changes
         # are detected via state.turn_number changes (a new turn resets).
         self._action_counter: dict[tuple[str, int], int] = {}
+        # iter-5 cumulative-damage tracker: {defender_id: [(turn, hull_remaining), ...]}.
+        # Updated on each _medium_detections call. Entries past the window are pruned.
+        self._flagship_hull_history: dict[str, list[tuple[int, int]]] = {}
 
     # ─── Mulligan ──────────────────────────────────────────────────
 
@@ -1339,11 +1353,31 @@ class DepthsAIAdapter:
             ))
         return attackers
 
+    def _recent_damage_taken(self, defender_id: str) -> int:
+        """How much hull was lost across the tracked window (iter-5 patch).
+
+        Returns 0 if we don't yet have two history points to compare.
+        """
+        history = self._flagship_hull_history.get(defender_id) or []
+        if len(history) < 2:
+            return 0
+        # Loss = oldest_hull - newest_hull (positive means we took damage).
+        oldest_hull = history[0][1]
+        newest_hull = history[-1][1]
+        return max(0, int(oldest_hull) - int(newest_hull))
+
     def _medium_detections(self, state: GameState, defender_id: str,
                            attackers: list[AttackerSpec]) -> dict[str, int]:
         """
         §8 Medium: spend Sonar on attackers whose unintercepted damage
         would push Flagship below ``hull - lethal_buffer``.
+
+        Iter-5 patch (cumulative-damage escalation): also escalates when
+        the defender has taken ``MEDIUM_RECENT_DAMAGE_TRIGGER`` or more
+        hull damage in the last ``MEDIUM_RECENT_DAMAGE_WINDOW`` turns.
+        Without this, a 4-damage-per-turn chip stream stays below the
+        single-swing lethal projection and goes uncontested forever
+        (Pilot B iter-3 + iter-4 evidence).
         """
         player = state.players.get(defender_id)
         if player is None:
@@ -1352,6 +1386,18 @@ class DepthsAIAdapter:
         flagship_hull = _flagship_buffer(state, defender_id)
         if budget <= 0:
             return {}
+
+        # Update the per-defender hull history (iter-5 cumulative tracking).
+        turn = int(getattr(state, "turn_number", 0) or 0)
+        history = self._flagship_hull_history.setdefault(defender_id, [])
+        if not history or history[-1][0] != turn:
+            history.append((turn, flagship_hull))
+            # Prune entries older than the window.
+            cutoff = turn - MEDIUM_RECENT_DAMAGE_WINDOW
+            self._flagship_hull_history[defender_id] = [
+                (t, h) for (t, h) in history if t >= cutoff
+            ]
+        recent_damage = self._recent_damage_taken(defender_id)
 
         # Sort attackers by danger to Flagship (descending).
         ranked: list[tuple[int, AttackerSpec]] = []
@@ -1373,6 +1419,15 @@ class DepthsAIAdapter:
 
         out: dict[str, int] = {}
         cumulative_unintercepted = sum(d for d, _ in ranked)
+        # iter-5: when recent damage trips the threshold, project the chip
+        # stream forward and add the recent damage to this swing's cumulative
+        # projection. Without this the AI happily eats 3-4 dmg/turn forever as
+        # long as no single swing trips the lethal projection (Pilot B iter-3
+        # + iter-4: chipped flagship 25 → 6 free). Adding recent_damage here
+        # is the "another window of the same chip is coming" forward-looking
+        # trend term that forces the AI to start spending SC.
+        if recent_damage >= MEDIUM_RECENT_DAMAGE_TRIGGER:
+            cumulative_unintercepted += recent_damage
         # If unintercepted damage > flagship_hull - lethal_buffer, start
         # detecting in danger order until the projection falls below.
         while cumulative_unintercepted > max(0, flagship_hull - MEDIUM_FLAGSHIP_LETHAL_BUFFER):

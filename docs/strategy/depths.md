@@ -153,27 +153,17 @@ goes here.)
 
 ## Settled lessons (resolved questions)
 
-- **RESOLVED 2026-05-07 (iter 2): Bank-then-deploy is correct for
-  top-heavy aggro decks** — see iter 1 vs iter 2 in the iteration log.
-  Iter-1 Wolfpack greedy line: L 0-vs-1 in 38 turns, never reached the
-  {3T} anthems. Iter-2 Wolfpack with disciplined bank turns: W 21-vs-0
-  in 28 turns, reached Pack Leader U-99 + Saturation Strike on T13/T16
-  for an 11-damage alpha. **Refinement from Pilot A iter-2**: bank turns
-  must be PLURAL — bank UNTIL `TC ≥ anthem-cost`, not a single skip. From
-  TC=1 with a {3T} anthem in hand, that's typically 2 consecutive
-  banks. Codified in `docs/decks/wolfpack_plan.md` Play priorities #3.
-  Format-level threshold (when does an aggro deck switch from "always
-  deploy" to "bank for anthem"?): *any deck with ≥2 cards in the {3T}+
-  band that defines its win condition.* Cross-deck validation pending,
-  but the principle is now load-bearing for Wolfpack and presumed for
-  Carrier (top-heavy buffs) and Deep Strike (multi-band finishers).
-  - **Iter-3 caveat**: bank-then-deploy still wins, **but the margin
-    shrinks dramatically when the defender's pump-blind bug is
-    patched.** Iter-2 = 21-0 in 28 turns. Iter-3 (same matchup, same
-    decks, post-defense-fix) = 6-0 in 25 turns. Pilot A barely closed
-    it — one fewer Saturation Strike or one more SC on Pilot B's part
-    flips the outcome. The settled lesson is intact, but the matchup
-    is no longer a guaranteed steamroll.
+- **NEW iter-4: Aggressive Silent_Hunter (T2 Snorkel Stalker + LP wall)
+  outraces bank-discipline Wolfpack.** Conservative Silent_Hunter (the
+  iter-1 grind plan) loses if drawn out beyond ~T20; the aggressive
+  race plan beats Wolfpack's bank line by killing it before the anthem
+  turn lands. Iter-4 evidence: P2 W 20-0 in 17 turns vs Pilot A's
+  bank-then-deploy line that did everything "right" per the iter-3
+  doctrine. Pilot B opened LP T1 + Snorkel T2 → 4 dmg/turn chip from
+  T3 → reduced flagship 25 → 4 by T13 → forced Pilot A into pure
+  defensive deploys, never castable Saturation Strike. The race wins by
+  T17 because the bank pilot can't afford to skip a deploy turn while
+  the chip clock is ticking at 4 hull/turn.
 
 - **NEW iter-3: Saturation Strike timing tracks the OPPONENT's
   current SC pool, not nominal cap.** Pilot A's T25 lethal worked
@@ -183,6 +173,36 @@ goes here.)
   visible to the now-patched defense and gets surgically intercepted.
   Cast on a turn where defender SC < attacker count = lethal. This is
   the canonical Wolfpack kill-turn rule going forward.
+
+## Conditional lessons (settled-when-X, contested-when-Y)
+
+- **CONDITIONAL (was settled iter-2, contested iter-4): Bank-then-deploy
+  is correct for top-heavy aggro decks ONLY when the opponent is
+  passive.** When opp applies ≥4 hull/turn chip pressure starting T3,
+  bank turns are unaffordable — the bank pilot loses tempo on a clock
+  it cannot recover. Iter-1 (greedy, no bank, slow opp): L 0-1 in 38.
+  Iter-2 (bank, slow opp): W 21-0 in 28. Iter-3 (bank, slow opp,
+  defense fix): W 6-0 in 25. **Iter-4 (bank, AGGRESSIVE opp): L 0-20
+  in 17.** Same matchup, same decks, opposite outcome — the variable
+  is opponent's deck-shape choice, not the bank rule's correctness.
+  The bank rule's CONDITION is "opp is not racing"; without that, the
+  rule actively loses the matchup.
+  - Cross-deck inference: any aggro deck with ≥2 cards in the {3T}+
+    band needs to choose bank-vs-greedy AT MULLIGAN time based on the
+    opener's mix. With a heavy {3T}+ hand, bank is forced; with a
+    cheap-only hand, greedy race is forced.
+  - The previous iter-3 caveat ("the margin shrinks once the defense
+    fix shipped") was understated — iter-4 shows the margin doesn't
+    just shrink, it INVERTS when opp races.
+
+- **CONDITIONAL: Iter-3's "Pilot B will pivot aggressive without LP"
+  was a one-game observation, NOT a stable pattern.** Iter-4 Pilot B
+  drew LP again AND played aggressive AND won decisively. The pattern
+  is "Pilot B's deck-shape variance dominates the matchup outcome more
+  than the bank discipline does." A coin flip on B's opener determines
+  the matchup result far more than P1's bank discipline does. This
+  also implies: **single-game iters are noisy** — confidence requires
+  N games per matchup-vs-strategy combo, ideally with paired openers.
 
 ## Contested strategic questions
 
@@ -262,29 +282,91 @@ goes here.)
   `_score_state`) still read printed power — flagged for a future iter
   if a pilot exploits it.
 
-- **NEW (iter 3): Medium AI defense under-detects mid-game chip
-  swings.** `_medium_detections` (`src/ai/depths_adapter.py:1342`)
-  only spends SC when `cumulative_unintercepted > flagship_hull -
-  MEDIUM_FLAGSHIP_LETHAL_BUFFER` (constant=5,
-  `src/ai/depths_adapter.py:283`). Concretely: with Flagship at hull
-  22 and a 3-attacker swing projected for ~5-6 cumulative damage, the
-  threshold (`22 - 5 = 17`) is never crossed and the AI spends 0 SC.
-  **Pilot B iter-3 evidence**: P1 (medium AI defense) had SC=4-9 across
-  T14/T18/T22 and didn't intercept ANY of Pilot B's three 3-attacker
-  swings — chipped P1 from 25 → 6 nearly free. The pump-blind fix is
-  load-bearing for the *anthem-fired-and-cumulative-is-lethal* case
-  but does nothing when no single swing trips the projection. The AI
-  is happy to take 4-5 face damage per turn forever as long as no
-  single turn is lethal-projecting. Two candidate fixes (defer until
-  next pass): (a) lower `MEDIUM_FLAGSHIP_LETHAL_BUFFER` to 3 so the
-  AI defends earlier; (b) add a *cumulative-recent-damage* term so a
-  string of 4-damage swings starts triggering detection by turn N+2
-  even if no single swing is itself lethal-projecting. Note also
-  `_medium_interceptors` only assigns blockers from the **detected**
-  list — under-detection is the upstream bug; interceptor assignment
-  is fine.
+- **PARTIALLY FIXED (iter 4 → iter 5): Medium AI defense
+  under-detects mid-game chip swings.** First fix (iter-4): lowered
+  `MEDIUM_FLAGSHIP_LETHAL_BUFFER` from 5 → 3
+  (`src/ai/depths_adapter.py:287`). Iter-4 evidence shows this alone
+  did NOT change behaviour visibly — Pilot A still ate 4 unintercepted
+  swings before defending. Second fix (iter-5, this pass):
+  cumulative-recent-damage term added. `DepthsAIAdapter.__init__` now
+  tracks `_flagship_hull_history: dict[defender_id, list[(turn, hull)]]`
+  pruned to a 3-turn window. `_medium_detections` augments
+  `cumulative_unintercepted` with the recent damage delta when it
+  trips `MEDIUM_RECENT_DAMAGE_TRIGGER=6`. Effectively: a 4-damage chip
+  stream starts triggering detection on turn 3 of the stream
+  (cumulative=12 lost, projection=12+swing exceeds the
+  hull-buffer-3 threshold once flagship is below ~17 hull). Regression
+  test: `tests/test_subs.py::test_medium_ai_detects_chip_stream`. Note
+  this only patches the medium *defense* path; offense still reads
+  printed-only power.
+
+- **NEW (iter 4): Pack Leader U-99 attack-trigger investigation —
+  NO BUG.** Pilot A reported a 5-damage 2-attacker swing (Pack Leader
+  3 + Wolf-cub 2) where the formula predicts 3 (max(1,3-1) + max(1,2-1)
+  = 2+1 = 3). Read `wolfpack.py:289-310`: the trigger check
+  `len(_attacking_allied_submarines(obj, st)) < 2` is correct
+  (≥2 OTHER attackers required, since `_attacking_allied_submarines`
+  on line 98-115 explicitly excludes the source via
+  `if obj.id == source.id: continue`). 2-attacker swing = 1 OTHER → no
+  fire. The 5-damage observation is consistent with both attackers
+  having been DOVE to PERISCOPE before the swing (depth diff 0 → no
+  penalty → 3+2=5). LLM pilots have no surfaced action shape to specify
+  deploy depth (`DeployVessel(card_id)` only, no `depth_band` field —
+  `src/ai/depths_adapter.py:204-207`), but `Dive(vessel_id)` exists
+  (line 211). Most likely Pilot A dove via SC over T9-T13 and forgot
+  to log it in the report. Trigger code is fine; doc Pilot A's likely
+  miss-log as the explanation.
+
+- **NEW (iter 4): Snorkel Stalker damage anomaly — NO BUG.** Pilot B
+  reported 4 dmg/swing where formula "predicts 3" (max(1, 3-1) + 1
+  trigger = 2 + 1 = 3 was the claim). Wrong baseline: Snorkel Stalker
+  spawns at PERISCOPE (`silent_hunter.py:937-944`,
+  `default_depth=DepthBand.PERISCOPE`); Flagship is at PERISCOPE; depth
+  diff 0 → no penalty. Power 3 + 1 attack-while-undetected pump =
+  4 base power → 4 dmg unmodified. The math is right; the report's
+  expectation was wrong (treated SURFACE→PERISCOPE penalty as if
+  Snorkel were at SURFACE). No engine fix needed.
 
 ## Pilot iteration log
+
+- **2026-05-07 (iter 4)**: refined greedy Wolfpack (P1, LLM Pilot A,
+  bank discipline) vs HYBRID-AGGRESSIVE Silent_Hunter (P2, LLM Pilot B,
+  T1 LP + T2 Snorkel + 4-attacker chip rate from T7). **P2 WON 17 turns,
+  ME=20/25 vs P1=0/25** (Flagship sunk). Pilot A self-graded **3/10**;
+  Pilot B self-graded **9/10** ("cleanest win in 4 iters"). Iter-1→2→3→4
+  on this matchup: **L 0-1 (38) → W 21-0 (28) → W 6-0 (25) → L 0-20 (17)**.
+  The result series is wildly volatile because Pilot B's opener variance
+  swamps the bank-discipline signal. **This is the first iter with all
+  prior engine-side fixes shipped (cast_effect_fn, defense pump-blind,
+  lethal-buffer 5→3) AND with B playing competently aggressive.**
+  Key surfaced lessons:
+  - **Iter-2 + iter-3 P1 wins were partially engine-bug-driven.** Iter-2
+    benefited from B's defense being pump-blind; iter-3 benefited from
+    P1's defense ALSO being under-detection-bugged in a way B couldn't
+    fully exploit. Iter-4 with both fixes + an aggressive B → matchup
+    flipped. Mark iter-2 + iter-3 results as engine-bug-influenced; the
+    iter-4 result is the first with a clean engine layer.
+  - **The lethal-buffer fix (5→3) shipped this iter did NOT change
+    Pilot A's defense behaviour observably.** P1's flagship took 4
+    unintercepted swings T9-T13 before defending at T15 — same passive
+    pattern as iter-3 with a 5 buffer. The buffer alone doesn't fix the
+    chip-stream problem. The cumulative-recent-damage term flagged in
+    iter-3 punchlist matters more — patched this pass.
+  - **Sat Strike NEVER cast in iter-2, iter-3, OR iter-4** (3-iter
+    streak). Pilot A drew it iter-2 T6, iter-3 T7, iter-4 T8 — never
+    castable any iter because Pack Leader's {3T} + the bank turn ate the
+    TC budget every cycle. Either cut it from the deck, or auto-cast on
+    the first multi-vessel swing turn where TC ≥ 2 is available.
+  - **Wolfpack Doctrine ALSO never cast** (3-iter streak — same
+    pattern). The {3T} slot is structurally over-allocated.
+  - **Pilot A's best tactical option iter-4 was actually to abandon
+    the bank rule by T7** when B's chip pressure became visible, not
+    persist with bank discipline through T9. Codified as an exception
+    clause in the Wolfpack plan.
+  - **B's hybrid policy (open aggressive even with control pieces in
+    hand) is a fully validated Plan A** — the iter-3 "aggressive race"
+    was Plan B; iter-4 promotes it to Plan A. The deck wins faster
+    racing than grinding.
 
 - **2026-05-07 (iter 3)**: refined greedy Wolfpack (P1, LLM Pilot A,
   bank-turn + Sat-Strike-timing discipline) vs refined conservative
@@ -412,3 +494,22 @@ goes here.)
   matchup: 0-1 (L) → 21-0 (W) → 6-0 (W) — bank-then-deploy still
   wins, but the margin shrunk dramatically once the defense fix
   shipped.
+- **2026-05-07 (iter 4)**: Iter-4 entry added — **the matchup FLIPPED**.
+  P2 won 20-0 in 17 turns vs the same bank-discipline Wolfpack that
+  won iter-2 + iter-3. Result series 0-1 → 21-0 → 6-0 → 0-20 reveals
+  the bank-then-deploy lesson is **conditional on opponent passivity,
+  not unconditionally settled**. Re-classified bank-then-deploy from
+  Settled → Conditional. **New settled lesson:** aggressive
+  Silent_Hunter (T1 LP + T2 Snorkel + 4-attacker chip rate) outraces
+  bank-discipline Wolfpack. **Patched (iter-5 in punchlist terms):**
+  cumulative-recent-damage detection escalation in `_medium_detections`
+  — `DepthsAIAdapter` now tracks per-defender hull history over a
+  3-turn window and adds the recent damage to the cumulative projection
+  when ≥6 hull lost in window. Regression test
+  `test_medium_ai_detects_chip_stream` added.
+  **Bug investigations resolved (no fix needed):** Pack Leader
+  attack-trigger gate is correct (≥2 OTHER attackers required, source
+  excluded from the count); Snorkel Stalker 4-dmg observation is
+  consistent with PERISCOPE→PERISCOPE depth diff 0 + the
+  attack-while-undetected +1 pump (3+1=4, no engine bug). The
+  reporters' "predicted 3" baseline was wrong in both cases.

@@ -24,33 +24,53 @@ detection income; can punish stealth and intercept reliably.
 
 ## Win condition
 
-Grind. Out-detect and out-intercept the opposing aggro deck while
-slowly chipping with stealth attackers (Snorkel Stalker, Bottom-Crawler
-Probe, Type-XXI Phantom) from DEEP/MID where detection is expensive.
-Ground-game slow win.
+**Plan A (PROMOTED iter-4): Aggressive race.** Open Listening Post T1
+as the wall, deploy Snorkel Stalker T2 for 4-dmg/turn chip starting T3,
+add cheap stealth bodies (Periscope Recon, Stalker Sub, U-Class Stalker)
+to set up 3-4 attacker swings by T7-T9. Hold control pieces (Iron
+Discipline, Sonar Jammer) as insurance — they often go uncast in the
+race line and that's fine. Target lethal T15-T18. Iter-4 evidence:
+Pilot B (P2) won 20-0 in 17 turns vs bank-discipline Wolfpack with this
+exact line.
 
-Realistic target: **lethal T20-T30** — this is genuinely a slow deck.
-Pilot B's win at T38 is on-pattern, not anomalously slow. The deck is
-allowed to cede early hull damage as long as it lands surgical
-interceptions starting T13+.
+**Plan B (DEMOTED iter-4): Grind.** Out-detect and out-intercept while
+slowly chipping with stealth attackers from DEEP/MID. Realistic target
+lethal T20-T35. Pilot B iter-1 won this way (T38). Use this plan only
+when (a) the opener lacks Snorkel Stalker AND a cheap stealth body,
+OR (b) the opp is a combo deck that out-grinds (Deep Strike).
 
-## Target turns
+## Target turns (Plan A — aggressive race, iter-4 promoted)
+
+- **T1**: Listening Post deploy. Sets the wall the opp must answer.
+- **T2**: Snorkel Stalker deploy at PERISCOPE. Auto-keeper enabler.
+- **T3**: Snorkel Stalker swings undetected → 4 dmg to Flagship
+  (3 power + 1 attack-undetected pump, no depth penalty since both at
+  PERISCOPE). 25 → 21.
+- **T4-T6**: Add Periscope Recon + Stalker Sub. Continue Snorkel chip
+  for 4 dmg/turn. Bottom-Crawler Probe to DEEP if you have the SC for
+  the dive (rarely; usually skip). Flagship 21 → 13 by T6.
+- **T7-T9**: 3-attacker swing. Snorkel + Periscope + Probe all
+  unintercepted (target's heuristic defense at this hull level may
+  finally engage post-iter-5 cumulative-damage patch — see strategy
+  doc). 6 dmg if uncontested. Flagship 13 → 7.
+- **T11-T13**: 4-attacker swing. Add U-Class Stalker. Force opp into
+  pure defense; Sat Strike / Pack Leader-anthem alpha never lands.
+  Flagship 7 → 0 by T13-T17.
+- **T15-T17**: Closing alpha. Trade attackers if needed; the opp's
+  remaining hull is usually 0-3 by here.
+
+## Target turns (Plan B — grind, iter-1 fallback)
 
 - **T1-T7**: Build board. Deploy Listening Post for the 0/3 wall.
   Periscope Recon for the cheap stealth body. **Bank Sonar income** —
   do not spend SC on speculative detections.
-- **T8-T13**: Detection economy comes online. By now the opponent has
-  3-5 attackers on board and is starting saturation swings. Spend
-  banked SC surgically — detect the highest-power attackers first,
-  let chip damage from 1-power Subs through. Stalker Sub interceptors
-  trade up.
+- **T8-T13**: Detection economy comes online. Spend banked SC
+  surgically — detect the highest-power attackers first, let chip
+  damage from 1-power Subs through.
 - **T13-T20**: Snorkel Stalker comes down for the +1 power EOT
   attacking-undetected line. Type-XXI Phantom deploys to MID/DEEP for
-  hard-to-detect chip damage on the opponent's Flagship.
-- **T20-T35**: Grind. The opponent's deck either cracks (top-heavy
-  aggro that can't reach its anthems) or stabilises and wins on
-  finishers. If your deck reaches T25 with the opponent below 10 hull
-  and you above 5, you win.
+  hard-to-detect chip damage.
+- **T20-T35**: Grind. The opponent's deck either cracks or stabilises.
 
 ## Key cards
 
@@ -165,6 +185,37 @@ interceptions starting T13+.
   finisher count.
 
 ## Iteration log
+
+- **2026-05-07 (iter-4)**: vs Wolfpack (LLM Pilot A, refined greedy
+  + bank discipline). **W in 17 turns**, ME=20/25 vs OPP=0/25 (Flagship
+  sunk). Pilot B self-graded **9/10**, "cleanest decisive win in 4
+  iters". Iter-1→2→3→4 result: W 1-0 (38) → L 0-21 (28) → L 0-6 (25)
+  → **W 20-0 (17)** — first decisive Silent_Hunter win since iter-1.
+  Key new findings:
+  - **Hybrid policy "open aggressive even with control pieces"
+    confirmed correct.** Drew BOTH LP + Iron Discipline + Snorkel —
+    used LP only, never cast Iron Discipline (no DEEP vessel to
+    anchor it). Aggressive Snorkel deploy T2 → 4 dmg/turn chip from
+    T3 → P1 flagship at 4 hull by T13. **Promoted aggressive race
+    from Plan B → Plan A** in this plan above.
+  - **Snorkel Stalker damage 4/swing investigated — NO BUG.** Pilot
+    B reported the 4-dmg observation. Engine math: PERISCOPE
+    (default_depth) → PERISCOPE (Flagship) = depth diff 0 → no
+    penalty. Power 3 + 1 attack-undetected pump = 4. Reporter's
+    expectation of 3 was wrong (assumed SURFACE→PERISCOPE penalty).
+    Logged in strategy doc Engine punchlist as resolved.
+  - **Pilot A's defense ate 4 unintercepted swings T9-T13** despite
+    iter-4 lethal-buffer fix (5→3). Same pattern as iter-3. The
+    cumulative-recent-damage patch shipped THIS pass (see strategy
+    doc Engine punchlist) should fix this in iter-5.
+  - **Listening Post deployed T1 was decisive** — soaked Pilot A's
+    2-power Wolf-cubs harmlessly (LP wasn't even attacked the whole
+    game). Reaffirms LP as the format-defining 0-power chump
+    interceptor.
+  - **Mulligan policy**: dream opener (LP + Iron Discipline + Snorkel
+    + Jammer + Wolf at the Door) is auto-keep but uses only LP +
+    Snorkel; the rest are insurance. Refined mulligan rule above
+    notes this opener is auto-keep regardless of Iron Discipline.
 
 - **2026-05-07 (iter-3)**: vs Wolfpack (LLM Pilot A, refined greedy
   + Sat-Strike-timing discipline). **L in 26 turns**, ME=0/25 vs

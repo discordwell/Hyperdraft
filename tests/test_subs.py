@@ -305,6 +305,132 @@ def test_medium_ai_defense_sees_pumped_power():
         f"_power(obj) without state must return printed-only; got {_power(attacker)}.")
 
 
+def test_medium_ai_detects_chip_stream():
+    """Iter-5 regression: chip-damage stream escalates the lethal buffer.
+
+    Pre-fix, the medium AI's _medium_detections only spent SC when a single
+    swing's projection crossed ``hull - lethal_buffer``. So a 4-damage-per-turn
+    chip stream stayed below the projection and was never intercepted, even
+    while the defender's flagship dropped from 25 → 6 over five turns
+    (Pilot B iter-3 + iter-4 evidence).
+
+    This test wires up a Medium-difficulty adapter, simulates three turns of
+    4-damage chip taken (by mutating the flagship hull and calling
+    ``_medium_detections`` on each turn), and asserts the third call escalates
+    detection because the cumulative damage is now above
+    ``MEDIUM_RECENT_DAMAGE_TRIGGER``.
+    """
+    from src.engine.types import GameObject, GameState, ObjectState, Characteristics, CardType, ZoneType, Player
+    from src.engine.depths import DepthBand
+    from src.ai.depths_adapter import (
+        DepthsAIAdapter,
+        AttackerSpec,
+        MEDIUM_RECENT_DAMAGE_TRIGGER,
+    )
+
+    adapter = DepthsAIAdapter(difficulty="medium")
+
+    # Build a state with a flagship and a single 2-power attacker (chip).
+    state = GameState()
+    state.interceptors = {}
+
+    # Two players so flagship lookup works.
+    state.players = {
+        "A": Player(id="A", name="A"),
+        "B": Player(id="B", name="B"),
+    }
+    # Defender (B) has SC budget; attacker (A) has none.
+    state.players["B"].sc = 4
+    state.players["B"].tc = 0
+    state.players["A"].sc = 0
+    state.players["A"].tc = 0
+
+    flagship = GameObject(
+        id="fs_B",
+        name="Test Flagship",
+        owner="B",
+        controller="B",
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.DEPTHS_VESSEL},
+            subtypes={"Submarine", "Flagship"},
+            power=0,
+            toughness=25,
+        ),
+        state=ObjectState(),
+    )
+    flagship.state.depth_band = DepthBand.PERISCOPE
+    flagship.state.pt_modifiers = []
+    flagship.state.damage = 0
+
+    attacker = GameObject(
+        id="att_1",
+        name="Test Sub",
+        owner="A",
+        controller="A",
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.DEPTHS_VESSEL},
+            subtypes={"Submarine"},
+            power=3,
+            toughness=2,
+        ),
+        state=ObjectState(),
+    )
+    attacker.state.depth_band = DepthBand.PERISCOPE  # no penalty against flagship
+    attacker.state.pt_modifiers = []
+
+    state.objects = {flagship.id: flagship, attacker.id: attacker}
+
+    # Build a battlefield zone so any battlefield-based queries succeed.
+    from src.engine.types import Zone
+    bf = Zone(type=ZoneType.BATTLEFIELD, owner=None)
+    bf.objects = [flagship.id, attacker.id]
+    state.zones = {"battlefield": bf}
+
+    spec = AttackerSpec(
+        vessel_id=attacker.id,
+        target_id=flagship.id,
+        firing_depth_band=DepthBand.PERISCOPE,
+    )
+
+    # Mid-game scenario (mirrors Pilot B iter-3 T14/T18/T22 chip stream).
+    # Turn 14: hull 16 (already took 9 chip in untracked turns). 3-dmg single
+    # swing leaves hull 13. Threshold = 16 - 3 = 13; danger 3 < threshold —
+    # without escalation, AI declines detection.
+    state.turn_number = 14
+    flagship.state.damage = 9  # effective hull 16
+    plan_t14 = adapter._medium_detections(state, "B", [spec])
+    assert plan_t14 == {}, (
+        f"T14 (first sample) should not yet escalate — history just started; "
+        f"got {plan_t14}"
+    )
+
+    # Turn 15: hull 13 (took another 3). Recent damage in window = 3 (16→13).
+    # Below trigger (6), so still no escalation.
+    state.turn_number = 15
+    flagship.state.damage = 12
+    plan_t15 = adapter._medium_detections(state, "B", [spec])
+    assert plan_t15 == {}, (
+        f"T15 should not escalate — only 3 hull lost in window; got {plan_t15}"
+    )
+
+    # Turn 16: hull 10 (took yet another 3). Recent damage = 6 (16→10) trips
+    # MEDIUM_RECENT_DAMAGE_TRIGGER. cumulative_unintercepted = 3 (this swing)
+    # + 6 (chip stream forward projection) = 9. Threshold = 10 - 3 = 7.
+    # 9 > 7 → AI escalates detection.
+    state.turn_number = 16
+    flagship.state.damage = 15
+    plan_t16 = adapter._medium_detections(state, "B", [spec])
+    assert plan_t16, (
+        f"T16 should escalate detection — cumulative damage in window is "
+        f">= {MEDIUM_RECENT_DAMAGE_TRIGGER} and SC budget is 4. Got empty plan."
+    )
+    assert attacker.id in plan_t16, (
+        f"T16 escalation should target the chip attacker; plan={plan_t16}"
+    )
+
+
 if __name__ == "__main__":
     test_every_card_loads()
     test_deck_wolfpack_builds()
@@ -315,4 +441,5 @@ if __name__ == "__main__":
     test_deploy_refuses_when_cant_pay()
     test_cast_effect_fn_actually_runs()
     test_medium_ai_defense_sees_pumped_power()
+    test_medium_ai_detects_chip_stream()
     print("OK — SUBS smoke tests pass.")
