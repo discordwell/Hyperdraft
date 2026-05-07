@@ -111,3 +111,5 @@ assets/card_art/beyond/ravnica/composed/
 
 # YGOProDeck reference library (Konami-owned; regeneratable via scripts/beyond_kamigawa/fetch_ygo_refs.py)
 assets/card_art/beyond/kamigawa/refs/
+artifacts/
+
