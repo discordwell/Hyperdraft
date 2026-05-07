@@ -236,6 +236,8 @@ async def play_one_minecraft_game(
     p1_label: str = "P1",
     p2_label: str = "P2",
     difficulty: str = "medium",
+    bias_p1: Any = None,
+    bias_p2: Any = None,
     max_turns: int = 25,
     per_turn_timeout_s: float = 3.0,
     wall_deadline_s: float = 30.0,
@@ -258,8 +260,21 @@ async def play_one_minecraft_game(
         game.set_ai_player(p1.id)
         game.set_ai_player(p2.id)
 
-        ai_adapter = MinecraftAIAdapter(difficulty=difficulty)
-        game.turn_manager.set_ai_handler(ai_adapter)
+        # Per-seat AI biases — variant-tournament builds dispatch this
+        # so each player can run a different strategy.
+        ai_p1 = MinecraftAIAdapter(difficulty=difficulty, bias=bias_p1)
+        ai_p2 = MinecraftAIAdapter(difficulty=difficulty, bias=bias_p2)
+        if bias_p1 == bias_p2 or (bias_p1 is None and bias_p2 is None):
+            game.turn_manager.set_ai_handler(ai_p1)
+        else:
+            ai_by_player = {p1.id: ai_p1, p2.id: ai_p2}
+
+            class _DispatchAdapter:
+                async def take_turn(self, player_id, state, game_):
+                    adapter = ai_by_player.get(player_id) or ai_p1
+                    return await adapter.take_turn(player_id, state, game_)
+
+            game.turn_manager.set_ai_handler(_DispatchAdapter())
 
         if pre_start_hook is not None:
             pre_start_hook(game, p1.id, p2.id)

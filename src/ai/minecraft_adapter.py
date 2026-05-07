@@ -34,9 +34,143 @@ def _best_attack_column(state: GameState, defender_id: str, attacker_keywords: s
     return best_col
 
 
+# Bias presets for variant-tournament search. Each preset overrides
+# scoring weights or selection behavior in `_choose_card_to_play` /
+# `_best_biome_to_mine`. The default ("balanced") preset matches the
+# meta-aware tuning shipped in `ac9e702`.
+#
+# Use case: "I don't know what wins yet — let me run a variant
+# tournament to find out." Pass `bias=PRESET` (one of the keys below) at
+# adapter construction time, or build your own dict.
+MC_BIAS_PRESETS: dict[str, dict] = {
+    "balanced": {
+        # Workers: deploy ASAP for compounding economy.
+        "worker_bonus_under_3": 25,
+        "worker_bonus_first": 15,
+        # Turn-bonus structures: ramp engines.
+        "turnbonus_struct_bonus": 18,
+        # Ramp actions.
+        "explore_map_bonus": 45,
+        "strip_mine_bonus": 28,
+        "find_diamonds_bonus": 22,
+        "chop_trees_bonus": 20,
+        "untap_worker_bonus": 15,
+        "nether_expedition_bonus": 18,
+        "tutor_bonus": 25,
+        "draw_bonus": 12,
+        # Mobs: penalize biggest early, reward big late.
+        "early_big_mob_penalty": 10,
+        "late_big_mob_bonus": 10,
+        # Selection mode: "weighted" (score-based) or "random" / "largest".
+        "selection_mode": "weighted",
+        # Mining preference: prefer wood when wood-cost cards pending.
+        "mine_wood_first_when_pending": True,
+    },
+    "aggro": {
+        # Aggro = always pick highest-power mob, ignore ramp.
+        "worker_bonus_under_3": 0,
+        "worker_bonus_first": 0,
+        "turnbonus_struct_bonus": 0,
+        "explore_map_bonus": 0,
+        "strip_mine_bonus": 0,
+        "find_diamonds_bonus": 0,
+        "chop_trees_bonus": 0,
+        "untap_worker_bonus": 0,
+        "nether_expedition_bonus": 0,
+        "tutor_bonus": 0,
+        "draw_bonus": 0,
+        "early_big_mob_penalty": 0,
+        "late_big_mob_bonus": 30,
+        "selection_mode": "weighted",
+        "mine_wood_first_when_pending": False,
+    },
+    "ramp": {
+        # All-in on ramp + econ structures, deprioritize mobs early.
+        "worker_bonus_under_3": 35,
+        "worker_bonus_first": 25,
+        "turnbonus_struct_bonus": 35,
+        "explore_map_bonus": 60,
+        "strip_mine_bonus": 40,
+        "find_diamonds_bonus": 30,
+        "chop_trees_bonus": 25,
+        "untap_worker_bonus": 20,
+        "nether_expedition_bonus": 30,
+        "tutor_bonus": 25,
+        "draw_bonus": 15,
+        "early_big_mob_penalty": 25,
+        "late_big_mob_bonus": 15,
+        "selection_mode": "weighted",
+        "mine_wood_first_when_pending": True,
+    },
+    "explore": {
+        # Pure exploration focus — biome upgrades over everything else.
+        "worker_bonus_under_3": 10,
+        "worker_bonus_first": 10,
+        "turnbonus_struct_bonus": 10,
+        "explore_map_bonus": 80,
+        "strip_mine_bonus": 10,
+        "find_diamonds_bonus": 10,
+        "chop_trees_bonus": 30,  # need wood to Explore
+        "untap_worker_bonus": 5,
+        "nether_expedition_bonus": 10,
+        "tutor_bonus": 10,
+        "draw_bonus": 5,
+        "early_big_mob_penalty": 15,
+        "late_big_mob_bonus": 5,
+        "selection_mode": "weighted",
+        "mine_wood_first_when_pending": True,
+    },
+    "workers": {
+        # All-in on Worker tribal — flood the board with miners.
+        "worker_bonus_under_3": 60,
+        "worker_bonus_first": 30,
+        "turnbonus_struct_bonus": 5,
+        "explore_map_bonus": 15,
+        "strip_mine_bonus": 15,
+        "find_diamonds_bonus": 10,
+        "chop_trees_bonus": 25,
+        "untap_worker_bonus": 30,
+        "nether_expedition_bonus": 10,
+        "tutor_bonus": 10,
+        "draw_bonus": 8,
+        "early_big_mob_penalty": 20,
+        "late_big_mob_bonus": 5,
+        "selection_mode": "weighted",
+        "mine_wood_first_when_pending": True,
+    },
+    "random": {
+        # Pure random pick from legal hand cards. Useful as a baseline
+        # — anything that doesn't beat random in a head-to-head series
+        # is barely a strategy.
+        "selection_mode": "random",
+    },
+    "largest": {
+        # Always pick the highest-cost affordable card. The "naive
+        # greedy" baseline — beats random in some formats, loses to
+        # any actual strategy.
+        "selection_mode": "largest",
+    },
+}
+
+
 class MinecraftAIAdapter:
-    def __init__(self, difficulty: str = "medium"):
+    def __init__(self, difficulty: str = "medium", bias: dict | str | None = None):
+        """
+        bias: either a preset name (key in MC_BIAS_PRESETS) or a dict
+              that overrides individual weights. Defaults to "balanced".
+        """
         self.difficulty = difficulty
+        if bias is None:
+            bias = "balanced"
+        if isinstance(bias, str):
+            preset = MC_BIAS_PRESETS.get(bias)
+            if preset is None:
+                raise ValueError(f"Unknown MC bias preset: {bias!r}")
+            bias_dict = dict(preset)
+        else:
+            bias_dict = dict(MC_BIAS_PRESETS["balanced"])
+            bias_dict.update(bias)
+        self.bias = bias_dict
 
     async def take_turn(self, player_id: str, state: GameState, game) -> list:
         events = []
@@ -203,8 +337,10 @@ class MinecraftAIAdapter:
                     wants_wood = True
                     break
 
-        # If we need wood and don't have any, prefer the wood biome.
-        if wants_wood and my_wood < 2:
+        # If we need wood and don't have any, prefer the wood biome —
+        # gated on the bias preset so aggro / largest variants ignore
+        # the meta and just mine for raw value.
+        if wants_wood and my_wood < 2 and self.bias.get("mine_wood_first_when_pending", True):
             for i, biome in enumerate(biomes):
                 if biome.get("mined"):
                     continue
@@ -221,19 +357,42 @@ class MinecraftAIAdapter:
 
     def _choose_card_to_play(self, state: GameState, player_id: str) -> Optional[str]:
         """
-        Phase-aware card scoring that follows the MC meta:
-          1. Explore biomes (1 wood -> permanent +1 yield)
-          2. Deploy Workers ASAP (compounding economy)
-          3. Upgrade material generation (turn-bonus structures)
-          4. Then deploy big mobs / tempo plays
-
-        Scoring is baseline + per-card meta bumps. Action cards used to
-        score 8 (worst) which made the AI ignore Strip Mine, Explore Map,
-        Find Diamonds — the entire ramp toolkit.
+        Phase-aware card scoring driven by self.bias presets.
         """
         hand = state.zones.get(f"hand_{player_id}")
         if not hand:
             return None
+
+        bias = self.bias
+        mode = bias.get("selection_mode", "weighted")
+
+        # Build the affordable-card pool (used by all selection modes).
+        affordable: list[tuple[str, GameObject]] = []
+        for oid in hand.objects:
+            obj = state.objects.get(oid)
+            if not obj or not obj.card_def:
+                continue
+            cost = mc._discounted_cost(state, player_id, obj)
+            if mc.can_pay(state, player_id, cost):
+                affordable.append((oid, obj))
+        if not affordable:
+            return None
+
+        if mode == "random":
+            import random as _random
+            return _random.choice(affordable)[0]
+
+        if mode == "largest":
+            # Pick the highest-cost-total affordable card. Tiebreak on
+            # mob power+toughness so 5-cost mobs beat 5-cost actions.
+            def _key(item):
+                _oid, o = item
+                cost = mc._discounted_cost(state, player_id, o)
+                cost_total = sum(int(v or 0) for v in (cost or {}).values())
+                pt = (o.characteristics.power or 0) + (o.characteristics.toughness or 0)
+                return (cost_total, pt)
+            affordable.sort(key=_key, reverse=True)
+            return affordable[0][0]
 
         # Read game state needed for phase-aware scoring.
         turn_number = int(getattr(state, "turn_number", 0) or 0)
@@ -260,92 +419,58 @@ class MinecraftAIAdapter:
 
         candidates = []
         has_bed = mc.has_bed(state, player_id)
-        for oid in hand.objects:
-            obj = state.objects.get(oid)
-            if not obj or not obj.card_def:
-                continue
-            cost = mc._discounted_cost(state, player_id, obj)
-            if not mc.can_pay(state, player_id, cost):
-                continue
-
+        for oid, obj in affordable:
             score = 0
             name = obj.name
             types = obj.characteristics.types or set()
             subtypes = obj.characteristics.subtypes or set()
+            cost = mc._discounted_cost(state, player_id, obj)
             cost_total = sum(int(v or 0) for v in (cost or {}).values())
 
-            # Bed first — fundamental respawn lifeline.
             if "Bed" in subtypes and not has_bed:
                 score += 100
 
-            # Workers — deploy ASAP. Diminishing returns past 3.
             if CardType.MC_MOB in types and "Worker" in subtypes:
-                # Base mob value
                 score += 20 + (obj.characteristics.power or 0) + (obj.characteristics.toughness or 0)
-                # Worker meta bonus
                 if my_workers_count < 3:
-                    score += 25
+                    score += int(bias.get("worker_bonus_under_3", 0))
                 if my_workers_count < 1:
-                    score += 15  # extra-urgent for the first one
-
-            # Non-Worker Mob
+                    score += int(bias.get("worker_bonus_first", 0))
             elif CardType.MC_MOB in types:
                 score += 20 + (obj.characteristics.power or 0) + (obj.characteristics.toughness or 0)
-                # Penalize the *biggest* mobs early — we should be ramping,
-                # not slamming. Threshold raised to 5 so 3-mana mid mobs
-                # (Iron Golem, Ravager, Blaze) aren't suppressed.
                 if turn_number <= 2 and cost_total >= 5:
-                    score -= 10
-                # Bonus for big mobs late (we're ready to close).
+                    score -= int(bias.get("early_big_mob_penalty", 0))
                 if turn_number >= 6 and cost_total >= 4:
-                    score += 10
+                    score += int(bias.get("late_big_mob_bonus", 0))
 
-            # Structures: turn-bonus = ramp engine, prioritize early.
             if CardType.MC_STRUCTURE in types or CardType.MC_BLOCK in types:
-                if "Bed" in subtypes:
-                    pass  # handled above
-                else:
+                if "Bed" not in subtypes:
                     score += 12 + (obj.characteristics.toughness or 0)
                     turn_bonus = getattr(obj.card_def, "mc_turn_bonus", None) or {}
                     if turn_bonus and my_turnbonus_structures < 3:
-                        score += 18  # ramp structure — high priority
+                        score += int(bias.get("turnbonus_struct_bonus", 0))
 
             if CardType.MC_TOOL in types:
                 score += 15 + int(getattr(obj.card_def, "mc_attack", 0) or 0)
 
-            # Actions — used to be flat 8. Now meta-aware.
             if CardType.MC_ACTION in types:
                 score += 8
-                # Explore Map: 1 wood for permanent biome upgrade. Best card
-                # in the format if any biome can still be upgraded.
                 if name == "Explore Map" and any_biome_upgradable:
-                    score += 45
-                # Strip Mine: only cheap entry to redstone.
-                if name == "Strip Mine":
-                    if int(my_materials.get("redstone", 0) or 0) < 2:
-                        score += 28
-                # Find Diamonds: only entry to diamond.
-                if name == "Find Diamonds":
-                    if int(my_materials.get("diamond", 0) or 0) < 2:
-                        score += 22
-                # Chop Trees: free wood, always good early.
-                if name == "Chop Trees":
-                    if turn_number <= 4 or int(my_materials.get("wood", 0) or 0) < 2:
-                        score += 20
-                # Bone Meal / Redstone Contraption: untap workers, only
-                # valuable if we actually have tapped workers.
-                if name in ("Bone Meal", "Redstone Contraption"):
-                    if my_workers_count > 0:
-                        score += 15
-                # Nether Expedition: ramp + draw.
+                    score += int(bias.get("explore_map_bonus", 0))
+                if name == "Strip Mine" and int(my_materials.get("redstone", 0) or 0) < 2:
+                    score += int(bias.get("strip_mine_bonus", 0))
+                if name == "Find Diamonds" and int(my_materials.get("diamond", 0) or 0) < 2:
+                    score += int(bias.get("find_diamonds_bonus", 0))
+                if name == "Chop Trees" and (turn_number <= 4 or int(my_materials.get("wood", 0) or 0) < 2):
+                    score += int(bias.get("chop_trees_bonus", 0))
+                if name in ("Bone Meal", "Redstone Contraption") and my_workers_count > 0:
+                    score += int(bias.get("untap_worker_bonus", 0))
                 if name == "Nether Expedition":
-                    score += 18
-                # Eyes of Ender: tutor.
+                    score += int(bias.get("nether_expedition_bonus", 0))
                 if name == "Eyes of Ender":
-                    score += 25
-                # Villager Trade: card draw.
+                    score += int(bias.get("tutor_bonus", 0))
                 if name == "Villager Trade":
-                    score += 12
+                    score += int(bias.get("draw_bonus", 0))
 
             candidates.append((score, oid))
 

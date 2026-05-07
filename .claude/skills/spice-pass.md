@@ -653,3 +653,94 @@ testing build-around cards; it's testing whether the build-around
 
 If the AI plays the meta poorly, the capability test measures AI
 weakness instead of card weakness. Fix the AI first.
+
+### Discovering the meta when you don't know it yet
+
+The MC story above had a luxury: the user *told* us the meta
+("explore biomes, deploy workers, upgrade generation"). For a brand
+new engine you've just built, nobody knows the meta yet — the whole
+point of playtesting is to find out. The chicken-and-egg problem:
+you can't audit the AI for meta-awareness if you don't know the
+meta. And you can't run capability tests on a non-meta-aware AI.
+
+The fix: a **variant tournament** that finds the meta by self-play.
+Defined a small set of named "biases" (each is a parameter preset
+for the engine's AI), run them in a round-robin, see which bias
+wins. The winning bias *is* the format's tentative meta.
+
+Harness lives at `scripts/play/variant_tournament.py`. It dispatches
+across engines (MTG and MC at v1; new engines plug into the
+`ENGINES` registry). Default MC variants: `balanced`, `aggro`,
+`ramp`, `explore`, `workers`, `random`, `largest`. The `random` and
+`largest` variants are deliberate baselines — anything that doesn't
+beat them in head-to-head isn't a real strategy.
+
+Real example output (MC, 7 variants × 3 starter decks × 2 games per
+pair = 126 games):
+
+```
+              balanced  aggro    ramp  explore workers  random largest
+balanced            --   0.17    0.33    0.50    0.17    0.50    0.00
+aggro             0.50    --     0.17    0.17    0.17    0.17    0.17
+ramp              0.33   0.33     --     0.17    0.50    0.33    0.00
+explore           0.17   0.33    0.33     --     0.00    0.17    0.00
+workers           0.50   0.50    0.33    0.33     --     0.50    0.33
+random            0.33   0.50    0.33    0.67    0.17     --     0.33
+largest           0.33   0.17    0.17    0.33    0.17    0.17     --
+
+OVERALL RANKING
+1. workers       41.7%
+2. random        38.9%
+3. balanced      27.8%  ramp 27.8%
+5. aggro         22.2%  largest 22.2%
+7. explore       16.7%
+```
+
+The harness identified `workers` (deploy Workers ASAP) as the meta —
+exactly matching the human-described meta from the prior section.
+That's the win condition for this approach: the harness rediscovered
+without prior the strategy a human would have hand-tuned.
+
+**Recommended workflow for porting to a new engine:**
+
+1. **Build a parametrized AI** — score-based with named bias presets.
+   For each design axis you suspect matters (aggression, ramp, draw,
+   tribal, etc.), define a preset that turns that axis up.
+2. **Always include `random` and `largest` as baselines.** If your
+   "real" strategies don't beat random by ≥5%, your variant set
+   isn't expressing meaningful differences yet — go define more
+   axes.
+3. **Run a small variant tournament** (`--games 2-4`, all default
+   decks). Total game count ≈ C(V,2) × D × 2N = manageable.
+4. **Read the discovered meta.** The winning variant tells you the
+   AI tuning + capability-deck tuning to lean into.
+5. **Tune the default AI** (the "balanced" preset) toward the
+   winner's bias. Re-run the tournament to confirm balanced still
+   wins or ties top variants.
+6. **Now run capability tests.** Build-around scores measured against
+   a meta-tuned AI are the real signal.
+
+This puts the variant tournament BEFORE capability tests in the
+spice-pass workflow for new engines. For engines where the meta is
+known and the AI already plays it well (MTG today), skip step 1-5
+and go straight to capability tests.
+
+### "Do more of what worked"
+
+Once a variant wins, the natural next step is to push that bias
+further. Two ways to amplify:
+
+- **Code:** crank the winning preset's bonuses up another 50-100%
+  and re-run the tournament. If it still wins, the format genuinely
+  rewards that strategy. If it now loses to a sibling preset, the
+  optimum is between them.
+- **Cards:** design new cards that explicitly reward the winning
+  plan. If `workers` won in MC, design new cards that scale with
+  Worker count (Iron Golem's redesign already did this — its
+  capability score went from 0 to 0.44). Cards that win the meta
+  are the format-defining cards you're after.
+
+The tournament is also the natural place to drop in a *new* spice
+candidate: include it in a deck that pairs with the winning variant,
+see if its inclusion shifts win-rates by ≥5%. If it does, the card
+is contributing real strategic weight.
