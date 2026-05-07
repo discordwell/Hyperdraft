@@ -69,12 +69,20 @@ async def _mc_run_one(
     p1_variant: str, p2_variant: str,
     p1_label: str, p2_label: str,
     max_turns: int,
+    custom_presets: Optional[dict[str, dict]] = None,
 ) -> GameOutcome:
+    """Custom presets override built-in MC_BIAS_PRESETS by name. The
+    bias is passed as a dict (not a string) so MinecraftAIAdapter
+    skips the registry lookup. Built-in names fall through as strings
+    and resolve via the adapter's normal preset lookup."""
     from scripts.play.minecraft_capability_test import play_one_minecraft_game
+    custom_presets = custom_presets or {}
+    bias_p1 = custom_presets.get(p1_variant, p1_variant)
+    bias_p2 = custom_presets.get(p2_variant, p2_variant)
     start = time.perf_counter()
     r = await play_one_minecraft_game(
         deck1, deck2, p1_label=p1_variant, p2_label=p2_variant,
-        bias_p1=p1_variant, bias_p2=p2_variant,
+        bias_p1=bias_p1, bias_p2=bias_p2,
         max_turns=max_turns,
     )
     return GameOutcome(
@@ -166,6 +174,7 @@ async def run_variant_tournament(
     games_per_pair_per_deck: int = 4,
     max_turns: Optional[int] = None,
     verbose: bool = True,
+    custom_presets: Optional[dict[str, dict]] = None,
 ) -> list[GameOutcome]:
     """
     Round-robin: every variant pair plays N games on every deck pair
@@ -207,11 +216,18 @@ async def run_variant_tournament(
 
     started = time.perf_counter()
     outcomes: list[GameOutcome] = []
+    # Only the MC runner takes custom_presets — pass it when supported.
+    import inspect
+    accepts_presets = "custom_presets" in inspect.signature(run_one).parameters
     for i, (v1, v2, d1_label, d2_label) in enumerate(pairings):
         deck1 = deck_pool[d1_label]
         deck2 = deck_pool[d2_label]
         try:
-            outcome = await run_one(deck1, deck2, v1, v2, d1_label, d2_label, max_turns)
+            if accepts_presets:
+                outcome = await run_one(deck1, deck2, v1, v2, d1_label, d2_label, max_turns,
+                                        custom_presets=custom_presets)
+            else:
+                outcome = await run_one(deck1, deck2, v1, v2, d1_label, d2_label, max_turns)
         except Exception as exc:
             outcome = GameOutcome(
                 p1_variant=v1, p2_variant=v2,
@@ -379,20 +395,49 @@ def _cli() -> None:
                         help="Games per variant pair per deck (default 4).")
     parser.add_argument("--max-turns", type=int, default=None)
     parser.add_argument("--out", type=str, default=None)
+    parser.add_argument("--variants-file", type=str, default=None,
+                        help="JSON file with extra named variants. Shape: "
+                             "{'variants': {'name': {'preset': {...}, 'rationale': '...'}}}")
     args = parser.parse_args()
 
     cfg = ENGINES[args.engine]
-    variants = (args.variants.split(",") if args.variants
-                else list(cfg["default_variants"]))
     deck_names = (args.decks.split(",") if args.decks
                   else list(cfg["default_decks"]))
 
+    # Load custom presets from a JSON file (e.g. brainstormed by a subagent).
+    custom_presets: dict[str, dict] = {}
+    custom_rationales: dict[str, str] = {}
+    if args.variants_file:
+        with open(args.variants_file) as fh:
+            payload = json.load(fh)
+        for name, spec in (payload.get("variants") or {}).items():
+            preset = spec.get("preset") if isinstance(spec, dict) else None
+            if not isinstance(preset, dict):
+                raise ValueError(f"Variant {name!r} in {args.variants_file} missing 'preset' dict")
+            custom_presets[name] = preset
+            custom_rationales[name] = spec.get("rationale", "")
+
+    if args.variants:
+        variants = args.variants.split(",")
+    elif custom_presets:
+        # Default: include all loaded custom variants + key benchmarks.
+        variants = list(custom_presets.keys()) + ["balanced", "passive_econ", "random", "fully_random"]
+    else:
+        variants = list(cfg["default_variants"])
+
     deck_pool = cfg["deck_resolver"](deck_names)
+
+    if custom_presets:
+        print("\n=== Custom variants loaded ===", flush=True)
+        for name in custom_presets:
+            print(f"  {name}: {custom_rationales.get(name, '<no rationale>')}",
+                  flush=True)
 
     outcomes = asyncio.run(run_variant_tournament(
         args.engine, deck_pool, variants,
         games_per_pair_per_deck=args.games,
         max_turns=args.max_turns,
+        custom_presets=custom_presets or None,
     ))
 
     aggregated = aggregate(outcomes, variants)
