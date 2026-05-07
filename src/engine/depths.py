@@ -823,6 +823,24 @@ def cast_spell(
     )
     events = list(game.emit(cast_event) or [])
 
+    # Bugfix 2026-05-07: invoke the card's cast_effect_fn body. Previously
+    # SPELL_CAST emitted but the card's actual effect was a silent no-op for
+    # all ~25 SUBS Action cards (Saturation Strike, Drone Swarm, Volley...).
+    # Surfaced by ultra-loop iter-1 Pilot A confirming Saturation Strike's
+    # +2 power buff never reached the DAMAGE event.
+    cast_effect_fn = getattr(obj.card_def, "cast_effect_fn", None) if obj.card_def else None
+    if callable(cast_effect_fn):
+        try:
+            produced = cast_effect_fn(obj, state)
+        except TypeError:
+            # Some effect_fns expect (game, player_id, source, targets) — try that.
+            try:
+                produced = cast_effect_fn(game, player_id, obj, list(targets or []))
+            except Exception:
+                produced = []
+        for ev in produced or []:
+            events.extend(list(game.emit(ev) or []) or [ev])
+
     if CardType.ENCHANTMENT in types:
         events.extend(_move_object_zone(game, obj, ZoneType.BATTLEFIELD, source=obj.id))
     else:

@@ -92,6 +92,83 @@ def test_card_costs_propagate_to_characteristics():
     assert not mismatched, f"Cost mismatches: {mismatched[:5]}"
 
 
+def test_cast_effect_fn_actually_runs():
+    """Regression: cast_spell must invoke card.cast_effect_fn after SPELL_CAST.
+
+    Pre-fix, ~25 SUBS Action cards had silent-no-op effects because cast_spell
+    emitted SPELL_CAST + routed the card to the graveyard but never called
+    cast_effect_fn. Surfaced by ultra-loop iter-1 Pilot A: Saturation Strike's
+    +2 power buff never reached the DAMAGE event in 38 turns of play.
+    """
+    import asyncio
+    from src.engine.game import Game
+    from src.engine.types import EventType, ZoneType, CardType
+    from src.engine.depths import cast_spell, deploy_vessel
+    from src.engine.depths_turn import DepthsTurnManager
+    from src.cards.depths.submarine_fleet.decks import (
+        SUBS_STARTER_DECKS, make_subs_flagship,
+    )
+
+    async def _run():
+        g = Game(mode="depths")
+        p1 = g.add_player("A"); p2 = g.add_player("B")
+        tm = DepthsTurnManager(g.state); g.turn_manager = tm
+        await tm.setup_game(
+            g, SUBS_STARTER_DECKS["SUBS_wolfpack"](),
+            SUBS_STARTER_DECKS["SUBS_silent_hunter"](),
+            make_subs_flagship(), make_subs_flagship(),
+        )
+        # Force Saturation Strike into P1's hand, then deploy any Submarine.
+        lib = g.state.zones.get(f"hand_{p1.id}").objects
+        ss_id = None
+        for oid in list(g.state.zones[f"library_{p1.id}"].objects):
+            obj = g.state.objects.get(oid)
+            if obj and obj.name == "Saturation Strike":
+                g.state.zones[f"library_{p1.id}"].objects.remove(oid)
+                g.state.zones[f"hand_{p1.id}"].objects.append(oid)
+                obj.zone = ZoneType.HAND
+                ss_id = oid
+                break
+        if ss_id is None:
+            return None  # deck didn't have a Saturation Strike — skip
+        p1.tc = 5  # ensure we can pay both deploys + cast
+        sub_id = None
+        for oid in list(g.state.zones[f"hand_{p1.id}"].objects):
+            obj = g.state.objects.get(oid)
+            if (obj
+                and CardType.DEPTHS_VESSEL in obj.characteristics.types
+                and "Submarine" in obj.characteristics.subtypes):
+                ok, _, _ = deploy_vessel(g, p1.id, card_id=oid)
+                if ok:
+                    sub_id = oid
+                    break
+        assert sub_id is not None, "Setup: needed at least one Submarine to deploy"
+        sub = g.state.objects.get(sub_id)
+        ok, msg, evs = cast_spell(g, p1.id, card_id=ss_id)
+        assert ok, f"cast_spell failed: {msg!r}"
+        return sub, evs
+
+    result = asyncio.run(_run())
+    if result is None:
+        return  # deck didn't include the test card
+    sub, evs = result
+    pt_events = [
+        e for e in evs
+        if getattr(e, "type", None).__class__.__name__ == "EventType"
+        and e.type.name == "PT_MODIFICATION"
+    ]
+    assert pt_events, (
+        "Saturation Strike's cast_effect_fn did not emit any PT_MODIFICATION "
+        "events. cast_spell must invoke card.cast_effect_fn — see "
+        "src/engine/depths.py:cast_spell."
+    )
+    pmods = list(sub.state.pt_modifiers or [])
+    assert any(
+        m.get("power", 0) >= 1 and m.get("duration") == "end_of_turn"
+        for m in pmods
+    ), f"Submarine's pt_modifiers should include +N power EOT after Saturation Strike. Got: {pmods}"
+
+
 def test_deploy_refuses_when_cant_pay():
     """Regression: deploy_vessel must actually refuse when player can't afford.
 
@@ -144,4 +221,5 @@ if __name__ == "__main__":
     test_deck_deep_strike_builds()
     test_card_costs_propagate_to_characteristics()
     test_deploy_refuses_when_cant_pay()
+    test_cast_effect_fn_actually_runs()
     print("OK — SUBS smoke tests pass.")

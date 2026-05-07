@@ -374,6 +374,26 @@ def _find_on_battlefield(state, p1_id: Optional[str], name_or_prefix: str):
 
 
 # =============================================================================
+# Seat routing — two-pilot mode helper
+# =============================================================================
+
+def _seat_handler_and_id(payload: dict, seat: str = "p1"):
+    """Return (handler, my_player_id, opp_player_id) for a given seat.
+
+    In single-pilot mode only p1 is harness-controlled; --seat p2 will fail
+    cleanly because ai_handler is an AIDictAdapter, not a PlannedHandler.
+    Class identity check via name (dill rebinds the class on load so an
+    isinstance check fails across pickle round-trips).
+    """
+    if seat == "p2":
+        if not payload.get("two_pilot"):
+            raise SystemExit("--seat p2 requires --two-pilot mode at game start")
+        h = payload.get("ai_handler")
+        return h, payload["p2_id"], payload["p1_id"]
+    return payload["handler"], payload["p1_id"], payload["p2_id"]
+
+
+# =============================================================================
 # Commands
 # =============================================================================
 
@@ -404,13 +424,19 @@ def cmd_start(args) -> None:
 
     handler = PlannedHandler()
     handler.defense_ai = DepthsAIAdapter(difficulty=args.difficulty)
-    ai_handler = AIDictAdapter(DepthsAIAdapter(difficulty=args.difficulty))
+    two_pilot = bool(getattr(args, "two_pilot", False))
+    if two_pilot:
+        # P2 is also human-controlled — install a second PlannedHandler.
+        ai_handler = PlannedHandler()
+        ai_handler.defense_ai = DepthsAIAdapter(difficulty=args.difficulty)
+    else:
+        ai_handler = AIDictAdapter(DepthsAIAdapter(difficulty=args.difficulty))
 
     tm.set_ai_handler(handler, p1.id)
     tm.set_ai_handler(ai_handler, p2.id)
     # Both must be marked as AI-controlled so the action-loop runs for both
-    # players; our handler still keeps P1 under harness control because it
-    # only emits actions the harness queues.
+    # players; our handler still keeps each seat under harness control because
+    # it only emits actions the harness queues.
     tm.set_ai_player(p1.id)
     tm.set_ai_player(p2.id)
 
@@ -422,6 +448,7 @@ def cmd_start(args) -> None:
         "p2_id": p2.id,
         "handler": handler,
         "ai_handler": ai_handler,
+        "two_pilot": two_pilot,
         "history": [],  # list of (turn, actor, str)
         "args": {
             "my_deck": args.my_deck,
@@ -430,10 +457,12 @@ def cmd_start(args) -> None:
         },
     }
 
-    # If AI is on the play, run their first turn before handing control to ME.
-    # The setup leaves current_player_index at 0; check turn_order.
+    # If AI is on the play (single-pilot mode only), run their first turn
+    # before handing control to ME. In two-pilot mode, both seats are
+    # harness-controlled so we just leave current_player_index at the start
+    # and let the active pilot poll whose-turn.
     first = tm.turn_order[tm.current_player_index] if tm.turn_order else p1.id
-    if first == p2.id:
+    if first == p2.id and not two_pilot:
         print("AI is on the play — running their first turn.")
         asyncio.run(tm.run_turn(p2.id))
         payload["history"].append((game.state.turn_number, "AI", "first turn"))
@@ -452,11 +481,12 @@ def cmd_state(args) -> None:
 
 def cmd_plan_deploy(args) -> None:
     payload = _load()
-    obj = _find_in_hand(payload["game"].state, payload["p1_id"], args.card)
+    h, my_id, _ = _seat_handler_and_id(payload, getattr(args, "seat", "p1"))
+    obj = _find_in_hand(payload["game"].state, my_id, args.card)
     if not obj:
         print(f"Not in hand: {args.card!r}")
         return
-    payload["handler"].maneuver_q.append({
+    h.maneuver_q.append({
         "action_type": "DEPTHS_DEPLOY_VESSEL",
         "card_id": obj.id,
     })
@@ -466,11 +496,12 @@ def cmd_plan_deploy(args) -> None:
 
 def cmd_plan_dive(args) -> None:
     payload = _load()
-    obj = _find_on_battlefield(payload["game"].state, payload["p1_id"], args.vessel)
+    h, my_id, _ = _seat_handler_and_id(payload, getattr(args, "seat", "p1"))
+    obj = _find_on_battlefield(payload["game"].state, my_id, args.vessel)
     if not obj:
         print(f"Not on battlefield: {args.vessel!r}")
         return
-    payload["handler"].maneuver_q.append({
+    h.maneuver_q.append({
         "action_type": "DEPTHS_DIVE",
         "vessel_id": obj.id,
     })
@@ -480,11 +511,12 @@ def cmd_plan_dive(args) -> None:
 
 def cmd_plan_surface(args) -> None:
     payload = _load()
-    obj = _find_on_battlefield(payload["game"].state, payload["p1_id"], args.vessel)
+    h, my_id, _ = _seat_handler_and_id(payload, getattr(args, "seat", "p1"))
+    obj = _find_on_battlefield(payload["game"].state, my_id, args.vessel)
     if not obj:
         print(f"Not on battlefield: {args.vessel!r}")
         return
-    payload["handler"].maneuver_q.append({
+    h.maneuver_q.append({
         "action_type": "DEPTHS_SURFACE_VESSEL",
         "vessel_id": obj.id,
     })
@@ -495,16 +527,16 @@ def cmd_plan_surface(args) -> None:
 def cmd_plan_attach(args) -> None:
     payload = _load()
     state = payload["game"].state
-    p1_id = payload["p1_id"]
-    att = _find_in_hand(state, p1_id, args.attachment)
+    h, my_id, _ = _seat_handler_and_id(payload, getattr(args, "seat", "p1"))
+    att = _find_in_hand(state, my_id, args.attachment)
     if not att:
         print(f"Attachment not in hand: {args.attachment!r}")
         return
-    target = _find_on_battlefield(state, p1_id, args.target)
+    target = _find_on_battlefield(state, my_id, args.target)
     if not target:
         print(f"Target not on battlefield: {args.target!r}")
         return
-    payload["handler"].maneuver_q.append({
+    h.maneuver_q.append({
         "action_type": "DEPTHS_ATTACH",
         "card_id": att.id,
         "target_id": target.id,
@@ -516,7 +548,8 @@ def cmd_plan_attach(args) -> None:
 def cmd_plan_mine(args) -> None:
     from src.engine.depths import DepthBand
     payload = _load()
-    obj = _find_in_hand(payload["game"].state, payload["p1_id"], args.card)
+    h, my_id, _ = _seat_handler_and_id(payload, getattr(args, "seat", "p1"))
+    obj = _find_in_hand(payload["game"].state, my_id, args.card)
     if not obj:
         print(f"Not in hand: {args.card!r}")
         return
@@ -527,7 +560,7 @@ def cmd_plan_mine(args) -> None:
         except KeyError:
             print(f"Bad depth {args.depth!r}. Use one of: SURFACE/PERISCOPE/MID/DEEP/CRUSH")
             return
-    payload["handler"].maneuver_q.append({
+    h.maneuver_q.append({
         "action_type": "DEPTHS_LAY_MINE",
         "card_id": obj.id,
         "depth_band": band,
@@ -539,8 +572,8 @@ def cmd_plan_mine(args) -> None:
 def cmd_plan_cast(args) -> None:
     payload = _load()
     state = payload["game"].state
-    p1_id = payload["p1_id"]
-    obj = _find_in_hand(state, p1_id, args.card)
+    h, my_id, opp_id = _seat_handler_and_id(payload, getattr(args, "seat", "p1"))
+    obj = _find_in_hand(state, my_id, args.card)
     if not obj:
         print(f"Not in hand: {args.card!r}")
         return
@@ -549,7 +582,7 @@ def cmd_plan_cast(args) -> None:
         # Allow "flagship" as a special token for the opponent's flagship.
         if args.target.lower() == "flagship":
             from src.engine.depths import get_flagship
-            flag = get_flagship(payload["p2_id"], state)
+            flag = get_flagship(opp_id, state)
             if flag:
                 targets.append(flag.id)
         else:
@@ -559,7 +592,7 @@ def cmd_plan_cast(args) -> None:
             else:
                 print(f"Target not found: {args.target!r}")
                 return
-    payload["handler"].maneuver_q.append({
+    h.maneuver_q.append({
         "action_type": "DEPTHS_CAST_SPELL",
         "card_id": obj.id,
         "targets": targets,
@@ -571,7 +604,8 @@ def cmd_plan_cast(args) -> None:
 
 def cmd_plan_ability(args) -> None:
     payload = _load()
-    obj = _find_on_battlefield(payload["game"].state, payload["p1_id"], args.source)
+    h, my_id, _ = _seat_handler_and_id(payload, getattr(args, "seat", "p1"))
+    obj = _find_on_battlefield(payload["game"].state, my_id, args.source)
     if not obj:
         print(f"Source not on battlefield: {args.source!r}")
         return
@@ -580,7 +614,7 @@ def cmd_plan_ability(args) -> None:
         tobj = _find_on_battlefield(payload["game"].state, None, args.target)
         if tobj:
             targets.append(tobj.id)
-    payload["handler"].maneuver_q.append({
+    h.maneuver_q.append({
         "action_type": "DEPTHS_ACTIVATE_ABILITY",
         "source_id": obj.id,
         "ability_index": args.idx,
@@ -595,30 +629,29 @@ def cmd_plan_attack(args) -> None:
     from src.engine.depths import get_flagship, DepthBand
     payload = _load()
     state = payload["game"].state
-    p1_id = payload["p1_id"]
-    p2_id = payload["p2_id"]
+    h, my_id, opp_id = _seat_handler_and_id(payload, getattr(args, "seat", "p1"))
 
     for spec in args.specs:
         if ":" not in spec:
             print(f"Bad spec {spec!r} — expected vessel_prefix:target_prefix (use 'flagship' for opponent's flagship)")
             continue
         vstr, tstr = spec.split(":", 1)
-        vobj = _find_on_battlefield(state, p1_id, vstr)
+        vobj = _find_on_battlefield(state, my_id, vstr)
         if not vobj:
             print(f"  attacker {vstr!r} not found on my battlefield")
             continue
         if tstr.lower() == "flagship":
-            tobj = get_flagship(p2_id, state)
+            tobj = get_flagship(opp_id, state)
             if not tobj:
                 print("  opponent has no flagship?")
                 continue
         else:
-            tobj = _find_on_battlefield(state, p2_id, tstr)
+            tobj = _find_on_battlefield(state, opp_id, tstr)
             if not tobj:
                 print(f"  target {tstr!r} not found on opponent's battlefield")
                 continue
         firing_band = vobj.state.depth_band or DepthBand.SURFACE
-        payload["handler"].attackers_spec.append(AttackerSpec(
+        h.attackers_spec.append(AttackerSpec(
             vessel_id=vobj.id,
             target_id=tobj.id,
             firing_depth_band=firing_band,
@@ -629,7 +662,7 @@ def cmd_plan_attack(args) -> None:
 
 def cmd_plan_show(args) -> None:
     payload = _load()
-    h = payload["handler"]
+    h, _, _ = _seat_handler_and_id(payload, getattr(args, "seat", "p1"))
     print(f"=== Planned actions ===")
     if not (h.maneuver_q or h.regroup_q or h.attackers_spec):
         print("  (empty)")
@@ -650,11 +683,94 @@ def cmd_plan_show(args) -> None:
 
 def cmd_plan_clear(args) -> None:
     payload = _load()
-    payload["handler"].maneuver_q.clear()
-    payload["handler"].regroup_q.clear()
-    payload["handler"].attackers_spec.clear()
+    h, _, _ = _seat_handler_and_id(payload, getattr(args, "seat", "p1"))
+    h.maneuver_q.clear()
+    h.regroup_q.clear()
+    h.attackers_spec.clear()
     _save(payload)
     print("Plan cleared.")
+
+
+def cmd_whose_turn(args) -> None:
+    """Print the active player's seat label (p1 or p2) — used by two-pilot
+    mode so each pilot subagent can poll until its seat is up."""
+    payload = _load()
+    state = payload["game"].state
+    p1_id = payload["p1_id"]
+    p2_id = payload["p2_id"]
+    if payload["game"].is_game_over():
+        print("game-over")
+        return
+    tm = payload["game"].turn_manager
+    # current_player_index points at whoever's turn is NEXT to run via run_turn.
+    # state.active_player is set during a turn and reflects the prior runner;
+    # for the harness's polling needs we go by current_player_index.
+    idx = getattr(tm, "current_player_index", 0)
+    order = getattr(tm, "turn_order", []) or [p1_id, p2_id]
+    active = order[idx % len(order)]
+    seat = "p1" if active == p1_id else "p2"
+    print(seat)
+
+
+def cmd_play_active_turn(args) -> None:
+    """Run ONE turn for whichever seat is active. Two-pilot mode counterpart
+    of play-turn. Each pilot calls this on its own turn; the other pilot
+    polls whose-turn until its seat comes up."""
+    payload = _load()
+    if not payload.get("two_pilot"):
+        print("play-active-turn requires --two-pilot at start; use play-turn instead")
+        return
+    game = payload["game"]
+    if game.is_game_over():
+        print("Game already over.")
+        _print_state(payload)
+        return
+    p1_id = payload["p1_id"]
+    p2_id = payload["p2_id"]
+    tm = game.turn_manager
+    idx = getattr(tm, "current_player_index", 0)
+    order = getattr(tm, "turn_order", []) or [p1_id, p2_id]
+    active = order[idx % len(order)]
+    seat = "p1" if active == p1_id else "p2"
+    h = payload["handler"] if seat == "p1" else payload["ai_handler"]
+
+    n_man = len(h.maneuver_q)
+    n_atk = len(h.attackers_spec)
+
+    orig_execute = tm.execute_action
+    actions: list[str] = []
+    captured: list = []
+    orig_emit = game.emit
+
+    async def _wrap_exec(player_id, action):
+        ok, msg, evs = await orig_execute(player_id, action)
+        actions.append(f"{'OK' if ok else 'NO'} {h._label(action, game.state)}{f' [{msg}]' if msg and not ok else ''}")
+        return ok, msg, evs
+
+    def _wrap_emit(event):
+        captured.append(event)
+        return orig_emit(event)
+
+    tm.execute_action = _wrap_exec
+    game.emit = _wrap_emit
+    print(f"--- {seat.upper()} turn ({n_man} maneuver, {n_atk} attackers) ---")
+    try:
+        asyncio.run(tm.run_turn(active))
+    except Exception as exc:
+        import traceback
+        print(f"!! ERROR during {seat} turn: {type(exc).__name__}: {exc}")
+        traceback.print_exc()
+    finally:
+        tm.execute_action = orig_execute
+        game.emit = orig_emit
+    for line in actions:
+        print(f"  {seat}: {line}")
+    for line in _format_combat_events(captured, game.state):
+        print(f"  combat: {line}")
+    if h.attackers_spec:
+        h.attackers_spec.clear()
+    payload["history"].append((game.state.turn_number, seat, f"played {n_man} actions, {n_atk} attacks"))
+    _save(payload)
 
 
 def _format_combat_events(events: list, state) -> list[str]:
@@ -878,23 +994,31 @@ def main() -> None:
     p = sub.add_parser("start"); p.add_argument("--my-deck", default="wolfpack")
     p.add_argument("--ai-deck", default="silent_hunter")
     p.add_argument("--difficulty", default="medium", choices=["easy", "medium", "hard"])
+    p.add_argument("--two-pilot", action="store_true",
+                   help="Both seats are LLM-controlled. Use plan-* --seat p2 for opponent's actions, "
+                        "play-active-turn instead of play-turn, and whose-turn to poll the active seat.")
     p.set_defaults(fn=cmd_start)
 
     sub.add_parser("state").set_defaults(fn=cmd_state)
     sub.add_parser("legal").set_defaults(fn=cmd_legal)
+    sub.add_parser("whose-turn").set_defaults(fn=cmd_whose_turn)
 
-    p = sub.add_parser("plan-deploy"); p.add_argument("card"); p.set_defaults(fn=cmd_plan_deploy)
-    p = sub.add_parser("plan-dive"); p.add_argument("vessel"); p.set_defaults(fn=cmd_plan_dive)
-    p = sub.add_parser("plan-surface"); p.add_argument("vessel"); p.set_defaults(fn=cmd_plan_surface)
-    p = sub.add_parser("plan-attach"); p.add_argument("attachment"); p.add_argument("target"); p.set_defaults(fn=cmd_plan_attach)
-    p = sub.add_parser("plan-mine"); p.add_argument("card"); p.add_argument("depth", nargs="?"); p.set_defaults(fn=cmd_plan_mine)
-    p = sub.add_parser("plan-cast"); p.add_argument("card"); p.add_argument("target", nargs="?"); p.set_defaults(fn=cmd_plan_cast)
-    p = sub.add_parser("plan-ability"); p.add_argument("source"); p.add_argument("--idx", type=int, default=0); p.add_argument("--target"); p.set_defaults(fn=cmd_plan_ability)
-    p = sub.add_parser("plan-attack"); p.add_argument("specs", nargs="+", help="vessel_prefix:target_prefix (or :flagship)"); p.set_defaults(fn=cmd_plan_attack)
-    sub.add_parser("plan-show").set_defaults(fn=cmd_plan_show)
-    sub.add_parser("plan-clear").set_defaults(fn=cmd_plan_clear)
+    # All plan-* commands accept an optional --seat to route to P2's queue
+    # (only valid in two-pilot mode).
+    def _seat(p): p.add_argument("--seat", choices=["p1", "p2"], default="p1"); return p
+    p = _seat(sub.add_parser("plan-deploy")); p.add_argument("card"); p.set_defaults(fn=cmd_plan_deploy)
+    p = _seat(sub.add_parser("plan-dive")); p.add_argument("vessel"); p.set_defaults(fn=cmd_plan_dive)
+    p = _seat(sub.add_parser("plan-surface")); p.add_argument("vessel"); p.set_defaults(fn=cmd_plan_surface)
+    p = _seat(sub.add_parser("plan-attach")); p.add_argument("attachment"); p.add_argument("target"); p.set_defaults(fn=cmd_plan_attach)
+    p = _seat(sub.add_parser("plan-mine")); p.add_argument("card"); p.add_argument("depth", nargs="?"); p.set_defaults(fn=cmd_plan_mine)
+    p = _seat(sub.add_parser("plan-cast")); p.add_argument("card"); p.add_argument("target", nargs="?"); p.set_defaults(fn=cmd_plan_cast)
+    p = _seat(sub.add_parser("plan-ability")); p.add_argument("source"); p.add_argument("--idx", type=int, default=0); p.add_argument("--target"); p.set_defaults(fn=cmd_plan_ability)
+    p = _seat(sub.add_parser("plan-attack")); p.add_argument("specs", nargs="+", help="vessel_prefix:target_prefix (or :flagship)"); p.set_defaults(fn=cmd_plan_attack)
+    _seat(sub.add_parser("plan-show")).set_defaults(fn=cmd_plan_show)
+    _seat(sub.add_parser("plan-clear")).set_defaults(fn=cmd_plan_clear)
 
     sub.add_parser("play-turn").set_defaults(fn=cmd_play_turn)
+    sub.add_parser("play-active-turn").set_defaults(fn=cmd_play_active_turn)
     sub.add_parser("history").set_defaults(fn=cmd_history)
     sub.add_parser("result").set_defaults(fn=cmd_result)
 
