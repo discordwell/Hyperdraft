@@ -8,30 +8,20 @@ from src.engine.types import CardType, GameState, ZoneType
 from src.engine import minecraft as mc
 
 
-def _best_attack_column(state: GameState, defender_id: str, attacker_keywords: set[str]) -> int:
-    """Pick the most valuable column to attack: bed > big structure > empty (avatar) > anything."""
-    best_score = -1
-    best_col = 0
-    for column in range(mc.GRID_SIZE):
-        oid = mc.column_target(state, defender_id, column, attacker_keywords)
-        if not oid:
-            score = 8  # column clear → hits avatar (very valuable)
-        else:
-            obj = state.objects.get(oid)
-            if not obj:
-                score = 0
-            elif "Bed" in obj.characteristics.subtypes:
-                score = 100
-            elif CardType.MC_BLOCK in obj.characteristics.types:
-                score = 2  # break through walls slowly
-            elif CardType.MC_STRUCTURE in obj.characteristics.types:
-                score = 6
-            else:
-                score = 4
-        if score > best_score:
-            best_score = score
-            best_col = column
-    return best_col
+# Score tables for each attack-priority preset. Higher score = column
+# more attractive to attack. Used by MinecraftAIAdapter._best_attack_column.
+_ATTACK_PRIORITY_TABLES: dict[str, dict[str, int]] = {
+    # Default heuristic: Bed > Avatar > Structure > Block.
+    "bed_first":       {"bed": 100, "avatar": 8,  "structure": 6,  "block": 2,   "other": 4},
+    # Rush face damage — go for avatar before anything else.
+    "avatar_first":    {"bed": 50,  "avatar": 100, "structure": 4,  "block": 2,   "other": 4},
+    # Disrupt opponent's economy — hit turn-bonus structures first.
+    "structure_first": {"bed": 60,  "avatar": 8,  "structure": 100, "block": 2,   "other": 4},
+    # Block-cracker (Ravager-style): destroy walls for triggers.
+    "block_first":     {"bed": 50,  "avatar": 8,  "structure": 6,  "block": 100, "other": 4},
+    # Random column.
+    "random":          None,
+}
 
 
 # Bias presets for variant-tournament search. Each preset overrides
@@ -42,114 +32,134 @@ def _best_attack_column(state: GameState, defender_id: str, attacker_keywords: s
 # Use case: "I don't know what wins yet — let me run a variant
 # tournament to find out." Pass `bias=PRESET` (one of the keys below) at
 # adapter construction time, or build your own dict.
+# Default bias values. Other presets override fields they care about
+# and inherit the rest. Avoids duplicating defaults across every preset.
+_DEFAULTS = {
+    # Card picking
+    "selection_mode": "weighted",        # weighted | random | largest
+    "worker_bonus_under_3": 25,
+    "worker_bonus_first": 15,
+    "turnbonus_struct_bonus": 18,
+    "explore_map_bonus": 45,
+    "strip_mine_bonus": 28,
+    "find_diamonds_bonus": 22,
+    "chop_trees_bonus": 20,
+    "untap_worker_bonus": 15,
+    "nether_expedition_bonus": 18,
+    "tutor_bonus": 25,
+    "draw_bonus": 12,
+    "early_big_mob_penalty": 10,
+    "late_big_mob_bonus": 10,
+    # Mining
+    # mining_mode: "premium_first" | "wood_first" | "iron_first" |
+    # "redstone_first" | "diamond_first" | "random"
+    "mining_mode": "premium_first",
+    "mine_wood_first_when_pending": True,
+    # Combat: attack priority + block mode
+    # attack_priority: "bed_first" | "avatar_first" | "structure_first"
+    # | "block_first" | "random"
+    "attack_priority": "bed_first",
+    # block_mode: "auto" (smart engine default) | "never" | "chump_anything"
+    "block_mode": "auto",
+}
+
+
+def _preset(**overrides) -> dict:
+    out = dict(_DEFAULTS)
+    out.update(overrides)
+    return out
+
+
 MC_BIAS_PRESETS: dict[str, dict] = {
-    "balanced": {
-        # Workers: deploy ASAP for compounding economy.
-        "worker_bonus_under_3": 25,
-        "worker_bonus_first": 15,
-        # Turn-bonus structures: ramp engines.
-        "turnbonus_struct_bonus": 18,
-        # Ramp actions.
-        "explore_map_bonus": 45,
-        "strip_mine_bonus": 28,
-        "find_diamonds_bonus": 22,
-        "chop_trees_bonus": 20,
-        "untap_worker_bonus": 15,
-        "nether_expedition_bonus": 18,
-        "tutor_bonus": 25,
-        "draw_bonus": 12,
-        # Mobs: penalize biggest early, reward big late.
-        "early_big_mob_penalty": 10,
-        "late_big_mob_bonus": 10,
-        # Selection mode: "weighted" (score-based) or "random" / "largest".
-        "selection_mode": "weighted",
-        # Mining preference: prefer wood when wood-cost cards pending.
-        "mine_wood_first_when_pending": True,
-    },
-    "aggro": {
-        # Aggro = always pick highest-power mob, ignore ramp.
-        "worker_bonus_under_3": 0,
-        "worker_bonus_first": 0,
-        "turnbonus_struct_bonus": 0,
-        "explore_map_bonus": 0,
-        "strip_mine_bonus": 0,
-        "find_diamonds_bonus": 0,
-        "chop_trees_bonus": 0,
-        "untap_worker_bonus": 0,
-        "nether_expedition_bonus": 0,
-        "tutor_bonus": 0,
-        "draw_bonus": 0,
-        "early_big_mob_penalty": 0,
-        "late_big_mob_bonus": 30,
-        "selection_mode": "weighted",
-        "mine_wood_first_when_pending": False,
-    },
-    "ramp": {
-        # All-in on ramp + econ structures, deprioritize mobs early.
-        "worker_bonus_under_3": 35,
-        "worker_bonus_first": 25,
-        "turnbonus_struct_bonus": 35,
-        "explore_map_bonus": 60,
-        "strip_mine_bonus": 40,
-        "find_diamonds_bonus": 30,
-        "chop_trees_bonus": 25,
-        "untap_worker_bonus": 20,
-        "nether_expedition_bonus": 30,
-        "tutor_bonus": 25,
-        "draw_bonus": 15,
-        "early_big_mob_penalty": 25,
-        "late_big_mob_bonus": 15,
-        "selection_mode": "weighted",
-        "mine_wood_first_when_pending": True,
-    },
-    "explore": {
-        # Pure exploration focus — biome upgrades over everything else.
-        "worker_bonus_under_3": 10,
-        "worker_bonus_first": 10,
-        "turnbonus_struct_bonus": 10,
-        "explore_map_bonus": 80,
-        "strip_mine_bonus": 10,
-        "find_diamonds_bonus": 10,
-        "chop_trees_bonus": 30,  # need wood to Explore
-        "untap_worker_bonus": 5,
-        "nether_expedition_bonus": 10,
-        "tutor_bonus": 10,
-        "draw_bonus": 5,
-        "early_big_mob_penalty": 15,
-        "late_big_mob_bonus": 5,
-        "selection_mode": "weighted",
-        "mine_wood_first_when_pending": True,
-    },
-    "workers": {
-        # All-in on Worker tribal — flood the board with miners.
-        "worker_bonus_under_3": 60,
-        "worker_bonus_first": 30,
-        "turnbonus_struct_bonus": 5,
-        "explore_map_bonus": 15,
-        "strip_mine_bonus": 15,
-        "find_diamonds_bonus": 10,
-        "chop_trees_bonus": 25,
-        "untap_worker_bonus": 30,
-        "nether_expedition_bonus": 10,
-        "tutor_bonus": 10,
-        "draw_bonus": 8,
-        "early_big_mob_penalty": 20,
-        "late_big_mob_bonus": 5,
-        "selection_mode": "weighted",
-        "mine_wood_first_when_pending": True,
-    },
-    "random": {
-        # Pure random pick from legal hand cards. Useful as a baseline
-        # — anything that doesn't beat random in a head-to-head series
-        # is barely a strategy.
-        "selection_mode": "random",
-    },
-    "largest": {
-        # Always pick the highest-cost affordable card. The "naive
-        # greedy" baseline — beats random in some formats, loses to
-        # any actual strategy.
-        "selection_mode": "largest",
-    },
+    # Default — meta-aware all-axes preset.
+    "balanced": _preset(),
+    # Single-axis card-picking variants (unchanged behavior on
+    # mining/attacks/blocking — those are still the smart defaults).
+    "aggro": _preset(
+        worker_bonus_under_3=0, worker_bonus_first=0,
+        turnbonus_struct_bonus=0, explore_map_bonus=0,
+        strip_mine_bonus=0, find_diamonds_bonus=0, chop_trees_bonus=0,
+        untap_worker_bonus=0, nether_expedition_bonus=0,
+        tutor_bonus=0, draw_bonus=0,
+        early_big_mob_penalty=0, late_big_mob_bonus=30,
+        mine_wood_first_when_pending=False,
+    ),
+    "ramp": _preset(
+        worker_bonus_under_3=35, worker_bonus_first=25,
+        turnbonus_struct_bonus=35, explore_map_bonus=60,
+        strip_mine_bonus=40, find_diamonds_bonus=30, chop_trees_bonus=25,
+        untap_worker_bonus=20, nether_expedition_bonus=30,
+        early_big_mob_penalty=25, late_big_mob_bonus=15,
+    ),
+    "explore": _preset(
+        worker_bonus_under_3=10, worker_bonus_first=10,
+        turnbonus_struct_bonus=10, explore_map_bonus=80,
+        strip_mine_bonus=10, find_diamonds_bonus=10, chop_trees_bonus=30,
+        untap_worker_bonus=5, nether_expedition_bonus=10,
+        tutor_bonus=10, draw_bonus=5,
+        early_big_mob_penalty=15, late_big_mob_bonus=5,
+    ),
+    "workers": _preset(
+        worker_bonus_under_3=60, worker_bonus_first=30,
+        turnbonus_struct_bonus=5, explore_map_bonus=15,
+        strip_mine_bonus=15, find_diamonds_bonus=10, chop_trees_bonus=25,
+        untap_worker_bonus=30, nether_expedition_bonus=10,
+        tutor_bonus=10, draw_bonus=8,
+        early_big_mob_penalty=20, late_big_mob_bonus=5,
+    ),
+
+    # Random / largest baselines.
+    "random":       _preset(selection_mode="random"),
+    "fully_random": _preset(selection_mode="random", mining_mode="random",
+                            attack_priority="random", block_mode="never"),
+    "largest":      _preset(selection_mode="largest"),
+
+    # Cross-axis variants — combine card + mining + attack + block to
+    # express a complete strategy, not just a card-picking flavor.
+    "iron_rush": _preset(
+        # Largest mob you can afford, mine iron aggressively, hit avatar.
+        selection_mode="largest", mining_mode="iron_first",
+        attack_priority="avatar_first", block_mode="never",
+    ),
+    "avatar_burn": _preset(
+        # Aggro card scoring, but fully committed to face damage.
+        worker_bonus_under_3=0, worker_bonus_first=0,
+        turnbonus_struct_bonus=0, explore_map_bonus=0,
+        strip_mine_bonus=0, find_diamonds_bonus=0, chop_trees_bonus=0,
+        untap_worker_bonus=0, nether_expedition_bonus=0,
+        tutor_bonus=0, draw_bonus=0,
+        early_big_mob_penalty=0, late_big_mob_bonus=30,
+        mining_mode="iron_first", attack_priority="avatar_first",
+        block_mode="never",
+    ),
+    "wall_grinder": _preset(
+        # Ramp + structure-disruption, kill blocks/structures first to
+        # disable opponent's economy. Block normally.
+        worker_bonus_under_3=35, worker_bonus_first=25,
+        turnbonus_struct_bonus=35, explore_map_bonus=60,
+        strip_mine_bonus=40, find_diamonds_bonus=30, chop_trees_bonus=25,
+        untap_worker_bonus=20, nether_expedition_bonus=30,
+        early_big_mob_penalty=25, late_big_mob_bonus=15,
+        attack_priority="block_first",
+    ),
+    "passive_econ": _preset(
+        # Workers tribal + chump-block everything to slow opponent down,
+        # then close late.
+        worker_bonus_under_3=60, worker_bonus_first=30,
+        turnbonus_struct_bonus=5, explore_map_bonus=15,
+        strip_mine_bonus=15, find_diamonds_bonus=10, chop_trees_bonus=25,
+        untap_worker_bonus=30, nether_expedition_bonus=10,
+        early_big_mob_penalty=20, late_big_mob_bonus=5,
+        attack_priority="structure_first", block_mode="chump_anything",
+    ),
+    "wood_economy": _preset(
+        # Wood-mining heavy; explore + ramp via wood. Defensive.
+        worker_bonus_under_3=40, worker_bonus_first=20,
+        turnbonus_struct_bonus=20, explore_map_bonus=70,
+        chop_trees_bonus=35, find_diamonds_bonus=10,
+        early_big_mob_penalty=15, late_big_mob_bonus=8,
+        mining_mode="wood_first", attack_priority="bed_first",
+    ),
 }
 
 
@@ -188,7 +198,7 @@ class MinecraftAIAdapter:
             kws: set[str] = set()
             if weapon and weapon.card_def:
                 kws = {str(k).lower() for k in (getattr(weapon.card_def, "mc_keywords", None) or ())}
-            column = _best_attack_column(state, opponent, kws)
+            column = self._best_attack_column(state, opponent, kws)
             ok, _msg, evs = mc.avatar_attack(game, player_id, target_column=column)
             if ok:
                 events.extend(evs)
@@ -208,7 +218,7 @@ class MinecraftAIAdapter:
             for attacker_id in self._available_attackers(state, player_id):
                 attacker = state.objects.get(attacker_id)
                 kws = mc.mc_keywords_of(attacker)
-                column = _best_attack_column(state, opponent, kws)
+                column = self._best_attack_column(state, opponent, kws)
                 attacks.append({"attacker_id": attacker_id, "target_column": column})
         if attacks:
             human_players = set(state.turn_data.get("mc_human_players") or [])
@@ -305,6 +315,11 @@ class MinecraftAIAdapter:
         if not biomes:
             return 0
 
+        if self.bias.get("mining_mode") == "random":
+            import random as _random
+            unmined = [i for i, b in enumerate(biomes) if not b.get("mined")]
+            return _random.choice(unmined) if unmined else 0
+
         player = state.players.get(player_id)
         my_wood = int((player.mc_materials if player else {}).get("wood", 0) or 0)
 
@@ -348,12 +363,89 @@ class MinecraftAIAdapter:
                 if int(yields.get("wood", 0) or 0) > 0:
                     return i
 
-        # Otherwise: premium-material priority (diamond > redstone > iron > stone > wood).
-        for material in ("diamond", "redstone", "iron", "stone", "wood"):
+        # Mining mode determines material priority order. premium_first is
+        # the default heuristic; the others express specific strategic
+        # commitments (e.g. iron_rush wants iron above everything).
+        priority_orders = {
+            "premium_first":  ("diamond", "redstone", "iron", "stone", "wood"),
+            "wood_first":     ("wood", "diamond", "redstone", "iron", "stone"),
+            "iron_first":     ("iron", "stone", "diamond", "redstone", "wood"),
+            "redstone_first": ("redstone", "iron", "stone", "diamond", "wood"),
+            "diamond_first":  ("diamond", "redstone", "iron", "stone", "wood"),
+        }
+        order = priority_orders.get(self.bias.get("mining_mode", "premium_first"),
+                                    priority_orders["premium_first"])
+        for material in order:
             for i, biome in enumerate(biomes):
                 if not biome.get("mined") and int((biome.get("yields") or {}).get(material, 0) or 0) > 0:
                     return i
         return 0
+
+    def _best_attack_column(
+        self, state: GameState, defender_id: str, attacker_keywords: set[str]
+    ) -> int:
+        """Pick attack column based on `bias['attack_priority']`.
+
+        Default ('bed_first') matches the original heuristic. Other modes
+        rank columns by what's frontmost (avatar / structure / block /
+        bed / other) using the per-mode score table in
+        _ATTACK_PRIORITY_TABLES. Random mode picks any column.
+        """
+        priority = self.bias.get("attack_priority", "bed_first")
+        if priority == "random":
+            import random as _random
+            return _random.randrange(mc.GRID_SIZE)
+        table = _ATTACK_PRIORITY_TABLES.get(priority) or _ATTACK_PRIORITY_TABLES["bed_first"]
+
+        best_score = -1
+        best_col = 0
+        for column in range(mc.GRID_SIZE):
+            oid = mc.column_target(state, defender_id, column, attacker_keywords)
+            if not oid:
+                score = table["avatar"]
+            else:
+                obj = state.objects.get(oid)
+                if not obj:
+                    score = 0
+                elif "Bed" in obj.characteristics.subtypes:
+                    score = table["bed"]
+                elif CardType.MC_BLOCK in obj.characteristics.types:
+                    score = table["block"]
+                elif CardType.MC_STRUCTURE in obj.characteristics.types:
+                    score = table["structure"]
+                else:
+                    score = table["other"]
+            if score > best_score:
+                best_score = score
+                best_col = column
+        return best_col
+
+    def choose_blockers(
+        self, state: GameState, defender_id: str, attackers: list[dict]
+    ) -> dict[str, str]:
+        """
+        Return {attacker_id: blocker_id} for AI defenders. Default mode
+        ('auto') delegates to mc.auto_blockers (the smart heuristic).
+        """
+        mode = self.bias.get("block_mode", "auto")
+        if mode == "never":
+            return {}
+        if mode == "chump_anything":
+            # Pair every attacker with any unused legal blocker, even bad
+            # trades. Models the "stall everything" archetype.
+            from src.engine.minecraft import legal_blockers
+            block_map: dict[str, str] = {}
+            available = list(legal_blockers(state, defender_id))
+            for atk in attackers:
+                if not available:
+                    break
+                aid = atk.get("attacker_id")
+                if not aid:
+                    continue
+                block_map[aid] = available.pop(0)
+            return block_map
+        # Default — engine-supplied smart blocker logic.
+        return mc.auto_blockers(state, defender_id, attackers)
 
     def _choose_card_to_play(self, state: GameState, player_id: str) -> Optional[str]:
         """

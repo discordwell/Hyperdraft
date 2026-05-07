@@ -135,7 +135,13 @@ ENGINES: dict[str, dict] = {
         "deck_resolver": _mc_decks,
         "run_one": _mc_run_one,
         "default_decks": ["builder", "miner", "raider"],
-        "default_variants": ["balanced", "aggro", "ramp", "explore", "workers", "random", "largest"],
+        # Single-axis card-pick variants + cross-axis full-strategy
+        # variants + random/largest baselines.
+        "default_variants": [
+            "balanced", "aggro", "ramp", "explore", "workers",
+            "iron_rush", "avatar_burn", "wall_grinder", "passive_econ", "wood_economy",
+            "random", "largest",
+        ],
         "default_max_turns": 30,
     },
     "mtg": {

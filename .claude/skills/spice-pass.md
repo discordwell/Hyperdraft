@@ -744,3 +744,68 @@ The tournament is also the natural place to drop in a *new* spice
 candidate: include it in a deck that pairs with the winning variant,
 see if its inclusion shifts win-rates by ≥5%. If it does, the card
 is contributing real strategic weight.
+
+### Variant-tournament gotcha: parameterize ALL AI axes, not just card-picking
+
+The first MC variant tournament only varied `_choose_card_to_play`.
+That left `random` at 33.3% — only 6.5 pts behind the winner. We
+investigated by adding `fully_random` (random card-picking AND random
+mining): its winrate dropped to **25.0% (–8.3 pts)**. The 8 points
+were entirely in the smart mining heuristic — the bias surface was
+testing only one axis while three others (mining, attack column,
+blocker assignment) carried the AI invisibly.
+
+After expanding the bias presets to also parameterize:
+- `mining_mode`: premium_first / wood_first / iron_first /
+  redstone_first / random
+- `attack_priority`: bed_first / avatar_first / structure_first /
+  block_first / random
+- `block_mode`: auto / never / chump_anything
+
+…and adding 4 cross-axis variants (`passive_econ`, `wall_grinder`,
+`iron_rush`, `avatar_burn`, `wood_economy`), the meta flipped:
+
+| Variant | Card-only sweep | Expanded sweep |
+|---|---|---|
+| balanced | **39.8%** ← was #1 | 29.5% (#7) |
+| passive_econ | (didn't exist) | **42.4%** ← #1 |
+| wall_grinder | (didn't exist) | 37.9% (#2) |
+| workers | 34.3% | 37.1% (#3) |
+| random | 33.3% | 34.1% (still high) |
+| aggro | 22.2% | 26.5% |
+
+The real MC meta isn't "play workers ASAP" — it's "chump-block
+everything to slow opponent + attack structures to kill their
+economy + run a worker base." That's *defense + economy disruption*,
+which `passive_econ` expresses as a complete strategy. The original
+card-only `balanced` couldn't see this meta because all its variants
+shared the same auto-blocker and bed-first-attack defaults.
+
+**Lesson for any new engine:**
+
+When parameterizing the AI for a variant tournament, audit every
+non-trivial decision the AI makes — not just card selection. Common
+axes:
+
+- **Resource acquisition** — which mana source, which mining biome,
+  which trade route, which energy attachment.
+- **Attack target** — face / minion / structure / specific subtype.
+- **Defense** — block trade decisions, sacrifice priorities,
+  damage redirection.
+- **Card draw / tutoring** — which card to fetch from a search effect.
+
+If the bias surface only covers one axis, `random` will look more
+competitive than it should — because the smart heuristics on the
+other axes are doing the work invisibly. Use `fully_random` (random
+on every axis) as the floor: any "real" variant should beat
+`fully_random` by ≥15 points. If your best variant only beats
+`fully_random` by ≤10 points, the surface isn't expressing enough
+strategic difference yet.
+
+The expanded variants also surface design implications: spice cards
+should be evaluated against *the actual format meta* (here:
+defensive + economic), not against a card-axis-only meta. A card
+that says "deal 6 face damage" looks great when measured against
+`balanced` but might be irrelevant in a format that chump-blocks
+everything. Run capability tests against the *winning expanded
+variant* and `random` to get the full picture.

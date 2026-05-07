@@ -261,7 +261,9 @@ async def play_one_minecraft_game(
         game.set_ai_player(p2.id)
 
         # Per-seat AI biases — variant-tournament builds dispatch this
-        # so each player can run a different strategy.
+        # so each player can run a different strategy. Forwards both
+        # `take_turn` (offense) and `choose_blockers` (defense) so the
+        # bias preset's mining/attack/block axes apply to the right seat.
         ai_p1 = MinecraftAIAdapter(difficulty=difficulty, bias=bias_p1)
         ai_p2 = MinecraftAIAdapter(difficulty=difficulty, bias=bias_p2)
         if bias_p1 == bias_p2 or (bias_p1 is None and bias_p2 is None):
@@ -273,6 +275,10 @@ async def play_one_minecraft_game(
                 async def take_turn(self, player_id, state, game_):
                     adapter = ai_by_player.get(player_id) or ai_p1
                     return await adapter.take_turn(player_id, state, game_)
+
+                def choose_blockers(self, state, defender_id, attackers):
+                    adapter = ai_by_player.get(defender_id) or ai_p1
+                    return adapter.choose_blockers(state, defender_id, attackers)
 
             game.turn_manager.set_ai_handler(_DispatchAdapter())
 

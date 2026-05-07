@@ -145,12 +145,20 @@ class MinecraftTurnManager(TurnManager):
                 if ok:
                     events.extend(action_events)
         elif self._is_ai_player(defender_id):
-            block_map = mc.auto_blockers(self.state, defender_id, combat.get("attackers") or [])
+            attackers = combat.get("attackers") or []
+            # Prefer the AI handler's choose_blockers so per-seat bias
+            # presets ("never", "chump_anything") apply on defense.
+            handler = self.minecraft_ai_handler
+            choose = getattr(handler, "choose_blockers", None) if handler else None
+            if callable(choose):
+                block_map = choose(self.state, defender_id, attackers)
+            else:
+                block_map = mc.auto_blockers(self.state, defender_id, attackers)
             ok, _message, action_events = mc.resolve_combat(
                 game,
                 combat.get("attacking_player"),
                 defender_id,
-                combat.get("attackers") or [],
+                attackers,
                 block_map,
             )
             if ok:
