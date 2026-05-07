@@ -300,7 +300,7 @@ export interface GameState {
   is_game_over: boolean;
   winner: string | null;
   pending_choice?: PendingChoice | null;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance';
   variant?: string | null;
   max_hand_size?: number;
   // Pokemon zones
@@ -337,7 +337,7 @@ export interface GameState {
 // Request/Response Types
 export interface CreateMatchRequest {
   mode: MatchMode;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance';
   variant?: string;
   player_deck?: string[];
   player_deck_id?: string;
@@ -384,7 +384,7 @@ export interface ActionResultResponse {
 
 // Bot Game Types
 export interface StartBotGameRequest {
-  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths';
+  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance';
   bot1_deck: string[];
   bot2_deck: string[];
   bot1_deck_id?: string;

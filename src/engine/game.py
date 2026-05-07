@@ -135,9 +135,13 @@ class Game:
         self.turn_manager.mana_system = self.mana_system
 
         # Combat manager needs turn, priority, and pipeline
-        self.combat_manager.turn_manager = self.turn_manager
-        self.combat_manager.priority_system = self.priority_system
-        self.combat_manager.pipeline = self.pipeline
+        if self.combat_manager is not None:
+            if hasattr(self.combat_manager, 'turn_manager'):
+                self.combat_manager.turn_manager = self.turn_manager
+            if hasattr(self.combat_manager, 'priority_system'):
+                self.combat_manager.priority_system = self.priority_system
+            if hasattr(self.combat_manager, 'pipeline'):
+                self.combat_manager.pipeline = self.pipeline
 
     def add_player(self, name: str, life: Optional[int] = None) -> Player:
         """Add a player to the game."""

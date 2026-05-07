@@ -793,6 +793,12 @@ def _build_depths_adapter() -> GameModeAdapter:
     return _depths_mode_adapter_class()()
 
 
+def _build_finance_adapter() -> "GameModeAdapter":
+    """Construct the FinanceModeAdapter lazily to avoid an import cycle."""
+    from .finance import FinanceModeAdapter
+    return FinanceModeAdapter()
+
+
 # =============================================================================
 # Registry
 # =============================================================================
@@ -804,6 +810,7 @@ _REGISTRY: dict[str, GameModeAdapter] = {
     "yugioh": YugiohModeAdapter(),
     "minecraft": MinecraftModeAdapter(),
     "depths": _build_depths_adapter(),
+    "finance": _build_finance_adapter(),
 }
 
 

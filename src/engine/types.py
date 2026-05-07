@@ -576,6 +576,15 @@ class EventType(Enum):
     # ------------------------------------------------------------------
     TRIGGERED_ABILITY_PUT_ON_STACK = auto()
 
+    # ------------------------------------------------------------------
+    # Finance TCG events — see src/engine/finance.py.
+    # ------------------------------------------------------------------
+    FIN_PLAY_CARD = auto()       # Finance card played from hand
+    FIN_MARKET_EVENT = auto()    # Dark Pool card triggered (phase-deferred Order fires)
+    FIN_LEVERAGE_TICK = auto()   # Leverage counter cost accrued at Market Close
+    FIN_CAPITAL_CALL = auto()    # Capital Reserve damage from a non-combat source
+    FIN_BANKRUPTCY = auto()      # Player's Capital Reserve reached 0
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
@@ -717,6 +726,14 @@ class CardType(Enum):
     DEPTHS_CREW = auto()     # Equipment-style attachment (boost host Vessel)
     DEPTHS_WEAPON = auto()   # Attached ordnance with limited charges
     DEPTHS_MINE = auto()     # Battlefield permanent at a chosen depth band
+
+    # Finance TCG card types — see src/engine/finance.py.
+    FIN_TRADER = auto()      # Creature analog — has Aggression/Defense, can attack
+    FIN_ORDER = auto()       # Instant analog — Market Order (immediate) or Dark Pool Order (deferred)
+    FIN_STRATEGY = auto()    # Sorcery analog — sorcery-speed, higher impact
+    FIN_ASSET = auto()       # Permanent with passive income or activated ability; non-combatant
+    FIN_DERIVATIVE = auto()  # Enchantment-on-a-Trader; stages to Derivatives Desk before attaching
+    FIN_STRUCTURE = auto()   # Building; max 3 per player on Trading Floor; tap-to-activate
 
 
 class Color(Enum):

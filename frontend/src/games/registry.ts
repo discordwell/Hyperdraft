@@ -14,6 +14,7 @@ import { pokemon } from './pokemon';
 import { yugioh } from './yugioh';
 import { hearthstone } from './hearthstone';
 import { depths } from './depths';
+import { finance } from './finance';
 
 export const GAME_MODULES: Record<Game, GameModule> = {
   mtg,
@@ -22,6 +23,7 @@ export const GAME_MODULES: Record<Game, GameModule> = {
   yugioh,
   hearthstone,
   depths,
+  finance,
 };
 
 export function getGameModule(game: Game): GameModule {
