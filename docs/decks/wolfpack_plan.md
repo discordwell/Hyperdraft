@@ -5,13 +5,15 @@
 30-card SUBS aggro list (`SUBS_wolfpack` in
 `src/cards/depths/submarine_fleet/decks.py:72`):
 
-- **1-cost Vessels (8)**: 4 U-Boat Wolf-cub (2/1 {1T}), 4 Sea Wolf Scout
-  (1/2 {1T} or similar — chip-damage body).
+- **1-cost Vessels (8)**: 4 U-Boat Wolf-cub (2/1 {1T}, **vanilla**),
+  4 Sea Wolf Scout (1/2 {1T}, draws on coordinated attack).
 - **2-cost Vessels (10)**: 4 Pack Runner ({2T}, Wolfpack-1 trigger:
   +1 power EOT when ≥1 other ally Sub attacks), 3 Coastal Raider, 3
   Surface Skirmisher.
-- **3-cost Vessels (6)**: 3 Pack Leader U-99 ({3T}, lord), 3 Type-VII
-  Veteran ({3T}, TC-ramp engine).
+- **3-cost Vessels (6)**: 3 Pack Leader U-99 ({3T}, **TRIGGERED
+  Wolfpack-2 anthem, NOT a static lord** — fires only on attack-declared
+  with ≥2 OTHER attacking allied Subs), 3 Type-VII Veteran ({3T},
+  TC-ramp engine).
 - **Finishers + actions (6)**: 1 Admiral Dönitz ({5T}, legendary
   finisher), 2 Saturation Strike ({2T} action: your Subs +2/+0 EOT —
   **currently broken, see Engine punchlist**), 2 Wolfpack Doctrine
@@ -59,27 +61,47 @@ win — see Anticipated weaknesses.
 
 ## Key cards
 
-- **Pack Leader U-99** ({3T}, lord) — the per-card EV anchor. Once on
-  board, every other Sub gets +1 power, which is the difference
-  between "1 power chip blocked by Listening Post forever" and "2
-  power chip that punches through 0/3 walls in two hits".
-- **Wolfpack Doctrine** ({3T}, anthem) — same +1 power but persistent
-  global enchantment, AND it stacks with Pack Leader. Two anthems
-  = +2 power per Sub = the deck's winning state.
+- **Pack Leader U-99** ({3T}, TRIGGERED Wolfpack-2) — fires only on
+  attack-declared when ≥2 OTHER allied Submarines are also attacking
+  (i.e. **3+ total attackers**). When it fires, every attacking
+  Submarine you control gets +1 power EOT. **CORRECTION iter-3**:
+  this is NOT a static lord (the deck plan + strategy doc previously
+  described it that way; the code at
+  `src/cards/depths/submarine_fleet/wolfpack.py:291-310` is a
+  TRIGGERED ability). Strategic implication: a 2-attacker swing with
+  Pack Leader on board hits at printed power. You earn the anthem
+  ONLY by saturating to 3+ attackers in the same swing.
+- **Wolfpack Doctrine** ({3T}, **TRUE static anthem**) — `make_doctrine`
+  with `make_static_pt_boost` filter on your Submarines (`wolfpack.py:982`).
+  Always-on +1/+0 to your Subs while it's on the battlefield, no
+  attack threshold required. Stacks with Pack Leader. Two anthems
+  = +2 power per Sub = the deck's winning state. **In practice**:
+  Doctrine has NEVER been cast in iter-2 OR iter-3 (drawn early both
+  times, no TC headroom past Pack Leader). Open question for iter-4:
+  cut Doctrine OR cut Pack Leader, since the {3T} slot can't hold both.
 - **Pack Runner** ({2T}, Wolfpack-1) — the only 2-cost with a built-in
   scaling trigger. With ≥1 other ally Sub attacking, it gets +1 power
   EOT. Against a stretched defender (when the other Subs eat
   detections), Pack Runner is the unit that actually carries to the
   Flagship — exactly Pilot A's T17/T19 line.
-- **Sea Wolf Scout / U-Boat Wolf-cub** ({1T}) — enabler bodies. Their
-  job is to be on board when the anthem lands and to *eat detections*
-  on the saturation turn so the heavier hitters reach the Flagship.
-- **Saturation Strike** ({2T}, currently broken) — would convert any
-  saturation swing into a 2-power-per-attacker burst. **Engine bug**:
-  cast_effect_fn never invoked, so the +2 power EOT modifier is never
-  emitted, so combat damage uses unbuffed power. Filed in
-  `docs/strategy/depths.md` Engine punchlist. Until fixed, treat as a
-  dead 2-cost slot.
+- **U-Boat Wolf-cub** ({1T}, **vanilla 2/1**) — pure 2-power chip body.
+  No trigger. **CORRECTION iter-3**: prior plan implied a Wolfpack-1
+  trigger on Wolf-cub; that was wrong (`wolfpack.py:215-222` defines
+  no `setup_interceptors`). The Wolfpack-1 attack trigger lives on
+  Pack Runner, not Wolf-cub.
+- **Sea Wolf Scout** ({1T}, 1/2) — chip body that DRAWS 1 when it
+  attacks alongside another Submarine (`wolfpack.py:248-265`). Cantrip
+  body, not vanilla. Enabler for the anthem turn — its job is to be on
+  board when Pack Leader / Doctrine lands AND to *eat detections* on
+  the saturation turn so heavier hitters reach the Flagship.
+- **Saturation Strike** ({2T}, **NOW LIVE post-iter-1 fix**) — converts
+  a saturation swing into a 2-power-per-attacker burst. Pilot A iter-2
+  used it on T16 alongside Pack Leader U-99 + Wolf-cub for an
+  11-damage alpha; Pilot B's defense (medium AI) failed to detect
+  because the AI was pump-blind (separate bug, also patched iter-2).
+  Cast on the same turn as a saturation swing — it's the canonical
+  Wolfpack kill turn. With both engine fixes, expected lethal range
+  shifts to T15-T18 vs T20+ pre-fix.
 - **Admiral Dönitz** ({5T}, legendary) — top-end finisher. Not
   reachable in any iter so far; reachable only with a successful
   bank-turn line + Type-VII Veteran TC-ramp.
@@ -104,11 +126,14 @@ win — see Anticipated weaknesses.
 1. **{1T} Sub on T1** if available (Wolf-cub > Scout for the higher
    power).
 2. **{2T} Sub on T2-T3** to add a second attacker.
-3. **Bank turn around T7-T9** — skip a deploy if (a) hand contains
-   {3T}+ anthem AND (b) you have ≥2 Subs already on board AND (c)
-   skipping leaves you at TC=3+ next turn for the anthem cost.
+3. **Bank turns (PLURAL) until TC ≥ anthem cost** (refined iter-2).
+   Skip deploys consecutively if (a) hand contains {3T}+ anthem AND
+   (b) you have ≥2 Subs already on board AND (c) the bank actually
+   makes the anthem castable. From TC=1 with a {3T} anthem in hand,
+   that's 2 consecutive skips (typically T9 + T10). From TC=2, 1 skip.
    This is the **MOST IMPORTANT** non-obvious priority in this deck.
-   Pilot A's loss came from violating this rule.
+   Iter-1 violated this rule and lost; iter-2 banked T9 + T10 and won
+   21-vs-0 on T28.
 4. **Anthem T8-T11** — Pack Leader U-99 OR Wolfpack Doctrine. The
    anthem is the deck's win condition; everything else is enabler.
 5. **Pack Runner deploy on a turn ≥3 attackers will swing** — its
@@ -143,18 +168,105 @@ win — see Anticipated weaknesses.
 - **No 2-for-1 plays.** Every all-out swing trades 2+ attackers for
   ≤1 Flagship damage once the defender's SC budget comes online (T13+
   in Pilot A). The deck *must* land its lethal before this point.
-- **Saturation Strike currently dead** (engine bug). Treats as a dead
-  2-cost slot until cast_effect_fn dispatch is wired. Effective deck
-  size temporarily 28.
-- **Pack Leader U-99 may be a cut candidate.** {3T} legendary +1/+0
-  lord is good when reached but rarely reached. Pilot A's iter-1
-  suggested replacement with a {2T} body or {1T,1S} pinger. Defer the
-  cut decision to iter-2 (with the bank-turn line tested first — if
-  bank-turn fixes the reach problem, Pack Leader stays).
+- **Saturation Strike** is **NOW LIVE** (cast_effect_fn fixed iter-1).
+  Effective deck size restored to 30. Treat as a 2-cost finisher
+  spell, NOT a dead slot.
+- **Pack Leader U-99 STAYS in the deck (resolved iter-2).** Iter-2
+  bank-turn discipline reached him on T13 and he carried the
+  6-damage end of the 11-damage T16 alpha. The cut question is
+  closed; Pack Leader is the deck's primary kill enabler.
+- **Wolfpack Doctrine reach is shaky** even with bank-turn discipline.
+  Iter-2 evidence: Pilot A drew it T3, never cast it through T28
+  because TC stayed tight after the Pack Leader play. **Iter-3
+  CONFIRMS THE BRICK** — drew T3 again, never cast through T25 again.
+  Two consecutive bricks across two pilot runs is the answer the prior
+  plan was waiting on. Decision for iter-4: cut Doctrine OR cut Pack
+  Leader. Pack Leader is a triggered Wolfpack-2 (needs 3 attackers
+  swinging together) so its anthem fires inconsistently; Doctrine is
+  a true static lord but uncastable. The {3T} slot is the bottleneck.
+  Recommend testing both lines in iter-4: one variant cuts 2× Doctrine
+  (replaces with 2× Coastal Raider for cleaner curve), the other cuts
+  3× Pack Leader U-99 (replaces with 3× Coastal Raider plus relies on
+  Doctrine as the only anthem).
 
 ## Iteration log
 
 (Append after each game piloted with this deck.)
+
+- **2026-05-07 (iter-3)**: vs Silent_Hunter (LLM Pilot B, no-Listening-Post
+  pivot to aggressive). **W in 25 turns**, ME=6/25 vs OPP=0/25 (Flagship
+  sunk). Pilot A self-graded **8/10**. Bank discipline applied (T5+T9),
+  Pack Leader U-99 deployed T7, Type-VII Veteran T13. T17 alpha was the
+  first 3-attacker swing where Pack Leader's Wolfpack-2 trigger fired
+  (8 emitted, 5 net). T25 lethal off Saturation Strike + 5-attacker swing
+  while Pilot B sat at SC=1 (drained from a SC=6 detection storm at T23).
+  Race was MUCH closer than iter-2: P1 ended at 6/25 hull vs iter-2's
+  21/25.
+  Key new findings:
+  - **Pack Leader U-99 / U-Boat Wolf-cub doc errors uncovered.** Pilot A
+    read `wolfpack.py` and verified: Pack Leader is a TRIGGERED Wolfpack-2
+    (≥2 OTHER attackers required), Wolf-cub is vanilla. Both are now
+    corrected in this plan and `docs/strategy/depths.md`. **Strategic
+    consequence**: 2-attacker "alphas" with Pack Leader on board hit at
+    printed power. The deck does NOT earn its anthem until 3+ attackers
+    swing in the same turn.
+  - **Wolfpack Doctrine ABSENT FROM PLAY for the second consecutive
+    iter.** Drawn T3 in iter-3 (and again in iter-2), uncastable through
+    T25 because Pack Leader U-99 absorbed the {3T} bank-turn TC budget
+    every cycle. The deck's {3T} slot can hold ONE of {Pack Leader,
+    Doctrine}. **Open question: cut Doctrine (free up hand for closers)
+    OR cut Pack Leader (free Doctrine to be the always-on anthem)?**
+    Doctrine cut keeps Pack Leader's saturation-burst kill turn but
+    abandons the persistent +1 power. Pack Leader cut keeps the
+    persistent +1 power but loses the burst. Test in iter-4 by running
+    one variant of each.
+  - **Saturation Strike timing rule confirmed.** T25 lethal worked
+    BECAUSE Pilot B was at SC=1 from a prior detection storm. If Pilot
+    B had banked SC instead of spending all 6 on T23, the +2 EOT pump
+    would have been visible to defense (post-iter-2 fix) and Pilot B
+    would have intercepted enough of the swing to flip the outcome.
+    Sat Strike on a turn where opp SC ≥ attacker count = wash; opp
+    SC < attacker count = lethal.
+  - **Pack Leader is a single point of failure.** T21 incidental kill
+    (Snorkel Stalker interception) collapsed the anthem trigger source.
+    Subsequent swings ran on Sat Strike alone. With no redundant anthem
+    and no current way to ward Pack Leader, this remains a brittleness.
+  - **Defense AI under-detection (Pilot B's offensive 3-attacker swings
+    UNINTERCEPTED at T14/T18/T22)** — see `docs/strategy/depths.md`
+    Engine punchlist. P1's heuristic defense had SC=4-9 but the lethal-
+    buffer threshold (5 hull headroom) was never crossed by any single
+    swing. Document the asymmetry: bank discipline FOR P1's deploys
+    helped P1, but the lethal-buffer-only detection rule made P1's
+    own defense passive in mid-game.
+
+- **2026-05-07 (iter-2)**: vs Silent_Hunter (LLM Pilot B,
+  conservative). **W in 28 turns**, ME=21/25 vs OPP=0/25 (Flagship
+  sunk). Pilot A self-graded **8/10**. Bank-turn discipline applied:
+  banked T9 + T10 (skipped 2 deploys), reached TC=3 on T13, deployed
+  Pack Leader U-99. T16 alpha = Saturation Strike + Pack Leader (6) +
+  Wolf-cub (5) = 11 damage in one turn (Pilot B's medium-AI defense
+  failed to detect because of the pump-blind bug, separately patched).
+  T26 lethal off a 2-damage Wolf-cub punch through.
+  Key new findings:
+  - **Bank-turn rule confirmed correct.** Iter-1 (greedy, no banks):
+    L 0-vs-1 in 38 turns. Iter-2 (banks T9, T10): W 21-vs-0 in 28
+    turns. Same matchup, opposite result. Codified in Play priorities
+    #3 with the iter-2 refinement (PLURAL banks until TC ≥ anthem).
+  - **Saturation Strike confirmed firing post-iter-1 fix.** T16 alpha
+    of 11 damage is direct evidence; without the +2 EOT pump the
+    expected damage was ~5.
+  - **Pack Leader U-99 is the kill enabler.** Cut question closed —
+    he's the primary anchor for the alpha turn.
+  - **Hand-management gap**: Pilot A drew Wolfpack Doctrine T3 and
+    never cast it through T28; same for Admiral Dönitz (drew T20).
+    The deck's top-end is *reachable* with bank discipline but Pack
+    Leader U-99 absorbs the TC and leaves no room for the second
+    {3T} card. Possible iter-3 line: deploy a Type-VII Veteran on the
+    bank turn instead of pure-skip, to ramp TC for a stacked
+    Doctrine + Pack Leader + Saturation Strike turn. Untested.
+  - **Sea Wolf Scout's value is marginal**. 1-power chip body but
+    eaten by Listening Post (0/3) every detection turn for 1-2
+    damage returns. Possible cut for a third {2T} body.
 
 - **2026-05-07** (iter-1): vs Silent_Hunter (LLM Pilot B,
   conservative). **L in 38 turns**, ME=0/25 vs OPP=1/25 — a one-hull

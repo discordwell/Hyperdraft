@@ -715,7 +715,13 @@ def cmd_whose_turn(args) -> None:
 def cmd_play_active_turn(args) -> None:
     """Run ONE turn for whichever seat is active. Two-pilot mode counterpart
     of play-turn. Each pilot calls this on its own turn; the other pilot
-    polls whose-turn until its seat comes up."""
+    polls whose-turn until its seat comes up.
+
+    Pass --seat p1|p2 to assert the caller's expected seat is the active one.
+    Without --seat the call is unconditional (back-compat / single-pilot
+    mode); with --seat, mismatches refuse so neither pilot can sneak in
+    turns when the other is offline.
+    """
     payload = _load()
     if not payload.get("two_pilot"):
         print("play-active-turn requires --two-pilot at start; use play-turn instead")
@@ -732,6 +738,11 @@ def cmd_play_active_turn(args) -> None:
     order = getattr(tm, "turn_order", []) or [p1_id, p2_id]
     active = order[idx % len(order)]
     seat = "p1" if active == p1_id else "p2"
+    expected = getattr(args, "seat", None)
+    if expected and expected != seat:
+        print(f"refused: active seat is {seat}, you specified --seat {expected}")
+        print(f"(poll whose-turn and try again when it returns {expected})")
+        return
     h = payload["handler"] if seat == "p1" else payload["ai_handler"]
 
     n_man = len(h.maneuver_q)
@@ -1018,7 +1029,8 @@ def main() -> None:
     _seat(sub.add_parser("plan-clear")).set_defaults(fn=cmd_plan_clear)
 
     sub.add_parser("play-turn").set_defaults(fn=cmd_play_turn)
-    sub.add_parser("play-active-turn").set_defaults(fn=cmd_play_active_turn)
+    pat = sub.add_parser("play-active-turn"); pat.add_argument("--seat", choices=["p1", "p2"], default=None)
+    pat.set_defaults(fn=cmd_play_active_turn)
     sub.add_parser("history").set_defaults(fn=cmd_history)
     sub.add_parser("result").set_defaults(fn=cmd_result)
 

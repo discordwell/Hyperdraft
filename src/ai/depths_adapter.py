@@ -449,7 +449,20 @@ def _parse_charge_cost_str(raw: Optional[str]) -> Optional[tuple[int, int]]:
     return (tc, sc)
 
 
-def _power(obj: 'GameObject') -> int:
+def _power(obj: 'GameObject', state: Optional[GameState] = None) -> int:
+    """Effective power. When ``state`` is supplied, applies runtime
+    modifiers (PT_MODIFICATION events from ``cast_effect_fn`` actions
+    like Saturation Strike, +1/+1 counters, lord auras, etc.) by routing
+    through ``src.engine.queries.get_power``. When ``state`` is omitted,
+    returns the printed value — preserves the legacy behaviour for
+    callsites that don't care about pumps (mulligan / deploy heuristics).
+    """
+    if state is not None:
+        try:
+            from src.engine.queries import get_power as _query_get_power
+            return int(_query_get_power(obj, state))
+        except Exception:
+            pass
     return int(obj.characteristics.power or 0)
 
 
@@ -474,12 +487,20 @@ def _value_ratio(card: 'GameObject') -> float:
     return float(pt) / float(cost)
 
 
-def _depth_modifier_damage(attacker: 'GameObject', target: 'GameObject') -> int:
+def _depth_modifier_damage(attacker: 'GameObject', target: 'GameObject',
+                           state: Optional[GameState] = None) -> int:
     """
     Damage after the depth-band modifier (§5: −1 per band of separation,
     min 1). ``homing`` keyword ignores the modifier.
+
+    When ``state`` is supplied, projects the EFFECTIVE power including
+    runtime PT modifiers (e.g. Saturation Strike's +2 EOT pump). The AI
+    defense path (``_medium_detections`` / ``_medium_interceptors``)
+    threads state through so a pumped attacker isn't undercounted as the
+    printed value. Iter 2 lesson: without this, defender stays asleep
+    while a 9-damage alpha lands unintercepted.
     """
-    base = _power(attacker)
+    base = _power(attacker, state)
     if "homing" in attacker.characteristics.keywords:
         return base
     a_band = attacker.state.depth_band
@@ -1344,7 +1365,9 @@ class DepthsAIAdapter:
             # Only Flagship-bound attackers feed the buffer math; other
             # detections are a luxury at this tier.
             target_is_flagship = "Flagship" in target.characteristics.subtypes
-            danger = _depth_modifier_damage(attacker, target) if target_is_flagship else 0
+            # Pass state so PT_MODIFICATION pumps (Saturation Strike, anthems)
+            # are reflected in the danger projection. Iter-2 fix.
+            danger = _depth_modifier_damage(attacker, target, state) if target_is_flagship else 0
             ranked.append((danger, spec))
         ranked.sort(key=lambda x: x[0], reverse=True)
 
@@ -1380,7 +1403,8 @@ class DepthsAIAdapter:
             target = state.objects.get(spec.target_id)
             if attacker is None or target is None:
                 continue
-            threats.append((_depth_modifier_damage(attacker, target), spec))
+            # Pass state — runtime pumps must be reflected in interceptor triage.
+            threats.append((_depth_modifier_damage(attacker, target, state), spec))
         threats.sort(key=lambda x: x[0], reverse=True)
 
         assignments: list[BlockerSpec] = []
@@ -1393,15 +1417,18 @@ class DepthsAIAdapter:
             if not candidates:
                 continue
             # Prefer interceptors that survive the trade and ideally kill the attacker.
+            # Pass state on attacker reads so PT pumps register; blocker stats
+            # are our own so printed power is fine for relative ordering.
+            attacker_pwr = _power(attacker, state)
             def block_score(v: 'GameObject') -> tuple[int, int, int]:
-                survives = 1 if _power(attacker) < _hull(v) else 0
+                survives = 1 if attacker_pwr < _hull(v) else 0
                 kills = 1 if _power(v) >= _hull(attacker) else 0
                 # Prefer cheapest hulls when no good option exists.
                 value_lost = -(_power(v) + _hull(v)) if not survives else 0
                 return (kills + survives, value_lost, _power(v))
             blocker = max(candidates, key=block_score)
             # Don't trade if we lose value AND don't kill (chump only when threatened lethally).
-            survives = _power(attacker) < _hull(blocker)
+            survives = attacker_pwr < _hull(blocker)
             kills = _power(blocker) >= _hull(attacker)
             if not survives and not kills:
                 # Only chump if attacker is heading at the Flagship for >= MIN_ATTACK_DAMAGE.

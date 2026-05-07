@@ -213,6 +213,98 @@ def test_deploy_refuses_when_cant_pay():
     asyncio.run(_run())
 
 
+def test_medium_ai_defense_sees_pumped_power():
+    """Regression: the medium AI's defense triage must reflect runtime PT pumps.
+
+    Pre-fix, ``_depth_modifier_damage`` (and ``_power``) read
+    ``obj.characteristics.power`` (the printed value), so a Saturation Strike
+    +2 EOT pump was invisible to ``_medium_detections``. Defender saw a
+    base-power projection well below the lethal-buffer threshold and declined
+    to detect — Pilot B iter-2 ate a 9-damage alpha as a result.
+
+    Pure-unit test: constructs a minimal GameObject pair (attacker + flagship)
+    with controlled stats and a fabricated GameState that holds them. Avoids
+    deck-draw randomness so the assertion is deterministic.
+    """
+    from src.engine.types import GameObject, GameState, ObjectState, Characteristics, CardType, ZoneType
+    from src.engine.depths import DepthBand
+    from src.ai.depths_adapter import (
+        _depth_modifier_damage, _power,
+    )
+
+    # Build a state with two GameObjects: attacker at SURFACE, flagship at PERISCOPE.
+    state = GameState()
+    state.interceptors = {}
+
+    attacker = GameObject(
+        id="att_1",
+        name="Test Sub",
+        owner="A",
+        controller="A",
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.DEPTHS_VESSEL},
+            subtypes={"Submarine"},
+            power=2,
+            toughness=2,
+        ),
+        state=ObjectState(),
+    )
+    attacker.state.depth_band = DepthBand.SURFACE
+    attacker.state.pt_modifiers = []
+
+    flagship = GameObject(
+        id="fs_1",
+        name="Test Flagship",
+        owner="B",
+        controller="B",
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.DEPTHS_VESSEL},
+            subtypes={"Submarine", "Flagship"},
+            power=0,
+            toughness=25,
+        ),
+        state=ObjectState(),
+    )
+    flagship.state.depth_band = DepthBand.PERISCOPE
+    flagship.state.pt_modifiers = []
+
+    state.objects = {attacker.id: attacker, flagship.id: flagship}
+
+    # Pre-pump baseline: SURFACE → PERISCOPE has 1 band of separation, so
+    # damage = max(1, 2 - 1) = 1.
+    unpumped_no_state = _depth_modifier_damage(attacker, flagship)
+    unpumped_with_state = _depth_modifier_damage(attacker, flagship, state)
+    assert unpumped_no_state == unpumped_with_state == 1, (
+        f"Pre-pump baseline mismatch: no_state={unpumped_no_state}, "
+        f"with_state={unpumped_with_state}; expected 1 = max(1, 2-1).")
+
+    # Apply a +3 power EOT pump directly to pt_modifiers (skipping the
+    # pipeline since this is a pure-unit test of the projection path).
+    attacker.state.pt_modifiers.append({
+        "power": 3, "toughness": 0, "duration": "end_of_turn", "source_id": "test",
+    })
+
+    pumped_with_state = _depth_modifier_damage(attacker, flagship, state)
+    pumped_no_state = _depth_modifier_damage(attacker, flagship)
+
+    # Effective power 5, depth penalty 1 → max(1, 5-1) = 4.
+    assert pumped_with_state == 4, (
+        f"Post-pump state-aware projection should be 4 (max(1, 5-1)), "
+        f"got {pumped_with_state}.")
+    assert pumped_no_state == 1, (
+        f"State-less projection should still see printed-only power "
+        f"(damage 1), got {pumped_no_state}.")
+
+    # And the load-bearing assertion: _power(obj, state) routes through
+    # get_power and reflects the pump.
+    assert _power(attacker, state) == 5, (
+        f"_power(obj, state) must include the pump; got {_power(attacker, state)}.")
+    assert _power(attacker) == 2, (
+        f"_power(obj) without state must return printed-only; got {_power(attacker)}.")
+
+
 if __name__ == "__main__":
     test_every_card_loads()
     test_deck_wolfpack_builds()
@@ -222,4 +314,5 @@ if __name__ == "__main__":
     test_card_costs_propagate_to_characteristics()
     test_deploy_refuses_when_cant_pay()
     test_cast_effect_fn_actually_runs()
+    test_medium_ai_defense_sees_pumped_power()
     print("OK — SUBS smoke tests pass.")
