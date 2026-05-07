@@ -50,6 +50,15 @@ _DEFAULTS = {
     "draw_bonus": 12,
     "early_big_mob_penalty": 10,
     "late_big_mob_bonus": 10,
+    # Penalty applied to a tool/weapon with positive mc_attack when the
+    # player has no Bed deployed (suicide-equip avoidance). 0 = no
+    # effect for existing presets.
+    "weapon_no_bed_penalty": 0,
+    # Bonus added to tutor/draw cards (Eyes of Ender, Villager Trade)
+    # when the player has no Bed yet, on top of the base tutor/draw
+    # bonus. Compensates for Bed copies sitting in the library. 0 = no
+    # effect for existing presets.
+    "bed_search_bonus": 0,
     # Mining
     # mining_mode: "premium_first" | "wood_first" | "iron_first" |
     # "redstone_first" | "diamond_first" | "random"
@@ -145,11 +154,17 @@ MC_BIAS_PRESETS: dict[str, dict] = {
     "passive_econ": _preset(
         # Workers tribal + chump-block everything to slow opponent down,
         # then close late.
-        worker_bonus_under_3=60, worker_bonus_first=30,
+        # 2026-05-06 (v2): worker_bonus_under_3 60->80 so Workers
+        # consistently outscore 4/4 Endermen in early turns;
+        # weapon_no_bed_penalty=18 to stop the AI from equipping Iron
+        # Sword while undefended; bed_search_bonus=40 to bias tutor /
+        # draw effects toward finding the missing Bed.
+        worker_bonus_under_3=80, worker_bonus_first=30,
         turnbonus_struct_bonus=5, explore_map_bonus=15,
         strip_mine_bonus=15, find_diamonds_bonus=10, chop_trees_bonus=25,
         untap_worker_bonus=30, nether_expedition_bonus=10,
         early_big_mob_penalty=20, late_big_mob_bonus=5,
+        weapon_no_bed_penalty=18, bed_search_bonus=40,
         attack_priority="structure_first", block_mode="chump_anything",
     ),
     "wood_economy": _preset(
@@ -544,6 +559,14 @@ class MinecraftAIAdapter:
 
             if CardType.MC_TOOL in types:
                 score += 15 + int(getattr(obj.card_def, "mc_attack", 0) or 0)
+                # Penalize equipping an offensive weapon when undefended:
+                # the AI's avatar dying mid-game is far worse than a
+                # delayed equip.
+                if (
+                    not has_bed
+                    and int(getattr(obj.card_def, "mc_attack", 0) or 0) > 0
+                ):
+                    score -= int(bias.get("weapon_no_bed_penalty", 0))
 
             if CardType.MC_ACTION in types:
                 score += 8
@@ -561,8 +584,12 @@ class MinecraftAIAdapter:
                     score += int(bias.get("nether_expedition_bonus", 0))
                 if name == "Eyes of Ender":
                     score += int(bias.get("tutor_bonus", 0))
+                    if not has_bed:
+                        score += int(bias.get("bed_search_bonus", 0))
                 if name == "Villager Trade":
                     score += int(bias.get("draw_bonus", 0))
+                    if not has_bed:
+                        score += int(bias.get("bed_search_bonus", 0))
 
             candidates.append((score, oid))
 
