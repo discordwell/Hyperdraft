@@ -117,6 +117,7 @@ def make_trader(
             types={CardType.FIN_TRADER},
             power=power,
             toughness=toughness,
+            mana_cost=cost,
         ),
         domain="FINA",
         text=text,
@@ -136,7 +137,7 @@ def make_order(
     return CardDefinition(
         name=name,
         mana_cost=cost,
-        characteristics=Characteristics(types={CardType.FIN_ORDER}),
+        characteristics=Characteristics(types={CardType.FIN_ORDER}, mana_cost=cost),
         domain="FINA",
         text=text,
         rarity=rarity,
@@ -155,7 +156,7 @@ def make_strategy(
     return CardDefinition(
         name=name,
         mana_cost=cost,
-        characteristics=Characteristics(types={CardType.FIN_STRATEGY}),
+        characteristics=Characteristics(types={CardType.FIN_STRATEGY}, mana_cost=cost),
         domain="FINA",
         text=text,
         rarity=rarity,
@@ -173,7 +174,7 @@ def make_asset(
     return CardDefinition(
         name=name,
         mana_cost=cost,
-        characteristics=Characteristics(types={CardType.FIN_ASSET}),
+        characteristics=Characteristics(types={CardType.FIN_ASSET}, mana_cost=cost),
         domain="FINA",
         text=text,
         rarity=rarity,
@@ -191,7 +192,7 @@ def make_structure(
     return CardDefinition(
         name=name,
         mana_cost=cost,
-        characteristics=Characteristics(types={CardType.FIN_STRUCTURE}),
+        characteristics=Characteristics(types={CardType.FIN_STRUCTURE}, mana_cost=cost),
         domain="FINA",
         text=text,
         rarity=rarity,
@@ -209,7 +210,7 @@ def make_derivative(
     return CardDefinition(
         name=name,
         mana_cost=cost,
-        characteristics=Characteristics(types={CardType.FIN_DERIVATIVE}),
+        characteristics=Characteristics(types={CardType.FIN_DERIVATIVE}, mana_cost=cost),
         domain="FINA",
         text=text,
         rarity=rarity,

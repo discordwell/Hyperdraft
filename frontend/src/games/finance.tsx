@@ -134,6 +134,7 @@ function TraderTile({
   selectable = false,
   isAttacker = false,
   onClick,
+  onShowDetail,
 }: {
   card: CardData;
   isMe: boolean;
@@ -141,6 +142,7 @@ function TraderTile({
   selectable?: boolean;
   isAttacker?: boolean;
   onClick?: () => void;
+  onShowDetail?: (card: CardData) => void;
 }) {
   const tapped = card.tapped;
   const sick = !!card.summoning_sickness;
@@ -151,13 +153,14 @@ function TraderTile({
   return (
     <button
       onClick={onClick}
+      onContextMenu={onShowDetail ? (e => { e.preventDefault(); onShowDetail(card); }) : undefined}
       disabled={!selectable && !selected}
       className={`group relative border-2 bg-[#050d1a] px-2 py-1.5 text-left transition
         ${selected ? selectedBorder : borderColor}
         ${selectable ? 'cursor-pointer hover:border-yellow-200' : 'cursor-default'}
         ${tapped ? 'opacity-60 rotate-6' : ''}
       `}
-      title={`${card.name}${sick ? ' (Summoning Sickness)' : ''}${tapped ? ' (Committed)' : ''}`}
+      title="Right-click to inspect"
       style={{ minWidth: 100, maxWidth: 130 }}
     >
       {attackerBadge && (
@@ -197,10 +200,12 @@ function PermanentTile({
   card,
   isMe,
   onClick,
+  onShowDetail,
 }: {
   card: CardData;
   isMe: boolean;
   onClick?: () => void;
+  onShowDetail?: (card: CardData) => void;
 }) {
   const tapped = card.tapped;
   const border = cardBorderClass(card);
@@ -209,13 +214,14 @@ function PermanentTile({
   return (
     <div
       onClick={onClick}
+      onContextMenu={onShowDetail ? (e => { e.preventDefault(); onShowDetail(card); }) : undefined}
       className={`border ${border} bg-[#050d1a] px-2 py-1.5 text-left transition
         ${onClick ? 'cursor-pointer hover:brightness-125' : ''}
         ${tapped ? 'opacity-60' : ''}
         ${!isMe ? 'opacity-80' : ''}
       `}
       style={{ minWidth: 90, maxWidth: 120 }}
-      title={card.text}
+      title="Right-click to inspect"
     >
       <div className="text-[11px] font-black leading-tight text-slate-100 uppercase tracking-wide truncate">
         {card.name}
@@ -230,6 +236,110 @@ function PermanentTile({
   );
 }
 
+// ---- Card detail modal --------------------------------------------------
+
+function CardDetailModal({ card, onClose }: { card: CardData; onClose: () => void }) {
+  const borderColor = {
+    FIN_TRADER: '#38bdf8',
+    FIN_ASSET: '#fbbf24',
+    FIN_STRUCTURE: '#a78bfa',
+    FIN_DERIVATIVE: '#2dd4bf',
+    FIN_ORDER: '#fb7185',
+    FIN_STRATEGY: '#fb923c',
+  }[card.types.find(t => t.startsWith('FIN_')) || ''] ?? '#64748b';
+
+  const typeLabel = cardTypeLabel(card);
+  const cost = liquidityCost(card);
+  const hasStats = isTrader(card) || card.power != null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.82)' }}
+      onClick={onClose}
+    >
+      <div
+        className="relative border-2 p-5 font-mono"
+        style={{
+          borderColor,
+          background: '#03080f',
+          minWidth: 280,
+          maxWidth: 400,
+          boxShadow: `0 0 32px ${borderColor}55`,
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Close */}
+        <button
+          onClick={onClose}
+          className="absolute right-2 top-2 text-slate-500 hover:text-slate-200 text-lg leading-none"
+        >
+          ✕
+        </button>
+
+        {/* Name + cost */}
+        <div className="flex items-start justify-between gap-3 pr-6">
+          <div className="text-base font-black uppercase tracking-wider text-slate-100">
+            {card.name}
+          </div>
+          <div
+            className="shrink-0 border px-2 py-0.5 text-sm font-bold"
+            style={{ borderColor: '#ffd700', color: '#ffd700', background: '#0d0a00' }}
+          >
+            {cost}L
+          </div>
+        </div>
+
+        {/* Type */}
+        <div className="mt-1 text-[10px] uppercase tracking-widest" style={{ color: borderColor }}>
+          {typeLabel}
+          {card.subtypes?.length ? ` — ${card.subtypes.join(' ')}` : ''}
+        </div>
+
+        {/* P/T */}
+        {hasStats && (
+          <div className="mt-2 inline-block border border-sky-700/60 bg-black/60 px-3 py-0.5 text-sm font-bold text-sky-200">
+            {card.power ?? 0} / {card.toughness ?? 0}
+          </div>
+        )}
+
+        {/* Keywords */}
+        {(card.keywords?.length ?? 0) > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {(card.keywords ?? []).map(kw => (
+              <span key={kw} className="border border-slate-600 px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-slate-400">
+                {kw}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Full text */}
+        {card.text && (
+          <div className="mt-3 border-t border-slate-800 pt-3 text-[11px] leading-relaxed text-slate-300 whitespace-pre-wrap">
+            {card.text}
+          </div>
+        )}
+
+        {/* Status chips */}
+        <div className="mt-3 flex gap-2 text-[9px] uppercase tracking-widest">
+          {card.tapped && <span className="border border-amber-600 px-1.5 py-0.5 text-amber-400">COMMITTED</span>}
+          {card.summoning_sickness && <span className="border border-slate-600 px-1.5 py-0.5 text-slate-500">FRESH</span>}
+          {(card.damage ?? 0) > 0 && (
+            <span className="border border-rose-700 px-1.5 py-0.5 text-rose-400">
+              {card.damage} DMG
+            </span>
+          )}
+        </div>
+
+        <div className="mt-3 text-[9px] text-slate-600 uppercase tracking-widest">
+          RIGHT-CLICK ANY CARD TO INSPECT
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Hand card. */
 function HandCard({
   card,
@@ -237,12 +347,14 @@ function HandCard({
   selected,
   liquidity,
   onClick,
+  onShowDetail,
 }: {
   card: CardData;
   playable: boolean;
   selected: boolean;
   liquidity: number;
   onClick: () => void;
+  onShowDetail: (card: CardData) => void;
 }) {
   const border = selected
     ? 'border-yellow-300'
@@ -256,12 +368,13 @@ function HandCard({
   return (
     <button
       onClick={onClick}
+      onContextMenu={e => { e.preventDefault(); onShowDetail(card); }}
       disabled={!playable}
       className={`border-2 ${border} bg-[#050d1a] p-2 text-left transition
         ${playable ? 'hover:brightness-125 cursor-pointer' : 'cursor-default opacity-50'}
         ${selected ? 'shadow-[0_0_10px_#ffd70066]' : ''}
       `}
-      title={card.text}
+      title="Right-click to inspect"
       style={{ minWidth: 120, maxWidth: 160 }}
     >
       {/* Header row: name + cost */}
@@ -405,6 +518,7 @@ function TradingFloorRow({
   selectedId,
   selectableIds,
   onClickTrader,
+  onShowDetail,
   flipped = false,
 }: {
   label: string;
@@ -415,6 +529,7 @@ function TradingFloorRow({
   selectedId: string | null;
   selectableIds: Set<string>;
   onClickTrader: (card: CardData) => void;
+  onShowDetail: (card: CardData) => void;
   flipped?: boolean;
 }) {
   const empty = traders.length === 0 && assets.length === 0 && structures.length === 0;
@@ -442,13 +557,14 @@ function TradingFloorRow({
               selectable={selectableIds.has(c.id)}
               isAttacker={false}
               onClick={selectableIds.has(c.id) || selectedId === c.id ? () => onClickTrader(c) : undefined}
+              onShowDetail={onShowDetail}
             />
           ))}
           {assets.map((c) => (
-            <PermanentTile key={c.id} card={c} isMe={isMe} />
+            <PermanentTile key={c.id} card={c} isMe={isMe} onShowDetail={onShowDetail} />
           ))}
           {structures.map((c) => (
-            <PermanentTile key={c.id} card={c} isMe={isMe} />
+            <PermanentTile key={c.id} card={c} isMe={isMe} onShowDetail={onShowDetail} />
           ))}
         </div>
       )}
@@ -514,6 +630,7 @@ export function FinanceGameBoard({
   // Local UI state
   const [selectedAttackerId, setSelectedAttackerId] = useState<string | null>(null);
   const [selectedHandCardId, setSelectedHandCardId] = useState<string | null>(null);
+  const [detailCard, setDetailCard] = useState<CardData | null>(null);
 
   // Combat prompt if server sends it (same shape as Depths)
   const combatPrompt = (gameState as unknown as Record<string, unknown>)['finance_combat'] as {
@@ -852,6 +969,7 @@ export function FinanceGameBoard({
               selectedId={selectedAttackerId ? oppTraders.find((c) => selectableOppTraders.has(c.id))?.id ?? null : null}
               selectableIds={selectableOppTraders}
               onClickTrader={handleOppTraderClick}
+              onShowDetail={setDetailCard}
               flipped
             />
 
@@ -872,6 +990,7 @@ export function FinanceGameBoard({
               selectedId={selectedAttackerId}
               selectableIds={selectableMyTraders}
               onClickTrader={handleMyTraderClick}
+              onShowDetail={setDetailCard}
             />
 
           </div>
@@ -978,6 +1097,7 @@ export function FinanceGameBoard({
                   selected={selectedHandCardId === card.id}
                   liquidity={myLiquidity}
                   onClick={() => handleHandCardClick(card)}
+                  onShowDetail={setDetailCard}
                 />
               ))}
             </div>
@@ -985,6 +1105,12 @@ export function FinanceGameBoard({
         </footer>
 
       </div>
+
+      {/* Card detail modal */}
+      {detailCard && (
+        <CardDetailModal card={detailCard} onClose={() => setDetailCard(null)} />
+      )}
+
     </div>
   );
 }
