@@ -500,17 +500,26 @@ def run_api_mode(specs, force, cfg, retries, sleep_s):
     return generated, skipped, failed
 
 
-def run_manual_mode(specs):
+def run_manual_mode(specs, force: bool = False):
+    """Dump a paste-into-ChatGPT prompt pack JSON. Skips cards that already
+    have a PNG on disk so the output only lists what's still missing."""
     pack = []
+    skipped = 0
     for name, card in specs:
+        filename = f"{to_filename(name)}.png"
+        if (OUT_DIR / filename).exists() and not force:
+            skipped += 1
+            continue
         pack.append({
             "card": name,
-            "filename": f"{to_filename(name)}.png",
+            "filename": filename,
             "prompt": build_prompt(card),
         })
     PROMPT_PACK_PATH.parent.mkdir(parents=True, exist_ok=True)
     PROMPT_PACK_PATH.write_text(json.dumps(pack, indent=2), encoding="utf-8")
     print(f"Wrote prompt pack with {len(pack)} entries to {PROMPT_PACK_PATH.relative_to(PROJECT_ROOT)}")
+    if skipped:
+        print(f"Skipped {skipped} cards already cached on disk (pass --force to include them).")
 
 
 def run_local_mode(specs, force):
@@ -536,7 +545,7 @@ def main():
     print(f"Targeting {len(specs)} cards (set={args.set_filter})")
 
     if args.mode == "manual":
-        run_manual_mode(specs)
+        run_manual_mode(specs, force=args.force)
         return
 
     if args.mode == "local":
