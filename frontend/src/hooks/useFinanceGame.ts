@@ -104,23 +104,26 @@ export function useFinanceGame() {
     [myPlayer],
   );
 
-  const currentPhase = useMemo(
-    () => (gameState as unknown as Record<string, unknown>)['finance_phase'] as string
-      ?? gameState?.phase
-      ?? 'PRE_MARKET',
-    [gameState],
-  );
+  const currentPhase = useMemo(() => {
+    if (!gameState) return 'PRE_MARKET';
+    const gs = gameState as unknown as Record<string, unknown>;
+    return (gs['finance_phase'] as string) ?? gameState.phase ?? 'PRE_MARKET';
+  }, [gameState]);
 
-  // Derivatives Desk — list of card IDs from turn_data
+  // Derivatives Desk — list of card IDs from finance_turn_data
   const myDerivDesk = useMemo<string[]>(() => {
-    const raw = (gameState as unknown as Record<string, unknown>)[`finance_deriv_desk_${playerId}`];
+    if (!gameState || !playerId) return [];
+    const gs = gameState as unknown as Record<string, unknown>;
+    const turnData = gs['finance_turn_data'] as Record<string, unknown> | undefined;
+    const raw = turnData?.[`finance_deriv_desk_${playerId}`];
     return Array.isArray(raw) ? (raw as string[]) : [];
   }, [gameState, playerId]);
 
   // Dark Pool — boolean whether any card occupies the slot
   const darkPoolActive = useMemo<boolean>(() => {
-    const raw = (gameState as unknown as Record<string, unknown>)['finance_dark_pool'];
-    return !!raw;
+    if (!gameState) return false;
+    const gs = gameState as unknown as Record<string, unknown>;
+    return !!(gs['finance_dark_pool']);
   }, [gameState]);
 
   // ---- Capability helpers ----------------------------------------------
@@ -143,28 +146,28 @@ export function useFinanceGame() {
   // ---- Actions ---------------------------------------------------------
 
   const playCard = useCallback((cardId: string) => {
-    sendFinanceAction('CAST_SPELL', { cardId });
+    sendFinanceAction('FIN_PLAY_CARD', { cardId });
   }, [sendFinanceAction]);
 
   const declareAttackers = useCallback(
     (attackers: { attacker_id: string; target_id?: string }[]) => {
-      sendFinanceAction('DECLARE_ATTACKERS', { attackers });
+      sendFinanceAction('FIN_DECLARE_ATTACKERS', { attackers });
     },
     [sendFinanceAction],
   );
 
   const declareBlockers = useCallback(
     (blockers: { attacker_id: string; blocker_id: string }[]) => {
-      sendFinanceAction('DECLARE_BLOCKERS', { blockers });
+      sendFinanceAction('FIN_DECLARE_BLOCKERS', { blockers });
     },
     [sendFinanceAction],
   );
 
   const activateAbility = useCallback((sourceId: string, abilityId?: string) => {
-    sendFinanceAction('ACTIVATE_ABILITY', { sourceId, abilityId });
+    sendFinanceAction('FIN_ACTIVATE_ABILITY', { sourceId, abilityId });
   }, [sendFinanceAction]);
 
-  const endTurn = useCallback(() => sendFinanceAction('PASS'), [sendFinanceAction]);
+  const endTurn = useCallback(() => sendFinanceAction('FIN_END_TURN'), [sendFinanceAction]);
 
   const sendAction = useCallback(
     (action: object) => sendFinanceAction((action as { action_type: ActionType }).action_type, action as never),

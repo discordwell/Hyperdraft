@@ -81,6 +81,13 @@ class ActionType(str, Enum):
     MC_DECLARE_ATTACKERS = "MC_DECLARE_ATTACKERS"
     MC_DECLARE_BLOCKERS = "MC_DECLARE_BLOCKERS"
     MC_END_TURN = "MC_END_TURN"
+    # Finance TCG action types
+    FIN_PLAY_CARD = "FIN_PLAY_CARD"
+    FIN_DECLARE_ATTACKERS = "FIN_DECLARE_ATTACKERS"
+    FIN_DECLARE_BLOCKERS = "FIN_DECLARE_BLOCKERS"
+    FIN_ACTIVATE_ABILITY = "FIN_ACTIVATE_ABILITY"
+    FIN_END_PHASE = "FIN_END_PHASE"
+    FIN_END_TURN = "FIN_END_TURN"
 
 
 class ChoiceType(str, Enum):
@@ -103,9 +110,9 @@ class ChoiceType(str, Enum):
 class CreateMatchRequest(BaseModel):
     """Request to create a new match."""
     mode: MatchMode = MatchMode.HUMAN_VS_BOT
-    game_mode: Literal["mtg", "hearthstone", "pokemon", "yugioh", "minecraft"] = Field(
+    game_mode: Literal["mtg", "hearthstone", "pokemon", "yugioh", "minecraft", "finance"] = Field(
         default="mtg",
-        description="Rules engine: 'mtg', 'hearthstone', 'pokemon', 'yugioh', or 'minecraft'"
+        description="Rules engine: 'mtg', 'hearthstone', 'pokemon', 'yugioh', 'minecraft', or 'finance'"
     )
     variant: Optional[str] = Field(default=None, description="Game variant (e.g. 'stormrift') — installs heroes/decks/modifiers")
     hero_class: Optional[str] = Field(default=None, description="Hero class for variant (e.g. 'Pyromancer', 'Cryomancer')")
@@ -392,6 +399,10 @@ class GameStateResponse(BaseModel):
     minecraft_grid: dict[str, list[list[Optional[CardData]]]] = Field(default_factory=dict)
     minecraft_combat: dict = Field(default_factory=dict)
     minecraft_exposed_targets: dict[str, list[str]] = Field(default_factory=dict)
+    # Finance TCG state
+    finance_phase: Optional[str] = None
+    finance_dark_pool: Optional[str] = None
+    finance_turn_data: dict = Field(default_factory=dict)
     # Game log
     game_log: list[GameLogEntry] = Field(default_factory=list)
 
@@ -413,8 +424,9 @@ class ActionResultResponse(BaseModel):
 
 
 class CardDefinitionData(BaseModel):
-    """Card definition for the card database."""
+    """Card definition for the card database (multi-game)."""
     name: str
+    game: str = Field(default="mtg", description="Game id: mtg, minecraft, pokemon, yugioh, hearthstone")
     domain: Optional[str] = Field(default=None, description="Card domain / cardspace (e.g., MTG, TMH, TLAC)")
     mana_cost: Optional[str] = None
     types: list[str] = Field(default_factory=list)
@@ -423,6 +435,8 @@ class CardDefinitionData(BaseModel):
     toughness: Optional[int] = None
     text: str = ""
     colors: list[str] = Field(default_factory=list)
+    image_url: Optional[str] = None
+    extras: dict = Field(default_factory=dict, description="Game-specific fields (energy_type for Pokemon, mc_cost for Minecraft, etc.)")
 
 
 class CardListResponse(BaseModel):

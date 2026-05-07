@@ -12,6 +12,7 @@ from .hs import HearthstoneModeAdapter
 from .pkm import PokemonModeAdapter
 from .ygo import YugiohModeAdapter
 from .mc import MinecraftModeAdapter
+from .finance import FinanceModeAdapter
 
 
 _ADAPTERS: dict[str, ModeAdapter] = {
@@ -20,6 +21,7 @@ _ADAPTERS: dict[str, ModeAdapter] = {
     "pokemon": PokemonModeAdapter(),
     "yugioh": YugiohModeAdapter(),
     "minecraft": MinecraftModeAdapter(),
+    "finance": FinanceModeAdapter(),
 }
 
 

@@ -42,7 +42,7 @@ def generate_id() -> str:
 
 
 # Action type prefixes handled by specific mode adapters.
-_MODE_ACTION_PREFIXES = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO", "minecraft": "MC"}
+_MODE_ACTION_PREFIXES = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO", "minecraft": "MC", "finance": "FIN"}
 
 _HS_ACTION_TYPES = frozenset({
     "HS_PLAY_CARD", "HS_ATTUNE_CARD", "HS_ATTACK", "HS_HERO_POWER", "HS_END_TURN",
@@ -63,6 +63,11 @@ _YGO_ACTION_TYPES = frozenset({
 _MC_ACTION_TYPES = frozenset({
     "MC_PLAY_CARD", "MC_ASSIGN_WORKER", "MC_AVATAR_ACTION", "MC_EXPLORE_BIOME",
     "MC_DECLARE_ATTACKERS", "MC_DECLARE_BLOCKERS", "MC_END_TURN",
+})
+
+_FIN_ACTION_TYPES = frozenset({
+    "FIN_PLAY_CARD", "FIN_DECLARE_ATTACKERS", "FIN_DECLARE_BLOCKERS",
+    "FIN_ACTIVATE_ABILITY", "FIN_END_PHASE", "FIN_END_TURN",
 })
 
 
@@ -612,6 +617,19 @@ class GameSession:
                 minecraft_grid[pid] = serialized_rows
                 minecraft_exposed_targets[pid] = mc.exposed_grid_targets(game_state, pid)
 
+        # Finance-specific state
+        finance_phase = None
+        finance_dark_pool_val = None
+        finance_turn_data_extra: dict = {}
+        if game_state.game_mode == "finance":
+            tm = self.game.turn_manager
+            if hasattr(tm, "fin_turn_state"):
+                finance_phase = tm.fin_turn_state.phase.name
+            finance_dark_pool_val = game_state.turn_data.get("finance_dark_pool")
+            for pid in game_state.players:
+                desk_key = f"finance_deriv_desk_{pid}"
+                finance_turn_data_extra[desk_key] = game_state.turn_data.get(desk_key, [])
+
         return GameStateResponse(
             match_id=self.id,
             turn_number=self.game.turn_manager.turn_number,
@@ -650,6 +668,9 @@ class GameSession:
             minecraft_grid=minecraft_grid,
             minecraft_combat=dict(game_state.minecraft_combat or {}),
             minecraft_exposed_targets=minecraft_exposed_targets,
+            finance_phase=finance_phase,
+            finance_dark_pool=finance_dark_pool_val,
+            finance_turn_data=finance_turn_data_extra,
         )
 
     async def handle_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
@@ -678,6 +699,8 @@ class GameSession:
             return await get_server_mode_adapter("yugioh").handle_action(self, request)
         if request.action_type in _MC_ACTION_TYPES:
             return await get_server_mode_adapter("minecraft").handle_action(self, request)
+        if request.action_type in _FIN_ACTION_TYPES:
+            return await get_server_mode_adapter("finance").handle_action(self, request)
 
         # Combat declarations are not wired through the priority action loop yet.
         if request.action_type in ("DECLARE_ATTACKERS", "DECLARE_BLOCKERS"):
@@ -1807,11 +1830,13 @@ class GameSession:
         """Serialize a permanent for the client."""
         from src.engine.queries import get_power, get_toughness, is_creature
 
-        toughness = get_toughness(obj, self.game.state) if (
+        has_pt = (
             is_creature(obj, self.game.state)
             or CardType.MC_STRUCTURE in obj.characteristics.types
             or CardType.MC_BLOCK in obj.characteristics.types
-        ) else obj.characteristics.toughness
+            or CardType.FIN_TRADER in obj.characteristics.types
+        )
+        toughness = get_toughness(obj, self.game.state) if has_pt else obj.characteristics.toughness
 
         return CardData(
             id=obj.id,
@@ -1820,7 +1845,7 @@ class GameSession:
             mana_cost=obj.characteristics.mana_cost,
             types=[t.name for t in obj.characteristics.types],
             subtypes=list(obj.characteristics.subtypes),
-            power=get_power(obj, self.game.state) if is_creature(obj, self.game.state) else None,
+            power=get_power(obj, self.game.state) if has_pt else None,
             toughness=toughness,
             text=obj.card_def.text if obj.card_def else "",
             tapped=obj.state.tapped,

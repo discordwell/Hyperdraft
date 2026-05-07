@@ -82,11 +82,13 @@ except ImportError:
 # Action-type sentinels
 # =============================================================================
 
-ACTION_END_PHASE      = "FIN_END_PHASE"
-ACTION_END_TURN       = "FIN_END_TURN"
-ACTION_PLAY_CARD      = "FIN_PLAY_CARD_ACTION"
-ACTION_ACTIVATE       = "FIN_ACTIVATE_ABILITY"
-ACTION_DISCARD        = "FIN_DISCARD"
+ACTION_END_PHASE          = "FIN_END_PHASE"
+ACTION_END_TURN           = "FIN_END_TURN"
+ACTION_PLAY_CARD          = "FIN_PLAY_CARD_ACTION"
+ACTION_ACTIVATE           = "FIN_ACTIVATE_ABILITY"
+ACTION_DISCARD            = "FIN_DISCARD"
+ACTION_DECLARE_ATTACKERS  = "FIN_DECLARE_ATTACKERS"
+ACTION_DECLARE_BLOCKERS   = "FIN_DECLARE_BLOCKERS"
 
 # Safety cap: action loops exit after this many iterations regardless.
 _ACTION_LOOP_CAP = 200
@@ -431,16 +433,15 @@ class FinanceTurnManager(TurnManager):
             return events
 
         # Declare attackers.
-        attackers: list[str] = []
+        # Human attackers are declared within the TRADING_SESSION action loop via
+        # FIN_DECLARE_ATTACKERS; we don't prompt again here so FIN_END_TURN cleanly
+        # advances to SETTLEMENT in one step.
+        attackers: list[str] = list(self.fin_turn_state.attackers_declared)
         if self._is_ai_player(player_id):
             ai = self._get_ai(player_id)
             if ai is not None:
                 result = self._call_ai(ai, "choose_attackers", self.state, player_id)
                 attackers = await self._maybe_await(result) or []
-        elif self.human_action_handler is not None:
-            action = await self.human_action_handler(player_id, self.state)
-            if action and action.get("action_type") == "FIN_DECLARE_ATTACKERS":
-                attackers = list(action.get("attackers", []))
 
         self.fin_turn_state.attackers_declared = list(attackers)
 
@@ -467,8 +468,10 @@ class FinanceTurnManager(TurnManager):
                 blocks = await self._maybe_await(result) or {}
         elif self.human_action_handler is not None:
             action = await self.human_action_handler(opponent_id, self.state)
-            if action and action.get("action_type") == "FIN_DECLARE_BLOCKERS":
+            atype = action.get("action_type", "") if action else ""
+            if atype == ACTION_DECLARE_BLOCKERS:
                 blocks = dict(action.get("blocks", {}))
+            # FIN_END_TURN or any other action = pass (no blocks)
 
         self.fin_turn_state.combat_blocks = dict(blocks)
 
@@ -596,6 +599,13 @@ class FinanceTurnManager(TurnManager):
                 events.extend(
                     await self._activate_ability(player_id, source_id, ability_index, targets)
                 )
+
+            elif action_type == ACTION_DECLARE_ATTACKERS:
+                # Human declares which traders attack; stored for _run_combat to consume.
+                raw = action.get("attackers", [])
+                self.fin_turn_state.attackers_declared = [
+                    a["attacker_id"] if isinstance(a, dict) else str(a) for a in raw
+                ]
 
             # SBA check after each action.
             self._check_game_over()
