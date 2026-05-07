@@ -1568,3 +1568,56 @@ def test_horror_box_of_horrors_deck_loads():
     assert len(horror_mobs) >= 8  # plenty of horror tribal anchors
     assert "Cave Dweller" in names
     assert "The Man From The Fog" in names
+
+
+def test_passive_econ_worker_bonus_cap_pivots_off_workers():
+    """
+    With worker_bonus_cap=2 and 2 Workers already on the field, the
+    +80 worker_bonus_under_3 must NOT fire — so a Zombie (cheap mob)
+    out-scores a third Steve's Helper. Regression test for iter-3
+    night_rush game where the AI played a 2nd Steve at 6 HP under
+    pressure instead of pivoting to a defensive mob.
+    """
+    from src.ai.minecraft_adapter import MinecraftAIAdapter, MC_BIAS_PRESETS
+
+    game = Game(mode="minecraft")
+    p1 = game.add_player("AI")
+    p2 = game.add_player("Opp")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+    p1.mc_materials.update({"wood": 5, "stone": 5})
+
+    # Two Workers already on battlefield → the cap should clamp to off.
+    for _ in range(2):
+        w = game.create_object(
+            name=MINECRAFT_CARDS["Steve's Helper"].name,
+            owner_id=p1.id,
+            zone=ZoneType.BATTLEFIELD,
+            characteristics=MINECRAFT_CARDS["Steve's Helper"].characteristics,
+            card_def=MINECRAFT_CARDS["Steve's Helper"],
+        )
+        w.controller = p1.id
+
+    # Hand: 3rd Worker (Steve) competing with a Zombie (1W cheap mob).
+    _hand_card(game, p1.id, MINECRAFT_CARDS["Steve's Helper"])
+    zombie_in_hand = _hand_card(game, p1.id, MINECRAFT_CARDS["Zombie"])
+
+    # passive_econ has worker_bonus_cap=2 — third Worker bonus must not fire.
+    adapter = MinecraftAIAdapter(bias="passive_econ")
+    chosen = adapter._choose_card_to_play(game.state, p1.id)
+    assert chosen == zombie_in_hand.id, (
+        "passive_econ should pivot to Zombie once worker_bonus_cap is hit"
+    )
+
+    # Sanity: balanced (no cap) keeps preferring Workers under 3.
+    balanced = MinecraftAIAdapter(bias="balanced")
+    chosen_bal = balanced._choose_card_to_play(game.state, p1.id)
+    chosen_obj = game.state.objects.get(chosen_bal)
+    assert chosen_obj is not None
+    assert "Worker" in chosen_obj.characteristics.subtypes, (
+        "balanced (worker_bonus_cap=0) should still pick the third Worker"
+    )
+
+    # Verify the preset itself documents the new knob.
+    assert MC_BIAS_PRESETS["passive_econ"]["worker_bonus_cap"] == 2
+    assert MC_BIAS_PRESETS["balanced"]["worker_bonus_cap"] == 0

@@ -1,6 +1,6 @@
 ---
-description: Self-improvement loop for MC ultra AI. LLM pilot plays N games vs heuristic AI, coach updates strategy doc + bias presets after each game.
-argument-hint: [--iterations N] [--ai-bias passive_econ] [--my-deck raider] [--ai-deck raider]
+description: Self-improvement loop for MC ultra AI. LLM pilot plays N games vs heuristic AI, coach updates strategy doc + bias presets + per-deck plan after each game.
+argument-hint: [--iterations N] [--ai-bias passive_econ] [--my-deck raider] [--ai-deck raider] [--decks-file PATH]
 ---
 
 # /mc-ultra-loop — LLM-piloted ultra AI training loop
@@ -21,8 +21,9 @@ User invoked with: `$ARGUMENTS`
 Defaults:
 - `--iterations 3` — number of pilot/coach rounds. Each round = 1 game + 1 coach pass.
 - `--ai-bias passive_econ` — the heuristic preset the pilot plays against.
-- `--my-deck raider` — pilot's deck.
-- `--ai-deck raider` — opponent's deck (mirror by default).
+- `--my-deck raider` — pilot's deck (starter name, OR a name in `--decks-file`).
+- `--ai-deck raider` — opponent's deck.
+- `--decks-file` (optional) — JSON file with custom decks (e.g. `logs/mc_decks_v1.json`). Required if `--my-deck` or `--ai-deck` is not a starter.
 
 ## Workflow
 
@@ -36,18 +37,30 @@ Use `Agent` tool with `subagent_type=general-purpose`. Brief:
 > full strategic reasoning. You're playing P1 against an AI opponent
 > running `<ai-bias>` preset on the `<ai-deck>` deck.
 >
-> **Read first** (in this order):
-> 1. `docs/strategy/minecraft.md` — the persistent strategy doc.
->    This is the accumulated wisdom from prior games. Internalize it.
-> 2. `src/ai/minecraft_adapter.py` (just `MC_BIAS_PRESETS["<ai-bias>"]`
+> **Read first** (in this order — these are persistent memory across
+> sessions; lean on them):
+> 1. `docs/strategy/minecraft.md` — general format strategy. The
+>    accumulated wisdom from prior games regardless of deck. Internalize.
+> 2. `docs/decks/<my_deck>_plan.md` — strategy specific to YOUR deck.
+>    What this deck wants to do (win condition, target turn, key cards,
+>    mulligan policy). **If this file does not exist**, you write it
+>    BEFORE playing — read the deck composition from
+>    `src/cards/minecraft/alpha.py` (for starter decks: BUILDER_NAMES /
+>    MINER_NAMES / RAIDER_NAMES) or from the `--decks-file` JSON, then
+>    write `docs/decks/<my_deck>_plan.md` following the template in
+>    `docs/decks/README.md`. Use the Write tool. The plan is a
+>    *hypothesis* — first draft is fine; the coach refines it after
+>    the game.
+> 3. `src/ai/minecraft_adapter.py` (just `MC_BIAS_PRESETS["<ai-bias>"]`
 >    and `_DEFAULTS`) — know what the opponent is biased toward.
 >
 > **Then play one game** using the wet-test harness:
 >
 > ```
-> # Start
+> # Start (add --decks-file if either deck is custom)
 > PYTHONPATH=. python scripts/play/mc_wet_test.py start \\
->     --my-deck <my-deck> --ai-deck <ai-deck> --ai-bias <ai-bias>
+>     --my-deck <my-deck> --ai-deck <ai-deck> --ai-bias <ai-bias> \\
+>     [--decks-file <path-from-args>]
 >
 > # Inspect state
 > PYTHONPATH=. python scripts/play/mc_wet_test.py state
@@ -118,22 +131,36 @@ After pilot finishes, use `Agent` tool again with `subagent_type=general-purpose
 
 > You are the MC ultra coach. The pilot just played a game and wrote
 > a report. Your job is to apply the report's suggestions to:
->   1. `docs/strategy/minecraft.md` — append/refine sections.
->   2. `src/ai/minecraft_adapter.py` — patch the bias preset that lost.
+>   1. `docs/strategy/minecraft.md` — format-level lessons (true regardless of deck).
+>   2. `docs/decks/<my_deck>_plan.md` — deck-specific lessons. Append
+>      a new entry to "Iteration log" with date, opponent, outcome, and
+>      a one-line lesson. Refine sections (mulligan policy, play
+>      priorities, key cards, anticipated weaknesses) if the game
+>      contradicted them.
+>   3. `src/ai/minecraft_adapter.py` — patch the bias preset that lost.
 >
 > **Read first**:
 > 1. `/tmp/mc_pilot_report.md` (the pilot's findings)
-> 2. `docs/strategy/minecraft.md` (current state)
-> 3. `src/ai/minecraft_adapter.py` (preset definitions)
+> 2. `docs/strategy/minecraft.md` (current format-level state)
+> 3. `docs/decks/<my_deck>_plan.md` (current deck plan)
+> 4. `src/ai/minecraft_adapter.py` (preset definitions)
 >
 > **Then apply updates with the `Edit` tool**:
 >
-> - For the strategy doc: only ADD content (don't delete unless something
->   is now demonstrably wrong). Add a new dated entry to the changelog at
->   the bottom. If a "Known heuristic-AI weaknesses" section item is
->   newly relevant, refine it.
-> - For the bias preset: bump weights that would have prevented the
->   pilot's exploits. Be conservative — single-digit weight changes,
+> - For the **strategy doc** (format-level): only add format-true
+>   lessons (e.g., "Hostile mobs +1 ATK at Night" — applies to all
+>   decks). Add a new dated entry to the changelog at the bottom. If a
+>   "Known heuristic-AI weaknesses" section item is newly relevant,
+>   refine it. **Do NOT add deck-specific tactics here** — those go in
+>   the deck plan.
+> - For the **deck plan** (`docs/decks/<my_deck>_plan.md`): append an
+>   "Iteration log" entry with date, opponent, outcome, one-line lesson.
+>   If the game revealed the win condition was misstated, the mulligan
+>   rules were wrong, or a "Key card" turned out to be a trap — refine
+>   those sections. The pilot's "What didn't / what you'd do
+>   differently" section is the goldmine for deck-plan updates.
+> - For the **bias preset**: bump weights that would have prevented
+>   the pilot's exploits. Be conservative — single-digit weight changes,
 >   not wholesale rewrites. If a weakness needs a NEW knob (e.g. "Bed
 >   priority weight"), add the field to `_DEFAULTS` first, then use it.
 >

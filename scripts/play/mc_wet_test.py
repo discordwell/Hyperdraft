@@ -169,13 +169,36 @@ def _print_state(payload: dict[str, Any]) -> None:
 # ---------- subcommands ----------
 
 
+def _resolve_deck(name: str, decks_file: Optional[str]) -> list:
+    """Resolve a deck name → list[CardDefinition] from the starter
+    registry first, then a JSON file (same shape as
+    scripts/play/mc_deck_tournament.py's --decks-file)."""
+    from src.cards.minecraft import MINECRAFT_STARTER_DECKS, MINECRAFT_CARDS
+    if name in MINECRAFT_STARTER_DECKS:
+        return MINECRAFT_STARTER_DECKS[name]()
+    if not decks_file:
+        raise ValueError(f"Unknown deck {name!r}. Pass --decks-file PATH "
+                         f"to load custom decks. Starters: {list(MINECRAFT_STARTER_DECKS)}")
+    import json
+    with open(decks_file) as fh:
+        payload = json.load(fh)
+    spec = (payload.get("decks") or {}).get(name)
+    if not spec:
+        raise ValueError(f"Deck {name!r} not in {decks_file} or starter registry")
+    cards = []
+    for cname in spec.get("cards") or []:
+        if cname not in MINECRAFT_CARDS:
+            raise ValueError(f"Deck {name!r} references unknown card {cname!r}")
+        cards.append(MINECRAFT_CARDS[cname])
+    return cards
+
+
 def cmd_start(args) -> None:
-    from src.cards.minecraft import MINECRAFT_STARTER_DECKS
     from src.ai.minecraft_adapter import MinecraftAIAdapter
     from src.engine.game import Game
 
-    my_deck = MINECRAFT_STARTER_DECKS[args.my_deck]()
-    ai_deck = MINECRAFT_STARTER_DECKS[args.ai_deck]()
+    my_deck = _resolve_deck(args.my_deck, args.decks_file)
+    ai_deck = _resolve_deck(args.ai_deck, args.decks_file)
 
     game = Game(mode="minecraft")
     p1 = game.add_player("ME")
@@ -405,6 +428,8 @@ def main() -> None:
     p_start.add_argument("--my-deck", default="raider")
     p_start.add_argument("--ai-deck", default="raider")
     p_start.add_argument("--ai-bias", default="passive_econ")
+    p_start.add_argument("--decks-file", default=None,
+                         help="JSON file with custom decks (same shape as deck tournament)")
     p_start.set_defaults(fn=cmd_start)
 
     p_state = sub.add_parser("state")

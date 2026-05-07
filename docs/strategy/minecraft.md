@@ -247,7 +247,27 @@ the **coach** loop should patch them in `MC_BIAS_PRESETS`.
    resilient attacker isn't in the heuristic's vocabulary. Run multiple
    attackers and the AI can't answer them all.
 
-5. **Day/night blind:** AI doesn't time plays to day/night cycle.
+5. **Multi-column attacks beat `chump_anything`.** The AI's
+   `chump_anything` block mode pairs each declared attacker with the
+   next-available legal blocker in declaration order — it does NOT
+   compute the highest-EV block. Spreading 2-3 attackers across separate
+   columns guarantees 1-2 unblocked hits even when the AI has a single
+   blocker, because the AI commits its only blocker to the first
+   declared attacker. Order your declaration so your highest-ATK or
+   ranged attacker is in a column the AI's blocker can't reach (e.g.
+   put Skel Archer in a third column when AI has one ground blocker).
+   This is a structural exploit of `passive_econ`, not a tuning bug —
+   the heuristic's vocabulary doesn't include "best block target."
+
+6. **`passive_econ` doesn't proactively deploy Blocks.** Even sitting
+   on 9-10 stone for 3+ turns, the AI mines more stone instead of
+   deploying Cobblestone Wall / Oak Planks. A human running aggro can
+   plan around the AI never putting Walls in the way of attackers,
+   even on Day turns when the AI is stone-heavy. Force the AI to spend
+   stone reactively only — it won't shore up defense proactively, so
+   sustained multi-turn pressure can't be answered with a Wall stack.
+
+7. **Day/night blind:** AI doesn't time plays to day/night cycle.
    **Hostile mobs gain +1 ATK at Night** (Zombie text says so explicitly,
    and the bonus also applies to Creeper, Pillager Patrol, and other
    Hostile/Raider creatures). The AI doesn't time deployments around the
@@ -259,7 +279,7 @@ the **coach** loop should patch them in `MC_BIAS_PRESETS`.
    Night = 4+1 + 3+1 = **9 face damage uncontested per turn** — enough
    to kill an unprotected (Bed-less) avatar in a single attack step.
 
-6. **AI equips weapons without a Bed.** AI cheerfully equips Iron Sword
+8. **AI equips weapons without a Bed.** AI cheerfully equips Iron Sword
    despite no Bed protection — exactly the suicide line a human is told
    to avoid. Iter-2 confirmed `weapon_no_bed_penalty=18` was undersized
    (Iron Sword base = 15 + mc_attack=4 = 19, net +1 with the penalty,
@@ -355,6 +375,54 @@ the **coach** loop should patch them in `MC_BIAS_PRESETS`.
     Spider, Enderman) when no Worker is available — preventing the
     iter-2 "literally pass every turn" failure mode.
   - Other presets are unchanged.
+
+### v3 addendum — 2026-05-06 (night_rush vs passive_econ, 12-turn W; T6-7 plan was 5 turns optimistic)
+
+- Pilot ran the LLM-designed `night_rush` aggro deck against
+  `passive_econ` raider. Won 18→0 in 12 turns (5 play-turns of
+  attacks). The deck's plan predicted T6-7 lethal — actual was T12,
+  five turns slow. Causes were a mix of deck-construction issues
+  (no Bed drawn, no second Strip Mine drawn → Piglin Raider sat
+  dead in hand all game) and AI-side heuristic gaps:
+  - **AI hoarded materials.** `passive_econ` accumulated 9-10 stone
+    over T7-T11 without spending on a Block (Cobblestone Wall 2S /
+    Oak Planks 1W). A human running raider can plan around the AI
+    never deploying Walls reactively. Documented as new weakness #6.
+  - **AI dropped a 2nd Steve's Helper at 6 HP** while facing 4
+    attackers on the board. The +80 `worker_bonus_under_3` keeps
+    firing while the AI has <3 Workers — but at <3 Workers AND <50%
+    HP under sustained pressure, the AI should pivot defensive
+    instead of chasing more economy. Cheaper fix: cap Worker
+    bonuses at 2 Workers on board so the third Worker doesn't
+    out-score a defensive mob / Block.
+  - **Multi-column attacks are a structural exploit of
+    `chump_anything`.** The AI's block mode pairs attackers with
+    blockers in declaration order — it doesn't compute best-EV
+    blocks. Three-wide attacks force 2 unblocked hits per turn
+    even when the AI has a blocker. Documented as new weakness #5.
+- Strategy doc updates:
+  - **Known heuristic-AI weaknesses #5 (NEW)**: multi-column attacks
+    structurally beat `chump_anything`. Order declaration so the
+    highest-ATK or ranged attacker is in a column the AI's blocker
+    can't reach.
+  - **Known heuristic-AI weaknesses #6 (NEW)**: `passive_econ` does
+    not proactively deploy Blocks even when sitting on 9+ stone.
+    Sustained multi-turn pressure can't be answered with a Wall
+    stack, so aggro that breaches by T6 can ride the gap to lethal.
+  - Existing entries 5 (Day/night blind) and 6 (weapons without
+    Bed) renumbered to 7 and 8.
+- Heuristic AI preset patches (passive_econ only):
+  - New `worker_bonus_cap` knob (default `0` = disabled). When set
+    to N, the +`worker_bonus_under_3` and +`worker_bonus_first`
+    bonuses are suppressed once the AI controls ≥N Workers on the
+    battlefield, even if the global Workers-under-3 condition still
+    holds. Set to **2** in `passive_econ` so the AI naturally
+    pivots to non-Worker mobs / Blocks once it has a 2-Worker base
+    instead of stacking a 3rd Worker into a board on fire.
+  - Other knobs unchanged. The 6-HP-pivot issue was the same root
+    cause (Workers out-scoring everything else under the +80
+    bonus) so a single cap closes both holes — no new low-HP-panic
+    knob needed for this iter.
 
 <!-- Append new sections below as the loop runs. Each entry: date, what
 was learned, what was patched (strategy doc updates + heuristic AI

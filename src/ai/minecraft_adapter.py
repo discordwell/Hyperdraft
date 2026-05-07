@@ -59,6 +59,13 @@ _DEFAULTS = {
     # bonus. Compensates for Bed copies sitting in the library. 0 = no
     # effect for existing presets.
     "bed_search_bonus": 0,
+    # Cap on Worker bonuses by current Worker count. When the AI
+    # already controls >= worker_bonus_cap Workers on the battlefield,
+    # the +worker_bonus_under_3 / +worker_bonus_first bonuses are
+    # suppressed (they don't fire). Lets a preset like passive_econ
+    # naturally pivot off Worker chasing once a 2-Worker base is
+    # established. 0 = disabled (default), behaves as before.
+    "worker_bonus_cap": 0,
     # Mining
     # mining_mode: "premium_first" | "wood_first" | "iron_first" |
     # "redstone_first" | "diamond_first" | "random"
@@ -170,12 +177,23 @@ MC_BIAS_PRESETS: dict[str, dict] = {
         # mobs in 8 turns). Lowered early_big_mob_penalty 20 -> 10 in
         # this preset only, so the AI falls back to deploying SOMETHING
         # when no Worker is drawable.
+        # 2026-05-06 (v3 addendum, iter-3 night_rush W in 12T):
+        # observed AI playing a 2nd Steve's Helper at 6 HP while facing
+        # 4 attackers, and hoarding 9-10 stone for 3 turns instead of
+        # deploying a Block — both downstream of the +80 Worker bonus
+        # remaining dominant even with a 2-Worker base on the field.
+        # Set worker_bonus_cap=2 so the +80 / +30 Worker bonuses
+        # suppress once the AI has 2 Workers down. The 3rd Worker now
+        # competes on its own merit (~22 from the base mob score)
+        # against defensive mobs / Blocks, fixing the "chase Worker
+        # while losing" pattern.
         worker_bonus_under_3=80, worker_bonus_first=30,
         turnbonus_struct_bonus=5, explore_map_bonus=15,
         strip_mine_bonus=15, find_diamonds_bonus=10, chop_trees_bonus=25,
         untap_worker_bonus=30, nether_expedition_bonus=10,
         early_big_mob_penalty=10, late_big_mob_bonus=5,
         weapon_no_bed_penalty=28, bed_search_bonus=40,
+        worker_bonus_cap=2,
         attack_priority="structure_first", block_mode="chump_anything",
     ),
     "wood_economy": _preset(
@@ -550,10 +568,17 @@ class MinecraftAIAdapter:
 
             if CardType.MC_MOB in types and "Worker" in subtypes:
                 score += 20 + (obj.characteristics.power or 0) + (obj.characteristics.toughness or 0)
-                if my_workers_count < 3:
-                    score += int(bias.get("worker_bonus_under_3", 0))
-                if my_workers_count < 1:
-                    score += int(bias.get("worker_bonus_first", 0))
+                # worker_bonus_cap (default 0 = disabled): once the AI
+                # has at least N Workers on the battlefield, suppress
+                # the under-3 / first-Worker bonuses so it stops
+                # stacking economy and pivots to threats / blocks.
+                worker_cap = int(bias.get("worker_bonus_cap", 0) or 0)
+                worker_bonus_active = worker_cap <= 0 or my_workers_count < worker_cap
+                if worker_bonus_active:
+                    if my_workers_count < 3:
+                        score += int(bias.get("worker_bonus_under_3", 0))
+                    if my_workers_count < 1:
+                        score += int(bias.get("worker_bonus_first", 0))
             elif CardType.MC_MOB in types:
                 score += 20 + (obj.characteristics.power or 0) + (obj.characteristics.toughness or 0)
                 if turn_number <= 2 and cost_total >= 5:
