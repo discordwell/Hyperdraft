@@ -432,12 +432,34 @@ def test_medium_ai_detects_chip_stream():
     attacker.state.depth_band = DepthBand.PERISCOPE  # no penalty against flagship
     attacker.state.pt_modifiers = []
 
-    state.objects = {flagship.id: flagship, attacker.id: attacker}
+    # Iter-7 patch: _medium_detections now skips detection when no ready
+    # interceptors are present. Add a ready interceptor vessel for player B
+    # so the guard does not short-circuit the chip-stream escalation logic.
+    interceptor = GameObject(
+        id="int_B",
+        name="Ready Interceptor",
+        owner="B",
+        controller="B",
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.DEPTHS_VESSEL},
+            subtypes={"Submarine"},
+            power=2,
+            toughness=3,
+        ),
+        state=ObjectState(),
+    )
+    interceptor.state.depth_band = DepthBand.PERISCOPE
+    interceptor.state.tapped = False
+    interceptor.state.summoning_sickness = False
+    interceptor.state.pt_modifiers = []
+
+    state.objects = {flagship.id: flagship, attacker.id: attacker, interceptor.id: interceptor}
 
     # Build a battlefield zone so any battlefield-based queries succeed.
     from src.engine.types import Zone
     bf = Zone(type=ZoneType.BATTLEFIELD, owner=None)
-    bf.objects = [flagship.id, attacker.id]
+    bf.objects = [flagship.id, attacker.id, interceptor.id]
     state.zones = {"battlefield": bf}
 
     spec = AttackerSpec(
@@ -534,9 +556,22 @@ def test_medium_ai_detects_drone_swarm():
         d.state.pt_modifiers = []
         drones.append(d)
 
-    state.objects = {flagship.id: flagship, **{d.id: d for d in drones}}
+    # Iter-7 patch: add a ready interceptor for B so the no-interceptor guard
+    # does not short-circuit the chip-stream escalation logic being tested.
+    b_interceptor = GameObject(
+        id="int_B_sw", name="Stalker Sub", owner="B", controller="B",
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(types={CardType.DEPTHS_VESSEL}, subtypes={"Submarine"}, power=2, toughness=3),
+        state=ObjectState(),
+    )
+    b_interceptor.state.depth_band = DepthBand.PERISCOPE
+    b_interceptor.state.tapped = False
+    b_interceptor.state.summoning_sickness = False
+    b_interceptor.state.pt_modifiers = []
+
+    state.objects = {flagship.id: flagship, b_interceptor.id: b_interceptor, **{d.id: d for d in drones}}
     bf = Zone(type=ZoneType.BATTLEFIELD, owner=None)
-    bf.objects = [flagship.id] + [d.id for d in drones]
+    bf.objects = [flagship.id, b_interceptor.id] + [d.id for d in drones]
     state.zones = {"battlefield": bf}
 
     specs = [AttackerSpec(vessel_id=d.id, target_id=flagship.id, firing_depth_band=DepthBand.SURFACE) for d in drones]

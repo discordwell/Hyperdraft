@@ -18,6 +18,16 @@ Format-level lessons go here; deck-specific lessons live in
 - Damage from attacker → target = `max(1, power - |attacker_band - target_band|)`.
 - Flagship sits at PERISCOPE (band 1). So attacking from PERISCOPE → no
   penalty. From SURFACE (band 0) or MID (band 2) → −1. From DEEP (band 3) → −2.
+- **RESOLVED (iter-7): depth modifier fires for ALL combat, detected or undetected.**
+  Both Pilot A and Pilot B observed "2 damage" from SURFACE (band 0) → PERISCOPE
+  (band 1) and hypothesised undetected attackers bypass the modifier. This hypothesis
+  is INCORRECT. Investigation: `assign_damage` in `src/engine/depths_combat.py`
+  captures pre-pipeline events (raw power=2) in its `emitted` return list; the
+  pipeline transform interceptor then modifies the event to amount=1; the actual
+  damage recorded on the target object is 1. Harness logs printed the pre-transform
+  value, causing the "2 damage" confusion. Unit test `test_undetected_attack_depth_modifier`
+  in `tests/test_depths_smoke.py` confirms: SURFACE 2/1 attacker vs PERISCOPE flagship
+  applies 1 actual damage (not 2). The depth modifier formula applies to ALL combat.
 - Detection sub-game: an undetected attacker may not be intercepted, but
   still deals damage. Defender pays Sonar (cost = `1 + depth_difficulty`)
   to detect, then can declare interceptors.
@@ -391,6 +401,16 @@ goes here.)
   expectation was wrong (treated SURFACE→PERISCOPE penalty as if
   Snorkel were at SURFACE). No engine fix needed.
 
+- **RESOLVED (iter 7): Depth damage modifier confirmed working for SURFACE→PERISCOPE.**
+  Both pilots reported "2 damage" from SURFACE Drone → PERISCOPE Flagship. Investigated
+  in iter-7 coach pass. Root cause: `assign_damage()` in `src/engine/depths_combat.py`
+  returns pre-pipeline events (raw amount=2); the pipeline transform interceptor reduces
+  to 1 AFTER `assign_damage` captures the list. Actual `tgt_obj.state.damage` = 1.
+  The harness combat log was printing the pre-transform event payload, not the
+  post-transform damage applied. The modifier fires correctly for ALL combat, detected
+  or undetected. Unit test `test_undetected_attack_depth_modifier` in
+  `tests/test_depths_smoke.py` confirms and documents this. No engine fix needed.
+
 ## Pilot iteration log
 
 - **2026-05-07 (iter 5)**: refined greedy + custom-depth Wolfpack (P1,
@@ -678,3 +698,50 @@ goes here.)
     complete defensive blank. The depth-band interceptor coverage rule matters.
   - Crew lord effects (Veteran Squadron Lead, Drone Pen Mate, Air-Sea Coordinator)
     were never tested in LLM pilot games — harness Crew deployment fix pending.
+
+- **2026-05-07 (iter 7, coach pass)**: Coach notes applied post-iter-7.
+  **Patches**: (1) `MEDIUM_RECENT_DAMAGE_WINDOW` widened 3→4 to catch faster chip streams.
+  (2) `_medium_detections` now skips detection when no ready interceptors are available
+  (detection without interceptors = wasted SC, confirmed by T18 Pilot B observation).
+  **Resolved**: depth modifier investigation closed — modifier fires correctly for ALL
+  combat, detected or not. Harness logs printed pre-pipeline amounts. No engine fix.
+  `_flagship_hull_history` pickle persistence confirmed OK (dill serializes instance
+  variables correctly; Pilot B's hypothesis was incorrect). Pilot B's late firing was
+  due to the 3-turn window being too small, not a reset bug. Tests added:
+  `test_undetected_attack_depth_modifier`, `test_detection_without_interceptors_skips_detect`.
+
+- **2026-05-07 (iter 7)**: Iter-7 entry. **Re-run of iter-6 with chip-stream detection patch
+  applied (MEDIUM_RECENT_DAMAGE_TRIGGER 6→4, MEDIUM_CHIP_FORCE_DETECT=2). New matchup:
+  Carrier (P1, LLM Pilot A) vs Silent_Hunter (P2, heuristic AI). P1 WON in 18 turns,
+  ME≈11/25 vs AI=0/25** (Flagship sunk).
+
+  **Chip-stream patch behavior (iter-7 confirmation)**:
+  - Detection DID start this iter (~T12-T14 vs 0 detections in iter-6). Patch WORKS.
+  - P2 began spending SC after approximately 7 hull damage accumulated over ~3 swing turns.
+  - A 7-attacker swing (T14) was reduced from potential 14 damage to only 3 damage through
+    detection + interception — the patch is now meaningfully constraining the swarm.
+  - First detection: approximately T12-T14 (vs never in iter-6). Improvement confirmed.
+  - **Still slow vs fast swarms**: Against 2-3 damage/turn chip rate, detection trigger
+    fires ~6-8 turns in, not turn 3-5. Consider MEDIUM_RECENT_DAMAGE_WINDOW 3→4 to
+    smooth the signal.
+
+  **CRITICAL engine mechanic discovered (iter-7)**:
+  - **Undetected attackers deal FULL printed power, ignoring depth modifier.** Skipjack
+    Drone (2/1 SURFACE) consistently dealt 2 damage to the PERISCOPE Flagship when
+    undetected — NOT max(1, 2-1)=1. The depth modifier formula applies ONLY to detected
+    attackers. See updated Combat math section above. This changes swarm economics:
+    SURFACE drones are full-power vs Flagship until detected.
+
+  **LP absent this game**: P2 did not deploy Listening Post (may be deck-draw variance
+  or heuristic policy). Without LP, 2-power drones attacked Flagship directly every turn.
+  LP's absence was likely decisive for how fast chip damage accumulated.
+
+  **Crew lords still untested**: VSL drawn T15 (too late, TC=1), DPM held entire game
+  (no Carrier to attach to). Escort Carrier never deployed due to TC starvation from
+  greedy {1T} deploys.
+
+  **Key new format lesson**: Carrier wins on chip WITHOUT its engine if opponent lacks
+  LP wall AND detection fires late. But the margin is thin — a 7-swing that only lands
+  3 damage (T14) shows active detection nearly neutralizes width advantage. The Carrier
+  engine (Escort Carrier + Drone Pen Mate anthem) is essential against a fully-active
+  detecting opponent.

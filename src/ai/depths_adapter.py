@@ -290,10 +290,10 @@ MEDIUM_FLAGSHIP_LETHAL_BUFFER = 3
 # Track damage taken in the last N turns; if total exceeds the threshold,
 # add it to the lethal-buffer projection so the AI starts intercepting
 # *streams* of chip damage, not just single lethal-projecting swings.
-MEDIUM_RECENT_DAMAGE_WINDOW = 3
+MEDIUM_RECENT_DAMAGE_WINDOW = 4  # Iter-7 widened 3→4: more history points catches faster chip streams earlier
 # Iter-6 lowered 6→4: drone swarms deal 4-5 hull/attack-turn; the 6-hull trigger
 # never fired even with 4 uncontested 2/1-drone swings (each 4-5 chip, always <6).
-MEDIUM_RECENT_DAMAGE_TRIGGER = 4  # 4+ hull lost in last 3 turns starts the escalation
+MEDIUM_RECENT_DAMAGE_TRIGGER = 4  # 4+ hull lost in last 4 turns starts the escalation
 # When chip-stream is detected, force-detect this many top attackers regardless of
 # lethal projection (stops the AI from sitting idle while a swarm bleeds it out).
 MEDIUM_CHIP_FORCE_DETECT = 2
@@ -1390,6 +1390,24 @@ class DepthsAIAdapter:
         budget = int(getattr(player, "sc", 0))
         flagship_hull = _flagship_buffer(state, defender_id)
         if budget <= 0:
+            return {}
+
+        # Iter-7 guard: detecting without any ready interceptors is SC waste —
+        # detected attackers can still deal damage if no interceptor can be
+        # assigned. Skip voluntary detection entirely when no interceptors are
+        # available. (The history-update below still runs so future turns that
+        # DO have interceptors can see the chip-stream history.)
+        ready_interceptors = [v for v in _own_vessels(state, defender_id) if _is_ready_to_attack(v)]
+        if not ready_interceptors:
+            # Still update hull history for future turns.
+            turn = int(getattr(state, "turn_number", 0) or 0)
+            history = self._flagship_hull_history.setdefault(defender_id, [])
+            if not history or history[-1][0] != turn:
+                history.append((turn, flagship_hull))
+                cutoff = turn - MEDIUM_RECENT_DAMAGE_WINDOW
+                self._flagship_hull_history[defender_id] = [
+                    (t, h) for (t, h) in history if t >= cutoff
+                ]
             return {}
 
         # Update the per-defender hull history (iter-5 cumulative tracking).

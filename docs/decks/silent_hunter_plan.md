@@ -395,3 +395,43 @@ Calibration findings (from P2's T2 window + heuristic behavior observed):
 Open question: can SH's stealth attackers create a race where P1 is forced to
 spend SC detecting YOUR vessels while your Listening Post walls chump P1's
 drones? Untested — would require a fully LLM-piloted P2 game.
+
+### Iter 7 (2026-05-07) — vs Carrier (LLM Pilot A + Pilot B dual-seat), P2 heuristic AI
+**Lost** in 18 turns, ME=0/25, OPP≈11/25. Pilot B controlled both seats in a
+single-agent game (harness quirks prevented true two-pilot mode).
+
+Key findings:
+- **No Listening Post in opener**: hand draw variance left SH without LP. This
+  was decisive — P1's drones attacked the flagship directly every turn with no
+  interception. LP's absence is a significant structural disadvantage vs Carrier.
+- **Chip-stream detection patch ACTIVE**: detection DID fire this iter (~T12-T14 vs
+  0 in iter-6). P2's AI spent SC detecting after ~7 hull accumulated. A 7-attacker
+  swing on T14 was reduced from potential 14 damage to 3 damage. Patch works.
+- **Detection without interceptors = wasted SC**: on T18, P2 detected all 3 incoming
+  attackers but had no interceptors left (both Snorkel Stalkers killed T13-T14). The 3
+  detections were pure SC waste — full damage landed anyway. This was the direct
+  motivation for the iter-7 patch in `_medium_detections`.
+- **Both Snorkel Stalkers died by T14**: Snorkel #1 killed by Escort Frigate (reach)
+  intercept T13. Snorkel #2 intercepted T14. After T14 SH had only Periscope Recon +
+  Diesel Whisper, dealing 3/turn vs Carrier's 5/turn incoming — unwinnable race.
+- **P1 dealt 14 hull to SH flagship** (vs 0 in iter-6) — first SH counter-attack
+  success. The Snorkel + Recon alpha at T11 (5 damage) created a brief 18v19 race
+  that was genuinely close.
+- **Diesel Whisper at MID hit for full power (2)** — depth modifier applied: MID
+  (band 2) → PERISCOPE (band 1) diff=1, max(1, 2-1)=1. Wait: harness logged "2
+  damage" but actual target damage = 1. This is the same pre-pipeline vs post-pipeline
+  logging confusion as the SURFACE drone issue.
+
+**Engine clarification (iter-7)**: Both Pilot A and Pilot B observed "full printed
+power" damage and hypothesised undetected attackers bypass depth modifier. CONFIRMED
+INCORRECT. The depth modifier fires for all combat. Harness logs print pre-transform
+event payloads (raw power). Actual target damage is post-transform (reduced). See
+`test_undetected_attack_depth_modifier` in `tests/test_depths_smoke.py`.
+
+**Iter-8 SH vs Carrier plan**:
+- LP T1 is MANDATORY. Mulligan if not present (Pilot B's iter-7 opener had no LP —
+  recommend hard mulligan on any LP-less hand against Carrier).
+- Deploy Snorkel Stalker T2-T3, but protect it from Escort Frigate reach interception
+  by diving to MID once Frigate appears (costs 1 SC but avoids the Frigate counter).
+- Counter-attack aggressively when ahead on SC — the race at T11-T14 was the closest
+  SH has come to beating Carrier; more aggressive offense earlier might close it.

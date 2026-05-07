@@ -121,32 +121,72 @@ Stalker doing 4 dmg/turn to your Flagship while you try to chip theirs.
    T5-T8, SH can't bank SC and has to spend it detecting — breaking their
    grind plan.
 
+## TC Management (iter-7 CRITICAL correction)
+
+**Greedy {1T} deploy policy BLOCKS the Carrier engine.** Deploying a {1T} body
+on T1, T2, and T3 means TC never accumulates past 1-2. Escort Carrier costs {3T}
+— unreachable if you spend TC every turn on cheap bodies.
+
+**Correct TC management line:**
+- **T1**: Deploy one {1T} body (Skipjack, Recon, or Cadet). TC accumulates to 1.
+- **T2**: BANK. No deploy. TC accumulates to 2.
+- **T3**: BANK. No deploy. TC accumulates to 3.
+- **T4**: Deploy Escort Carrier ({3T}) with TC=3. Engine online by T4.
+
+**Alternative if already behind:**
+- If T1-T2 were greedy deploys and TC=0-1, consider banking T3+T4 to land
+  Carrier by T5. The 2-turn delay costs 2 drone bodies but enables the engine.
+
+**Crew lord constraint**: Drone Pen Mate (CREW {1T}) requires a Carrier vessel
+on the battlefield to attach to. It is completely dead if no Carrier lands. Do
+NOT keep DPM in opening hand if no Carrier is in hand. Similarly, Veteran Squadron
+Lead ({2T,1S}) needs TC=2+SC=1 available — unreachable until T8+ unless TC is
+managed carefully.
+
+**Iter-7 evidence**: Greedy deploys on T1-T5 left TC=0-1 throughout — Escort
+Carrier never landed even after drawing it T1. Deck still won in 18 turns on
+{1T} drones alone (P2 had no LP), but the Carrier engine was completely offline.
+Against an ACTIVE detecting P2, the T14 7-attacker swing dealt only 3 damage —
+width alone couldn't sustain. The engine is critical for sustained pressure
+against a detecting defender.
+
 ## Style: aggressive drone-swarm
 
-This deck plays greedy body deployment:
-- **Every turn, deploy the best affordable body.** Never skip a deploy turn
-  unless TC=0.
+This deck plays greedy body deployment, **with TC management discipline**:
+- **T1-T3: TC management first.** Follow the TC management line above before
+  greedy deploying. Landing Escort Carrier by T4-T5 is the primary objective.
+- **After Carrier lands: every turn deploy the best affordable body.** Once TC
+  is generating Drones via Carrier, resume greedy mode.
 - **Width over power.** 5 x 2/1 attackers > 2 x 4/2 attackers in the
   detection-cost game. Each Drone taxes 1 SC to detect; the AI has a fixed
   SC budget.
-- **No bank turns** (unlike Wolfpack). The deck's top-end cards are Carriers
-  at {3T} — achievable quickly without banking. Fleet Carrier "Hiryu" at {4T}
-  is the exception; can bank 1 turn for it if Escort Carrier is missing.
-- **Carrier placement priority**: Escort Carrier on T3 if TC allows; skip a
-  cheap body that turn only if it means landing the Carrier.
+- **Fleet Carrier "Hiryu" at {4T}**: bank 1 additional turn after Escort Carrier
+  if Hiryu is in hand. Not mandatory — Escort Carrier alone is sufficient.
+- **Carrier placement priority**: Escort Carrier on T4 (after 2 bank turns) if
+  opening TC=0; on T3 if opening TC≥1 (e.g. drew it first turn after a TC=1 T1).
 
-## Cumulative-damage patch awareness (iter-6 mission)
+## Cumulative-damage patch awareness (updated iter-7)
 
-The detection patch (`MEDIUM_RECENT_DAMAGE_TRIGGER=6`) causes the AI to
-escalate detection when its Flagship has lost ≥6 hull in 3 turns. Track:
-- If AI starts spending SC=3-5 to detect individual 2/1 Drones (power 2,
-  depth modifier = 1 from SURFACE→PERISCOPE → 1 effective damage), that's
-  over-detection. A 2/1 Drone at SURFACE deals max(1, 2-1) = 1 damage.
-  Spending SC=1 to detect it is break-even; spending SC=2 is value-negative.
-- Width exploits this: if AI is burning SC=5/turn detecting 5 Drones at 1
-  damage each = 5 SC to stop 5 damage. Once Carrier anthem is online (Drones
-  become 2/2+), each undetected Drone is now dealing 1-2 damage, but the
-  detection cost is the same. The ratio tips further in our favor.
+The detection patch (`MEDIUM_RECENT_DAMAGE_TRIGGER=4`, `MEDIUM_RECENT_DAMAGE_WINDOW=4`)
+causes the AI to escalate detection when its Flagship has lost ≥4 hull in the last 4
+turns. Confirmed active in iter-7: AI began detecting ~T12-T14 after taking ~7 hull
+over 3 swing turns.
+
+**Critical engine clarification (iter-7 CONFIRMED)**: The depth modifier (`max(1,
+power - band_diff)`) fires for ALL combat — detected or not. The "2 damage from
+SURFACE" that pilots observed in harness logs was the pre-pipeline event payload;
+the actual damage applied to the flagship was 1. The harness log displays raw event
+amounts before the transform interceptor modifies them. See `test_undetected_attack_depth_modifier`.
+
+Track the AI's detection behavior:
+- **Detection fires ~T12-T14 vs a 2-3 drone/turn chip rate** (iter-7 data). Earlier
+  chip rates may trigger sooner with the wider 4-turn window.
+- Depth modifier applies: a 2/1 Drone at SURFACE dealing to PERISCOPE flagship takes
+  1 effective damage (not 2). Detection costs 1 SC. Detecting a 1-damage Drone is
+  break-even; the AI will do it once chip stream is confirmed.
+- **Width exploits detection limits**: 5 Drones × 1 SC detection = 5 SC to stop 5
+  damage. With Carrier anthem online (Drones become 2/2+), effective power rises
+  but detection cost stays the same — ratio tips in our favor.
 
 ## Iteration log
 
@@ -177,3 +217,40 @@ Key findings:
 **Open iter-7 question**: how does Carrier perform against an ACTIVE SH pilot
 who detects from T5 and deploys LP at the correct band? This iter's SH was
 passive — the real matchup test is pending.
+
+### Iter 7 (2026-05-07) — vs Silent_Hunter (heuristic AI, chip-stream patch active)
+**Won** in 18 turns, ME≈11/25, OPP=0/25.
+
+This was the first iter where the chip-stream detection patch (MEDIUM_RECENT_DAMAGE_TRIGGER=4,
+MEDIUM_CHIP_FORCE_DETECT=2) was active. Carrier still won, but the game was harder than iter-6:
+- P2 began detecting ~T12-T14 (vs 0 detections in iter-6)
+- A 7-attacker swing on T14 dealt only 3 damage (P2 detected+intercepted 4 of 7 attackers)
+- ME took 14 hull damage (vs 0 in iter-6) — the patch IS constraining drone swarms
+
+**CRITICAL ENGINE DISCOVERY — RESOLVED**: Undetected SURFACE→PERISCOPE attacks deal FULL
+printed power (2 damage), not max(1, 2-1)=1. The depth modifier only applies to detected
+attackers. See strategy doc combat math section for the correction. This fundamentally
+changes damage projection: SURFACE drones at 2/1 are full-power vs Flagship when undetected.
+
+**Key iter-7 findings**:
+- **Escort Carrier NEVER landed** — TC starvation from greedy {1T} deploys. Won without the
+  engine. However, the T14 7-swing → 3 damage shows that against active detection, width
+  alone isn't enough. The Carrier engine is needed for sustained pressure against detecting P2.
+- **Skipjack Drone death trigger CONFIRMED**: Died to interception on T14, spawned a Drone
+  token. First confirmed in-game fire of this trigger. Value-positive even when intercepted.
+- **Escort Frigate (reach) killed Snorkel Stalker T12** — saved ~16+ hull damage. Reach
+  interceptors are essential against SH's PERISCOPE carry.
+- **Crew lords still untested**: VSL drawn T15 (too late), DPM held entire game (no Carrier
+  to attach to). Need a game where Carrier lands T3-T5 to test lord effects.
+- **SH without LP is much weaker**: P2 never deployed Listening Post. Without the 0/3 wall,
+  drones attacked Flagship directly. The LP-less SH opener is a significant handicap.
+
+**TC management fix needed**: Greedy {1T} deploys prevent Carrier from ever landing. Correct
+line: T1 deploy {1T}, T2 BANK, T3 BANK, T4 deploy Escort Carrier with TC=3. Current
+"always deploy" policy is broken for this deck's {3T} engine.
+
+**Open iter-8 questions**:
+- Can SH with LP wall + active detection from T5 stop the Carrier swarm?
+- What happens when Escort Carrier + Drone Pen Mate are both online by T5?
+- Does Veteran Squadron Lead's +1/+1 buff allow Drones to kill Listening Post (0/3)?
+  With VSL: 2/1 Drones → 3/2 Drones. 3 power vs 3 toughness = LP survives but barely.

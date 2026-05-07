@@ -448,6 +448,190 @@ def test_medium_ai_does_not_oscillate_dive_surface():
     )
 
 
+def test_undetected_attack_depth_modifier():
+    """Iter-7 investigation: does the depth modifier apply to undetected attackers?
+
+    Pilot A and Pilot B both reported that a SURFACE 2/1 attacker dealt 2 damage
+    to a PERISCOPE flagship (full printed power), where the formula predicts
+    max(1, 2 - |0 - 1|) = 1. Both pilots hypothesised that "undetected attackers
+    bypass the depth modifier".
+
+    This test confirms the ACTUAL engine behaviour:
+    - The depth modifier interceptor fires for ALL combat damage events,
+      detected or not (the filter gates on is_combat/depths_combat flags,
+      NOT on the detected status of the attacker).
+    - A SURFACE (band=0) attacker vs PERISCOPE (band=1) flagship DOES get
+      reduced from 2 → 1 even when undetected.
+    - The pilot observations of "2 damage" were reading the pre-transform
+      event payload returned by assign_damage (which captures events before
+      the pipeline transforms them). The actual damage applied to the
+      flagship object is 1.
+
+    VERDICT: The depth modifier is NOT bypassed for undetected attackers.
+    The pilot hypothesis was INCORRECT. The engine is working as designed.
+    The harness combat log printed the pre-transform amount (2), not the
+    post-pipeline amount (1), causing the confusion.
+    """
+    from src.engine.types import CardType, Characteristics, ZoneType, GameObject, new_id, ObjectState
+    from src.engine.game import Game
+    from src.engine.depths import DepthBand
+    from src.engine.depths_combat import (
+        DepthsCombatManager, AttackerSpec, install_depth_damage_modifier, is_detected,
+    )
+
+    game = Game(mode="depths")
+    p1 = game.add_player("Attacker")
+    p2 = game.add_player("Defender")
+    state = game.state
+
+    # 2/1 Drone at SURFACE (band 0).
+    atk_chars = Characteristics(
+        types={CardType.DEPTHS_VESSEL}, subtypes={"Drone"}, power=2, toughness=1
+    )
+    atk_id = new_id()
+    atk_state = ObjectState()
+    atk_state.depth_band = DepthBand.SURFACE
+    atk_state.tapped = False
+    atk_state.summoning_sickness = False
+    atk_state.detected = False  # explicitly UNDETECTED
+    atk_obj = GameObject(
+        id=atk_id, name="Surface Drone", characteristics=atk_chars,
+        controller=p1.id, owner=p1.id, zone=ZoneType.BATTLEFIELD, state=atk_state,
+    )
+    state.objects[atk_id] = atk_obj
+    state.zones["battlefield"].objects.append(atk_id)
+
+    # 0/25 Flagship at PERISCOPE (band 1).
+    tgt_chars = Characteristics(
+        types={CardType.DEPTHS_VESSEL}, subtypes={"Flagship"}, power=0, toughness=25
+    )
+    tgt_id = new_id()
+    tgt_state = ObjectState()
+    tgt_state.depth_band = DepthBand.PERISCOPE
+    tgt_state.tapped = False
+    tgt_state.summoning_sickness = False
+    tgt_obj = GameObject(
+        id=tgt_id, name="Test Flagship", characteristics=tgt_chars,
+        controller=p2.id, owner=p2.id, zone=ZoneType.BATTLEFIELD, state=tgt_state,
+    )
+    state.objects[tgt_id] = tgt_obj
+    state.zones["battlefield"].objects.append(tgt_id)
+
+    state.active_player = p1.id
+    install_depth_damage_modifier(state)
+
+    # Confirm attacker is undetected before combat.
+    assert not is_detected(atk_obj), "Attacker must be undetected for this test"
+
+    cm = DepthsCombatManager()
+    atk_spec = AttackerSpec(
+        vessel_id=atk_id,
+        target_id=tgt_id,
+        firing_depth_band=DepthBand.SURFACE,
+    )
+    result = cm.resolve_combat(
+        state,
+        attacker_specs=[atk_spec],
+        sonar_spends={},   # defender spends 0 SC — attacker stays undetected
+        blocker_specs=[],
+    )
+
+    assert result["ok"], "Combat should succeed"
+
+    # The pre-pipeline event captured by assign_damage shows the raw power (2).
+    # This is what harness logs displayed, causing pilot confusion.
+    pre_transform_amount = result["damage_events"][0].payload["amount"]
+    assert pre_transform_amount == 2, (
+        f"assign_damage emits raw power before pipeline transform: expected 2, got {pre_transform_amount}"
+    )
+
+    # The ACTUAL damage applied to the flagship is 1 — the depth modifier fired.
+    # SURFACE (0) → PERISCOPE (1): diff=1, reduced = max(1, 2-1) = 1.
+    actual_damage = int(tgt_obj.state.damage or 0)
+    assert actual_damage == 1, (
+        f"Depth modifier MUST fire for undetected SURFACE→PERISCOPE attack. "
+        f"Expected 1 damage (max(1, 2-1)), got {actual_damage}. "
+        f"The depth modifier applies to ALL combat, not just detected attackers. "
+        f"Pilot reports of '2 damage' were reading pre-pipeline event payloads."
+    )
+
+
+def test_detection_without_interceptors_skips_detect():
+    """Iter-7 patch: medium AI must not spend SC detecting when no
+    ready interceptors are available — detected attackers still deal
+    full damage if there's nothing to assign as blocker.
+    """
+    from src.cards.depths.submarine_fleet.decks import SUBS_STARTER_DECKS, make_subs_flagship
+    from src.engine.depths_combat import AttackerSpec
+    from src.ai.depths_adapter import DepthsAIAdapter
+    from src.engine.depths import DepthBand
+
+    async def _run():
+        game = Game(mode="depths")
+        p1 = game.add_player("Carrier")
+        p2 = game.add_player("SH")
+        tm = DepthsTurnManager(game.state)
+        game.turn_manager = tm
+        tm.set_ai_player(p1.id)
+        tm.set_ai_player(p2.id)
+        await tm.setup_game(
+            game,
+            SUBS_STARTER_DECKS["SUBS_carrier"](),
+            SUBS_STARTER_DECKS["SUBS_silent_hunter"](),
+            make_subs_flagship(), make_subs_flagship(),
+        )
+
+        # Manually clear P2's battlefield of all non-Flagship vessels so
+        # there are no ready interceptors.
+        state = game.state
+        from src.engine.depths import get_flagship, is_vessel
+        bf = state.zones.get("battlefield")
+        p2_flagship = get_flagship(p2.id, state)
+        to_remove = []
+        for oid in list(bf.objects):
+            obj = state.objects.get(oid)
+            if obj and obj.controller == p2.id and is_vessel(obj):
+                if obj.id != (p2_flagship.id if p2_flagship else None):
+                    to_remove.append(oid)
+        for oid in to_remove:
+            bf.objects.remove(oid)
+
+        # Confirm P2 has no ready interceptors
+        from src.ai.depths_adapter import _own_vessels, _is_ready_to_attack
+        p2_interceptors = [v for v in _own_vessels(state, p2.id) if _is_ready_to_attack(v)]
+        assert p2_interceptors == [], f"P2 should have no interceptors, got: {p2_interceptors}"
+
+        # Build fake attackers targeting P2 flagship
+        p2_fs = get_flagship(p2.id, state)
+        p1_vessels = _own_vessels(state, p1.id)
+        attackers = []
+        for v in p1_vessels[:2]:
+            if _is_ready_to_attack(v) and p2_fs:
+                attackers.append(AttackerSpec(
+                    vessel_id=v.id,
+                    target_id=p2_fs.id,
+                    firing_depth_band=v.state.depth_band or DepthBand.SURFACE,
+                ))
+        if not attackers:
+            return None, None  # no attackers to test with
+
+        # Give P2 some SC
+        p2_player = state.players.get(p2.id)
+        p2_player.sc = 10
+
+        ai = DepthsAIAdapter(difficulty="medium")
+        detections = ai.choose_detections(state, p2.id, attackers)
+        return detections, int(getattr(p2_player, "sc", 0))
+
+    detections, remaining_sc = asyncio.run(_run())
+    if detections is None:
+        return  # no attackers available — test is vacuously true
+    assert detections == {}, (
+        f"Medium AI must return empty detections when no interceptors are available. "
+        f"Got: {detections}. SC spent wastefully on detection with no interceptors to assign."
+    )
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("DEPTHS ENGINE SMOKE TEST")
@@ -456,4 +640,6 @@ if __name__ == "__main__":
     test_depths_ai_makes_decisions()
     test_eot_pt_modifiers_clear_at_end_of_turn()
     test_medium_ai_does_not_oscillate_dive_surface()
+    test_undetected_attack_depth_modifier()
+    test_detection_without_interceptors_skips_detect()
     print("\nOK — all depths smoke tests passed.")
