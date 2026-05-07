@@ -157,7 +157,62 @@ class MinecraftAIAdapter:
         return bed or (targets[0] if targets else opponent_id)
 
     def _best_biome_to_mine(self, state: GameState, player_id: str) -> int:
+        """
+        Pick the most valuable biome to mine this turn.
+
+        Default priority is premium materials (diamond > redstone > iron >
+        stone > wood). But if we *need* wood now — to play a Worker or
+        Explore Map sitting in hand, or because we have no other wood
+        income — bias toward the wood biome instead. Wood's leverage
+        early is highest in the format (Explore Map = 1W for permanent
+        +1 yield; Workers cost 1W each).
+        """
         biomes = state.minecraft_biomes.get(player_id) or []
+        if not biomes:
+            return 0
+
+        player = state.players.get(player_id)
+        my_wood = int((player.mc_materials if player else {}).get("wood", 0) or 0)
+
+        # Inspect hand for cards that need wood urgently.
+        hand = state.zones.get(f"hand_{player_id}")
+        wants_wood = False
+        if hand:
+            for oid in hand.objects:
+                obj = state.objects.get(oid)
+                if not obj or not obj.card_def:
+                    continue
+                cost = mc._discounted_cost(state, player_id, obj)
+                wood_cost = int((cost or {}).get("wood", 0) or 0)
+                if wood_cost <= 0:
+                    continue
+                # Explore Map (the 1 wood) — top of the meta priority list.
+                if obj.name == "Explore Map":
+                    wants_wood = True
+                    break
+                # Workers cost wood and they compound — prefer mining wood
+                # for them too, especially when we don't have any yet.
+                if (
+                    CardType.MC_MOB in obj.characteristics.types
+                    and "Worker" in (obj.characteristics.subtypes or set())
+                ):
+                    wants_wood = True
+                    break
+                # Bed is fundamental and costs 2 wood.
+                if "Bed" in obj.characteristics.subtypes and not mc.has_bed(state, player_id):
+                    wants_wood = True
+                    break
+
+        # If we need wood and don't have any, prefer the wood biome.
+        if wants_wood and my_wood < 2:
+            for i, biome in enumerate(biomes):
+                if biome.get("mined"):
+                    continue
+                yields = biome.get("yields") or {}
+                if int(yields.get("wood", 0) or 0) > 0:
+                    return i
+
+        # Otherwise: premium-material priority (diamond > redstone > iron > stone > wood).
         for material in ("diamond", "redstone", "iron", "stone", "wood"):
             for i, biome in enumerate(biomes):
                 if not biome.get("mined") and int((biome.get("yields") or {}).get(material, 0) or 0) > 0:
@@ -165,9 +220,44 @@ class MinecraftAIAdapter:
         return 0
 
     def _choose_card_to_play(self, state: GameState, player_id: str) -> Optional[str]:
+        """
+        Phase-aware card scoring that follows the MC meta:
+          1. Explore biomes (1 wood -> permanent +1 yield)
+          2. Deploy Workers ASAP (compounding economy)
+          3. Upgrade material generation (turn-bonus structures)
+          4. Then deploy big mobs / tempo plays
+
+        Scoring is baseline + per-card meta bumps. Action cards used to
+        score 8 (worst) which made the AI ignore Strip Mine, Explore Map,
+        Find Diamonds — the entire ramp toolkit.
+        """
         hand = state.zones.get(f"hand_{player_id}")
         if not hand:
             return None
+
+        # Read game state needed for phase-aware scoring.
+        turn_number = int(getattr(state, "turn_number", 0) or 0)
+        biomes = state.minecraft_biomes.get(player_id) or []
+        any_biome_upgradable = any(
+            mc.BIOME_UPGRADES.get((b or {}).get("name")) for b in biomes
+        )
+        battlefield = state.zones.get("battlefield")
+        my_workers_count = 0
+        my_turnbonus_structures = 0
+        if battlefield:
+            for oid_bf in battlefield.objects:
+                o = state.objects.get(oid_bf)
+                if not o or o.controller != player_id or not o.card_def:
+                    continue
+                if CardType.MC_MOB in o.characteristics.types and "Worker" in o.characteristics.subtypes:
+                    my_workers_count += 1
+                if CardType.MC_STRUCTURE in o.characteristics.types:
+                    if (getattr(o.card_def, "mc_turn_bonus", None) or {}):
+                        my_turnbonus_structures += 1
+
+        player = state.players.get(player_id)
+        my_materials = (player.mc_materials if player else {}) or {}
+
         candidates = []
         has_bed = mc.has_bed(state, player_id)
         for oid in hand.objects:
@@ -177,18 +267,88 @@ class MinecraftAIAdapter:
             cost = mc._discounted_cost(state, player_id, obj)
             if not mc.can_pay(state, player_id, cost):
                 continue
+
             score = 0
-            if "Bed" in obj.characteristics.subtypes and not has_bed:
+            name = obj.name
+            types = obj.characteristics.types or set()
+            subtypes = obj.characteristics.subtypes or set()
+            cost_total = sum(int(v or 0) for v in (cost or {}).values())
+
+            # Bed first — fundamental respawn lifeline.
+            if "Bed" in subtypes and not has_bed:
                 score += 100
-            if CardType.MC_MOB in obj.characteristics.types:
+
+            # Workers — deploy ASAP. Diminishing returns past 3.
+            if CardType.MC_MOB in types and "Worker" in subtypes:
+                # Base mob value
                 score += 20 + (obj.characteristics.power or 0) + (obj.characteristics.toughness or 0)
-            if CardType.MC_STRUCTURE in obj.characteristics.types or CardType.MC_BLOCK in obj.characteristics.types:
-                score += 12 + (obj.characteristics.toughness or 0)
-            if CardType.MC_TOOL in obj.characteristics.types:
+                # Worker meta bonus
+                if my_workers_count < 3:
+                    score += 25
+                if my_workers_count < 1:
+                    score += 15  # extra-urgent for the first one
+
+            # Non-Worker Mob
+            elif CardType.MC_MOB in types:
+                score += 20 + (obj.characteristics.power or 0) + (obj.characteristics.toughness or 0)
+                # Penalize the *biggest* mobs early — we should be ramping,
+                # not slamming. Threshold raised to 5 so 3-mana mid mobs
+                # (Iron Golem, Ravager, Blaze) aren't suppressed.
+                if turn_number <= 2 and cost_total >= 5:
+                    score -= 10
+                # Bonus for big mobs late (we're ready to close).
+                if turn_number >= 6 and cost_total >= 4:
+                    score += 10
+
+            # Structures: turn-bonus = ramp engine, prioritize early.
+            if CardType.MC_STRUCTURE in types or CardType.MC_BLOCK in types:
+                if "Bed" in subtypes:
+                    pass  # handled above
+                else:
+                    score += 12 + (obj.characteristics.toughness or 0)
+                    turn_bonus = getattr(obj.card_def, "mc_turn_bonus", None) or {}
+                    if turn_bonus and my_turnbonus_structures < 3:
+                        score += 18  # ramp structure — high priority
+
+            if CardType.MC_TOOL in types:
                 score += 15 + int(getattr(obj.card_def, "mc_attack", 0) or 0)
-            if CardType.MC_ACTION in obj.characteristics.types:
+
+            # Actions — used to be flat 8. Now meta-aware.
+            if CardType.MC_ACTION in types:
                 score += 8
+                # Explore Map: 1 wood for permanent biome upgrade. Best card
+                # in the format if any biome can still be upgraded.
+                if name == "Explore Map" and any_biome_upgradable:
+                    score += 45
+                # Strip Mine: only cheap entry to redstone.
+                if name == "Strip Mine":
+                    if int(my_materials.get("redstone", 0) or 0) < 2:
+                        score += 28
+                # Find Diamonds: only entry to diamond.
+                if name == "Find Diamonds":
+                    if int(my_materials.get("diamond", 0) or 0) < 2:
+                        score += 22
+                # Chop Trees: free wood, always good early.
+                if name == "Chop Trees":
+                    if turn_number <= 4 or int(my_materials.get("wood", 0) or 0) < 2:
+                        score += 20
+                # Bone Meal / Redstone Contraption: untap workers, only
+                # valuable if we actually have tapped workers.
+                if name in ("Bone Meal", "Redstone Contraption"):
+                    if my_workers_count > 0:
+                        score += 15
+                # Nether Expedition: ramp + draw.
+                if name == "Nether Expedition":
+                    score += 18
+                # Eyes of Ender: tutor.
+                if name == "Eyes of Ender":
+                    score += 25
+                # Villager Trade: card draw.
+                if name == "Villager Trade":
+                    score += 12
+
             candidates.append((score, oid))
+
         if not candidates:
             return None
         candidates.sort(reverse=True)

@@ -601,3 +601,55 @@ Engine-extension cost for the port:
 For the next port: budget one small engine extension per pass. The
 hook surface that the existing cards use is rarely the hook surface
 that build-around cards need.
+
+### Audit the AI for meta-awareness BEFORE running capability tests
+
+The v9 MC sweep (above) measured cards while the AI was playing badly —
+it scored Action cards at flat `+8` (lowest priority), so it ignored
+Strip Mine, Explore Map, Find Diamonds, and the entire ramp toolkit.
+The AI's mining heuristic also went diamond → redstone → iron → stone
+→ wood, which means it never mined Forest first turn, which means it
+never had wood to play workers or Explore Map turn 2.
+
+**The MC meta is**: explore biomes for permanent +1 yield (1 wood for
+Old Growth Forest = 2 W/turn forever), deploy Workers ASAP for
+compounding economy, then build turn-bonus structures, then deploy
+bombs. The AI was playing none of that. Capability scores were
+measuring AI ineptitude, not card capability.
+
+After v10-v12 AI fixes (meta-aware `_choose_card_to_play` with phase
+bonuses + wood-first mining when Explore Map / Workers are pending),
+PASS rate went **1/6 (v1 vanilla) → 2/6 (v9, broken AI) → 3/6 (v12,
+meta-aware AI)** with no card changes between v9 and v12.
+
+| Card | v9 (broken AI) | v12 (meta-aware AI) |
+|---|---|---|
+| Elder Guardian | **1.26** | **0.92** |
+| Iron Golem | 0.31 | **0.44** |
+| Wither | 0.33 | 0.00 |
+| Ender Dragon | 0.16 | 0.12 |
+| Ravager | 0.26 | 0.17 |
+| Blaze | 0.27 | **0.31** |
+
+Note that EG and Wither *regressed* with the smarter AI — they
+got cast slightly less often because the AI was now spending early
+turns ramping. That's the right tradeoff: the meta-aware AI is
+playing the actual format, and cards that PASS under those conditions
+are robustly format-defining.
+
+**Lesson for any new engine port**: before trusting capability scores,
+manually verify that the AI plays the format meta. A heuristic AI
+optimized for a generic "play the biggest thing affordable" isn't
+testing build-around cards; it's testing whether the build-around
+*happens to align with* "biggest thing." Audit:
+
+1. Read the AI's card-scoring function. Does it weight ramp and engine
+   pieces above mid-cost mobs? Does it favor incremental advantage
+   over face-value stat lines?
+2. Read the AI's resource-acquisition heuristic (mining, mana ramp,
+   draw, etc.). Does it match the format's optimal early game?
+3. Watch one game manually. Is the AI playing the meta or stalling
+   into raw value?
+
+If the AI plays the meta poorly, the capability test measures AI
+weakness instead of card weakness. Fix the AI first.
