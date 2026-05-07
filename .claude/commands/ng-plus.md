@@ -1,5 +1,5 @@
 ---
-description: Run the polish-pass loop N times on an existing engine. Each pass interceptor-verifies, runs the deckbuilder, discovers the meta, tunes the AI, polishes the frontend, wet-tests, checks drift, and writes a punchlist. Pass N artifacts feed pass N+1.
+description: Run the polish-pass loop N times on an existing engine. Each pass interceptor-verifies, runs the deckbuilder, discovers the meta, tunes the AI, polishes the frontend, wet-tests, checks drift, and writes a punchlist. Pass N artifacts feed pass N+1. Auto-repairs blockers (broken interceptors, engine errors, regressions) and continues — the loop never halts on a fixable problem.
 argument-hint: [N=1] [--game NAME] [--polish-pilot-games 5] [--polish-num-decks 4] [--skip-stage P0,P3,...]
 ---
 
@@ -20,8 +20,12 @@ and a clean punchlist. Once converged, more iterations are
 measurement noise.
 
 Fire-and-forget contract: never calls `AskUserQuestion`, never blocks
-on user input. Same as `/new-game`. The user can interrupt at any
-time.
+on user input, **never halts on a fixable blocker**. If a stage gate
+fails (broken interceptors, engine bugs, P4 regressions), the loop
+dispatches a repair agent, re-runs the failing stage, and continues
+— see §"Auto-repair pattern". The only stop conditions are
+convergence (success) and reaching N iterations. The user can
+interrupt at any time.
 
 ## Arguments
 
@@ -111,21 +115,68 @@ harness:        scripts/play/<...>.py
 strategy doc:   docs/strategy/<game>.md  (exists|will create)
 prior punchlist:  docs/games/<game>_polish_punchlist.md  (yes|absent)
 prior drift:    docs/games/<game>_plan_drift.md  (yes|absent)
-prior blocker:  docs/games/<game>_polish_blocker.md  (yes|absent — RESOLVE FIRST if yes)
+prior blocker:  docs/games/<game>_polish_blocker.md  (yes|absent — auto-repair will address if yes)
 skip stages:    <list or "none">
 ==> starting polish loop...
 ```
 
 If a prior `<game>_polish_blocker.md` exists from a previous halt,
-**do NOT proceed**. Halt and print:
+**read it for context** (the named cards / tracebacks tell you what
+to watch for), then **delete it** at the end of pre-flight. If the
+underlying issue is still present, the first iteration's P0 / P1 /
+P5a gate will re-fire and the auto-repair pattern (§"Auto-repair
+pattern") will rewrite the file with fresh diagnostics. If the
+issue was resolved off-band, leaving the stale file would
+permanently misrepresent loop state — so we always start clean.
+Print a one-liner:
 
 ```
-=== /ng-plus: prior pass halted ===
-unresolved blocker: docs/games/<game>_polish_blocker.md
-==> read the file, fix the underlying issue, delete the file, then re-run /ng-plus.
+==> prior blocker present; consumed for context, deleted. Auto-repair will re-flag if still broken.
 ```
 
-This avoids running 7 polish passes against a known-broken engine.
+## Auto-repair pattern
+
+The polish loop has three gates that historically halted on failure:
+P0 (interceptor pass rate), tournament errors (P1 / P1.5 / P5a), and
+P4 (P0-vs-P4 regression). The loop now treats each as a self-healing
+checkpoint, never a hard stop:
+
+1. **Diagnose**: write `docs/games/<game>_polish_blocker.md` with the
+   gate that fired, the iter index, the failure category, and a
+   sample traceback / failing-card list. This file is the
+   spec the repair agent works from.
+2. **Repair**: spawn a `general-purpose` Agent with full context —
+   the blocker file path, the failing-stage's relevant source files,
+   and an instruction to fix root causes (not bypass tests / hide
+   errors). Standard prompts are inlined in each gate below.
+3. **Re-run** the failing stage from scratch.
+4. **Outcome**:
+   - Gate now passes → delete the blocker file, log "auto-repaired
+     in iter <iter>" to the iteration report, continue.
+   - Gate still fails → spawn one more repair agent (second attempt).
+     If it still fails, log "persistent <category>" to the iteration
+     report with the unresolved card / error list, then **continue
+     to the next stage anyway**. Downstream stages may produce
+     noisier signal, but the loop runs to completion.
+
+**Repair-agent budget**: at most 2 repair attempts per gate per
+iteration. Persistent gate failures across iterations are surfaced
+in the final report as "engine likely needs human redesign," but
+they never stop the loop.
+
+**Why never halt**: an iteration with degraded data is more useful
+than no iteration at all. The punchlist, drift report, and
+"persistent" markers compound across iters and surface the real
+structural issues. Halting throws that signal away.
+
+The only true stop conditions for the loop are:
+- **Convergence** (§"Convergence auto-stop") — the success state.
+- **N reached** — finished the requested iteration count.
+- **Engine genuinely missing** — pre-flight engine sanity check
+  failed; nothing to polish. (`/new-game` should run first.)
+
+Engine sanity-check failures and game-inference failures are
+*usage* errors, not blockers — auto-repair doesn't apply there.
 
 ## Polish loop
 
@@ -175,19 +226,42 @@ Invoke `/test-interceptors --game <game> --set <set_code>`. Read
 has multiple sets, run P0 against each (one invocation per set,
 aggregate the pass rate).
 
-**Gate**: if pass rate < 70%, halt the polish loop before P1. Write
-`docs/games/<game>_polish_blocker.md` with:
-- iter index that detected
-- pass rate
-- top failure categories (with card examples)
-- suggested next step
+**Gate (auto-repair, never halt)**: if pass rate < 70%, invoke the
+auto-repair pattern (§"Auto-repair pattern"):
 
-Print:
+1. Write `docs/games/<game>_polish_blocker.md` with:
+   - iter index that detected
+   - pass rate
+   - top failure categories (with card examples + offending file paths)
+   - sample failure traceback or assertion text
+2. Spawn a `general-purpose` Agent with prompt:
+   > P0 in iter <iter> of /ng-plus failed at <X>% (threshold 70%).
+   > Read `docs/games/<game>_polish_blocker.md` for the failing
+   > cards and diagnostics. For each failing card, read its
+   > definition in `src/cards/<game>/<set>.py`, identify whether
+   > the bug is in `setup_interceptors` (no trigger registered) or
+   > in `effect_fn` (returns `[]` or wrong events), and fix it.
+   > Refer to `CLAUDE.md` for the interceptor patterns and
+   > `interceptor_helpers.py` for available helpers. Fix root
+   > causes — do NOT lower the threshold, mock the test, or
+   > delete failing cards. Re-run
+   > `python tests/test_<game>_interceptors.py` to confirm the
+   > pass rate improved. Report which cards you fixed and any
+   > you couldn't repair (with reasons).
+3. Re-run `/test-interceptors`. If pass rate now ≥ 70%, delete the
+   blocker file and log "P0 auto-repaired in iter <iter>: <X>% →
+   <Y>%" to the iteration report. Continue to P1.
+4. If still < 70% after a second repair attempt, log "persistent
+   P0 failures" with the unresolved card list to the iteration
+   report. **Continue to P1 anyway** — downstream stages will
+   surface which broken cards actually matter in play, which is
+   useful even with degraded P0.
+
+Print on each outcome:
 
 ```
-=== POLISH LOOP HALTED at P0 (iter <iter>) ===
-pass rate: X%  (threshold: 70%)
-see: docs/games/<game>_polish_blocker.md
+=== iter <iter> P0 ===
+pass rate: X%  (auto-repaired: yes|no  | persistent: yes|no)
 ```
 
 Even 70–90% should produce a "watchlist" entry in this iter's report.
@@ -212,21 +286,40 @@ If no new deck beat all starters, do NOT register anything — the
 existing starters are already locally optimal for this iter. Note the
 negative result.
 
-**Tournament error gate** (applies to every tournament invocation in
-the loop — P1, P1.5, P5a): after the tournament finishes, parse
-`aggregated.totals` from the output JSON. If
-`errors / games > 0.05`, **halt the polish loop** and write
-`docs/games/<game>_polish_blocker.md` with:
-- the error rate observed
-- a sample traceback (first error's `error` field)
-- which iter + stage detected it (P1 / P1.5 / P5a)
-- suggested next step (likely a real engine bug — investigate the
-  reported file/line, not the AI tuning).
+**Tournament error gate (auto-repair, never halt)** (applies to
+every tournament invocation in the loop — P1, P1.5, P5a): after the
+tournament finishes, parse `aggregated.totals` from the output JSON.
+If `errors / games > 0.05`, invoke the auto-repair pattern
+(§"Auto-repair pattern"):
+
+1. Write `docs/games/<game>_polish_blocker.md` with:
+   - the error rate observed
+   - a sample traceback (first error's `error` field)
+   - which iter + stage detected it (P1 / P1.5 / P5a)
+2. Spawn a `general-purpose` Agent with prompt:
+   > A tournament at /ng-plus stage <stage> in iter <iter> hit
+   > <X>% error rate (threshold 5%). Read
+   > `docs/games/<game>_polish_blocker.md` for the traceback.
+   > Trace the error to its root in `src/engine/`,
+   > `src/cards/<game>/`, or `src/ai/<game>_adapter.py`. Fix the
+   > root cause — do NOT swallow the exception, lower the
+   > threshold, or skip the failing branch. Run a 5-game smoke
+   > tournament with `scripts/play/<game>_deck_tournament.py` to
+   > confirm the error rate dropped below 5%. Report the file and
+   > line you changed and the underlying bug.
+3. Re-run the failed tournament stage. If errors now ≤ 5%, delete
+   the blocker file and log "tournament errors auto-repaired in
+   iter <iter> at <stage>: <X>% → <Y>%" to the iteration report.
+4. If still > 5% after a second repair attempt, log "persistent
+   tournament errors at <stage>" with the latest sample traceback
+   to the iteration report and **continue with whatever data the
+   tournament produced**. Subsequent stages may be noisier; the
+   loop runs to completion regardless.
 
 Two recent engine bugs in the Minecraft TCG (`auto_block` bypass and
 a `GameObject` in `block_map`) were each invisible to interceptor
 tests (P0/P4) but produced 10.8% tournament errors at scale. This
-gate catches that class of bug.
+gate catches and now self-heals that class of bug.
 
 ### P1.5 — Meta discovery (variant tournament)
 
@@ -255,7 +348,9 @@ Procedure:
        --out logs/<game>_polish_meta_discovery_iter<iter>.json
    ```
 
-3. **Tournament error gate** (see P1): if errors/games > 5%, HALT.
+3. **Tournament error gate** (see P1): if errors/games > 5%, invoke
+   the auto-repair pattern. The loop never halts — repair, re-run,
+   continue.
 
 4. Read `aggregated.ranking[0]` from the JSON. Capture as
    `<meta-preset>` for the rest of *this iteration*.
@@ -353,9 +448,32 @@ verify nothing P1–P3 broke. The deckbuilder and AI tuner shouldn't
 have changed card defs, but if P2's adapter patches inadvertently
 broke a card path, this catches it.
 
-If pass rate dropped vs P0, halt and report — something downstream
-broke the engine. Write
-`docs/games/<game>_polish_blocker.md` with the regression details.
+If pass rate dropped vs P0, do NOT halt — invoke the auto-repair
+pattern (§"Auto-repair pattern"):
+
+1. Write `docs/games/<game>_polish_blocker.md` with regression
+   details: the P0 baseline pass rate, the P4 pass rate, and which
+   cards newly fail (the diff).
+2. Spawn a `general-purpose` Agent with prompt:
+   > P4 in iter <iter> of /ng-plus regressed vs P0 (P0=<X>%,
+   > P4=<Y>%). Read `docs/games/<game>_polish_blocker.md` for the
+   > newly-failing cards. Run `git diff` against the start of this
+   > iteration to identify what P1–P3 changed
+   > (deckbuilder/AI-tuning/frontend should not have edited card
+   > defs, but `<game>_adapter.py` and `<game>_BIAS_PRESETS` may
+   > have shifted, and a P3 frontend pass occasionally touches
+   > shared utility files). Either revert the breaking change or
+   > fix forward — fix root causes, don't gate the test off.
+   > Re-run `python tests/test_<game>_interceptors.py` and confirm
+   > parity with P0. Report what you changed.
+3. Re-run `/test-interceptors`. If pass rate now ≥ P0, delete the
+   blocker file and log "P4 regression auto-repaired in iter
+   <iter>" to the iteration report.
+4. If still regressed after a second repair attempt, log
+   "persistent P4 regression" to the iteration report and
+   **continue to P5 anyway**. The wet test will surface whether
+   the regression matters in real play.
+
 If pass rate stayed flat or improved, continue.
 
 ### P5 — Wet test
@@ -379,12 +497,16 @@ spawn a small agent to add it (read `mc_deck_tournament.py` for the
 pattern). The telemetry catches cards that *never fire* in real play
 — different signal from P0/P4 (which fire the trigger artificially).
 
-**P5a-1 — Tournament error gate** (same procedure as P1/P1.5):
+**P5a-1 — Tournament error gate (auto-repair, same procedure as P1/P1.5)**:
 
-Parse `aggregated.totals.errors / .games`. If > 5%, **halt the polish
-loop** and write `docs/games/<game>_polish_blocker.md`. By P5a, the
-ultra-loop has applied AI tuning; an error rate spike here likely
-means a tuning patch broke something.
+Parse `aggregated.totals.errors / .games`. If > 5%, invoke the
+auto-repair pattern. By P5a, `/ultra-loop` has applied AI tuning, so
+the repair agent should specifically check `<game>_adapter.py` and
+recent edits to `<game>_BIAS_PRESETS` for tuning-induced
+regressions before broader engine debugging — the prompt template
+in §"Auto-repair pattern" applies, with that prioritization noted
+in the spawn prompt. The loop never halts; persistent failures are
+logged and the loop proceeds to P5b/c/d with the data it has.
 
 **P5a-2 — Polish punchlist** (feed-forward to next iteration / next pass):
 
@@ -543,10 +665,12 @@ Continue to iter+1.
 
 Append a "Polish-loop summary" section to `docs/games/<game>.md`:
 
-- **Iterations completed**: actual / requested. Note early-stop reason
-  if applicable.
+- **Iterations completed**: actual / requested. Early-stop reason if
+  applicable — only ever "converged" (the only allowed early stop).
 - **P0 progression**: pass rate per iter (table). Cards resolved
   across the loop. Cards still on the persistent-dead-weight list.
+  Auto-repair count: how many iters fired P0 auto-repair, how many
+  succeeded vs flagged "persistent."
 - **P1 deckbuilder progression**: new decks registered per iter.
 - **P1.5 meta evolution**: did the meta preset stay the same across
   iters, or shift? A shift suggests AI tuning is moving the format,
@@ -554,17 +678,25 @@ Append a "Polish-loop summary" section to `docs/games/<game>.md`:
 - **P2 AI tuning**: total bias-preset deltas across iters; total
   strategy-doc bullets added; net change to `<game>_adapter.py`.
 - **P3 frontend**: ran in iter 1; re-ran in iter <X> if P5b regressed.
-- **P4 progression**: pass rate per iter (delta vs P0).
-- **P5a tournament progression**: top decks per iter; tournament error
-  rate per iter (must be ≤5% throughout).
+- **P4 progression**: pass rate per iter (delta vs P0). Auto-repair
+  count for P4 regressions.
+- **P5a tournament progression**: top decks per iter; tournament
+  error rate per iter. Note any iters where the tournament-error
+  gate fired and whether auto-repair succeeded.
 - **P5b browser**: pass/fail per iter when run.
 - **P5c smoke**: pass/fail per iter.
 - **P5d plan drift**: flagged plans per iter; cumulative count of
   plans flagged at least once.
+- **Auto-repair summary**: count of repair-agent invocations, count
+  successful, count "persistent" (failed after 2 attempts). A high
+  persistent count signals the engine genuinely needs human
+  redesign — but the loop still ran to completion.
 - **Outstanding TODOs**: aggregated from all iters:
   - Plans flagged by P5d in the FINAL iter (still drifting).
   - Cards on the persistent-dead-weight list.
   - Punchlist redesign candidates from the FINAL iter.
+  - Persistent gate failures (P0 cards / tournament errors / P4
+    regressions that auto-repair couldn't resolve).
 
 **Artifacts produced** (paths for the next `/ng-plus` invocation):
 
@@ -573,19 +705,22 @@ Append a "Polish-loop summary" section to `docs/games/<game>.md`:
 - `logs/<game>_decks_polish_iter<I>.json` — deckbuilder JSON per iter
 - `docs/games/<game>_polish_punchlist.md` — current punchlist (final iter)
 - `docs/games/<game>_plan_drift.md` — current drift report (final iter)
-- `docs/games/<game>_polish_blocker.md` — only present if a halt fired
+- `docs/games/<game>_polish_blocker.md` — present only if a gate hit
+  "persistent" status (auto-repair failed twice on the final iter).
+  Cleared automatically when auto-repair resolves the issue.
 
 Then a tight status message:
 
 ```
 === /ng-plus complete ===
-game:        <game>
-iterations:  <actual> / <requested>  (early-stop: <yes|no>)
+game:           <game>
+iterations:     <actual> / <requested>  (early-stop: <yes|no, reason: converged|n/a>)
 P0 first→last:  X% → Y%  (delta: ±Zpp)
-new decks:   <list of registered winners>
-plan drift:  <count of plans flagged in final iter>
-punchlist:   <count of unique cards flagged in final iter>
-ready:       <yes if final iter converged, else "see polish report">
+auto-repairs:   <total fired>  (succeeded: <S>, persistent: <P>)
+new decks:      <list of registered winners>
+plan drift:     <count of plans flagged in final iter>
+punchlist:      <count of unique cards flagged in final iter>
+ready:          <yes if final iter converged, else "see polish report">
 ```
 
 ## Notes for the orchestrator
@@ -597,13 +732,24 @@ ready:       <yes if final iter converged, else "see polish report">
 - **No mid-loop commits**, same as `/new-game`. The user types
   `commit` themselves at the end. Per-iter artifacts are unstaged
   files in logs/ and docs/games/.
-- **Failure handling — hard halts** (write
-  `<game>_polish_blocker.md`, do not continue):
-  - **P0** with pass rate < 70% in any iter (engine broken).
-  - **Tournament error gate** (>5% errors) at P1, P1.5, or P5a in any iter.
-  - **P4** if pass rate dropped vs that iter's P0 (P1–P3 broke a card).
-  All other stages soft-fail — they log the failure and continue. P5d
-  is observation-only; never halts.
+- **Failure handling — auto-repair, never halt**: every gate that
+  used to halt now goes through the auto-repair pattern
+  (§"Auto-repair pattern"): write the blocker file, spawn a repair
+  agent, re-run the stage, continue regardless. The loop runs to N
+  (or convergence) for any reason except true tooling absence (see
+  "Tooling absences") or a genuinely missing engine (engine sanity
+  check failed in pre-flight).
+  - **P0** with pass rate < 70% → repair agent fixes failing cards,
+    re-run P0, continue.
+  - **Tournament error gate** (>5% errors) at P1, P1.5, or P5a →
+    repair agent traces and fixes the engine bug, re-run, continue.
+  - **P4** if pass rate dropped vs that iter's P0 → repair agent
+    finds and reverts/fixes the regression, re-run, continue.
+  All other stages soft-fail — they log the failure and continue.
+  P5d is observation-only; never halts. Persistent gate failures
+  (still failing after 2 repair attempts) are logged as
+  "persistent <category>" and surfaced in the final report under
+  "Outstanding TODOs" — they do not stop the loop.
 - **Tooling absences are not failures**: if `frontend-design` or
   browser automation isn't set up, skip the relevant stage and log
   it. The loop keeps going.
