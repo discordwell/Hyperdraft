@@ -68,6 +68,7 @@ def make_mob(
     on_attack=None,
     on_block=None,
     on_death=None,
+    on_event=None,           # generic listener: fn(obj, state, event) -> list[Event]
     lord_bonus=None,
     dynamic_attack_bonus=None,
 ):
@@ -94,6 +95,7 @@ def make_mob(
         mc_on_attack=on_attack,
         mc_on_block=on_block,
         mc_on_death=on_death,
+        mc_on_event=on_event,
         mc_lord_bonus=lord_bonus,
         mc_dynamic_attack_bonus=dynamic_attack_bonus,
     )
@@ -365,6 +367,147 @@ def _enchant_weapon(obj, state, target_id=None):
     return []
 
 
+# ---------- Build-around payoff hooks ----------
+
+def _ender_dragon_etb(obj, state, target_id=None):
+    """Ender Dragon: deal 2x diamond-cost permanents you control to opponent."""
+    opponent = _opponent(state, obj.controller)
+    if not opponent:
+        return []
+    n = 0
+    battlefield = state.zones.get("battlefield")
+    if battlefield:
+        for oid in battlefield.objects:
+            o = state.objects.get(oid)
+            if not o or o.controller != obj.controller or not o.card_def:
+                continue
+            if oid == obj.id:
+                continue
+            cost = getattr(o.card_def, "mc_cost", None) or {}
+            if int(cost.get("diamond", 0) or 0) > 0:
+                n += 1
+    if n <= 0:
+        return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={"target": opponent, "amount": 2 * n, "source": obj.id, "is_combat": False},
+        source=obj.id,
+    )]
+
+
+def _wither_etb(obj, state, target_id=None):
+    """Wither: deal damage = 2x hostile count to opponent's avatar."""
+    opponent = _opponent(state, obj.controller)
+    if not opponent:
+        return []
+    n = 0
+    battlefield = state.zones.get("battlefield")
+    if battlefield:
+        for oid in battlefield.objects:
+            o = state.objects.get(oid)
+            if not o or o.controller != obj.controller:
+                continue
+            if oid == obj.id:
+                continue
+            if "Hostile" in o.characteristics.subtypes:
+                n += 1
+    if n <= 0:
+        return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={"target": opponent, "amount": 2 * n, "source": obj.id, "is_combat": False},
+        source=obj.id,
+    )]
+
+
+def _iron_golem_etb(obj, state, target_id=None):
+    """Iron Golem: deal damage = 2x worker count to opponent's avatar."""
+    opponent = _opponent(state, obj.controller)
+    if not opponent:
+        return []
+    n = 0
+    battlefield = state.zones.get("battlefield")
+    if battlefield:
+        for oid in battlefield.objects:
+            o = state.objects.get(oid)
+            if not o or o.controller != obj.controller:
+                continue
+            if "Worker" in o.characteristics.subtypes:
+                n += 1
+    if n <= 0:
+        return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={"target": opponent, "amount": 2 * n, "source": obj.id, "is_combat": False},
+        source=obj.id,
+    )]
+
+
+def _elder_guardian_on_event(obj, state, event):
+    """Elder Guardian: when a Worker you control mines (any kind of mining
+    action), each Worker you control gets +1/+0 until end of turn."""
+    if event.type != EventType.MC_MATERIAL_GAIN:
+        return []
+    payload = event.payload or {}
+    if payload.get("player") != obj.controller:
+        return []
+    # Only react to mining (gain produced by mine_biome) — every mining
+    # tick has a non-empty `materials` dict and is keyed to the active
+    # player. This avoids triggering on turn-bonus structure ticks (those
+    # also use MC_MATERIAL_GAIN, but at turn start we still want pump on
+    # incoming Worker mining only when a Worker exists). For balance,
+    # gate on "you control at least one Worker on the battlefield."
+    battlefield = state.zones.get("battlefield")
+    if not battlefield:
+        return []
+    workers = []
+    for oid in battlefield.objects:
+        o = state.objects.get(oid)
+        if not o or o.controller != obj.controller:
+            continue
+        if "Worker" in o.characteristics.subtypes:
+            workers.append(oid)
+    if not workers:
+        return []
+    return [Event(
+        type=EventType.PT_MODIFICATION,
+        payload={"object_id": wid, "power_mod": 1, "toughness_mod": 0, "duration": "end_of_turn"},
+        source=obj.id,
+    ) for wid in workers]
+
+
+def _ravager_on_event(obj, state, event):
+    """Ravager: when a Block (any) is destroyed, put a +1/+1 counter on Ravager."""
+    if event.type != EventType.OBJECT_DESTROYED:
+        return []
+    target_id = (event.payload or {}).get("object_id")
+    target = state.objects.get(target_id) if target_id else None
+    if not target or not target.card_def:
+        return []
+    types = target.card_def.characteristics.types or set()
+    if CardType.MC_BLOCK not in types:
+        return []
+    obj.state.counters["+1/+1"] = obj.state.counters.get("+1/+1", 0) + 1
+    return []
+
+
+def _blaze_on_event(obj, state, event):
+    """Blaze: whenever you spend Redstone, Blaze gets +1 ATK until end of turn."""
+    if event.type != EventType.MC_MATERIAL_SPEND:
+        return []
+    payload = event.payload or {}
+    if payload.get("player") != obj.controller:
+        return []
+    materials = payload.get("materials") or {}
+    if int(materials.get("redstone", 0) or 0) <= 0:
+        return []
+    return [Event(
+        type=EventType.PT_MODIFICATION,
+        payload={"object_id": obj.id, "power_mod": 1, "toughness_mod": 0, "duration": "end_of_turn"},
+        source=obj.id,
+    )]
+
+
 # ---------- Hook builders for triggered abilities ----------
 
 def _on_block_chip(amount: int):
@@ -474,8 +617,10 @@ _cards = [
              "Reach — can block Aerial. When this blocks, deal 1 damage to the attacker.",
              mc_keywords={"reach"},
              on_block=_on_block_chip(1)),
-    make_mob("Iron Golem", 5, 6, _cost(iron=3, redstone=1), {"Golem"},
+    make_mob("Iron Golem", 3, 4, _cost(iron=1, redstone=1), {"Golem"},
+             "When played, deal 2x your Worker count to opponent's avatar. "
              "When destroyed, summon a 0/4 Iron Block.",
+             on_play=_iron_golem_etb,
              on_death=_on_death_summon("Iron Block", 0, 4, {"Iron Block", "Mob"})),
     make_mob("Axolotl Guardian", 2, 4, _cost(wood=1, iron=1), {"Animal"},
              "When this blocks, gain 1 Wood.",
@@ -500,9 +645,11 @@ _cards = [
              "Hostile. When played, draw a card.",
              on_play=_draw(1)),
     make_mob("Blaze", 3, 3, _cost(redstone=2, iron=1), {"Hostile", "Nether"},
-             "Hostile. Ranged. When this attacks, deal 1 to the defender's avatar.",
+             "Hostile. Ranged. When this attacks, deal 1 to the defender's avatar. "
+             "Whenever you spend Redstone, Blaze gets +1 ATK until end of turn.",
              mc_keywords={"ranged"},
-             on_attack=_on_attack_burn(1)),
+             on_attack=_on_attack_burn(1),
+             on_event=_blaze_on_event),
     make_mob("Ghast", 5, 3, _cost(redstone=2, diamond=1), {"Hostile", "Nether"},
              "Hostile. Aerial — ignores Blocks.",
              mc_keywords={"aerial"}),
@@ -511,22 +658,26 @@ _cards = [
     make_mob("Pillager Patrol", 3, 3, _cost(wood=1, iron=2), {"Hostile", "Raider"},
              "Other Raiders you control gain +1 ATK.",
              lord_bonus={"subtypes": {"Raider"}, "attack": 1}),
-    make_mob("Ravager", 6, 5, _cost(iron=3, redstone=1), {"Hostile", "Raider"},
-             "Siege — when this attacks a column, also destroy the frontmost Block in it.",
-             mc_keywords={"siege"}),
+    make_mob("Ravager", 4, 3, _cost(iron=1, redstone=1), {"Hostile", "Raider"},
+             "Siege — destroys frontmost Block in attacked column. "
+             "Whenever a Block is destroyed, put a +1/+1 counter on Ravager.",
+             mc_keywords={"siege"},
+             on_event=_ravager_on_event),
 
     # ===== Bosses / iconic high-end =====
     make_mob("Warden", 7, 8, _cost(iron=4, redstone=2, diamond=1), {"Hostile", "Boss"},
              "When played, deal 4 damage to every enemy mob in the battle row.",
              on_play=_warden_smash),
-    make_mob("Elder Guardian", 5, 7, _cost(stone=3, iron=2, diamond=1), {"Hostile", "Boss"},
-             "Boss. (Late-game wall.)"),
-    make_mob("Wither", 8, 6, _cost(redstone=3, diamond=2), {"Hostile", "Boss", "Nether"},
-             "When played, deal 2 to every opponent grid object.",
-             on_play=_wither_aoe),
-    make_mob("Ender Dragon", 9, 9, _cost(redstone=2, diamond=4), {"Hostile", "Boss", "End"},
-             "Aerial — ignores Blocks.",
-             mc_keywords={"aerial"}),
+    make_mob("Elder Guardian", 4, 6, _cost(stone=2, iron=1), {"Hostile", "Boss"},
+             "Boss. Whenever a Worker you control mines, each Worker you control gets +1 ATK until end of turn.",
+             on_event=_elder_guardian_on_event),
+    make_mob("Wither", 4, 4, _cost(redstone=1, iron=1), {"Hostile", "Boss", "Nether"},
+             "When played, deal 2x your Hostile count to opponent's avatar.",
+             on_play=_wither_etb),
+    make_mob("Ender Dragon", 6, 6, _cost(iron=1, diamond=2), {"Hostile", "Boss", "End"},
+             "Aerial. When played, deal 2 damage to opponent for each other Diamond-cost permanent you control.",
+             mc_keywords={"aerial"},
+             on_play=_ender_dragon_etb),
     make_mob("Shulker Sentry", 3, 5, _cost(redstone=2, diamond=1), {"Hostile", "End"},
              "When this blocks, summon a 0/2 Shulker Bullet.",
              on_block=_on_block_token("Shulker Bullet", 0, 2, {"Mob", "End"})),

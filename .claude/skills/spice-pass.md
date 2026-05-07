@@ -515,3 +515,89 @@ gaps. Fixed in v3.5 (commit `fbbb459` and `1a45ce8`):
 After these fixes: PKH redesigned v2 cards moved from **0/8 PASS** under
 the v2 metric to **6/8 PASS** under v3.5 — same cards, same redesign,
 just measured correctly.
+
+## Cross-engine port: Minecraft TCG
+
+A second port (after PKH/MTG) tested whether the methodology generalizes
+to a fundamentally different engine. Minecraft TCG has its own engine —
+materials economy (5 resources: wood/stone/iron/redstone/diamond instead
+of mana), 3x3 build grid, biome-mining loop, avatar+gear instead of life
+total, and direct-resolve combat with no stack. Six spice candidates
+(Ender Dragon, Wither, Iron Golem, Ravager, Elder Guardian, Blaze) all
+started as either vanilla bosses or weak triggers.
+
+What ported cleanly:
+
+- **Capability test gate** — same shape (synergy deck × baseline × N
+  games, focal-in-opener stacking, capability_score = cast/game ×
+  win-correlation). The MC harness lives at
+  `scripts/play/minecraft_capability_test.py` and is structurally
+  identical to the MTG version.
+- **Synergy registry pattern** — `src/cards/minecraft/synergies.py` maps
+  focal → partner names from the same set. Per-set registry stays
+  hand-curated; partners must exist in the set.
+- **Build-around redesign template** — replacing standalone effects
+  with environment-dependent triggers (worker-count payoff, hostile-count
+  payoff, diamond-investment payoff, block-destruction payoff) made every
+  card noticeably more interesting AND moved the capability score.
+- **Sorcery-aware metric** — Minecraft Action cards resolve directly to
+  graveyard (no battlefield persistence). `is_action_card()` flips the
+  metric to deck-winrate. Same gotcha as MTG sorceries.
+- **Missing engine hooks surface** — to wire EG (mining payoff) and
+  Ravager (block-destruction payoff), I added a generic `mc_on_event`
+  hook to the system interceptor. PKH had no equivalent need; in MTG
+  the interceptor system is the primary surface. Slow-economy engines
+  with bespoke event types may need one engine extension per spice pass.
+
+What did NOT port cleanly:
+
+1. **The 0.30 threshold is calibrated for MTG-speed economies and is
+   too high for slow-ramp engines.** MC's economy is ~1 material per
+   turn (avatar mining), with premium materials (redstone, diamond)
+   gated behind action cards. Cards costing 3+ materials cap their cast
+   rate around cast/game = 0.30-0.50 even with focal-in-opener and a
+   hand-tuned ramp package. After the v9 sweep:
+
+   | Card | Score | Cast/g | WinCorr | Pass(0.30) |
+   |---|---|---|---|---|
+   | Elder Guardian | 1.26 | 1.31 | 0.96 | YES |
+   | Iron Golem | 0.33 | 0.46 | 0.67 | YES |
+   | Wither | 0.33 | 0.41 | 0.80 | YES |
+   | Ravager | 0.26 | 0.44 | 0.60 | borderline |
+   | Blaze | 0.27 | 0.31 | 0.86 | borderline |
+   | Ender Dragon | 0.16 | 0.31 | 0.50 | no |
+
+   v1 baseline was **1/6 PASS**. v9 is **2-3/6 stable PASS** with all
+   six producing positive capability signal. The redesign methodology
+   reliably moved the score; the threshold is the ill-calibrated knob.
+   Engines with slower economies need lower thresholds (~0.20) or longer
+   game horizons (max_turns=35-40 instead of 20-25).
+
+2. **Cast rate and win-correlation can decouple in slow engines.** PKH
+   cards that cast tended to also win. In MC, several cards (Iron Golem
+   at cast 0.46/win 0.67, Wither at 0.41/0.80) cast reliably but their
+   build-around payoff isn't game-winning even when triggered. ETB
+   damage scaling that worked in MTG (deal `N` for each match) often
+   needs `2*N` or `3*N` in MC because avatar HP is 20 with armor
+   reduction and games run longer per damage point.
+
+3. **Synergy decks must include explicit ramp tied to the focal cost.**
+   The v2 MC synergies were "thematic" (Iron Golem ↔ Workers) without
+   accounting for material economics. v3 added Strip Mine (the only
+   cheap redstone path) to every redstone-focal package. Cast rate
+   tripled. Lesson: register the focal's *cost-supporting cards*, not
+   just its *effect-supporting cards*.
+
+Engine-extension cost for the port:
+
+- Added `mc_on_event(obj, state, event)` hook to
+  `register_minecraft_system_interceptors`. Generic per-event listener;
+  fires for every MC battlefield card whose `card_def.mc_on_event` is
+  callable. ~25 lines, opens the door for any "react to X" trigger.
+- Added `MC_MATERIAL_SPEND` and `MC_MATERIAL_GAIN` to the cleanup_filter
+  set. The spend event already existed but wasn't `game.emit()`-ed —
+  patched `play_card` to emit it through the pipeline.
+
+For the next port: budget one small engine extension per pass. The
+hook surface that the existing cards use is rarely the hook surface
+that build-around cards need.

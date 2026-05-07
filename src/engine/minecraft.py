@@ -40,10 +40,10 @@ STARTING_BIOMES = [
 BIOME_UPGRADES = {
     "Forest": {"name": "Old Growth Forest", "yields": {"wood": 2}, "mined": False, "level": 2},
     "Hills": {"name": "Stony Peaks", "yields": {"stone": 2, "iron": 1}, "mined": False, "level": 2},
-    "Cave": {"name": "Deep Cave", "yields": {"iron": 1, "redstone": 1}, "mined": False, "level": 2},
+    "Cave": {"name": "Deep Cave", "yields": {"stone": 1, "iron": 1, "redstone": 1}, "mined": False, "level": 2},
     "Old Growth Forest": {"name": "Woodland Mansion", "yields": {"wood": 2, "redstone": 1}, "mined": False, "level": 3},
     "Stony Peaks": {"name": "Ancient Mountain", "yields": {"stone": 2, "diamond": 1}, "mined": False, "level": 3},
-    "Deep Cave": {"name": "Diamond Depths", "yields": {"iron": 1, "diamond": 1}, "mined": False, "level": 3},
+    "Deep Cave": {"name": "Diamond Depths", "yields": {"stone": 1, "iron": 1, "diamond": 1}, "mined": False, "level": 3},
 }
 
 
@@ -316,9 +316,9 @@ def play_card(
     if not pay_materials(state, player_id, cost):
         return False, "Not enough materials", []
 
-    events: list[Event] = [
-        Event(type=EventType.MC_MATERIAL_SPEND, payload={"player": player_id, "materials": dict(cost)}, source=card_id)
-    ]
+    spend_ev = Event(type=EventType.MC_MATERIAL_SPEND, payload={"player": player_id, "materials": dict(cost)}, source=card_id)
+    game.emit(spend_ev)
+    events: list[Event] = [spend_ev]
     if state.minecraft_day_phase == "day" and (CardType.MC_STRUCTURE in types or CardType.MC_BLOCK in types):
         state.turn_data[f"mc_day_craft_discount_used_{player_id}"] = True
 
@@ -1110,7 +1110,33 @@ def register_minecraft_system_interceptors(game) -> None:
             EventType.OBJECT_DESTROYED,
             EventType.EXILE,
             EventType.DAMAGE,
+            EventType.MC_MATERIAL_GAIN,
+            EventType.MC_MATERIAL_SPEND,
+            EventType.MC_PLAY_CARD,
         }
+
+    def _fire_mc_on_event(state: GameState, event: Event) -> None:
+        """Generic listener hook: any battlefield card with `mc_on_event`
+        receives every MC pipeline event we filter on."""
+        battlefield = state.zones.get("battlefield")
+        if not battlefield:
+            return
+        g = getattr(state, "_game", None)
+        if not g:
+            return
+        for oid in list(battlefield.objects):
+            obj = state.objects.get(oid)
+            if not obj or not obj.card_def or obj.zone != ZoneType.BATTLEFIELD:
+                continue
+            hook = getattr(obj.card_def, "mc_on_event", None)
+            if not callable(hook):
+                continue
+            try:
+                emitted = hook(obj, state, event) or []
+            except Exception:
+                emitted = []
+            for ev in emitted:
+                g.emit(ev)
 
     def cleanup_handler(event: Event, state: GameState) -> InterceptorResult:
         # Deathrattle: fire mc_on_death once when a Minecraft object is destroyed
@@ -1152,6 +1178,9 @@ def register_minecraft_system_interceptors(game) -> None:
                     if g:
                         for ev in hook(target, state, amount) or []:
                             g.emit(ev)
+        # Generic per-event listener for cards that need to react to mining
+        # ticks, played cards, blocks getting destroyed, etc.
+        _fire_mc_on_event(state, event)
         cleanup_references(state)
         return InterceptorResult(action=InterceptorAction.PASS)
 

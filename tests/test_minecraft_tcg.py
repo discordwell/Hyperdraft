@@ -590,26 +590,168 @@ def test_minecraft_creeper_deathrattle_deals_column_damage():
     assert bed.state.damage == 3
 
 
-def test_minecraft_wither_aoe_damages_opponent_grid():
+def test_minecraft_wither_etb_damages_opponent_avatar_per_hostile():
+    """Wither's redesigned ETB: 2x hostile count to opponent's avatar."""
     game = Game(mode="minecraft")
     p1 = game.add_player("Wither")
     p2 = game.add_player("Defender")
     game.setup_minecraft_player(p1, [])
     game.setup_minecraft_player(p2, [])
-    p2.mc_materials.update({"wood": 5, "stone": 5})
 
-    bed = _hand_card(game, p2.id, MINECRAFT_CARDS["Bed"])
-    wall = _hand_card(game, p2.id, MINECRAFT_CARDS["Cobblestone Wall"])
-    assert mc.play_card(game, p2.id, bed.id, cell={"x": 1, "y": 0})[0]
-    assert mc.play_card(game, p2.id, wall.id, cell={"x": 0, "y": 2})[0]
+    # Place 2 hostiles on p1's battlefield directly.
+    z1 = game.create_object(
+        name=MINECRAFT_CARDS["Zombie"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Zombie"].characteristics,
+        card_def=MINECRAFT_CARDS["Zombie"],
+    )
+    z1.controller = p1.id
+    s1 = game.create_object(
+        name=MINECRAFT_CARDS["Spider"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Spider"].characteristics,
+        card_def=MINECRAFT_CARDS["Spider"],
+    )
+    s1.controller = p1.id
 
-    # Spawn Wither directly to fire on_play (using create_object + emit play)
-    p1.mc_materials.update({"redstone": 5, "diamond": 5})
+    p1.mc_materials.update({"redstone": 5, "iron": 5})
     wither_card = _hand_card(game, p1.id, MINECRAFT_CARDS["Wither"])
     ok, _msg, _ = mc.play_card(game, p1.id, wither_card.id)
     assert ok
-    assert bed.state.damage == 2
-    assert wall.state.damage == 2
+    # 2 hostiles * 2 = 4 damage to opponent's avatar (started at 20 -> 16).
+    assert p2.life == 16
+
+
+def test_minecraft_iron_golem_etb_damages_opponent_per_worker():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Worker")
+    p2 = game.add_player("Defender")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+
+    for name in ("Steve's Helper", "Alex's Scout", "Villager Mason"):
+        w = game.create_object(
+            name=MINECRAFT_CARDS[name].name,
+            owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+            characteristics=MINECRAFT_CARDS[name].characteristics,
+            card_def=MINECRAFT_CARDS[name],
+        )
+        w.controller = p1.id
+
+    p1.mc_materials.update({"iron": 3, "redstone": 3})
+    ig = _hand_card(game, p1.id, MINECRAFT_CARDS["Iron Golem"])
+    ok, _msg, _ = mc.play_card(game, p1.id, ig.id)
+    assert ok
+    # 3 workers * 2 = 6 damage to opponent's avatar.
+    assert p2.life == 14
+
+
+def test_minecraft_ender_dragon_etb_damages_per_diamond_permanent():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Diamond")
+    p2 = game.add_player("Defender")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+
+    # 2 diamond-cost permanents on p1's side: Diamond Pickaxe + Enchanting Table.
+    for name in ("Diamond Pickaxe", "Enchanting Table"):
+        cd = MINECRAFT_CARDS[name]
+        obj = game.create_object(
+            name=cd.name, owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+            characteristics=cd.characteristics, card_def=cd,
+        )
+        obj.controller = p1.id
+
+    p1.mc_materials.update({"iron": 5, "diamond": 5})
+    ed = _hand_card(game, p1.id, MINECRAFT_CARDS["Ender Dragon"])
+    ok, _msg, _ = mc.play_card(game, p1.id, ed.id)
+    assert ok
+    # 2 diamond-cost permanents * 2 damage = 4 to opponent.
+    assert p2.life == 16
+
+
+def test_minecraft_elder_guardian_pumps_workers_when_mining():
+    from src.engine.queries import get_power
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Workers")
+    p2 = game.add_player("Idle")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+
+    # Put Elder Guardian + a Worker on the field.
+    eg = game.create_object(
+        name=MINECRAFT_CARDS["Elder Guardian"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Elder Guardian"].characteristics,
+        card_def=MINECRAFT_CARDS["Elder Guardian"],
+    )
+    eg.controller = p1.id
+    worker = game.create_object(
+        name=MINECRAFT_CARDS["Steve's Helper"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Steve's Helper"].characteristics,
+        card_def=MINECRAFT_CARDS["Steve's Helper"],
+    )
+    worker.controller = p1.id
+    worker.state.summoning_sickness = False
+
+    base_power = get_power(worker, game.state)
+    # Mine via avatar (always allowed); the on_event hook fires for any
+    # MC_MATERIAL_GAIN whose payload['player'] is the controller.
+    ok, _msg, _evs = mc.mine_biome(game, p1.id, 0, avatar=True)
+    assert ok
+    pumped_power = get_power(worker, game.state)
+    assert pumped_power == base_power + 1
+
+
+def test_minecraft_ravager_gets_counter_when_block_destroyed():
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Raider")
+    p2 = game.add_player("Wall")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+
+    rav = game.create_object(
+        name=MINECRAFT_CARDS["Ravager"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Ravager"].characteristics,
+        card_def=MINECRAFT_CARDS["Ravager"],
+    )
+    rav.controller = p1.id
+
+    # Place a block on p2's grid, then destroy it.
+    p2.mc_materials.update({"wood": 3})
+    wall = _hand_card(game, p2.id, MINECRAFT_CARDS["Oak Planks"])
+    assert mc.play_card(game, p2.id, wall.id, cell={"x": 0, "y": 2})[0]
+
+    assert rav.state.counters.get("+1/+1", 0) == 0
+    game.emit(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": wall.id, "reason": "test"}))
+    assert rav.state.counters.get("+1/+1", 0) == 1
+
+
+def test_minecraft_blaze_pumped_by_redstone_spend():
+    from src.engine.queries import get_power
+    game = Game(mode="minecraft")
+    p1 = game.add_player("Pyro")
+    p2 = game.add_player("Idle")
+    game.setup_minecraft_player(p1, [])
+    game.setup_minecraft_player(p2, [])
+
+    blaze = game.create_object(
+        name=MINECRAFT_CARDS["Blaze"].name,
+        owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=MINECRAFT_CARDS["Blaze"].characteristics,
+        card_def=MINECRAFT_CARDS["Blaze"],
+    )
+    blaze.controller = p1.id
+
+    base_power = get_power(blaze, game.state)
+    # Play any redstone-cost card to trigger the spend.
+    p1.mc_materials.update({"stone": 5, "redstone": 5})
+    lamp = _hand_card(game, p1.id, MINECRAFT_CARDS["Redstone Lamp"])
+    assert mc.play_card(game, p1.id, lamp.id, cell={"x": 1, "y": 2})[0]
+    pumped_power = get_power(blaze, game.state)
+    assert pumped_power == base_power + 1
 
 
 def test_minecraft_tnt_trap_deathrattle_blasts_avatar():
@@ -725,14 +867,15 @@ def test_minecraft_overflow_damage_spills_to_column():
     bed = _hand_card(game, p2.id, MINECRAFT_CARDS["Bed"])
     assert mc.play_card(game, p2.id, bed.id, cell={"x": 0, "y": 0})[0]
 
-    wither = game.create_object(
-        name=MINECRAFT_CARDS["Wither"].name,
+    # Use Warden (7 ATK) — high enough that overflow past Snow Golem (HP 4) reaches the Bed.
+    warden = game.create_object(
+        name=MINECRAFT_CARDS["Warden"].name,
         owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
-        characteristics=MINECRAFT_CARDS["Wither"].characteristics,
-        card_def=MINECRAFT_CARDS["Wither"],
+        characteristics=MINECRAFT_CARDS["Warden"].characteristics,
+        card_def=MINECRAFT_CARDS["Warden"],
     )
-    wither.controller = p1.id
-    wither.state.summoning_sickness = False
+    warden.controller = p1.id
+    warden.state.summoning_sickness = False
     snow = game.create_object(
         name=MINECRAFT_CARDS["Snow Golem"].name,
         owner_id=p2.id, zone=ZoneType.BATTLEFIELD,
@@ -741,24 +884,20 @@ def test_minecraft_overflow_damage_spills_to_column():
     )
     snow.controller = p2.id
 
-    # Wither attacks column 0 (where the Bed sits, no front-row defense yet).
-    # Snow Golem blocks (it has reach).
     ok, _msg, _ = mc.declare_attackers(
         game, p1.id,
-        [{"attacker_id": wither.id, "target_column": 0}],
+        [{"attacker_id": warden.id, "target_column": 0}],
         auto_block=False,
     )
     assert ok
-    # Wither AoE on play already hit the bed for 2; reset damage so we can verify overflow cleanly.
-    bed.state.damage = 0
     ok, _msg, _ = mc.declare_blockers(
         game, p2.id,
-        [{"attacker_id": wither.id, "blocker_id": snow.id}],
+        [{"attacker_id": warden.id, "blocker_id": snow.id}],
     )
     assert ok
-    # Wither (8 ATK) capped at Snow Golem (HP 4) → 4 to Snow Golem; overflow 4 → Bed.
+    # Warden (7 ATK) capped at Snow Golem (HP 4) → 4 to Snow Golem; overflow 3 → Bed.
     assert snow.state.damage == 4
-    assert bed.state.damage == 4
+    assert bed.state.damage == 3
 
 
 def test_minecraft_ai_skips_bad_block_when_attacker_hits_structure():
