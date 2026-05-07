@@ -481,11 +481,15 @@ def cmd_state(args) -> None:
 
 def cmd_plan_deploy(args) -> None:
     from src.engine.depths import DepthBand
+    from src.engine.types import CardType
     payload = _load()
     h, my_id, _ = _seat_handler_and_id(payload, getattr(args, "seat", "p1"))
     obj = _find_in_hand(payload["game"].state, my_id, args.card)
     if not obj:
         print(f"Not in hand: {args.card!r}")
+        return
+    if CardType.DEPTHS_CREW in obj.characteristics.types:
+        print(f"{obj.name} is a Crew card — use plan-attach <crew_card> <target_vessel> instead.")
         return
     band = None
     depth_arg = getattr(args, "depth", None)

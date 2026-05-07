@@ -483,6 +483,83 @@ def test_medium_ai_detects_chip_stream():
     )
 
 
+def test_medium_ai_detects_drone_swarm():
+    """Iter-6 regression: 2/1 drone swarms at SURFACE (1 damage/drone vs
+    PERISCOPE flagship) must trigger chip-stream force-detection by the 2nd
+    attack turn (recent_damage >= 4 after first 4-drone swing of 4 total).
+
+    Pre-fix, MEDIUM_RECENT_DAMAGE_TRIGGER=6 meant a consistent 4-hull/turn
+    chip stream NEVER triggered escalation (4 < 6). Lowering to 4 and adding
+    MEDIUM_CHIP_FORCE_DETECT guarantees ≥1 detection by the second swing.
+    """
+    from src.engine.types import GameObject, GameState, ObjectState, Characteristics, CardType, ZoneType, Player, Zone
+    from src.engine.depths import DepthBand
+    from src.ai.depths_adapter import DepthsAIAdapter, AttackerSpec, MEDIUM_RECENT_DAMAGE_TRIGGER
+
+    assert MEDIUM_RECENT_DAMAGE_TRIGGER <= 4, (
+        f"MEDIUM_RECENT_DAMAGE_TRIGGER must be ≤4 to catch 4-hull drone swarms; got {MEDIUM_RECENT_DAMAGE_TRIGGER}"
+    )
+
+    adapter = DepthsAIAdapter(difficulty="medium")
+    state = GameState()
+    state.interceptors = {}
+    state.players = {
+        "A": Player(id="A", name="A"),
+        "B": Player(id="B", name="B"),
+    }
+    state.players["B"].sc = 8  # ample budget
+    state.players["B"].tc = 0
+    state.players["A"].sc = 0
+    state.players["A"].tc = 0
+
+    flagship = GameObject(
+        id="fs_B", name="Flagship", owner="B", controller="B",
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(types={CardType.DEPTHS_VESSEL}, subtypes={"Submarine", "Flagship"}, power=0, toughness=25),
+        state=ObjectState(),
+    )
+    flagship.state.depth_band = DepthBand.PERISCOPE
+    flagship.state.pt_modifiers = []
+    flagship.state.damage = 0
+
+    drones = []
+    for i in range(4):
+        d = GameObject(
+            id=f"drone_{i}", name=f"Pilot Cadet {i}", owner="A", controller="A",
+            zone=ZoneType.BATTLEFIELD,
+            characteristics=Characteristics(types={CardType.DEPTHS_VESSEL}, subtypes={"Submarine", "Drone"}, power=2, toughness=1),
+            state=ObjectState(),
+        )
+        d.state.depth_band = DepthBand.SURFACE  # SURFACE→PERISCOPE: damage = max(1, 2-1) = 1
+        d.state.pt_modifiers = []
+        drones.append(d)
+
+    state.objects = {flagship.id: flagship, **{d.id: d for d in drones}}
+    bf = Zone(type=ZoneType.BATTLEFIELD, owner=None)
+    bf.objects = [flagship.id] + [d.id for d in drones]
+    state.zones = {"battlefield": bf}
+
+    specs = [AttackerSpec(vessel_id=d.id, target_id=flagship.id, firing_depth_band=DepthBand.SURFACE) for d in drones]
+
+    # T1: first swing — history has 1 entry, recent_damage=0, no escalation yet.
+    state.turn_number = 1
+    plan_t1 = adapter._medium_detections(state, "B", specs)
+    # lethal check: 4×1=4 damage vs 25-3=22 threshold — no trigger either way
+
+    # Simulate the 4-drone swing dealing 4 hull (no detections on T1).
+    flagship.state.damage = 4  # hull is now 21
+
+    # T3: second swing — recent_damage = 25-21 = 4 >= MEDIUM_RECENT_DAMAGE_TRIGGER.
+    # Chip-stream force-detect should activate, producing ≥1 detection.
+    state.turn_number = 3
+    plan_t3 = adapter._medium_detections(state, "B", specs)
+    assert plan_t3, (
+        f"T3 drone swarm: chip stream (4 hull/turn) must trigger force-detection "
+        f"by 2nd swing. TRIGGER={MEDIUM_RECENT_DAMAGE_TRIGGER}, got empty plan."
+    )
+    assert len(plan_t3) >= 1, f"Expected ≥1 detection, got {plan_t3}"
+
+
 if __name__ == "__main__":
     test_every_card_loads()
     test_deck_wolfpack_builds()
@@ -494,4 +571,5 @@ if __name__ == "__main__":
     test_cast_effect_fn_actually_runs()
     test_medium_ai_defense_sees_pumped_power()
     test_medium_ai_detects_chip_stream()
+    test_medium_ai_detects_drone_swarm()
     print("OK — SUBS smoke tests pass.")

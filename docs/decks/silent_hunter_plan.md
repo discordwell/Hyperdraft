@@ -370,3 +370,28 @@ OR (b) the opp is a combo deck that out-grinds (Deep Strike).
     bank-and-hold Wolfpack pilot that actually casts Doctrine on T8?
     Untested; suspect this is a much harder matchup. See contested
     question in strategy doc.
+
+### Iter 6 (2026-05-07) — vs Carrier (LLM Pilot A), P2 mostly heuristic
+**Lost** in T17, ME=0/25, OPP=25/25. Harness pickle race condition degraded
+P2 to heuristic autopilot after T2 (concurrent writes from both pilots).
+One action executed: Listening Post deployed on T2.
+
+Calibration findings (from P2's T2 window + heuristic behavior observed):
+- **Bank-until-T8 is WRONG vs Carrier**: Carrier builds a 4-drone board by T5.
+  4 × 2/1 drones = 4-5 hull/swing. 12 free turns of chip = certain loss.
+  SH vs Carrier: detection investment must begin T5, not T11.
+- **LP band placement is load-bearing**: Heuristic deployed LP at MID. SURFACE
+  attackers targeting PERISCOPE flagship cannot be intercepted by a MID vessel
+  (band coverage rule). LP must be at SURFACE or PERISCOPE for SURFACE attackers.
+- **Heuristic SH never attacked**: the heuristic has no attack policy vs a wide
+  board without clear interception opportunities. Manual pilots must push
+  counter-attacks aggressively when ahead on SC.
+- **Detect early vs swarms or lose**: iterating on the "surgical detection"
+  lesson — it's correct vs single high-power attackers but wrong vs 4+ 1-power
+  drones. Against wide drone boards: spend SC every turn to cut the swarm size,
+  accept that you can't fully answer 4+ attackers, and attack aggressively to
+  create a race condition where P1's SC bank is also drained.
+
+Open question: can SH's stealth attackers create a race where P1 is forced to
+spend SC detecting YOUR vessels while your Listening Post walls chump P1's
+drones? Untested — would require a fully LLM-piloted P2 game.

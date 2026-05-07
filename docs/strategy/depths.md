@@ -647,3 +647,34 @@ goes here.)
   reverted at a time. **Pack Leader U-99 0/5 cast streak documented**
   but cut deferred (Wolfpack_lean variant data shows cutting one card
   already hurt 6-2; cutting two might break the deck).
+- **2026-05-07 (iter 6)**: Iter-6 entry added. **New matchup: Carrier (P1) vs
+  Silent_Hunter (P2)**. Outcome: Carrier won 25/25 vs 0/25 in 17 turns (zero
+  hull taken by P1). P2 was partially degraded to heuristic autopilot due to
+  a pickle-file race condition in the two-pilot harness (both pilots writing
+  concurrently); result is indicative but not fully clean.
+
+  **Key finding: cumulative-damage patch UNDER-fired vs drone swarms.** Despite
+  4-5 hull/swing from T5 onward, the AI (P2) spent 0 SC on detection across 12
+  turns. Root cause: MEDIUM_RECENT_DAMAGE_TRIGGER=6 was above the 4-5 hull/turn
+  chip rate, so the chip-stream escalation never activated. In addition, even
+  when recent_damage was added to cumulative_unintercepted, the lethal-buffer
+  threshold (flagship_hull − 3 = 22 from full health) was far too high for a
+  4-drone × 1-damage swing to exceed.
+
+  **Patches applied (iter-6)**:
+  - `MEDIUM_RECENT_DAMAGE_TRIGGER` lowered 6→4 (catches 4-hull/turn drone swarms).
+  - `MEDIUM_CHIP_FORCE_DETECT = 2`: when chip stream is confirmed, force-detect
+    the 2 most-dangerous undetected attackers BEFORE the lethal-projection loop.
+    This prevents the "sitting idle while chipped to death" failure mode.
+  - `plan-deploy` now prints a helpful error when the target card is CREW type,
+    directing pilots to `plan-attach <crew_card> <target_vessel>`.
+  - New regression test `test_medium_ai_detects_drone_swarm` added.
+
+  **New format-wide lessons**:
+  - Bank-SC-until-T8 is the WRONG doctrine vs Carrier swarm. Carrier builds a
+    4-drone board by T5 and starts dealing 4+ hull/swing immediately.
+    Against swarm archetypes: detection investment must begin T5, not T11.
+  - 0-power LP deployed at wrong depth band (MID) vs SURFACE attackers is a
+    complete defensive blank. The depth-band interceptor coverage rule matters.
+  - Crew lord effects (Veteran Squadron Lead, Drone Pen Mate, Air-Sea Coordinator)
+    were never tested in LLM pilot games — harness Crew deployment fix pending.

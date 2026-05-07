@@ -291,7 +291,12 @@ MEDIUM_FLAGSHIP_LETHAL_BUFFER = 3
 # add it to the lethal-buffer projection so the AI starts intercepting
 # *streams* of chip damage, not just single lethal-projecting swings.
 MEDIUM_RECENT_DAMAGE_WINDOW = 3
-MEDIUM_RECENT_DAMAGE_TRIGGER = 6  # 6+ hull lost in last 3 turns starts the escalation
+# Iter-6 lowered 6→4: drone swarms deal 4-5 hull/attack-turn; the 6-hull trigger
+# never fired even with 4 uncontested 2/1-drone swings (each 4-5 chip, always <6).
+MEDIUM_RECENT_DAMAGE_TRIGGER = 4  # 4+ hull lost in last 3 turns starts the escalation
+# When chip-stream is detected, force-detect this many top attackers regardless of
+# lethal projection (stops the AI from sitting idle while a swarm bleeds it out).
+MEDIUM_CHIP_FORCE_DETECT = 2
 
 # §8 Medium: minimum expected damage to Flagship before AI will swing.
 MEDIUM_MIN_ATTACK_DAMAGE = 2
@@ -1419,16 +1424,35 @@ class DepthsAIAdapter:
 
         out: dict[str, int] = {}
         cumulative_unintercepted = sum(d for d, _ in ranked)
+        chip_stream = recent_damage >= MEDIUM_RECENT_DAMAGE_TRIGGER
         # iter-5: when recent damage trips the threshold, project the chip
-        # stream forward and add the recent damage to this swing's cumulative
-        # projection. Without this the AI happily eats 3-4 dmg/turn forever as
-        # long as no single swing trips the lethal projection (Pilot B iter-3
-        # + iter-4: chipped flagship 25 → 6 free). Adding recent_damage here
-        # is the "another window of the same chip is coming" forward-looking
-        # trend term that forces the AI to start spending SC.
-        if recent_damage >= MEDIUM_RECENT_DAMAGE_TRIGGER:
+        # stream forward and add the recent damage to this cumulative projection.
+        if chip_stream:
             cumulative_unintercepted += recent_damage
-        # If unintercepted damage > flagship_hull - lethal_buffer, start
+        # iter-6 chip-stream force-detect: low-power drone swarms (each 1-2 dmg)
+        # have per-attacker danger too low to trip the lethal-buffer threshold
+        # even with recent_damage added (e.g. 4 drones × 1 = 4, plus recent=4 →
+        # cumulative=8 vs flagship_hull-3=22 → loop never fires). When a chip
+        # stream is confirmed, force-detect the top MEDIUM_CHIP_FORCE_DETECT
+        # undetected attackers BEFORE the lethal-projection loop so the AI slows
+        # the bleed without waiting for a near-death projection.
+        if chip_stream and ranked and budget > 0:
+            force_n = min(MEDIUM_CHIP_FORCE_DETECT, len(ranked))
+            for _ in range(force_n):
+                if not ranked or budget <= 0:
+                    break
+                danger, spec = ranked[0]
+                attacker = state.objects.get(spec.vessel_id)
+                if attacker is None:
+                    ranked.pop(0)
+                    continue
+                cost = detection_cost(state, attacker)
+                if cost <= budget:
+                    out[spec.vessel_id] = cost
+                    budget -= cost
+                    cumulative_unintercepted -= danger
+                ranked.pop(0)
+        # If unintercepted damage > flagship_hull - lethal_buffer, continue
         # detecting in danger order until the projection falls below.
         while cumulative_unintercepted > max(0, flagship_hull - MEDIUM_FLAGSHIP_LETHAL_BUFFER):
             if not ranked or budget <= 0:
@@ -1439,7 +1463,6 @@ class DepthsAIAdapter:
                 continue
             cost = detection_cost(state, attacker)
             if cost > budget:
-                # Can't afford this one; skip and try the next-most-dangerous.
                 continue
             out[spec.vessel_id] = cost
             budget -= cost
