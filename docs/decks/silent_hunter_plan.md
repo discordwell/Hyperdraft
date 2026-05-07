@@ -5,13 +5,15 @@
 30-card SUBS stealth-control list (`SUBS_silent_hunter` in
 `src/cards/depths/submarine_fleet/decks.py:100`):
 
-- **1-cost (6)**: 4 Periscope Recon, 2 Listening Post (0/3 wall — the
-  format-defining 0-power chump interceptor).
-- **2-cost (10)**: 4 Stalker Sub (interceptor body), 3 Bottom-Crawler
-  Probe (DEEP-band stealth), 3 U-Class Stalker.
-- **3-cost (6)**: 3 Diesel Whisper (2/3 mid-band attacker), 3 Snorkel
-  Stalker (the carry; +1 power EOT when attacking undetected, hull 1
-  post-nerf).
+- **1-cost (6)**: 4 Periscope Recon ({1T}), 2 Listening Post (0/3 wall —
+  the format-defining 0-power chump interceptor; costs {1S} NOT {1T} —
+  iter-8 correction).
+- **2-cost (10)**: 4 Stalker Sub ({2T}, interceptor body), 3 Bottom-Crawler
+  Probe ({2S}, DEEP-band stealth), 3 U-Class Stalker ({2T,1S}).
+- **2-cost (confirmed iter-8)**: 3 Snorkel Stalker ({2T} NOT {3T} —
+  iter-8 correction; deploy T2 not T3; the carry, +1 power EOT when
+  attacking undetected, hull 1 post-nerf).
+- **3-cost (3)**: 3 Diesel Whisper ({2T,1S}, 2/3 mid-band attacker).
 - **Mid + actions (8)**: 2 Wolf at the Door, 2 Type-XXI Phantom (mid-
   late stealth attacker), 2 Iron Discipline (doctrine), 2 Sonar Jammer
   (action — currently broken via cast_effect_fn engine gap).
@@ -74,16 +76,18 @@ OR (b) the opp is a combo deck that out-grinds (Deep Strike).
 
 ## Key cards
 
-- **Listening Post** (0/3, {1T}) — the format-defining 0-power chump
-  interceptor. Costs nothing, soaks 1-2 power attackers indefinitely
-  without trading. Against Wolfpack specifically this card alone may
-  win the game (Pilot A confirmed at T21 onward — "burned through
-  Wolf-cubs/Coastal Raiders/Pack Runner for no flagship damage").
+- **Listening Post** (0/3, {1S} — SONAR not Torpedo; iter-8 correction) —
+  the format-defining 0-power chump interceptor. Costs 1 Sonar (not TC),
+  so it can be deployed on T1 without consuming any Torpedo Charge. Against
+  Wolfpack specifically this card alone may win the game (Pilot A confirmed
+  at T21 onward — "burned through Wolf-cubs/Coastal Raiders/Pack Runner for
+  no flagship damage").
 - **Stalker Sub** ({2T}, 2/3) — the workhorse interceptor. Trades up
   into 1-2 power Wolfpack swarm cleanly.
-- **Snorkel Stalker** ({3T}, 2/1 hull post-nerf) — the deck's carry.
-  +1 power EOT when attacking undetected. Late-game finisher; the
-  delayed clock.
+- **Snorkel Stalker** ({2T} — iter-8 correction; was listed as {3T}) —
+  the deck's carry. 3/1 hull (3 base + 1 undetected-attack pump, hull 1
+  post-nerf). Deployable T2, one turn earlier than previously planned.
+  +1 power EOT when attacking undetected. The primary Flagship clock.
 - **Diesel Whisper** ({3T}, 2/3 stealth) — mid-band stealth body.
   Hard for aggro decks to detect because they have ~no SC income.
 - **Bottom-Crawler Probe** ({2T}) — DEEP-band sit. Detection cost
@@ -185,6 +189,39 @@ OR (b) the opp is a combo deck that out-grinds (Deep Strike).
   finisher count.
 
 ## Iteration log
+
+- **2026-05-07 (iter-8)**: vs Carrier (LLM Pilot A, EC-by-T4 directive). **W in 17
+  turns**, ME=18/25 vs OPP=0/25 (Flagship sunk). Pilot B self-graded **9/10**,
+  "first clean Silent_Hunter victory vs Carrier archetype in the matchup series".
+  Turn order: P2 (SH) went first.
+  Key new findings:
+  - **LP at SURFACE (T1) + Snorkel at PERISCOPE (T2) = decisive opener vs Carrier.**
+    LP intercepted SURFACE Drones throughout; Snorkel dealt 4 dmg/turn T3-T5 (12 dmg
+    before EC landed). Flagship sunk in 17 turns at 18/25 hull remaining.
+  - **COST CORRECTIONS confirmed in-game (iter-8)**:
+    - Listening Post costs {1S} (Sonar), NOT {1T} (Torpedo). LP can be deployed on T1
+      without consuming any Torpedo Charge — LP + a TC vessel is possible in the same turn.
+    - Snorkel Stalker costs {2T} (Torpedo), NOT {3T}. One tier cheaper than planned;
+      accessible T2 (one turn earlier than the T2-T3 window in older plans).
+  - **SC starvation cascade (critical pattern)**: P1 spent all 5 SC on T6 detecting
+    Snorkel + Recon. This left P1 at SC=0 for T7-T9. All 3 turns were completely free
+    hits: 3+5+5=13 undetected damage. SH's endgame was 3 turns of free uncontested attacks.
+    This cascade is repeatable: LP+Snorkel T1/T2 forces P1 into early detection spending;
+    Recon swarm (SR keyword, 3 SC to detect each) exploits the bankruptcy.
+  - **Periscope Recon as late-game carry**: treated as "cheap early body" in older plans.
+    With SR keyword (3 SC detection cost each), Recons are effectively undetectable when
+    P1 SC is depleted. 3× Recon on the board = 9 SC detection tax. The endgame archetype
+    for SH vs Carrier is: Snorkel early clock → LP wall → Recon swarm as bankruptcy closer.
+  - **AI interceptor bug (Carrier sacrificed)**: P1's heuristic assigned Escort Carrier
+    (5-hull engine piece) as interceptor for Snorkel on T6 instead of a Drone (1-hull
+    expendable). This burned the Carrier to 1 hull; SH killed it T7 for free. Fix shipped
+    in this coach pass (iter-8): Carriers now deprioritized in `_medium_interceptors`.
+  - **Carrier drone token bug (crippled P1)**: All EC drone tokens spawned at UNKNOWN
+    band and dealt 0 damage despite attacking. The engine piece was structurally non-
+    functional. Fix shipped: `_handle_object_created` in zone.py now reads `depth_band`
+    from the payload and applies it to the new object's state.
+  - **Turn order advantage noted**: SH went first (P2 in game turn order but first to
+    act). 1-turn head start on board building may have contributed to the decisive margin.
 
 - **2026-05-07 (iter-5)**: vs Wolfpack (LLM Pilot A, refined greedy
   + custom-depth deploy flag). **W in 19 turns harness / T10 internal

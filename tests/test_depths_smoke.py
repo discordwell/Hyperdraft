@@ -632,6 +632,94 @@ def test_detection_without_interceptors_skips_detect():
     )
 
 
+def test_carrier_etb_drone_spawns_at_surface():
+    """Regression (iter-8): Escort Carrier ETB drones must spawn at DepthBand.SURFACE.
+
+    Before the fix in _handle_object_created (zone.py), the OBJECT_CREATED handler
+    ignored the 'depth_band' payload key, so all drone tokens landed with
+    obj.state.depth_band = None. In combat this produced 0 damage (the formula
+    max(1, power - band_diff) could not compute with None). After the fix, the
+    payload's depth_band value is applied to obj.state on creation.
+    """
+    from src.engine.types import EventType, Event
+    from src.cards.depths.submarine_fleet.decks import (
+        SUBS_STARTER_DECKS, make_subs_flagship,
+    )
+    from src.cards.depths.submarine_fleet.carrier import ESCORT_CARRIER
+    from src.engine.depths import get_flagship, is_vessel
+
+    async def _run():
+        game = Game(mode="depths")
+        p1 = game.add_player("Carrier_Player")
+        p2 = game.add_player("Opponent")
+        tm = DepthsTurnManager(game.state)
+        game.turn_manager = tm
+        tm.set_ai_player(p1.id)
+        tm.set_ai_player(p2.id)
+        await tm.setup_game(
+            game,
+            SUBS_STARTER_DECKS["SUBS_carrier"](),
+            SUBS_STARTER_DECKS["SUBS_silent_hunter"](),
+            make_subs_flagship(), make_subs_flagship(),
+        )
+
+        state = game.state
+        bf = state.zones.get("battlefield")
+
+        # Record all token IDs before firing the ETB event.
+        tokens_before = set(
+            oid for oid in bf.objects
+            if state.objects.get(oid) and state.objects[oid].state.is_token
+        )
+
+        # Manually emit an OBJECT_CREATED event for a Drone token at SURFACE,
+        # mimicking exactly what _create_drone_event produces in carrier.py.
+        from src.engine.types import EventType, new_id
+        from src.engine.depths import DepthBand
+        drone_event = Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                "name": "Drone",
+                "controller": p1.id,
+                "owner": p1.id,
+                "to_zone_type": ZoneType.BATTLEFIELD,
+                "types": [CardType.DEPTHS_VESSEL],
+                "subtypes": ["Drone"],
+                "power": 2,
+                "toughness": 1,
+                "is_token": True,
+                "depth_band": DepthBand.SURFACE,
+            },
+            source="test_carrier",
+            controller=p1.id,
+        )
+        # Run through the game pipeline so zone.py's handler fires.
+        game.emit(drone_event)
+
+        # Find the newly created drone token.
+        tokens_after = set(
+            oid for oid in bf.objects
+            if state.objects.get(oid) and state.objects[oid].state.is_token
+        )
+        new_tokens = tokens_after - tokens_before
+        assert len(new_tokens) >= 1, "No new drone token was created"
+
+        # All new tokens must have depth_band == SURFACE.
+        bad_bands = []
+        for oid in new_tokens:
+            obj = state.objects.get(oid)
+            if obj is not None and "Drone" in obj.characteristics.subtypes:
+                if obj.state.depth_band != DepthBand.SURFACE:
+                    bad_bands.append((obj.name, obj.state.depth_band))
+        return bad_bands
+
+    bad = asyncio.run(_run())
+    assert bad == [], (
+        f"Drone tokens spawned at wrong depth band (expected SURFACE): {bad}. "
+        "Fix: _handle_object_created in zone.py must read 'depth_band' from payload."
+    )
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("DEPTHS ENGINE SMOKE TEST")
@@ -642,4 +730,5 @@ if __name__ == "__main__":
     test_medium_ai_does_not_oscillate_dive_surface()
     test_undetected_attack_depth_modifier()
     test_detection_without_interceptors_skips_detect()
+    test_carrier_etb_drone_spawns_at_surface()
     print("\nOK — all depths smoke tests passed.")

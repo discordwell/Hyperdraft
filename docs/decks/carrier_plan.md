@@ -254,3 +254,46 @@ line: T1 deploy {1T}, T2 BANK, T3 BANK, T4 deploy Escort Carrier with TC=3. Curr
 - What happens when Escort Carrier + Drone Pen Mate are both online by T5?
 - Does Veteran Squadron Lead's +1/+1 buff allow Drones to kill Listening Post (0/3)?
   With VSL: 2/1 Drones → 3/2 Drones. 3 power vs 3 toughness = LP survives but barely.
+
+### Iter 8 (2026-05-07) — vs Silent_Hunter (LLM Pilot B, LP-T1 + Snorkel-T2 opener)
+**LOST** in 17 turns, ME=0/25, OPP=18/25. Flagship sunk by P2.
+
+This was the first matchup with an ACTIVE SH LLM pilot (Pilot B) applying the LP+Snorkel
+T1/T2 opener. Carrier (P1, LLM Pilot A) followed EC-by-T4 directive. Two compounding bugs
+decided the game:
+
+**Bug 1 — CRITICAL: EC Drone token depth-band = UNKNOWN → 0 damage all game.**
+All ETB and end-phase Drone tokens from Escort Carrier appeared at `?`/UNKNOWN band.
+Every attack executed but dealt 0 damage to P2 flagship. Root cause: `_handle_object_created`
+in `src/engine/pipeline/handlers/zone.py` did not read the `depth_band` payload key set by
+`_create_drone_event` in `carrier.py`. **Fix shipped this pass (iter-8 coach)**: zone.py
+now reads `depth_band` from the payload and sets it on the new object's state. Also falls back
+to `card_def.depths_default_depth`. Both DRONE_TOKEN template (SURFACE) and `_create_drone_event`
+(SURFACE default) would have produced correct tokens if zone.py had read the key.
+The Skipjack Drone death-trigger token (confirmed working iter-7) used the same code path —
+investigating why it worked previously; likely the depths entry interceptor caught it via
+ZONE_CHANGE downstream while Carrier tokens were pure OBJECT_CREATED with no follow-up.
+
+**Bug 2 — AI interceptor assignment: Escort Carrier used as Snorkel blocker.**
+P1's heuristic assigned Escort Carrier (1/5 engine piece, 5 hull) as the interceptor for
+Snorkel Stalker instead of a Drone (1 hull, expendable). This burned the Carrier to 1 hull
+on T6; Recon killed it T7. Without the Carrier, drone production stopped and the anthem
+(+0/+1) was lost. **Fix shipped this pass**: `_medium_interceptors` now sorts interceptors
+with Carriers deprioritized (moved to end of candidate list), non-Carriers first.
+
+**SC starvation cascade observed**: P1 spent 5 SC on T6 detection → SC=0 T7-T9 → 13 free
+hull damage in 3 uncontested turns. **Fix shipped**: `MEDIUM_MAX_DETECT_PER_TURN=3` cap
+added to `_medium_detections`; cap relaxes to 2× when near-lethal alpha is projected.
+
+**Other findings**:
+- EC deployed T4 as directed (TC banking T2-T3 worked; directive executed correctly).
+- LP at SURFACE correctly intercepted SURFACE drones throughout (SH played correctly).
+- Snorkel Stalker at PERISCOPE dealt 4 dmg/turn T3-T5 (12 dmg before EC landed).
+- Air-Sea Coordinator attached to EC T6 — first Crew lord confirmed working in LLM game.
+- EC killed T7 after 1-hull reduction; Drone production stopped.
+- Without working tokens, Carrier was effectively a 2-3 body aggro deck — not enough to race
+  SH's 4 dmg/turn clock.
+
+**Verdict**: Both bugs combined made the Carrier engine non-functional this iter.
+A clean iter-9 (token bug fixed, AI interceptor fix applied) is needed to get the true answer
+to: "Can EC-by-T4 Carrier beat SH's LP+Snorkel opener?"

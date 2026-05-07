@@ -196,6 +196,22 @@ def _handle_object_created(event: Event, state: GameState):
         summoning_sickness=(zone_type == ZoneType.BATTLEFIELD)
     )
 
+    # Depths: if the payload includes a depth_band (set by Carrier / Drone
+    # token creation helpers in carrier.py), apply it now so the token
+    # enters with the correct band. Without this, all OBJECT_CREATED tokens
+    # land with depth_band=None which the combat formula treats as 0 damage.
+    # The ZONE_CHANGE entry-handler in depths.py only fires for ZONE_CHANGE
+    # events, NOT for OBJECT_CREATED events, so we must apply the band here.
+    _payload_depth_band = event.payload.get('depth_band')
+    if _payload_depth_band is not None:
+        obj_state.depth_band = _payload_depth_band
+    elif inherited_card_def is not None:
+        # Fall back to the card_def's depths_default_depth if no explicit band
+        # was supplied (mirrors deploy_vessel's lookup in depths.py).
+        _default_depth = getattr(inherited_card_def, 'depths_default_depth', None)
+        if _default_depth is not None:
+            obj_state.depth_band = _default_depth
+
     # Apply keyword states from abilities (mirror make_minion behavior)
     obj_keywords = {
         a.get('keyword', '').lower()

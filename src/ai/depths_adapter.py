@@ -309,6 +309,15 @@ HARD_W_FLAGSHIP = 0.6
 HARD_W_BOARD = 0.3
 HARD_W_CHARGE = 0.1
 
+# §8 Medium: per-turn SC detection budget cap (iter-8).
+# Never spend more than this many SC in a single detection phase unless the
+# undetected damage projection exceeds flagship_hull - lethal_buffer by a
+# large margin. Prevents the "SC starvation cascade" where a 5-SC all-in
+# detection turn leaves the AI bankrupt for 2-3 turns of free undetected
+# hits. Budget SC detection: saving 2 SC for the following turn is worth
+# more than the marginal detection on the current swing.
+MEDIUM_MAX_DETECT_PER_TURN = 3
+
 # Maneuver self-cap — the turn manager already enforces _ACTION_LOOP_CAP=200,
 # but a tighter per-turn ceiling keeps the AI from monopolising compute on
 # pathological boards (e.g. a Vessel with a {1S} ability and 10 SC). 30 is
@@ -1391,6 +1400,12 @@ class DepthsAIAdapter:
         flagship_hull = _flagship_buffer(state, defender_id)
         if budget <= 0:
             return {}
+        # iter-8: SC starvation cascade prevention. Cap total SC that can be
+        # spent detecting in a single turn. Going all-in (e.g. 5 SC) leaves
+        # the defender bankrupt for 2-3 resupply turns. The cap is relaxed
+        # (doubled) only when undetected damage projects above lethal in one
+        # swing — i.e., the alpha-strike scenario.
+        detect_cap = MEDIUM_MAX_DETECT_PER_TURN
 
         # Iter-7 guard: detecting without any ready interceptors is SC waste —
         # detected attackers can still deal damage if no interceptor can be
@@ -1447,6 +1462,11 @@ class DepthsAIAdapter:
         # stream forward and add the recent damage to this cumulative projection.
         if chip_stream:
             cumulative_unintercepted += recent_damage
+        # iter-8: apply the per-turn SC cap. Relax to 2× cap if undetected
+        # damage projects above lethal in one swing (true alpha-strike scenario).
+        lethal_threshold = max(0, flagship_hull - MEDIUM_FLAGSHIP_LETHAL_BUFFER)
+        near_lethal = cumulative_unintercepted > lethal_threshold
+        effective_budget = min(budget, detect_cap * 2 if near_lethal else detect_cap)
         # iter-6 chip-stream force-detect: low-power drone swarms (each 1-2 dmg)
         # have per-attacker danger too low to trip the lethal-buffer threshold
         # even with recent_damage added (e.g. 4 drones × 1 = 4, plus recent=4 →
@@ -1454,10 +1474,10 @@ class DepthsAIAdapter:
         # stream is confirmed, force-detect the top MEDIUM_CHIP_FORCE_DETECT
         # undetected attackers BEFORE the lethal-projection loop so the AI slows
         # the bleed without waiting for a near-death projection.
-        if chip_stream and ranked and budget > 0:
+        if chip_stream and ranked and effective_budget > 0:
             force_n = min(MEDIUM_CHIP_FORCE_DETECT, len(ranked))
             for _ in range(force_n):
-                if not ranked or budget <= 0:
+                if not ranked or effective_budget <= 0:
                     break
                 danger, spec = ranked[0]
                 attacker = state.objects.get(spec.vessel_id)
@@ -1465,31 +1485,38 @@ class DepthsAIAdapter:
                     ranked.pop(0)
                     continue
                 cost = detection_cost(state, attacker)
-                if cost <= budget:
+                if cost <= effective_budget:
                     out[spec.vessel_id] = cost
-                    budget -= cost
+                    effective_budget -= cost
                     cumulative_unintercepted -= danger
                 ranked.pop(0)
         # If unintercepted damage > flagship_hull - lethal_buffer, continue
         # detecting in danger order until the projection falls below.
-        while cumulative_unintercepted > max(0, flagship_hull - MEDIUM_FLAGSHIP_LETHAL_BUFFER):
-            if not ranked or budget <= 0:
+        while cumulative_unintercepted > lethal_threshold:
+            if not ranked or effective_budget <= 0:
                 break
             danger, spec = ranked.pop(0)
             attacker = state.objects.get(spec.vessel_id)
             if attacker is None:
                 continue
             cost = detection_cost(state, attacker)
-            if cost > budget:
+            if cost > effective_budget:
                 continue
             out[spec.vessel_id] = cost
-            budget -= cost
+            effective_budget -= cost
             cumulative_unintercepted -= danger
         return out
 
     def _medium_interceptors(self, state: GameState, defender_id: str,
                              detected: list[AttackerSpec]) -> list[BlockerSpec]:
         ready = [v for v in _own_vessels(state, defender_id) if _is_ready_to_attack(v)]
+        # iter-8: Deprioritize engine pieces (Carriers) as interceptors.
+        # Carriers produce Drones every turn; sacrificing one to block saves
+        # less hull than the lost production is worth. Sort: non-Carriers first,
+        # then Carriers (by ascending toughness so cheapest Carrier goes last).
+        def _is_carrier_vessel(v: 'GameObject') -> bool:
+            return "Carrier" in v.characteristics.subtypes
+        ready.sort(key=lambda v: (1 if _is_carrier_vessel(v) else 0, _hull(v)))
         if not ready:
             return []
         # Sort attackers by damage threat (descending).

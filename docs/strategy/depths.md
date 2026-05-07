@@ -95,6 +95,15 @@ oxygen tick, EOT modifier sweep).
 
 ## Format-wide tactical patterns
 
+- **SC starvation cascade (iter-8)**: spending your entire SC bank in a single
+  detection turn leaves you with ~0 SC for 2-3 turns (resupply is 1/turn). A
+  5-SC all-in detection turn → 5 free hull from undetected attacks the next turn.
+  Budget SC detection: never spend more than 60% of current SC in a single turn
+  unless it's the lethal swing. Saving 2 SC for next turn is worth more than the
+  marginal detection on the current swing. Example: P1 spent 5 SC T6 detecting
+  Snorkel+Recon → SC=0 T7-T9 → 13 free hull from uncontested Recon swarm in 3
+  turns. Game-ending cascade.
+
 - **0-power chump interceptors are oppressive vs no-removal aggro**
   (Pilot A, 2026-05-07). Listening Post (0/3) costs the defender nothing
   per chump (interceptor power 0 → no return damage to attacker, but
@@ -603,6 +612,28 @@ goes here.)
     Engine punchlist.
 
 ## Changelog
+
+- **2026-05-07 (iter 8)**: Iter-8 entry. **New matchup repeat: Carrier (P1, LLM Pilot A,
+  EC-by-T4 directive) vs Silent_Hunter (P2, LLM Pilot B, LP-T1+Snorkel-T2 mandatory).
+  P2 WON 18/25 vs 0/25 in 17 turns — first clean SH victory in the Carrier matchup.**
+  Two compounding bugs crippled P1's engine:
+  - **CRITICAL BUG FIXED**: EC Drone tokens spawn at UNKNOWN band → 0 combat damage.
+    `_handle_object_created` in `src/engine/pipeline/handlers/zone.py` did not read
+    `depth_band` from the OBJECT_CREATED payload. All Carrier drone tokens (ETB + end-phase)
+    landed at depth_band=None; combat formula fell back to 0 damage. Fix: zone.py now reads
+    `depth_band` payload key and also falls back to `card_def.depths_default_depth`.
+    Regression test `test_carrier_etb_drone_spawns_at_surface` added.
+  - **AI INTERCEPTOR BUG FIXED**: Carrier assigned as interceptor for Snorkel Stalker
+    instead of an expendable Drone. `_medium_interceptors` now sorts Carriers to the end
+    of the candidate list; non-Carriers always assigned first.
+  - **SC STARVATION CASCADE DOCUMENTED AND PATCHED**: P1 spent 5 SC detecting on T6 →
+    SC=0 T7-T9 → 13 free hull from uncontested Recon swarm. `MEDIUM_MAX_DETECT_PER_TURN=3`
+    constant added; detection spending capped per turn (relaxes to 2× cap near lethal).
+  - **COST CORRECTIONS**: Listening Post confirmed {1S} (not {1T}); Snorkel Stalker confirmed
+    {2T} (not {3T}). Both plan docs updated.
+  - **NEW format lesson**: SC starvation cascade added to Format-wide tactical patterns.
+  - **Iter-9 plan**: clean retest of Carrier vs SH with token bug fixed and AI fixes applied.
+    True answer to "Can EC-by-T4 beat LP+Snorkel?" requires bug-free engine.
 
 - **2026-05-07**: Doc created during first ultra-loop double run.
 - **2026-05-07**: First pilot-iteration entry. Added Format-wide
