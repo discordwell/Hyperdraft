@@ -60,6 +60,12 @@ class FinanceModeAdapter(ModeAdapter):
                 lambda pid, gs: self.get_human_action(session, pid, gs)
             )
 
+        # Wire AI action logger so the market feed shows opponent plays.
+        if hasattr(tm, "action_log_handler"):
+            tm.action_log_handler = (
+                lambda pid, atype, obj: self._log_ai_action(session, pid, atype, obj)
+            )
+
     async def run_game_loop(self, session: "GameSession") -> None:
         while not session.is_finished:
             await session.game.turn_manager.run_turn()
@@ -186,6 +192,34 @@ class FinanceModeAdapter(ModeAdapter):
             return True, "Action accepted"
 
         return False, "No pending action expected"
+
+    def _log_ai_action(
+        self,
+        session: "GameSession",
+        player_id: str,
+        action_type: str,
+        obj: Any,
+    ) -> None:
+        """Append a market-feed entry for an AI action.
+
+        Called by FinanceTurnManager when an AI plays a card so the
+        human sees what the opponent did.
+        """
+        player_name = session.player_names.get(player_id, "AI Opponent")
+        if action_type == "play_card":
+            card_name = getattr(obj, "name", None) or "a card"
+            text = f"{player_name} played {card_name}."
+        else:
+            text = f"{player_name} acted."
+        tm = session.game.turn_manager
+        turn = getattr(tm, "turn_number", 0)
+        session._game_log.append(GameLogEntry(
+            turn=turn,
+            text=text,
+            event_type=action_type,
+            player=player_id,
+            timestamp=time.time(),
+        ))
 
     def _add_log(
         self,

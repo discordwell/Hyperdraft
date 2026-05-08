@@ -150,6 +150,7 @@ class FinanceTurnManager(TurnManager):
         self.finance_ai_handlers: dict[str, Any] = {}
         self.ai_players: set[str] = set()
         self.human_action_handler = None   # async fn(player_id, state) -> action_dict
+        self.action_log_handler = None     # sync fn(player_id, action_type, obj_or_payload)
         self.finance_combat_manager = None  # set after construction
 
     # ------------------------------------------------------------------
@@ -681,6 +682,14 @@ class FinanceTurnManager(TurnManager):
             pl.emit(play_event)
         events.append(play_event)
 
+        # Notify external observers (e.g. server market feed) when an AI
+        # plays a card, so the human player can see it in the log.
+        if self._is_ai_player(player_id) and self.action_log_handler is not None:
+            try:
+                self.action_log_handler(player_id, "play_card", obj)
+            except Exception:
+                pass
+
         # Move card to battlefield (for Traders / Assets / Structures) or
         # graveyard (for Orders / Strategies) via ZONE_CHANGE.
         from .types import CardType
@@ -833,6 +842,13 @@ class FinanceTurnManager(TurnManager):
 
         if best_trader is None:
             return []
+
+        # Remove from staging desk; once attached the desk no longer tracks it.
+        try:
+            from .finance import remove_from_deriv_desk
+            remove_from_deriv_desk(self.state, player_id, derivative_id)
+        except ImportError:
+            pass
 
         attach_event = Event(
             type=EventType.ATTACH,
@@ -1189,9 +1205,18 @@ class FinanceTurnManager(TurnManager):
         )
         if (pl := self._emit_pipeline):
             pl.emit(ev)
-        # Clear per-turn scratchpad.
+        # Clear per-turn scratchpad, but keep Finance-persistent keys
+        # (Derivatives Desk staging, Dark Pool, structure counts) which
+        # are conceptually part of the board state, not per-turn flags.
         if hasattr(self.state, "turn_data"):
+            persistent = {
+                k: v for k, v in self.state.turn_data.items()
+                if k.startswith("finance_deriv_desk_")
+                or k.startswith("finance_structure_count_")
+                or k == "finance_dark_pool"
+            }
             self.state.turn_data.clear()
+            self.state.turn_data.update(persistent)
         return [ev]
 
     # ------------------------------------------------------------------
