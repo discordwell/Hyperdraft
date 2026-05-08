@@ -140,6 +140,30 @@ def _is_order(obj: "GameObject") -> bool:
         return False
 
 
+def _has_alpha_strike(obj: "GameObject") -> bool:
+    """True if the card's text mentions Alpha Strike (heuristic, no engine tag).
+
+    Iter-1: only the first declared attacker gets the +3 alpha bonus
+    (engine bug — see ``docs/strategy/finance.md``). The HF heuristic
+    uses this to refuse multi-attack with Alpha Strikers.
+    """
+    try:
+        text = (getattr(obj.characteristics, "text", None) or
+                getattr(obj, "text", None) or "")
+        return "Alpha Strike" in str(text)
+    except (AttributeError, TypeError):
+        return False
+
+
+def _card_name(obj: "GameObject") -> str:
+    """Best-effort card name lookup for name-based heuristics."""
+    try:
+        return str(getattr(obj.characteristics, "name", None) or
+                   getattr(obj, "name", "") or "")
+    except (AttributeError, TypeError):
+        return ""
+
+
 def _mana_cost(obj: "GameObject") -> int:
     """Return the numeric Liquidity cost for a card object."""
     raw = getattr(obj.characteristics, "mana_cost_value", None)
@@ -230,6 +254,104 @@ def _legal_attackers(state: GameState, player_id: str) -> list["GameObject"]:
             continue
         result.append(obj)
     return result
+
+
+# =============================================================================
+# Iter-2 patch: Leverage tax projection (Derivatives self-loss prevention)
+# =============================================================================
+#
+# Iter-2 lesson (Pilot A loss vs Dark Arbitrage): stacking 4+ Leverage Traders
+# without a counter-removal source on board is a guaranteed loss in 2-3 turns.
+# Σleverage damage fires at controller's MARKET_CLOSE. Pilot A went 12 → -4
+# in one MC with 5 Leverage Traders deployed (predicted 9 tick, observed 16 —
+# tick-doubling bug suspected, see strategy doc bug #10).
+#
+# This helper sums Leverage counters across the player's Traders and projects
+# the next MC tick. Used by _filter_trap_cards / _hard_play_action to refuse
+# to deploy a new Leverage Trader if doing so would be lethal-range.
+# =============================================================================
+
+# Card names that REMOVE Leverage counters (deck-wide safety valves).
+# When any of these is on board (or attached), tick projection can be eased.
+_LEVERAGE_COUNTER_REMOVERS = frozenset({
+    "Theta Decay Trader",          # pre-MC free remove from self
+    "The Black-Scholes Model",     # pay-1 trigger, removes from any
+    "Theta Decay Collar",          # attach Derivative, removes counters
+    "Gamma Scalper",               # once-per-game lethal-tick safety valve
+})
+
+
+def _leverage_count(obj: "GameObject") -> int:
+    """Return the number of Leverage counters on this object (0 if none)."""
+    try:
+        counters = getattr(obj.state, "counters", {}) or {}
+        return int(counters.get("leverage", 0) or 0)
+    except (AttributeError, TypeError, ValueError):
+        return 0
+
+
+def _has_leverage_remover(state: GameState, player_id: str) -> bool:
+    """True if at least one Leverage-counter-removal source is in play for this player."""
+    bf = _battlefield(state)
+    if not bf:
+        return False
+    for oid in bf.objects:
+        obj = state.objects.get(oid)
+        if obj is None:
+            continue
+        if obj.controller != player_id:
+            continue
+        if _card_name(obj) in _LEVERAGE_COUNTER_REMOVERS:
+            return True
+    return False
+
+
+def _expected_leverage_tax(state: GameState, player_id: str) -> int:
+    """Sum of Leverage counters across player's own Traders.
+
+    This projects the controller's next MARKET_CLOSE tick damage assuming
+    no counter removal occurs. Iter-2 observation: actual tick exceeded
+    Σleverage by ~1.7× — a known engine bug. Callers that need a
+    safety-margin projection should multiply by ~1.7 until the bug is fixed.
+    """
+    total = 0
+    for obj in _own_traders(state, player_id):
+        total += _leverage_count(obj)
+    return total
+
+
+def _is_dark_pool_order(obj: "GameObject") -> bool:
+    """Iter-3: True if the card has the `_dark_pool` flag set on its card_def.
+
+    Engine bug 15 (`_play_card_action` lacks `_dark_pool` branch): all DP
+    Orders resolve straight to GY without staging into the Dark Pool slot.
+    Their `dark_effect_fn` never registers. Until the staging path is
+    wired, casting a DP Order is a strict tempo loss — the card disappears
+    for zero effect at full mana cost. The Hard tier filter uses this
+    helper to refuse DP Orders.
+    """
+    try:
+        cd = getattr(obj, "card_def", None) or getattr(obj.characteristics, "card_def", None)
+        return bool(getattr(cd, "_dark_pool", False))
+    except (AttributeError, TypeError):
+        return False
+
+
+def _card_text_leverage_n(obj: "GameObject") -> int:
+    """Best-effort: detect Leverage N from card text. Returns 0 if not a Leverage Trader."""
+    try:
+        text = (getattr(obj.characteristics, "text", None) or
+                getattr(obj, "text", None) or "")
+        text_str = str(text)
+        if "Leverage" not in text_str:
+            return 0
+        import re
+        m = re.search(r"Leverage\s+(\d+)", text_str)
+        if m:
+            return int(m.group(1))
+        return 0
+    except (AttributeError, TypeError, ValueError):
+        return 0
 
 
 def _board_value(state: GameState, player_id: str) -> float:
@@ -574,6 +696,12 @@ class FinanceAIAdapter:
         Prefer the smallest Trader (by Defense Rating) that survives the
         trade (Defense Rating > attacker's Aggression). Fall back to any
         available blocker when no blocker survives.
+
+        Iter-1 patch (FINA double-pilot, Quant pilot lesson):
+        - When unblocked damage would drop us ≤ 8 capital, ALSO chump-
+          block remaining attackers with the smallest available body to
+          reduce face leakage. Trample overflow leaks 1-3 face per
+          chump but that beats 5+ face unblocked.
         """
         available = [
             obj for obj in _own_traders(state, player_id)
@@ -582,6 +710,18 @@ class FinanceAIAdapter:
         ]
         assignments: dict[str, str] = {}
         used: set[str] = set()
+
+        # Compute mandatory-block-mode: are we facing lethal-range damage?
+        player = state.players.get(player_id)
+        cur_life = int(getattr(player, "life", 30)) if player else 30
+        unblocked_dmg = sum(
+            _power(state.objects[aid]) for aid in attacker_ids
+            if aid in state.objects
+        )
+        mandatory_block = (
+            unblocked_dmg >= cur_life
+            or cur_life - unblocked_dmg <= 8
+        )
 
         # Sort attackers by Aggression descending (block the biggest threats first).
         sorted_atks = sorted(
@@ -604,12 +744,18 @@ class FinanceAIAdapter:
             if survivors:
                 # Pick the one with the smallest remaining defense (least waste).
                 blocker = min(survivors, key=_remaining_defense)
-            else:
-                # No survivor — pick cheapest available to minimise value lost.
+            elif mandatory_block:
+                # No survivor but we're at lethal-range — chump with cheapest.
                 remaining = [b for b in available if b.id not in used]
                 if not remaining:
                     continue
                 blocker = min(remaining, key=lambda b: _power(b) + _toughness(b))
+            else:
+                # No survivor and life is fine — only commit a blocker if
+                # the trade kills attacker AND blocker has positive value.
+                # Pilot B iter-1: chumping a 2/1 with a 1/2 leaks 2 face;
+                # eat the chip when life > 8.
+                continue
 
             assignments[atk_id] = blocker.id
             used.add(blocker.id)
@@ -637,9 +783,21 @@ class FinanceAIAdapter:
 
         The turn manager calls this in a loop; each call returns ONE card.
         Returning end_phase when nothing improves V stops the loop.
+
+        Iter-1 patches (FINA double-pilot game; both pilots flagged):
+        - Filter out Liquidity Provision when at full mana (gains 0).
+        - Filter out Speed Amplifier when no 3+ tough Trader exists
+          on board (engine bug: orphans on attached Trader's death).
+        - Filter out Tick Data Archive (engine bug: trigger flag never
+          set; asset is currently dead).
         """
         hand = _hand_cards(state, player_id)
         affordable = [c for c in hand if _can_afford(state, player_id, c.id)]
+        if not affordable:
+            return {"type": "end_phase"}
+
+        # Surgical name-based filters for known dead/trap cards.
+        affordable = self._filter_trap_cards(state, player_id, affordable)
         if not affordable:
             return {"type": "end_phase"}
 
@@ -660,15 +818,187 @@ class FinanceAIAdapter:
             return {"type": "end_phase"}
         return {"type": "play_card", "card_id": best_card.id, "targets": []}
 
+    def _filter_trap_cards(
+        self,
+        state: GameState,
+        player_id: str,
+        cards: list["GameObject"],
+    ) -> list["GameObject"]:
+        """Hide known-bad / engine-bugged plays from the hard tier.
+
+        Iter-1 lessons (`docs/strategy/finance.md`):
+        - Liquidity Provision at full mana = 0-gain trap.
+        - Speed Amplifier with no 3+ tough Trader on board = orphan risk.
+        - Tick Data Archive = currently dead (trigger flag never set).
+
+        Iter-2 lessons:
+        - Leverage Trader self-tax: refuse to deploy a new Leverage Trader
+          if the projected MC tick would drop us below safety margin AND
+          no counter-removal source is in play. Iter-2: P1 lost 12 → -4
+          in one MC with 5 Leverage Traders and no Black-Scholes / Theta
+          Decay Trader / Theta Decay Collar on board.
+
+        Returns the filtered list; if everything would be filtered, returns
+        the original list (better to play SOMETHING than end_phase).
+        """
+        player = state.players.get(player_id)
+        if not player:
+            return cards
+        avail = int(getattr(player, "mana_crystals_available", 0) or 0)
+        max_mana = int(getattr(player, "mana_crystals_max", avail) or avail)
+
+        # Are there any 3+ tough Traders on our side? (Speed Amp anchor check)
+        own_traders = _own_traders(state, player_id)
+        has_sticky_anchor = any(_toughness(t) >= 3 for t in own_traders)
+
+        # Iter-2: leverage-tax projection.
+        # Project the next MC tick assuming the suspected ×1.7 doubling bug.
+        # If the bug gets fixed, the multiplier should drop back to 1.0.
+        cur_capital = int(getattr(player, "life", 30) or 30)
+        current_lev_total = _expected_leverage_tax(state, player_id)
+        has_remover = _has_leverage_remover(state, player_id)
+        # Safety margin: refuse to deploy a Leverage Trader if projected
+        # tick would drop us at or below this threshold without a remover.
+        leverage_safety_margin = 5
+        leverage_bug_multiplier = 1.7  # iter-2 observed: tick is ~1.7× Σleverage
+
+        kept: list["GameObject"] = []
+        for card in cards:
+            name = _card_name(card)
+            if name == "Liquidity Provision":
+                # Trap at full mana: gains 3 up to current max → 0 net.
+                # Only cast when there's headroom OR we're chaining a 4+ play.
+                hand = _hand_cards(state, player_id)
+                expensive = [
+                    c for c in hand
+                    if c.id != card.id and _mana_cost(c) >= 4
+                    and _can_afford(state, player_id, c.id) is False
+                    and avail + 3 >= _mana_cost(c)
+                ]
+                # Iter-3 (Pilot A): tighten threshold from max-2 to max-1.
+                # Even at max-1, +3 caps at max → effective gain is 1 mana
+                # for 2 mana spent, still a net loss with no chain target.
+                if avail >= max_mana - 1 and not expensive:
+                    continue  # skip — would gain ≤1 net, no chain target either
+            elif name == "Speed Amplifier":
+                # Engine bug: orphans on attached Trader's death.
+                # Only deploy when we have a 3+ tough anchor.
+                if not has_sticky_anchor:
+                    continue
+            elif name == "Tick Data Archive":
+                # Engine bug: alpha-struck-alone flag never set; trigger
+                # never fires. Card is currently dead weight.
+                continue
+            elif name == "Rebalancing Halt":
+                # Iter-3 engine bug 17: TAP on already-declared attacker is
+                # a no-op for combat resolution. RH is only useful as a
+                # sorcery-speed effect on YOUR turn pre-declare (which the
+                # current adapter has no phase-aware path for). At instant
+                # speed during opp's combat it does nothing. Skip until
+                # the engine fix lands or until phase-aware activation is
+                # added to the adapter.
+                continue
+            elif name == "Off-Exchange Position":
+                # Iter-3 engine bug 13/15: silent no-op without DP slot,
+                # AND DP staging itself is unwired (`_play_card_action`
+                # lacks `_dark_pool` branch). Casting OEP is strictly a
+                # mana sink. Skip until staging is wired.
+                continue
+            elif _is_dark_pool_order(card):
+                # Iter-3 engine bug 15: Dark Pool staging unwired.
+                # All DP-tagged Orders resolve to GY without staging,
+                # their `dark_effect_fn` never registers. Casting is a
+                # strict tempo loss. Skip every DP Order until the
+                # staging path is wired in finance_turn._play_card_action.
+                # Note: this is deck-agnostic — Dark Arbitrage pilots get
+                # the most savings, but any deck holding a DP card benefits.
+                continue
+            else:
+                # Iter-2 leverage-tax filter: skip a new Leverage Trader if
+                # deploying it would produce a lethal-range MC tick projection
+                # and we have no counter-removal source on board.
+                #
+                # Theta Decay Trader is itself a remover, so playing it always
+                # passes (it manages its own counter via pre-MC trigger).
+                if name not in _LEVERAGE_COUNTER_REMOVERS and _is_trader(card):
+                    new_lev = _card_text_leverage_n(card)
+                    if new_lev > 0:
+                        projected_total = current_lev_total + new_lev
+                        projected_tax = projected_total * leverage_bug_multiplier
+                        projected_capital = cur_capital - projected_tax
+                        if (
+                            projected_capital <= leverage_safety_margin
+                            and not has_remover
+                        ):
+                            # Refuse to deploy — would self-kill in 1-2 MCs.
+                            continue
+            kept.append(card)
+
+        return kept if kept else cards
+
     def _hard_attackers(self, state: GameState, player_id: str) -> list[str]:
         """
         Enumerate non-empty subsets of legal attackers (up to size 6 for
         tractability), simulate optimal opponent blocking for each subset,
         and pick the subset maximising V delta (§8 Hard).
+
+        Iter-1 patches (FINA double-pilot, both pilots agreed):
+        - **Solo Alpha Strike rule (HF lesson)**: only the first declared
+          attacker gets the +3 alpha bonus (engine bug). When the only
+          legal attackers are Alpha Strikers, send ONE attacker not all.
+          Prefer the highest-power Alpha Striker for solo attack.
+        - **Swarm rule (Quant lesson)**: when our attacker count exceeds
+          the opponent's potential blocker count by 2+, send everyone —
+          asymmetric trader count forces unblockable damage. Only applies
+          when no Alpha Strikers (or alpha is irrelevant due to non-AS
+          mix).
         """
         legal = _legal_attackers(state, player_id)
         if not legal:
             return []
+
+        # Heuristic preflight: if all legal attackers are Alpha Strikers,
+        # solo-attack with the highest-power one. This avoids the multi-
+        # attack bug where only the first declared keeps alpha buff.
+        as_attackers = [t for t in legal if _has_alpha_strike(t)]
+        if as_attackers and len(as_attackers) == len(legal):
+            best = max(as_attackers, key=_power)
+            # Still verify the solo swing improves V (don't suicide into
+            # a wall just because we have an alpha attacker).
+            baseline = _eval_state(state, player_id, self.bias)
+            forecast = self._simulate_attack_resolution(
+                state, player_id, [best.id]
+            )
+            if forecast is not None:
+                delta = _eval_state(forecast, player_id, self.bias) - baseline
+                if delta > self.bias.attack_threshold:
+                    return [best.id]
+            # Fall through to subset search if solo doesn't beat threshold.
+
+        # Swarm rule: if we have 2+ more attackers than opponent has
+        # potential blockers, the asymmetry forces unblockable damage.
+        # Send everyone (subset search would also find this but cheaper
+        # to short-circuit).
+        opp_id = _other_player(state, player_id)
+        if opp_id is not None:
+            opp_blockers = [
+                t for t in _own_traders(state, opp_id)
+                if not getattr(t.state, "tapped", False)
+            ]
+            if len(legal) >= len(opp_blockers) + 2 and not as_attackers:
+                # Verify swarm improves V before committing.
+                all_ids = [t.id for t in legal]
+                baseline = _eval_state(state, player_id, self.bias)
+                forecast = self._simulate_attack_resolution(
+                    state, player_id, all_ids
+                )
+                if forecast is not None:
+                    delta = (
+                        _eval_state(forecast, player_id, self.bias)
+                        - baseline
+                    )
+                    if delta > self.bias.attack_threshold:
+                        return all_ids
 
         baseline = _eval_state(state, player_id, self.bias)
         best_delta = self.bias.attack_threshold
@@ -680,7 +1010,14 @@ class FinanceAIAdapter:
 
         for mask in range(1, 1 << n):
             subset = [candidates[i].id for i in range(n) if mask & (1 << i)]
-            # Simulate optimal opponent blocking against this attack subset.
+            # Skip multi-Alpha-Strike subsets (only one alpha buff fires).
+            subset_objs = [state.objects.get(sid) for sid in subset]
+            as_count = sum(
+                1 for o in subset_objs
+                if o is not None and _has_alpha_strike(o)
+            )
+            if as_count >= 2:
+                continue  # multi-AS attack wastes alpha on all but one
             forecast = self._simulate_attack_resolution(state, player_id, subset)
             if forecast is None:
                 continue
@@ -701,6 +1038,16 @@ class FinanceAIAdapter:
         Try all legal blocking assignments (brute-force), pick the one
         minimising V loss for the defending player (§8 Hard).
         Falls back gracefully to Medium if deepcopy fails.
+
+        Iter-1 patch (Quant pilot lesson):
+        - **Mandatory-block override**: when total unblocked damage would
+          drop our Capital Reserve below 25% (or to 0), block everything
+          we can — even if the brute-force search prefers to take face.
+          Trample overflow is real but face leakage > 5 is worse than
+          1-2 leaked through chump-blocks.
+        - **Empty assignment is allowed**: if every assignment loses V
+          worse than taking face, return ``{}`` (no blocks) — the prior
+          fallback to ``_medium_blockers`` could force suicide chumps.
         """
         available = [
             obj for obj in _own_traders(state, player_id)
@@ -709,6 +1056,20 @@ class FinanceAIAdapter:
         ]
         if not available:
             return {}
+
+        # Mandatory-block check: if unblocked damage is lethal-range,
+        # commit every blocker we have. Computed against current life.
+        player = state.players.get(player_id)
+        cur_life = int(getattr(player, "life", 30)) if player else 30
+        unblocked_dmg = sum(
+            _power(obj) for aid in attacker_ids
+            if (obj := state.objects.get(aid)) is not None
+        )
+        # 25% reserve = 7.5 of 30. Round to 8 (HF chip threshold).
+        force_block = (
+            unblocked_dmg >= cur_life
+            or cur_life - unblocked_dmg <= 8
+        )
 
         # Collect all valid (attacker_id → blocker_id) assignment dicts
         # via a greedy permutation search (cap at 120 permutations = 5!).
@@ -737,7 +1098,11 @@ class FinanceAIAdapter:
                 best_loss = loss
                 best_assignment = assignment
 
-        # If brute-force produced nothing useful, fall back to Medium.
+        # If we'd otherwise leak ≥ 25% capital reserve, force a block:
+        # delegate to medium (which assigns smallest-survivor blockers
+        # to biggest threats first).
+        if force_block and not best_assignment:
+            return self._medium_blockers(state, attacker_ids, player_id)
         if not best_assignment:
             return self._medium_blockers(state, attacker_ids, player_id)
         return best_assignment
@@ -945,6 +1310,27 @@ class FinanceAIAdapter:
 
     def _get_opponent(self, state: GameState, player_id: str) -> str:
         return _other_player(state, player_id) or ""
+
+    def _expected_leverage_tax(
+        self,
+        state: GameState,
+        player_id: str,
+    ) -> int:
+        """Iter-2: sum of Leverage counters across player's Traders.
+
+        Projects the next MARKET_CLOSE tick assuming no counter removal.
+        See module-level ``_expected_leverage_tax`` for details and the
+        suspected tick-doubling engine bug warning.
+        """
+        return _expected_leverage_tax(state, player_id)
+
+    def _has_leverage_remover(
+        self,
+        state: GameState,
+        player_id: str,
+    ) -> bool:
+        """Iter-2: True if player has a Leverage-counter-removal source on board."""
+        return _has_leverage_remover(state, player_id)
 
 
 # =============================================================================

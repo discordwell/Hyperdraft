@@ -430,6 +430,14 @@ class FinanceModeAdapter:
 
     mode: str = "finance"
 
+    # --- Serialization flags (used by session.py) ---------------------------
+
+    def excludes_from_battlefield_serialization(self, obj) -> bool:
+        return False
+
+    def uses_pokemon_card_serializer(self) -> bool:
+        return False
+
     # -----------------------------------------------------------------------
     # GameModeAdapter protocol — only override what differs from MTG defaults
     # -----------------------------------------------------------------------
