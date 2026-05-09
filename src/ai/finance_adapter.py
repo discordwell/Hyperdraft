@@ -758,6 +758,33 @@ def _eval_state(state: GameState, player_id: str, bias: FinanceAIBias) -> float:
     )
 
 
+# Burn EV table (rebalance v3b, 2026-05-09) — direct-damage Orders/Strategies
+# that target opponent's Capital Reserve.  Without this lookup the analytical
+# eval treats them as pure mana-burn (negative delta, never played).  The
+# EV credit mirrors ``_attack_eval_delta``'s overflow→capital_weight math:
+# delta_capital = capital_weight * damage / 30.0 (opp Capital drops by `damage`).
+#
+# Cards that target Trader OR opponent default to "hit opponent" for EV scoring;
+# the resolve_fn similarly auto-targets opponent when no target is provided.
+_BURN_DAMAGE_BY_NAME: dict[str, int] = {
+    # rebalance v3b: HF/Burn pinnacle pieces.
+    "Capital Skim": 1,
+    "Volatility Bomb": 3,
+    # Cascading Liquidations scales with own GY Trader count, max 6.  We use
+    # a conservative midpoint (3) for EV; the AI plays it when it's affordable
+    # and the actual damage is computed on resolve.
+    "Cascading Liquidations": 3,
+    # Existing burn already covered indirectly (Pre-Positioned Strike is a
+    # Dark Pool Order that auto-fires on PHASE_START and thus doesn't go
+    # through this eval — its EV is captured by its DP staging).
+}
+
+
+def _burn_damage_ev(card: "GameObject") -> int:
+    """Return the expected damage-to-opp value for a known burn card."""
+    return _BURN_DAMAGE_BY_NAME.get(_card_name(card), 0)
+
+
 def _play_card_eval_delta(
     state: GameState,
     player_id: str,
@@ -779,6 +806,11 @@ def _play_card_eval_delta(
     Returns ``None`` when the card is unaffordable so callers can skip it.
     No allocations, no deepcopy, no interceptor scans.  ~1000× faster than
     the deepcopy-based forecast.
+
+    Rebalance v3b (2026-05-09): burn cards (Capital Skim, Volatility Bomb,
+    Cascading Liquidations) credit ``capital_weight * damage / 30`` so the AI
+    actually plays them.  Without this, Orders/Strategies have strictly
+    negative delta and never beat the attack_threshold gate.
     """
     player = state.players.get(player_id)
     if player is None:
@@ -793,6 +825,15 @@ def _play_card_eval_delta(
     # (i.e. is a Trader; non-Traders go to the graveyard and don't add bv).
     if _is_trader(card):
         delta += bias.board_weight * ((_power(card) + _toughness(card)) / 20.0)
+    # Burn cards: credit direct damage to opponent's Capital Reserve.
+    burn = _burn_damage_ev(card)
+    if burn > 0:
+        # Clamp damage to opp's current life so we don't reward overkill.
+        opp_id = _other_player(state, player_id)
+        opp = state.players.get(opp_id) if opp_id else None
+        opp_life = int(getattr(opp, "life", 0) or 0) if opp else 0
+        damage = min(burn, max(0, opp_life))
+        delta += bias.capital_weight * (damage / 30.0)
     return delta
 
 

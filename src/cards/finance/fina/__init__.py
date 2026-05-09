@@ -19,14 +19,18 @@ FINA_CARDS: dict = {
     **DARK_ARBITRAGE_CARDS,
 }
 
-assert len(FINA_CARDS) == 157, (
+assert len(FINA_CARDS) == 161, (
     # rebalance v2 (2026-05-09): +5 voltron-meta answers + burn seed:
     #   - DERIVATIVES (+2): Position Audit, Liquidation Cascade
     #   - DARK_ARBITRAGE (+2): Forced Unwinding, Margin Squeeze
     #   - HIGH_FREQUENCY (+1): Capital Skimmer
-    # rebalance v3 (2026-05-09): +1 Wrath-of-God-tier Trader sweeper
+    # rebalance v3a (2026-05-09): +1 Wrath-of-God-tier Trader sweeper
     #   - QUANT (+1): Black Monday {4} destroy all Traders
-    f"FINA set should have 157 cards, got {len(FINA_CARDS)}. "
+    # rebalance v3b (2026-05-09): +4 HF-aggro / Burn pinnacle pieces
+    #   - HIGH_FREQUENCY (+4): Tick Sniper {1} 2/1 Alpha Strike,
+    #     Capital Skim {1} 1-dmg burn, Volatility Bomb {2} 3-dmg Bolt analog,
+    #     Cascading Liquidations {3} graveyard-Trader-count finisher (max 6)
+    f"FINA set should have 161 cards, got {len(FINA_CARDS)}. "
     f"HF={len(HIGH_FREQUENCY_CARDS)} DV={len(DERIVATIVES_CARDS)} "
     f"QT={len(QUANT_CARDS)} DA={len(DARK_ARBITRAGE_CARDS)}"
 )

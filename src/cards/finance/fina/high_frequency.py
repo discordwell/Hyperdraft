@@ -976,6 +976,21 @@ CAPITAL_SKIMMER = make_trader(
 )
 
 
+# --- Tick Sniper {1} 2/1 ---
+# rebalance v3 (2026-05-09): the missing 1-cost pinnacle aggro body for HF.
+# RFC at {1} 1/2 doesn't apply pressure; Tick Sniper at 2/1 does. Vanilla
+# Alpha Strike — no other text. The {1} slot's job is "deal damage early."
+TICK_SNIPER = make_trader(
+    "Tick Sniper",
+    "{1}",
+    power=2,
+    toughness=1,
+    text="Alpha Strike.",
+    setup_interceptors=_make_alpha_strike_setup(3),
+    rarity="common",
+)
+
+
 # =============================================================================
 # ORDERS (9)
 # =============================================================================
@@ -1273,6 +1288,103 @@ REGULATORY_HALT = make_order(
 
 
 # =============================================================================
+# Burn helpers (rebalance v3, 2026-05-09)
+# =============================================================================
+# Direct-damage Orders for the burn archetype. Pattern: emit a DAMAGE event
+# to either a player (Capital Reserve drop via mode adapter) or a Trader
+# (damage marked on the object). Auto-targets opp player when no target chosen
+# (the burn deck wants face damage by default — same convention as Capital
+# Skimmer's _resolve_target_id).
+
+def _resolve_burn_target_id(
+    targets: list,
+    state: GameState,
+    controller: str,
+) -> Optional[str]:
+    """Return a target id (object id OR player id), defaulting to opponent.
+
+    Accepts the same flexible target shapes the rest of the FINA codebase
+    uses: Target wrappers (with .object_id), bare ids, or nested lists.
+    """
+    if targets:
+        first = targets[0]
+        if hasattr(first, "object_id"):
+            tid = first.object_id  # type: ignore[attr-defined]
+            if tid:
+                return tid
+        elif isinstance(first, str) and first:
+            return first
+        elif isinstance(first, list) and first:
+            tid = first[0]
+            if isinstance(tid, str) and tid:
+                return tid
+    # Default: hit the opponent's Capital Reserve.
+    for pid in state.players:
+        if pid != controller:
+            return pid
+    return None
+
+
+def _make_burn_order_resolve(damage: int):
+    """Return a resolve_fn that deals `damage` to a Trader or opponent.
+
+    Reads target_id (set by finance_turn._resolve_stack_item from
+    targets[0]) and emits a DAMAGE event. When no target is provided
+    (targets=[]) the resolve auto-picks the opponent player id.
+    """
+    def resolve(event: Event, state: GameState) -> list[Event]:
+        controller = event.payload.get("controller") or event.controller
+        if not controller:
+            return []
+        target_id = event.payload.get("target_id")
+        if not target_id:
+            target_id = _resolve_burn_target_id(
+                event.payload.get("targets") or [], state, controller
+            )
+        if not target_id:
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={
+                "target": target_id,
+                "amount": damage,
+                "source": event.payload.get("source_id", ""),
+                "is_finance": True,
+            },
+            source=event.payload.get("source_id", ""),
+            controller=controller,
+        )]
+    return resolve
+
+
+# --- Capital Skim {1} Order ---
+# rebalance v3 (2026-05-09): Lightning-Bolt-tier-cheap chip burn for the burn
+# archetype. {1} for 1 damage is the burn deck's reach card. Pairs with
+# Capital Skimmer (the recurring engine) for cumulative chip burn that ignores
+# Synthetic-Collar walls and goes straight to face.
+CAPITAL_SKIM = make_order(
+    "Capital Skim",
+    "{1}",
+    text="Deal 1 damage to target Trader or opponent.",
+    resolve=_make_burn_order_resolve(1),
+    rarity="common",
+)
+
+
+# --- Volatility Bomb {2} Order ---
+# rebalance v3 (2026-05-09): Lightning Bolt analog. {2} for 3 damage is the
+# canonical MTG cost. Strictly a removal AND finisher — hits Traders for
+# trades AND chips opponent's Capital. The card a burn deck mainboards 4-of.
+VOLATILITY_BOMB = make_order(
+    "Volatility Bomb",
+    "{2}",
+    text="Deal 3 damage to target Trader or opponent.",
+    resolve=_make_burn_order_resolve(3),
+    rarity="uncommon",
+)
+
+
+# =============================================================================
 # STRATEGIES (5)
 # =============================================================================
 
@@ -1487,6 +1599,55 @@ ACCELERATION_PROTOCOL = make_strategy(
     "{3}",  # rebalance: dead-card repair cost {4} → {3} (dominated by Momentum Ignition {3})
     text="Your Traders get +2/+0 until Market Close. Each Trader with Alpha Strike gets +1/+0 additionally.",
     resolve=_acceleration_protocol_resolve,
+    rarity="rare",
+)
+
+
+# --- Cascading Liquidations {3} Strategy ---
+# rebalance v3 (2026-05-09): Burn finisher. Scales with attrition — every
+# Trader you've lost or sacrificed becomes damage. Max 6 caps the variance.
+# {3} for "up to 6 damage to the face" matches MTG burn finisher costing
+# (Lava Spike {1} = 3, Searing Blaze {2} = 3+3, Cascading at {3} for ≤6 is
+# in line with mid-burn finishers). NOT to be confused with the existing
+# Liquidation Cascade (DERIVATIVES) which destroys up to 3 Derivatives.
+def _cascading_liquidations_resolve(event: Event, state: GameState) -> list[Event]:
+    controller = event.payload.get("controller") or event.controller
+    if not controller:
+        return []
+    # Count Traders in OUR graveyard.
+    gz = state.zones.get(f"graveyard_{controller}")
+    if gz is None:
+        return []
+    trader_count = 0
+    for oid in getattr(gz, "objects", []):
+        o = state.objects.get(oid)
+        if o is not None and CardType.FIN_TRADER in o.characteristics.types:
+            trader_count += 1
+    damage = min(6, trader_count)
+    if damage <= 0:
+        return []
+    # Auto-target the opponent (face damage finisher).
+    target_id = _resolve_burn_target_id([], state, controller)
+    if not target_id:
+        return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={
+            "target": target_id,
+            "amount": damage,
+            "source": event.payload.get("source_id", ""),
+            "is_finance": True,
+        },
+        source=event.payload.get("source_id", ""),
+        controller=controller,
+    )]
+
+
+CASCADING_LIQUIDATIONS = make_strategy(
+    "Cascading Liquidations",
+    "{3}",
+    text="Deal damage to target opponent equal to the number of Traders in your graveyard (maximum 6).",
+    resolve=_cascading_liquidations_resolve,
     rarity="rare",
 )
 
@@ -1954,7 +2115,7 @@ SPEED_AMPLIFIER = make_derivative(
 # =============================================================================
 
 HIGH_FREQUENCY_CARDS: dict[str, CardDefinition] = {
-    # Traders (15) — rebalance v2: +1 (Capital Skimmer)
+    # Traders (16) — rebalance v3: +1 (Tick Sniper)
     "Flash Crash Bot":       FLASH_CRASH_BOT,
     "Retail Flow Chaser":    RETAIL_FLOW_CHASER,
     "Spoofing Algo":         SPOOFING_ALGO,
@@ -1970,7 +2131,8 @@ HIGH_FREQUENCY_CARDS: dict[str, CardDefinition] = {
     "Microwave Relay":       MICROWAVE_RELAY,
     "Nanosecond Assassin":   NANOSECOND_ASSASSIN,
     "Capital Skimmer":       CAPITAL_SKIMMER,  # rebalance v2: burn-archetype seed
-    # Orders (9)
+    "Tick Sniper":           TICK_SNIPER,      # rebalance v3: pinnacle T1 aggro body
+    # Orders (11) — rebalance v3: +2 (Capital Skim, Volatility Bomb)
     "Dark Pool Flash Order": DARK_POOL_FLASH_ORDER,
     "Sub-Penny Intercept":   SUB_PENNY_INTERCEPT,
     "Pre-Market Raid":       PRE_MARKET_RAID,
@@ -1980,12 +2142,15 @@ HIGH_FREQUENCY_CARDS: dict[str, CardDefinition] = {
     "Quote Stuffing Burst":  QUOTE_STUFFING_BURST,
     "Circuit Breaker Trip":  CIRCUIT_BREAKER_TRIP,
     "Regulatory Halt":       REGULATORY_HALT,
-    # Strategies (5)
+    "Capital Skim":          CAPITAL_SKIM,      # rebalance v3: {1} chip burn
+    "Volatility Bomb":       VOLATILITY_BOMB,   # rebalance v3: {2} Lightning Bolt analog
+    # Strategies (6) — rebalance v3: +1 (Cascading Liquidations)
     "Low-Latency Strike":    LOW_LATENCY_STRIKE,
     "Momentum Ignition":     MOMENTUM_IGNITION,
     "Flash Crash Event":     FLASH_CRASH_EVENT,
     "Pump-and-Dump":         PUMP_AND_DUMP,
     "Acceleration Protocol": ACCELERATION_PROTOCOL,
+    "Cascading Liquidations": CASCADING_LIQUIDATIONS,  # rebalance v3: burn finisher
     # Assets (5)
     "HFT Feed Colocation":   HFT_FEED_COLOCATION,
     "Tick Data Archive":     TICK_DATA_ARCHIVE,
@@ -2000,6 +2165,6 @@ HIGH_FREQUENCY_CARDS: dict[str, CardDefinition] = {
     "Speed Amplifier":        SPEED_AMPLIFIER,
 }
 
-assert len(HIGH_FREQUENCY_CARDS) == 38, (
-    f"Expected 38 HIGH-FREQUENCY cards, got {len(HIGH_FREQUENCY_CARDS)}"
+assert len(HIGH_FREQUENCY_CARDS) == 42, (
+    f"Expected 42 HIGH-FREQUENCY cards, got {len(HIGH_FREQUENCY_CARDS)}"
 )
