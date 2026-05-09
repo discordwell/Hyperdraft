@@ -482,7 +482,10 @@ FACTOR_MODEL_ANALYST = make_trader(
     name="Factor Model Analyst",
     cost="{2}",
     power=1,
-    toughness=3,
+    # rebalance: toughness 3 → 2. FMA at 1/3 + Arb 1 effective 1/4 was
+    # blocking 3-power attackers cleanly + drawing on ETB. 1/2 makes it
+    # trade with 2-power attackers, dies to 3-power, still draws on ETB.
+    toughness=2,
     text="Arbitrage 1. When Arbitrage triggers, draw a card.",
     rarity="common",
     setup_interceptors=_factor_model_analyst_setup,
@@ -572,8 +575,14 @@ def _pairs_trader_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         )
 
     def attack_effect(event: Event, state: GameState) -> InterceptorResult:
+        # rebalance: +4 → +1 Liquidity on attack. The +4 was Smothering-Tithe
+        # tier on a {3} 2/3 body — 4 of top 5 decks ran 4-of PT. Nerfing the
+        # gain to +1 keeps PT a positive-tempo attacker (still gains mana,
+        # still has Arb 2 = effective 2/5 on block) without making it a
+        # ramp-engine on a creature. Smart Beta Strategist's +1 card on
+        # attack is the peer benchmark.
         if _player_leads_traders_strict(state, obj.controller):
-            _gain_liquidity(state, obj.controller, 4)
+            _gain_liquidity(state, obj.controller, 1)
         return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
 
     attack_interceptor = Interceptor(
@@ -593,7 +602,7 @@ PAIRS_TRADER = make_trader(
     cost="{3}",
     power=2,
     toughness=3,
-    text="Arbitrage 2. When this attacks, gain 4 Liquidity this turn.",
+    text="Arbitrage 2. When this attacks, if you lead in Traders, gain 1 Liquidity this turn.",
     rarity="uncommon",
     setup_interceptors=_pairs_trader_setup,
 )
@@ -1133,17 +1142,31 @@ REGIME_CHANGE_DETECTION = make_order(
 
 # --- Liquidity Provision {2} — Gain 3 Liquidity this turn. ---
 def _liquidity_provision_resolve(event: Event, state: GameState) -> list[Event]:
+    # rebalance: cost {2} → {1}, gain flat 3 → 50/50 of {2, 3}.
+    # The flat-3 ritual at {2} was a guaranteed +1 net mana per cast.
+    # New design: {1} cost (cheaper to slot), variance reward (EV +2.5 net,
+    # so a {1} ritual averaging +1.5 mana). Adds skill expression — when
+    # to chance the ritual matters. Mirrors MTG's variance rituals like
+    # Wild Cantor / Manamorphose at {1} with a coin-flip payoff.
+    import random
     controller = event.payload.get("controller", "")
     if not controller:
         return []
-    _gain_liquidity(state, controller, 3)
+    rng = getattr(state, "_rng", None)
+    if rng is None and getattr(state, "rng_seed", None) is not None:
+        rng = random.Random(state.rng_seed)
+        state._rng = rng
+    if rng is None:
+        rng = random
+    amount = 3 if rng.random() < 0.5 else 2
+    _gain_liquidity(state, controller, amount)
     return []
 
 
 LIQUIDITY_PROVISION = make_order(
     name="Liquidity Provision",
-    cost="{2}",
-    text="Gain 3 Liquidity this turn. (Cannot exceed your Liquidity maximum.)",
+    cost="{1}",
+    text="Gain 2 or 3 Liquidity this turn (50/50). (Cannot exceed your Liquidity maximum.)",
     rarity="common",
     resolve=_liquidity_provision_resolve,
 )
@@ -1679,6 +1702,39 @@ PORTFOLIO_INSURANCE_WRAP = make_derivative(
 )
 
 
+# --- Black Monday {4} — Strategy: destroy all Traders. Wrath-of-God tier sweeper. ---
+# Design: unconditional Trader board wipe. {4} matches MTG benchmark for
+# unconditional sweepers (Wrath of God, Day of Judgment). Gives stax/control
+# decks a real reset button against wide aggro AND voltron-style stacked
+# threats. Symmetric — hits both players' Traders.
+def _black_monday_resolve(event: Event, state: GameState) -> list[Event]:
+    events: list[Event] = []
+    bf = state.zones.get("battlefield")
+    if not bf:
+        return []
+    for oid in list(bf.objects):
+        o = state.objects.get(oid)
+        if not o or o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.FIN_TRADER not in o.characteristics.types:
+            continue
+        events.append(Event(
+            type=EventType.DESTROY,
+            payload={"object_id": oid},
+            source=event.payload.get("source_id", ""),
+        ))
+    return events
+
+
+BLACK_MONDAY = make_strategy(
+    name="Black Monday",
+    cost="{4}",
+    text="Destroy all Traders.",
+    rarity="rare",
+    resolve=_black_monday_resolve,
+)
+
+
 # =============================================================================
 # EXPORT
 # =============================================================================
@@ -1727,4 +1783,5 @@ QUANT_CARDS: dict[str, CardDefinition] = {
     # Derivatives (2)
     "Signal Processing Rig": SIGNAL_PROCESSING_RIG,
     "Portfolio Insurance Wrap": PORTFOLIO_INSURANCE_WRAP,
+    "Black Monday": BLACK_MONDAY,
 }

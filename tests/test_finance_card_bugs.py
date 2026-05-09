@@ -2156,18 +2156,19 @@ class TestV3FollowupBugs:
         game, p1, _ = _make_finance_game()
         fma = _put_on_battlefield(game, p1.id, FACTOR_MODEL_ANALYST)
         baseline = _PRI_get_toughness(fma, game.state)
-        assert baseline == 3, (
-            f"Bug #32 baseline: FMA printed toughness must be 3, got {baseline}"
+        # rebalance v3 (2026-05-09): FMA toughness 3 → 2. Card now 1/2 base.
+        assert baseline == 2, (
+            f"Bug #32 baseline: FMA printed toughness must be 2 (post-rebalance), got {baseline}"
         )
 
-        # Deploy Quant Lab. FMA's toughness must stay at 3 (printed); the
+        # Deploy Quant Lab. FMA's toughness must stay at 2 (printed); the
         # bug claim of +3 toughness from Quant Lab is unfounded — the audit
         # in 57adb0c never touched QL.
         _put_on_battlefield(game, p1.id, QUANT_LAB)
         with_ql = _PRI_get_toughness(fma, game.state)
-        assert with_ql == 3, (
+        assert with_ql == 2, (
             f"Bug #32: Quant Lab must NOT buff toughness (card text grants "
-            f"Liquidity only). Expected FMA=3, got {with_ql}. If this fails, "
+            f"Liquidity only). Expected FMA=2, got {with_ql}. If this fails, "
             f"a regression has slipped a toughness lord into _quant_lab_setup."
         )
 
@@ -2175,9 +2176,9 @@ class TestV3FollowupBugs:
         _put_on_battlefield(game, p1.id, QUANT_LAB)
         _put_on_battlefield(game, p1.id, QUANT_LAB)
         with_3ql = _PRI_get_toughness(fma, game.state)
-        assert with_3ql == 3, (
+        assert with_3ql == 2, (
             f"Bug #32: 3x Quant Lab must NOT cumulatively buff toughness, "
-            f"expected FMA=3, got {with_3ql}"
+            f"expected FMA=2, got {with_3ql}"
         )
         print("test_bug32_quant_lab_buffs_quant_traders_by_one  PASS")
 
@@ -2215,12 +2216,13 @@ class TestV3FollowupBugs:
         firing too aggressively.
         """
         game, p1, _ = _make_finance_game()
-        # FMA T=3 — qualifies for PCD (+1) and CT (+1, T≥3) but NOT RAM (T<4).
+        # FMA T=2 (post-rebalance) — qualifies for PCD only (+1, global).
+        # Now BELOW CT's T≥3 threshold and below RAM's T≥4.
         fma = _put_on_battlefield(game, p1.id, FACTOR_MODEL_ANALYST)
         # Use a fresh Risk Manager card — T=4 — to test all 3 lords.
         from src.cards.finance.fina.quant import RISK_MANAGER
         rm = _put_on_battlefield(game, p1.id, RISK_MANAGER)
-        # Use Pairs Trader as a second T=3 sanity object.
+        # Use Pairs Trader as a T=3 sanity object (qualifies for PCD+CT).
         pt = _put_on_battlefield(game, p1.id, V3_PAIRS_TRADER)
 
         # Deploy all 3 lords.
@@ -2231,9 +2233,9 @@ class TestV3FollowupBugs:
         fma_t = _PRI_get_toughness(fma, game.state)
         rm_t = _PRI_get_toughness(rm, game.state)
         pt_t = _PRI_get_toughness(pt, game.state)
-        assert fma_t == 3 + 2, (
-            f"Bug #32 lord stack: FMA (T=3) should get PCD+CT = +2 "
-            f"(NOT +3 — RAM threshold is 4). Expected 5, got {fma_t}"
+        assert fma_t == 2 + 1, (
+            f"Bug #32 lord stack: FMA (T=2 post-rebalance) should get PCD = +1 "
+            f"only (CT and RAM thresholds exclude). Expected 3, got {fma_t}"
         )
         assert rm_t == 4 + 3, (
             f"Bug #32 lord stack: RM (T=4) should get PCD+CT+RAM = +3. "
@@ -2337,15 +2339,18 @@ class TestV3FollowupBugs:
         pt_battlefield.state.summoning_sickness = False
         pt_battlefield.state.tapped = False
 
-        # Now declare PT as an attacker → expect +4 Liquidity.
+        # Now declare PT as an attacker → expect +1 Liquidity (post-rebalance).
+        # rebalance: +4 → +1. Smothering-Tithe-tier ramp on a {3} body was
+        # the second-biggest contributor to Quant centralization (4-of in
+        # top decks, +16 mana over 4 turns from one card).
         cm = game.turn_manager.finance_combat_manager
         avail_before_attack = p1.mana_crystals_available
         asyncio.run(cm.declare_attackers(p1.id, [pt_battlefield.id]))
         avail_after_attack = p1.mana_crystals_available
         gain = avail_after_attack - avail_before_attack
-        assert gain == 4, (
-            f"Bug #33: Pairs Trader's ATTACK_DECLARED trigger must grant "
-            f"+4 Liquidity. Expected delta=4, got {gain}"
+        assert gain == 1, (
+            f"Bug #33 (post-rebalance): Pairs Trader's ATTACK_DECLARED "
+            f"trigger must grant +1 Liquidity. Expected delta=1, got {gain}"
         )
         print("test_bug33_pairs_trader_arb2_fires_on_attack_not_cast  PASS")
 
@@ -2423,17 +2428,18 @@ class TestIter4CardBugs:
         # Baselines first — printed P/T must match.
         fma_baseline = _PRI_get_toughness(fma, game.state)
         clerk_baseline = _PRI_get_toughness(clerk, game.state)
-        assert fma_baseline == 3, f"FMA printed toughness must be 3, got {fma_baseline}"
+        # FMA printed 1/2 post-rebalance (was 1/3 originally).
+        assert fma_baseline == 2, f"FMA printed toughness must be 2 post-rebalance, got {fma_baseline}"
         assert clerk_baseline == 2, f"Clerk printed toughness must be 2, got {clerk_baseline}"
 
         # Drop Quant Lab. Must NOT change either toughness.
         _put_on_battlefield(game, p1.id, QUANT_LAB)
         fma_with_ql = _PRI_get_toughness(fma, game.state)
         clerk_with_ql = _PRI_get_toughness(clerk, game.state)
-        assert fma_with_ql == 3, (
+        assert fma_with_ql == 2, (
             f"Iter-4 Bug A: Quant Lab alone must NOT grant toughness. "
-            f"FMA expected 3, got {fma_with_ql} "
-            f"(Pilot B reported 7 = +4 — would indicate a regression)"
+            f"FMA expected 2 (post-rebalance printed), got {fma_with_ql} "
+            f"(Pilot B reported 7 = +5 — would indicate a regression)"
         )
         assert clerk_with_ql == 2, (
             f"Iter-4 Bug A: Quant Lab alone must NOT grant toughness. "
@@ -2447,9 +2453,9 @@ class TestIter4CardBugs:
         _put_on_battlefield(game, p1.id, SYSTEMATIC_ALPHA_ENGINE)
         fma_with_ql_sae = _PRI_get_toughness(fma, game.state)
         clerk_with_ql_sae = _PRI_get_toughness(clerk, game.state)
-        assert fma_with_ql_sae == 3, (
-            f"Iter-4 Bug A: QL+SAE must NOT grant toughness. FMA expected 3, "
-            f"got {fma_with_ql_sae}"
+        assert fma_with_ql_sae == 2, (
+            f"Iter-4 Bug A: QL+SAE must NOT grant toughness. FMA expected 2 "
+            f"(post-rebalance printed), got {fma_with_ql_sae}"
         )
         assert clerk_with_ql_sae == 2, (
             f"Iter-4 Bug A: QL+SAE must NOT grant toughness. Clerk expected 2, "
