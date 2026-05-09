@@ -702,7 +702,11 @@ def _hedge_fund_pm_setup(obj: GameObject, state: GameState) -> list[Interceptor]
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         from src.engine.finance import get_deriv_desk, remove_from_deriv_desk
         desk = get_deriv_desk(state, obj.controller)
-        for deriv_id in list(desk):
+        # rebalance: cap mass-attach at 2 Derivatives. Voltron's T7-T8 burst
+        # was scaling to 4-5 attached → 12+ power. Capping at 2 limits the
+        # ETB payoff to ~6-8 power swing, giving opponents a fairer window
+        # to crack the host with Margin Squeeze / Forced Unwinding.
+        for deriv_id in list(desk)[:2]:
             remove_from_deriv_desk(state, obj.controller, deriv_id)
             deriv_obj = state.objects.get(deriv_id)
             if deriv_obj:
@@ -714,13 +718,19 @@ def _hedge_fund_pm_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 HEDGE_FUND_PM = make_trader(
     "Hedge Fund PM",
-    "{7}",  # rebalance: voltron centralization {5} → {7}. The mass-attach
-            # payoff is balanced by being a T7-T8 drop, giving opponents 2
-            # extra turns of board development. Death-kills-Derivatives
-            # penalty removed — Equipment-style cleanup applies (attached
-            # Derivatives un-attach and return to Desk for re-attach later).
-    4, 4,
-    text="Leverage 2. When this enters, attach all Derivatives from your Derivatives Desk to this Trader.",
+    "{7}",  # rebalance: voltron centralization arc.
+            # {5} → {7} cost-bump: 89.8% → 87.3% (no movement, AI just delays)
+            # cap mass-attach at 2: 87.3% → 87.1% (no movement, derivatives
+            #   re-attach via Equipment cleanup anyway)
+            # 4/4 → 2/4 body: 87.3% → 78.7% (−8.6, real move — body matters
+            #   more than ability scaling)
+            # Further toughness cut tested (2/4 → 2/3): voltron 78.7% → 79.8%
+            #   (no movement — heuristic AI doesn't exploit new answer cards
+            #   like Margin Squeeze, so making HFPM "killable" doesn't help).
+            # Reverting toughness, leaving 2/4 + cap-2 + cost-{7} as the
+            # final voltron card-level rebalance. Further moves need AI work.
+    2, 4,
+    text="Leverage 2. When this enters, attach up to 2 Derivatives from your Derivatives Desk to this Trader.",
     setup_interceptors=_hedge_fund_pm_setup,
     rarity="rare",
 )
@@ -2256,9 +2266,12 @@ def _position_audit_resolve(event: Event, state: GameState) -> list[Event]:
     return events
 
 
-POSITION_AUDIT = make_strategy(
+POSITION_AUDIT = make_order(
     "Position Audit",
     "{3}",
+    # rebalance: Strategy → Order (sorcery → instant). Lets stax/control
+    # punish voltron's T7-T8 ETB-mass-attach reactively. Counterplay is
+    # only meaningful at instant-speed against single-turn-burst archetypes.
     text="Destroy all Derivatives on the battlefield (attached and unattached, both players').",
     resolve=_position_audit_resolve,
     rarity="rare",
