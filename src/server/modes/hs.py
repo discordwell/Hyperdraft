@@ -42,8 +42,12 @@ class HearthstoneModeAdapter(ModeAdapter):
 
         session.game.set_hearthstone_ai_handler(ai_adapter)
 
-        # Wire human action handler for HS mode with human players
-        if session.human_players:
+        # Detach ultra-AI seats from the engine's AI sets so they route through
+        # human_action_handler (resolved by the /action endpoint).
+        session.detach_ultra_from_engine_ai_sets()
+
+        # Wire human action handler for HS mode with humans OR ultra AIs.
+        if session.human_players or session.has_ultra_ai:
             session.game.turn_manager.human_action_handler = (
                 lambda pid, gs: self.get_human_action(session, pid, gs)
             )

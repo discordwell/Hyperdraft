@@ -41,8 +41,12 @@ class PokemonModeAdapter(ModeAdapter):
         ai_adapter = PokemonAIAdapter(difficulty=difficulty)
         session.game.turn_manager.set_ai_handler(ai_adapter)
 
-        # Wire human action handler for Pokemon mode with human players
-        if session.human_players:
+        # Detach ultra-AI seats so the Pokemon turn manager routes their turn
+        # through human_action_handler (i.e. blocks waiting on /action).
+        session.detach_ultra_from_engine_ai_sets()
+
+        # Wire human action handler for Pokemon mode with humans OR ultra AIs.
+        if session.human_players or session.has_ultra_ai:
             session.game.turn_manager.human_action_handler = (
                 lambda pid, gs: self.get_human_action(session, pid, gs)
             )

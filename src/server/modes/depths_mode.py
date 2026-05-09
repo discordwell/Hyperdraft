@@ -40,9 +40,12 @@ class DepthsModeAdapter(ModeAdapter):
 
         tm = session.game.turn_manager
 
-        # Register AI handlers per AI player.
+        # Register AI handlers per AI player. Skip ultra-AI players — those
+        # are driven externally via /action (an external Claude Code agent).
         ai_player_ids = [pid for pid in session.player_ids if pid not in session.human_players]
         for pid in ai_player_ids:
+            if session.is_ultra_ai_player(pid):
+                continue
             profile = session.ai_profiles_by_player.get(pid) or {}
             player_diff = profile.get("difficulty", difficulty)
             adapter = DepthsAIAdapter(difficulty=str(player_diff).strip().lower())
@@ -51,8 +54,12 @@ class DepthsModeAdapter(ModeAdapter):
             if hasattr(tm, "set_ai_player"):
                 tm.set_ai_player(pid)
 
-        # Wire human action handler.
-        if session.human_players and hasattr(tm, "human_action_handler"):
+        # Detach ultra-AI seats so the depths turn manager routes them via
+        # human_action_handler (resolved by /action).
+        session.detach_ultra_from_engine_ai_sets()
+
+        # Wire human action handler (humans OR ultra AIs).
+        if (session.human_players or session.has_ultra_ai) and hasattr(tm, "human_action_handler"):
             tm.human_action_handler = (
                 lambda pid, gs: self.get_human_action(session, pid, gs)
             )
@@ -205,8 +212,12 @@ class DepthsModeAdapter(ModeAdapter):
         elif atype == "DEPTHS_END_TURN":
             action_dict = {"action_type": "DEPTHS_END_TURN"}
             # Signal get_human_action to auto-forward through remaining phases.
-            session._depths_ending_turn = True
-            session._depths_end_turn_count = 0
+            # Only set this flag for actual human players — an ultra-AI agent
+            # submits explicit per-phase actions and shouldn't poison the next
+            # player's turn with the auto-skip flag.
+            if request.player_id in session.human_players:
+                session._depths_ending_turn = True
+                session._depths_end_turn_count = 0
         else:
             return False, f"Unknown Depths action: {atype}"
 

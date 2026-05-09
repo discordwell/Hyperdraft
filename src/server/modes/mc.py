@@ -25,9 +25,16 @@ class MinecraftModeAdapter(ModeAdapter):
         ai_adapter = MinecraftAIAdapter(difficulty=str(difficulty).strip().lower())
         if hasattr(session.game.turn_manager, "set_ai_handler"):
             session.game.turn_manager.set_ai_handler(ai_adapter)
-        session.game.state.turn_data["mc_human_players"] = list(session.human_players)
+        # Treat ultra AIs as humans for mc_human_players (used by mulligan
+        # routing) so the engine asks them for keep/mulligan via the human path.
+        ultra_ai = set(session.ultra_ai_player_ids)
+        session.game.state.turn_data["mc_human_players"] = list(session.human_players | ultra_ai)
 
-        if session.human_players:
+        # Detach ultra-AI seats from the engine so its turn dispatch routes
+        # them through human_action_handler (resolved by /action).
+        session.detach_ultra_from_engine_ai_sets()
+
+        if session.human_players or session.has_ultra_ai:
             session.game.turn_manager.human_action_handler = (
                 lambda pid, gs: self.get_human_action(session, pid, gs)
             )

@@ -41,8 +41,12 @@ class YugiohModeAdapter(ModeAdapter):
             ai_adapter.strategy = session.ygo_ai_strategy
         session.game.turn_manager.set_ai_handler(ai_adapter)
 
-        # Wire human action handler and log callback for YGO mode
-        if session.human_players:
+        # Detach ultra-AI seats so the YGO turn manager calls human_action_handler
+        # for them rather than the heuristic adapter.
+        session.detach_ultra_from_engine_ai_sets()
+
+        # Wire human action handler and log callback for YGO mode (humans OR ultra AIs).
+        if session.human_players or session.has_ultra_ai:
             session.game.turn_manager.human_action_handler = (
                 lambda pid, gs: self.get_human_action(session, pid, gs)
             )

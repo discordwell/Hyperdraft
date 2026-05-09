@@ -143,6 +143,81 @@ async def list_ygo_decks() -> dict:
     return {"decks": decks}
 
 
+@router.get("/ultra-pending")
+async def list_ultra_pending() -> dict:
+    """List matches awaiting an ultra-AI move from an external agent.
+
+    Returns matches where:
+      - the AI seat's difficulty is "ultra"
+      - the AI is the current active player (i.e. it's the AI's turn)
+      - the match is still active (not finished)
+      - the session is registered with the active session manager
+
+    No auth — this is a local-only signal consumed by the orchestrator that
+    spawns Claude Code agents to play the AI seat.
+    """
+    pending: list[dict] = []
+    for match_id, session in session_manager.sessions.items():
+        try:
+            if session.is_finished:
+                continue
+            if not session.has_ultra_ai:
+                continue
+
+            game = session.game
+            if game.is_game_over():
+                continue
+
+            try:
+                active_player = game.get_active_player()
+            except Exception:
+                active_player = None
+            if not active_player:
+                continue
+
+            ultra_ids = session.ultra_ai_player_ids
+            if active_player not in ultra_ids:
+                continue
+            ai_player_id = active_player
+
+            human_player_id = next(
+                (pid for pid in session.player_ids if pid in session.human_players),
+                None,
+            )
+
+            tm = getattr(game, "turn_manager", None)
+            turn_number = int(getattr(tm, "turn_number", 0) or 0)
+
+            phase_name: Optional[str] = None
+            phase_obj = getattr(tm, "phase", None)
+            if phase_obj is not None:
+                phase_name = getattr(phase_obj, "name", None) or str(phase_obj)
+            if phase_name is None:
+                # Mode-specific phase fallbacks (finance/depths/ygo)
+                for attr in ("fin_turn_state", "depths_turn_state", "ygo_turn_state"):
+                    sub = getattr(tm, attr, None)
+                    sub_phase = getattr(sub, "phase", None) if sub is not None else None
+                    if sub_phase is not None:
+                        phase_name = getattr(sub_phase, "name", None) or str(sub_phase)
+                        break
+
+            game_mode = getattr(game.state, "game_mode", None) or "mtg"
+
+            pending.append({
+                "match_id": match_id,
+                "game_mode": game_mode,
+                "ai_player_id": ai_player_id,
+                "human_player_id": human_player_id or "",
+                "turn_number": turn_number,
+                "phase": phase_name or "",
+            })
+        except Exception:
+            # Defensive: never let one broken session break the listing.
+            continue
+
+    return {"pending": pending}
+
+
 @router.post("/create", response_model=CreateMatchResponse)
 async def create_match(
     request: CreateMatchRequest,
@@ -509,12 +584,69 @@ async def create_match(
             session.add_cards_to_deck(ai_id, ai_deck)
             session.add_cards_to_deck(ai2_id, ai_deck)
 
+    # Ultra mode: spawn a Claude Code instance in a new Terminal window to
+    # play the AI seat. The watcher script polls /state and takes turns.
+    if (
+        request.mode == "human_vs_bot"
+        and ai_id
+        and request.ai_difficulty.value == "ultra"
+    ):
+        _spawn_ultra_terminal(
+            match_id=session.id,
+            ai_player_id=ai_id,
+            human_player_id=human_id,
+            game_mode=request.game_mode,
+        )
+
     return CreateMatchResponse(
         match_id=session.id,
         player_id=human_id,
         opponent_id=ai_id or "",
         status="created"
     )
+
+
+def _spawn_ultra_terminal(
+    *, match_id: str, ai_player_id: str, human_player_id: str, game_mode: str
+) -> None:
+    """Open a macOS Terminal window running ``scripts/launch_ultra_agent.sh``.
+
+    Best-effort. Failure to spawn the terminal must NOT break match creation —
+    the user can still play the heuristic AI; they just won't get an Ultra
+    opponent until the terminal is launched manually.
+    """
+    import shlex
+    import subprocess
+    from pathlib import Path
+
+    project_root = Path(__file__).resolve().parents[3]
+    launcher = project_root / "scripts" / "launch_ultra_agent.sh"
+    if not launcher.exists():
+        print(f"[ultra] launcher not found: {launcher}", flush=True)
+        return
+
+    # Build the command to run inside the new Terminal window.
+    env_assignments = (
+        f"MATCH_ID={shlex.quote(match_id)} "
+        f"AI_PLAYER_ID={shlex.quote(ai_player_id)} "
+        f"HUMAN_PLAYER_ID={shlex.quote(human_player_id)} "
+        f"GAME_MODE={shlex.quote(game_mode)}"
+    )
+    inner = f"cd {shlex.quote(str(project_root))} && {env_assignments} {shlex.quote(str(launcher))}"
+
+    # AppleScript escapes: backslash + double quote.
+    apple_inner = inner.replace("\\", "\\\\").replace('"', '\\"')
+    osa = f'tell application "Terminal" to do script "{apple_inner}"'
+
+    try:
+        subprocess.Popen(
+            ["osascript", "-e", osa],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print(f"[ultra] spawned Terminal for match {match_id} ({game_mode})", flush=True)
+    except Exception as exc:  # pylint: disable=broad-except
+        print(f"[ultra] failed to spawn Terminal: {exc}", flush=True)
 
 
 @router.post("/{match_id}/start")

@@ -32,6 +32,11 @@ class MTGModeAdapter(ModeAdapter):
         # MTG mode needs AI strategy layers precomputed before the first
         # priority decision so Hard/Ultra bots can use their deck+matchup plans.
         await session._prepare_ai_layers()
+        # Ultra-AI seats are driven by an external Claude Code agent via the
+        # REST /action endpoint. Detach them from the engine's AI registry so
+        # the priority loop blocks on the human_action_handler (which the
+        # /action endpoint resolves) instead of calling the heuristic adapter.
+        session.detach_ultra_from_engine_ai_sets()
 
     async def run_game_loop(self, session: "GameSession") -> None:
         """MTG game loop - runs until human input needed or game ends."""
