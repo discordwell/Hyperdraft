@@ -106,7 +106,7 @@ function Grid({
         <div className="text-xs font-bold uppercase tracking-wide text-stone-200">{title}</div>
         {isMine && placing && <div className="text-[11px] text-yellow-200">Place {placing.name}</div>}
       </div>
-      <div className="grid grid-cols-4 gap-1">
+      <div className="grid grid-cols-3 gap-1">
         {rows.map((row, y) => row.map((card, x) => (
           <button
             key={`${x}-${y}`}
@@ -498,7 +498,7 @@ export function MCGameBoard({
 
           <div className="space-y-3 overflow-y-auto">
             <Grid
-              title="Your 4x4 Base"
+              title="Your 3x3 Base"
               rows={myGrid}
               exposed={[]}
               isMine

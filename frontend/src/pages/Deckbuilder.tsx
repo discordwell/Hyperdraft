@@ -5,24 +5,33 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useDeckbuilderStore } from '../stores/deckbuilderStore';
 import { CardBrowser } from '../components/deckbuilder/CardBrowser';
 import { DeckPanel } from '../components/deckbuilder/DeckPanel';
 import { AIAssistPanel } from '../components/deckbuilder/AIAssistPanel';
 import { LoadDeckModal } from '../components/deckbuilder/LoadDeckModal';
 import { ImportModal } from '../components/deckbuilder/ImportModal';
+import { GAMES, GAME_LABELS } from '../types/deckbuilder';
+import type { Game } from '../types/deckbuilder';
+
+function isGame(value: string | undefined): value is Game {
+  return !!value && (GAMES as readonly string[]).includes(value);
+}
 
 export function Deckbuilder() {
   const navigate = useNavigate();
+  const { game: gameParam } = useParams<{ game?: string }>();
+  const urlGame: Game = isGame(gameParam) ? gameParam : 'mtg';
+
   const {
+    currentGame,
     error,
     hasUnsavedChanges,
     isSaving,
     newDeck,
     saveDeck,
-    loadSavedDecks,
-    searchCards,
+    setGame,
     clearError,
   } = useDeckbuilderStore();
 
@@ -30,11 +39,26 @@ export function Deckbuilder() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [showExportText, setShowExportText] = useState<string | null>(null);
 
-  // Load saved decks and initial card search on mount
+  // Sync game from URL → store. setGame handles loading saved decks + cards.
   useEffect(() => {
-    loadSavedDecks();
-    searchCards();
-  }, [loadSavedDecks, searchCards]);
+    if (currentGame !== urlGame) {
+      setGame(urlGame);
+    } else {
+      // Same game on remount — kick off the initial fetches.
+      const store = useDeckbuilderStore.getState();
+      store.loadSavedDecks();
+      store.searchCards();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlGame]);
+
+  const handleGameChange = (next: Game) => {
+    if (next === currentGame) return;
+    if (hasUnsavedChanges) {
+      if (!confirm('You have unsaved changes. Switch games anyway?')) return;
+    }
+    navigate(`/deckbuilder/${next}`);
+  };
 
   const handleNew = () => {
     if (hasUnsavedChanges) {
@@ -73,6 +97,18 @@ export function Deckbuilder() {
           <h1 className="text-2xl font-bold text-white font-['Cinzel']">
             Hyperdraft Deckbuilder
           </h1>
+          <select
+            value={currentGame}
+            onChange={(e) => handleGameChange(e.target.value as Game)}
+            className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-1.5 text-sm hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-game-accent"
+            aria-label="Game"
+          >
+            {GAMES.map((g) => (
+              <option key={g} value={g}>
+                {GAME_LABELS[g]}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="flex items-center gap-2">

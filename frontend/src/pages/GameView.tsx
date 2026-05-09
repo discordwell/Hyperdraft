@@ -400,6 +400,14 @@ export function GameView() {
     );
   }
 
+  if (gameState?.game_mode === 'finance') {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: '#03080f' }}>
+        <div className="w-16 h-16 border-4 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#00FF88', borderTopColor: 'transparent' }} />
+      </div>
+    );
+  }
+
   // Loading state
   if (!gameState || !playerId) {
     return (

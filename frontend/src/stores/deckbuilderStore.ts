@@ -11,10 +11,14 @@ import type {
   DeckSummary,
   CardDefinitionData,
   CardFilter,
+  Game,
 } from '../types/deckbuilder';
 import { deckbuilderAPI } from '../services/deckbuilderApi';
 
 interface DeckbuilderStore {
+  // Active game — sourced from URL on mount, drives card pool + validation.
+  currentGame: Game;
+
   // Current deck being edited
   currentDeck: DeckData;
 
@@ -35,6 +39,9 @@ interface DeckbuilderStore {
   isSaving: boolean;
   error: string | null;
   hasUnsavedChanges: boolean;
+
+  // Game switching
+  setGame: (game: Game) => Promise<void>;
 
   // Deck actions
   newDeck: () => void;
@@ -73,19 +80,23 @@ interface DeckbuilderStore {
   clearError: () => void;
 }
 
-const emptyDeck: DeckData = {
-  name: 'Untitled Deck',
-  archetype: 'Aggro',
-  colors: [],
-  description: '',
-  mainboard: [],
-  sideboard: [],
-  format: 'Standard',
-};
+function makeEmptyDeck(game: Game): DeckData {
+  return {
+    name: 'Untitled Deck',
+    game,
+    archetype: 'Aggro',
+    colors: [],
+    description: '',
+    mainboard: [],
+    sideboard: [],
+    format: 'Standard',
+  };
+}
 
 export const useDeckbuilderStore = create<DeckbuilderStore>((set, get) => ({
   // Initial state
-  currentDeck: { ...emptyDeck },
+  currentGame: 'mtg',
+  currentDeck: makeEmptyDeck('mtg'),
   deckStats: null,
   searchResults: [],
   searchTotal: 0,
@@ -97,13 +108,27 @@ export const useDeckbuilderStore = create<DeckbuilderStore>((set, get) => ({
   error: null,
   hasUnsavedChanges: false,
 
-  // Deck actions
-  newDeck: () => {
+  setGame: async (game) => {
+    if (get().currentGame === game) return;
     set({
-      currentDeck: { ...emptyDeck },
+      currentGame: game,
+      currentDeck: makeEmptyDeck(game),
       deckStats: null,
       hasUnsavedChanges: false,
+      cardFilter: {},
+      searchResults: [],
+      searchTotal: 0,
     });
+    await Promise.all([get().loadSavedDecks(), get().searchCards()]);
+  },
+
+  // Deck actions
+  newDeck: () => {
+    set((state) => ({
+      currentDeck: makeEmptyDeck(state.currentGame),
+      deckStats: null,
+      hasUnsavedChanges: false,
+    }));
   },
 
   setDeckName: (name) => {
@@ -262,11 +287,12 @@ export const useDeckbuilderStore = create<DeckbuilderStore>((set, get) => ({
   },
 
   searchCards: async () => {
-    const { cardFilter } = get();
+    const { cardFilter, currentGame } = get();
     set({ searchLoading: true, error: null });
 
     try {
       const response = await deckbuilderAPI.searchCards({
+        game: currentGame,
         query: cardFilter.query,
         types: cardFilter.types,
         colors: cardFilter.colors,
@@ -291,11 +317,12 @@ export const useDeckbuilderStore = create<DeckbuilderStore>((set, get) => ({
   },
 
   loadMoreCards: async () => {
-    const { cardFilter, searchResults } = get();
+    const { cardFilter, searchResults, currentGame } = get();
     set({ searchLoading: true });
 
     try {
       const response = await deckbuilderAPI.searchCards({
+        game: currentGame,
         query: cardFilter.query,
         types: cardFilter.types,
         colors: cardFilter.colors,
@@ -340,12 +367,13 @@ export const useDeckbuilderStore = create<DeckbuilderStore>((set, get) => ({
   },
 
   saveDeck: async () => {
-    const { currentDeck } = get();
+    const { currentDeck, currentGame } = get();
     set({ isSaving: true, error: null });
 
     try {
       const saved = await deckbuilderAPI.saveDeck({
         deck_id: currentDeck.id,
+        game: currentDeck.game || currentGame,
         name: currentDeck.name,
         archetype: currentDeck.archetype,
         colors: currentDeck.colors,
@@ -361,7 +389,6 @@ export const useDeckbuilderStore = create<DeckbuilderStore>((set, get) => ({
         hasUnsavedChanges: false,
       });
 
-      // Refresh the saved decks list
       get().loadSavedDecks();
     } catch (err) {
       set({
@@ -395,8 +422,9 @@ export const useDeckbuilderStore = create<DeckbuilderStore>((set, get) => ({
   },
 
   loadSavedDecks: async () => {
+    const { currentGame } = get();
     try {
-      const response = await deckbuilderAPI.listDecks();
+      const response = await deckbuilderAPI.listDecks(currentGame);
       set({ savedDecks: response.decks });
     } catch (err) {
       console.error('Failed to load saved decks:', err);
@@ -405,10 +433,11 @@ export const useDeckbuilderStore = create<DeckbuilderStore>((set, get) => ({
 
   // Import/Export
   importDeck: async (text) => {
+    const { currentGame } = get();
     set({ isLoading: true, error: null });
 
     try {
-      const deck = await deckbuilderAPI.importDeck(text, get().currentDeck.format);
+      const deck = await deckbuilderAPI.importDeck(text, get().currentDeck.format, currentGame);
       set({
         currentDeck: deck,
         isLoading: false,
@@ -451,7 +480,7 @@ export const useDeckbuilderStore = create<DeckbuilderStore>((set, get) => ({
 
   // Stats
   refreshStats: async () => {
-    const { currentDeck } = get();
+    const { currentDeck, currentGame } = get();
     if (currentDeck.mainboard.length === 0) {
       set({ deckStats: null });
       return;
@@ -460,7 +489,8 @@ export const useDeckbuilderStore = create<DeckbuilderStore>((set, get) => ({
     try {
       const stats = await deckbuilderAPI.getDeckStats(
         currentDeck.mainboard,
-        currentDeck.sideboard
+        currentDeck.sideboard,
+        currentDeck.game || currentGame,
       );
       set({ deckStats: stats });
     } catch (err) {

@@ -1,14 +1,18 @@
 /**
  * FilterPanel Component
  *
- * Card filtering by type, color, and CMC.
+ * Card filtering by type, color, and cost — game-aware via the per-game
+ * module registry.
  */
 
 import { useDeckbuilderStore } from '../../stores/deckbuilderStore';
-import { CARD_TYPES, COLORS, type ColorSymbol } from '../../types/deckbuilder';
+import { COLORS, type ColorSymbol } from '../../types/deckbuilder';
+import { getGameModule } from '../../games/registry';
 
 export function FilterPanel() {
-  const { cardFilter, setCardFilter, searchCards } = useDeckbuilderStore();
+  const { cardFilter, currentGame, setCardFilter, searchCards } = useDeckbuilderStore();
+  const gameModule = getGameModule(currentGame);
+  const { typeFilters: types, formatType, costLabel, showColors } = gameModule;
 
   const toggleType = (type: string) => {
     const current = cardFilter.types || [];
@@ -56,7 +60,7 @@ export function FilterPanel() {
       <div className="mb-3">
         <div className="text-xs text-gray-500 uppercase mb-2">Types</div>
         <div className="flex flex-wrap gap-1">
-          {CARD_TYPES.map((type) => (
+          {types.map((type) => (
             <button
               key={type}
               onClick={() => toggleType(type)}
@@ -66,41 +70,43 @@ export function FilterPanel() {
                   : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
               }`}
             >
-              {type.charAt(0) + type.slice(1).toLowerCase()}
+              {formatType(type)}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Colors */}
-      <div className="mb-3">
-        <div className="text-xs text-gray-500 uppercase mb-2">Colors</div>
-        <div className="flex gap-2">
-          {(Object.keys(COLORS) as ColorSymbol[]).map((color) => (
-            <button
-              key={color}
-              onClick={() => toggleColor(color)}
-              className={`w-8 h-8 rounded-full border-2 transition-all flex items-center justify-center font-bold text-sm ${
-                cardFilter.colors?.includes(color)
-                  ? 'border-white scale-110'
-                  : 'border-transparent opacity-60 hover:opacity-100'
-              }`}
-              style={{ backgroundColor: COLORS[color].hex }}
-              title={COLORS[color].name}
-            >
-              {color === 'B' || color === 'U' ? (
-                <span className="text-white">{color}</span>
-              ) : (
-                <span className="text-black">{color}</span>
-              )}
-            </button>
-          ))}
+      {/* Colors — MTG only */}
+      {showColors && (
+        <div className="mb-3">
+          <div className="text-xs text-gray-500 uppercase mb-2">Colors</div>
+          <div className="flex gap-2">
+            {(Object.keys(COLORS) as ColorSymbol[]).map((color) => (
+              <button
+                key={color}
+                onClick={() => toggleColor(color)}
+                className={`w-8 h-8 rounded-full border-2 transition-all flex items-center justify-center font-bold text-sm ${
+                  cardFilter.colors?.includes(color)
+                    ? 'border-white scale-110'
+                    : 'border-transparent opacity-60 hover:opacity-100'
+                }`}
+                style={{ backgroundColor: COLORS[color].hex }}
+                title={COLORS[color].name}
+              >
+                {color === 'B' || color === 'U' ? (
+                  <span className="text-white">{color}</span>
+                ) : (
+                  <span className="text-black">{color}</span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* CMC Range */}
+      {/* Cost Range (label varies by game) */}
       <div className="mb-3">
-        <div className="text-xs text-gray-500 uppercase mb-2">Mana Value</div>
+        <div className="text-xs text-gray-500 uppercase mb-2">{costLabel}</div>
         <div className="flex items-center gap-2">
           <select
             value={cardFilter.cmcMin ?? ''}

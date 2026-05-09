@@ -19,7 +19,7 @@ export function Home() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [gameMode, setGameMode] = useState<'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft'>('hearthstone');
+  const [gameMode, setGameMode] = useState<'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'finance'>('hearthstone');
   const [hsVariant, setHsVariant] = useState<string | null>('riftclash');
   const [heroClass, setHeroClass] = useState<string>('Pyromancer');
   const [playerName, setPlayerName] = useState('Player');
@@ -69,7 +69,8 @@ export function Home() {
       const isPokemon = gameMode === 'pokemon';
       const isYugioh = gameMode === 'yugioh';
       const isMinecraft = gameMode === 'minecraft';
-      const skipDeckSelection = isHearthstone || isPokemon;
+      const isFinance = gameMode === 'finance';
+      const skipDeckSelection = isHearthstone || isPokemon || isFinance;
 
       // Create match
       const response = await matchAPI.create({
@@ -90,7 +91,10 @@ export function Home() {
       await matchAPI.start(response.match_id);
 
       // Navigate to game
-      navigate(isMinecraft ? `/game/${response.match_id}/mc` : `/game/${response.match_id}`);
+      const gamePath = isMinecraft ? `/game/${response.match_id}/mc`
+        : isFinance ? `/game/${response.match_id}/fin`
+        : `/game/${response.match_id}`;
+      navigate(gamePath);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create game');
     } finally {
@@ -276,13 +280,24 @@ export function Home() {
               </button>
               <button
                 onClick={() => setGameMode('minecraft')}
-                className={`col-span-2 px-4 py-2 rounded transition-colors ${
+                className={`px-4 py-2 rounded transition-colors ${
                   gameMode === 'minecraft'
                     ? 'bg-emerald-700 text-white'
                     : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                 }`}
               >
                 Minecraft TCG
+              </button>
+              <button
+                onClick={() => setGameMode('finance')}
+                className={`px-4 py-2 rounded transition-colors font-mono ${
+                  gameMode === 'finance'
+                    ? 'text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+                style={gameMode === 'finance' ? { background: '#0a1a0a', color: '#00FF88', border: '1px solid #00FF88' } : {}}
+              >
+                Finance TCG
               </button>
             </div>
           </div>

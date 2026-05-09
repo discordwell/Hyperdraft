@@ -2,75 +2,77 @@
  * DeckStats Component
  *
  * Displays deck statistics including counts and validation status.
+ * Game-aware: tile labels and curve definitions adapt to the active game.
  */
 
 import { useDeckbuilderStore } from '../../stores/deckbuilderStore';
 import { ManaCurveChart } from './ManaCurveChart';
 import { COLORS, type ColorSymbol } from '../../types/deckbuilder';
+import { getGameModule } from '../../games/registry';
 
 export function DeckStats() {
-  const { currentDeck, deckStats } = useDeckbuilderStore();
+  const { currentDeck, currentGame, deckStats } = useDeckbuilderStore();
+  const gameModule = getGameModule(currentGame);
 
   const mainboardCount = currentDeck.mainboard.reduce((sum, e) => sum + e.qty, 0);
   const sideboardCount = currentDeck.sideboard.reduce((sum, e) => sum + e.qty, 0);
+  const tiles = gameModule.tiles(deckStats);
+
+  // The chart is mana-curve-flavored for MTG; for other games we show the
+  // generic cost curve under a game-appropriate label below.
+  const curve = deckStats?.mana_curve ?? deckStats?.cost_curve ?? {};
+  const avgFromExtras = (deckStats?.extras as Record<string, unknown> | undefined)?.average_cost;
+  const averageCost = deckStats?.average_cmc ?? (typeof avgFromExtras === 'number' ? avgFromExtras : 0);
+
+  const StatsExtras = gameModule.StatsExtras;
 
   return (
     <div className="p-4 border-b border-gray-700">
-      {/* Deck Colors */}
-      <div className="flex items-center gap-2 mb-3">
-        <span className="text-xs text-gray-500 uppercase">Colors:</span>
-        <div className="flex gap-1">
-          {currentDeck.colors.length > 0 ? (
-            currentDeck.colors.map((color) => {
-              const colorKey = color as ColorSymbol;
-              return (
-                <div
-                  key={color}
-                  className="w-5 h-5 rounded-full border border-white/30"
-                  style={{ backgroundColor: COLORS[colorKey]?.hex || '#666' }}
-                  title={COLORS[colorKey]?.name}
-                />
-              );
-            })
-          ) : (
-            <span className="text-gray-500 text-xs">Colorless</span>
-          )}
+      {/* Deck Colors — MTG only */}
+      {gameModule.showColors && (
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-xs text-gray-500 uppercase">Colors:</span>
+          <div className="flex gap-1">
+            {currentDeck.colors.length > 0 ? (
+              currentDeck.colors.map((color) => {
+                const colorKey = color as ColorSymbol;
+                return (
+                  <div
+                    key={color}
+                    className="w-5 h-5 rounded-full border border-white/30"
+                    style={{ backgroundColor: COLORS[colorKey]?.hex || '#666' }}
+                    title={COLORS[colorKey]?.name}
+                  />
+                );
+              })
+            ) : (
+              <span className="text-gray-500 text-xs">Colorless</span>
+            )}
+          </div>
         </div>
-      </div>
-
-      {/* Mana Curve */}
-      {deckStats && (
-        <ManaCurveChart
-          manaCurve={deckStats.mana_curve}
-          averageCmc={deckStats.average_cmc}
-        />
       )}
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-4 gap-2 mt-3">
+      {/* Cost Curve (mana / material / level depending on game) */}
+      {deckStats && (
+        <ManaCurveChart manaCurve={curve} averageCmc={averageCost} />
+      )}
+
+      {/* Quick Stats — count tiles adapt to the active game */}
+      <div className={`grid gap-2 mt-3 ${tiles.length === 3 ? 'grid-cols-4' : 'grid-cols-2'}`}>
         <div className="text-center">
           <div className="text-lg font-bold text-white">{mainboardCount}</div>
           <div className="text-xs text-gray-500">Main</div>
         </div>
-        <div className="text-center">
-          <div className="text-lg font-bold text-white">
-            {deckStats?.land_count ?? 0}
+        {tiles.map((t) => (
+          <div key={t.label} className="text-center">
+            <div className="text-lg font-bold text-white">{t.value}</div>
+            <div className="text-xs text-gray-500">{t.label}</div>
           </div>
-          <div className="text-xs text-gray-500">Lands</div>
-        </div>
-        <div className="text-center">
-          <div className="text-lg font-bold text-white">
-            {deckStats?.creature_count ?? 0}
-          </div>
-          <div className="text-xs text-gray-500">Creatures</div>
-        </div>
-        <div className="text-center">
-          <div className="text-lg font-bold text-white">
-            {deckStats?.spell_count ?? 0}
-          </div>
-          <div className="text-xs text-gray-500">Spells</div>
-        </div>
+        ))}
       </div>
+
+      {/* Per-game polish: material curve / energy mix / attribute breakdown / class breakdown */}
+      {deckStats && StatsExtras && <StatsExtras stats={deckStats} />}
 
       {/* Validation Status */}
       {deckStats?.validation && (

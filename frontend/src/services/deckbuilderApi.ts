@@ -13,6 +13,7 @@ import type {
   DeckListResponse,
   ExportDeckResponse,
   CardDefinitionData,
+  Game,
 } from '../types/deckbuilder';
 import type {
   SetDetail,
@@ -52,13 +53,15 @@ async function fetchAPI<T>(
   return response.json();
 }
 
-// Deckbuilder API
+// Deckbuilder API — every endpoint accepts an optional `game` to address a
+// per-game card pool / deck list. Defaults to "mtg" for back-compat.
 export const deckbuilderAPI = {
   // Card Search
   searchCards: (request: CardSearchRequest = {}): Promise<CardSearchResponse> =>
     fetchAPI('/deckbuilder/cards/search', {
       method: 'POST',
       body: JSON.stringify({
+        game: request.game || 'mtg',
         query: request.query || null,
         types: request.types || [],
         colors: request.colors || [],
@@ -70,21 +73,22 @@ export const deckbuilderAPI = {
       }),
     }),
 
-  getAllCards: (limit = 100, offset = 0): Promise<CardSearchResponse> =>
-    fetchAPI(`/deckbuilder/cards/all?limit=${limit}&offset=${offset}`),
+  getAllCards: (game: Game = 'mtg', limit = 100, offset = 0): Promise<CardSearchResponse> =>
+    fetchAPI(`/deckbuilder/cards/all?game=${game}&limit=${limit}&offset=${offset}`),
 
-  getCard: (cardName: string): Promise<CardDefinitionData> =>
-    fetchAPI(`/deckbuilder/cards/${encodeURIComponent(cardName)}`),
+  getCard: (cardName: string, game: Game = 'mtg'): Promise<CardDefinitionData> =>
+    fetchAPI(`/deckbuilder/cards/${encodeURIComponent(cardName)}?game=${game}`),
 
   // Deck Management
-  listDecks: (): Promise<DeckListResponse> =>
-    fetchAPI('/deckbuilder/decks'),
+  listDecks: (game?: Game): Promise<DeckListResponse> =>
+    fetchAPI(`/deckbuilder/decks${game ? `?game=${game}` : ''}`),
 
   getDeck: (deckId: string): Promise<DeckData> =>
     fetchAPI(`/deckbuilder/decks/${deckId}`),
 
   saveDeck: (deck: {
     deck_id?: string;
+    game?: Game;
     name: string;
     archetype: string;
     colors: string[];
@@ -97,6 +101,7 @@ export const deckbuilderAPI = {
       method: 'POST',
       body: JSON.stringify({
         deck_id: deck.deck_id || null,
+        game: deck.game || 'mtg',
         name: deck.name,
         archetype: deck.archetype,
         colors: deck.colors,
@@ -108,6 +113,7 @@ export const deckbuilderAPI = {
     }),
 
   updateDeck: (deckId: string, deck: {
+    game?: Game;
     name: string;
     archetype: string;
     colors: string[];
@@ -119,6 +125,7 @@ export const deckbuilderAPI = {
     fetchAPI(`/deckbuilder/decks/${deckId}`, {
       method: 'PUT',
       body: JSON.stringify({
+        game: deck.game || 'mtg',
         name: deck.name,
         archetype: deck.archetype,
         colors: deck.colors,
@@ -133,27 +140,35 @@ export const deckbuilderAPI = {
     fetchAPI(`/deckbuilder/decks/${deckId}`, { method: 'DELETE' }),
 
   // Statistics & Validation
-  getDeckStats: (mainboard: DeckEntry[], sideboard: DeckEntry[] = []): Promise<DeckStats> =>
+  getDeckStats: (
+    mainboard: DeckEntry[],
+    sideboard: DeckEntry[] = [],
+    game: Game = 'mtg',
+  ): Promise<DeckStats> =>
     fetchAPI('/deckbuilder/decks/stats', {
       method: 'POST',
-      body: JSON.stringify({ mainboard, sideboard }),
+      body: JSON.stringify({ game, mainboard, sideboard }),
     }),
 
-  validateDeck: (mainboard: DeckEntry[], sideboard: DeckEntry[] = []): Promise<{
+  validateDeck: (
+    mainboard: DeckEntry[],
+    sideboard: DeckEntry[] = [],
+    game: Game = 'mtg',
+  ): Promise<{
     is_valid: boolean;
     errors: string[];
     missing_cards: string[];
   }> =>
     fetchAPI('/deckbuilder/decks/validate', {
       method: 'POST',
-      body: JSON.stringify({ mainboard, sideboard }),
+      body: JSON.stringify({ game, mainboard, sideboard }),
     }),
 
   // Import/Export
-  importDeck: (text: string, format = 'Standard'): Promise<DeckData> =>
+  importDeck: (text: string, format = 'Standard', game: Game = 'mtg'): Promise<DeckData> =>
     fetchAPI('/deckbuilder/import', {
       method: 'POST',
-      body: JSON.stringify({ text, format }),
+      body: JSON.stringify({ text, format, game }),
     }),
 
   exportDeck: (deckId: string): Promise<ExportDeckResponse> =>
