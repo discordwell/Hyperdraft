@@ -552,9 +552,17 @@ class FinanceCombatManager:
         # 4-toughness blocker pushed damage to 6 and tripped lethality. Only
         # apply the manual increment when no pipeline is attached (unit-test
         # mode).
-        damage_before = int(target.state.damage or 0)
+        #
+        # Bug #32 (iter5v2 LLM-pilot game): the previous heuristic ``if
+        # damage_after == damage_before`` was unsound — it cannot tell apart
+        # "no pipeline ran (unit-test mode)" from "pipeline ran AND a PREVENT
+        # interceptor (e.g. Protective Put) reset damage to 0". When PP fired
+        # on the OBJECT_DESTROYED follow-up to clear lethal damage on the
+        # host, the post-emit fallback here mistakenly RE-APPLIED the damage
+        # (re-pushing it back to >= toughness), and the post-damage
+        # _liquidate_if_lethal SBA pass killed the host anyway. Use the
+        # explicit "is the pipeline wired?" signal instead.
         await self._emit(ev)
-        damage_after = int(target.state.damage or 0)
 
         # Read the post-TRANSFORM amount; default to original if missing.
         # IMPORTANT: do not coalesce with ``or amount`` — a transformed amount
@@ -562,10 +570,10 @@ class FinanceCombatManager:
         # treated as falsy and reverted back to the original.
         raw_amount = ev.payload.get("amount")
         resolved_amount = int(raw_amount if raw_amount is not None else amount)
-        if damage_after == damage_before:
+        if self.pipeline is None:
             # No pipeline handler ran (unit-test mode) — apply the increment
             # ourselves so tests can still observe accumulated damage.
-            target.state.damage = damage_before + resolved_amount
+            target.state.damage = int(target.state.damage or 0) + resolved_amount
         target.state.last_damage_source = source_id
 
         return [ev]

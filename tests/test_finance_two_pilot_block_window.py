@@ -1019,6 +1019,153 @@ def test_iter4_attackers_declared_cleared_after_combat():
     print("test_iter4_attackers_declared_cleared_after_combat  PASS")
 
 
+# ---------------------------------------------------------------------------
+# Bug #33 — Liquidity display "lag" in cmd_play
+# ---------------------------------------------------------------------------
+
+def _plant_card_in_hand(payload: dict, player_id: str, card_def) -> str:
+    """Drop a specific card def into the named player's hand and return its
+    object id. Bypasses draws so the test is deterministic regardless of
+    deck order. Mirrors _give_p1_attacker but lands in HAND, not battlefield.
+    """
+    from src.engine.types import ZoneType
+
+    game = payload["game"]
+    obj = game.create_object(
+        card_def.name,
+        owner_id=player_id,
+        zone=ZoneType.HAND,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    return obj.id
+
+
+def test_bug33_play_output_shows_liquidity_transition_no_refund(capsys):
+    """Bug #33: cmd_play must print the explicit Liquidity before→after
+    transition so pilots can never misread a refund-card play as a 'display
+    lag'. For a card with NO Liquidity refund, the after value must equal
+    (before - cost) and the printed line must reflect that.
+    """
+    from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as fh:
+        save = fh.name
+    payload = _start_two_pilot(save)
+    p1_id = payload["p1_id"]
+    p1 = payload["game"].state.players[p1_id]
+    # Force enough Liquidity to play a cost-2 card (Spoofing Algo: no refund).
+    p1.mana_crystals = 6
+    p1.mana_crystals_available = 6
+    card_oid = _plant_card_in_hand(payload, p1_id, SPOOFING_ALGO)
+    harness._save(payload, save)
+
+    capsys.readouterr()  # drain prior output
+    harness.cmd_play(_Args(save=save, card_id=card_oid, target=None, seat="P1"))
+    captured = capsys.readouterr().out
+
+    # 1) The summary line must include the explicit transition.
+    assert "Liquidity 6/6" in captured and "→" in captured, (
+        f"Bug #33: cmd_play must print 'Liquidity X/Y → A/B'. Got:\n{captured}"
+    )
+    assert "→ 4/6" in captured, (
+        f"Bug #33: after a cost-2 play with no refund, transition must show "
+        f"'→ 4/6'. Got:\n{captured}"
+    )
+    # 2) No spurious refund/extra annotation on a clean (non-refund) play.
+    assert "refund" not in captured, (
+        f"Bug #33: no refund effect fired here; output must not say 'refund'. Got:\n{captured}"
+    )
+
+    # 3) Underlying state must match.
+    payload2 = _load(save)
+    assert payload2["game"].state.players[p1_id].mana_crystals_available == 4
+
+    Path(save).unlink(missing_ok=True)
+    Path(save + ".lock").unlink(missing_ok=True)
+    print("test_bug33_play_output_shows_liquidity_transition_no_refund  PASS")
+
+
+def test_bug33_play_output_surfaces_etb_liquidity_refund(capsys):
+    """Bug #33 root cause: Pilot A reported 'Liquidity stays at 6/6 after
+    spending 2' — the underlying confusion is ETB Liquidity-refund cards
+    (e.g. Flash Crash Bot +1 ETB, Microwave Relay +2 ETB) net to zero
+    apparent change. The fix is to make cmd_play surface the refund delta
+    explicitly so the pilot reads 'cost=N, X/X → X/X (+N refund)' instead
+    of the bare 'play emitted N events'.
+    """
+    from src.cards.finance.fina.high_frequency import FLASH_CRASH_BOT
+
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as fh:
+        save = fh.name
+    payload = _start_two_pilot(save)
+    p1_id = payload["p1_id"]
+    p1 = payload["game"].state.players[p1_id]
+    p1.mana_crystals = 6
+    p1.mana_crystals_available = 6
+    card_oid = _plant_card_in_hand(payload, p1_id, FLASH_CRASH_BOT)
+    harness._save(payload, save)
+
+    capsys.readouterr()
+    harness.cmd_play(_Args(save=save, card_id=card_oid, target=None, seat="P1"))
+    captured = capsys.readouterr().out
+
+    # Flash Crash Bot: cost 1, +1 ETB Liquidity. Net Liquidity unchanged
+    # (6/6 → 6/6) but the print MUST surface the refund so the pilot
+    # understands what happened (cost was paid, refund fired).
+    assert "cost=1" in captured, (
+        f"Bug #33: cmd_play must print 'cost=1'. Got:\n{captured}"
+    )
+    assert "Liquidity 6/6" in captured and "→ 6/6" in captured, (
+        f"Bug #33: Flash Crash Bot is cost-1 with +1 ETB refund — "
+        f"net Liquidity stays at 6/6 but the transition must be printed. "
+        f"Got:\n{captured}"
+    )
+    assert "+1 refund" in captured, (
+        f"Bug #33: when the post-play Liquidity is HIGHER than (before - cost), "
+        f"the print must surface the '(+N refund)' annotation so the pilot "
+        f"doesn't misread it as a stale display. Got:\n{captured}"
+    )
+
+    Path(save).unlink(missing_ok=True)
+    Path(save + ".lock").unlink(missing_ok=True)
+    print("test_bug33_play_output_surfaces_etb_liquidity_refund  PASS")
+
+
+def test_bug33_state_print_after_play_is_post_mutation(capsys):
+    """Bug #33 sanity check: cmd_state, called AFTER cmd_play, must show
+    the post-mutation Liquidity. (The cosmetic concern in the original
+    report — 'state shows pre-play value' — would manifest here if the
+    print read from a stale cache, which it doesn't, but we lock it in
+    with a regression test anyway.)
+    """
+    from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as fh:
+        save = fh.name
+    payload = _start_two_pilot(save)
+    p1_id = payload["p1_id"]
+    p1 = payload["game"].state.players[p1_id]
+    p1.mana_crystals = 6
+    p1.mana_crystals_available = 6
+    card_oid = _plant_card_in_hand(payload, p1_id, SPOOFING_ALGO)
+    harness._save(payload, save)
+
+    harness.cmd_play(_Args(save=save, card_id=card_oid, target=None, seat="P1"))
+    capsys.readouterr()
+    # Now run `state` and verify the printed Liquidity reflects post-play.
+    harness.cmd_state(_Args(save=save))
+    captured = capsys.readouterr().out
+    assert "Liquidity: 4/6" in captured, (
+        f"Bug #33: cmd_state must show post-play Liquidity (4/6 after "
+        f"a cost-2 play from 6/6). Got:\n{captured}"
+    )
+
+    Path(save).unlink(missing_ok=True)
+    Path(save + ".lock").unlink(missing_ok=True)
+    print("test_bug33_state_print_after_play_is_post_mutation  PASS")
+
+
 if __name__ == "__main__":
     test_two_pilot_block_window_opens_on_end_turn()
     test_block_command_routes_to_defender_during_window()
@@ -1033,4 +1180,5 @@ if __name__ == "__main__":
     # Bug #23 + #30 tests use pytest's capsys fixture for stdout assertions,
     # so we only run them under pytest. The fcntl/two-pilot tests above run
     # standalone too. Skip the capsys-dependent tests when invoked directly.
+    # Bug #33 tests also use capsys — only runnable under pytest.
     print("\nAll two-pilot block-window tests passed.")

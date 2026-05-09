@@ -27,6 +27,7 @@ from src.engine.types import (
     InterceptorAction,
     InterceptorPriority,
     InterceptorResult,
+    ZoneType,
     new_id,
 )
 from src.cards.interceptor_helpers import (
@@ -2031,13 +2032,38 @@ def _protective_put_setup(obj: GameObject, state: GameState) -> list[Interceptor
         state.turn_data[used_key] = True
 
         # Remove this Derivative from the board instead of letting the host die
+        host_id = obj.state.attached_to
         obj.state.attached_to = None
+
+        # Bug #32 fix: clear the host's accumulated damage so the SBA
+        # damage>=toughness re-check (in finance_combat._liquidate_if_lethal,
+        # plus _handle_damage's post_creature_damage_destroy_check on the
+        # next damage tick) does NOT re-fire OBJECT_DESTROYED on the host.
+        # Without this, PP correctly prevents the FIRST destroy, removes
+        # itself, but the host still has damage>=toughness and gets killed
+        # by the very next state-based-action emission. PP's text is
+        # "the first time this Trader would be destroyed, remove this
+        # Derivative instead" — i.e. the host must survive the destruction
+        # this PP intercepted, not just survive a single OBJECT_DESTROYED
+        # event of the many that may be fired in one combat step.
+        host = state.objects.get(host_id) if host_id is not None else None
+        if host is not None:
+            host.state.damage = 0
+
+        # Bug #32 fix: pass canonical zone TYPES so the ZONE_CHANGE handler
+        # can resolve to the per-owner graveyard key (graveyard_<owner_id>).
+        # The previous payload used the literal strings 'battlefield' /
+        # 'graveyard' — only the former matches a real zone key, the latter
+        # does NOT (graveyard zones are owner-keyed). The handler then
+        # bailed out at the "if to_zone in state.zones" check and PP stayed
+        # on the battlefield, even though obj.state.attached_to was cleared.
         remove_event = Event(
             type=EventType.ZONE_CHANGE,
             payload={
                 "object_id": obj.id,
-                "from_zone": "battlefield",
-                "to_zone": "graveyard",
+                "from_zone_type": ZoneType.BATTLEFIELD,
+                "to_zone_type": ZoneType.GRAVEYARD,
+                "to_zone_owner": obj.owner,
                 "reason": "protective_put_sacrifice",
             },
             source=obj.id,

@@ -2245,6 +2245,47 @@ class TestV3FollowupBugs:
         )
         print("test_bug32_pcd_lord_stack_within_card_text  PASS")
 
+    def test_bug34_stat_arb_clerk_toughness_no_rogue_buffs(self):
+        """Pilot A iter5v2 reported SAC displayed 1/6 with "no other lords
+        visible" — Pilot A's observation was suspect. Pin SAC's contract:
+          - bare: 1/2 (printed)
+          - with PCD: 1/3 (PCD +1 global)
+          - with PCD+CT: 1/3 (CT threshold ≥3 toughness; PCD lifts SAC to 3
+            but CT's filter uses PRINTED toughness, not current — verify)
+          - with PCD+CT+RAM: 1/3 (RAM threshold ≥4)
+        If SAC ever shows >3 toughness with only lords on board, a regression
+        has been introduced. Any 1/6 observation in actual play must come
+        from attached Derivatives on SAC (which Pilot A may have missed).
+        """
+        from src.cards.finance.fina.quant import STATISTICAL_ARB_CLERK
+        game, p1, _ = _make_finance_game()
+        sac = _put_on_battlefield(game, p1.id, STATISTICAL_ARB_CLERK)
+        # Bare SAC.
+        bare = _PRI_get_toughness(sac, game.state)
+        assert bare == 2, f"SAC bare toughness expected 2, got {bare}"
+
+        # + PCD (global +0/+1).
+        _put_on_battlefield(game, p1.id, V3_PCD)
+        with_pcd = _PRI_get_toughness(sac, game.state)
+        assert with_pcd == 3, f"SAC + PCD expected 3, got {with_pcd}"
+
+        # + CT (threshold uses PRINTED toughness; SAC printed=2 → no buff).
+        _put_on_battlefield(game, p1.id, V3_CT)
+        with_pcd_ct = _PRI_get_toughness(sac, game.state)
+        assert with_pcd_ct == 3, (
+            f"SAC + PCD + CT expected 3 (CT skips printed-toughness <3), "
+            f"got {with_pcd_ct} — possible CT filter regression"
+        )
+
+        # + RAM (threshold ≥4 — SAC stays at 3).
+        _put_on_battlefield(game, p1.id, RISK_ATTRIBUTION_MODEL)
+        with_full_stack = _PRI_get_toughness(sac, game.state)
+        assert with_full_stack == 3, (
+            f"SAC + PCD + CT + RAM expected 3 (none after PCD apply), "
+            f"got {with_full_stack} — possible lord regression"
+        )
+        print("test_bug34_stat_arb_clerk_toughness_no_rogue_buffs  PASS")
+
     # ---- bug #33: Pairs Trader's +4 Liquidity fires on attack -------------
 
     def test_bug33_pairs_trader_arb2_fires_on_attack_not_cast(self):
@@ -2800,6 +2841,94 @@ class TestEquipmentCleanup:
         )
         print("test_synthetic_collar_excludes_self  PASS")
 
+    # ---- Bug #32 (iter5v2 LLM-pilot game): Protective Put must save host
+    # ---- against lethal combat damage --------------------------------------
+
+    def test_bug32_protective_put_prevents_destruction_completely(self):
+        """Bug #32 (iter5v2 Pilot A T15): PP fires on OBJECT_DESTROYED, returns
+        InterceptorAction.PREVENT, removes itself — but the host still ends up
+        in the graveyard because the host's state.damage is left >= toughness
+        and the next state-based-action emission re-fires OBJECT_DESTROYED on
+        the host (PP is now off the battlefield, so its interceptor no longer
+        fires; the second OBJECT_DESTROYED resolves and kills the host).
+
+        Fix: when PP's PREVENT handler runs, ALSO clear host.state.damage to 0
+        so subsequent SBA re-checks see no lethal damage and do not re-fire
+        OBJECT_DESTROYED.
+
+        Per PP card text: "the first time this Trader would be destroyed,
+        remove this Derivative instead." The host MUST survive the destruction
+        PP intercepted, not just survive a single OBJECT_DESTROYED event.
+        """
+        from src.cards.finance.fina.derivatives import (
+            HEDGE_FUND_PM,
+            PROTECTIVE_PUT,
+        )
+
+        game, p1, p2 = _make_finance_game()
+        self._wire_system_interceptors(game)
+
+        # HFPM (2/4) on P1's side, attach PROTECTIVE_PUT to it.
+        host = _put_on_battlefield(game, p1.id, HEDGE_FUND_PM)
+        pp = _put_on_battlefield(game, p1.id, PROTECTIVE_PUT)
+        pp.state.attached_to = host.id
+
+        # P2 attacker: 5/2 vanilla — overkill against HFPM (2/4) so combat
+        # damage is unambiguously lethal (5 dmg ≥ 4 toughness).
+        atk_def = _make_vanilla_trader("Test PP Attacker 5/2", power=5, toughness=2)
+        attacker = _put_on_battlefield(game, p2.id, atk_def)
+
+        # Run a real combat: P2 attacks, HFPM blocks. HFPM eats 5 damage.
+        cm = game.turn_manager.finance_combat_manager
+        asyncio.run(cm.declare_attackers(p2.id, [attacker.id]))
+        asyncio.run(cm.declare_blockers(p1.id, {attacker.id: host.id}))
+        asyncio.run(cm.resolve_combat_damage([attacker.id], {attacker.id: host.id}, p1.id))
+
+        # Assertion 1: HFPM survived — STILL on the battlefield, NOT in GY.
+        assert host.zone == ZoneType.BATTLEFIELD, (
+            f"Bug #32: PP must save HFPM. HFPM zone={host.zone!r} "
+            f"(expected BATTLEFIELD). state-based re-check killed the host "
+            f"after PP's first PREVENT fired."
+        )
+
+        # Assertion 2: HFPM's damage MUST be cleared to 0 so the SBA
+        # re-check does not re-fire OBJECT_DESTROYED on it.
+        assert host.state.damage == 0, (
+            f"Bug #32: PP must clear host's accumulated damage when it "
+            f"PREVENTs destruction; got host.state.damage={host.state.damage} "
+            f"(expected 0). Without this clear, _liquidate_if_lethal and "
+            f"_handle_damage's post-creature destroy check will re-fire "
+            f"OBJECT_DESTROYED."
+        )
+
+        # Assertion 3: PP went to its owner's graveyard ("remove this Derivative").
+        gy_p1 = game.state.zones.get(f"graveyard_{p1.id}")
+        gy_p1_ids = list(gy_p1.objects) if gy_p1 else []
+        assert pp.id in gy_p1_ids or pp.zone == ZoneType.GRAVEYARD, (
+            f"Bug #32: PP must end in P1's graveyard after firing "
+            f"(zone={pp.zone!r}, p1 GY={gy_p1_ids!r})"
+        )
+
+        # Assertion 4: PP's attached_to is cleared.
+        assert pp.state.attached_to is None, (
+            f"Bug #32: PP.attached_to must be cleared when PP self-removes "
+            f"(got {pp.state.attached_to!r})"
+        )
+
+        # Assertion 5: HFPM is NOT in the graveyard.
+        assert host.id not in gy_p1_ids, (
+            f"Bug #32: HFPM must NOT be in graveyard (PP fired). p1 GY={gy_p1_ids!r}"
+        )
+
+        # Assertion 6: turn_data marker is set so PP only fires once per turn.
+        used_key = f"protective_put_used_{pp.id}"
+        assert game.state.turn_data.get(used_key) is True, (
+            f"Bug #32: PP must mark its used_key in turn_data after firing "
+            f"(used_key={used_key!r})"
+        )
+
+        print("test_bug32_protective_put_prevents_destruction_completely  PASS")
+
 
 class TestNewMetaCards:
     """Rebalance v2 (2026-05-09): 5 new cards seeded to address voltron
@@ -3196,11 +3325,281 @@ class TestNewMetaCards:
         print("test_capital_skimmer_tap_deals_damage_to_trader_or_opponent  PASS")
 
 
+class TestAntiVoltronAI:
+    """AI-side anti-voltron decision logic (rebalance v2, 2026-05-09).
+
+    The new answer cards (Margin Squeeze, Position Audit, Forced Unwinding,
+    Liquidation Cascade) only matter if the heuristic AI prioritises them
+    against Derivative-heavy threats.  These tests assert the hard-tier AI
+    selects the right answer in each canonical voltron scenario.
+    """
+
+    def _make_hand_card(self, game, player, card_def):
+        """Add a card to ``player.id``'s hand zone via create_object."""
+        return game.create_object(
+            name=card_def.name,
+            owner_id=player.id,
+            zone=ZoneType.HAND,
+            characteristics=card_def.characteristics,
+            card_def=card_def,
+        )
+
+    def _wire_system_interceptors(self, game):
+        from src.engine.finance import FinanceModeAdapter
+        FinanceModeAdapter().register_system_interceptors(game)
+
+    def _hard_ai(self):
+        from src.ai.finance_adapter import FinanceAIAdapter
+        return FinanceAIAdapter(difficulty="hard")
+
+    # ---- 1. Margin Squeeze targeting voltron host ----------------------------
+
+    def test_ai_casts_margin_squeeze_on_voltron_host(self):
+        """Opp board: HFPM with 2 Derivatives attached.  Hand has Margin
+        Squeeze affordable.  Hard AI must select it and target the host.
+        """
+        from src.cards.finance.fina.derivatives import (
+            HEDGE_FUND_PM,
+            THETA_DECAY_COLLAR,
+            GAMMA_AMPLIFIER,
+        )
+        from src.cards.finance.fina.dark_arbitrage import MARGIN_SQUEEZE
+        from src.engine.finance import remove_from_deriv_desk
+
+        game, p1, p2 = _make_finance_game()
+        self._wire_system_interceptors(game)
+
+        # Opp (p2) deploys HFPM with 2 attached Derivatives.
+        host = _put_on_battlefield(game, p2.id, HEDGE_FUND_PM)
+        d1 = _put_on_battlefield(game, p2.id, THETA_DECAY_COLLAR)
+        d2 = _put_on_battlefield(game, p2.id, GAMMA_AMPLIFIER)
+        d1.state.attached_to = host.id
+        d2.state.attached_to = host.id
+        remove_from_deriv_desk(game.state, p2.id, d1.id)
+        remove_from_deriv_desk(game.state, p2.id, d2.id)
+
+        # P1 hand: Margin Squeeze + a vanilla Trader (so the AI has a non-
+        # answer alternative to fall through to without anti-voltron logic).
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        ms = self._make_hand_card(game, p1, MARGIN_SQUEEZE)
+        decoy = self._make_hand_card(game, p1, SPOOFING_ALGO)
+        p1.mana_crystals = 5
+        p1.mana_crystals_available = 5
+
+        # Run hard AI.
+        ai = self._hard_ai()
+        action = ai.choose_play_action(game.state, p1.id)
+
+        assert action is not None, "Hard AI must produce an action"
+        assert action.get("type") == "play_card", (
+            f"AI must play a card (got {action!r})"
+        )
+        assert action.get("card_id") == ms.id, (
+            f"AI must select Margin Squeeze, not the decoy Trader "
+            f"(picked card_id={action.get('card_id')!r}; "
+            f"ms.id={ms.id!r}, decoy.id={decoy.id!r})"
+        )
+        assert action.get("targets") == [host.id], (
+            f"AI must target the voltron host "
+            f"(got targets={action.get('targets')!r}; expected [{host.id!r}])"
+        )
+        print("test_ai_casts_margin_squeeze_on_voltron_host  PASS")
+
+    # ---- 2. Position Audit on 4 opp Derivatives ------------------------------
+
+    def test_ai_casts_position_audit_on_4_derivatives(self):
+        """Opp has 2 attached + 2 in Desk = 4 total Derivatives.  AI hand has
+        Position Audit affordable.  Hard AI must select it.
+        """
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        from src.cards.finance.fina.derivatives import (
+            POSITION_AUDIT,
+            THETA_DECAY_COLLAR,
+            GAMMA_AMPLIFIER,
+            IRON_CONDOR,
+            PROTECTIVE_PUT,
+        )
+        from src.engine.finance import (
+            add_to_deriv_desk,
+            get_deriv_desk,
+            remove_from_deriv_desk,
+        )
+
+        game, p1, p2 = _make_finance_game()
+        self._wire_system_interceptors(game)
+
+        # Opp board: 1 host + 2 attached + 2 on Desk.
+        host = _put_on_battlefield(game, p2.id, SPOOFING_ALGO)
+        att_a = _put_on_battlefield(game, p2.id, THETA_DECAY_COLLAR)
+        att_b = _put_on_battlefield(game, p2.id, GAMMA_AMPLIFIER)
+        att_a.state.attached_to = host.id
+        att_b.state.attached_to = host.id
+        remove_from_deriv_desk(game.state, p2.id, att_a.id)
+        remove_from_deriv_desk(game.state, p2.id, att_b.id)
+        # Two unattached on the Desk.  _put_on_battlefield uses create_object
+        # which does NOT fire the system ZONE_CHANGE interceptor that
+        # auto-stages Derivatives onto the Desk; stage them manually.
+        desk_a = _put_on_battlefield(game, p2.id, IRON_CONDOR)
+        desk_b = _put_on_battlefield(game, p2.id, PROTECTIVE_PUT)
+        for d in (desk_a, desk_b):
+            try:
+                add_to_deriv_desk(game.state, p2.id, d.id)
+            except ValueError:
+                pass  # already staged
+        opp_desk = get_deriv_desk(game.state, p2.id)
+        assert desk_a.id in opp_desk and desk_b.id in opp_desk, (
+            f"precondition: desk Derivatives must be staged "
+            f"(desk={opp_desk!r})"
+        )
+
+        # P1 hand: Position Audit + decoy Trader.  P1 has NO own Derivatives
+        # so the cast is a pure asymmetric blowout.
+        pa = self._make_hand_card(game, p1, POSITION_AUDIT)
+        decoy = self._make_hand_card(game, p1, SPOOFING_ALGO)
+        p1.mana_crystals = 5
+        p1.mana_crystals_available = 5
+
+        ai = self._hard_ai()
+        action = ai.choose_play_action(game.state, p1.id)
+
+        assert action is not None and action.get("type") == "play_card", (
+            f"AI must play a card (got {action!r})"
+        )
+        assert action.get("card_id") == pa.id, (
+            f"AI must select Position Audit "
+            f"(picked={action.get('card_id')!r}, expected={pa.id!r})"
+        )
+        print("test_ai_casts_position_audit_on_4_derivatives  PASS")
+
+    # ---- 3. Forced Unwinding pre-burst counter -------------------------------
+
+    def test_ai_casts_forced_unwinding_preemptively(self):
+        """Opp has 3 Derivatives in Desk, no attached host yet, turn ≥ 6, opp
+        hand has 3+ cards (HFPM held back).  AI must cast Forced Unwinding
+        pre-emptively to strip the Desk.
+        """
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        from src.cards.finance.fina.derivatives import (
+            THETA_DECAY_COLLAR,
+            GAMMA_AMPLIFIER,
+            IRON_CONDOR,
+        )
+        from src.cards.finance.fina.dark_arbitrage import FORCED_UNWINDING
+        from src.engine.finance import (
+            add_to_deriv_desk,
+            get_deriv_desk,
+        )
+
+        game, p1, p2 = _make_finance_game()
+        self._wire_system_interceptors(game)
+
+        # Opp has 3 Derivatives in Desk.  _put_on_battlefield uses
+        # create_object which doesn't fire the auto-stage interceptor —
+        # stage them manually.
+        d1 = _put_on_battlefield(game, p2.id, THETA_DECAY_COLLAR)
+        d2 = _put_on_battlefield(game, p2.id, GAMMA_AMPLIFIER)
+        d3 = _put_on_battlefield(game, p2.id, IRON_CONDOR)
+        for d in (d1, d2, d3):
+            try:
+                add_to_deriv_desk(game.state, p2.id, d.id)
+            except ValueError:
+                pass  # already staged
+        opp_desk = get_deriv_desk(game.state, p2.id)
+        for d in (d1, d2, d3):
+            assert d.id in opp_desk, (
+                f"precondition: {d.characteristics.name!r} must be on opp Desk "
+                f"(desk={opp_desk!r})"
+            )
+
+        # Opp hand has 3 cards (HFPM-shape cards held).
+        for _ in range(3):
+            self._make_hand_card(game, p2, SPOOFING_ALGO)
+
+        # Turn number ≥ 6.
+        game.state.turn_number = 6
+
+        # P1 hand: Forced Unwinding + a decoy.
+        fu = self._make_hand_card(game, p1, FORCED_UNWINDING)
+        decoy = self._make_hand_card(game, p1, SPOOFING_ALGO)
+        p1.mana_crystals = 5
+        p1.mana_crystals_available = 5
+
+        ai = self._hard_ai()
+        action = ai.choose_play_action(game.state, p1.id)
+
+        assert action is not None and action.get("type") == "play_card", (
+            f"AI must play a card (got {action!r})"
+        )
+        assert action.get("card_id") == fu.id, (
+            f"AI must select Forced Unwinding pre-emptively "
+            f"(picked={action.get('card_id')!r}, expected={fu.id!r})"
+        )
+        print("test_ai_casts_forced_unwinding_preemptively  PASS")
+
+    # ---- 4. Filter must not drop anti-voltron answers ------------------------
+
+    def test_ai_does_not_filter_answers_as_traps(self):
+        """In a voltron-shaped opponent setup, the trap-card filter must NOT
+        drop Margin Squeeze / Position Audit / Forced Unwinding / Liquidation
+        Cascade from the playable set.  Sanity check on _filter_trap_cards.
+        """
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        from src.cards.finance.fina.derivatives import (
+            HEDGE_FUND_PM,
+            THETA_DECAY_COLLAR,
+            GAMMA_AMPLIFIER,
+            POSITION_AUDIT,
+            LIQUIDATION_CASCADE,
+        )
+        from src.cards.finance.fina.dark_arbitrage import (
+            MARGIN_SQUEEZE,
+            FORCED_UNWINDING,
+        )
+        from src.engine.finance import remove_from_deriv_desk
+        from src.ai.finance_adapter import FinanceAIAdapter
+
+        game, p1, p2 = _make_finance_game()
+        self._wire_system_interceptors(game)
+
+        # Opp board: voltron-shaped (host + 2 attached).
+        host = _put_on_battlefield(game, p2.id, HEDGE_FUND_PM)
+        d1 = _put_on_battlefield(game, p2.id, THETA_DECAY_COLLAR)
+        d2 = _put_on_battlefield(game, p2.id, GAMMA_AMPLIFIER)
+        d1.state.attached_to = host.id
+        d2.state.attached_to = host.id
+        remove_from_deriv_desk(game.state, p2.id, d1.id)
+        remove_from_deriv_desk(game.state, p2.id, d2.id)
+
+        # P1 hand: all 4 anti-voltron answers + a Trader.
+        ms = self._make_hand_card(game, p1, MARGIN_SQUEEZE)
+        pa = self._make_hand_card(game, p1, POSITION_AUDIT)
+        fu = self._make_hand_card(game, p1, FORCED_UNWINDING)
+        lc = self._make_hand_card(game, p1, LIQUIDATION_CASCADE)
+        decoy = self._make_hand_card(game, p1, SPOOFING_ALGO)
+        p1.mana_crystals = 10
+        p1.mana_crystals_available = 10
+
+        ai = FinanceAIAdapter(difficulty="hard")
+        affordable = [ms, pa, fu, lc, decoy]
+        kept = ai._filter_trap_cards(game.state, p1.id, affordable)
+        # GameObject.name is the canonical card name; characteristics has no name.
+        kept_names = {c.name for c in kept}
+
+        for name in ("Margin Squeeze", "Position Audit",
+                     "Forced Unwinding", "Liquidation Cascade"):
+            assert name in kept_names, (
+                f"_filter_trap_cards must NOT drop {name!r} when opponent is "
+                f"voltron-shaped (kept_names={kept_names!r})"
+            )
+        print("test_ai_does_not_filter_answers_as_traps  PASS")
+
+
 # Module-level wrappers so the legacy ``_run_all`` driver picks them up.
 _V3_FOLLOWUP_BUGS = TestV3FollowupBugs()
 _ITER4_CARD_BUGS = TestIter4CardBugs()
 _EQUIPMENT_CLEANUP = TestEquipmentCleanup()
 _NEW_META_CARDS = TestNewMetaCards()
+_ANTI_VOLTRON_AI = TestAntiVoltronAI()
 
 
 def test_derivative_returns_to_desk_when_host_dies():
@@ -3221,6 +3620,10 @@ def test_synthetic_collar_caps_at_plus_three():
 
 def test_synthetic_collar_excludes_self():
     _EQUIPMENT_CLEANUP.test_synthetic_collar_excludes_self()
+
+
+def test_bug32_protective_put_prevents_destruction_completely():
+    _EQUIPMENT_CLEANUP.test_bug32_protective_put_prevents_destruction_completely()
 
 
 def test_bug31_liquidity_event_counts_game_wide_dps():
@@ -3275,6 +3678,24 @@ def test_liquidation_cascade_destroys_x_derivatives():
 
 def test_capital_skimmer_tap_deals_damage_to_trader_or_opponent():
     _NEW_META_CARDS.test_capital_skimmer_tap_deals_damage_to_trader_or_opponent()
+
+
+# Anti-voltron AI tests (rebalance v2, 2026-05-09).
+
+def test_ai_casts_margin_squeeze_on_voltron_host():
+    _ANTI_VOLTRON_AI.test_ai_casts_margin_squeeze_on_voltron_host()
+
+
+def test_ai_casts_position_audit_on_4_derivatives():
+    _ANTI_VOLTRON_AI.test_ai_casts_position_audit_on_4_derivatives()
+
+
+def test_ai_casts_forced_unwinding_preemptively():
+    _ANTI_VOLTRON_AI.test_ai_casts_forced_unwinding_preemptively()
+
+
+def test_ai_does_not_filter_answers_as_traps():
+    _ANTI_VOLTRON_AI.test_ai_does_not_filter_answers_as_traps()
 
 
 # ---------------------------------------------------------------------------
@@ -3348,12 +3769,19 @@ def _run_all():
         test_hfpm_death_kills_attached_derivatives,
         test_synthetic_collar_caps_at_plus_three,
         test_synthetic_collar_excludes_self,
+        # Bug #32 (iter5v2 LLM-pilot game): PP must save host completely.
+        test_bug32_protective_put_prevents_destruction_completely,
         # Rebalance v2 (2026-05-09): new meta cards (5):
         test_forced_unwinding_detaches_all_opponents_derivatives,
         test_margin_squeeze_destroys_voltron_host,
         test_position_audit_destroys_all_derivatives_both_sides,
         test_liquidation_cascade_destroys_x_derivatives,
         test_capital_skimmer_tap_deals_damage_to_trader_or_opponent,
+        # Anti-voltron AI (rebalance v2, 2026-05-09):
+        test_ai_casts_margin_squeeze_on_voltron_host,
+        test_ai_casts_position_audit_on_4_derivatives,
+        test_ai_casts_forced_unwinding_preemptively,
+        test_ai_does_not_filter_answers_as_traps,
     ]
     failures = []
     for t in tests:

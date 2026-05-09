@@ -790,9 +790,11 @@ def cmd_play(args) -> None:
         cost = 0
         if obj.characteristics and obj.characteristics.mana_cost:
             cost = sum(int(n) for n in re.findall(r"\{(\d+)\}", obj.characteristics.mana_cost))
-        avail = int(getattr(game.state.players[pid], "mana_crystals_available", 0) or 0)
-        if avail < cost:
-            print(f"Cannot play {obj.name!r}: cost={cost} but Liquidity={avail} (need {cost-avail} more).")
+        player = game.state.players[pid]
+        liq_before = int(getattr(player, "mana_crystals_available", 0) or 0)
+        liq_max_before = int(getattr(player, "mana_crystals", 0) or 0)
+        if liq_before < cost:
+            print(f"Cannot play {obj.name!r}: cost={cost} but Liquidity={liq_before} (need {cost-liq_before} more).")
             return
         targets: list[str] = []
         if args.target:
@@ -800,7 +802,22 @@ def cmd_play(args) -> None:
         events = asyncio.run(
             game.turn_manager._play_card_action(pid, obj.id, targets)
         )
-        print(f"play {obj.name!r}: emitted {len(events)} events")
+        # Bug #33: pilots reported "Liquidity display lag" — actually a UX
+        # confusion caused by ETB Liquidity-refund cards (e.g. Flash Crash
+        # Bot +1, Microwave Relay +2). The card cost IS deducted in
+        # _play_card_action, but a refund interceptor fires immediately
+        # afterwards and the printed Liquidity value reflects the NET
+        # post-refund state. To eliminate the misread, print the explicit
+        # "before -> after" transition and surface any refund/discount.
+        liq_after = int(getattr(player, "mana_crystals_available", 0) or 0)
+        liq_max_after = int(getattr(player, "mana_crystals", 0) or 0)
+        delta = liq_after - (liq_before - cost)
+        cost_msg = f"cost={cost}, Liquidity {liq_before}/{liq_max_before} → {liq_after}/{liq_max_after}"
+        if delta > 0:
+            cost_msg += f" (+{delta} refund)"
+        elif delta < 0:
+            cost_msg += f" ({delta} extra)"
+        print(f"play {obj.name!r}: {cost_msg}; emitted {len(events)} events")
         payload["history"].append(
             (game.state.turn_number, _label_for(payload, pid), f"play {obj.name}")
         )
