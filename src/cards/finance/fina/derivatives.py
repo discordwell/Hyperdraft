@@ -590,11 +590,13 @@ CONVEXITY_RIDER = make_trader(
     rarity="rare",
 )
 
-# 8. Vega Amplifier {4} 4/3 — Leverage 3. Static: other Leverage Traders get +1/+0
-# rebalance: lord normalization — was a one-shot ETB +1/+0 until-MC; now a persistent
-# while-on-battlefield QUERY_POWER lord, mirrors HFC/CT/PCD.
+# 8. Vega Amplifier {4} 1/3 — Leverage 6. Static: other Leverage Traders get +1/+0
+# rebalance: post-sweep VA 4/3 Lev3 over-tuned (Lev decks +5-10%). Reframe as
+# polarized win-more payoff: same effective 7/3 when winning, doubled 6/turn
+# self-tax when behind. Counter-removal cards (TDT, Volatility Crush, BSM)
+# become load-bearing answers. See memory: feedback_winmore_mechanics.md.
 def _vega_amplifier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    leverage_interceptors = _make_leverage_setup(3)(obj, state)
+    leverage_interceptors = _make_leverage_setup(6)(obj, state)
 
     def power_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.QUERY_POWER:
@@ -634,8 +636,8 @@ def _vega_amplifier_setup(obj: GameObject, state: GameState) -> list[Interceptor
 VEGA_AMPLIFIER = make_trader(
     "Vega Amplifier",
     "{4}",
-    4, 3,
-    text="Leverage 3. Static: each other Trader you control with Leverage gets +1/+0.",
+    1, 3,
+    text="Leverage 6. Static: each other Trader you control with Leverage gets +1/+0.",
     setup_interceptors=_vega_amplifier_setup,
     rarity="rare",
 )
