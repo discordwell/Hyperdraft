@@ -264,20 +264,29 @@ async def _run_game(
 # Tournament runner
 # ---------------------------------------------------------------------------
 
-async def run_tournament(games_per_pair: int = 10, difficulty: str = "medium") -> dict:
+async def run_tournament(
+    games_per_pair: int = 10,
+    difficulty: str = "medium",
+    archetypes: dict | None = None,
+) -> dict:
     tracker = CardTracker()
+
+    arch_dict = archetypes if archetypes is not None else ARCHETYPES
 
     # Record deck compositions
     decks: dict[str, list] = {}
-    for domain, builder in ARCHETYPES.items():
+    for domain, builder in arch_dict.items():
         deck = builder()
         decks[domain] = deck
         tracker.record_deck(domain, deck)
 
     arch_wins: dict[str, int] = defaultdict(int)
     arch_games: dict[str, int] = defaultdict(int)
+    # Per-pair tracking: pair_wins[d1][d2] = number of games d1 beat d2
+    pair_wins: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    pair_games: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
-    arch_list = list(ARCHETYPES.keys())
+    arch_list = list(arch_dict.keys())
     matchups = [
         (arch_list[i], arch_list[j])
         for i in range(len(arch_list))
@@ -311,12 +320,19 @@ async def run_tournament(games_per_pair: int = 10, difficulty: str = "medium") -
             status = "CRASH" if result["crashed"] else f"T{result['turns']} win={winner}"
             print(f"  [{done}/{total}] {first[:12]} vs {second[:12]} → {status}")
 
+            # Per-pair track (canonical pair = sorted tuple but use d1,d2)
+            pair_games[d1][d2] += 1
+            pair_games[d2][d1] += 1
             if winner:
                 arch_wins[winner] += 1
+                if winner == d1:
+                    pair_wins[d1][d2] += 1
+                elif winner == d2:
+                    pair_wins[d2][d1] += 1
 
     # Build set_summary
     set_summary: dict[str, dict[str, Any]] = {}
-    for domain in ARCHETYPES:
+    for domain in arch_dict:
         games = arch_games[domain]
         wins = arch_wins[domain]
         set_summary[domain] = {
@@ -325,15 +341,55 @@ async def run_tournament(games_per_pair: int = 10, difficulty: str = "medium") -
             "games_played": games,
         }
 
+    # Build matchup table: matchup_table[d1][d2] = d1's winrate vs d2 (None on diagonal)
+    matchup_table: dict[str, dict[str, Any]] = {}
+    for d1 in arch_dict:
+        matchup_table[d1] = {}
+        for d2 in arch_dict:
+            if d1 == d2:
+                matchup_table[d1][d2] = None
+                continue
+            n = pair_games[d1][d2]
+            matchup_table[d1][d2] = round(pair_wins[d1][d2] / n, 3) if n else 0.0
+
     return {
         "card_scores": tracker.to_card_scores(),
         "set_summary": set_summary,
+        "matchup_table": matchup_table,
     }
 
 
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
+def _load_custom_decks(path: str) -> dict[str, dict[str, Any]]:
+    """Load custom decks JSON. Returns {name: {"rationale": str, "cards": list[str]}}."""
+    from src.cards.finance import FINANCE_CARDS
+    with open(path) as fh:
+        payload = json.load(fh)
+    decks = payload.get("decks") or {}
+    out: dict[str, dict[str, Any]] = {}
+    for name, spec in decks.items():
+        if not isinstance(spec, dict) or not isinstance(spec.get("cards"), list):
+            raise ValueError(f"Deck {name!r} missing 'cards' list")
+        cards = list(spec["cards"])
+        if len(cards) != 40:
+            raise ValueError(f"Deck {name!r} has {len(cards)} cards, expected 40")
+        bad = [c for c in cards if c not in FINANCE_CARDS]
+        if bad:
+            raise ValueError(f"Deck {name!r} has unknown cards: {bad}")
+        out[name] = {"rationale": spec.get("rationale", ""), "cards": cards}
+    return out
+
+
+def _make_custom_builder(card_names: list[str]):
+    """Return a builder lambda producing a fresh CardDefinition list each call."""
+    def builder():
+        from src.cards.finance import FINANCE_CARDS
+        return [FINANCE_CARDS[c] for c in card_names]
+    return builder
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="FINA archetype balance tournament")
@@ -342,18 +398,46 @@ def main() -> int:
     parser.add_argument("--out", default="logs/fina_tournament.json")
     parser.add_argument("--include-candidates", action="store_true",
                         help="Include FINA_CANDIDATE_DECKS in the tournament alongside starters")
+    parser.add_argument("--decks-file", type=str, default=None,
+                        help="JSON file with extra named decks (each must have 40 cards from FINANCE_CARDS)")
+    parser.add_argument("--decks", type=str, default=None,
+                        help="Comma-separated deck names. Restricts the tournament matrix to these names. "
+                             "Names may refer to starters (FINA_high_frequency, etc.) or custom decks "
+                             "loaded via --decks-file. Default: run all known decks.")
     args = parser.parse_args()
+
+    archetypes: dict[str, Any] = dict(ARCHETYPES)
 
     if args.include_candidates:
         from src.cards.finance.fina.decks import FINA_CANDIDATE_DECKS
-        ARCHETYPES.update(FINA_CANDIDATE_DECKS)
-        n_pairs = len(ARCHETYPES) * (len(ARCHETYPES) - 1) // 2
-        print(f"=== FINA Balance Tournament — {args.games} games × {n_pairs} pairs (starters + candidates) ===")
-    else:
-        n_pairs = len(ARCHETYPES) * (len(ARCHETYPES) - 1) // 2
-        print(f"=== FINA Balance Tournament — {args.games} games × {n_pairs} pairs ===")
+        archetypes.update(FINA_CANDIDATE_DECKS)
 
-    result = asyncio.run(run_tournament(args.games, args.difficulty))
+    custom_rationales: dict[str, str] = {}
+    if args.decks_file:
+        custom = _load_custom_decks(args.decks_file)
+        print(f"\n=== Loaded {len(custom)} custom decks from {args.decks_file} ===")
+        for name, spec in custom.items():
+            archetypes[name] = _make_custom_builder(spec["cards"])
+            custom_rationales[name] = spec["rationale"]
+            print(f"  {name}: {spec['rationale']}")
+        print()
+
+    if args.decks:
+        wanted = [n.strip() for n in args.decks.split(",") if n.strip()]
+        unknown = [n for n in wanted if n not in archetypes]
+        if unknown:
+            print(f"ERROR: unknown deck names: {unknown}")
+            print(f"Known: {list(archetypes.keys())}")
+            return 2
+        archetypes = {n: archetypes[n] for n in wanted}
+
+    n_pairs = len(archetypes) * (len(archetypes) - 1) // 2
+    label = "starters + candidates" if args.include_candidates else "tournament"
+    if args.decks_file:
+        label = f"custom ({args.decks_file})"
+    print(f"=== FINA Balance Tournament — {args.games} games × {n_pairs} pairs ({label}, {len(archetypes)} decks) ===")
+
+    result = asyncio.run(run_tournament(args.games, args.difficulty, archetypes=archetypes))
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -361,7 +445,9 @@ def main() -> int:
     print(f"\nWrote {out_path}")
 
     print("\n--- Archetype summary ---")
-    for domain, stats in result["set_summary"].items():
+    sorted_decks = sorted(result["set_summary"].items(),
+                          key=lambda kv: -kv[1]["winrate"])
+    for domain, stats in sorted_decks:
         print(f"  {domain}: winrate={stats['winrate']:.1%}  games={stats['games']}")
 
     return 0
