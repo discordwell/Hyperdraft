@@ -716,10 +716,15 @@ HEDGE_FUND_PM = make_trader(
     "Hedge Fund PM",
     "{5}",  # rebalance: voltron-problem cost {4} → {5} (mass-attach effect requires its original cost)
     4, 4,
-    text="Leverage 2. When this enters, attach all Derivatives from your Derivatives Desk to this Trader.",
+    text="Leverage 2. When this enters, attach all Derivatives from your Derivatives Desk to this Trader. When this dies, all Derivatives attached to it die with it.",
     setup_interceptors=_hedge_fund_pm_setup,
     rarity="rare",
 )
+# voltron-nerf: HFPM-specific override for the new Equipment-style cleanup
+# (finance._register_derivative_host_death_cleanup).  When HFPM dies, ALL
+# attached Derivatives are destroyed with it instead of returning to the
+# Desk — the cost of free mass-attach.
+HEDGE_FUND_PM._destroys_attached_on_death = True
 
 # 11. Synthetic Long {5} 5/4 — Leverage 3. At Market Close, may pay 2 CR per
 #     counter instead of 1 to keep all; if so, get +1/+0 permanently.
@@ -2125,9 +2130,25 @@ COVERED_CALL = make_derivative(
     rarity="common",
 )
 
-# 37. Synthetic Collar {3} — Attach to a Trader: it gets +1/+1 for each
-#     Derivative attached to it (including this one).
+# 37. Synthetic Collar {3} — Attach to a Trader: it gets +1/+1 for each OTHER
+#     Derivative attached to it, up to +3/+3.  (voltron-nerf: was "including
+#     this one" with no cap; combined with HFPM mass-attach this scaled
+#     unbounded.)
 def _synthetic_collar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    SC_CAP = 3  # voltron-nerf: cap per-Derivative scaling at +3/+3.
+
+    def _other_derivatives_attached_to_host(host_id: str, state: GameState) -> int:
+        # voltron-nerf: exclude self (oid == obj.id) from the count so a lone
+        # Synthetic Collar contributes +0/+0, not +1/+1.
+        count = 0
+        for oid, o in state.objects.items():
+            if oid == obj.id:
+                continue
+            if (CardType.FIN_DERIVATIVE in o.characteristics.types
+                    and o.state.attached_to == host_id):
+                count += 1
+        return min(count, SC_CAP)
+
     def power_filter(event: Event, state: GameState) -> bool:
         host_id = obj.state.attached_to
         return (
@@ -2141,12 +2162,7 @@ def _synthetic_collar_setup(obj: GameObject, state: GameState) -> list[Intercept
         host = state.objects.get(host_id) if host_id else None
         if not host:
             return InterceptorResult(action=InterceptorAction.PASS)
-        # Count Derivatives attached to the host (attached_to == host_id)
-        count = 0
-        for oid, o in state.objects.items():
-            if (CardType.FIN_DERIVATIVE in o.characteristics.types
-                    and o.state.attached_to == host_id):
-                count += 1
+        count = _other_derivatives_attached_to_host(host_id, state)
         if count <= 0:
             return InterceptorResult(action=InterceptorAction.PASS)
         # bug #25: queries.get_power reads transformed_event.payload['value'] only.
@@ -2170,11 +2186,7 @@ def _synthetic_collar_setup(obj: GameObject, state: GameState) -> list[Intercept
         host = state.objects.get(host_id) if host_id else None
         if not host:
             return InterceptorResult(action=InterceptorAction.PASS)
-        count = 0
-        for oid, o in state.objects.items():
-            if (CardType.FIN_DERIVATIVE in o.characteristics.types
-                    and o.state.attached_to == host_id):
-                count += 1
+        count = _other_derivatives_attached_to_host(host_id, state)
         if count <= 0:
             return InterceptorResult(action=InterceptorAction.PASS)
         # bug #25: queries.get_toughness reads transformed_event.payload['value'].
@@ -2206,7 +2218,8 @@ def _synthetic_collar_setup(obj: GameObject, state: GameState) -> list[Intercept
 SYNTHETIC_COLLAR = make_derivative(
     "Synthetic Collar",
     "{3}",
-    text="Attach to a Trader: it gets +1/+1 for each Derivative attached to it (including this one).",
+    # voltron-nerf: text now reflects "OTHER Derivatives, up to +3/+3" cap.
+    text="Attach to a Trader: it gets +1/+1 for each OTHER Derivative attached to it, up to +3/+3.",
     setup_interceptors=_synthetic_collar_setup,
     rarity="rare",
 )

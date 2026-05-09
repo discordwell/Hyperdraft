@@ -1607,10 +1607,11 @@ class TestPriorityClassBugs:
     def test_bug25_synthetic_collar_buffs_attached_trader(self):
         """Attach Synthetic Collar to a Trader (with TDT also attached).
         The host's displayed power and toughness must increase by the count
-        of attached Derivatives.
+        of OTHER attached Derivatives (voltron-nerf: self excluded, cap +3/+3).
 
         Pre-fix: power/toughness handlers returned PASS and mutated
         payload['power'/'toughness'] — both unread by queries.get_*.
+        Post-voltron-nerf: SC excludes itself from the count.
         """
         from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
         game, p1, _ = _make_finance_game()
@@ -1626,30 +1627,30 @@ class TestPriorityClassBugs:
         sc.state.attached_to = host.id
         tdt.state.attached_to = host.id
 
-        # 2 Derivatives attached → +2/+2 to host.
+        # voltron-nerf: SC excludes self → 1 OTHER Derivative (TDT) → +1/+1.
         new_p = _PRI_get_power(host, game.state)
         new_t = _PRI_get_toughness(host, game.state)
-        assert new_p == printed_p + 2, (
-            f"Bug #25: with SC + TDT attached, power must be {printed_p + 2}, "
-            f"got {new_p}"
+        assert new_p == printed_p + 1, (
+            f"Bug #25 (post-nerf): with SC + TDT attached, SC excludes self → "
+            f"power must be {printed_p + 1}, got {new_p}"
         )
-        assert new_t == printed_t + 2, (
-            f"Bug #25: with SC + TDT attached, toughness must be {printed_t + 2}, "
-            f"got {new_t}"
+        assert new_t == printed_t + 1, (
+            f"Bug #25 (post-nerf): with SC + TDT attached, SC excludes self → "
+            f"toughness must be {printed_t + 1}, got {new_t}"
         )
 
-        # Detach TDT — power/toughness should drop back to printed + 1
-        # (only Synthetic Collar attached, count == 1).
+        # Detach TDT — only Synthetic Collar remains, which excludes itself
+        # → +0/+0 (post-nerf).
         tdt.state.attached_to = None
         p_after = _PRI_get_power(host, game.state)
         t_after = _PRI_get_toughness(host, game.state)
-        assert p_after == printed_p + 1, (
-            f"Bug #25: with only SC attached, power must be {printed_p + 1}, "
-            f"got {p_after}"
+        assert p_after == printed_p, (
+            f"Bug #25 (post-nerf): with only SC attached (excludes self), "
+            f"power must be {printed_p}, got {p_after}"
         )
-        assert t_after == printed_t + 1, (
-            f"Bug #25: with only SC attached, toughness must be {printed_t + 1}, "
-            f"got {t_after}"
+        assert t_after == printed_t, (
+            f"Bug #25 (post-nerf): with only SC attached (excludes self), "
+            f"toughness must be {printed_t}, got {t_after}"
         )
         print("test_bug25_synthetic_collar_buffs_attached_trader  PASS")
 
@@ -2478,9 +2479,355 @@ class TestIter4CardBugs:
         print("test_iter4_tdt_with_lev2_alone_shows_correct_power  PASS")
 
 
+# =============================================================================
+# Equipment-style cleanup for Derivatives (voltron-nerf, 2026-05-09)
+# =============================================================================
+#
+# Three changes pinned by these tests:
+#   1. General rule — when a Trader with attached Derivatives leaves the
+#      battlefield, each attached Derivative clears its attached_to and
+#      returns to its controller's Derivatives Desk.  Implemented in
+#      finance._register_derivative_host_death_cleanup (system interceptor).
+#   2. HFPM-specific override — when Hedge Fund PM dies, the Derivatives
+#      attached to it die WITH it (do NOT return to Desk).  Driven by the
+#      _destroys_attached_on_death flag on HFPM's card_def.
+#   3. Synthetic Collar nerf — excludes self from the attached-Derivative
+#      count and caps the bonus at +3/+3.
+# =============================================================================
+
+
+class TestEquipmentCleanup:
+    """Pin the Equipment-style cleanup contract for Derivatives + the HFPM
+    override + the Synthetic Collar self-exclude / +3 cap nerf.
+    """
+
+    def _wire_system_interceptors(self, game):
+        """Register the Finance system interceptors on the test game.
+
+        The tests in this file use ``_make_finance_game`` which spins up a
+        bare Game without firing FinanceModeAdapter.on_game_start.  The
+        Derivative-host-death-cleanup interceptor lives on that adapter, so
+        we wire it manually here.
+        """
+        from src.engine.finance import FinanceModeAdapter
+        FinanceModeAdapter().register_system_interceptors(game)
+
+    # ---- Change 1: general Equipment-style cleanup -----------------------
+
+    def test_derivative_returns_to_desk_when_host_dies(self):
+        """Deploy Trader X + attach Theta Decay Collar to it.  Destroy X.
+        Assert TDC.attached_to is None AND it's in the controller's
+        Derivatives Desk.
+        """
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        from src.cards.finance.fina.derivatives import THETA_DECAY_COLLAR
+        from src.engine.finance import get_deriv_desk
+
+        game, p1, _ = _make_finance_game()
+        self._wire_system_interceptors(game)
+
+        host = _put_on_battlefield(game, p1.id, SPOOFING_ALGO)
+        tdc = _put_on_battlefield(game, p1.id, THETA_DECAY_COLLAR)
+        # Manually attach + remove from desk (the test bypasses the natural
+        # ETB-stage path so we have a known starting state).
+        tdc.state.attached_to = host.id
+        from src.engine.finance import remove_from_deriv_desk
+        remove_from_deriv_desk(game.state, p1.id, tdc.id)
+        desk = get_deriv_desk(game.state, p1.id)
+        assert tdc.id not in desk, "precondition: TDC must NOT be in desk while attached"
+
+        # Destroy the host through the pipeline (so the system interceptor fires).
+        from src.engine.types import Event as _E
+        game.emit(_E(
+            type=EventType.OBJECT_DESTROYED,
+            payload={"object_id": host.id, "reason": "test"},
+            source="test",
+        ))
+
+        # Cleanup must clear attached_to AND return TDC to the desk.
+        assert tdc.state.attached_to is None, (
+            f"Equipment cleanup: TDC.attached_to must clear when host dies, "
+            f"got {tdc.state.attached_to!r}"
+        )
+        assert tdc.id in get_deriv_desk(game.state, p1.id), (
+            "Equipment cleanup: TDC must be returned to controller's Derivatives Desk"
+        )
+        # TDC must remain on the battlefield (we don't kill the Derivative,
+        # we just unattach it).
+        assert tdc.zone == ZoneType.BATTLEFIELD, (
+            f"Equipment cleanup: TDC must stay on battlefield (zone={tdc.zone!r})"
+        )
+        print("test_derivative_returns_to_desk_when_host_dies  PASS")
+
+    def test_derivative_re_attaches_to_next_trader_via_etb(self):
+        """Continuation of the prior test: deploy a second Trader Y that has
+        an ETB pickup (Hedge Fund PM).  Assert TDC re-attaches to Y.
+
+        Note: SPOOFING_ALGO does NOT have an ETB-pickup, so we use HFPM as
+        Y instead — its ETB attaches everything in the Desk.
+        """
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        from src.cards.finance.fina.derivatives import (
+            THETA_DECAY_COLLAR,
+            HEDGE_FUND_PM,
+        )
+        from src.engine.finance import get_deriv_desk, remove_from_deriv_desk
+
+        game, p1, _ = _make_finance_game()
+        self._wire_system_interceptors(game)
+
+        host_x = _put_on_battlefield(game, p1.id, SPOOFING_ALGO)
+        tdc = _put_on_battlefield(game, p1.id, THETA_DECAY_COLLAR)
+        tdc.state.attached_to = host_x.id
+        remove_from_deriv_desk(game.state, p1.id, tdc.id)
+
+        # Kill host X.  TDC -> back on Desk.
+        from src.engine.types import Event as _E
+        game.emit(_E(
+            type=EventType.OBJECT_DESTROYED,
+            payload={"object_id": host_x.id, "reason": "test"},
+            source="test",
+        ))
+        assert tdc.state.attached_to is None
+        assert tdc.id in get_deriv_desk(game.state, p1.id)
+
+        # Now deploy HFPM — its ETB attaches all desk Derivatives.
+        # _put_on_battlefield uses create_object which DOES run setup_interceptors,
+        # but ETB triggers fire on ZONE_CHANGE, not on creation.  We need to
+        # invoke the ETB effect directly via the trigger handler.
+        host_y = _put_on_battlefield(game, p1.id, HEDGE_FUND_PM)
+        # Call HFPM's setup_interceptors to find the ETB trigger and fire it.
+        # _hedge_fund_pm_setup returns:
+        #   - leverage interceptors (an etb_effect for counter-placement, +
+        #     a QUERY for power)
+        #   - the HFPM-specific ETB attach trigger (LAST in the list)
+        # Both etb_effects have is_triggered_ability=True, so pick the LAST
+        # one (the HFPM-specific attach trigger, not the leverage counter).
+        from src.cards.finance.fina.derivatives import _hedge_fund_pm_setup
+        icps = _hedge_fund_pm_setup(host_y, game.state)
+        triggered_icps = [
+            i for i in icps if getattr(i, "is_triggered_ability", False)
+        ]
+        assert triggered_icps, "HFPM must register at least one triggered ability"
+        etb_icp = triggered_icps[-1]
+        from src.engine.types import Event as _E
+        zone_event = _E(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                "object_id": host_y.id,
+                "to_zone_type": ZoneType.BATTLEFIELD,
+            },
+            source=host_y.id,
+        )
+        # ETB triggers expose effect_fn (ev, st) -> [Event].  Run it.
+        etb_icp.effect_fn(zone_event, game.state)
+
+        assert tdc.state.attached_to == host_y.id, (
+            f"Equipment cleanup: HFPM ETB must re-attach desk Derivative TDC "
+            f"to itself.  Got attached_to={tdc.state.attached_to!r}"
+        )
+        # And TDC must be removed from the desk now that it's attached.
+        assert tdc.id not in get_deriv_desk(game.state, p1.id), (
+            "Equipment cleanup: HFPM ETB must remove attached Derivatives from desk"
+        )
+        print("test_derivative_re_attaches_to_next_trader_via_etb  PASS")
+
+    # ---- Change 2: HFPM-specific override --------------------------------
+
+    def test_hfpm_death_kills_attached_derivatives(self):
+        """Deploy HFPM with 2 staged Derivatives in Desk; ETB attaches both.
+        Destroy HFPM.  Both Derivatives must end up in graveyard, NOT desk.
+        """
+        from src.cards.finance.fina.derivatives import (
+            HEDGE_FUND_PM,
+            THETA_DECAY_COLLAR,
+            _hedge_fund_pm_setup,
+        )
+        from src.engine.finance import (
+            add_to_deriv_desk,
+            get_deriv_desk,
+        )
+
+        game, p1, _ = _make_finance_game()
+        self._wire_system_interceptors(game)
+
+        # Deploy HFPM AFTER creating the desk derivatives so its ETB can grab
+        # them.  We use _put_on_battlefield (create_object) which does NOT
+        # auto-stage Derivatives onto the desk, so we manually stage them.
+        d1 = _put_on_battlefield(game, p1.id, THETA_DECAY_COLLAR)
+        d2 = _put_on_battlefield(game, p1.id, THETA_DECAY_COLLAR)
+        add_to_deriv_desk(game.state, p1.id, d1.id)
+        add_to_deriv_desk(game.state, p1.id, d2.id)
+        assert d1.id in get_deriv_desk(game.state, p1.id)
+        assert d2.id in get_deriv_desk(game.state, p1.id)
+
+        host = _put_on_battlefield(game, p1.id, HEDGE_FUND_PM)
+        # Fire HFPM's ETB effect directly (same pattern as the prior test).
+        # Both leverage and HFPM-specific etb_effects are is_triggered_ability,
+        # so pick the LAST one (HFPM-specific attach trigger).
+        icps = _hedge_fund_pm_setup(host, game.state)
+        triggered_icps = [
+            i for i in icps if getattr(i, "is_triggered_ability", False)
+        ]
+        assert triggered_icps, "HFPM must register at least one triggered ability"
+        etb_icp = triggered_icps[-1]
+        from src.engine.types import Event as _E
+        zone_event = _E(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                "object_id": host.id,
+                "to_zone_type": ZoneType.BATTLEFIELD,
+            },
+            source=host.id,
+        )
+        etb_icp.effect_fn(zone_event, game.state)
+
+        assert d1.state.attached_to == host.id
+        assert d2.state.attached_to == host.id
+
+        # Destroy HFPM.  HFPM-specific override: Derivatives die with host.
+        game.emit(_E(
+            type=EventType.OBJECT_DESTROYED,
+            payload={"object_id": host.id, "reason": "test"},
+            source="test",
+        ))
+
+        # Both Derivatives must be in graveyard, NOT on the desk.
+        gy = game.state.zones.get(f"graveyard_{p1.id}")
+        gy_ids = list(gy.objects) if gy else []
+        assert d1.id in gy_ids, (
+            f"HFPM override: d1 must be destroyed (in graveyard), got zones: "
+            f"d1.zone={d1.zone!r}"
+        )
+        assert d2.id in gy_ids, (
+            f"HFPM override: d2 must be destroyed (in graveyard), got zones: "
+            f"d2.zone={d2.zone!r}"
+        )
+        # And NEITHER should be on the desk.
+        desk = get_deriv_desk(game.state, p1.id)
+        assert d1.id not in desk, (
+            "HFPM override: d1 must NOT return to desk on HFPM death"
+        )
+        assert d2.id not in desk, (
+            "HFPM override: d2 must NOT return to desk on HFPM death"
+        )
+        print("test_hfpm_death_kills_attached_derivatives  PASS")
+
+    # ---- Change 3: Synthetic Collar nerf ---------------------------------
+
+    def test_synthetic_collar_caps_at_plus_three(self):
+        """Attach Synthetic Collar + 4 OTHER Derivatives to a Trader.
+        Cap at +3/+3, not +4 (or +5 with self).
+        """
+        from src.cards.finance.fina.high_frequency import (
+            SPOOFING_ALGO,
+            TICKER_TAPE_DERIVATIVE,
+        )
+        from src.cards.finance.fina.derivatives import (
+            SYNTHETIC_COLLAR,
+            THETA_DECAY_COLLAR,
+            GAMMA_AMPLIFIER,
+            DELTA_NEUTRAL_WRAP,
+        )
+
+        game, p1, _ = _make_finance_game()
+
+        host = _put_on_battlefield(game, p1.id, SPOOFING_ALGO)
+        printed_p = host.characteristics.power
+        printed_t = host.characteristics.toughness
+
+        # Attach SC + 4 OTHER Derivatives.
+        sc = _put_on_battlefield(game, p1.id, SYNTHETIC_COLLAR)
+        d1 = _put_on_battlefield(game, p1.id, TICKER_TAPE_DERIVATIVE)
+        d2 = _put_on_battlefield(game, p1.id, THETA_DECAY_COLLAR)
+        d3 = _put_on_battlefield(game, p1.id, GAMMA_AMPLIFIER)
+        d4 = _put_on_battlefield(game, p1.id, DELTA_NEUTRAL_WRAP)
+        for d in (sc, d1, d2, d3, d4):
+            d.state.attached_to = host.id
+
+        # voltron-nerf: cap at +3/+3 (not +4 from 4-other count, not +5 with-self).
+        new_p = _PRI_get_power(host, game.state)
+        new_t = _PRI_get_toughness(host, game.state)
+        # Other derivatives may have their own static buffs to host (e.g. TDC
+        # gives +1/+2 of its own).  Isolate Synthetic Collar's contribution by
+        # baselining without SC, then with SC, and asserting the *delta*.
+        sc.state.attached_to = None
+        baseline_p = _PRI_get_power(host, game.state)
+        baseline_t = _PRI_get_toughness(host, game.state)
+        sc.state.attached_to = host.id
+        with_sc_p = _PRI_get_power(host, game.state)
+        with_sc_t = _PRI_get_toughness(host, game.state)
+        sc_delta_p = with_sc_p - baseline_p
+        sc_delta_t = with_sc_t - baseline_t
+        assert sc_delta_p == 3, (
+            f"voltron-nerf: Synthetic Collar must cap at +3 power "
+            f"(4 OTHER derivs attached, capped to 3). Got SC delta={sc_delta_p}."
+        )
+        assert sc_delta_t == 3, (
+            f"voltron-nerf: Synthetic Collar must cap at +3 toughness "
+            f"(4 OTHER derivs attached, capped to 3). Got SC delta={sc_delta_t}."
+        )
+        # Sanity check: SC's contribution must NOT scale to 4 (the un-capped
+        # would-be value: 4 OTHER Derivatives → +4).
+        assert sc_delta_p != 4, (
+            f"voltron-nerf: SC contribution must be capped at 3, not 4. "
+            f"Got SC delta_p={sc_delta_p} (cap regression?)"
+        )
+        print("test_synthetic_collar_caps_at_plus_three  PASS")
+
+    def test_synthetic_collar_excludes_self(self):
+        """Attach ONLY Synthetic Collar to a Trader (no other Derivatives).
+        Displayed power must equal base + 0 (not base + 1).
+        """
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        from src.cards.finance.fina.derivatives import SYNTHETIC_COLLAR
+
+        game, p1, _ = _make_finance_game()
+
+        host = _put_on_battlefield(game, p1.id, SPOOFING_ALGO)
+        printed_p = host.characteristics.power
+        printed_t = host.characteristics.toughness
+
+        sc = _put_on_battlefield(game, p1.id, SYNTHETIC_COLLAR)
+        sc.state.attached_to = host.id
+
+        new_p = _PRI_get_power(host, game.state)
+        new_t = _PRI_get_toughness(host, game.state)
+        assert new_p == printed_p, (
+            f"voltron-nerf: SC alone (no OTHER derivs) must contribute +0; "
+            f"power must equal printed ({printed_p}), got {new_p}"
+        )
+        assert new_t == printed_t, (
+            f"voltron-nerf: SC alone (no OTHER derivs) must contribute +0; "
+            f"toughness must equal printed ({printed_t}), got {new_t}"
+        )
+        print("test_synthetic_collar_excludes_self  PASS")
+
+
 # Module-level wrappers so the legacy ``_run_all`` driver picks them up.
 _V3_FOLLOWUP_BUGS = TestV3FollowupBugs()
 _ITER4_CARD_BUGS = TestIter4CardBugs()
+_EQUIPMENT_CLEANUP = TestEquipmentCleanup()
+
+
+def test_derivative_returns_to_desk_when_host_dies():
+    _EQUIPMENT_CLEANUP.test_derivative_returns_to_desk_when_host_dies()
+
+
+def test_derivative_re_attaches_to_next_trader_via_etb():
+    _EQUIPMENT_CLEANUP.test_derivative_re_attaches_to_next_trader_via_etb()
+
+
+def test_hfpm_death_kills_attached_derivatives():
+    _EQUIPMENT_CLEANUP.test_hfpm_death_kills_attached_derivatives()
+
+
+def test_synthetic_collar_caps_at_plus_three():
+    _EQUIPMENT_CLEANUP.test_synthetic_collar_caps_at_plus_three()
+
+
+def test_synthetic_collar_excludes_self():
+    _EQUIPMENT_CLEANUP.test_synthetic_collar_excludes_self()
 
 
 def test_bug31_liquidity_event_counts_game_wide_dps():
@@ -2579,6 +2926,13 @@ def _run_all():
         # iter-4 Pilot B card-side reports (both turned out to be NOT bugs):
         test_iter4_quant_lab_alone_does_not_grant_toughness,
         test_iter4_tdt_with_lev2_alone_shows_correct_power,
+        # Equipment-style cleanup + HFPM override + Synthetic Collar nerf
+        # (voltron-nerf, 2026-05-09):
+        test_derivative_returns_to_desk_when_host_dies,
+        test_derivative_re_attaches_to_next_trader_via_etb,
+        test_hfpm_death_kills_attached_derivatives,
+        test_synthetic_collar_caps_at_plus_three,
+        test_synthetic_collar_excludes_self,
     ]
     failures = []
     for t in tests:

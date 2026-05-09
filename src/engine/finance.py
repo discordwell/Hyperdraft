@@ -417,6 +417,107 @@ def _register_derivative_attach_on_etb(game) -> None:
     ))
 
 
+def _register_derivative_host_death_cleanup(game) -> None:
+    """Equipment-style cleanup for Derivatives when their host Trader leaves
+    the battlefield.
+
+    Issue: voltron mass-attach (Hedge Fund PM ETB) created a "free pump
+    forever" effect because attached Derivatives never returned to the
+    Derivatives Desk on host death — they orphaned on a stale ``attached_to``
+    pointer with no cleanup.  This system interceptor mirrors MTG's Equipment
+    rule: when a Trader with attached Derivatives dies (or otherwise leaves
+    the battlefield), each attached Derivative
+
+      * clears its ``attached_to`` pointer (so static buffs stop applying);
+      * is re-added to its controller's Derivatives Desk (room-permitting);
+      * stays alive on the battlefield until re-attached by a future
+        Trader-ETB (e.g. Hedge Fund PM picks up everything on the desk).
+
+    HFPM-specific override: if the dying host's ``card_def`` has
+    ``_destroys_attached_on_death = True`` (set in HFPM's setup), the
+    attached Derivatives are destroyed *with* the host instead of being
+    returned to the desk.  This is the cost of HFPM's free mass-attach.
+
+    The handler reacts to BOTH ``OBJECT_DESTROYED`` (standard liquidation
+    path) and ``ZONE_CHANGE`` from BATTLEFIELD (bounce / exile / sacrifice).
+    """
+
+    def _filter(event: Event, state: GameState) -> bool:
+        # Match either OBJECT_DESTROYED or ZONE_CHANGE (battlefield -> *).
+        if event.type == EventType.OBJECT_DESTROYED:
+            target_id = event.payload.get("object_id")
+        elif event.type == EventType.ZONE_CHANGE:
+            from_z = event.payload.get("from_zone_type")
+            from_str = event.payload.get("from")
+            if from_z != ZoneType.BATTLEFIELD and from_str != "battlefield":
+                return False
+            target_id = event.payload.get("object_id")
+        else:
+            return False
+        if not target_id:
+            return False
+        # Only fire if some Derivative on the battlefield is attached to the
+        # departing object.  (Cheap pre-check — avoids running the handler
+        # on every destroy event in the game.)
+        for o in state.objects.values():
+            if (CardType.FIN_DERIVATIVE in o.characteristics.types
+                    and getattr(o.state, "attached_to", None) == target_id):
+                return True
+        return False
+
+    def _handler(event: Event, state: GameState) -> InterceptorResult:
+        target_id = event.payload.get("object_id")
+        if not target_id:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        # Was the dying host an HFPM-style "destroys attached on death" Trader?
+        host = state.objects.get(target_id)
+        destroys_attached = False
+        if host is not None and host.card_def is not None:
+            destroys_attached = bool(
+                getattr(host.card_def, "_destroys_attached_on_death", False)
+            )
+        new_events: list[Event] = []
+        for o in list(state.objects.values()):
+            if CardType.FIN_DERIVATIVE not in o.characteristics.types:
+                continue
+            if getattr(o.state, "attached_to", None) != target_id:
+                continue
+            # Always clear attached_to so static QUERY_POWER buffs stop applying
+            # immediately, regardless of the cleanup branch we take below.
+            o.state.attached_to = None
+            if destroys_attached:
+                # HFPM rule: derivatives die WITH the host.  Emit a destroy
+                # event so they hit the graveyard via the normal SBA path.
+                new_events.append(Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={"object_id": o.id, "reason": "hfpm_host_died"},
+                    source=target_id,
+                    controller=o.controller,
+                ))
+            else:
+                # Standard Equipment cleanup: return to Derivatives Desk so
+                # the next Trader-ETB picks them up again.
+                desk = get_deriv_desk(state, o.controller)
+                if o.id not in desk and len(desk) < MAX_DERIV_DESK:
+                    desk.append(o.id)
+        if not new_events:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events,
+        )
+
+    game.register_interceptor(Interceptor(
+        id=new_id(),
+        source="FIN_SYSTEM",
+        controller="SYSTEM",
+        priority=InterceptorPriority.REACT,
+        filter=_filter,
+        handler=_handler,
+        duration="forever",
+    ))
+
+
 # =============================================================================
 # Mode adapter
 # =============================================================================
@@ -554,11 +655,15 @@ class FinanceModeAdapter:
             pass
 
     def register_system_interceptors(self, game) -> None:
-        """Register the four Finance system interceptors on game start."""
+        """Register the Finance system interceptors on game start."""
         _register_dark_pool_trigger(game)
         _register_leverage_tick(game)
         _register_structure_cap_check(game)
         _register_derivative_attach_on_etb(game)
+        # Equipment-style cleanup: when a Trader leaves the battlefield, its
+        # attached Derivatives return to the Derivatives Desk (or, for
+        # HFPM-flagged hosts, die with the host).
+        _register_derivative_host_death_cleanup(game)
 
     # -----------------------------------------------------------------------
     # Damage / loss hooks (standard MTG-style defaults are fine for Finance)
