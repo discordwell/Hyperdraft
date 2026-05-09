@@ -21,10 +21,10 @@ Living document of accumulated wisdom from LLM-pilot ultra-loop iterations.
 
 ## Deck archetypes
 
-- **FINA_high_frequency** — fast aggro. Cheap Traders, tempo plays, Alpha Strike pressure. See `docs/decks/FINA_high_frequency_plan.md`.
-- **FINA_derivatives** — equipment/aura toolbox. Stack DERIV cards on a single Trader for breakouts.
-- **FINA_quant** — value/grindy control. Card advantage and Arbitrage walls. See `docs/decks/FINA_quant_plan.md`.
-- **FINA_dark_arbitrage** — combo/tempo hybrid. Dark Pool tricks, instant-speed disruption. **iter-3 update: combo identity is BROKEN — Dark Pool staging path unwired in `_play_card_action` (engine bug 15). Until fixed, the deck wins on midrange Trader stat-lines (OEF, ICBT, DIP, HACC bodies); the DP theme is purely cosmetic.**
+- **FINA_high_frequency** — fast aggro. Cheap Traders, tempo plays, Alpha Strike pressure. See `docs/decks/FINA_high_frequency_plan.md`. **v2 update**: walls hold (bug 1 fixed), so HF must close before T20 — late-game grind goes to Quant via RM Arb-heal.
+- **FINA_derivatives** — Leverage-counter-management. **v2 update: PLAYABLE post bug-fix** (10/14 leverage tick doubling fixed). Won iter 2 v2 in 23T. See `docs/decks/FINA_derivatives_plan.md`.
+- **FINA_quant** — value/grindy control. Card advantage and Arbitrage walls. See `docs/decks/FINA_quant_plan.md`. **v2 update: walls work. Won iter 3 v2 in 15T (no Trader died). Heavy favorite vs DA. Stalled vs HF.**
+- **FINA_dark_arbitrage** — combo/tempo hybrid. Dark Pool tricks, instant-speed disruption. **v2 update: combo identity is REAL post bug-15 fix.** All 6 DP Orders route to slot correctly; HACC pumps verified. **However, DA lost both v2 games** — Σlev self-tax with no counter-removal kills it long-game. Matchup-dependent: needs counter-removers or fewer Lev Traders to be competitive.
 
 ## Iteration 3 lessons (Quant vs Dark Arbitrage)
 
@@ -88,6 +88,12 @@ These are NEW bugs surfaced in iter-2 that are not duplicates of the iter-1 punc
 13. **Off-Exchange Position silent no-op without Dark Pool slot.** Pilot A cast OEP at full cost; Delta Hedger remained 3/4 — the -3/-0 PT modification did not apply. Either OEP requires a populated Dark Pool slot (and silently no-ops without one) or the PT_MODIFICATION isn't reaching the target. Pilot B did get OEP to fire (when staged into a DP slot), so the prerequisite hypothesis is most likely. Either error-out at cast, or document the prerequisite in card text.
 14. **Possible Leverage counter double-add on ETB.** `_make_leverage_setup` emits N COUNTER_ADDED events AND directly sets `state.counters["leverage"] = current + n` as a "fallback". If COUNTER_ADDED is also handled by another interceptor, counters double-stack on ETB. Unit test needed: deploy a Leverage 3 Trader and assert `obj.state.counters['leverage'] == 3` (not 6).
 
+## Engine bug punch list (iter-5 P2a iter-2 single, NEW — append prior lists)
+
+These are NEW bugs surfaced in iter-5 (P2a iter-2 single-pilot HF mirror). **Bug 23 was FIXED in this session.**
+
+23. ~~**[FIXED] Multi-attacker player damage collapses to ~2 face regardless of attacker count. CRITICAL.**~~ Root cause: `scripts/play/finance_wet_test.py:cmd_attack` was setting `tm.fin_turn_state.attackers_declared = list(chosen)` (replace) instead of appending. Each sequential `attack <id>` harness command overwrote the stored attacker list — only the LAST declared attacker's damage resolved at end_turn. 4 attackers → 2 face (last body only). 7 attackers → 2 face (same). Fix: append rather than replace in `cmd_attack`. Verified: 2-attacker test post-fix = 7 face (FCB 5 + Spoofing 2). **Smoke test passes.** (Note: passing all IDs in one `attack <id> <id>...` call was not affected — the bug only hit sequential single-ID `attack` calls.)
+
 ## Engine bug punch list (iter-3, NEW — append to iter-1/iter-2 lists)
 
 These are NEW bugs surfaced in iter-3 that are not duplicates of the prior punch lists. **Both pilots independently flagged bugs 15, 16, 17, 18 — high confidence.**
@@ -96,7 +102,7 @@ These are NEW bugs surfaced in iter-3 that are not duplicates of the prior punch
 16. **Destroyed Traders are not routed to graveyard.** Both PCD (T11) and SPB (T11) died in combat; neither corpse appeared in either player's graveyard. Objects vanished from battlefield without a ZONE_CHANGE→graveyard event. Affects: leaves-battlefield triggers, recursion strategies, GY-counting effects (Lit-Market Decoy / future cards). Likely cause: `post_creature_damage_destroy_check` removes the object but doesn't emit a ZONE_CHANGE event with `to_zone=graveyard`.
 17. **Rebalancing Halt does not un-declare an already-declared attacker.** Cast during P2's block-window targeting OEF: TAP event emitted but combat manager's attacker list still contained OEF, and combat damage fired. The TAP changed tap-state of the object but did not remove it from `attackers` or zero-out its damage assignment. Card text says "cannot attack this turn" — the engine should remove the targeted attacker from declared-attackers when the effect resolves. As-is, RH is only useful pre-attack-declare on YOUR turn.
 18. **Off-Exchange Finisher's Alpha Strike +4/+0 fires in multi-attack** (7 power with 4 attackers declared — should be 3 if Alpha's "alone" rule applied). Confirms iter-1 bug 2 also affects OEF's `_make_alpha_strike_plus4(obj)` helper, not just the standard `_alpha_strike_bonus`. The alpha-strike-count==1 trigger logic propagates to all "alpha+N" variants. **Iter-3 note**: this bug HELPS the attacker if they declare alpha-trader FIRST (count==1 at trigger time), which is why Pilot B exploited it deliberately.
-19. **Leverage power query uses wrong InterceptorPriority.** `_make_leverage_power_query` in `src/cards/finance/fina/dark_arbitrage.py:266` (Pilot B confirmed line ≈262) sets priority to `InterceptorPriority.TRANSFORM`, but `queries.get_power` only iterates `priority == InterceptorPriority.QUERY`. So Leverage counters never add to displayed power. **All Leverage Traders are weaker than printed (printed power only).** OEO with Lev 1 displayed 3 power not 4. IBT with Lev 2 displayed 3 not 5. **Fix**: change priority to `InterceptorPriority.QUERY`. (Same fix likely applies to similar interceptors in other archetype files — audit all priority assignments in `src/cards/finance/fina/`.)
+19. **Leverage power query uses wrong InterceptorPriority — DARK ARBITRAGE CARDS ONLY.** `_make_leverage_power_query` in `src/cards/finance/fina/dark_arbitrage.py:266` (Pilot B confirmed line ≈262) sets priority to `InterceptorPriority.TRANSFORM`, but `queries.get_power` only iterates `priority == InterceptorPriority.QUERY`. So Leverage counters never add to displayed power for DA cards. **Scope corrected (P2a iter-4)**: Only OEO and IBT in `dark_arbitrage.py` are affected. Derivatives cards (Delta Hedger, Rho Opportunist, UAR in `derivatives.py`) display CORRECT Leverage-boosted power — DH showed 5/4 (3+Lev2=5) and Rho showed 5/3 (4+Lev1=5) in iter-4 game. **Fix target**: change priority to `InterceptorPriority.QUERY` in `src/cards/finance/fina/dark_arbitrage.py` Leverage interceptors ONLY.
 20. **SEARCH_LIBRARY custom filter `dark_pool_order` not recognized; harness lacks `choose` command for tutor PendingChoice.** `library_search._handle_search_library_event` only knows filters: `basic_land, creature, creature_or_land, land, instant, sorcery, enchantment, artifact, planeswalker`. Cards passing custom filter strings (`dark_pool_order` etc.) silently fall through with no filter applied → tutor offers ALL library cards. Compounding: `finance_wet_test.py` has no `choose <option_id>` subcommand, so PendingChoice stalls forever in two-pilot mode. Both pilots had to manually `g.submit_choice()` via Python. **Fixes**: (a) Register `dark_pool_order` filter in `library_search.py` matching `obj.card_def._dark_pool == True`. (b) Add a `choose <option_id>` subcommand to `finance_wet_test.py`.
 
 ## Open / contested questions
@@ -109,7 +115,7 @@ These are NEW bugs surfaced in iter-3 that are not duplicates of the prior punch
 - **Optimal Leverage-Trader count in Derivatives deck** — probably never >3 simultaneously. Needs iter-3 test with a counter-management-aware AI.
 - **Is Black-Scholes + Theta Decay Trader enough counter-removal density to sustain a midrange game?** Probably need ~6-7 counter-removers + 8-10 Leverage Traders ratio. Untested.
 - **Does Dark Arbitrage have a real combo plan?** Hidden Accumulator + Hidden Aggression + Block Trade Sweep never assembled this iter. Iter-3 needs a clean game where the combo can actually fire (likely requires Dark Inventory Position weighting or mulligan/draw support).
-- **Does Derivatives auto-attach actually fire?** No Derivative was played in iter-2, so the auto-attach-to-highest-power-Trader mechanic remains untested. Carry forward.
+- ~~**Does Derivatives auto-attach actually fire?**~~ **CLOSED iter-7**: YES — Theta Decay Collar auto-attached to UAR (highest-power Trader, 4/3) on play. Mechanic confirmed working for at least TDC.
 
 ## Card balance issues (iter-1, both pilots support)
 
@@ -127,8 +133,148 @@ These are NEW bugs surfaced in iter-3 that are not duplicates of the prior punch
 - **Quant Signal**: just delete or rewrite — broken across 3 iters.
 - **Rebalancing Halt**: until bug 17 is fixed, retext to "Sorcery-speed: target Trader doesn't untap during its controller's next Pre-Market." Make it actually preventive on YOUR turn.
 
+## Iteration 4 lessons (HF vs HF single-pilot mirror, P2a iter-1)
+
+Pilot played FINA_high_frequency vs heuristic (FINA_high_frequency). **LOST at T12.** Final: Pilot=0, AI=3. Pilot dealt 27 total face damage (4+4+6+7+6) and nearly closed but AI's 6-body flood outpaced 3 Traders + DMA.
+
+- **HF mirror is a pure body-count race, not an alpha-quality race.** AI deployed 6 Traders (all 2/1) by T10 vs pilot's 3 (one 3/2, two 2/1). AI's quantity of attacks per turn (6-8 face/turn) overwhelmed pilot's disciplined solo-alpha (4-7 face/turn). DMA + 3 Traders loses to 6 raw 2/1 bodies in a mirror. **In the HF mirror, the player who floods the board first wins. Defer ASSETs/DERIVATIVEs until you have ≥4 Traders.**
+- **DMA +4/+0 static is non-persistent (Bug 21).** T9 FCE showed 7/2 (DMA +4 applying). T11 FCE showed 6/2 (only alpha +3, DMA +4 gone). The `+4/+0` appears to be an ETB spike (fires once on entry) rather than an ongoing static interceptor. Closes the iter-1 contested question in Pilot A's favor: DMA is a 1-turn-use +4 on the turn you play it, not a sustained buff. Audit `src/cards/finance/fina/high_frequency.py` DMA `setup_interceptors` — verify whether `+4/+0` is a TRANSFORM-priority interceptor (ongoing) or a single PT_MODIFICATION event on ETB (expires). See **Bug 21** below.
+- **QSB targets first Trader in list, not highest-power (Bug 22).** With RFC (1/1), FCE (3/2), Spoofing (2/1) on board, QSB applied alpha grant to RFC rather than FCE. Wasted the buffed power on the weakest Trader. **Do NOT play QSB unless FCE (or your strongest Trader) is the only non-SS Trader available, or target selection is fixed.** See **Bug 22** below.
+- **AI heuristic never blocks in the aggro mirror.** With 1/1 bodies vs 4/1 or 6/2, any block by AI results in death + overflow. AI's no-block decision is correct — racing is strictly better than trading when all your bodies are 2/1 and opponent's alpha attacker is 4-7 power. The AI's zero-threshold "always swing" policy is right for HF mirror.
+- **AI greedy deploy empties hand by T10, but still wins.** AI had 6 bodies on board with hand=0 at T10 and won T12 without drawing another card. The "deploy everything, hold nothing" strategy is empirically correct for HF mirror. AI's board_weight=0.3 (now bumped to 0.4) drives this behavior.
+- **FCE + DMA is the highest-efficiency solo attacker.** FCE (3/2) + DMA spike (+4 on deploy turn) = 7-power alpha on the turn DMA enters. This is the best single-hit sequence in HF. **Deploy DMA and attack with FCE the same turn — DMA's +4 is not persistent across turns.** Holding DMA to "build a static buff" wastes the spike.
+- **Draw starvation is the mirror's second loss condition.** Pilot drew DERIVATIVEs and STRATEGIEs (Ticker Tape, Speed Amp, QSB) instead of Traders. With a 3-Trader board vs 6-body AI, the pilot ran out of threats. Consider cutting non-Trader cards when building HF for mirror play.
+
+### Bug 21 — DMA static +4/+0 is non-persistent (iter-4 single pilot)
+
+Direct Market Access displays `+4/+0` to all your Alpha Strike Traders on the turn it enters (T9 FCE=7), but reverts to `+0` on subsequent turns (T11 FCE=6, only alpha +3 showing). The effect appears to fire once as an ETB trigger/PT_MODIFICATION event, not as an ongoing static interceptor. Expected: FCE should remain 7/2 while DMA is on board (3 base + 4 static = 7). Actual: FCE reverts to 3 power on subsequent turns. Audit `src/cards/finance/fina/high_frequency.py` DMA `setup_interceptors` — confirm whether `+4/+0` is implemented as a TRANSFORM-priority interceptor (would be ongoing) or as a single LIFE_CHANGE/PT_MODIFICATION event on ETB (would expire). **Closes iter-1 contested question in Pilot A's favor.**
+
+### Bug 22 — QSB targets first-declared Trader, not highest-power Trader (iter-4 single pilot)
+
+Quote Stuffing Burst played with RFC (1/1), FCE (3/2), Spoofing (2/1) on board applied the alpha grant to RFC (showed 4/1) rather than FCE (3/2). Either the harness auto-selects the first object in the Traders list as target, or the card's `effect_fn` uses `[0]` index rather than `max(power)`. Expected: QSB should target the highest-power Trader (or prompt for target). Actual: RFC (1/1) gained alpha strike while FCE did nothing. Audit `src/cards/finance/fina/high_frequency.py` QSB resolve fn target selection.
+
+## Iteration 7 lessons (Quant vs Derivatives single-pilot, P2a iter-5)
+
+Pilot played FINA_quant (P1) vs heuristic FINA_derivatives. **WON at T13.**
+Final: P1=19, P2=0. First confirmed Quant vs Derivatives matchup. Wall-to-flood plan executed cleanly.
+
+- **Quant vs Derivatives is approximately 60-70% Quant favored.** Quant's wall-to-flood plan is NOT disrupted by Derivatives' leverage toolkit. Derivatives deploys expensive leverage Traders with self-tax; Quant deploys cheap 4-tough walls and snowballs trader count. By T13, Quant had 5 Traders vs Derivatives' 4 (2 active blockers + 1 tapped + 1 SS). 3 attackers went through for lethal.
+- **Two-lord stack (dual PCD) is a high-value T11 play.** With 6 Liquidity, playing second PCD gives all Traders +0/+2 cumulative toughness. Clerk=1/4, PT=2/5, CT=2/6 — these cannot die to 2/2 ODI blocks. Plan for it: if PCD1 survived past T9, hold second PCD for a double-deploy turn.
+- **Trader-count advantage is the decisive lever.** Once Quant has 5 Traders vs Derivatives' 2 active blockers, the math is lethal even at AI Capital=6. Flood relentlessly — deploy at least one Trader per turn from T1 onward.
+- **Derivatives' leverage-counter heuristic appears correctly calibrated.** AI deployed BSM + TDC + Theta Decay Collar on UAR by T9. No leverage tick self-destruct this game (contrast iter-2 where AI died to leverage at T9). This is progress — but the deck still lost because it lacked enough Trader bodies.
+- **Auto-attach mechanic confirmed working.** Theta Decay Collar auto-attached to UAR (highest-power Trader, 4/3) when played. Closes the "Does Derivatives Desk auto-attach actually fire?" open question: **YES, confirmed for TDC.**
+- **Bug 1 (any-damage-kills) did NOT trigger in this game.** All combat appeared to use correct `damage >= toughness` kill threshold. PT (2/3) and PCD (3/4) survived multiple turns without dying to 2-power ODI attacks. This is significant — the bug may be state-conditional and was not triggered by this matchup's combat patterns. Needs targeted unit test to confirm or rule out the bug's existence.
+- **Derivatives AI needs body-first deployment heuristic.** When trailing on Trader count (≥4 opponent Traders vs ≤3 own), AI should prioritize Trader bodies over ASSET/DERIVATIVE non-Traders. Delta Hedger (5/4) was deployed T12 with SS — one full turn too late to impact the decisive attack wave. If deployed T10-T11, it would have been live for T13 blocks.
+- **Non-Trader spells in Quant's hand were universally uncast.** Correlation Matrix (DRAW bug 7), Quant Signal (LOOK_AT_TOP bug 8), Rebalancing Halt (instant-speed bug 17) — all held all game, all dead weight. The core Quant win was 100% Trader bodies + 1 lord ASSET (Sharpe Ratio Monitor).
+
+## Iteration 6 lessons (HF vs HF single-pilot mirror, P2a iter-3)
+
+Pilot played FINA_high_frequency (P1) vs heuristic FINA_high_frequency. **WON at T11.**
+Final: ME=10, AI=0. First confirmed pilot win in the HF mirror.
+
+- **First confirmed HF mirror win condition: flood + DMA spike T9 + multi-attack.** Deploy a Trader every turn → save DMA → on the DMA deploy turn, attack with ALL bodies. T9 4-body wave (FCB alpha 5 + LA 3 + Spoofing 2 + FRA 2 = 12 total power) dealt 9 face (AI 15→6) and closed T11.
+- **DMA spike works in multi-attack context (not just solo-alpha).** FCB declared FIRST in a 4-body multi-attack received alpha +3 AND DMA +4 = 9/1 FCB. Entry-turn spike is not solo-only; it applies to whichever Alpha Striker is declared first. Closes iter-4's "DMA same-turn solo" heuristic — the correct rule is: DMA + best Alpha Striker FIRST, then flood all remaining Traders.
+- **Non-Trader spells are universally dead weight in the HF mirror.** Sub-Penny Intercept, Dark Pool Flash Order, Low-Latency Strike, Speed Amplifier, Momentum Ignition: zero cast all game. Deck construction recommendation: cut 4-6 non-Trader cards for additional cheap Traders when building for mirror play. Keep curve under 3.
+- **Optimal multi-attack sequence (now confirmed): declare best Alpha Striker FIRST, then declare remaining Traders, then end_turn.** Exploits Bug 2/18 asymmetry (count==1 at trigger time for the first declared attacker); rest of the wave still deals their base power.
+- **3-cost Traders are awkward in the mirror.** Latency Arbitrageur (3/1, no Alpha Strike) cost 3 for a body that underperformed two 2-cost 2/1 Alpha Strikers. Avoid filling T3-T5 slots with non-Alpha-Strike bodies when 2-cost options exist.
+- **AI's greedy-cluster deploy left only 2 active blockers at T9.** AI deployed 2 FCBs on T2 then 2 more on T8 (SS), giving it only 2 active bodies at the moment of the decisive 4-body wave. Had AI spread deploys more evenly (1 body per turn), it would have had 3-4 active blockers by T9. **AI heuristic implication**: spread-deploy (1 body/turn) is better than cluster-deploy (2+ bodies/turn then idle) in the HF mirror.
+
+## Iteration 5 lessons (HF vs HF single-pilot mirror, P2a iter-2)
+
+Pilot played FINA_high_frequency vs heuristic FINA_high_frequency. **LOST in 12 turns.** ME=0, AI=~15. Board flood executed correctly (8 Traders by T11 via deploy-every-turn discipline), but multi-attack face damage collapsed to ~2 regardless of attacker count due to Bug 23. AI with 1 Trader dealt 5-11 face per turn normally.
+
+- **Bug 23 CONFIRMED: multi-attacker harness commands overwrote attackers list.** Sequential `attack <id>` calls replace `attackers_declared` — only the last Trader's damage resolved. Fix is in `cmd_attack` (append not replace). Post-fix verified correct.
+- **Until Bug 23 was fixed, solo-alpha was the only reliable attack path even with a flooded board.** Multi-attack with 4-8 bodies dealt the same ~2 face as a 1-Trader attack. In past and future games where this bug is present: use solo FRA-first attack; skip sequential `attack` multi-declarations; use single vararg call `attack <id1> <id2> ...` or solo-only. **Now fixed — multi-attack is correct.**
+- **Board flood confirmed as correct T-plan.** 8 Traders by T11 is achievable and matches iter-4 lessons. The flood strategy is right; the bug masked its effectiveness.
+- **Incoming damage asymmetry was entirely explained by Bug 23.** AI (one code path for combat: `run_turn` → `_run_combat` → full loop) dealt normal damage. Human (harness path: sequential `attack` → `end_turn` → `_resolve_declared_combat`) only resolved last attacker. NOT a combat engine asymmetry — it was a pure harness accumulation bug.
+
+## Iteration 8 lessons (Derivatives vs Dark Arbitrage single-pilot, P2a iter-4)
+
+Pilot played FINA_derivatives (P1) vs heuristic FINA_dark_arbitrage. **WON at T11.**
+Final: P1=22, P2=−3. First confirmed Derivatives win on record.
+
+- **First Derivatives win condition confirmed: Collar + Σlev ≤ 3 = safe capital snowball.** Theta Decay Collar deployed T3 on Options Desk Intern. Effective tick rate with Collar = (Σlev − 1) per turn. With DH (Lev 2) + Rho (Lev 1) = Σlev 3, net capital loss was ~1.6/turn (30→28→25→22 over 5 turns). P1 capital drain was manageable while dealing 7+12+14 = 33 total face damage.
+- **"×1.7 bug factor" does NOT apply in normal Derivatives tick path.** Iter-2 observed ×1.7 only in the ETB-double-add edge case (Bug 14). In this game with Collar active, net tick was (Σlev − 1) per turn, not Σlev × 1.7. **Revise Derivatives safety projections from ×1.7 to ×1.0 (post-Collar: net tick = Σlev − 1).** The `leverage_bug_multiplier = 1.7` in `_filter_trap_cards` remains as a conservative guard but is no longer observed in practice.
+- **Bug 19 scope corrected: DA-specific cards only.** Delta Hedger (3c, 3+Lev2=5 power) and Rho Opportunist (3c, 4+Lev1=5 power) both displayed correct Leverage-boosted power from `derivatives.py`. The bug is confined to `dark_arbitrage.py` Leverage interceptors (OEO, IBT). **Audit target: `src/cards/finance/fina/dark_arbitrage.py` only.** Derivatives deck does NOT have Bug 19.
+- **Derivatives attack order: Delta Hedger (5-power) leads, then stack remaining bodies.** In all three waves (T7, T9, T11), leading with DH (5/4) or the highest-power body maximised face damage per wave. The dominant Leverage-buffed body at 5/4 cannot be profitably blocked by DA's 2/2–2/4 roster. Commit DH as the primary attacker; additional bodies deal guaranteed unblocked face.
+- **AI (Dark Arbitrage) deployed ZERO Leverage Traders all game — `_expected_leverage_tax` blocking too aggressively.** DA's best bodies (OEF 3/4 Lev 2, IBT 3/4 Lev 2, OEO 3/3 Lev 1) never appeared. The AI ran as a 2/2 vanilla goodstuff pile (HA×2, SPB 2/4). **Encoder fix applied (iter-4):** relax DA leverage-deploy threshold from Σlev ≥ 1 → blocked, to Σlev > 2 → blocked. Now allows OEF/IBT when Σlev ≤ 2.
+- **AI did not block with Stealth Position Builder (2/4) vs 5-power attackers.** SPB survived to T11 without blocking any attack wave. A SPB block on DH (5/4) trades profitably in capital terms (SPB dies, 5 face blocked vs ~0 overflow). **Encoder fix applied (iter-4):** `_hard_blockers` now pre-assigns high-toughness wall blockers (toughness ≥ attacker power) before the permutation search — wall blocks are always committed when the blocker survives the trade.
+- **DA AI dealt ZERO combat damage to P1 all game.** P1's entire capital loss (8 points) was Leverage tick. Without DP combo (engine bug 15) and without deploying Leverage Trader bodies, Dark Arbitrage is a vanilla goodstuff pile with no offensive upside. This matchup is heavily favored for Derivatives until DA's OEF/IBT bodies are deployed.
+- **Protective Put auto-attached to Rho Opportunist (5/3) — correct highest-power target.** When both DH and Rho tied at 5-power, auto-attach resolved to Rho (first-in-list or tie-break logic). Mechanic working for Derivatives Derivatives.
+- **Shadow Protocol Module (AI's DERIVATIVE) auto-attached to Hidden Accumulator.** First observation of AI using a Derivative. Fires correctly for both players. SPM attached to HA (AI's highest-power at 2/2).
+
+## v2 validation results (post bug-fix batch)
+
+After commit `94d9ac7` shipped the 20-bug fix batch, all 3 iter-1/2/3 matchups were re-run as v2 validation. **Outcome: 2 of 3 winners flipped from v1.** See `logs/finance_ultra_loop_v2_summary.md` for the full v1→v2 progression report.
+
+### v1 → v2 outcome flips
+
+| Iter | Matchup | v1 | v2 | Why different |
+|---|---|---|---|---|
+| 1 | HF vs Quant | Quant 28T | (Quant — stalled at T26, HF traderless) | Walls held + RM Arb-heal. HF dropped Quant 30→11 (vs 30→18 in v1) but ran out of Traders. |
+| 2 | Derivatives vs DA | DA 9T (self-loss) | **Derivatives 23T** | Bug 10/14 (leverage tick doubling) fixed → Derivatives stops self-immolating. |
+| 3 | Quant vs DA | DA 20T (goodstuff midrange) | **Quant 15T** | Bug 1 (any-damage-kills) + Bug 15 (DP staging) BOTH fixed. Quant's wall identity finally functions; DA combo fires but can't keep pace with wide-board cascade. |
+
+### Bug-fix verification table
+
+15 of 20 bugs fully fixed; 1 partial; 2 not fixed; 4 not testable in v2.
+
+| # | Description | v2 status | Source |
+|---|---|---|---|
+| 1 | Combat damage threshold | **FIXED** (with attacker-side edge case in iter 2 v2) | iter 1 v2 P-B, iter 3 v2 P-A |
+| 2 | Multi-attacker Alpha asymmetry | **NOT FIXED** (still solo-only) | iter 1 v2 P-A T7/T19/T21 |
+| 3 | Low-Latency Strike SS-clear | NOT TESTED (no LLS played) | — |
+| 4 | DMA alpha upgrade flag | NOT TESTED (no DMA played) | — |
+| 5 | Speed Amplifier orphans | **FIXED** | iter 1 v2 P-A T11 |
+| 6 | Tick Data Archive trigger | **STILL BROKEN** | iter 1 v2 P-A T3-T13 |
+| 7 | Correlation Matrix DRAW | **FIXED** (P-A iter 3 v2 confirms; P-B iter 1 v2 misread) | iter 3 v2 P-A T13 (drew 2, library 25→23, hand 7→8) |
+| 8 | Quant Signal LOOK_AT_TOP | **FIXED** | iter 1 v2 P-B T4, iter 3 v2 P-A T7 |
+| 9 | Risk Manager Arbitrage timing | **FIXED** (heals AFTER damage now) | iter 1 v2 P-B T19 |
+| 10 | Leverage Tick doubling | **FIXED** (Σlev × 1.0 confirmed) | iter 2 v2 P-A T17/T19/T21 |
+| 11 | Two-pilot harness state file-race | **PARTIAL — recurrent as block-window race** | iter 3 v2 (see new bug #23) |
+| 12 | Hidden Aggression text/code drift | **FIXED IN SOURCE** (pilots misread the `# cyc3:` comment) | direct source check `dark_arbitrage.py:1003` |
+| 13 | OEP silent no-op without DP slot | **FIXED** | iter 2 v2 P-B T20 (refused), T8/T22 (fired) |
+| 14 | Leverage counter double-add on ETB | **FIXED** | iter 2 v2 counts match |
+| 15 | Dark Pool staging | **FIXED — best validated** | iter 2 v2 P-B (5+ casts verified), iter 3 v2 P-A T8 |
+| 16 | Destroyed Traders skip GY | NOT TESTED | — |
+| 17 | Rebalancing Halt un-declare | **FIXED** | iter 1 v2 P-B T15 |
+| 18 | OEF Alpha+4 in multi-attack | NOT TESTED | — |
+| 19 | Leverage power query priority | **FIXED** | iter 2 v2 P-A, iter 3 v2 P-A T12 |
+| 20 | SEARCH_LIBRARY filter + `choose` | **FIXED** (both halves) | iter 2 v2 P-B T12, iter 3 v2 P-A T10 |
+
+## Iteration v2 lessons (NEW strategic findings)
+
+1. **HF cannot stall against Quant in v2.** With walls now actually holding (bug 1 fix) and RM Arb-heal recurring, HF reaches T26 traderless with dead cards in hand (DPFO/LLS/TTD/QSB unplayable when no Trader is on board). HF must close before T20. **Strategy implication**: HF in v2 needs more Trader density (8-10 1-cost Traders) to sustain pressure; cut TDA (still dead per bug #6).
+2. **Derivatives is a real archetype now.** Σlev × 1.0 tick + working counter-removers (TDT, Black-Scholes) make Lev management tractable. Won iter 2 v2 in 23T with HFPM (6/4) + Rho Opp (5/3) finisher swing. Theta Decay Trader's free pre-MC counter-remove is the key safety valve.
+3. **Dark Arbitrage's combo works but the deck still loses long-game vs Quant.** HACC pump verified (2/2 → 4/4 chained-cast on T8). However, the pump is `end_of_turn` (intentional, matches text) — DA can't sustain pressure across multiple turns. Self-tax from OEF/IBT/OEO Σlev=5 with no counter-removal closed iter 3 v2 P-B at 1 capital → 1 face from MRB = 0.
+4. **CM and PFOF are structurally bugged.** Their DP effects fire on opponent's next TS, where the effects are meaningless (CM "can't block" useless on opp's offense; PFOF "+1 mana to me" useless on opp's TS). **NEW bug #29**: rewrite to fire on controller's next TS.
+5. **Quant's walls are actually walls now.** Iter 3 v2: zero Quant Traders died in 15 turns. PT 2/3, RM 1/4, MRB 1/4, CT 2/4 all survived all combats. With walls holding, Pairs Trader Arb 2 cascade T11 is the decisive snowball turn — Quant goes 4 to 6 Traders in 2 turns.
+6. **Block-window race condition is the new top concurrency bug.** Two-pilot harness lets attacker advance past block window via `resolve_combat`/`end_turn` aliases while defender's `block` commands are still committing. Defender takes face damage with 0 blocks. **NEW bug #23**: needs `claim_block_window` step.
+7. **Priority-mismatch bugs (#19) are a CLASS spread across many cards.** v2 surfaced 4 more: HFT Feed Colocation +1/+0 (#21), PCD lord toughness +0/+1 (#22), Synthetic Collar (#25), Dark Flow Engine cost reduction (#28). All same pattern: `priority=InterceptorPriority.TRANSFORM` instead of `QUERY`. Audit ALL `_make_*_lord_interceptor`, `_make_*_query`, `make_*_static_buff` in `cards/finance/fina/`.
+
+## Engine bug punch list (v2 validation — NEW bugs append #21-#30)
+
+These are NEW bugs surfaced in v2 reports. **All independently confirmed by at least one report; cross-validation count noted.**
+
+21. **HFT Feed Colocation +1/+0 to Traders NOT firing.** Power displays as base+alpha only, no static buff visible. Same QUERY priority issue as #19. iter 1 v2 P-A confirmed across T11/T13/T15/T17/T23. **Fix**: change priority to `InterceptorPriority.QUERY` in `src/cards/finance/fina/high_frequency.py`.
+22. **PCD lord toughness +0/+1 NOT firing.** `_make_global_toughness_lord_interceptor` at `quant.py:399` uses `InterceptorPriority.TRANSFORM` but `queries.get_toughness` only iterates `priority == QUERY`. iter 1 v2 P-B verified by direct `get_toughness()` call: PT 2/3, FMA 1/3, RM 1/4 with PCD on board → printed values, no +1 toughness. **Fix**: change priority. Audit all `_make_*_lord_interceptor` in `quant.py`.
+23. **Block-window race condition (two-pilot harness).** Defender's `block` commands ignored when attacker fires `resolve_combat`/`end_turn` concurrently. Defender takes face damage with 0 blocks committed. iter 1 v2 P-B T26 stalled 5+ min in block window; iter 3 v2 P-A T8 + P-B T13 both observed. **Fix**: explicit `claim_block_window` step in harness, locks awaiting_blocks=True until defender releases via `resolve_combat`.
+24. **Vega Spike resolves but does NOT add Leverage counters.** Mana consumed (9→6), strategy → graveyard, target counters unchanged. `_vega_spike_resolve` emits 2 COUNTER_ADDED events but they don't apply. iter 2 v2 P-A T17. **Fix**: audit COUNTER_ADDED event handler; verify Vega Spike's target object_id resolves correctly.
+25. **Synthetic Collar QUERY priority issue.** Attached to TDT, displayed power did not change (expected +1/+1 = 4/4, displayed 3/3). Same fix-pattern as #19. iter 2 v2 P-A T7. **Fix**: change priority on Synthetic Collar's PT-buff interceptor.
+26. **Hidden Aggression appears to deal 1 face damage on cast (suspected — speculative).** Multiple turns showed P1 capital drop +1 beyond Lev tax. iter 2 v2 P-A T6/T10. **Investigation needed**: cast HA in unit test, assert opponent capital unchanged.
+27. **Trample inconsistent (partially on / partially off).** iter 2 v2 P-A T15: 7 face when expected 5 (no trample) or 9 (full trample). iter 2 v2 P-B T19: 0 face overflow when expected 2. The opt-in/opt-out toggle has at least one path that leaks. **Fix**: unit test trample edge cases (mutual-kill blocker, dies-to-overflow blocker, opt-in cards).
+28. **Dark Flow Engine cost reduction not applying.** Cast Crossed Market (cost 2) with DFE on board → mana went 10→8 (full cost paid). iter 2 v2 P-B T22. Same QUERY priority class as #19, OR `event.payload.get("object_id")` vs `"card_id"` filter mismatch. **Fix**: audit `_play_card_action` cost-deduction path; confirm QUERY_COST emission and DFE filter check.
+29. **CM and PFOF DP timing structurally wrong.** Their dark_effects fire on opponent's next TS but the effects only matter on controller's TS. CM "can't block this turn" useless on opp's TS (opp is attacking, not defending). PFOF "+1 Liquidity to me" useless on opp's TS (I can't cast). iter 3 v2 P-B T7, T8. **Fix**: rewrite DP timing to fire on controller's next TS, OR rewrite effects to be opponent-relevant on opp's TS.
+30. **`attack` command emits misleading "skipping illegal attackers" warning when attackers ARE accepted.** Stale state read produces wrong warning, but combat resolves correctly. iter 3 v2 P-A T11. **Fix**: suppress warning when subsequent state shows attackers in declared list. UX bug, no functional impact.
+
 ## Changelog
 
+- _2026-05-08 (v2 validation, all 3 matchups re-run post commit `94d9ac7`)_: 20-bug fix batch validated by 3 LLM-vs-LLM rematches. **15 of 20 bugs fully fixed**, 1 partial (#11 harness race recurrent as #23 block-window), 2 not fixed (#2 alpha asymmetry, #6 TDA), 4 not testable in v2. Iter 1 outcome unchanged (Quant favored, but HF much closer — 30→11 chip vs 30→18 in v1). **Iter 2 flipped to Derivatives 23T** (leverage tick math fix lets it survive). **Iter 3 flipped to Quant 15T** (walls hold, no Trader died; DA combo fires but can't outpace cascade). 10 NEW bugs added (#21-#30); 4 are same priority-mismatch class as #19 (HFT Feed Coloc, PCD lord toughness, Synthetic Collar, DFE cost reduction). Best validated fix: #15 (DP staging — every DP Order routed correctly across 5+ casts in iter 2 v2 P-B). v2 progression report: `logs/finance_ultra_loop_v2_summary.md`.
+- _2026-05-08 (iter-8 single, P2a iter-4)_: Derivatives vs Dark Arbitrage single-pilot game. **WON T11**; P1=22, P2=−3. First Derivatives win on record. Theta Decay Collar confirmed working (Σlev−1 net tick). Bug 19 scope narrowed to DA-specific cards in `dark_arbitrage.py` — Derivatives cards unaffected. DA AI deployed zero Leverage Traders (over-conservative `_expected_leverage_tax`). AI never blocked with SPB (2/4) vs 5-power attackers. Two encoder fixes applied: (1) DA leverage threshold relaxed to allow OEF/IBT when Σlev ≤ 2; (2) `_hard_blockers` pre-assigns high-toughness wall blockers. Pilot report: `logs/finance_ultra_iter4_single_pilot.md`.
+- _2026-05-08 (iter-7 single, P2a iter-5)_: Quant vs Derivatives single-pilot game. **WON T13**; P1=19, P2=0. First confirmed Quant vs Derivatives game. Wall-to-flood plan executed: Clerk T1, PT T5, PCD T7, CT+SRM T9, PCD2 T11, lethal 5-body wave T13. Key findings: Quant ~60-70% favored in this matchup; two-lord stack highly effective; Derivatives heuristic AI correctly managed leverage tick (no self-destruct); auto-attach confirmed for TDC (closed open question); Bug 1 (any-damage-kills) did NOT fire in this game; no new engine bugs. AI bias recommendations: Derivatives needs body-priority heuristic when trailing on Trader count, Delta Hedger should deploy earlier when counter-removers are active. Pilot report: `/tmp/finance_pilot_report_iter5.md`.
+- _2026-05-08 (iter-6 single, P2a iter-3)_: HF vs HF single-pilot game. **WON T11**; ME=10, AI=0. First pilot win in the HF mirror. Board flood + DMA same-turn spike with Bug 23 fixed was decisive: T9 4-body wave dealt 9 face (15→6), game closed T11 with 4-body wave. No new engine bugs. Key finding: DMA spike applies in multi-attack context (not solo-only); non-Trader spells = dead weight in mirror; optimal attack sequence confirmed. AI bias: `attack_threshold` nudged 0.0→0.05. Pilot report: `/tmp/finance_pilot_report.md` (archived `logs/finance_ultra_iter3_single_pilot.md`).
+- _2026-05-08 (iter-5 single, P2a iter-2)_: HF vs HF single-pilot game. **Lost T12**; ME=0, AI=~15. Board flood fully executed (8 Traders by T11) but multi-attack face damage collapsed to ~2 due to Bug 23 (harness `cmd_attack` overwrote `attackers_declared` on each sequential call). **Bug 23 FIXED**: `cmd_attack` now appends to attacker list instead of replacing. Smoke test passes. 1 NEW engine bug fixed. No AI bias changes (iter-4 changes settling). Pilot report: `logs/finance_ultra_iter2_single_pilot.md`.
+- _2026-05-08 (iter-4 single)_: HF vs HF single-pilot game (P2a iter-1). **Lost T12**; Pilot=0, AI=3. Mirror matchup confirms body-count > quality: AI 6 Traders beat pilot's DMA + 3 Traders. 2 NEW engine bugs added (Bug 21: DMA non-persistent static; Bug 22: QSB wrong target). AI bias updated: board_weight 0.3→0.4, capital_weight 0.5→0.4. HF encoder patches: mirror flood mode (≥4 opp bodies → flood), QSB targets highest-power Trader, DMA use-same-turn logic. Pilot report: `logs/finance_ultra_iter1_single_pilot.md`.
 - _2026-05-08 (iter-3)_: Quant vs Dark Arbitrage double-pilot game, P2 Dark Arbitrage won 20 turns (P1=−1, P2=10). **Both pilots agree on two structural findings**: (1) Dark Arbitrage's combo identity is COMPLETELY DEAD — staging path unwired in `_play_card_action` (engine bug 15), all 6 DP Orders are zero-effect; the deck wins on midrange goodstuff Trader chain (OEF/ICBT/DIP/HACC bodies). (2) Quant's wall identity is structurally invalid until engine bug 1 (any-damage-kills) is fixed; every 4-tough wall died to 1-3 damage when blocked. 6 NEW engine bugs added to punch list (15-20). Dark Arbitrage's "TENTATIVE" tag upgraded to "BROKEN — combo identity dead until DP staging fixed; functions as midrange goodstuff via Trader stat-lines". AI heuristic patches: prefer trader-count-aggro for Quant pilots when bug 1 active; prefer cantrip Orders over staged-DP Orders for Dark Arbitrage pilots until bug 15 fixed; declare alpha-strike-plus4 Traders FIRST in multi-attack to exploit alpha-asymmetry bug 18.
 - _2026-05-08 (iter-2)_: Derivatives vs Dark Arbitrage double-pilot game, P2 won 9 turns (P1=-4, P2=15). **Result is sparse strategic signal** — P1 self-destructed via Leverage Tick MC damage; P2 dealt zero combat damage. Derivatives deck identity reframed: leverage-counter-management, NOT auras-on-trader. Dark Arbitrage combo identity unverified (combo finishers never drawn). 5 NEW engine bugs added to punch list. AI heuristic added: `_expected_leverage_tax` — refuse to deploy Leverage Trader when projected MC tick would be lethal-range with no counter-removal source on board.
 - _2026-05-08 (iter-1)_: HF vs Quant double-pilot game, P2 Quant won 28 turns 0-16. Strategy lessons + engine punch list above. Format-level deck plans seeded for HF and Quant.
