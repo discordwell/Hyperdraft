@@ -906,6 +906,76 @@ NANOSECOND_ASSASSIN = make_trader(
 )
 
 
+# --- Capital Skimmer {2} 1/1 Trader ---
+# rebalance v2 (2026-05-09): seed for the burn archetype.  Prodigal-Sorcerer
+# pattern — chip burn each turn that scales with mana and can target the
+# opponent's Capital Reserve directly.  The {tap} cost prevents same-turn
+# attack-and-ping.
+def _capital_skimmer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Register the {tap}: 1 damage activated ability."""
+
+    def _resolve_target_id(targets: list) -> Optional[str]:
+        """Accept either a Target wrapper, a bare object id, or a player id."""
+        if not targets:
+            return None
+        first = targets[0]
+        if hasattr(first, "object_id"):
+            return first.object_id  # type: ignore[attr-defined]
+        if isinstance(first, str):
+            return first
+        if isinstance(first, list) and first:
+            return first[0]
+        return None
+
+    def effect_fn(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        target_id = _resolve_target_id(targets)
+        if target_id is None:
+            # No target chosen: auto-pick an opposing player (the most common
+            # finance.py burn-target convention — see Pre-Positioned Strike).
+            for pid, _player in st.players.items():
+                if pid != o.controller:
+                    target_id = pid
+                    break
+        if target_id is None:
+            return []
+        # DAMAGE event accepts both player ids and object ids in 'target'
+        # (see pipeline/handlers/damage.py::_handle_damage).  Player branch
+        # routes through the mode adapter's apply_player_damage so the
+        # Capital Reserve drops by 1.
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={
+                "target": target_id,
+                "amount": 1,
+                "source": o.id,
+                "is_finance": True,
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{T}",
+        effect_fn=effect_fn,
+        description="Deal 1 damage to target Trader or opponent.",
+        targets_required=1,
+        target_kind="trader_or_player",
+    )
+    return []
+
+
+CAPITAL_SKIMMER = make_trader(
+    "Capital Skimmer",
+    "{2}",
+    power=1,
+    toughness=1,
+    text="{T}: Deal 1 damage to target Trader or opponent.",
+    setup_interceptors=_capital_skimmer_setup,
+    rarity="uncommon",
+)
+
+
 # =============================================================================
 # ORDERS (9)
 # =============================================================================
@@ -1884,7 +1954,7 @@ SPEED_AMPLIFIER = make_derivative(
 # =============================================================================
 
 HIGH_FREQUENCY_CARDS: dict[str, CardDefinition] = {
-    # Traders (14)
+    # Traders (15) — rebalance v2: +1 (Capital Skimmer)
     "Flash Crash Bot":       FLASH_CRASH_BOT,
     "Retail Flow Chaser":    RETAIL_FLOW_CHASER,
     "Spoofing Algo":         SPOOFING_ALGO,
@@ -1899,6 +1969,7 @@ HIGH_FREQUENCY_CARDS: dict[str, CardDefinition] = {
     "Bandwidth Predator":    BANDWIDTH_PREDATOR,
     "Microwave Relay":       MICROWAVE_RELAY,
     "Nanosecond Assassin":   NANOSECOND_ASSASSIN,
+    "Capital Skimmer":       CAPITAL_SKIMMER,  # rebalance v2: burn-archetype seed
     # Orders (9)
     "Dark Pool Flash Order": DARK_POOL_FLASH_ORDER,
     "Sub-Penny Intercept":   SUB_PENNY_INTERCEPT,
@@ -1929,6 +2000,6 @@ HIGH_FREQUENCY_CARDS: dict[str, CardDefinition] = {
     "Speed Amplifier":        SPEED_AMPLIFIER,
 }
 
-assert len(HIGH_FREQUENCY_CARDS) == 37, (
-    f"Expected 37 HIGH-FREQUENCY cards, got {len(HIGH_FREQUENCY_CARDS)}"
+assert len(HIGH_FREQUENCY_CARDS) == 38, (
+    f"Expected 38 HIGH-FREQUENCY cards, got {len(HIGH_FREQUENCY_CARDS)}"
 )

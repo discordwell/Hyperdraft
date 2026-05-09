@@ -19,8 +19,12 @@ FINA_CARDS: dict = {
     **DARK_ARBITRAGE_CARDS,
 }
 
-assert len(FINA_CARDS) == 151, (  # rebalance: +1 — added Forced Liquidation (DA)
-    f"FINA set should have 151 cards, got {len(FINA_CARDS)}. "
+assert len(FINA_CARDS) == 156, (
+    # rebalance v2 (2026-05-09): +5 voltron-meta answers + burn seed:
+    #   - DERIVATIVES (+2): Position Audit, Liquidation Cascade
+    #   - DARK_ARBITRAGE (+2): Forced Unwinding, Margin Squeeze
+    #   - HIGH_FREQUENCY (+1): Capital Skimmer
+    f"FINA set should have 156 cards, got {len(FINA_CARDS)}. "
     f"HF={len(HIGH_FREQUENCY_CARDS)} DV={len(DERIVATIVES_CARDS)} "
     f"QT={len(QUANT_CARDS)} DA={len(DARK_ARBITRAGE_CARDS)}"
 )

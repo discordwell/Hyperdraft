@@ -993,6 +993,158 @@ FORCED_LIQUIDATION = make_order(
 )
 
 
+# Forced Unwinding {3} — Order. Asymmetric voltron-buster.
+# rebalance v2 (2026-05-09): voltron centralization ~89.8%; the format lacks a
+# detach-all answer.  Forced Unwinding strips every Derivative off opponent's
+# Traders and re-stages them on opponent's Derivatives Desk (room permitting).
+# The Derivatives are NOT destroyed — they're just unattached, so their
+# attached_to-driven QUERY_POWER buffs stop applying immediately.  Mirrors
+# Equipment-cleanup semantics already wired in finance.py.
+def _forced_unwinding_resolve(event: Event, state: GameState) -> list[Event]:
+    controller = event.payload.get("controller") or event.controller
+    if not controller:
+        return []
+
+    # Lazy import to avoid circular-import: dark_arbitrage.py is loaded during
+    # finance.py's setup (deck assembly) and finance.py imports this module.
+    from src.engine.finance import (
+        add_to_deriv_desk,
+        get_deriv_desk,
+        MAX_DERIV_DESK,
+    )
+
+    bf = state.zones.get("battlefield")
+    if not bf:
+        return []
+
+    # All opposing Traders that could host a Derivative.
+    opp_trader_ids: set[str] = set()
+    for oid in getattr(bf, "objects", []):
+        o = state.objects.get(oid)
+        if (o is not None
+                and o.controller != controller
+                and CardType.FIN_TRADER in o.characteristics.types):
+            opp_trader_ids.add(oid)
+
+    if not opp_trader_ids:
+        return []
+
+    # Detach every Derivative whose host is an opposing Trader.  Re-stage on
+    # the Derivative's *own controller's* Desk (= the opponent who lost the
+    # voltron stack).  Skip if the Desk is full — the Derivative still
+    # detaches (so the buff stops) but doesn't get re-staged.
+    detached_count = 0
+    for oid in list(state.objects.keys()):
+        o = state.objects.get(oid)
+        if o is None:
+            continue
+        if CardType.FIN_DERIVATIVE not in o.characteristics.types:
+            continue
+        host_id = getattr(o.state, "attached_to", None)
+        if host_id not in opp_trader_ids:
+            continue
+        # Detach.
+        o.state.attached_to = None
+        detached_count += 1
+        # Re-stage on the Derivative's controller's Desk if there's room.
+        desk = get_deriv_desk(state, o.controller)
+        if o.id not in desk and len(desk) < MAX_DERIV_DESK:
+            try:
+                add_to_deriv_desk(state, o.controller, o.id)
+            except ValueError:
+                pass  # Race-safe: desk was at cap; effect still detaches.
+
+    # Effect produces no further events (state mutated in-place).  Return an
+    # empty list so the resolve infrastructure sees a no-op cast that still
+    # routes the spell to the graveyard.  Detached_count is implicit in state.
+    _ = detached_count
+    return []
+
+
+FORCED_UNWINDING = make_order(
+    "Forced Unwinding", "{3}",
+    text=(
+        "Detach all Derivatives from Traders your opponent controls. "
+        "They return to that opponent's Derivatives Desk."
+    ),
+    rarity="uncommon",
+    resolve=_forced_unwinding_resolve,
+)
+
+
+# Margin Squeeze {2} — Order. Conditional destroy-Trader (only voltron hosts).
+# rebalance v2 (2026-05-09): cheap targeted answer to voltron — destroys a
+# Trader that has at least one attached Derivative.  Mirrors Block Trade Sweep
+# pricing (conditional removal at {2}; counterplay-costing memo benchmark).
+# Resolve must be a no-op if no valid target exists (no random pick, since
+# the answer is a *targeted* removal — cast must fail / waste mana).
+def _margin_squeeze_resolve(event: Event, state: GameState) -> list[Event]:
+    controller = event.payload.get("controller") or event.controller
+    if not controller:
+        return []
+
+    bf = state.zones.get("battlefield")
+    if not bf:
+        return []
+
+    # Helper: count Derivatives attached to a given Trader id.
+    def _attached_count(host_id: str) -> int:
+        return sum(
+            1 for o in state.objects.values()
+            if (CardType.FIN_DERIVATIVE in o.characteristics.types
+                and getattr(o.state, "attached_to", None) == host_id)
+        )
+
+    # Targeted form: prefer the explicit target_id wired by finance_turn.
+    target_id: str | None = event.payload.get("target_id")
+    if not target_id:
+        targets = event.payload.get("targets") or []
+        if targets:
+            first = targets[0]
+            if isinstance(first, str):
+                target_id = first
+            elif isinstance(first, list) and first:
+                target_id = first[0]
+
+    target_obj = state.objects.get(target_id) if target_id else None
+    valid = (
+        target_obj is not None
+        and target_obj.controller != controller
+        and CardType.FIN_TRADER in target_obj.characteristics.types
+        and _attached_count(target_obj.id) >= 1
+    )
+
+    # No-target fallback (AI passes []): pick the highest-attached opposing
+    # Trader so the AI can still cast it productively.  This mirrors
+    # Forced Liquidation's auto-pick behaviour.
+    if not valid:
+        candidates = [
+            o for oid in getattr(bf, "objects", [])
+            if (o := state.objects.get(oid))
+            and o.controller != controller
+            and CardType.FIN_TRADER in o.characteristics.types
+            and _attached_count(o.id) >= 1
+        ]
+        if not candidates:
+            # Cast fails: no valid voltron host on opponent's board.
+            return []
+        target_obj = max(candidates, key=lambda o: _attached_count(o.id))
+
+    return [Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={"object_id": target_obj.id, "reason": "margin_squeeze"},
+        source=event.payload.get("source_id", ""),
+    )]
+
+
+MARGIN_SQUEEZE = make_order(
+    "Margin Squeeze", "{2}",
+    text="Destroy target Trader with one or more attached Derivatives.",
+    rarity="uncommon",
+    resolve=_margin_squeeze_resolve,
+)
+
+
 # Crossed Market {2} — Dark Pool. When this triggers, target Trader cannot attack OR block this turn.
 # rebalance: effect upgrade — was can't-block-only; now can't-attack-or-block (can't-block useless when
 # the trigger fires on opponent's TS since opponent is attacking, not defending).
@@ -1829,11 +1981,13 @@ DARK_ARBITRAGE_CARDS: dict[str, CardDefinition] = {
     "Dark Inventory Position": DARK_INVENTORY_POSITION,
     "Crossing Network Pilot": CROSSING_NETWORK_PILOT,
     "Off-Exchange Finisher": OFF_EXCHANGE_FINISHER,
-    # --- ORDERS (10) ---  (rebalance: +1 — added Forced Liquidation)
+    # --- ORDERS (12) ---  (rebalance v2: +2 — added Forced Unwinding, Margin Squeeze)
     "Iceberg Order": ICEBERG_ORDER,
     "Off-Exchange Position": OFF_EXCHANGE_POSITION,
     "Block Trade Sweep": BLOCK_TRADE_SWEEP,
     "Forced Liquidation": FORCED_LIQUIDATION,  # rebalance: NEW {3} destroy-target-Trader
+    "Forced Unwinding": FORCED_UNWINDING,  # rebalance v2: detach-all-opp Derivatives
+    "Margin Squeeze": MARGIN_SQUEEZE,  # rebalance v2: {2} destroy-Trader-with-attached
     "Crossed Market": CROSSED_MARKET,
     "Hidden Aggression": HIDDEN_AGGRESSION,
     "Lit-Market Decoy": LIT_MARKET_DECOY,

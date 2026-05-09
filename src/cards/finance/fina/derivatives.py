@@ -2225,6 +2225,113 @@ SYNTHETIC_COLLAR = make_derivative(
 
 
 # =============================================================================
+# REBALANCE v2 (2026-05-09) — voltron-meta answers
+# =============================================================================
+# Position Audit + Liquidation Cascade: format-wide "destroy all/many Derivatives"
+# answers.  Voltron centralization measured at ~89.8%, so the format needs
+# Derivative-targeted sweepers/destroyers.  Symmetric (hits both sides) but
+# voltron decks are MUCH more invested in Derivatives than other archetypes,
+# so the destroy-all-Derivatives effect is asymmetric in practice.
+
+# 25. Position Audit {3} — Strategy. Destroy all Derivatives on the battlefield.
+def _position_audit_resolve(event: Event, state: GameState) -> list[Event]:
+    bf = state.zones.get("battlefield")
+    if not bf:
+        return []
+    events: list[Event] = []
+    source_id = event.payload.get("source_id", "") or ""
+    # Iterate every Derivative on the battlefield (attached or unattached,
+    # both players' Derivatives, both Desk-staged and host-attached).
+    for oid in list(getattr(bf, "objects", [])):
+        o = state.objects.get(oid)
+        if o is None:
+            continue
+        if CardType.FIN_DERIVATIVE not in o.characteristics.types:
+            continue
+        events.append(Event(
+            type=EventType.OBJECT_DESTROYED,
+            payload={"object_id": oid, "reason": "position_audit"},
+            source=source_id,
+        ))
+    return events
+
+
+POSITION_AUDIT = make_strategy(
+    "Position Audit",
+    "{3}",
+    text="Destroy all Derivatives on the battlefield (attached and unattached, both players').",
+    resolve=_position_audit_resolve,
+    rarity="rare",
+)
+
+
+# 26. Liquidation Cascade {4} — Strategy. Destroy up to 3 target Derivatives
+#     anywhere (attached or unattached, both players').
+#
+# NOTE on variable-cost: the original spec called for {X}+{2} where X is the
+# number of Derivatives to destroy. Finance engine supports CardDefinition
+# .dynamic_cost, BUT there is no machinery for the AI/pilot to *choose* X at
+# cast time — finance_adapter has no x_value path, no x_cost prompt.  The
+# user explicitly endorsed a fixed-cost {4} fallback (effectively X=2..3).
+# We pick {4} to destroy *up to 3* Derivatives — slightly more efficient
+# than 3× Volatility Crush ({3} of mana for 3 destroys vs. counterplay) but
+# still costed as a "moderate sweep" per the counterplay-costing memo.
+# Engine gap to revisit: x_value choice + x_cost prompt in finance_turn.
+def _liquidation_cascade_resolve(event: Event, state: GameState) -> list[Event]:
+    controller = event.payload.get("controller") or event.controller
+    bf = state.zones.get("battlefield")
+    if not bf:
+        return []
+
+    source_id = event.payload.get("source_id", "") or ""
+
+    # Collect candidate Derivatives.  Greedy auto-pick: prioritise
+    # opposing Derivatives over own, then attached over unattached
+    # (attached ones provide more value on the host so they're worth
+    # destroying first).  Cap at 3.
+    candidates = []
+    for oid in list(getattr(bf, "objects", [])):
+        o = state.objects.get(oid)
+        if o is None:
+            continue
+        if CardType.FIN_DERIVATIVE not in o.characteristics.types:
+            continue
+        candidates.append(o)
+
+    if not candidates:
+        return []
+
+    def _priority_key(o):
+        attached = 1 if getattr(o.state, "attached_to", None) else 0
+        is_opp = 1 if o.controller != controller else 0
+        # Sort descending by (is_opp, attached) so opp-attached come first.
+        return (-is_opp, -attached)
+
+    candidates.sort(key=_priority_key)
+    chosen = candidates[:3]
+
+    events: list[Event] = []
+    for o in chosen:
+        events.append(Event(
+            type=EventType.OBJECT_DESTROYED,
+            payload={"object_id": o.id, "reason": "liquidation_cascade"},
+            source=source_id,
+        ))
+    return events
+
+
+LIQUIDATION_CASCADE = make_strategy(
+    "Liquidation Cascade",
+    "{4}",
+    # NOTE: text reflects fixed-cost fallback.  Variable-cost {X}+{2} was the
+    # original spec; engine gap (no x_value path in finance) blocks it.
+    text="Destroy up to 3 target Derivatives (attached or unattached, both players').",
+    resolve=_liquidation_cascade_resolve,
+    rarity="rare",
+)
+
+
+# =============================================================================
 # Export dict
 # =============================================================================
 
@@ -2245,13 +2352,15 @@ DERIVATIVES_CARDS: dict[str, CardDefinition] = {
     "Leveraged Buyout Specialist": LEVERAGED_BUYOUT_SPECIALIST,
     "Exposure Manager": EXPOSURE_MANAGER,
     "Basis Trade Analyst": BASIS_TRADE_ANALYST,
-    # Strategies (6)
+    # Strategies (8) — rebalance v2: +2 (Position Audit, Liquidation Cascade)
     "Short Squeeze": SHORT_SQUEEZE,
     "Vega Spike": VEGA_SPIKE,
     "Margin Call": MARGIN_CALL,
     "Capital Call": CAPITAL_CALL,
     "Leveraged Buyout": LEVERAGED_BUYOUT,
     "Carry Trade": CARRY_TRADE,
+    "Position Audit": POSITION_AUDIT,         # rebalance v2: destroy-all-Derivatives
+    "Liquidation Cascade": LIQUIDATION_CASCADE,  # rebalance v2: destroy-up-to-3-Derivatives
     # Orders (4)
     "Volatility Crush": VOLATILITY_CRUSH,
     "Gamma Hedge": GAMMA_HEDGE,

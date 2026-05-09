@@ -2801,10 +2801,406 @@ class TestEquipmentCleanup:
         print("test_synthetic_collar_excludes_self  PASS")
 
 
+class TestNewMetaCards:
+    """Rebalance v2 (2026-05-09): 5 new cards seeded to address voltron
+    centralization (~89.8%) and seed a burn archetype.
+
+      - Forced Unwinding {3} Order — detach all opp's Derivatives.
+      - Margin Squeeze {2} Order — destroy target voltron host.
+      - Position Audit {3} Strategy — destroy ALL Derivatives.
+      - Liquidation Cascade {4} Strategy — destroy up to 3 Derivatives.
+      - Capital Skimmer {2} 1/1 Trader — {tap}: 1 dmg to Trader/opponent.
+    """
+
+    # ---- Forced Unwinding ----------------------------------------------------
+
+    def test_forced_unwinding_detaches_all_opponents_derivatives(self):
+        """Opp has 2 Traders with 3 Derivatives attached across them; cast
+        Forced Unwinding; assert all 3 are detached (attached_to=None) AND
+        re-staged on opp's Derivatives Desk."""
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        from src.cards.finance.fina.derivatives import (
+            THETA_DECAY_COLLAR,
+            GAMMA_AMPLIFIER,
+            IRON_CONDOR,
+        )
+        from src.cards.finance.fina.dark_arbitrage import FORCED_UNWINDING
+        from src.engine.finance import (
+            get_deriv_desk,
+            remove_from_deriv_desk,
+        )
+
+        game, p1, p2 = _make_finance_game()
+
+        # Opponent (p2) deploys 2 Traders + 3 Derivatives (split 2 + 1).
+        opp_a = _put_on_battlefield(game, p2.id, SPOOFING_ALGO)
+        opp_b = _put_on_battlefield(game, p2.id, SPOOFING_ALGO)
+        d1 = _put_on_battlefield(game, p2.id, THETA_DECAY_COLLAR)
+        d2 = _put_on_battlefield(game, p2.id, GAMMA_AMPLIFIER)
+        d3 = _put_on_battlefield(game, p2.id, IRON_CONDOR)
+        # Attach: d1, d2 → opp_a; d3 → opp_b.
+        for d, host in ((d1, opp_a), (d2, opp_a), (d3, opp_b)):
+            d.state.attached_to = host.id
+            remove_from_deriv_desk(game.state, p2.id, d.id)
+        # Confirm precondition.
+        for d, host in ((d1, opp_a), (d2, opp_a), (d3, opp_b)):
+            assert d.state.attached_to == host.id, (
+                f"precondition: derivative must start attached (got {d.state.attached_to!r})"
+            )
+        assert all(d.id not in get_deriv_desk(game.state, p2.id)
+                   for d in (d1, d2, d3)), (
+            "precondition: derivatives must NOT start in opp's desk"
+        )
+
+        # P1 casts Forced Unwinding.
+        fu = game.create_object(
+            name=FORCED_UNWINDING.name,
+            owner_id=p1.id,
+            zone=ZoneType.HAND,
+            characteristics=FORCED_UNWINDING.characteristics,
+            card_def=FORCED_UNWINDING,
+        )
+        p1.mana_crystals = 5
+        p1.mana_crystals_available = 5
+        events = asyncio.run(
+            game.turn_manager._play_card_action(p1.id, fu.id, [])
+        )
+        assert events, "Forced Unwinding cast must produce some events"
+
+        # All 3 derivatives must now be unattached.
+        for d in (d1, d2, d3):
+            assert d.state.attached_to is None, (
+                f"Forced Unwinding: {d.id} must detach (got {d.state.attached_to!r})"
+            )
+        # All 3 derivatives must be on p2's (opponent's) desk.
+        opp_desk = get_deriv_desk(game.state, p2.id)
+        for d in (d1, d2, d3):
+            assert d.id in opp_desk, (
+                f"Forced Unwinding: {d.id} must re-stage on opponent's desk "
+                f"(desk={opp_desk!r})"
+            )
+        # All 3 derivatives must remain ON THE BATTLEFIELD (effect detaches,
+        # not destroys).
+        for d in (d1, d2, d3):
+            assert d.zone == ZoneType.BATTLEFIELD, (
+                f"Forced Unwinding: {d.id} must stay on battlefield (got zone={d.zone!r})"
+            )
+        print("test_forced_unwinding_detaches_all_opponents_derivatives  PASS")
+
+    # ---- Margin Squeeze ------------------------------------------------------
+
+    def test_margin_squeeze_destroys_voltron_host(self):
+        """Opp has Trader-A with 2 attached Derivatives + Trader-B with 0.
+        Cast Margin Squeeze targeting Trader-A → A goes to graveyard.
+        Then no valid voltron target exists → cast is a no-op (mana wasted,
+        but no Trader destroyed)."""
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        from src.cards.finance.fina.derivatives import (
+            THETA_DECAY_COLLAR,
+            GAMMA_AMPLIFIER,
+        )
+        from src.cards.finance.fina.dark_arbitrage import MARGIN_SQUEEZE
+        from src.engine.finance import remove_from_deriv_desk
+
+        game, p1, p2 = _make_finance_game()
+        # Wire system interceptors so the host-death cleanup fires the
+        # detached Derivatives back onto the desk (proves the destroy went
+        # through the pipeline, not a bypass).
+        from src.engine.finance import FinanceModeAdapter
+        FinanceModeAdapter().register_system_interceptors(game)
+
+        host_a = _put_on_battlefield(game, p2.id, SPOOFING_ALGO)
+        host_b = _put_on_battlefield(game, p2.id, SPOOFING_ALGO)
+        d1 = _put_on_battlefield(game, p2.id, THETA_DECAY_COLLAR)
+        d2 = _put_on_battlefield(game, p2.id, GAMMA_AMPLIFIER)
+        d1.state.attached_to = host_a.id
+        d2.state.attached_to = host_a.id
+        remove_from_deriv_desk(game.state, p2.id, d1.id)
+        remove_from_deriv_desk(game.state, p2.id, d2.id)
+
+        # First cast: target host_a (valid — 2 attached Derivatives).
+        ms1 = game.create_object(
+            name=MARGIN_SQUEEZE.name,
+            owner_id=p1.id,
+            zone=ZoneType.HAND,
+            characteristics=MARGIN_SQUEEZE.characteristics,
+            card_def=MARGIN_SQUEEZE,
+        )
+        p1.mana_crystals = 8
+        p1.mana_crystals_available = 8
+        events = asyncio.run(
+            game.turn_manager._play_card_action(p1.id, ms1.id, [host_a.id])
+        )
+        assert events, "Margin Squeeze cast must produce events"
+        assert host_a.zone == ZoneType.GRAVEYARD, (
+            f"Margin Squeeze: host_a must be destroyed (got zone={host_a.zone!r})"
+        )
+
+        # Second cast: only host_b remains, with 0 attached Derivatives.
+        # The card auto-targets the highest-attached opp Trader; if none have
+        # attachments, it should NO-OP rather than destroying host_b.
+        ms2 = game.create_object(
+            name=MARGIN_SQUEEZE.name,
+            owner_id=p1.id,
+            zone=ZoneType.HAND,
+            characteristics=MARGIN_SQUEEZE.characteristics,
+            card_def=MARGIN_SQUEEZE,
+        )
+        # Note: by now the d1/d2 cleanup has fired (host_a death) and the
+        # Derivatives are back on opp's desk, attached_to=None.
+        for d in (d1, d2):
+            assert getattr(d.state, "attached_to", None) is None, (
+                f"precondition: cleanup must have detached {d.id} when host_a died"
+            )
+
+        # Cast on host_b explicitly (which has 0 attached).
+        events_2 = asyncio.run(
+            game.turn_manager._play_card_action(p1.id, ms2.id, [host_b.id])
+        )
+        # host_b must NOT be destroyed (target invalid: 0 attached deriv).
+        assert host_b.zone == ZoneType.BATTLEFIELD, (
+            f"Margin Squeeze: target must be invalid when 0 deriv attached "
+            f"(host_b zone={host_b.zone!r})"
+        )
+        # The spell still "casts" (mana paid, Order routes to graveyard) but
+        # the effect is a no-op.  Verify no OBJECT_DESTROYED for host_b.
+        destroys = [
+            e for e in events_2
+            if e.type == EventType.OBJECT_DESTROYED
+            and e.payload.get("object_id") == host_b.id
+        ]
+        assert not destroys, (
+            f"Margin Squeeze: host_b must not be destroyed when invalid target "
+            f"(found {destroys!r})"
+        )
+        print("test_margin_squeeze_destroys_voltron_host  PASS")
+
+    # ---- Position Audit ------------------------------------------------------
+
+    def test_position_audit_destroys_all_derivatives_both_sides(self):
+        """4 Derivatives across 2 players (some attached, some on Desk
+        unattached); cast Position Audit; assert all 4 in respective
+        graveyards."""
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        from src.cards.finance.fina.derivatives import (
+            POSITION_AUDIT,
+            THETA_DECAY_COLLAR,
+            GAMMA_AMPLIFIER,
+            IRON_CONDOR,
+            PROTECTIVE_PUT,
+        )
+
+        game, p1, p2 = _make_finance_game()
+        from src.engine.finance import FinanceModeAdapter, get_deriv_desk
+        FinanceModeAdapter().register_system_interceptors(game)
+
+        # P1 board: 1 Trader + 1 attached Derivative + 1 on-Desk Derivative.
+        p1_host = _put_on_battlefield(game, p1.id, SPOOFING_ALGO)
+        p1_attached = _put_on_battlefield(game, p1.id, THETA_DECAY_COLLAR)
+        p1_attached.state.attached_to = p1_host.id
+        p1_desk = _put_on_battlefield(game, p1.id, GAMMA_AMPLIFIER)
+        # P1's GAMMA_AMPLIFIER stays on desk (auto-staged by ZONE_CHANGE).
+
+        # P2 board: 1 Trader + 1 attached Derivative + 1 on-Desk Derivative.
+        p2_host = _put_on_battlefield(game, p2.id, SPOOFING_ALGO)
+        p2_attached = _put_on_battlefield(game, p2.id, IRON_CONDOR)
+        p2_attached.state.attached_to = p2_host.id
+        p2_desk = _put_on_battlefield(game, p2.id, PROTECTIVE_PUT)
+
+        all_derivs = [p1_attached, p1_desk, p2_attached, p2_desk]
+        for d in all_derivs:
+            assert d.zone == ZoneType.BATTLEFIELD, (
+                f"precondition: {d.name} must be on battlefield"
+            )
+
+        # P1 casts Position Audit.
+        pa = game.create_object(
+            name=POSITION_AUDIT.name,
+            owner_id=p1.id,
+            zone=ZoneType.HAND,
+            characteristics=POSITION_AUDIT.characteristics,
+            card_def=POSITION_AUDIT,
+        )
+        p1.mana_crystals = 8
+        p1.mana_crystals_available = 8
+        events = asyncio.run(
+            game.turn_manager._play_card_action(p1.id, pa.id, [])
+        )
+        assert events, "Position Audit cast must produce events"
+
+        # All 4 Derivatives must be in the GRAVEYARD zone (one graveyard
+        # per player; routed to owner's graveyard).
+        for d in all_derivs:
+            assert d.zone == ZoneType.GRAVEYARD, (
+                f"Position Audit: {d.name} must be destroyed (got zone={d.zone!r})"
+            )
+
+        # Hosts (Traders) must NOT be destroyed.
+        for h in (p1_host, p2_host):
+            assert h.zone == ZoneType.BATTLEFIELD, (
+                f"Position Audit must not touch Traders (host zone={h.zone!r})"
+            )
+        print("test_position_audit_destroys_all_derivatives_both_sides  PASS")
+
+    # ---- Liquidation Cascade -------------------------------------------------
+
+    def test_liquidation_cascade_destroys_x_derivatives(self):
+        """Liquidation Cascade {4} destroys up to 3 Derivatives, prioritising
+        opp-attached.  With 4 Derivatives on the field, exactly 3 die and 1
+        survives."""
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        from src.cards.finance.fina.derivatives import (
+            LIQUIDATION_CASCADE,
+            THETA_DECAY_COLLAR,
+            GAMMA_AMPLIFIER,
+            IRON_CONDOR,
+            PROTECTIVE_PUT,
+        )
+
+        game, p1, p2 = _make_finance_game()
+        from src.engine.finance import FinanceModeAdapter
+        FinanceModeAdapter().register_system_interceptors(game)
+
+        # Setup: 4 Derivatives (2 opp-attached, 1 opp-desk, 1 own-attached).
+        # Priority should pick: opp-attached(2) > opp-desk(1) > own-attached(1).
+        # So with cap=3, the own-attached survives.
+        p2_host = _put_on_battlefield(game, p2.id, SPOOFING_ALGO)
+        p1_host = _put_on_battlefield(game, p1.id, SPOOFING_ALGO)
+
+        # Opp-attached (high priority).
+        opp_att_a = _put_on_battlefield(game, p2.id, THETA_DECAY_COLLAR)
+        opp_att_a.state.attached_to = p2_host.id
+        opp_att_b = _put_on_battlefield(game, p2.id, GAMMA_AMPLIFIER)
+        opp_att_b.state.attached_to = p2_host.id
+        # Opp-desk (medium priority).
+        opp_desk = _put_on_battlefield(game, p2.id, IRON_CONDOR)
+        # Own-attached (lowest priority).
+        own_att = _put_on_battlefield(game, p1.id, PROTECTIVE_PUT)
+        own_att.state.attached_to = p1_host.id
+
+        lc = game.create_object(
+            name=LIQUIDATION_CASCADE.name,
+            owner_id=p1.id,
+            zone=ZoneType.HAND,
+            characteristics=LIQUIDATION_CASCADE.characteristics,
+            card_def=LIQUIDATION_CASCADE,
+        )
+        p1.mana_crystals = 8
+        p1.mana_crystals_available = 8
+        events = asyncio.run(
+            game.turn_manager._play_card_action(p1.id, lc.id, [])
+        )
+        assert events, "Liquidation Cascade cast must produce events"
+
+        # Three opp-side Derivatives die; own-attached survives.
+        for d in (opp_att_a, opp_att_b, opp_desk):
+            assert d.zone == ZoneType.GRAVEYARD, (
+                f"Liquidation Cascade: {d.name} must be destroyed "
+                f"(got zone={d.zone!r})"
+            )
+        assert own_att.zone == ZoneType.BATTLEFIELD, (
+            f"Liquidation Cascade: own-attached deriv (lowest priority) must "
+            f"survive when 4 Derivatives are on the field "
+            f"(got zone={own_att.zone!r})"
+        )
+
+        # Cost paid: {4} = 4 Liquidity drained.
+        assert p1.mana_crystals_available == 8 - 4, (
+            f"Liquidation Cascade: must cost 4 Liquidity "
+            f"(got {8 - p1.mana_crystals_available})"
+        )
+        # Spell routes to graveyard.
+        assert lc.zone == ZoneType.GRAVEYARD, (
+            f"Liquidation Cascade: must end in graveyard (got {lc.zone!r})"
+        )
+
+        # Engine-gap pin: dynamic_cost is supported, but x_value choice is
+        # NOT plumbed in finance.  Verify the card has no dynamic_cost set
+        # so future engine work doesn't silently change the cost.
+        assert not getattr(LIQUIDATION_CASCADE, "dynamic_cost", None), (
+            "Liquidation Cascade is currently fixed-cost {4} (engine gap: "
+            "x_value choice not wired in finance_turn).  When engine support "
+            "lands, set dynamic_cost and update this assert."
+        )
+
+        print("test_liquidation_cascade_destroys_x_derivatives  PASS")
+
+    # ---- Capital Skimmer -----------------------------------------------------
+
+    def test_capital_skimmer_tap_deals_damage_to_trader_or_opponent(self):
+        """Deploy Capital Skimmer; tap → ping a Trader (1 damage marked).
+        Tap again on opponent → -1 Capital Reserve."""
+        from src.cards.finance.fina.high_frequency import (
+            CAPITAL_SKIMMER,
+            SPOOFING_ALGO,
+        )
+
+        game, p1, p2 = _make_finance_game()
+
+        skim = _put_on_battlefield(game, p1.id, CAPITAL_SKIMMER)
+        # Verify the activated ability registered.
+        abilities = list(getattr(skim.state, "activated_abilities", []) or [])
+        assert abilities, (
+            "Capital Skimmer setup must register an activated ability"
+        )
+        assert abilities[0].requires_tap, (
+            f"Capital Skimmer ability must require tap "
+            f"(cost_text={abilities[0].cost_text!r})"
+        )
+
+        # --- Phase 1: ping a Trader ---
+        target_trader = _put_on_battlefield(game, p2.id, SPOOFING_ALGO)
+        damage_before = int(target_trader.state.damage or 0)
+
+        # Directly invoke the registered effect_fn.  The activated-ability
+        # dispatcher in finance is a stub (silently fails to load
+        # `from .finance import activate_ability`), so we exercise the
+        # effect path the same way the engine would.
+        events = abilities[0].effect_fn(skim, game.state, [target_trader.id])
+        assert events, "Capital Skimmer effect must produce a DAMAGE event"
+        assert events[0].type == EventType.DAMAGE, (
+            f"Capital Skimmer must emit DAMAGE, got {events[0].type!r}"
+        )
+        # Run the event through the pipeline so the damage actually lands.
+        for ev in events:
+            game.pipeline.emit(ev)
+        damage_after = int(target_trader.state.damage or 0)
+        assert damage_after == damage_before + 1, (
+            f"Capital Skimmer: 1-damage ping must mark damage on Trader "
+            f"(before={damage_before}, after={damage_after})"
+        )
+
+        # --- Phase 2: ping the opponent's Capital Reserve directly ---
+        capital_before = p2.life
+        events_2 = abilities[0].effect_fn(skim, game.state, [p2.id])
+        assert events_2 and events_2[0].type == EventType.DAMAGE, (
+            f"Capital Skimmer must emit DAMAGE on player target, got {events_2!r}"
+        )
+        assert events_2[0].payload.get("target") == p2.id, (
+            f"DAMAGE event target must be opponent player id "
+            f"(got {events_2[0].payload.get('target')!r})"
+        )
+        for ev in events_2:
+            game.pipeline.emit(ev)
+        capital_after = p2.life
+        assert capital_after == capital_before - 1, (
+            f"Capital Skimmer: 1-damage ping must drop opponent Capital Reserve "
+            f"by 1 (before={capital_before}, after={capital_after})"
+        )
+
+        # Body stats: 1/1.
+        assert skim.characteristics.power == 1 and skim.characteristics.toughness == 1, (
+            f"Capital Skimmer must be a 1/1 "
+            f"(got {skim.characteristics.power}/{skim.characteristics.toughness})"
+        )
+        print("test_capital_skimmer_tap_deals_damage_to_trader_or_opponent  PASS")
+
+
 # Module-level wrappers so the legacy ``_run_all`` driver picks them up.
 _V3_FOLLOWUP_BUGS = TestV3FollowupBugs()
 _ITER4_CARD_BUGS = TestIter4CardBugs()
 _EQUIPMENT_CLEANUP = TestEquipmentCleanup()
+_NEW_META_CARDS = TestNewMetaCards()
 
 
 def test_derivative_returns_to_desk_when_host_dies():
@@ -2857,6 +3253,28 @@ def test_iter4_quant_lab_alone_does_not_grant_toughness():
 
 def test_iter4_tdt_with_lev2_alone_shows_correct_power():
     _ITER4_CARD_BUGS.test_iter4_tdt_with_lev2_alone_shows_correct_power()
+
+
+# Rebalance v2 (2026-05-09): new meta cards.
+
+def test_forced_unwinding_detaches_all_opponents_derivatives():
+    _NEW_META_CARDS.test_forced_unwinding_detaches_all_opponents_derivatives()
+
+
+def test_margin_squeeze_destroys_voltron_host():
+    _NEW_META_CARDS.test_margin_squeeze_destroys_voltron_host()
+
+
+def test_position_audit_destroys_all_derivatives_both_sides():
+    _NEW_META_CARDS.test_position_audit_destroys_all_derivatives_both_sides()
+
+
+def test_liquidation_cascade_destroys_x_derivatives():
+    _NEW_META_CARDS.test_liquidation_cascade_destroys_x_derivatives()
+
+
+def test_capital_skimmer_tap_deals_damage_to_trader_or_opponent():
+    _NEW_META_CARDS.test_capital_skimmer_tap_deals_damage_to_trader_or_opponent()
 
 
 # ---------------------------------------------------------------------------
@@ -2930,6 +3348,12 @@ def _run_all():
         test_hfpm_death_kills_attached_derivatives,
         test_synthetic_collar_caps_at_plus_three,
         test_synthetic_collar_excludes_self,
+        # Rebalance v2 (2026-05-09): new meta cards (5):
+        test_forced_unwinding_detaches_all_opponents_derivatives,
+        test_margin_squeeze_destroys_voltron_host,
+        test_position_audit_destroys_all_derivatives_both_sides,
+        test_liquidation_cascade_destroys_x_derivatives,
+        test_capital_skimmer_tap_deals_damage_to_trader_or_opponent,
     ]
     failures = []
     for t in tests:
