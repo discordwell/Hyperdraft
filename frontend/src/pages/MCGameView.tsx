@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { MCGameBoard } from '../components/game/MCGameBoard';
+import { MCMulliganModal } from '../components/game/MCMulliganModal';
 import { useMinecraftGame } from '../hooks/useMinecraftGame';
 import { useGameStore } from '../stores/gameStore';
 import { matchAPI } from '../services/api';
@@ -32,6 +33,7 @@ export function MCGameView() {
     attack,
     declareBlockers,
     endTurn,
+    sendMulliganDecision,
     setError,
     error,
   } = useMinecraftGame();
@@ -75,8 +77,18 @@ export function MCGameView() {
     );
   }
 
+  const mulliganPrompt = gameState.minecraft_mulligan_pending?.[playerId];
+
   return (
     <div className="flex min-h-screen bg-slate-950">
+      {mulliganPrompt && (
+        <MCMulliganModal
+          prompt={mulliganPrompt}
+          hand={gameState.hand || []}
+          onKeep={() => sendMulliganDecision(true)}
+          onMulligan={() => sendMulliganDecision(false)}
+        />
+      )}
       <div className="min-w-0 flex-1">
         <MCGameBoard
           gameState={gameState}

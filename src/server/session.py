@@ -63,6 +63,7 @@ _YGO_ACTION_TYPES = frozenset({
 _MC_ACTION_TYPES = frozenset({
     "MC_PLAY_CARD", "MC_ASSIGN_WORKER", "MC_AVATAR_ACTION", "MC_EXPLORE_BIOME",
     "MC_DECLARE_ATTACKERS", "MC_DECLARE_BLOCKERS", "MC_END_TURN",
+    "MC_MULLIGAN_DECISION",
 })
 
 _FIN_ACTION_TYPES = frozenset({
@@ -114,6 +115,13 @@ class GameSession:
     _pending_choice_future: Optional[asyncio.Future] = None
     _pending_choice_player_id: Optional[str] = None
     _pending_choice_id: Optional[str] = None
+    # Pending Minecraft mulligan decisions, keyed by player_id. Multiple players
+    # are processed sequentially in setup_starting_hands, but the dict is the
+    # right shape if we ever parallelise.
+    _pending_mulligan_futures: dict[str, asyncio.Future] = field(default_factory=dict)
+    # Mirror of mulligan-prompt UI state, broadcast in get_client_state so the
+    # frontend can render the keep/mulligan buttons.
+    _mulligan_state: dict[str, dict] = field(default_factory=dict)
 
     # Game log (used by PKM/YGO modes)
     _game_log: list[GameLogEntry] = field(default_factory=list)
@@ -668,6 +676,7 @@ class GameSession:
             minecraft_grid=minecraft_grid,
             minecraft_combat=dict(game_state.minecraft_combat or {}),
             minecraft_exposed_targets=minecraft_exposed_targets,
+            minecraft_mulligan_pending=dict(self._mulligan_state),
             finance_phase=finance_phase,
             finance_dark_pool=finance_dark_pool_val,
             finance_turn_data=finance_turn_data_extra,
@@ -1765,13 +1774,25 @@ class GameSession:
         player_id: str,
         hand: list,
         mulligan_count: int
-    ) -> bool:
+    ):
         """
         Handler for mulligan decisions.
 
-        Uses smart logic: keep hands with 2-5 lands for aggro, 2-4 for control.
-        Returns True to keep, False to mulligan.
+        Returns either a bool (sync auto-keep / MTG heuristic) or an awaitable
+        coroutine (Minecraft human-driven flow that waits for a UI decision).
+
+        - Minecraft + connected human → returns coroutine, waits for client
+        - Minecraft + AI / disconnected human → True (auto-keep)
+        - Other modes → MTG land-count heuristic (existing behaviour)
         """
+        if self.game.state.game_mode == "minecraft":
+            if player_id in self.human_players and player_id in self.player_sockets:
+                # Coroutine: the engine awaits this and the UI resolves it.
+                return self._await_minecraft_mulligan_decision(player_id, mulligan_count)
+            # AI players (or humans with no live socket): auto-keep first hand.
+            return True
+
+        # Default: MTG-style land-count heuristic.
         # Always keep at 4+ mulligans (3 cards or fewer)
         if mulligan_count >= 4:
             return True
@@ -1796,6 +1817,63 @@ class GameSession:
 
         # Mulligan hands with 0-1 or 6+ lands
         return False
+
+    async def _await_minecraft_mulligan_decision(
+        self,
+        player_id: str,
+        mulligan_count: int,
+    ) -> bool:
+        """Async waiter for a human Minecraft mulligan decision.
+
+        Stages a mulligan-prompt entry on _mulligan_state, broadcasts the new
+        client state so the frontend can render the keep/mulligan buttons,
+        then awaits a future that handle_action resolves when the player picks.
+        Falls back to keep on timeout.
+        """
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future = loop.create_future()
+        self._pending_mulligan_futures[player_id] = future
+
+        # Cost of the NEXT mulligan, if the player chooses to mull again.
+        # Free mulligan #0 (count 0). Each mulligan after costs one card.
+        cost_for_next = max(0, mulligan_count)
+        # If the player keeps this hand right now, that's how many cards land
+        # on the bottom of their library: max(0, mulligan_count - 1).
+        cost_to_keep = max(0, mulligan_count - 1)
+        hand_size_after_keep = 6 - cost_to_keep
+
+        self._mulligan_state[player_id] = {
+            "mulligan_count": mulligan_count,
+            "hand_size_after_keep": hand_size_after_keep,
+            "cost_for_next": cost_for_next,
+        }
+
+        # Push current state to the client. They'll see the mulligan prompt.
+        if self.on_state_change:
+            try:
+                state = self.get_client_state(player_id)
+                await self.on_state_change(player_id, state.model_dump())
+            except Exception:
+                # Don't let serialization errors stall game start.
+                pass
+
+        try:
+            keep = await asyncio.wait_for(future, timeout=300.0)
+        except asyncio.TimeoutError:
+            keep = True  # Default: keep on timeout to avoid stalling
+
+        # Clear UI state and the future regardless of outcome.
+        self._pending_mulligan_futures.pop(player_id, None)
+        self._mulligan_state.pop(player_id, None)
+        return bool(keep)
+
+    def resolve_mulligan_decision(self, player_id: str, keep: bool) -> bool:
+        """Public hook used by mode adapters to resolve the pending future."""
+        future = self._pending_mulligan_futures.get(player_id)
+        if future is None or future.done():
+            return False
+        future.set_result(bool(keep))
+        return True
 
     def _get_variant_resources(self, player) -> dict[str, int]:
         """

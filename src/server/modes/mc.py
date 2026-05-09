@@ -71,6 +71,20 @@ class MinecraftModeAdapter(ModeAdapter):
             return {"action_type": "MC_END_TURN"}
 
     async def handle_action(self, session: "GameSession", request: "PlayerActionRequest") -> tuple[bool, str]:
+        # Mulligan decisions arrive during game setup, before any "active player"
+        # exists — short-circuit before the turn-order check.
+        if request.action_type == "MC_MULLIGAN_DECISION":
+            if request.keep is None:
+                return False, "MC_MULLIGAN_DECISION requires `keep` (true=keep, false=mulligan)"
+            ok = session.resolve_mulligan_decision(request.player_id, bool(request.keep))
+            if not ok:
+                return False, "No mulligan prompt is currently pending for this player"
+            # Push fresh state so the client clears the prompt UI immediately.
+            if session.on_state_change:
+                state = session.get_client_state(request.player_id)
+                await session.on_state_change(request.player_id, state.model_dump())
+            return True, "Mulligan decision accepted"
+
         active_player = session.game.get_active_player()
         combat = session.game.state.minecraft_combat or {}
         is_block_declaration = (

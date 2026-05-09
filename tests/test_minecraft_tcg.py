@@ -1772,3 +1772,188 @@ def test_passive_econ_worker_bonus_cap_pivots_off_workers():
     # Verify the preset itself documents the new knob.
     assert MC_BIAS_PRESETS["passive_econ"]["worker_bonus_cap"] == 2
     assert MC_BIAS_PRESETS["balanced"]["worker_bonus_cap"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Mulligan: first free, every additional one costs one card on bottom.
+# ---------------------------------------------------------------------------
+
+def _seed_minimal_library(game, player_id, count=20):
+    """Drop `count` cheap minecraft cards into player's library so draws and
+    bottom-of-library moves have enough material to operate on."""
+    cheap = MINECRAFT_CARDS["Zombie"]
+    for _ in range(count):
+        obj = game.create_object(
+            name=cheap.name,
+            owner_id=player_id,
+            zone=ZoneType.LIBRARY,
+            characteristics=cheap.characteristics,
+            card_def=cheap,
+        )
+        obj.controller = player_id
+
+
+def _run_setup(game, player_ids):
+    """Synchronously run the async adapter setup_starting_hands for tests."""
+    return asyncio.run(
+        game.mode_adapter.setup_starting_hands(game, player_ids)
+    )
+
+
+def test_minecraft_mulligan_no_handler_keeps_full_six():
+    # Default path (no handler attached): always keep on initial draw.
+    game = Game(mode="minecraft")
+    p1 = game.add_player("P1")
+    _seed_minimal_library(game, p1.id, 20)
+
+    _run_setup(game, [p1.id])
+
+    hand = game.state.zones[f"hand_{p1.id}"].objects
+    assert len(hand) == 6, f"Expected 6-card opening hand, got {len(hand)}"
+
+
+def test_minecraft_mulligan_one_free_costs_zero_cards():
+    # First mulligan is free — final hand still has 6 cards, no cards on
+    # bottom of library beyond what was there.
+    game = Game(mode="minecraft")
+    p1 = game.add_player("P1")
+    _seed_minimal_library(game, p1.id, 20)
+    library_size_before = len(game.state.zones[f"library_{p1.id}"].objects)
+
+    decisions = iter([False, True])  # mulligan once, then keep
+    game.set_mulligan_handler(lambda pid, hand, count: next(decisions))
+
+    _run_setup(game, [p1.id])
+
+    hand = game.state.zones[f"hand_{p1.id}"].objects
+    library = game.state.zones[f"library_{p1.id}"].objects
+    assert len(hand) == 6, f"After 1 free mulligan, hand should be 6, got {len(hand)}"
+    assert len(hand) + len(library) == library_size_before, \
+        "All cards still accounted for; no cards leaked"
+
+
+def test_minecraft_mulligan_second_costs_one_card():
+    # Second mulligan costs 1 card on bottom — final hand should be 5.
+    game = Game(mode="minecraft")
+    p1 = game.add_player("P1")
+    _seed_minimal_library(game, p1.id, 20)
+
+    decisions = iter([False, False, True])  # two mulls, then keep
+    game.set_mulligan_handler(lambda pid, hand, count: next(decisions))
+
+    _run_setup(game, [p1.id])
+
+    hand = game.state.zones[f"hand_{p1.id}"].objects
+    assert len(hand) == 5, f"After 2 mulligans (1 free + 1 paid), hand should be 5, got {len(hand)}"
+
+
+def test_minecraft_mulligan_third_costs_two_cards():
+    # Three mulligans → 2 cards on bottom → final hand 4.
+    game = Game(mode="minecraft")
+    p1 = game.add_player("P1")
+    _seed_minimal_library(game, p1.id, 20)
+
+    decisions = iter([False, False, False, True])  # three mulls, then keep
+    game.set_mulligan_handler(lambda pid, hand, count: next(decisions))
+
+    _run_setup(game, [p1.id])
+
+    hand = game.state.zones[f"hand_{p1.id}"].objects
+    assert len(hand) == 4, f"After 3 mulligans, hand should be 4, got {len(hand)}"
+
+
+def test_minecraft_mulligan_decision_count_is_zero_indexed():
+    # The handler should receive mulligan_count starting at 0 for the first
+    # decision (initial 6-card hand), then 1, 2, ... for each subsequent.
+    game = Game(mode="minecraft")
+    p1 = game.add_player("P1")
+    _seed_minimal_library(game, p1.id, 20)
+
+    seen_counts = []
+
+    def handler(pid, hand, count):
+        seen_counts.append(count)
+        return count >= 2  # mulligan twice, keep on third
+
+    game.set_mulligan_handler(handler)
+    _run_setup(game, [p1.id])
+
+    assert seen_counts == [0, 1, 2], \
+        f"Handler should see counts [0, 1, 2], got {seen_counts}"
+    # And final hand has 5 cards (2 mulls = 1 free + 1 paid).
+    assert len(game.state.zones[f"hand_{p1.id}"].objects) == 5
+
+
+def test_minecraft_mulligan_session_flow_human_keeps_after_one_mull():
+    # End-to-end session test: a human player takes a free mulligan, then
+    # keeps. Verifies the future-based prompt flow, MC_MULLIGAN_DECISION
+    # routing, and mulligan_state population for the client UI.
+    import asyncio as _asyncio
+    from src.server.session import GameSession
+    from src.server.models import PlayerActionRequest, ActionType
+
+    async def run():
+        game = Game(mode="minecraft")
+        p1 = game.add_player("Human")
+        p2 = game.add_player("Bot")
+        for pid in [p1.id, p2.id]:
+            for _ in range(20):
+                game.add_card_to_library(pid, MINECRAFT_CARDS["Zombie"])
+
+        session = GameSession(id="t-mull", game=game, mode="human_vs_bot")
+        session.player_ids = [p1.id, p2.id]
+        session.player_names = {p1.id: "Human", p2.id: "Bot"}
+        session.human_players.add(p1.id)
+        session.player_sockets[p1.id] = "stub"
+        game.set_ai_player(p2.id)
+        # Stub the on_state_change broadcaster (engine awaits it).
+        async def push_state(_pid, _state):
+            return None
+        session.on_state_change = push_state
+
+        setup_task = _asyncio.create_task(
+            game.mode_adapter.setup_starting_hands(game, [p1.id, p2.id])
+        )
+
+        # Wait for the human to be prompted.
+        for _ in range(40):
+            await _asyncio.sleep(0.01)
+            if p1.id in session._pending_mulligan_futures:
+                break
+        assert p1.id in session._pending_mulligan_futures
+        assert session._mulligan_state[p1.id]["mulligan_count"] == 0
+        assert session._mulligan_state[p1.id]["hand_size_after_keep"] == 6
+
+        # Take the free mulligan.
+        ok, _msg = await session.handle_action(PlayerActionRequest(
+            action_type=ActionType.MC_MULLIGAN_DECISION,
+            player_id=p1.id,
+            keep=False,
+        ))
+        assert ok
+
+        # Wait for the next prompt (cost_for_next now 1).
+        for _ in range(40):
+            await _asyncio.sleep(0.01)
+            if p1.id in session._pending_mulligan_futures:
+                break
+        assert session._mulligan_state[p1.id]["mulligan_count"] == 1
+        assert session._mulligan_state[p1.id]["cost_for_next"] == 1
+
+        # Keep this hand.
+        ok, _msg = await session.handle_action(PlayerActionRequest(
+            action_type=ActionType.MC_MULLIGAN_DECISION,
+            player_id=p1.id,
+            keep=True,
+        ))
+        assert ok
+        await _asyncio.wait_for(setup_task, timeout=2.0)
+
+        # Free mulligan → hand still 6; AI auto-kept its first hand.
+        assert len(game.state.zones[f"hand_{p1.id}"].objects) == 6
+        assert len(game.state.zones[f"hand_{p2.id}"].objects) == 6
+        # Mulligan UI state cleared after final decision.
+        assert p1.id not in session._mulligan_state
+        assert p1.id not in session._pending_mulligan_futures
+
+    _asyncio.run(run())

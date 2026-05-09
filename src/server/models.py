@@ -81,6 +81,7 @@ class ActionType(str, Enum):
     MC_DECLARE_ATTACKERS = "MC_DECLARE_ATTACKERS"
     MC_DECLARE_BLOCKERS = "MC_DECLARE_BLOCKERS"
     MC_END_TURN = "MC_END_TURN"
+    MC_MULLIGAN_DECISION = "MC_MULLIGAN_DECISION"
     # Finance TCG action types
     FIN_PLAY_CARD = "FIN_PLAY_CARD"
     FIN_DECLARE_ATTACKERS = "FIN_DECLARE_ATTACKERS"
@@ -139,6 +140,7 @@ class PlayerActionRequest(BaseModel):
     biome_index: Optional[int] = Field(default=None, description="Minecraft biome slot index")
     action_kind: Optional[str] = Field(default=None, description="Minecraft avatar action kind")
     target_column: Optional[int] = Field(default=None, description="Minecraft column index for column-based attacks")
+    keep: Optional[bool] = Field(default=None, description="Mulligan decision: True to keep current hand, False to mulligan")
 
 
 class StartBotGameRequest(BaseModel):
@@ -399,6 +401,10 @@ class GameStateResponse(BaseModel):
     minecraft_grid: dict[str, list[list[Optional[CardData]]]] = Field(default_factory=dict)
     minecraft_combat: dict = Field(default_factory=dict)
     minecraft_exposed_targets: dict[str, list[str]] = Field(default_factory=dict)
+    # Mulligan prompt state. Non-empty only while a Minecraft player is being asked to keep
+    # or mulligan. Keyed by player_id; absent when no decision is pending.
+    # Shape: { mulligan_count: int, hand_size_after_keep: int, cost_for_next: int }
+    minecraft_mulligan_pending: dict[str, dict] = Field(default_factory=dict)
     # Finance TCG state
     finance_phase: Optional[str] = None
     finance_dark_pool: Optional[str] = None

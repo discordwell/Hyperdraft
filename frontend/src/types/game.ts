@@ -48,6 +48,7 @@ export type ActionType =
   | 'MC_DECLARE_ATTACKERS'
   | 'MC_DECLARE_BLOCKERS'
   | 'MC_END_TURN'
+  | 'MC_MULLIGAN_DECISION'
   | 'DEPTHS_PLAY_CARD'
   | 'DEPTHS_DIVE'
   | 'DEPTHS_SURFACE'
@@ -327,6 +328,14 @@ export interface GameState {
   minecraft_grid?: Record<string, (CardData | null)[][]>;
   minecraft_combat?: Record<string, unknown>;
   minecraft_exposed_targets?: Record<string, string[]>;
+  minecraft_mulligan_pending?: Record<
+    string,
+    {
+      mulligan_count: number;
+      hand_size_after_keep: number;
+      cost_for_next: number;
+    }
+  >;
   // Depths (submarine fleet) state
   depths_phase?: string;
   depths_combat?: {
@@ -374,6 +383,8 @@ export interface PlayerActionRequest {
   cell?: { x: number; y: number };
   biome_index?: number;
   action_kind?: string;
+  // Minecraft mulligan
+  keep?: boolean;
   // Depths-specific
   depth_band?: string;
   vessel_id?: string;

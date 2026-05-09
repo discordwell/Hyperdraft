@@ -27,6 +27,7 @@ export function useMinecraftGame() {
       attackers?: { attacker_id: string; target_id?: string; target_column?: number }[];
       blockers?: { attacker_id: string; blocker_id: string }[];
       targetColumn?: number;
+      keep?: boolean;
     } = {},
   ) => {
     if (!playerId || !matchId) return;
@@ -42,6 +43,7 @@ export function useMinecraftGame() {
       attackers: opts.attackers || [],
       blockers: opts.blockers || [],
       target_column: opts.targetColumn,
+      keep: opts.keep,
     };
     try {
       const result = await matchAPI.submitAction(matchId, request);
@@ -157,6 +159,11 @@ export function useMinecraftGame() {
 
   const endTurn = useCallback(() => sendMCAction('MC_END_TURN'), [sendMCAction]);
 
+  const sendMulliganDecision = useCallback(
+    (keep: boolean) => sendMCAction('MC_MULLIGAN_DECISION', { keep }),
+    [sendMCAction],
+  );
+
   return {
     gameState,
     matchId,
@@ -179,6 +186,7 @@ export function useMinecraftGame() {
     attack,
     declareBlockers,
     endTurn,
+    sendMulliganDecision,
     setError,
     error: store.ui.error,
   };

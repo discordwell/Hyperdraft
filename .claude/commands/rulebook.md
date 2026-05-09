@@ -114,14 +114,22 @@ Create tasks, then spawn all three in a **single message** with three Agent tool
 
 This stage runs **after** all three agents return. Synthesize their output yourself (no additional agents needed).
 
-### 2a. Cross-check docs vs code
+### 2a. Cross-check docs vs code, then FIX what you find
 
 Compare Agent A (documented rules) vs Agent B (code-derived rules). For each discrepancy, classify:
 - **MINOR** — trivial difference, doesn't affect gameplay description
 - **MAJOR** — material rule difference (a phase doc describes that code skips, a win condition that differs)
 - **UNDOCUMENTED** — code implements something not mentioned in any doc
 
-Accumulate these into a "Rules Audit" list for the rulebook appendix.
+**Per project CLAUDE.md, fix the bugs you find before continuing.** When a discrepancy reveals a real bug:
+- Fix the bug (in code, docs, or both as appropriate).
+- Add a regression test for fixes that touched code.
+- Re-run the relevant test suite.
+- The rulebook should describe how the game actually works *after* the fixes.
+
+**Always keep an internal audit log** of every discrepancy you found, what category, and what action you took (fixed in commit X / added test Y / left for follow-up because Z). This log feeds Stage 6's report to the user.
+
+The audit log is a development artefact — it does **not** belong in the rulebook. The rulebook is a player-facing reference; engineers and the project owner see the discrepancy list via the Stage 6 conversation summary instead. Never emit a "Rules Audit" section in the HTML/PDF.
 
 ### 2b. Write the full rulebook content
 
@@ -177,16 +185,13 @@ Use engaging, flavor-appropriate prose — not dry technical writing. Write for 
    - Organized by type, then alphabetically
    - Each row: Name | Type | Cost/Stats | Rules Text
 
-10. RULES AUDIT (appendix)
-    - The discrepancy list from 2a
-    - MINOR items in a footnote section
-    - MAJOR / UNDOCUMENTED items flagged clearly
-
-11. QUICK REFERENCE (back cover)
+10. QUICK REFERENCE (back cover)
     - Turn order cheat sheet
     - Resource reference
     - Common timing Q&A (3-5 entries)
 ```
+
+(No audit appendix in the book itself — discrepancies go in the Stage 6 conversation report instead.)
 
 ---
 
@@ -323,7 +328,12 @@ Tell the user:
 - **HTML source**: `docs/rulebooks/<game>_rulebook.html`
 - **Assets**: list which screenshots were captured vs generated as placeholders
 - **Card count**: how many cards appear in the gallery
-- **Rules audit**: N total discrepancies — X MINOR, Y MAJOR, Z UNDOCUMENTED. If any MAJOR discrepancies exist, name them.
+- **Discrepancies found in 2a (chat-only — NOT in the book)**: emit the full audit log here as a table or bulleted list. For each item:
+    - Category (MINOR / MAJOR / UNDOCUMENTED)
+    - One-line description
+    - Action taken (fixed in code / fixed in docs / regression test added / left for follow-up because…)
+    - File or test reference
+  This is the project owner's bug report. If the audit found nothing, say "no discrepancies found between docs and code — the rulebook matches the engine 1:1."
 - **Outstanding**: any stages that fell back to a less-preferred method
 
 Do NOT commit. The user will type `commit` when ready.

@@ -276,19 +276,6 @@
     .biome-table td { padding: 0.3rem 0.7rem; border-bottom: 1px solid #1a1a1a; }
     .biome-table tr:nth-child(even) { background: var(--bg-light); }
 
-    /* ─── Audit appendix ─── */
-    .audit-item { margin: 0.5rem 0; padding: 0.5rem 0.8rem; background: var(--bg-card); border-left: 3px solid var(--stone); }
-    .audit-item.minor   { border-left-color: var(--stone); }
-    .audit-item.major   { border-left-color: var(--red); }
-    .audit-item.undoc   { border-left-color: var(--gold); }
-    .badge {
-      display: inline-block; font-size: 0.7rem; padding: 0 0.4rem;
-      border-radius: 1px; margin-right: 0.4rem; vertical-align: middle;
-    }
-    .badge.minor   { background: var(--stone);  color: #fff; }
-    .badge.major   { background: var(--red);    color: #fff; }
-    .badge.undoc   { background: var(--gold);   color: #000; }
-
     /* ─── Screenshot images ─── */
     .screenshot {
       width: 100%;
@@ -356,8 +343,7 @@
     <li><a href="#winning"><span class="toc-num">VII.</span> Winning &amp; Losing</a></li>
     <li><a href="#mechanics"><span class="toc-num">VIII.</span> Special Mechanics</a></li>
     <li><a href="#gallery"><span class="toc-num">IX.</span> Card Gallery</a></li>
-    <li><a href="#audit"><span class="toc-num">X.</span> Rules Audit (Appendix)</a></li>
-    <li><a href="#quickref"><span class="toc-num">XI.</span> Quick Reference</a></li>
+    <li><a href="#quickref"><span class="toc-num">X.</span> Quick Reference</a></li>
   </ol>
 </div>
 
@@ -510,8 +496,19 @@
   both players draw 1 card at the start of their first turn.</p>
 
   <div class="infobox gold">
-    <div class="infobox-title">💡 No Mulligan</div>
-    Minecraft TCG has no mulligan. Your opening 6-card hand is fixed — what you draw is what you play with.
+    <div class="infobox-title">💡 Mulligan — First Free, Then Pay One</div>
+    <p style="margin-bottom: 0.5rem;">After drawing your opening hand, you may shuffle it back and redraw 6 fresh cards. <strong>Your first mulligan is free.</strong> Every subsequent mulligan permanently costs one card from your kept hand — placed on the bottom of your library (highest-cost cards first by default).</p>
+    <table class="biome-table" style="margin-top: 0.6rem;">
+      <thead><tr><th>Mulligans Taken</th><th>Cards Paid (to bottom of library)</th><th>Final Hand Size</th></tr></thead>
+      <tbody>
+        <tr><td>0 (kept first hand)</td><td>0</td><td>6</td></tr>
+        <tr><td>1 (one free)</td><td>0</td><td>6</td></tr>
+        <tr><td>2</td><td>1</td><td>5</td></tr>
+        <tr><td>3</td><td>2</td><td>4</td></tr>
+        <tr><td>4</td><td>3</td><td>3</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top: 0.5rem; margin-bottom: 0;">In code: cost = max(0, mulligan_count − 1). Maximum 7 mulligans (safety cap).</p>
   </div>
 </div>
 
@@ -1196,70 +1193,10 @@
 <div class="divider"></div>
 
 <!-- ══════════════════════════════════════════════════════════
-     SECTION X — RULES AUDIT
-══════════════════════════════════════════════════════════ -->
-<div class="section page-break" id="audit">
-  <h2>X. Rules Audit</h2>
-  <p style="color:var(--text-dim); font-size:0.88rem; margin-bottom:1.2rem;">
-    Cross-reference between documentation and code, generated at rulebook creation time.
-    MINOR items are cosmetic; MAJOR items affect gameplay; UNDOCUMENTED items are in code but not described in any doc.
-  </p>
-
-  <p style="color: var(--text-dim); font-size:0.9rem;">
-    All audit items from the previous edition have been resolved. The list below documents
-    each fix and points to the regression test or commit that locks it in.
-  </p>
-
-  <div class="audit-item undoc" style="border-left-color: var(--green);">
-    <span class="badge" style="background: var(--green); color: #000;">FIXED</span>
-    <strong>Village Reinforcements lands the Village Guard</strong><br>
-    Earlier playtesting (iter-7) suggested the 2/3 Village Guard token might not appear after casting. Verified end-to-end: a regression test (<code>test_village_reinforcements_full_play_lands_guard</code>) drives the action through <code>play_card</code> and asserts a 2/3 Villager-subtype mob on the battlefield. Behaviour is correct.
-  </div>
-
-  <div class="audit-item undoc" style="border-left-color: var(--green);">
-    <span class="badge" style="background: var(--green); color: #000;">FIXED</span>
-    <strong>Frontend grid now labelled "Your 3×3 Base" with 3 columns</strong><br>
-    Previously the React component was hard-coded to <code>grid-cols-4</code> and titled "Your 4×4 Base", contradicting the engine's 3×3 design. <code>MCGameBoard.tsx</code> now uses <code>grid-cols-3</code> and the matching label.
-  </div>
-
-  <div class="audit-item undoc">
-    <span class="badge undoc">DOCUMENTED</span>
-    <strong>Compleated upkeep tax</strong><br>
-    Each turn-start, every Compleated Mob you control deals 1 damage to your own Avatar. This is the balancing cost for Compleated lord bonuses and is now described in Section IV (Turn Start) and Section VIII (Compleation).
-  </div>
-
-  <div class="audit-item undoc">
-    <span class="badge undoc">DOCUMENTED</span>
-    <strong>Auto-block fallback logic</strong><br>
-    If the defending player has no AI handler attached, the engine's <code>auto_blockers()</code> heuristic assigns blockers automatically. Mostly relevant in AI-vs-AI sandboxes — described in Section IV (Combat) for completeness.
-  </div>
-
-  <div class="audit-item undoc">
-    <span class="badge undoc">DOCUMENTED</span>
-    <strong>Deathrattle vs. token resolution order</strong><br>
-    Creeper-style deathrattles ("deal 3 to frontmost in column") resolve before tokens spawned in the same death event claim the frontmost position. This matters for Endermite Cluster + Creeper interactions and is now described under Deathrattle in Section VIII.
-  </div>
-
-  <div class="audit-item undoc" style="border-left-color: var(--green);">
-    <span class="badge" style="background: var(--green); color: #000;">CLARIFIED</span>
-    <strong>No turn cap in the rules engine</strong><br>
-    Earlier strategy notes referenced a "35-turn cap" — that figure was a tournament-harness <code>max_turns</code> parameter, not a game rule. Removing the claim from the rulebook. Games end on Avatar lethal or Phyrexian Compleation; there is no built-in turn limit.
-  </div>
-
-  <div class="audit-item undoc" style="border-left-color: var(--green);">
-    <span class="badge" style="background: var(--green); color: #000;">CLARIFIED</span>
-    <strong>No mulligan</strong><br>
-    Earlier rulebook draft suggested an optional free mulligan as a house rule. The engine has no mulligan path for Minecraft, so the suggestion has been removed. The starting hand of 6 is final.
-  </div>
-</div>
-
-<div class="divider"></div>
-
-<!-- ══════════════════════════════════════════════════════════
-     SECTION XI — QUICK REFERENCE
+     SECTION X — QUICK REFERENCE
 ══════════════════════════════════════════════════════════ -->
 <div class="section page-break" id="quickref">
-  <h2>XI. Quick Reference</h2>
+  <h2>X. Quick Reference</h2>
 
   <div class="cheatsheet">
     <div style="font-family:'VT323',monospace; font-size:1.8rem; color:var(--green); margin-bottom:0.8rem;">▌ TURN ORDER</div>

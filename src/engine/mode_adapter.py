@@ -737,9 +737,73 @@ class MinecraftModeAdapter(GameModeAdapter):
         return MinecraftTurnManager(state)
 
     async def setup_starting_hands(self, game, player_ids):
+        # Minecraft mulligan: the first mulligan is free; each subsequent
+        # mulligan permanently costs one card from the kept hand (placed on
+        # bottom of library after the player commits). Total cards on bottom
+        # after taking N mulligans = max(0, N - 1).
+        #
+        # Decision protocol mirrors the existing MTG handler signature:
+        #   game.get_mulligan_decision(player_id, hand, mulligan_count) -> bool
+        #   (True = keep this hand, False = mulligan again)
+        # If no handler is attached, the player auto-keeps on the initial
+        # draw (count 0) — used by AI-only games and test scaffolds where
+        # no human is making the decision.
+        import inspect
+        handler = game.get_mulligan_decision
+        max_mulligans = 7
+        starting_hand = 6
+
         for player_id in player_ids:
-            game.draw_cards(player_id, 6)
+            mulligan_count = 0
+            game.draw_cards(player_id, starting_hand)
+
+            while mulligan_count < max_mulligans:
+                hand = game.get_hand(player_id)
+                if handler:
+                    result = handler(player_id, hand, mulligan_count)
+                    keep = await result if inspect.isawaitable(result) else result
+                else:
+                    keep = True
+                if keep:
+                    cost = max(0, mulligan_count - 1)
+                    if cost > 0:
+                        self._mc_put_cards_on_bottom(game, player_id, cost)
+                    break
+                game._shuffle_hand_into_library(player_id)
+                mulligan_count += 1
+                game.draw_cards(player_id, starting_hand)
+
         return True
+
+    @staticmethod
+    def _mc_put_cards_on_bottom(game, player_id: str, count: int) -> None:
+        # Minecraft-flavoured bottom selector: prefers to bottom the highest
+        # total-material cost cards (the "bricks") so the kept hand skews
+        # toward affordable openers. Falls back to FIFO if cost is missing.
+        from .types import ZoneType  # local import keeps adapter lean
+        hand = game.state.zones.get(f"hand_{player_id}")
+        library = game.state.zones.get(f"library_{player_id}")
+        if not hand or not library or count <= 0:
+            return
+
+        def total_cost(card_id: str) -> int:
+            obj = game.state.objects.get(card_id)
+            if not obj or not obj.card_def:
+                return 0
+            mc_cost = getattr(obj.card_def, "mc_cost", None) or {}
+            return sum(int(v or 0) for v in mc_cost.values())
+
+        # Sort hand IDs by cost descending (highest cost first → bottom first).
+        sorted_ids = sorted(list(hand.objects), key=total_cost, reverse=True)
+        to_bottom = sorted_ids[:count]
+        for oid in to_bottom:
+            obj = game.state.objects.get(oid)
+            if oid in hand.objects:
+                hand.objects.remove(oid)
+            library.objects.append(oid)
+            if obj:
+                obj.zone = ZoneType.LIBRARY
+                obj.entered_zone_at = game.state.timestamp
 
     def apply_player_damage(self, player, amount, state):
         # Avatar armor reduces incoming player damage while equipped.
