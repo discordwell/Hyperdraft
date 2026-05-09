@@ -529,7 +529,7 @@ def _off_exchange_operative_setup(obj: GameObject, state: GameState) -> list[Int
     ]
 
 OFF_EXCHANGE_OPERATIVE = make_trader(
-    "Off-Exchange Operative", "{3}", 3, 3,
+    "Off-Exchange Operative", "{3}", 3, 4,  # rebalance: dead-card repair toughness 3 → 4 (Lev1+Arb1 self-tax punishes 3/3 too much)
     text="Leverage 1. Arbitrage 1.",
     setup_interceptors=_off_exchange_operative_setup,
 )
@@ -826,7 +826,7 @@ def _crossing_network_pilot_setup(obj: GameObject, state: GameState) -> list[Int
     ]
 
 CROSSING_NETWORK_PILOT = make_trader(
-    "Crossing Network Pilot", "{4}", 3, 3,  # balanced: power 4 → 3 (4+ power FIN_TRADER nerf)
+    "Crossing Network Pilot", "{4}", 4, 3,  # rebalance: dead-card repair power 3 → 4 (outclassed by Vega Amplifier at same cost)
     text="Leverage 2. When this attacks, deal 1 damage to target Trader regardless of blocking.",
     rarity="uncommon",
     setup_interceptors=_crossing_network_pilot_setup,
@@ -952,7 +952,7 @@ def _block_trade_sweep_setup(obj: GameObject, state: GameState) -> list[Intercep
     return dark_pool_setup(obj, state, dark_effect)
 
 BLOCK_TRADE_SWEEP = make_order(
-    "Block Trade Sweep", "{3}",
+    "Block Trade Sweep", "{2}",  # rebalance: removal cost-cut {3} → {2} (conditional+DP-gated removal at {3} too steep)
     text="Dark Pool. When this triggers, destroy target Trader with Defense Rating 3 or less.",
     dark_pool=True,
     rarity="uncommon",
@@ -960,16 +960,49 @@ BLOCK_TRADE_SWEEP = make_order(
 )
 
 
-# Crossed Market {2} — Dark Pool. When this triggers, target Trader cannot block this turn.
+# Forced Liquidation {3} — Order. Destroy target Trader.
+# rebalance: NEW card (the missing answer) — unconditional {3} destroy-target-Trader.
+# Mirrors Murder/Doom Blade benchmark; format previously had no clean answer at this cost.
+def _forced_liquidation_resolve(event: Event, state: GameState) -> list[Event]:
+    controller = event.payload.get("controller")
+    bf = state.zones.get("battlefield")
+    if not bf:
+        return []
+    # Target the highest-power opposing Trader (consistent with other auto-target picks).
+    candidates = [
+        o for oid in getattr(bf, "objects", [])
+        if (o := state.objects.get(oid))
+        and o.controller != controller
+        and CardType.FIN_TRADER in o.characteristics.types
+    ]
+    if not candidates:
+        return []
+    target = max(candidates, key=lambda o: o.characteristics.power or 0)
+    return [Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={"object_id": target.id, "reason": "forced_liquidation"},
+        source=event.payload.get("source_id", ""),
+    )]
+
+
+FORCED_LIQUIDATION = make_order(
+    "Forced Liquidation", "{3}",
+    text="Destroy target Trader.",
+    rarity="uncommon",
+    resolve=_forced_liquidation_resolve,
+)
+
+
+# Crossed Market {2} — Dark Pool. When this triggers, target Trader cannot attack OR block this turn.
+# rebalance: effect upgrade — was can't-block-only; now can't-attack-or-block (can't-block useless when
+# the trigger fires on opponent's TS since opponent is attacking, not defending).
 def _crossed_market_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def dark_effect(event: Event, state: GameState) -> list[Event]:
         # bug #29: the global system trigger fires FIN_MARKET_EVENT on the
         # next active player's PHASE_START(trading_session) — which for a
-        # freshly staged DP is the OPPONENT'S TS. "Can't block this turn"
-        # applied during the opponent's own TS is useless because they're
-        # attacking, not defending. Defer to the controller's next TS by
-        # re-staging the dark pool slot when the active player is not the
-        # controller.
+        # freshly staged DP is the OPPONENT'S TS. The "can't attack" half of
+        # the new effect IS useful on opp's TS, but "can't block" only matters
+        # on controller's TS, so we still defer-when-opponent for full impact.
         active_player = event.controller or event.payload.get("controller")
         if active_player and active_player != obj.controller:
             set_dark_pool(state, obj.id)
@@ -985,8 +1018,9 @@ def _crossed_market_setup(obj: GameObject, state: GameState) -> list[Interceptor
             ]
             if opp_traders:
                 target = max(opp_traders, key=lambda o: o.characteristics.toughness or 0)
-                # Mark as can't-block this turn
+                # Mark as can't-attack AND can't-block this turn (rebalance: was block-only)
                 state.turn_data[f"fin_cant_block_{target.id}"] = True
+                state.turn_data[f"fin_cant_attack_{target.id}"] = True
         key = f"fin_dp_triggered_{obj.controller}"
         state.turn_data[key] = state.turn_data.get(key, 0) + 1
         return events
@@ -994,7 +1028,7 @@ def _crossed_market_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 CROSSED_MARKET = make_order(
     "Crossed Market", "{2}",
-    text="Dark Pool. When this triggers, target Trader cannot block this turn.",
+    text="Dark Pool. When this triggers, target Trader cannot attack or block this turn.",
     dark_pool=True,
     setup_interceptors=_crossed_market_setup,
 )
@@ -1170,23 +1204,28 @@ LIQUIDITY_EVENT = make_strategy(
 
 
 # Information Asymmetry {3} — Gain control of the opponent's currently staged Dark Pool Order.
+# rebalance: dead-card repair — added "draw 2 cards" floor when opponent has no DP slot
+# so the card is never a complete brick.
 def _information_asymmetry_resolve(event: Event, state: GameState) -> list[Event]:
     controller = event.payload.get("controller") or event.controller
     if not controller:
         return []
     dp_id = get_dark_pool(state)
-    if not dp_id:
+    dp_obj = state.objects.get(dp_id) if dp_id else None
+    # If opponent has a staged DP Order, take control of it.
+    if dp_obj is not None and dp_obj.controller != controller:
+        dp_obj.controller = controller
         return []
-    dp_obj = state.objects.get(dp_id)
-    if dp_obj is None or dp_obj.controller == controller:
-        return []
-    # Change controller of the Dark Pool Order object
-    dp_obj.controller = controller
-    return []
+    # Otherwise (no DP slot, or it's our own), draw 2 cards as a floor effect.
+    return [Event(
+        type=EventType.DRAW,
+        payload={"player": controller, "count": 2},
+        source=event.payload.get("source_id", ""),
+    )]
 
 INFORMATION_ASYMMETRY = make_strategy(
     "Information Asymmetry", "{3}",
-    text="Gain control of the opponent's currently staged Dark Pool Order.",
+    text="Gain control of the opponent's currently staged Dark Pool Order. If they have no Dark Pool slot, draw 2 cards instead.",
     rarity="rare",
     resolve=_information_asymmetry_resolve,
 )
@@ -1790,10 +1829,11 @@ DARK_ARBITRAGE_CARDS: dict[str, CardDefinition] = {
     "Dark Inventory Position": DARK_INVENTORY_POSITION,
     "Crossing Network Pilot": CROSSING_NETWORK_PILOT,
     "Off-Exchange Finisher": OFF_EXCHANGE_FINISHER,
-    # --- ORDERS (9) ---
+    # --- ORDERS (10) ---  (rebalance: +1 — added Forced Liquidation)
     "Iceberg Order": ICEBERG_ORDER,
     "Off-Exchange Position": OFF_EXCHANGE_POSITION,
     "Block Trade Sweep": BLOCK_TRADE_SWEEP,
+    "Forced Liquidation": FORCED_LIQUIDATION,  # rebalance: NEW {3} destroy-target-Trader
     "Crossed Market": CROSSED_MARKET,
     "Hidden Aggression": HIDDEN_AGGRESSION,
     "Lit-Market Decoy": LIT_MARKET_DECOY,

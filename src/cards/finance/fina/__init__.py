@@ -19,8 +19,8 @@ FINA_CARDS: dict = {
     **DARK_ARBITRAGE_CARDS,
 }
 
-assert len(FINA_CARDS) == 150, (
-    f"FINA set should have 150 cards, got {len(FINA_CARDS)}. "
+assert len(FINA_CARDS) == 151, (  # rebalance: +1 — added Forced Liquidation (DA)
+    f"FINA set should have 151 cards, got {len(FINA_CARDS)}. "
     f"HF={len(HIGH_FREQUENCY_CARDS)} DV={len(DERIVATIVES_CARDS)} "
     f"QT={len(QUANT_CARDS)} DA={len(DARK_ARBITRAGE_CARDS)}"
 )

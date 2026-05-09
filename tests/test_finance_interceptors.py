@@ -351,12 +351,23 @@ def test_fill_or_kill_executor_alpha_strike_solo():
 
 
 def test_speed_advantage_desk_etb_places_leverage_counter():
-    """Speed Advantage Desk: ETB emits COUNTER_ADDED for leverage counter."""
+    """Speed Advantage Desk: rebalance — ETB no longer adds Leverage counter (self-tax removed).
+
+    The rebalance pass removed Speed Advantage Desk's Lev1 self-tax (the cyc3 4-cost
+    body became unplayable with -1 Capital/turn drain on a 3/2 chassis). The card now
+    has no ETB effect; only a solo-attack alpha-strike trigger remains. Asserting that
+    the Leverage counter is NOT emitted locks in the new behaviour.
+    """
     game, p1, p2 = _make_game()
     obj = _place(game, p1.id, SPEED_ADVANTAGE_DESK)
     events = _fire_etb(game, obj)
-    assert _has_payload_key(events, EventType.COUNTER_ADDED, "counter_type", "leverage"), (
-        f"Speed Advantage Desk ETB must emit COUNTER_ADDED(leverage); got {_event_types(events)}"
+    leverage_events = [e for e in events
+                       if e.type == EventType.COUNTER_ADDED
+                       and e.payload.get("object_id") == obj.id
+                       and e.payload.get("counter_type") == "leverage"]
+    assert not leverage_events, (
+        f"Speed Advantage Desk rebalance: must NOT emit COUNTER_ADDED(leverage) on ETB; "
+        f"got {[e.payload for e in leverage_events]}"
     )
 
 
@@ -474,19 +485,24 @@ def test_rho_opportunist_etb_leverage_and_draw():
     )
 
 
-def test_vega_amplifier_etb_pt_modification_for_leverage_traders():
-    """Vega Amplifier: ETB emits PT_MODIFICATION for other Traders with leverage counters."""
+def test_vega_amplifier_static_buffs_other_leverage_traders_via_query_power():
+    """Vega Amplifier: rebalance — lord normalization changed ETB-PT_MODIFICATION to a
+    persistent QUERY_POWER static. Other Leverage Traders should display +1 power
+    while Vega Amplifier is on the battlefield (mirrors HFC/CT/PCD lord pattern).
+    """
+    from src.engine.queries import get_power
     game, p1, p2 = _make_game()
-    # Place a Trader with leverage first.
+    # Place a Trader with a leverage counter as the buff target.
     other = _place(game, p1.id, UNDERLYING_ASSET_RUNNER)
-    other.state.counters["leverage"] = 1  # manually set to avoid double ETB firing
+    other.state.counters["leverage"] = 1
+    base_power = get_power(other, game.state)
+    # Place Vega Amplifier — its static lord should boost other_leverage_traders.
     obj = _place(game, p1.id, VEGA_AMPLIFIER)
-    events = _fire_etb(game, obj)
-    # Should see at least one PT_MODIFICATION for the other leverage Trader.
-    pt_mods = [e for e in events if e.type == EventType.PT_MODIFICATION
-               and e.payload.get("object_id") == other.id]
-    assert pt_mods, (
-        f"Vega Amplifier ETB must emit PT_MODIFICATION for other Traders with leverage; got {_event_types(events)}"
+    # Query the buff target's power again with VA on board.
+    boosted_power = get_power(other, game.state)
+    assert boosted_power == base_power + 1, (
+        f"Vega Amplifier static lord must add +1 power to other Leverage Traders via QUERY_POWER; "
+        f"base={base_power}, with VA on board={boosted_power}"
     )
 
 

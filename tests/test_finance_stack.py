@@ -198,14 +198,19 @@ def test_counter_the_counter_chain():
 
 def test_pay_to_save_consumes_liquidity():
     """IRE: 'unless controller pays {2}'. If controller has ≥{2} Liquidity,
-    they pay it and the spell is NOT countered."""
+    they pay it and the spell is NOT countered.
+
+    NOTE: rebalance lowered RISK_ADJUSTED_RETURN from {3} → {2}; total cost to
+    cast+save is now 4 Liquidity (2 cast + 2 save). Liquidity grant updated to
+    match.
+    """
     game, p1, p2 = _make_game()
     tm = game.turn_manager
 
-    strat = _add_to_hand(game, p1.id, RISK_ADJUSTED_RETURN)  # {3} Strategy
+    strat = _add_to_hand(game, p1.id, RISK_ADJUSTED_RETURN)  # rebalance: now {2} (was {3})
     counter = _add_to_hand(game, p2.id, INFORMATION_RATIO_ENFORCER)
     # Give P1 enough that they have ≥{2} after casting the Strategy.
-    _grant_liquidity(game, p1.id, 5)  # cast strat costs 3, leaves 2 to pay
+    _grant_liquidity(game, p1.id, 4)  # cast strat costs 2, leaves 2 to pay (rebalance: was 5)
     _grant_liquidity(game, p2.id, 2)
 
     async def respond(_pid, _state):
@@ -219,7 +224,7 @@ def test_pay_to_save_consumes_liquidity():
     asyncio.run(tm._play_card_action(p1.id, strat.id, []))
 
     p1_state = game.state.players[p1.id]
-    # P1 paid {3} to cast and {2} to save → 0 Liquidity remaining.
+    # P1 paid {2} to cast and {2} to save → 0 Liquidity remaining.
     assert p1_state.mana_crystals_available == 0, (
         f"P1 should have 0 Liquidity, got {p1_state.mana_crystals_available}"
     )

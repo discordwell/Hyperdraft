@@ -420,7 +420,7 @@ RETAIL_FLOW_CHASER = make_trader(
     "Retail Flow Chaser",
     "{1}",
     power=1,
-    toughness=1,
+    toughness=2,  # rebalance: HF curve buff toughness 1 → 2 (vanilla 1/1 trades with everything; 1/2 survives the {1} mirror)
     text="Alpha Strike.",
     setup_interceptors=_make_alpha_strike_setup(3),
     rarity="common",
@@ -528,7 +528,7 @@ def _tape_painter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 TAPE_PAINTER = make_trader(
     "Tape Painter",
     "{2}",
-    power=1,
+    power=2,  # rebalance: HF curve buff power 1 → 2 (was strictly worse than FCB {1} 2/1)
     toughness=2,
     text="Alpha Strike. When this attacks alone, gain 1 Liquidity this turn.",
     setup_interceptors=_tape_painter_setup,
@@ -611,7 +611,7 @@ LATENCY_ARBITRAGEUR = make_trader(
     "Latency Arbitrageur",
     "{3}",
     power=3,  # cyc3: restored to 3 (cyc2 over-nerfed to 2)
-    toughness=1,
+    toughness=2,  # rebalance: HF curve buff toughness 1 → 2 (3/1 dies to anything)
     text="Alpha Strike. When this attacks alone and deals unblocked damage, it deals 1 additional damage.",
     setup_interceptors=_latency_arbitrageur_setup,
     rarity="uncommon",
@@ -704,7 +704,7 @@ ORDER_ROUTER = make_trader(
     "Order Router",
     "{3}",
     power=2,
-    toughness=3,
+    toughness=4,  # rebalance: HF curve buff toughness 3 → 4 (dominated by SPB {3} 2/4 and PT {3} 2/3)
     text="Alpha Strike. When this blocks, draw a card.",
     setup_interceptors=_order_router_setup,
     rarity="uncommon",
@@ -756,22 +756,15 @@ FILL_OR_KILL_EXECUTOR = make_trader(
 )
 
 
-# --- Speed Advantage Desk {4} 4/2 ---
-# Alpha Strike. Leverage 1. When this attacks alone, +3/+0 applies before Leverage bonus.
-# Implementation: ETB places 1 Leverage counter; attack trigger fires the standard Alpha Strike.
+# --- Speed Advantage Desk {4} 3/3 ---
+# Alpha Strike. (Lev1 self-tax removed in rebalance — see card comment below.)
+# rebalance: dead-card repair toughness 2 → 3 AND removed the Lev1 self-tax
+# (cyc3 nerf went too far; the Lev tax on a 3-cost body without compensation made it unplayable).
 def _speed_advantage_desk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_fn(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={"object_id": obj.id, "counter_type": "leverage", "amount": 1},
-            source=obj.id,
-        )]
-
     def attack_fn(event: Event, state: GameState) -> list[Event]:
         return _alpha_strike_bonus(obj, state)
 
     return [
-        make_etb_trigger(obj, etb_fn),
         make_attack_trigger(obj, attack_fn),
     ]
 
@@ -780,8 +773,8 @@ SPEED_ADVANTAGE_DESK = make_trader(
     "Speed Advantage Desk",
     "{4}",
     power=3,  # balanced: power 4 → 3 (4-cost FIN_TRADER nerf)
-    toughness=2,
-    text="Alpha Strike. Leverage 1. When this attacks alone, +3/+0 applies before Leverage bonus.",
+    toughness=3,  # rebalance: dead-card repair toughness 2 → 3
+    text="Alpha Strike.",
     setup_interceptors=_speed_advantage_desk_setup,
     rarity="rare",
 )
@@ -1173,7 +1166,7 @@ def _circuit_breaker_trip_resolve(event: Event, state: GameState) -> list[Event]
 
 CIRCUIT_BREAKER_TRIP = make_order(
     "Circuit Breaker Trip",
-    "{3}",
+    "{2}",  # rebalance: removal cost-cut {3} → {2} (conditional removal MTG-priced at {2})
     text="Destroy target Trader with Aggression 4 or greater.",
     resolve=_circuit_breaker_trip_resolve,
     rarity="uncommon",
@@ -1201,7 +1194,7 @@ def _regulatory_halt_effect(event: Event, state: GameState, obj: GameObject) -> 
 
 REGULATORY_HALT = make_order(
     "Regulatory Halt",
-    "{3}",
+    "{2}",  # rebalance: removal cost-cut {3} → {2} (strictly worse than Cancel Order {2} at higher cost)
     text="Dark Pool. When this triggers, tap target Trader (it cannot attack this turn).",
     dark_pool=True,
     setup_interceptors=_make_dark_pool_setup(_regulatory_halt_effect),
@@ -1370,7 +1363,7 @@ def _pump_and_dump_resolve(event: Event, state: GameState) -> list[Event]:
 
 PUMP_AND_DUMP = make_strategy(
     "Pump-and-Dump",
-    "{5}",  # balanced: cost {4} → {5} (direct-damage FIN_STRATEGY nerf)
+    "{4}",  # rebalance: dead-card repair cost {5} → {4} (dead at {5} relative to QSB {2})
     text="Target Trader you control gets +4/+0 until Market Close. Then place 2 Leverage counters on it.",
     resolve=_pump_and_dump_resolve,
     rarity="uncommon",
@@ -1421,7 +1414,7 @@ def _acceleration_protocol_resolve(event: Event, state: GameState) -> list[Event
 
 ACCELERATION_PROTOCOL = make_strategy(
     "Acceleration Protocol",
-    "{4}",
+    "{3}",  # rebalance: dead-card repair cost {4} → {3} (dominated by Momentum Ignition {3})
     text="Your Traders get +2/+0 until Market Close. Each Trader with Alpha Strike gets +1/+0 additionally.",
     resolve=_acceleration_protocol_resolve,
     rarity="rare",
@@ -1526,7 +1519,7 @@ def _speed_colocation_hub_setup(obj: GameObject, state: GameState) -> list[Inter
 
 SPEED_COLOCATION_HUB = make_asset(
     "Speed Co-location Hub",
-    "{3}",
+    "{2}",  # rebalance: dead-card repair cost {3} → {2} (SS-removal narrower than Low-Latency Strike's broader effect)
     text="At the start of your Trading Session, you may have one Trader lose summoning sickness this turn.",
     setup_interceptors=_speed_colocation_hub_setup,
     rarity="rare",
@@ -1600,7 +1593,7 @@ def _high_speed_network_setup(obj: GameObject, state: GameState) -> list[Interce
 
 HIGH_SPEED_NETWORK = make_asset(
     "High-Speed Network",
-    "{4}",
+    "{2}",  # rebalance: dead-card repair cost {4} → {2} (TTD at {2} grants permanent Alpha; HSN once-per-turn at {4} is just bad)
     text="Activated: {2}, tap — give target Trader Alpha Strike until Market Close.",
     setup_interceptors=_high_speed_network_setup,
     rarity="uncommon",
@@ -1642,7 +1635,7 @@ def _order_matching_engine_setup(obj: GameObject, state: GameState) -> list[Inte
 
 ORDER_MATCHING_ENGINE = make_structure(
     "Order Matching Engine",
-    "{3}",
+    "{2}",  # rebalance: dead-card repair cost {3} → {2} (clunky activation + small effect)
     text="Tap: target Trader you control gets +2/+0 until Market Close.",
     setup_interceptors=_order_matching_engine_setup,
     rarity="uncommon",
@@ -1680,7 +1673,7 @@ def _low_latency_exchange_setup(obj: GameObject, state: GameState) -> list[Inter
 
 LOW_LATENCY_EXCHANGE = make_structure(
     "Low-Latency Exchange",
-    "{4}",
+    "{3}",  # rebalance: dead-card repair cost {4} → {3}
     text="At the start of your Trading Session, each of your Traders with Alpha Strike gets +1/+0 until Market Close.",
     setup_interceptors=_low_latency_exchange_setup,
     rarity="rare",

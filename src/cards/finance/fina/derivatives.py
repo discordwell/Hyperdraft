@@ -590,49 +590,52 @@ CONVEXITY_RIDER = make_trader(
     rarity="rare",
 )
 
-# 8. Vega Amplifier {4} 4/3 — Leverage 3. ETB: other Leverage Traders get
-#    +1/+0 until Market Close.
+# 8. Vega Amplifier {4} 4/3 — Leverage 3. Static: other Leverage Traders get +1/+0
+# rebalance: lord normalization — was a one-shot ETB +1/+0 until-MC; now a persistent
+# while-on-battlefield QUERY_POWER lord, mirrors HFC/CT/PCD.
 def _vega_amplifier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     leverage_interceptors = _make_leverage_setup(3)(obj, state)
 
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        events = []
-        battlefield = state.zones.get("battlefield")
-        if not battlefield:
-            return []
-        for oid in list(battlefield.objects):
-            if oid == obj.id:
-                continue
-            target = state.objects.get(oid)
-            if not target:
-                continue
-            if target.controller != obj.controller:
-                continue
-            if CardType.FIN_TRADER not in target.characteristics.types:
-                continue
-            if target.state.counters.get("leverage", 0) <= 0:
-                continue
-            events.append(Event(
-                type=EventType.PT_MODIFICATION,
-                payload={
-                    "object_id": oid,
-                    "power_mod": 1,
-                    "toughness_mod": 0,
-                    "duration": "end_of_turn",
-                },
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
+    def power_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_POWER:
+            return False
+        target_id = event.payload.get("object_id")
+        if not target_id or target_id == obj.id:
+            return False
+        target = state.objects.get(target_id)
+        if target is None or target.controller != obj.controller:
+            return False
+        if CardType.FIN_TRADER not in target.characteristics.types:
+            return False
+        return target.state.counters.get("leverage", 0) > 0
 
-    return leverage_interceptors + [make_etb_trigger(obj, etb_effect)]
+    def power_handler(event: Event, state: GameState) -> InterceptorResult:
+        # priority class: queries.get_power reads transformed_event.payload['value'].
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + 1
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
+
+    lord_interceptor = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=power_filter,
+        handler=power_handler,
+        duration="while_on_battlefield",
+    )
+
+    return leverage_interceptors + [lord_interceptor]
 
 
 VEGA_AMPLIFIER = make_trader(
     "Vega Amplifier",
     "{4}",
     4, 3,
-    text="Leverage 3. When this enters, each other Trader you control with Leverage gets +1/+0 until Market Close.",
+    text="Leverage 3. Static: each other Trader you control with Leverage gets +1/+0.",
     setup_interceptors=_vega_amplifier_setup,
     rarity="rare",
 )
@@ -709,7 +712,7 @@ def _hedge_fund_pm_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 HEDGE_FUND_PM = make_trader(
     "Hedge Fund PM",
-    "{4}",  # balanced: cost {5} → {4} (5+ cost reduction buff)
+    "{5}",  # rebalance: voltron-problem cost {4} → {5} (mass-attach effect requires its original cost)
     4, 4,
     text="Leverage 2. When this enters, attach all Derivatives from your Derivatives Desk to this Trader.",
     setup_interceptors=_hedge_fund_pm_setup,
@@ -760,7 +763,7 @@ def _synthetic_long_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 SYNTHETIC_LONG = make_trader(
     "Synthetic Long",
-    "{4}",  # balanced: cost {5} → {4} (5+ cost reduction buff)
+    "{5}",  # rebalance: cyc3-overshoot cost {4} → {5} (5/4 + Lev3 = 8/4 with manageable -3 drain at {4} is overstatted)
     5, 4,
     text="Leverage 3. At Market Close, you may pay 2 Capital Reserve per counter instead of 1 to keep all Leverage counters; if you do, this gets +1/+0 permanently.",
     setup_interceptors=_synthetic_long_setup,
@@ -1532,7 +1535,7 @@ def _implied_volatility_surface_setup(obj: GameObject, state: GameState) -> list
 
 IMPLIED_VOLATILITY_SURFACE = make_asset(
     "Implied Volatility Surface",
-    "{3}",
+    "{2}",  # rebalance: lord normalization cost {3} → {2} (niche lord, narrow trigger)
     text="Static: Traders you control with Leverage counters get +0/+1.",
     setup_interceptors=_implied_volatility_surface_setup,
     rarity="uncommon",
@@ -1687,7 +1690,7 @@ def _risk_waterfall_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 RISK_WATERFALL = make_structure(
     "Risk Waterfall",
-    "{4}",
+    "{3}",  # rebalance: dead-card repair cost {4} → {3} (discount mechanic worse than TDT's free body+removal at {3})
     text="At the start of your Market Close, reduce the Capital Reserve cost of Leverage counters on one of your Traders by 1 (minimum 0 per counter).",
     setup_interceptors=_risk_waterfall_setup,
     rarity="rare",

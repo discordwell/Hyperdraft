@@ -1027,7 +1027,7 @@ def _efficient_frontier_resolve(event: Event, state: GameState) -> list[Event]:
 
 EFFICIENT_FRONTIER = make_order(
     name="Efficient Frontier",
-    cost="{3}",
+    cost="{2}",  # rebalance: removal cost-cut {3} → {2} (prevent-damage trick should be cheap)
     text="Prevent all damage to target Trader you control until end of Trading Session.",
     rarity="uncommon",
     resolve=_efficient_frontier_resolve,
@@ -1124,7 +1124,7 @@ def _regime_change_detection_resolve(event: Event, state: GameState) -> list[Eve
 
 REGIME_CHANGE_DETECTION = make_order(
     name="Regime Change Detection",
-    cost="{3}",
+    cost="{2}",  # rebalance: removal cost-cut {3} → {2} (counter-Strategy is narrower than counter-spell)
     text="Counter target Strategy.",
     rarity="uncommon",
     resolve=_regime_change_detection_resolve,
@@ -1171,7 +1171,7 @@ def _risk_adjusted_return_resolve(event: Event, state: GameState) -> list[Event]
 
 RISK_ADJUSTED_RETURN = make_strategy(
     name="Risk-Adjusted Return",
-    cost="{3}",
+    cost="{2}",  # rebalance: dead-card repair cost {3} → {2} (dominated by Liquidity Provision {2} flat +3)
     text="Gain Liquidity equal to the number of Traders you control beyond your opponent's count (minimum 0, maximum 4).",
     rarity="uncommon",
     resolve=_risk_adjusted_return_resolve,
@@ -1255,7 +1255,7 @@ def _factor_neutralization_resolve(event: Event, state: GameState) -> list[Event
 
 FACTOR_NEUTRALIZATION = make_strategy(
     name="Factor Neutralization",
-    cost="{5}",
+    cost="{4}",  # rebalance: removal cost-cut {5} → {4} (conditional sweeper, MTG benchmark for sweepers is {3}-{4})
     text="Destroy all Traders with Aggression greater than Defense Rating.",
     rarity="rare",
     resolve=_factor_neutralization_resolve,
@@ -1350,10 +1350,10 @@ def _backtesting_engine_setup(obj: GameObject, state: GameState) -> list[Interce
         player = state.players.get(obj.controller)
         if not player:
             return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
-        # Spend 2 Liquidity
-        if player.mana_crystals_available < 2:
+        # rebalance: dead-card repair activation cost {2} → {1} (dominated by Quant Signal at {1})
+        if player.mana_crystals_available < 1:
             return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
-        player.mana_crystals_available -= 2
+        player.mana_crystals_available -= 1
         o = state.objects.get(obj.id)
         if o:
             o.state.tapped = True
@@ -1385,7 +1385,7 @@ def _backtesting_engine_setup(obj: GameObject, state: GameState) -> list[Interce
 BACKTESTING_ENGINE = make_asset(
     name="Backtesting Engine",
     cost="{3}",
-    text="Activated: {2}, tap — look at the top 5 cards of your Book; put one into your hand and the rest on the bottom.",
+    text="Activated: {1}, tap — look at the top 5 cards of your Book; put one into your hand and the rest on the bottom.",
     rarity="uncommon",
     setup_interceptors=_backtesting_engine_setup,
 )
@@ -1417,7 +1417,7 @@ def _risk_attribution_model_setup(obj: GameObject, state: GameState) -> list[Int
 
 RISK_ATTRIBUTION_MODEL = make_asset(
     name="Risk Attribution Model",
-    cost="{3}",
+    cost="{2}",  # rebalance: lord normalization cost {3} → {2} (too narrow at ≥4-tough Traders)
     text="Static: your Traders with Defense Rating 4 or greater get +0/+1.",
     rarity="uncommon",
     setup_interceptors=_risk_attribution_model_setup,
@@ -1440,7 +1440,7 @@ def _live_pl_dashboard_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 LIVE_PL_DASHBOARD = make_asset(
     name="Live P&L Dashboard",
-    cost="{4}",
+    cost="{3}",  # rebalance: dead-card repair cost {4} → {3}
     text="At the start of your Research phase, draw an additional card if you control more Traders than your opponent.",
     rarity="rare",
     setup_interceptors=_live_pl_dashboard_setup,
@@ -1470,7 +1470,8 @@ QUANT_LAB = make_structure(
 )
 
 
-# --- Research Server Farm {4} — At the start of your Research phase, draw an additional card if your Capital Reserve is 10+ above your opponent's. ---
+# --- Research Server Farm {4} — At the start of your Research phase, draw an additional card if your Capital Reserve is 5+ above your opponent's. ---
+# rebalance: dead-card repair lead threshold +10 → +5 (easier trigger)
 def _research_server_farm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def r_effect(event: Event, state: GameState) -> list[Event]:
         my_player = state.players.get(obj.controller)
@@ -1478,7 +1479,7 @@ def _research_server_farm_setup(obj: GameObject, state: GameState) -> list[Inter
             return []
         for pid, p in state.players.items():
             if pid != obj.controller:
-                if my_player.life >= p.life + 10:
+                if my_player.life >= p.life + 5:  # rebalance: +10 → +5
                     return [Event(
                         type=EventType.DRAW,
                         payload={"player": obj.controller, "count": 1},
@@ -1492,7 +1493,7 @@ def _research_server_farm_setup(obj: GameObject, state: GameState) -> list[Inter
 RESEARCH_SERVER_FARM = make_structure(
     name="Research Server Farm",
     cost="{4}",
-    text="At the start of your Research phase, draw an additional card if your Capital Reserve is 10 or more above your opponent's.",
+    text="At the start of your Research phase, draw an additional card if your Capital Reserve is 5 or more above your opponent's.",
     rarity="rare",
     setup_interceptors=_research_server_farm_setup,
 )
