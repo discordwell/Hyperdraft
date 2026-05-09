@@ -642,27 +642,36 @@ VEGA_AMPLIFIER = make_trader(
 def _structured_product_builder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     leverage_interceptors = _make_leverage_setup(2)(obj, state)
 
-    # TRANSFORM on QUERY_COST for FIN_DERIVATIVE cards being played by controller
+    # QUERY on QUERY_COST for FIN_DERIVATIVE cards being played by controller.
     # RECONCILE TODO: The cost reduction targeting "attached to this" requires the
     # turn manager to know the intended host. For now, apply reduction globally
     # to all FIN_DERIVATIVE plays by this controller while this Trader is in play.
     def cost_filter(event: Event, state: GameState) -> bool:
-        return (
-            event.type == EventType.QUERY_COST
-            and event.payload.get("controller") == obj.controller
-            and event.payload.get("card_type") == "FIN_DERIVATIVE"
-        )
+        if event.type != EventType.QUERY_COST:
+            return False
+        # cost_query synthetic event exposes 'player_id' and 'card' (the casting card).
+        if event.payload.get("player_id") != obj.controller:
+            return False
+        card = event.payload.get("card")
+        if card is None:
+            return False
+        return CardType.FIN_DERIVATIVE in card.characteristics.types
 
     def cost_handler(event: Event, state: GameState) -> InterceptorResult:
-        current_cost = event.payload.get("cost", 0)
-        event.payload["cost"] = max(0, current_cost - 1)
-        return InterceptorResult(action=InterceptorAction.PASS)
+        # priority class: cost_query reads transformed_event.payload['reduction'].
+        new_event = event.copy()
+        new_event.payload["reduction"] = new_event.payload.get("reduction", 0) + 1
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     cost_interceptor = Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
-        priority=InterceptorPriority.TRANSFORM,
+        # priority class: must be QUERY for cost_query.get_effective_mana_cost to iterate it.
+        priority=InterceptorPriority.QUERY,
         filter=cost_filter,
         handler=cost_handler,
         duration="while_on_battlefield",
@@ -726,9 +735,15 @@ def _synthetic_long_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
     def power_effect(event: Event, state: GameState) -> InterceptorResult:
         bonus = int(state.turn_data.get(boost_key, 0))
-        if bonus > 0:
-            event.payload["power"] = event.payload.get("power", 0) + bonus
-        return InterceptorResult(action=InterceptorAction.PASS)
+        if bonus <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        # priority class: queries.get_power reads transformed_event.payload['value'].
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + bonus
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     boost_interceptor = Interceptor(
         id=new_id(),
@@ -970,34 +985,40 @@ SHORT_SQUEEZE = make_strategy(
 
 # 17. Vega Spike {3} — Place 2 Leverage counters on target Trader you control.
 def _vega_spike_resolve(event: Event, state: GameState) -> list[Event]:
-    events: list[Event] = []
-    targets = event.payload.get("targets", [[]])
-    target_id: str | None = None
-    if targets and targets[0]:
-        target_id = targets[0][0]
+    # bug #24: AI passes targets as a flat list ``[card_id]`` (see
+    # finance_adapter._choose_play_action), but this code previously assumed a
+    # nested ``[[card_id]]`` shape and indexed ``targets[0][0]`` — picking up
+    # the first character of the card_id string, which never matched a real
+    # object. Result: 2 COUNTER_ADDED events emitted at a non-existent target,
+    # the pipeline silently dropped them, and counters never landed.
+    # Now: read ``target_id`` (set explicitly by finance_turn._play_card_action)
+    # first, fall back to either flat ``targets[0]=str`` or nested
+    # ``targets[0]=[id, ...]``. Emit ONE COUNTER_ADDED with amount=2 (matching
+    # bug #14's invariant in _make_leverage_setup); pipeline applies exactly
+    # once. The previous direct-set fallback double-counted with the pipeline
+    # write so it has been removed.
+    target_id: str | None = event.payload.get("target_id")
     if not target_id:
+        targets = event.payload.get("targets", [])
+        if targets:
+            first = targets[0]
+            if isinstance(first, str):
+                target_id = first
+            elif isinstance(first, list) and first:
+                target_id = first[0]
+    if not target_id or target_id not in state.objects:
         return []
 
-    for _ in range(2):
-        events.append(Event(
-            type=EventType.COUNTER_ADDED,
-            payload={
-                "object_id": target_id,
-                "counter_type": "leverage",
-                "amount": 1,
-            },
-            source=event.source,
-            controller=event.controller,
-        ))
-
-    # Fallback: set counters directly
-    target_obj = state.objects.get(target_id)
-    if target_obj:
-        target_obj.state.counters["leverage"] = (
-            target_obj.state.counters.get("leverage", 0) + 2
-        )
-
-    return events
+    return [Event(
+        type=EventType.COUNTER_ADDED,
+        payload={
+            "object_id": target_id,
+            "counter_type": "leverage",
+            "amount": 2,
+        },
+        source=event.source,
+        controller=event.controller,
+    )]
 
 
 VEGA_SPIKE = make_strategy(
@@ -1488,8 +1509,13 @@ def _implied_volatility_surface_setup(obj: GameObject, state: GameState) -> list
         return target.state.counters.get("leverage", 0) > 0
 
     def toughness_effect(event: Event, state: GameState) -> InterceptorResult:
-        event.payload["toughness"] = event.payload.get("toughness", 0) + 1
-        return InterceptorResult(action=InterceptorAction.PASS)
+        # priority class: queries.get_toughness reads transformed_event.payload['value'].
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + 1
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     toughness_interceptor = Interceptor(
         id=new_id(),
@@ -1690,8 +1716,13 @@ def _theta_decay_collar_setup(obj: GameObject, state: GameState) -> list[Interce
         return host_id is not None and event.payload.get("object_id") == host_id
 
     def power_effect(event: Event, state: GameState) -> InterceptorResult:
-        event.payload["power"] = event.payload.get("power", 0) + 1
-        return InterceptorResult(action=InterceptorAction.PASS)
+        # priority class: queries.get_power reads transformed_event.payload['value'].
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + 1
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     def toughness_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.QUERY_TOUGHNESS:
@@ -1700,8 +1731,13 @@ def _theta_decay_collar_setup(obj: GameObject, state: GameState) -> list[Interce
         return host_id is not None and event.payload.get("object_id") == host_id
 
     def toughness_effect(event: Event, state: GameState) -> InterceptorResult:
-        event.payload["toughness"] = event.payload.get("toughness", 0) + 2
-        return InterceptorResult(action=InterceptorAction.PASS)
+        # priority class: queries.get_toughness reads transformed_event.payload['value'].
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + 2
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     def pre_market_filter(event: Event, state: GameState) -> bool:
         host_id = obj.state.attached_to
@@ -1775,8 +1811,13 @@ def _gamma_amplifier_setup(obj: GameObject, state: GameState) -> list[Intercepto
         )
 
     def power_effect(event: Event, state: GameState) -> InterceptorResult:
-        event.payload["power"] = event.payload.get("power", 0) + 2
-        return InterceptorResult(action=InterceptorAction.PASS)
+        # priority class: queries.get_power reads transformed_event.payload['value'].
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + 2
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     def toughness_filter(event: Event, state: GameState) -> bool:
         host_id = obj.state.attached_to
@@ -1787,8 +1828,13 @@ def _gamma_amplifier_setup(obj: GameObject, state: GameState) -> list[Intercepto
         )
 
     def toughness_effect(event: Event, state: GameState) -> InterceptorResult:
-        event.payload["toughness"] = event.payload.get("toughness", 0) + 1
-        return InterceptorResult(action=InterceptorAction.PASS)
+        # priority class: queries.get_toughness reads transformed_event.payload['value'].
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + 1
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     # TRANSFORM on FIN_LEVERAGE_TICK for the host this turn: prevent drain once.
     prevent_key = f"gamma_amp_prevent_{obj.id}"
@@ -1873,8 +1919,13 @@ def _delta_neutral_wrap_setup(obj: GameObject, state: GameState) -> list[Interce
         )
 
     def toughness_effect(event: Event, state: GameState) -> InterceptorResult:
-        event.payload["toughness"] = event.payload.get("toughness", 0) + 2
-        return InterceptorResult(action=InterceptorAction.PASS)
+        # priority class: queries.get_toughness reads transformed_event.payload['value'].
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + 2
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     return [
         make_etb_trigger(obj, etb_effect),
@@ -1980,7 +2031,9 @@ def _protective_put_setup(obj: GameObject, state: GameState) -> list[Interceptor
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
-        priority=InterceptorPriority.TRANSFORM,
+        # priority class: PREVENT action is only honored by _run_prevent_phase,
+        # which iterates priority == PREVENT. TRANSFORM never invokes PREVENT.
+        priority=InterceptorPriority.PREVENT,
         filter=destroy_filter,
         handler=destroy_handler,
         duration="while_on_battlefield",
@@ -2009,8 +2062,13 @@ def _covered_call_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         )
 
     def power_effect(event: Event, state: GameState) -> InterceptorResult:
-        event.payload["power"] = event.payload.get("power", 0) + 1
-        return InterceptorResult(action=InterceptorAction.PASS)
+        # priority class: queries.get_power reads transformed_event.payload['value'].
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + 1
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     # REACT on DAMAGE event where source is the host Trader and target is a player
     # (unblocked damage = direct to player)
@@ -2081,8 +2139,15 @@ def _synthetic_collar_setup(obj: GameObject, state: GameState) -> list[Intercept
             if (CardType.FIN_DERIVATIVE in o.characteristics.types
                     and o.state.attached_to == host_id):
                 count += 1
-        event.payload["power"] = event.payload.get("power", 0) + count
-        return InterceptorResult(action=InterceptorAction.PASS)
+        if count <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        # bug #25: queries.get_power reads transformed_event.payload['value'] only.
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + count
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     def toughness_filter(event: Event, state: GameState) -> bool:
         host_id = obj.state.attached_to
@@ -2102,18 +2167,27 @@ def _synthetic_collar_setup(obj: GameObject, state: GameState) -> list[Intercept
             if (CardType.FIN_DERIVATIVE in o.characteristics.types
                     and o.state.attached_to == host_id):
                 count += 1
-        event.payload["toughness"] = event.payload.get("toughness", 0) + count
-        return InterceptorResult(action=InterceptorAction.PASS)
+        if count <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        # bug #25: queries.get_toughness reads transformed_event.payload['value'].
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + count
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     return [
         Interceptor(
             id=new_id(), source=obj.id, controller=obj.controller,
+            # bug #25: priority must be QUERY for queries.get_power to iterate it.
             priority=InterceptorPriority.QUERY,
             filter=power_filter, handler=power_effect,
             duration="while_on_battlefield",
         ),
         Interceptor(
             id=new_id(), source=obj.id, controller=obj.controller,
+            # bug #25: priority must be QUERY for queries.get_toughness to iterate it.
             priority=InterceptorPriority.QUERY,
             filter=toughness_filter, handler=toughness_effect,
             duration="while_on_battlefield",

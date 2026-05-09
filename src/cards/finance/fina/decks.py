@@ -46,7 +46,7 @@ def build_high_frequency_deck() -> list[CardDefinition]:
 
     # --- {2} Orders (4) ---      28
     deck += c("Quote Stuffing Burst", 2)   # +3/+0 + Alpha Strike grant
-    deck += c("Sub-Penny Intercept", 2)    # -2/-0 to attacking Trader
+    deck += c("Rebalancing Halt", 2)       # tap Trader + draw a card (anti-starvation)
 
     # --- {2} Assets (4) ---      32
     deck += c("HFT Feed Colocation", 2)    # static +1/+0 to Alpha Strike Traders

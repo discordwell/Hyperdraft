@@ -1171,6 +1171,849 @@ def test_creature_dies_routed_to_graveyard():
     print("test_creature_dies_routed_to_graveyard  PASS")
 
 
+# ===========================================================================
+# DP timing + isolated card bugs (#24, #26, #27, #29)
+#
+# Owner: dp-timing agent.
+#   #24 — Vega Spike resolves but counters never land
+#   #26 — Hidden Aggression suspected face-damage on cast (speculative)
+#   #27 — Trample overflow inconsistency (vanilla vs trample, mutual-kill)
+#   #29 — Crossed Market / Payment for Order Flow DP trigger fires on the
+#         opponent's TS where the effect is useless; must defer until the
+#         controller's next TS.
+# ===========================================================================
+
+from src.cards.finance.fina.derivatives import VEGA_SPIKE                # noqa: E402
+from src.cards.finance.fina.dark_arbitrage import (                      # noqa: E402
+    CROSSED_MARKET,
+    PAYMENT_FOR_ORDER_FLOW,
+)
+
+
+class TestDPTimingAndCardBugs:
+    """Regression tests for #24, #26, #27, #29."""
+
+    # ---- bug #24: Vega Spike adds Leverage counters to its target ---------
+
+    def test_bug24_vega_spike_adds_leverage_counters(self):
+        """Casting Vega Spike on a Trader you control must add 2 leverage
+        counters (was previously a no-op due to a target-shape mismatch:
+        the resolve indexed targets[0][0] expecting nested form, but the AI
+        passes flat [card_id])."""
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        game, p1, _ = _make_finance_game()
+        target = _put_on_battlefield(game, p1.id, SPOOFING_ALGO)
+        # Hand Vega Spike to P1 with enough Liquidity.
+        vs = game.create_object(
+            name=VEGA_SPIKE.name,
+            owner_id=p1.id,
+            zone=ZoneType.HAND,
+            characteristics=VEGA_SPIKE.characteristics,
+            card_def=VEGA_SPIKE,
+        )
+        p1.mana_crystals = 9
+        p1.mana_crystals_available = 9
+        lev_before = int(target.state.counters.get("leverage", 0))
+
+        # Pass targets in the AI shape (flat list of card ids).
+        events = asyncio.run(
+            game.turn_manager._play_card_action(p1.id, vs.id, [target.id])
+        )
+        assert events, "Bug #24: VS should produce events (cost path failed otherwise)"
+        lev_after = int(target.state.counters.get("leverage", 0))
+        assert lev_after == lev_before + 2, (
+            f"Bug #24: Vega Spike must place 2 leverage counters on target "
+            f"(before={lev_before}, after={lev_after})"
+        )
+        # Mana was consumed.
+        assert p1.mana_crystals_available == 9 - 3, (
+            f"Bug #24: VS costs 3 Liquidity (got {9 - p1.mana_crystals_available})"
+        )
+        # Strategy went to graveyard.
+        assert vs.zone == ZoneType.GRAVEYARD, (
+            f"Bug #24: VS should route to graveyard after resolve (got {vs.zone})"
+        )
+        print("test_bug24_vega_spike_adds_leverage_counters  PASS")
+
+    # ---- bug #26: Hidden Aggression must NOT damage opponent on cast ------
+
+    def test_bug26_hidden_aggression_does_not_damage_opponent_on_cast(self):
+        """Pilot A iter 2 v2 T6/T10 saw P1 capital drop +1 beyond the
+        Leverage tick after staging Hidden Aggression. The card's effect is
+        a friendly +2/+0 PT pump — there should be ZERO LIFE_CHANGE on the
+        opponent during the cast (staging) path."""
+        game, p1, p2 = _make_finance_game()
+        ha = game.create_object(
+            name=HIDDEN_AGGRESSION.name,
+            owner_id=p1.id,
+            zone=ZoneType.HAND,
+            characteristics=HIDDEN_AGGRESSION.characteristics,
+            card_def=HIDDEN_AGGRESSION,
+        )
+        p1.mana_crystals = 5
+        p1.mana_crystals_available = 5
+        p2_capital_before = p2.life
+        p1_capital_before = p1.life
+
+        events = asyncio.run(
+            game.turn_manager._play_card_action(p1.id, ha.id, [])
+        )
+        assert events, "Bug #26: HA cast should still produce stage events"
+        # Opponent capital must be unchanged on staging.
+        assert p2.life == p2_capital_before, (
+            f"Bug #26: HA stage must NOT damage opponent capital "
+            f"(was {p2_capital_before}, now {p2.life})"
+        )
+        # Controller capital also unchanged on staging.
+        assert p1.life == p1_capital_before, (
+            f"Bug #26: HA stage must NOT damage controller capital "
+            f"(was {p1_capital_before}, now {p1.life})"
+        )
+        # Confirm no LIFE_CHANGE event was emitted during the cast.
+        life_changes = [e for e in events if e.type == EventType.LIFE_CHANGE]
+        assert not life_changes, (
+            f"Bug #26: HA cast must emit zero LIFE_CHANGE events, got {life_changes!r}"
+        )
+        print("test_bug26_hidden_aggression_does_not_damage_opponent_on_cast  PASS")
+
+    # ---- bug #27: trample is opt-in (no overflow without keyword) ---------
+
+    def test_bug27_no_trample_overflow_without_keyword(self):
+        """Vanilla 5/5 attacker into 2/2 blocker → blocker dies, attacker
+        survives, NO face damage on defender's Capital Reserve."""
+        game, p1, p2 = _make_finance_game()
+        atk_def = _make_vanilla_trader("Vanilla 5/5", power=5, toughness=5)
+        blk_def = _make_vanilla_trader("Vanilla 2/2", power=2, toughness=2)
+        attacker = _put_on_battlefield(game, p1.id, atk_def)
+        blocker = _put_on_battlefield(game, p2.id, blk_def)
+
+        cm = game.turn_manager.finance_combat_manager
+        asyncio.run(cm.declare_attackers(p1.id, [attacker.id]))
+        asyncio.run(cm.declare_blockers(p2.id, {attacker.id: blocker.id}))
+        p2_life_before = game.state.players[p2.id].life
+        asyncio.run(
+            cm.resolve_combat_damage([attacker.id], {attacker.id: blocker.id}, p2.id)
+        )
+
+        # Blocker dies.
+        assert blocker.zone == ZoneType.GRAVEYARD, (
+            f"Bug #27: 5-power into 2-tough must kill blocker (got zone={blocker.zone})"
+        )
+        # No overflow without trample.
+        assert game.state.players[p2.id].life == p2_life_before, (
+            f"Bug #27: NO trample → defender Capital Reserve unchanged "
+            f"(was {p2_life_before}, now {game.state.players[p2.id].life})"
+        )
+        # Attacker survives (5-tough vs 2-power blocker).
+        assert attacker.zone == ZoneType.BATTLEFIELD, (
+            f"Bug #27: 5/5 attacker should survive a 2/2 blocker (got {attacker.zone})"
+        )
+        print("test_bug27_no_trample_overflow_without_keyword  PASS")
+
+    def test_bug27_trample_overflow_with_keyword(self):
+        """Trample 5/5 attacker into 2/2 blocker → blocker dies + 3 face
+        damage to defender's Capital Reserve."""
+        game, p1, p2 = _make_finance_game()
+        atk_def = _make_vanilla_trader("Trample 5/5", power=5, toughness=5)
+        atk_def.characteristics.abilities = [{"keyword": "trample"}]
+        blk_def = _make_vanilla_trader("Vanilla 2/2", power=2, toughness=2)
+        attacker = _put_on_battlefield(game, p1.id, atk_def)
+        blocker = _put_on_battlefield(game, p2.id, blk_def)
+
+        cm = game.turn_manager.finance_combat_manager
+        asyncio.run(cm.declare_attackers(p1.id, [attacker.id]))
+        asyncio.run(cm.declare_blockers(p2.id, {attacker.id: blocker.id}))
+        p2_life_before = game.state.players[p2.id].life
+        asyncio.run(
+            cm.resolve_combat_damage([attacker.id], {attacker.id: blocker.id}, p2.id)
+        )
+
+        # Blocker dies.
+        assert blocker.zone == ZoneType.GRAVEYARD, (
+            f"Bug #27: 5-power into 2-tough must kill blocker (got zone={blocker.zone})"
+        )
+        # Trample → 5 - 2 = 3 face damage.
+        face_damage = p2_life_before - game.state.players[p2.id].life
+        assert face_damage == 3, (
+            f"Bug #27: WITH trample, expected 3 face damage (5-power - 2-tough), "
+            f"got {face_damage}"
+        )
+        print("test_bug27_trample_overflow_with_keyword  PASS")
+
+    # ---- bug #29: CM and PFOF must defer to controller's TS ---------------
+
+    def _stage_dark_pool(self, game, player_id: str, card_def):
+        """Helper: place a Dark Pool Order in EXILE staging + populate the DP slot."""
+        from src.engine.finance import set_dark_pool
+        order = game.create_object(
+            name=card_def.name,
+            owner_id=player_id,
+            zone=ZoneType.EXILE,
+            characteristics=card_def.characteristics,
+            card_def=card_def,
+        )
+        set_dark_pool(game.state, order.id)
+        # Run setup_interceptors so the FIN_MARKET_EVENT REACT is registered
+        # (mirrors what _play_card_action does after staging).
+        ics = card_def.setup_interceptors(order, game.state) if card_def.setup_interceptors else []
+        for ic in ics:
+            order.interceptor_ids.append(ic.id)
+            game.register_interceptor(ic)
+        return order, ics
+
+    def test_bug29_crossed_market_fires_on_controller_ts(self):
+        """Stage CM (controller=P1). Forging the system FIN_MARKET_EVENT
+        with active_player=P2 (opponent's TS) must NOT apply the cant-block
+        flag and must re-stage the dark pool slot. Then forging it with
+        active_player=P1 (controller's TS) must apply the cant-block flag
+        to the opponent Trader."""
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        from src.engine.finance import get_dark_pool, set_dark_pool
+        from src.engine.types import Event as _E
+        game, p1, p2 = _make_finance_game()
+        # P2 has a Trader for CM to target.
+        opp_trader = _put_on_battlefield(game, p2.id, SPOOFING_ALGO)
+        order, ics = self._stage_dark_pool(game, p1.id, CROSSED_MARKET)
+        assert get_dark_pool(game.state) == order.id
+
+        ic = ics[0]
+        # ---- Opponent's TS first (should defer) ---------------------------
+        # Mimic the system trigger: clear DP slot, then fire FIN_MARKET_EVENT
+        # with controller=p2 (the active player).
+        set_dark_pool(game.state, None)
+        ev_opp = _E(
+            type=EventType.FIN_MARKET_EVENT,
+            payload={"obj_id": order.id, "controller": p2.id},
+            source=order.id,
+            controller=p2.id,
+        )
+        ic.handler(ev_opp, game.state)
+        # Effect must NOT apply on opp's TS.
+        cant_block_key = f"fin_cant_block_{opp_trader.id}"
+        assert not game.state.turn_data.get(cant_block_key), (
+            "Bug #29: CM must NOT apply 'can't block' on the opponent's TS"
+        )
+        # And the DP slot must be re-staged so the system trigger picks it up
+        # again on the controller's next TS.
+        assert get_dark_pool(game.state) == order.id, (
+            "Bug #29: CM must re-stage itself when firing on the wrong TS"
+        )
+
+        # ---- Controller's TS (should apply) -------------------------------
+        set_dark_pool(game.state, None)
+        ev_ctrl = _E(
+            type=EventType.FIN_MARKET_EVENT,
+            payload={"obj_id": order.id, "controller": p1.id},
+            source=order.id,
+            controller=p1.id,
+        )
+        ic.handler(ev_ctrl, game.state)
+        assert game.state.turn_data.get(cant_block_key) is True, (
+            f"Bug #29: CM must apply 'can't block' to opponent Trader "
+            f"{opp_trader.id} on the controller's TS"
+        )
+        print("test_bug29_crossed_market_fires_on_controller_ts  PASS")
+
+    def test_bug29_pfof_fires_on_controller_ts(self):
+        """Stage PFOF (controller=P1). Firing on opp's TS gives no Liquidity;
+        firing on controller's TS gives +1 Liquidity (cyc3 nerf)."""
+        from src.engine.finance import get_dark_pool, set_dark_pool
+        from src.engine.types import Event as _E
+        game, p1, p2 = _make_finance_game()
+        order, ics = self._stage_dark_pool(game, p1.id, PAYMENT_FOR_ORDER_FLOW)
+        # Give P1 some Liquidity headroom so the +1 isn't capped at the max.
+        p1.mana_crystals = 5
+        p1.mana_crystals_available = 2
+        assert get_dark_pool(game.state) == order.id
+
+        ic = ics[0]
+        # ---- Opponent's TS (defer) ---------------------------------------
+        set_dark_pool(game.state, None)
+        avail_before_opp = p1.mana_crystals_available
+        ev_opp = _E(
+            type=EventType.FIN_MARKET_EVENT,
+            payload={"obj_id": order.id, "controller": p2.id},
+            source=order.id,
+            controller=p2.id,
+        )
+        ic.handler(ev_opp, game.state)
+        assert p1.mana_crystals_available == avail_before_opp, (
+            f"Bug #29: PFOF must NOT grant Liquidity on opponent's TS "
+            f"(was {avail_before_opp}, now {p1.mana_crystals_available})"
+        )
+        assert get_dark_pool(game.state) == order.id, (
+            "Bug #29: PFOF must re-stage itself when firing on the wrong TS"
+        )
+
+        # ---- Controller's TS (apply) -------------------------------------
+        set_dark_pool(game.state, None)
+        avail_before_ctrl = p1.mana_crystals_available
+        ev_ctrl = _E(
+            type=EventType.FIN_MARKET_EVENT,
+            payload={"obj_id": order.id, "controller": p1.id},
+            source=order.id,
+            controller=p1.id,
+        )
+        ic.handler(ev_ctrl, game.state)
+        assert p1.mana_crystals_available == avail_before_ctrl + 1, (
+            f"Bug #29: PFOF must grant +1 Liquidity on controller's TS "
+            f"(was {avail_before_ctrl}, now {p1.mana_crystals_available})"
+        )
+        print("test_bug29_pfof_fires_on_controller_ts  PASS")
+
+
+# Module-level wrappers so the legacy `_run_all` driver picks them up.
+_DP_TIMING_BUGS = TestDPTimingAndCardBugs()
+
+
+def test_bug24_vega_spike_adds_leverage_counters():
+    _DP_TIMING_BUGS.test_bug24_vega_spike_adds_leverage_counters()
+
+
+def test_bug26_hidden_aggression_does_not_damage_opponent_on_cast():
+    _DP_TIMING_BUGS.test_bug26_hidden_aggression_does_not_damage_opponent_on_cast()
+
+
+def test_bug27_no_trample_overflow_without_keyword():
+    _DP_TIMING_BUGS.test_bug27_no_trample_overflow_without_keyword()
+
+
+def test_bug27_trample_overflow_with_keyword():
+    _DP_TIMING_BUGS.test_bug27_trample_overflow_with_keyword()
+
+
+def test_bug29_crossed_market_fires_on_controller_ts():
+    _DP_TIMING_BUGS.test_bug29_crossed_market_fires_on_controller_ts()
+
+
+def test_bug29_pfof_fires_on_controller_ts():
+    _DP_TIMING_BUGS.test_bug29_pfof_fires_on_controller_ts()
+
+
+# ===========================================================================
+# Priority-mismatch class bugs (#21, #22, #25, #28)
+#
+# Owner: priority-class agent.
+#   #21 — HFT Feed Colocation +1/+0 power buff to Traders (was unread handler)
+#   #22 — PCD lord toughness +0/+1 (was TRANSFORM priority — unread by
+#         queries.get_toughness)
+#   #25 — Synthetic Collar +1/+1 per attached Derivative (was unread handler)
+#   #28 — Dark Flow Engine -1 cost on DP Orders (was TRANSFORM priority +
+#         unread handler + finance_turn never queried QUERY_COST interceptors)
+# ===========================================================================
+
+from src.cards.finance.fina.high_frequency import (                # noqa: E402
+    HFT_FEED_COLOCATION,
+    TICKER_TAPE_DERIVATIVE,
+    DARK_POOL_FLASH_ORDER,
+)
+from src.cards.finance.fina.quant import (                         # noqa: E402
+    PORTFOLIO_CONSTRUCTION_DESK,
+    RISK_MANAGER as PCD_RISK_MANAGER,
+)
+from src.cards.finance.fina.derivatives import (                   # noqa: E402
+    SYNTHETIC_COLLAR,
+)
+from src.cards.finance.fina.dark_arbitrage import (                # noqa: E402
+    DARK_FLOW_ENGINE,
+)
+from src.engine.queries import (                                   # noqa: E402
+    get_power as _PRI_get_power,
+    get_toughness as _PRI_get_toughness,
+)
+
+
+class TestPriorityClassBugs:
+    """Regression tests for the priority-mismatch class (#21/#22/#25/#28).
+
+    All four share the same root cause: the interceptor was registered with
+    a priority that the relevant query/cost dispatcher does not iterate.
+    queries.get_power / get_toughness only walk priority == QUERY; the
+    cost_query.get_effective_mana_cost only walks priority == QUERY for
+    QUERY_COST events. Several handlers also wrote to a never-read payload
+    key (e.g. payload['power'] vs the contract key payload['value']).
+    """
+
+    # ---- bug #21: HFT Feed Colocation +1/+0 to Traders -------------------
+
+    def test_bug21_hft_feed_colocation_buffs_traders(self):
+        """Deploy HFC + a Trader. Trader's displayed power must be printed+1.
+
+        Pre-fix: handler mutated payload['power'] and returned PASS — never
+        read by queries.get_power, which reads transformed_event.payload['value']
+        and only when result.action == TRANSFORM.
+        """
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        game, p1, _ = _make_finance_game()
+
+        # Trader without HFC: baseline power.
+        trader = _put_on_battlefield(game, p1.id, SPOOFING_ALGO)
+        printed_power = trader.characteristics.power
+        baseline = _PRI_get_power(trader, game.state)
+        assert baseline == printed_power, (
+            f"Bug #21 baseline: without HFC, power = printed ({printed_power}); "
+            f"got {baseline}"
+        )
+
+        # Now deploy HFC. Trader power should rise by 1.
+        _put_on_battlefield(game, p1.id, HFT_FEED_COLOCATION)
+        with_hfc = _PRI_get_power(trader, game.state)
+        assert with_hfc == printed_power + 1, (
+            f"Bug #21: HFC must add +1 power to friendly Trader "
+            f"(printed={printed_power}, expected={printed_power + 1}, got={with_hfc})"
+        )
+        print("test_bug21_hft_feed_colocation_buffs_traders  PASS")
+
+    # ---- bug #22: PCD toughness lord +0/+1 -------------------------------
+
+    def test_bug22_pcd_toughness_lord_buffs_quant_traders(self):
+        """Deploy PCD + Risk Manager. RM's displayed toughness must be 5 (4+1).
+
+        Pre-fix: _make_global_toughness_lord_interceptor used priority TRANSFORM
+        (never iterated by queries.get_toughness, which only walks priority ==
+        QUERY) AND wrote to payload['toughness'] (never read; contract is
+        payload['value']).
+        """
+        game, p1, _ = _make_finance_game()
+        # Risk Manager: printed 1/4.
+        rm = _put_on_battlefield(game, p1.id, PCD_RISK_MANAGER)
+        baseline_t = _PRI_get_toughness(rm, game.state)
+        assert baseline_t == 4, (
+            f"Bug #22 baseline: RM printed toughness should be 4, got {baseline_t}"
+        )
+
+        # Deploy PCD; RM should now show 5 toughness (other-trader +0/+1).
+        _put_on_battlefield(game, p1.id, PORTFOLIO_CONSTRUCTION_DESK)
+        with_pcd = _PRI_get_toughness(rm, game.state)
+        assert with_pcd == 5, (
+            f"Bug #22: with PCD on board, RM displayed toughness must be 5 "
+            f"(4 + 1), got {with_pcd}"
+        )
+
+        # PCD itself should NOT receive its own buff (filter excludes self).
+        pcd = next(
+            o for o in game.state.objects.values()
+            if o.name == PORTFOLIO_CONSTRUCTION_DESK.name
+            and o.controller == p1.id
+        )
+        pcd_t = _PRI_get_toughness(pcd, game.state)
+        assert pcd_t == 4, (
+            f"Bug #22: PCD must NOT buff itself (printed 4), got {pcd_t}"
+        )
+        print("test_bug22_pcd_toughness_lord_buffs_quant_traders  PASS")
+
+    # ---- bug #25: Synthetic Collar attached to TDT -----------------------
+
+    def test_bug25_synthetic_collar_buffs_attached_trader(self):
+        """Attach Synthetic Collar to a Trader (with TDT also attached).
+        The host's displayed power and toughness must increase by the count
+        of attached Derivatives.
+
+        Pre-fix: power/toughness handlers returned PASS and mutated
+        payload['power'/'toughness'] — both unread by queries.get_*.
+        """
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        game, p1, _ = _make_finance_game()
+
+        host = _put_on_battlefield(game, p1.id, SPOOFING_ALGO)
+        printed_p = host.characteristics.power
+        printed_t = host.characteristics.toughness
+
+        # Place Synthetic Collar and TDT directly on the battlefield, then
+        # set their attached_to to the host (bypasses the staging path).
+        sc = _put_on_battlefield(game, p1.id, SYNTHETIC_COLLAR)
+        tdt = _put_on_battlefield(game, p1.id, TICKER_TAPE_DERIVATIVE)
+        sc.state.attached_to = host.id
+        tdt.state.attached_to = host.id
+
+        # 2 Derivatives attached → +2/+2 to host.
+        new_p = _PRI_get_power(host, game.state)
+        new_t = _PRI_get_toughness(host, game.state)
+        assert new_p == printed_p + 2, (
+            f"Bug #25: with SC + TDT attached, power must be {printed_p + 2}, "
+            f"got {new_p}"
+        )
+        assert new_t == printed_t + 2, (
+            f"Bug #25: with SC + TDT attached, toughness must be {printed_t + 2}, "
+            f"got {new_t}"
+        )
+
+        # Detach TDT — power/toughness should drop back to printed + 1
+        # (only Synthetic Collar attached, count == 1).
+        tdt.state.attached_to = None
+        p_after = _PRI_get_power(host, game.state)
+        t_after = _PRI_get_toughness(host, game.state)
+        assert p_after == printed_p + 1, (
+            f"Bug #25: with only SC attached, power must be {printed_p + 1}, "
+            f"got {p_after}"
+        )
+        assert t_after == printed_t + 1, (
+            f"Bug #25: with only SC attached, toughness must be {printed_t + 1}, "
+            f"got {t_after}"
+        )
+        print("test_bug25_synthetic_collar_buffs_attached_trader  PASS")
+
+    # ---- bug #28: Dark Flow Engine -1 cost on DP Orders ------------------
+
+    def test_bug28_dark_flow_engine_reduces_cost(self):
+        """Cast a Dark Pool Order (DP Flash Order, printed cost 1) with DFE on
+        the battlefield. Mana spent must be max(0, printed - 1) == 0 after
+        DFE applies.
+
+        Pre-fix:
+          1. priority=TRANSFORM (cost_query only walks priority==QUERY).
+          2. Filter checked card_def._dark_pool but the attribute is
+             `dark_pool` (no underscore).
+          3. Handler mutated payload['cost'] (cost_query reads
+             transformed_event.payload['reduction']).
+          4. finance_turn._play_card_action never invoked
+             cost_query.get_effective_mana_cost — registered cost-reduction
+             interceptors were structurally unreachable.
+        """
+        game, p1, _ = _make_finance_game()
+        # Deploy DFE first so its interceptor is registered.
+        _put_on_battlefield(game, p1.id, DARK_FLOW_ENGINE)
+
+        # Build a DP Flash Order (printed cost {1}) in P1's hand.
+        order = game.create_object(
+            name=DARK_POOL_FLASH_ORDER.name,
+            owner_id=p1.id,
+            zone=ZoneType.HAND,
+            characteristics=DARK_POOL_FLASH_ORDER.characteristics,
+            card_def=DARK_POOL_FLASH_ORDER,
+        )
+        # Sanity check: card_def.dark_pool is True (the attribute the filter reads).
+        assert getattr(DARK_POOL_FLASH_ORDER, "dark_pool", False), (
+            "Bug #28 setup: DARK_POOL_FLASH_ORDER must have dark_pool=True"
+        )
+
+        p1.mana_crystals = 5
+        p1.mana_crystals_available = 5
+        avail_before = p1.mana_crystals_available
+
+        events = asyncio.run(
+            game.turn_manager._play_card_action(p1.id, order.id, [])
+        )
+        assert events, (
+            "Bug #28: _play_card_action returned no events — cost path failed"
+        )
+        spent = avail_before - p1.mana_crystals_available
+        # DP Flash Order printed cost {1}; with DFE -1, spent should be 0.
+        assert spent == 0, (
+            f"Bug #28: DP Flash Order ({1} - 1 from DFE) should cost 0 mana to stage, "
+            f"got mana_spent={spent}"
+        )
+
+        # Now sanity-check non-DP Order is unaffected by DFE (filter scopes
+        # only to dark_pool=True cards). Use a vanilla 1-cost Trader.
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        spoofing = game.create_object(
+            name=SPOOFING_ALGO.name,
+            owner_id=p1.id,
+            zone=ZoneType.HAND,
+            characteristics=SPOOFING_ALGO.characteristics,
+            card_def=SPOOFING_ALGO,
+        )
+        spoofing_cost = SPOOFING_ALGO.characteristics.mana_cost
+        # Compute expected printed cost from {N} pattern.
+        import re as _re
+        printed_cost = sum(int(n) for n in _re.findall(r"\{(\d+)\}", spoofing_cost))
+        avail_before2 = p1.mana_crystals_available
+        asyncio.run(
+            game.turn_manager._play_card_action(p1.id, spoofing.id, [])
+        )
+        spent2 = avail_before2 - p1.mana_crystals_available
+        assert spent2 == printed_cost, (
+            f"Bug #28 scope check: non-DP Trader should cost printed ({printed_cost}), "
+            f"got {spent2} — DFE filter is leaking to non-DP cards"
+        )
+        print("test_bug28_dark_flow_engine_reduces_cost  PASS")
+
+
+# Module-level wrappers so the legacy `_run_all` driver picks them up.
+_PRIORITY_CLASS_BUGS = TestPriorityClassBugs()
+
+
+def test_bug21_hft_feed_colocation_buffs_traders():
+    _PRIORITY_CLASS_BUGS.test_bug21_hft_feed_colocation_buffs_traders()
+
+
+def test_bug22_pcd_toughness_lord_buffs_quant_traders():
+    _PRIORITY_CLASS_BUGS.test_bug22_pcd_toughness_lord_buffs_quant_traders()
+
+
+def test_bug25_synthetic_collar_buffs_attached_trader():
+    _PRIORITY_CLASS_BUGS.test_bug25_synthetic_collar_buffs_attached_trader()
+
+
+def test_bug28_dark_flow_engine_reduces_cost():
+    _PRIORITY_CLASS_BUGS.test_bug28_dark_flow_engine_reduces_cost()
+
+
+# ===========================================================================
+# Bug #2 (multi-attacker Alpha Strike asymmetry — sequential-call robustness)
+# Bug #6 (Tick Data Archive's "attacked alone last turn" flag persistence)
+# ===========================================================================
+#
+# Root causes (after iter-2 v2 audit):
+#
+#  Bug #2 root cause analysis: the v1 fix made declare_attackers do two passes
+#  (mark all attackers attacking=True before emitting per-attacker events) so
+#  that ATTACK_DECLARED triggers in a SINGLE call see the final count. That
+#  case works (test_bug2_multi_attacker_alpha_no_solo_buff). However, when
+#  the harness or AI calls declare_attackers SEQUENTIALLY (one ID per call —
+#  e.g. ``cmd_attack <id1>`` then ``cmd_attack <id2>`` in the wet-test
+#  harness), each call emits ATTACK_DECLARED while only the IDs in THAT call
+#  have attacking=True set so far. The first solo call therefore stamps a
+#  +3 PT_MOD on the first attacker (count==1 was correct momentarily); the
+#  second call raises count to 2 but the +3 from call 1 was never revoked.
+#  Net: first attacker gets +3 stuck, second gets nothing — asymmetric exactly
+#  as the bug describes. Fix: mark each emitted alpha PT_MOD with
+#  ``_tag='alpha_strike'`` and ``_source_id`` (event.source); at the end of
+#  declare_attackers AND at the start of resolve_combat_damage, revoke any
+#  alpha_strike PT_MODs from every attacker if cumulative count > 1, AND
+#  clear ``fin_alpha_struck_alone_<player>``. "Alone is alone" regardless
+#  of declaration call pattern.
+#
+#  Bug #6 root cause analysis: ``_alpha_strike_bonus`` already sets
+#  ``fin_alpha_struck_alone_<controller>=True`` when count==1 — that part
+#  worked. The flag was DEAD because ``_emit_turn_end`` clears state.turn_data
+#  while only preserving keys with prefix ``finance_deriv_desk_``,
+#  ``finance_structure_count_``, or exactly ``finance_dark_pool``. The
+#  ``fin_alpha_struck_alone_*`` prefix was NOT in the preserved set, so the
+#  flag was wiped at end-of-turn — long before TDA's next-turn pre-market
+#  trigger could read it. Fix: add ``fin_alpha_struck_alone_`` to the
+#  preserved-prefix list so the flag survives the turn-end -> opponent-turn
+#  -> next-turn cycle. TDA's handler clears the flag once it consumes it.
+# ===========================================================================
+
+class TestAlphaAndTDABugs:
+    """Regression tests for bugs #2 and #6 (sequential-call + flag-persistence)."""
+
+    def test_bug2_two_alpha_attackers_neither_gets_alone_bonus(self):
+        """Declare 2 alpha attackers SIMULTANEOUSLY → NEITHER gets +3.
+
+        "Alone is alone" — when 2+ Traders attack, no attacker is alone, so
+        no alpha bonus fires for ANY of them. (The v1 fix already covers this
+        single-call simultaneous case; this test pins the contract.)
+        """
+        game, p1, _ = _make_finance_game()
+        a = _put_on_battlefield(game, p1.id, SPOOFING_ALGO)
+        b = _put_on_battlefield(game, p1.id, RETAIL_FLOW_CHASER)
+
+        cm = game.turn_manager.finance_combat_manager
+        asyncio.run(cm.declare_attackers(p1.id, [a.id, b.id]))
+
+        # Neither gets an alpha_strike PT_MOD entry on its pt_modifiers list.
+        for atk, name in [(a, "Spoofing"), (b, "RFC")]:
+            mods = getattr(atk.state, "pt_modifiers", []) or []
+            alpha_mods = [m for m in mods if m.get("_tag") == "alpha_strike"]
+            assert not alpha_mods, (
+                f"Bug #2: {name} got +{[m.get('power') for m in alpha_mods]} alpha "
+                f"in multi-attack; alone is alone, no buff should fire"
+            )
+        # Alone flag must NOT be set in multi-attack.
+        flag_key = f"fin_alpha_struck_alone_{p1.id}"
+        assert not game.state.turn_data.get(flag_key), (
+            "Bug #2: alone flag must NOT be set during multi-attack"
+        )
+        # Sequential-call fix verified: even if we declared b first then a,
+        # the post-call cleanup catches it.
+        game2, q1, _ = _make_finance_game()
+        a2 = _put_on_battlefield(game2, q1.id, SPOOFING_ALGO)
+        b2 = _put_on_battlefield(game2, q1.id, RETAIL_FLOW_CHASER)
+        cm2 = game2.turn_manager.finance_combat_manager
+        asyncio.run(cm2.declare_attackers(q1.id, [a2.id]))   # solo first
+        asyncio.run(cm2.declare_attackers(q1.id, [b2.id]))   # b joins
+        for atk, name in [(a2, "Spoofing-seq"), (b2, "RFC-seq")]:
+            mods = getattr(atk.state, "pt_modifiers", []) or []
+            alpha_mods = [m for m in mods if m.get("_tag") == "alpha_strike"]
+            assert not alpha_mods, (
+                f"Bug #2 sequential: {name} got +{[m.get('power') for m in alpha_mods]} "
+                f"alpha after b joined; cleanup must revoke the call-1 stamp"
+            )
+        flag_key2 = f"fin_alpha_struck_alone_{q1.id}"
+        assert not game2.state.turn_data.get(flag_key2), (
+            "Bug #2 sequential: alone flag must be cleared once b joins"
+        )
+        print("test_bug2_two_alpha_attackers_neither_gets_alone_bonus  PASS")
+
+    def test_bug2_one_alpha_attacker_gets_alone_bonus(self):
+        """Declare 1 alpha attacker → +3 alpha fires (alone is alone)."""
+        game, p1, _ = _make_finance_game()
+        a = _put_on_battlefield(game, p1.id, SPOOFING_ALGO)
+
+        cm = game.turn_manager.finance_combat_manager
+        asyncio.run(cm.declare_attackers(p1.id, [a.id]))
+
+        mods = getattr(a.state, "pt_modifiers", []) or []
+        alpha_mods = [m for m in mods if m.get("_tag") == "alpha_strike"]
+        assert len(alpha_mods) == 1, (
+            f"Bug #2: solo alpha attack must produce exactly 1 alpha PT_MOD "
+            f"(got {alpha_mods!r})"
+        )
+        assert alpha_mods[0].get("power") == 3, (
+            f"Bug #2: solo alpha bonus must be +3 (got {alpha_mods[0].get('power')})"
+        )
+        # Alone flag IS set.
+        flag_key = f"fin_alpha_struck_alone_{p1.id}"
+        assert game.state.turn_data.get(flag_key) is True, (
+            "Bug #2/#6: solo alpha must set the alone flag"
+        )
+        print("test_bug2_one_alpha_attacker_gets_alone_bonus  PASS")
+
+    def test_bug2_oef_alpha_plus4_only_with_solo_attack(self):
+        """Declare OEF (Off-Exchange Finisher, +4 alpha) + Spoofing (+3 alpha)
+        simultaneously → OEF must NOT get the +4 buff (multi-attack).
+
+        Pins the asymmetry fix for the +4 alpha helper too (bug #18 was
+        defined for this).
+        """
+        from src.cards.finance.fina.dark_arbitrage import OFF_EXCHANGE_FINISHER
+        game, p1, _ = _make_finance_game()
+        # Use the play-to-battlefield helper (zone-change emit) so OEF's
+        # Leverage 2 ETB counters land properly via the pipeline.
+        oef = _DLB_play_to_battlefield(game, p1.id, OFF_EXCHANGE_FINISHER)
+        oef.state.summoning_sickness = False
+        oef.state.tapped = False
+        spoof = _put_on_battlefield(game, p1.id, SPOOFING_ALGO)
+
+        cm = game.turn_manager.finance_combat_manager
+        asyncio.run(cm.declare_attackers(p1.id, [oef.id, spoof.id]))
+
+        # OEF must have NO alpha-strike PT_MOD in pt_modifiers.
+        oef_mods = getattr(oef.state, "pt_modifiers", []) or []
+        oef_alpha = [m for m in oef_mods if m.get("_tag") == "alpha_strike"]
+        assert not oef_alpha, (
+            f"Bug #2 (OEF +4): in multi-attack OEF must NOT receive +4 alpha bonus, "
+            f"got {oef_alpha!r}"
+        )
+        # Spoofing too — same asymmetry test.
+        spoof_alpha = [m for m in (getattr(spoof.state, "pt_modifiers", []) or [])
+                       if m.get("_tag") == "alpha_strike"]
+        assert not spoof_alpha, (
+            f"Bug #2 (OEF + Spoofing): Spoofing must also receive no alpha bonus "
+            f"in multi-attack, got {spoof_alpha!r}"
+        )
+        # Computed power should equal printed (3 base + 2 leverage = 5 for OEF
+        # via _make_leverage_power_query, no alpha). Spoofing should display 2.
+        from src.engine.queries import get_power
+        oef_power = get_power(oef, game.state)
+        # OEF: 3 base + 2 from Leverage 2 (counters) = 5 with bug #19 fix.
+        assert oef_power == 5, (
+            f"Bug #2 (OEF +4): in multi-attack OEF power must be 5 (3 base + 2 lev) "
+            f"not 9 (with stale +4 alpha) — got {oef_power}"
+        )
+        spoof_power = get_power(spoof, game.state)
+        assert spoof_power == 2, (
+            f"Bug #2 (Spoofing): in multi-attack Spoofing power must be printed 2, "
+            f"not 5 (with stale +3 alpha) — got {spoof_power}"
+        )
+        print("test_bug2_oef_alpha_plus4_only_with_solo_attack  PASS")
+
+    def test_bug6_tda_solo_attack_flag_set_when_alone(self):
+        """Alpha Striker attacks alone → ``fin_alpha_struck_alone_<ctrl>``
+        is set on controller's turn_data so TDA can read it next turn.
+        """
+        game, p1, _ = _make_finance_game()
+        a = _put_on_battlefield(game, p1.id, SPOOFING_ALGO)
+
+        cm = game.turn_manager.finance_combat_manager
+        asyncio.run(cm.declare_attackers(p1.id, [a.id]))
+
+        flag_key = f"fin_alpha_struck_alone_{p1.id}"
+        assert game.state.turn_data.get(flag_key) is True, (
+            "Bug #6: solo alpha attack must set fin_alpha_struck_alone_<ctrl> "
+            "on controller's turn_data so TDA's pre_market trigger fires next turn"
+        )
+        print("test_bug6_tda_solo_attack_flag_set_when_alone  PASS")
+
+    def test_bug6_tda_solo_flag_persists_through_eot(self):
+        """After ``_emit_turn_end`` clears turn_data, the alone flag MUST
+        survive (unlike most per-turn keys) so TDA can read it on the
+        controller's next turn's pre-market.
+
+        Pre-fix: the flag was wiped because ``_emit_turn_end`` only preserved
+        ``finance_deriv_desk_*``, ``finance_structure_count_*``, and exactly
+        ``finance_dark_pool``. Post-fix: ``fin_alpha_struck_alone_*`` is
+        added to the preserved-prefix list.
+        """
+        game, p1, _ = _make_finance_game()
+        # Set the flag directly (simulating a solo alpha attack earlier this turn).
+        flag_key = f"fin_alpha_struck_alone_{p1.id}"
+        game.state.turn_data[flag_key] = True
+        # Also set an unrelated per-turn key (e.g. spell counter) to verify
+        # other keys ARE wiped while alpha-struck-alone is preserved.
+        game.state.turn_data["spells_cast_someone"] = 5
+
+        # Run end-of-turn cleanup.
+        tm = game.turn_manager
+        tm.fin_turn_state.active_player_id = p1.id
+        tm.fin_turn_state.turn_number = 1
+        asyncio.run(tm._emit_turn_end())
+
+        assert game.state.turn_data.get(flag_key) is True, (
+            "Bug #6: fin_alpha_struck_alone_<ctrl> must survive end-of-turn "
+            "cleanup; the prefix must be in the preserved-keys allow-list "
+            "of _emit_turn_end."
+        )
+        # Sanity: a plain per-turn key WAS wiped.
+        assert "spells_cast_someone" not in game.state.turn_data, (
+            "Sanity: non-preserved per-turn keys must be wiped at end-of-turn"
+        )
+        # Now simulate consumption by TDA on the next pre-market: TDA's
+        # handler reads + clears. After clearing, the flag no longer fires.
+        tda = _put_on_battlefield(game, p1.id, TICK_DATA_ARCHIVE)
+        icps = TICK_DATA_ARCHIVE.setup_interceptors(tda, game.state)
+        from src.engine.types import Event as _E
+        ev = _E(
+            type=EventType.PHASE_START,
+            payload={"phase": "pre_market"},
+            source="turn_manager",
+        )
+        game.state.active_player = p1.id
+        result = icps[0].handler(ev, game.state)
+        # Should fire DRAW once.
+        draws = [e for e in result.new_events if e.type == EventType.DRAW]
+        assert len(draws) == 1, (
+            f"Bug #6: TDA should emit DRAW when flag is True (got {len(draws)})"
+        )
+        # Flag is now consumed — second pre-market wouldn't fire again.
+        assert not game.state.turn_data.get(flag_key), (
+            "Bug #6: TDA must clear the flag after consuming it"
+        )
+        result2 = icps[0].handler(ev, game.state)
+        draws2 = [e for e in result2.new_events if e.type == EventType.DRAW]
+        assert len(draws2) == 0, (
+            "Bug #6: with flag consumed, a second pre-market must NOT draw"
+        )
+        print("test_bug6_tda_solo_flag_persists_through_eot  PASS")
+
+
+# Module-level wrappers so the legacy `_run_all` driver picks them up.
+_ALPHA_TDA_BUGS = TestAlphaAndTDABugs()
+
+
+def test_bug2_two_alpha_attackers_neither_gets_alone_bonus():
+    _ALPHA_TDA_BUGS.test_bug2_two_alpha_attackers_neither_gets_alone_bonus()
+
+
+def test_bug2_one_alpha_attacker_gets_alone_bonus():
+    _ALPHA_TDA_BUGS.test_bug2_one_alpha_attacker_gets_alone_bonus()
+
+
+def test_bug2_oef_alpha_plus4_only_with_solo_attack():
+    _ALPHA_TDA_BUGS.test_bug2_oef_alpha_plus4_only_with_solo_attack()
+
+
+def test_bug6_tda_solo_attack_flag_set_when_alone():
+    _ALPHA_TDA_BUGS.test_bug6_tda_solo_attack_flag_set_when_alone()
+
+
+def test_bug6_tda_solo_flag_persists_through_eot():
+    _ALPHA_TDA_BUGS.test_bug6_tda_solo_flag_persists_through_eot()
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -1207,6 +2050,24 @@ def _run_all():
         test_leverage_tick_single_trader_lev3_deals_3,
         test_leverage_power_query_fires,
         test_creature_dies_routed_to_graveyard,
+        # DP timing + isolated card bugs (#24, #26, #27, #29):
+        test_bug24_vega_spike_adds_leverage_counters,
+        test_bug26_hidden_aggression_does_not_damage_opponent_on_cast,
+        test_bug27_no_trample_overflow_without_keyword,
+        test_bug27_trample_overflow_with_keyword,
+        # Priority-mismatch class bugs (#21, #22, #25, #28):
+        test_bug21_hft_feed_colocation_buffs_traders,
+        test_bug22_pcd_toughness_lord_buffs_quant_traders,
+        test_bug25_synthetic_collar_buffs_attached_trader,
+        test_bug28_dark_flow_engine_reduces_cost,
+        test_bug29_crossed_market_fires_on_controller_ts,
+        test_bug29_pfof_fires_on_controller_ts,
+        # Bug #2 sequential-call robustness + Bug #6 flag persistence:
+        test_bug2_two_alpha_attackers_neither_gets_alone_bonus,
+        test_bug2_one_alpha_attacker_gets_alone_bonus,
+        test_bug2_oef_alpha_plus4_only_with_solo_attack,
+        test_bug6_tda_solo_attack_flag_set_when_alone,
+        test_bug6_tda_solo_flag_persists_through_eot,
     ]
     failures = []
     for t in tests:

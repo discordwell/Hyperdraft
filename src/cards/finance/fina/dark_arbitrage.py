@@ -325,6 +325,9 @@ def _make_alpha_strike(obj: GameObject) -> Interceptor:
 
     Bug #4 fix: Direct Market Access upgrade flag bumps the bonus by +1.
     Bug #6 fix: solo-alpha attack sets fin_alpha_struck_alone_<controller>.
+    Bug #2 sequential-call fix: emitted PT_MOD carries ``_tag='alpha_strike'``
+    so finance_combat can revoke it if a later declare_attackers call raises
+    the attacker count past 1.
     """
     def atk_fn(event: Event, state: GameState) -> list[Event]:
         bf = state.zones.get("battlefield")
@@ -345,7 +348,13 @@ def _make_alpha_strike(obj: GameObject) -> Interceptor:
             bonus = 3 + (1 if state.turn_data.get(upgrade_key) else 0)
             return [Event(
                 type=EventType.PT_MODIFICATION,
-                payload={"object_id": obj.id, "power_mod": bonus, "toughness_mod": 0, "duration": "end_of_turn"},
+                payload={
+                    "object_id": obj.id,
+                    "power_mod": bonus,
+                    "toughness_mod": 0,
+                    "duration": "end_of_turn",
+                    "_tag": "alpha_strike",
+                },
                 source=obj.id,
             )]
         return []
@@ -362,6 +371,8 @@ def _make_alpha_strike_plus4(obj: GameObject) -> Interceptor:
 
     Bug #4 fix: Direct Market Access upgrade flag bumps the bonus by +1.
     Bug #6 fix: solo-alpha attack sets fin_alpha_struck_alone_<controller>.
+    Bug #2 sequential-call fix: emitted PT_MOD carries ``_tag='alpha_strike'``
+    so finance_combat can revoke it (see ``_make_alpha_strike`` above).
     """
     def atk_fn(event: Event, state: GameState) -> list[Event]:
         bf = state.zones.get("battlefield")
@@ -382,7 +393,13 @@ def _make_alpha_strike_plus4(obj: GameObject) -> Interceptor:
             bonus = 4 + (1 if state.turn_data.get(upgrade_key) else 0)
             return [Event(
                 type=EventType.PT_MODIFICATION,
-                payload={"object_id": obj.id, "power_mod": bonus, "toughness_mod": 0, "duration": "end_of_turn"},
+                payload={
+                    "object_id": obj.id,
+                    "power_mod": bonus,
+                    "toughness_mod": 0,
+                    "duration": "end_of_turn",
+                    "_tag": "alpha_strike",
+                },
                 source=obj.id,
             )]
         return []
@@ -946,6 +963,17 @@ BLOCK_TRADE_SWEEP = make_order(
 # Crossed Market {2} — Dark Pool. When this triggers, target Trader cannot block this turn.
 def _crossed_market_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def dark_effect(event: Event, state: GameState) -> list[Event]:
+        # bug #29: the global system trigger fires FIN_MARKET_EVENT on the
+        # next active player's PHASE_START(trading_session) — which for a
+        # freshly staged DP is the OPPONENT'S TS. "Can't block this turn"
+        # applied during the opponent's own TS is useless because they're
+        # attacking, not defending. Defer to the controller's next TS by
+        # re-staging the dark pool slot when the active player is not the
+        # controller.
+        active_player = event.controller or event.payload.get("controller")
+        if active_player and active_player != obj.controller:
+            set_dark_pool(state, obj.id)
+            return []
         bf = state.zones.get("battlefield")
         events = []
         if bf:
@@ -1062,6 +1090,14 @@ INTERNALIZATION_ORDER = make_order(
 # Payment for Order Flow {2} — Dark Pool. When this triggers, gain 3 Liquidity this turn.
 def _payment_for_order_flow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def dark_effect(event: Event, state: GameState) -> list[Event]:
+        # bug #29: PFOF grants Liquidity "this turn", which is only useful on
+        # the controller's TS (so they can spend it). Firing on the opponent's
+        # TS dumps Liquidity at a player who can't cast — wasted ramp. Defer
+        # by re-staging when the active player is not the controller.
+        active_player = event.controller or event.payload.get("controller")
+        if active_player and active_player != obj.controller:
+            set_dark_pool(state, obj.id)
+            return []
         player = state.players.get(obj.controller)
         if player:
             player.mana_crystals_available = min(
@@ -1350,21 +1386,28 @@ def _dark_flow_engine_setup(obj: GameObject, state: GameState) -> list[Intercept
         if not card_obj or card_obj.controller != obj.controller:
             return False
         cd = card_obj.card_def
-        return cd is not None and getattr(cd, "_dark_pool", False)
+        # bug #28: attribute is `dark_pool`, not `_dark_pool`.
+        return cd is not None and getattr(cd, "dark_pool", False)
 
     def _handler(event: Event, state: GameState) -> InterceptorResult:
         me = state.objects.get(obj.id)
         if not me or me.zone != ZoneType.BATTLEFIELD:
             return InterceptorResult(action=InterceptorAction.PASS)
-        current = event.payload.get("cost", 0)
-        event.payload["cost"] = max(0, current - 1)
-        return InterceptorResult(action=InterceptorAction.PASS)
+        # bug #28: cost_query reads transformed_event.payload['reduction'] (REDUCTION_KEY).
+        # Previous handler mutated payload['cost'] and returned PASS — never read.
+        new_event = event.copy()
+        new_event.payload["reduction"] = new_event.payload.get("reduction", 0) + 1
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     return [Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
-        priority=InterceptorPriority.TRANSFORM,
+        # bug #28: priority must be QUERY for cost_query.get_effective_mana_cost to iterate it.
+        priority=InterceptorPriority.QUERY,
         filter=_filter,
         handler=_handler,
         duration="while_on_battlefield",
@@ -1505,9 +1548,15 @@ def _rho_leverage_amplifier_setup(obj: GameObject, state: GameState) -> list[Int
         if not me or me.zone != ZoneType.BATTLEFIELD:
             return InterceptorResult(action=InterceptorAction.PASS)
         bonus = min(4, _count_dark_pool_triggered(state, obj.controller))
-        if bonus > 0:
-            event.payload["power"] = event.payload.get("power", 0) + bonus
-        return InterceptorResult(action=InterceptorAction.PASS)
+        if bonus <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        # priority class: queries.get_power reads transformed_event.payload['value'].
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + bonus
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     def _tough_filter(event: Event, state: GameState) -> bool:
         host_id = state.turn_data.get(f"fin_deriv_host_{obj.id}")
@@ -1522,16 +1571,23 @@ def _rho_leverage_amplifier_setup(obj: GameObject, state: GameState) -> list[Int
         if not me or me.zone != ZoneType.BATTLEFIELD:
             return InterceptorResult(action=InterceptorAction.PASS)
         bonus = min(4, _count_dark_pool_triggered(state, obj.controller))
-        if bonus > 0:
-            event.payload["toughness"] = event.payload.get("toughness", 0) + bonus
-        return InterceptorResult(action=InterceptorAction.PASS)
+        if bonus <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        # priority class: queries.get_toughness reads transformed_event.payload['value'].
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + bonus
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     return [
         Interceptor(
             id=new_id(),
             source=obj.id,
             controller=obj.controller,
-            priority=InterceptorPriority.TRANSFORM,
+            # priority class: must be QUERY for queries.get_power to iterate it.
+            priority=InterceptorPriority.QUERY,
             filter=_power_filter,
             handler=_power_handler,
             duration="while_on_battlefield",
@@ -1540,7 +1596,8 @@ def _rho_leverage_amplifier_setup(obj: GameObject, state: GameState) -> list[Int
             id=new_id(),
             source=obj.id,
             controller=obj.controller,
-            priority=InterceptorPriority.TRANSFORM,
+            # priority class: must be QUERY for queries.get_toughness to iterate it.
+            priority=InterceptorPriority.QUERY,
             filter=_tough_filter,
             handler=_tough_handler,
             duration="while_on_battlefield",
@@ -1567,7 +1624,8 @@ def _shadow_protocol_module_setup(obj: GameObject, state: GameState) -> list[Int
         if not card_obj or card_obj.controller != obj.controller:
             return False
         cd = card_obj.card_def
-        return cd is not None and getattr(cd, "_dark_pool", False)
+        # priority class: attribute is `dark_pool`, not `_dark_pool`.
+        return cd is not None and getattr(cd, "dark_pool", False)
 
     def _handler(event: Event, state: GameState) -> InterceptorResult:
         me = state.objects.get(obj.id)
@@ -1579,15 +1637,20 @@ def _shadow_protocol_module_setup(obj: GameObject, state: GameState) -> list[Int
             host = state.objects.get(host_id)
             if not host or host.zone != ZoneType.BATTLEFIELD:
                 return InterceptorResult(action=InterceptorAction.PASS)
-        current = event.payload.get("cost", 0)
-        event.payload["cost"] = max(0, current - 1)
-        return InterceptorResult(action=InterceptorAction.PASS)
+        # priority class: cost_query reads transformed_event.payload['reduction'].
+        new_event = event.copy()
+        new_event.payload["reduction"] = new_event.payload.get("reduction", 0) + 1
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     return [Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
-        priority=InterceptorPriority.TRANSFORM,
+        # priority class: must be QUERY for cost_query to iterate it.
+        priority=InterceptorPriority.QUERY,
         filter=_filter,
         handler=_handler,
         duration="while_on_battlefield",

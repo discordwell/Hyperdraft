@@ -659,6 +659,18 @@ class FinanceTurnManager(TurnManager):
             if mod.get("amount"):
                 cost = max(0, cost + mod["amount"])
 
+        # bug #28: apply registered QUERY_COST cost-reduction interceptors
+        # (e.g. Dark Flow Engine "Dark Pool Orders cost {1} less"). Without this
+        # call, those interceptors are registered but never consulted.
+        try:
+            from .cost_query import get_effective_mana_cost as _gemc
+            from .mana import ManaCost as _ManaCost
+            base = _ManaCost(generic=cost)
+            reduced = _gemc(obj, player_id, self.state, base_cost=base)
+            cost = max(0, reduced.generic)
+        except Exception:
+            pass
+
         # Liquidity check.
         if player.mana_crystals_available < cost:
             return events
@@ -1319,12 +1331,23 @@ class FinanceTurnManager(TurnManager):
         # Clear per-turn scratchpad, but keep Finance-persistent keys
         # (Derivatives Desk staging, Dark Pool, structure counts) which
         # are conceptually part of the board state, not per-turn flags.
+        #
+        # Bug #6 fix: also preserve ``fin_alpha_struck_alone_<player>`` so
+        # Tick Data Archive's "attacked alone last turn" pre-market trigger
+        # can read the flag on the controller's NEXT turn. The lifecycle is:
+        #   - turn N (P1's turn): P1 alpha-strikes solo → flag set True.
+        #   - turn N _emit_turn_end: WITHOUT this fix the flag was wiped.
+        #   - turn N+1 (P2's turn) _emit_turn_end: also wipes anything new.
+        #   - turn N+2 (P1's turn) pre_market: TDA reads flag → draws card,
+        #     then flips flag to False (consumed). Without the preservation,
+        #     TDA only ever saw a stale-or-absent flag and never fired.
         if hasattr(self.state, "turn_data"):
             persistent = {
                 k: v for k, v in self.state.turn_data.items()
                 if k.startswith("finance_deriv_desk_")
                 or k.startswith("finance_structure_count_")
                 or k == "finance_dark_pool"
+                or k.startswith("fin_alpha_struck_alone_")
             }
             self.state.turn_data.clear()
             self.state.turn_data.update(persistent)

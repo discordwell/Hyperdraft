@@ -217,12 +217,25 @@ class FinanceCombatManager:
         and when the AI chose them). Returns the list of ATTACK_DECLARED events
         that were emitted.
 
-        Bug #2/#18 fix: set ``attacking=True`` on ALL attackers BEFORE emitting
-        any ATTACK_DECLARED events, so that alpha-strike triggers (which count
-        attacking traders at trigger time) see the final count, not a partial
-        one. Otherwise the first-declared attacker sees count==1 and gets +3,
-        but subsequent attackers see count==N>1 and get nothing — even though
-        the player declared a multi-attack and "alone" should not apply.
+        Bug #2/#18 fix v1 (still kept): set ``attacking=True`` on ALL attackers
+        BEFORE emitting any ATTACK_DECLARED events, so that alpha-strike
+        triggers (which count attacking traders at trigger time) see the final
+        count for THIS call, not a partial one.
+
+        Bug #2 fix v2 (new — sequential-call robustness): the v1 fix only made
+        per-attacker triggers see the final count *within a single
+        declare_attackers call*. If the harness or AI calls declare_attackers
+        sequentially (one ID per call), the first call's ATTACK_DECLARED still
+        sees count==1 and stamps a +3 PT_MOD; the second call's ATTACK_DECLARED
+        sees count==2 and emits nothing — but the +3 from call 1 is "stuck"
+        on the first attacker, which is no longer alone.
+
+        After emitting per-attacker events we therefore call
+        ``_cleanup_stale_alpha_pt_mods``: if the post-call attacker count is
+        > 1, revoke any ``_tag='alpha_strike'`` PT_MOD entries on every
+        attacking Trader for this player and clear
+        ``fin_alpha_struck_alone_<player>``. This makes "alone is alone"
+        robust regardless of declaration call pattern.
         """
         emitted: list[Event] = []
         legal = set(self.get_legal_attackers(player_id))
@@ -259,7 +272,55 @@ class FinanceCombatManager:
             await self._emit(ev)
             emitted.append(ev)
 
+        # Bug #2 sequential-call cleanup. Runs after every declare_attackers
+        # call; it's a no-op when the cumulative attacker count is still 1
+        # OR when no alpha PT_MODs exist (defensive).
+        self._cleanup_stale_alpha_pt_mods(player_id)
+
         return emitted
+
+    # ------------------------------------------------------------------
+    # Bug #2 sequential-call helper
+    # ------------------------------------------------------------------
+
+    def _cleanup_stale_alpha_pt_mods(self, player_id: str) -> None:
+        """Revoke ``_tag='alpha_strike'`` PT_MOD entries when multi-attack.
+
+        Called at the end of ``declare_attackers`` and again at the start of
+        ``resolve_combat_damage`` (defensive double-tap so an external caller
+        skipping the post-declare hook still gets cleaned up).
+
+        If the cumulative count of FIN_TRADERs with ``state.attacking=True``
+        for ``player_id`` is > 1, the attacker is no longer "alone" — the +3
+        Alpha Strike bonus must be revoked from every attacker that received
+        it, AND the ``fin_alpha_struck_alone_<player_id>`` flag must be cleared
+        so Tick Data Archive does not draw next turn for a non-solo attack.
+        """
+        # Count current attackers for this player.
+        attacking_traders = [
+            obj for obj in _battlefield_objects(self.state)
+            if obj.controller == player_id
+            and _is_fin_trader(obj)
+            and getattr(obj.state, "attacking", False)
+        ]
+        if len(attacking_traders) <= 1:
+            return  # alone — keep the +3 buff intact
+
+        # Multi-attack — revoke any alpha-strike PT_MODs and clear the flag.
+        for atk in attacking_traders:
+            mods = getattr(atk.state, "pt_modifiers", None)
+            if not mods:
+                continue
+            atk.state.pt_modifiers = [
+                m for m in mods
+                if not (m.get("_tag") == "alpha_strike"
+                        and m.get("_source_id") == atk.id)
+            ]
+        # Clear the alone flag — it was set when count was momentarily 1
+        # but the player has since added more attackers.
+        flag_key = f"fin_alpha_struck_alone_{player_id}"
+        if self.state.turn_data.get(flag_key):
+            self.state.turn_data[flag_key] = False
 
     async def declare_blockers(
         self, player_id: str, blocks: dict[str, str]
@@ -336,6 +397,19 @@ class FinanceCombatManager:
         OBJECT_DESTROYED, ZONE_CHANGE) in emission order.
         """
         emitted: list[Event] = []
+
+        # Bug #2 defensive cleanup: ensure stale alpha PT_MODs are revoked
+        # before damage is computed, even if the caller bypassed
+        # declare_attackers' post-loop hook.
+        if attacker_ids:
+            attacking_player_id: Optional[str] = None
+            for aid in attacker_ids:
+                obj = self.state.objects.get(aid)
+                if obj is not None:
+                    attacking_player_id = obj.controller
+                    break
+            if attacking_player_id:
+                self._cleanup_stale_alpha_pt_mods(attacking_player_id)
 
         # Collect all objects that take damage so we can check lethality after
         # simultaneous resolution. Keys are object IDs; values are unused here

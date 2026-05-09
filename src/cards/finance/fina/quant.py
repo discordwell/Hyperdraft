@@ -352,16 +352,22 @@ def _make_defense_lord_interceptor(
             return InterceptorResult(action=InterceptorAction.PASS)
         # Use the base toughness from characteristics as "Defense Rating"
         base_t = target.characteristics.toughness or 0
-        if base_t >= threshold:
-            current = event.payload.get("toughness", base_t)
-            event.payload["toughness"] = current + bonus
-        return InterceptorResult(action=InterceptorAction.TRANSFORM)
+        if base_t < threshold:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        # bug #22 class: queries.get_toughness reads transformed_event.payload['value'].
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + bonus
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     return Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
-        priority=InterceptorPriority.TRANSFORM,
+        # bug #22 class: priority must be QUERY for queries.get_toughness to iterate it.
+        priority=InterceptorPriority.QUERY,
         filter=toughness_filter,
         handler=toughness_effect,
         duration="while_on_battlefield",
@@ -387,16 +393,20 @@ def _make_global_toughness_lord_interceptor(obj: GameObject, bonus: int = 1) -> 
             return InterceptorResult(action=InterceptorAction.PASS)
         if CardType.FIN_TRADER not in target.characteristics.types:
             return InterceptorResult(action=InterceptorAction.PASS)
-        base_t = target.characteristics.toughness or 0
-        current = event.payload.get("toughness", base_t)
-        event.payload["toughness"] = current + bonus
-        return InterceptorResult(action=InterceptorAction.TRANSFORM)
+        # bug #22: queries.get_toughness reads transformed_event.payload['value'].
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + bonus
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     return Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
-        priority=InterceptorPriority.TRANSFORM,
+        # bug #22: priority must be QUERY for queries.get_toughness to iterate it.
+        priority=InterceptorPriority.QUERY,
         filter=toughness_filter,
         handler=toughness_effect,
         duration="while_on_battlefield",

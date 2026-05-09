@@ -66,6 +66,40 @@ flow is:
 
 If P1 calls ``end_turn`` with no attackers declared, combat resolution
 is a no-op and the harness advances turns directly (no block window).
+
+Bug #23 — Block-window race condition gate
+------------------------------------------
+The earlier fcntl serialization (#11) prevents concurrent state writes,
+but the block window has a *logical* race: the attacker can call
+``resolve_combat`` (or its alias ``end_turn``) before the defender's
+``block`` commands have been issued. To prevent face damage with zero
+blocks, the harness now tracks a per-window flag
+``blocks_committed_by_defender``:
+
+  * The flag is set False whenever the block window opens.
+  * Each successful ``block`` command from the defender flips it to True.
+  * A new ``done_blocks`` (alias ``pass_blocks``) command flips it to
+    True without recording any blocks (defender explicitly declines).
+  * The defender calling ``resolve_combat`` themselves ALSO flips it
+    True (they're saying "I'm done blocking, proceed").
+
+While ``awaiting_blocks=True`` AND ``blocks_committed_by_defender=False``,
+the harness REJECTS ``resolve_combat`` and ``end_turn`` issued by the
+ATTACKER with a "Block window still open" message. The defender can
+still issue these commands themselves at any time.
+
+Typical flows now:
+
+    Attacker:  attack <id>; end_turn          → window opens
+    Defender:  block <blk> <atk>              → flag flips True
+    Either:    resolve_combat                 → combat resolves
+
+    Attacker:  attack <id>; end_turn          → window opens
+    Defender:  done_blocks                    → flag flips True (no blocks)
+    Either:    resolve_combat                 → all attackers through
+
+    Attacker:  attack <id>; end_turn          → window opens
+    Defender:  resolve_combat                 → declines + resolves in one step
 """
 
 from __future__ import annotations
@@ -232,6 +266,15 @@ async def _resolve_declared_combat(payload: dict[str, Any]) -> None:
     opp_id = tm._get_opponent(pid)
     attackers = list(tm.fin_turn_state.attackers_declared)
     blocks = dict(tm.fin_turn_state.combat_blocks)
+    # Bug #18 fix: declare_attackers once here with the FULL list so that
+    # every ATTACK_DECLARED trigger sees the correct final attacker count.
+    # (cmd_attack no longer calls declare_attackers to avoid partial counts.)
+    await tm._invoke_combat(
+        tm.finance_combat_manager,
+        "declare_attackers",
+        pid,
+        attackers,
+    )
     # Declare blockers (no-op if blocks empty).
     if blocks:
         await tm._invoke_combat(
@@ -613,6 +656,11 @@ def cmd_start(args) -> None:
         # state.active_player) drives the harness via `block ...` and
         # finally `resolve_combat`.
         "awaiting_blocks": False,
+        # Bug #23: per-window flag so the attacker can't race past the
+        # defender. While awaiting_blocks=True AND this is False, the
+        # ATTACKER cannot resolve_combat / end_turn — only the defender
+        # (or the act of blocking / done_blocks) can flip this True.
+        "blocks_committed_by_defender": False,
         # bug #11: round_id increments per successful mutation, so pilots
         # can detect intervening writes between their `state` and action.
         "round_id": 0,
@@ -734,21 +782,33 @@ def cmd_attack(args) -> None:
             return
         # Filter to legal attackers (untapped, no summoning sickness).
         legal = set(tm.finance_combat_manager.get_legal_attackers(pid))
-        illegal = [a for a in full_ids if a not in legal]
-        if illegal:
-            print(f"  warning: skipping illegal attackers (tapped or summoning-sick): "
-                  f"{[a[:8] for a in illegal]}")
+        illegal_pre = [a for a in full_ids if a not in legal]
         chosen = [a for a in full_ids if a in legal]
         if not chosen:
+            if illegal_pre:
+                print(f"  warning: skipping illegal attackers (tapped or summoning-sick): "
+                      f"{[a[:8] for a in illegal_pre]}")
             print("All requested attackers are illegal — nothing declared.")
             return
-        asyncio.run(tm.finance_combat_manager.declare_attackers(pid, chosen))
-        # Bug #23 fix: APPEND to attackers_declared rather than replace it.
-        # Prior to this fix, each sequential `attack <id>` call overwrote the
-        # list so only the LAST declared attacker's damage resolved — 4+ body
-        # floods always produced ~2 face total (last attacker only).
+        # Bug #18 fix: do NOT call declare_attackers() here — that fires
+        # ATTACK_DECLARED with a partial attacker count (count==1 for the
+        # first cmd_attack call), giving the first-declared attacker an
+        # unearned Alpha Strike bonus even in multi-attack.  We instead just
+        # accumulate IDs here; _resolve_declared_combat calls declare_attackers
+        # once with the full list so all ATTACK_DECLARED triggers see the
+        # correct final count.
         already = list(tm.fin_turn_state.attackers_declared or [])
         tm.fin_turn_state.attackers_declared = already + [a for a in chosen if a not in already]
+        # Bug #30: only emit the "skipping illegal" warning if at least one
+        # of the declared IDs was actually skipped. Re-read the post-commit
+        # attackers list and warn only on the difference between requested
+        # and accepted. Fixes the stale-state misread that produced spurious
+        # warnings when ALL requested attackers were accepted.
+        accepted_set = set(tm.fin_turn_state.attackers_declared or [])
+        actually_skipped = [a for a in full_ids if a not in accepted_set]
+        if actually_skipped:
+            print(f"  warning: skipping illegal attackers (tapped or summoning-sick): "
+                  f"{[a[:8] for a in actually_skipped]}")
         print(f"declared attackers: {[a[:8] for a in chosen]}")
         payload["history"].append(
             (game.state.turn_number, _label_for(payload, pid),
@@ -812,6 +872,9 @@ def cmd_block(args) -> None:
                       f"{already_used_for[:8]} — reassign by `resolve_combat` first or pick another.")
                 return
             tm.fin_turn_state.combat_blocks[attacker.id] = blocker.id
+            # Bug #23: defender has acted — flip the gate so the attacker
+            # may now safely call `resolve_combat` / `end_turn`.
+            payload["blocks_committed_by_defender"] = True
             print(f"recorded block: {blocker.name!r} -> {attacker.name!r}")
             payload["history"].append(
                 (game.state.turn_number, _label_for(payload, defender_id),
@@ -847,6 +910,47 @@ def cmd_block(args) -> None:
         )
         _save(payload, args.save)
     _print_state(payload)
+
+
+def cmd_done_blocks(args) -> None:
+    """Defender explicitly closes the block window without recording any
+    further blocks (bug #23).
+
+    The defender can use this to say "I don't want to block any of the
+    declared attackers; let combat damage proceed." Sets
+    ``blocks_committed_by_defender=True`` so the attacker may now safely
+    issue ``resolve_combat`` / ``end_turn``.
+
+    Existing blocks (if any were already issued via ``block``) are
+    preserved — this command only signals "I'm done assigning."
+
+    Issued by the defender. No-op outside the block window.
+    """
+    with _exclusive_lock(args.save):
+        payload = _load(args.save)
+        # Allowed for the non-active defender during the block window.
+        if not _check_seat(args, payload, allow_during_block_window=True):
+            return
+        if not payload.get("two_pilot"):
+            print("done_blocks is only meaningful in --two-pilot mode.")
+            return
+        if not payload.get("awaiting_blocks"):
+            print("Not awaiting blocks — nothing to close. "
+                  "Use `attack <id>...` then `end_turn` to enter the block window.")
+            _print_state(payload)
+            return
+        # Defender confirms they're done.
+        payload["blocks_committed_by_defender"] = True
+        game = payload["game"]
+        defender_id = _acting_player_id(payload)
+        payload["history"].append(
+            (game.state.turn_number, _label_for(payload, defender_id),
+             "done_blocks (defender closed window)")
+        )
+        print("done_blocks: defender closed the block window. "
+              "Either seat may now `resolve_combat`.")
+        _save(payload, args.save)
+        _print_state(payload)
 
 
 def _advance_to_next_turn(payload: dict[str, Any], save_path: str) -> None:
@@ -930,6 +1034,26 @@ def cmd_end_turn(args) -> None:
     with _exclusive_lock(args.save):
         payload = _load(args.save)
         is_alias = bool(payload.get("two_pilot") and payload.get("awaiting_blocks"))
+        # Bug #23: if the attacker tries to end_turn during the block window
+        # before the defender has acted, REJECT. Only the defender (or
+        # blocks-committed flag flip) can release the gate.
+        if is_alias and not payload.get("blocks_committed_by_defender", False):
+            seat = getattr(args, "seat", None)
+            attacker_id = payload["game"].state.active_player
+            attacker_seat = "P1" if attacker_id == payload["p1_id"] else "P2"
+            # Determine if the caller is the ATTACKER. If --seat is provided
+            # and matches the active player, definitely the attacker. If no
+            # --seat is provided, infer: in the block window the defender
+            # is the implicit acting seat, so a caller WITHOUT --seat is
+            # treated as the defender (legacy single-pilot semantics in
+            # two-pilot block window). Only seat==attacker_seat is gated.
+            if seat is not None and seat == attacker_seat:
+                print(
+                    "ERROR: Block window still open — wait for defender to "
+                    "issue `block` or `done_blocks` (or for defender to call "
+                    "`resolve_combat` themselves)."
+                )
+                return
     if is_alias:
         print("(awaiting_blocks=True — treating `end_turn` as `resolve_combat`.)")
         cmd_resolve_combat(args)
@@ -963,6 +1087,11 @@ def cmd_end_turn(args) -> None:
                 tm.fin_turn_state.phase = FinancePhase.SETTLEMENT
                 tm._emit_phase("settlement", "start", pid)
                 payload["awaiting_blocks"] = True
+                # Bug #23: reset the defender-acted flag for this fresh
+                # block window. Until the defender blocks / done_blocks /
+                # calls resolve_combat themselves, the attacker cannot
+                # advance past this gate.
+                payload["blocks_committed_by_defender"] = False
                 payload["history"].append(
                     (game.state.turn_number, _label_for(payload, pid),
                      f"end_turn (await blocks: {[a[:8] for a in attackers]})")
@@ -1021,6 +1150,25 @@ def cmd_resolve_combat(args) -> None:
                   "Use `attack <id>...` then `end_turn` to enter the block window.")
             _print_state(payload)
             return
+
+        # Bug #23: gate the attacker. If --seat says the caller is the
+        # ATTACKER and the defender hasn't acted yet, refuse. The defender
+        # CAN call resolve_combat at any time (treated as "no blocks /
+        # proceed").
+        if not payload.get("blocks_committed_by_defender", False):
+            seat = getattr(args, "seat", None)
+            attacker_id = game.state.active_player
+            attacker_seat = "P1" if attacker_id == payload["p1_id"] else "P2"
+            if seat is not None and seat == attacker_seat:
+                print(
+                    "ERROR: Block window still open — wait for defender to "
+                    "issue `block` or `done_blocks` (or for defender to call "
+                    "`resolve_combat` themselves)."
+                )
+                return
+            # Defender (or seat-less legacy caller) is closing the window —
+            # mark the gate satisfied so any post-resolve telemetry agrees.
+            payload["blocks_committed_by_defender"] = True
 
         # bug #24: clear awaiting_blocks immediately after resolve_combat so
         # the flag never persists if an early-return or exception fires below.
@@ -1229,6 +1377,16 @@ def main() -> None:
     _add_save(p_resolve)
     _add_seat(p_resolve)  # bug #25 (allowed for defender during block window)
     p_resolve.set_defaults(fn=cmd_resolve_combat)
+
+    # Bug #23: defender's explicit "I'm done blocking" command.
+    for name in ("done_blocks", "pass_blocks"):
+        p_done = sub.add_parser(
+            name,
+            help="(two-pilot) Defender closes block window without further blocks",
+        )
+        _add_save(p_done)
+        _add_seat(p_done)  # allowed for defender during block window
+        p_done.set_defaults(fn=cmd_done_blocks)
 
     p_hist = sub.add_parser("history", help="Show recent action log")
     _add_save(p_hist)

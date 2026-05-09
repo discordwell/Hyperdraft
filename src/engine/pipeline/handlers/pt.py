@@ -47,12 +47,16 @@ def _handle_pt_modification(event: Event, state: GameState):
     if not hasattr(obj.state, 'pt_modifiers'):
         obj.state.pt_modifiers = []
 
-    # Add the modifier
+    # Add the modifier. ``_source_id`` lets downstream code (e.g. finance bug #2
+    # alpha-strike multi-attack revocation) identify which interceptor source
+    # emitted this modifier so it can be selectively removed/revoked.
     obj.state.pt_modifiers.append({
         'power': power_mod,
         'toughness': toughness_mod,
         'duration': duration,
-        'timestamp': state.timestamp
+        'timestamp': state.timestamp,
+        '_source_id': event.source,
+        '_tag': event.payload.get('_tag'),
     })
 
 

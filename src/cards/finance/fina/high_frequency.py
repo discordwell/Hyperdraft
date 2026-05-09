@@ -260,6 +260,13 @@ def _alpha_strike_bonus(obj: GameObject, state: GameState, power_mod: int = 3) -
     Bug #6 fix: when an Alpha Strike attacker is declared SOLO (count==1),
     set ``fin_alpha_struck_alone_<controller>`` so Tick Data Archive's
     next-turn pre-market trigger can fire.
+
+    Bug #2 fix (sequential-call robustness): the emitted PT_MODIFICATION
+    carries ``_tag='alpha_strike'`` so ``FinanceCombatManager`` can revoke
+    it from ``obj.state.pt_modifiers`` if a later ``declare_attackers``
+    call raises the attacker count past 1 (i.e. the attacker is no longer
+    alone). The same revocation step clears ``fin_alpha_struck_alone_<ctrl>``.
+    See ``finance_combat._cleanup_stale_alpha_pt_mods``.
     """
     if _count_attacking_traders(obj.controller, state) == 1:
         # Bug #6: mark that an alpha-striker attacked alone this turn.
@@ -274,6 +281,7 @@ def _alpha_strike_bonus(obj: GameObject, state: GameState, power_mod: int = 3) -
                 "power_mod": bonus,
                 "toughness_mod": 0,
                 "duration": "end_of_turn",
+                "_tag": "alpha_strike",
             },
             source=obj.id,
         )]
@@ -1430,13 +1438,20 @@ def _hft_feed_colocation_setup(obj: GameObject, state: GameState) -> list[Interc
                 and CardType.FIN_TRADER in target.characteristics.types)
 
     def _handler(event: Event, state: GameState) -> InterceptorResult:
-        event.payload["power"] = event.payload.get("power", 0) + 1
-        return InterceptorResult(action=InterceptorAction.PASS)
+        # bug #21: queries.get_power reads transformed_event.payload['value'] only.
+        # Previous handler mutated payload['power'] and returned PASS — never read.
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + 1
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     icp = Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
+        # bug #21: priority must be QUERY for queries.get_power to iterate it.
         priority=InterceptorPriority.QUERY,
         filter=_filter,
         handler=_handler,
@@ -1745,8 +1760,13 @@ def _speed_amplifier_setup(obj: GameObject, state: GameState) -> list[Intercepto
                 and event.payload.get("object_id") == attached_to)
 
     def pwr_handler(event: Event, state: GameState) -> InterceptorResult:
-        event.payload["power"] = event.payload.get("power", 0) + 2
-        return InterceptorResult(action=InterceptorAction.PASS)
+        # priority class: queries.get_power reads transformed_event.payload['value'].
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + 2
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     pwr_icp = Interceptor(
         id=new_id(),

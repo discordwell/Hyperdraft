@@ -519,6 +519,222 @@ def test_choose_command_no_pending_choice_is_noop():
     print("test_choose_command_no_pending_choice_is_noop  PASS")
 
 
+# ---------------------------------------------------------------------------
+# Bug #23 — Block-window race: attacker must wait for defender
+# ---------------------------------------------------------------------------
+
+def _seat_label(payload, player_id: str) -> str:
+    """Return 'P1' or 'P2' for the given player_id."""
+    return "P1" if player_id == payload["p1_id"] else "P2"
+
+
+def test_bug23_attacker_resolve_combat_blocked_until_defender_acts(capsys):
+    """Bug #23 — attacker's resolve_combat in the block window must be
+    rejected until the defender has issued block / done_blocks /
+    resolve_combat themselves."""
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as fh:
+        save = fh.name
+    payload = _start_two_pilot(save)
+    p1_id = payload["p1_id"]
+    p2_id = payload["p2_id"]
+
+    attacker_oid = _give_p1_attacker(payload)
+    _give_p2_blocker(payload)
+    harness._save(payload, save)
+
+    # P1 declares attacker + ends turn → block window opens.
+    harness.cmd_attack(_Args(save=save, attackers=[attacker_oid], seat="P1"))
+    harness.cmd_end_turn(_Args(save=save, seat="P1"))
+    payload = _load(save)
+    assert payload["awaiting_blocks"] is True
+    assert payload.get("blocks_committed_by_defender") is False, (
+        "Bug #23: blocks_committed_by_defender must be False at window open"
+    )
+
+    # ATTACKER (P1) tries to resolve_combat — must be rejected.
+    harness.cmd_resolve_combat(_Args(save=save, seat="P1"))
+    captured = capsys.readouterr()
+    assert "Block window still open" in captured.out, (
+        f"Bug #23: attacker's resolve_combat must error — got: {captured.out!r}"
+    )
+
+    # State must NOT have advanced — still in block window.
+    payload = _load(save)
+    assert payload.get("awaiting_blocks") is True, (
+        "Bug #23: rejected resolve_combat must not close the block window"
+    )
+    assert payload["game"].state.active_player == p1_id, (
+        "Bug #23: rejected resolve_combat must not advance turn"
+    )
+    # No combat damage should have fired.
+    p2 = payload["game"].state.players[p2_id]
+    assert p2.life == 30, (
+        f"Bug #23: face damage leaked through block-window race; p2.life={p2.life}"
+    )
+
+    Path(save).unlink(missing_ok=True)
+    Path(save + ".lock").unlink(missing_ok=True)
+    print("test_bug23_attacker_resolve_combat_blocked_until_defender_acts  PASS")
+
+
+def test_bug23_defender_block_then_attacker_resolve_works():
+    """Bug #23 — after defender records a block, the attacker MAY safely
+    call resolve_combat (the gate flips True on a successful block)."""
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as fh:
+        save = fh.name
+    payload = _start_two_pilot(save)
+    p1_id = payload["p1_id"]
+    p2_id = payload["p2_id"]
+
+    attacker_oid = _give_p1_attacker(payload)
+    blocker_oid = _give_p2_blocker(payload)
+    harness._save(payload, save)
+
+    harness.cmd_attack(_Args(save=save, attackers=[attacker_oid], seat="P1"))
+    harness.cmd_end_turn(_Args(save=save, seat="P1"))
+    payload = _load(save)
+    assert payload["awaiting_blocks"] is True
+    assert payload.get("blocks_committed_by_defender") is False
+
+    # Defender (P2) records a block.
+    harness.cmd_block(
+        _Args(save=save, blocker_id=blocker_oid, attacker_id=attacker_oid, seat="P2")
+    )
+    payload = _load(save)
+    assert payload.get("blocks_committed_by_defender") is True, (
+        "Bug #23: a successful block by the defender must flip the gate True"
+    )
+
+    # Now the attacker (P1) may safely resolve combat.
+    harness.cmd_resolve_combat(_Args(save=save, seat="P1"))
+    payload = _load(save)
+    assert payload.get("awaiting_blocks") is False, (
+        "Bug #23: post-block resolve_combat must close the window"
+    )
+    assert payload["game"].state.active_player == p2_id, (
+        "Bug #23: combat resolved → defender becomes new active player"
+    )
+
+    Path(save).unlink(missing_ok=True)
+    Path(save + ".lock").unlink(missing_ok=True)
+    print("test_bug23_defender_block_then_attacker_resolve_works  PASS")
+
+
+def test_bug23_defender_can_resolve_combat_directly_no_blocks():
+    """Bug #23 — defender may call resolve_combat themselves (declines
+    to block); the gate is satisfied because the caller is not the
+    attacker."""
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as fh:
+        save = fh.name
+    payload = _start_two_pilot(save)
+    p1_id = payload["p1_id"]
+    p2_id = payload["p2_id"]
+
+    attacker_oid = _give_p1_attacker(payload)
+    _give_p2_blocker(payload)
+    harness._save(payload, save)
+
+    harness.cmd_attack(_Args(save=save, attackers=[attacker_oid], seat="P1"))
+    harness.cmd_end_turn(_Args(save=save, seat="P1"))
+    payload = _load(save)
+    assert payload["awaiting_blocks"] is True
+    assert payload.get("blocks_committed_by_defender") is False
+
+    # Defender (P2) directly calls resolve_combat — declining to block.
+    # Gate must permit this and combat must fire.
+    harness.cmd_resolve_combat(_Args(save=save, seat="P2"))
+    payload = _load(save)
+    assert payload.get("awaiting_blocks") is False, (
+        "Bug #23: defender's resolve_combat must close the window"
+    )
+    # All attackers got through — P2 took face damage.
+    p2 = payload["game"].state.players[p2_id]
+    assert p2.life < 30, (
+        f"Bug #23: defender chose not to block, attacker should connect; "
+        f"p2.life={p2.life}"
+    )
+    assert payload["game"].state.active_player == p2_id
+
+    Path(save).unlink(missing_ok=True)
+    Path(save + ".lock").unlink(missing_ok=True)
+    print("test_bug23_defender_can_resolve_combat_directly_no_blocks  PASS")
+
+
+def test_bug23_done_blocks_command_closes_window_without_blocks():
+    """Bug #23 — defender can issue `done_blocks` to flip the gate True
+    without recording any blocks; attacker may then resolve_combat."""
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as fh:
+        save = fh.name
+    payload = _start_two_pilot(save)
+    p1_id = payload["p1_id"]
+    p2_id = payload["p2_id"]
+
+    attacker_oid = _give_p1_attacker(payload)
+    _give_p2_blocker(payload)
+    harness._save(payload, save)
+
+    harness.cmd_attack(_Args(save=save, attackers=[attacker_oid], seat="P1"))
+    harness.cmd_end_turn(_Args(save=save, seat="P1"))
+    payload = _load(save)
+    assert payload["awaiting_blocks"] is True
+    assert payload.get("blocks_committed_by_defender") is False
+
+    # Defender uses done_blocks to explicitly close the window without blocks.
+    harness.cmd_done_blocks(_Args(save=save, seat="P2"))
+    payload = _load(save)
+    assert payload.get("awaiting_blocks") is True, (
+        "done_blocks does NOT itself close the window — it just signals defender done"
+    )
+    assert payload.get("blocks_committed_by_defender") is True, (
+        "Bug #23: done_blocks must flip the gate True"
+    )
+    # Combat should not have fired yet (no blocks committed, no resolve_combat called).
+    assert payload["game"].state.players[p2_id].life == 30
+
+    # Now the attacker may resolve_combat.
+    harness.cmd_resolve_combat(_Args(save=save, seat="P1"))
+    payload = _load(save)
+    assert payload.get("awaiting_blocks") is False
+    # Attacker connects (no blocks).
+    assert payload["game"].state.players[p2_id].life < 30
+    assert payload["game"].state.active_player == p2_id
+
+    Path(save).unlink(missing_ok=True)
+    Path(save + ".lock").unlink(missing_ok=True)
+    print("test_bug23_done_blocks_command_closes_window_without_blocks  PASS")
+
+
+# ---------------------------------------------------------------------------
+# Bug #30 — `attack` must not emit "skipping illegal" when none were skipped
+# ---------------------------------------------------------------------------
+
+def test_bug30_attack_warning_only_when_actually_skipped(capsys):
+    """Bug #30 — `attack` with a fully-legal attacker list must NOT emit
+    the misleading 'skipping illegal attackers' warning."""
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as fh:
+        save = fh.name
+    payload = _start_two_pilot(save)
+
+    # Plant a fully-legal attacker (untapped + no summoning sickness).
+    attacker_oid = _give_p1_attacker(payload)
+    harness._save(payload, save)
+
+    # Declare it as an attacker — must succeed cleanly with no warning.
+    harness.cmd_attack(_Args(save=save, attackers=[attacker_oid], seat="P1"))
+    captured = capsys.readouterr()
+    assert "skipping illegal" not in captured.out, (
+        f"Bug #30: misleading warning emitted when no attackers were skipped; "
+        f"output:\n{captured.out}"
+    )
+    # Sanity — declaration succeeded.
+    payload = _load(save)
+    assert attacker_oid in payload["game"].turn_manager.fin_turn_state.attackers_declared
+
+    Path(save).unlink(missing_ok=True)
+    Path(save + ".lock").unlink(missing_ok=True)
+    print("test_bug30_attack_warning_only_when_actually_skipped  PASS")
+
+
 if __name__ == "__main__":
     test_two_pilot_block_window_opens_on_end_turn()
     test_block_command_routes_to_defender_during_window()
@@ -530,4 +746,7 @@ if __name__ == "__main__":
     test_concurrent_play_is_serialized_by_fcntl_lock()
     test_choose_command_resolves_tutor_pending_choice()
     test_choose_command_no_pending_choice_is_noop()
+    # Bug #23 + #30 tests use pytest's capsys fixture for stdout assertions,
+    # so we only run them under pytest. The fcntl/two-pilot tests above run
+    # standalone too. Skip the capsys-dependent tests when invoked directly.
     print("\nAll two-pilot block-window tests passed.")
