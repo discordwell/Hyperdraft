@@ -709,6 +709,14 @@ Append a "Polish-loop summary" section to `docs/games/<game>.md`:
   "persistent" status (auto-repair failed twice on the final iter).
   Cleared automatically when auto-repair resolves the issue.
 
+**CI pre-flight** (before the status message): run
+`scripts/ci_quick.sh <game>` from repo root. Domain-scoped, ~5–10s.
+Catches untracked-files-imported-by-tracked-code and stale types
+that the per-iter tests don't see. If it passes, append
+`ci_quick: <game> passed` to the status block. If it fails, surface
+the failure (don't suppress) and replace `ready: yes` with
+`ready: blocked — see ci_quick output`.
+
 Then a tight status message:
 
 ```

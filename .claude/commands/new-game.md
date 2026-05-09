@@ -190,6 +190,10 @@ After /new-set's stage 9 completes, append a "Pipeline summary" section to `docs
 - One-line "how to play": the user-facing command/route to actually run a game
 - Outstanding TODOs in the engine (any `# TODO:` comments left by Agent 4, etc.)
 
+### CI pre-flight
+
+Before the status message, run `scripts/ci_quick.sh` (no domain arg — a brand-new engine touches shared infra and the new domain isn't in the case statement yet, so full-CI-equivalent is correct). Report `ci_quick: full passed` in the status message, or surface failures and signal `ci_quick: blocked` instead of `ready to commit`. After the engine has stabilized, the user can add a new domain case to `scripts/ci_quick.sh` so future `/ng-plus` runs are scoped.
+
 Then a short status message to the user.
 
 ## Notes for the orchestrator

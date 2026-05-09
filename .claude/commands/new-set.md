@@ -404,9 +404,17 @@ options:
 - If user picks "API": run `art_harness --mode api` (requires `OPENAI_API_KEY` in env). Honor the user's saved-memory note about hard billing limits — if a 401/429 is hit, halt and report.
 - If user picks "Skip" (or doesn't answer within their attention window): done. Placeholder PNGs stay; user can re-run art via `python -m scripts.new_set.art_harness ...` whenever they want.
 
-#### 9c. Status message to user
+#### 9c. CI pre-flight
 
-A short final message summarizing what shipped, with a single "ready to commit" line. The user types `commit` themselves when ready (per their global CLAUDE.md).
+Before signaling commit-readiness, run `scripts/ci_quick.sh <engine>` from repo root (e.g. `scripts/ci_quick.sh depths`). This catches the recurring CI-redness pattern: untracked source files imported by tracked code, stale TS types, and missing `requirements-server.txt` deps — none of which the per-stage tests notice.
+
+- If it passes, include `ci_quick: <engine> passed` in the final report and proceed to 9d.
+- If the untracked-imports check fails, `git add` the flagged files and re-run.
+- If a test failure surfaces, fix it (or log it as an Outstanding TODO and report `ci_quick: blocked` instead of `ready to commit`). Do NOT auto-add `.gitignore` entries to silence the check.
+
+#### 9d. Status message to user
+
+A short final message summarizing what shipped, with a single "ready to commit" line (only if 9c passed). The user types `commit` themselves when ready (per their global CLAUDE.md).
 
 ## Notes for the orchestrator
 

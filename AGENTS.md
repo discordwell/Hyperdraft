@@ -5,6 +5,7 @@ AI-powered deckbuilder with an event-driven MTG rules engine.
 ## Codex Preferences
 
 - When spawning >5 agents in a single command, ask user if they want to use `model: "sonnet"` instead of opus to reduce cost/latency.
+- When following a skill and a turn uncovers bugs, gaps, or errors, instead of moving on to the next step first fix those bugs then move on.
 
 ## Architecture
 
