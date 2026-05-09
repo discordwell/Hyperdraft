@@ -4,3 +4,5 @@ uvicorn[standard]>=0.24.0
 python-socketio>=5.10.0
 pydantic>=2.5.0
 aiohttp>=3.9.0
+httpx>=0.26.0       # required by starlette.testclient (used in tests)
+dill>=0.3.7         # used by scripts/play/finance_wet_test.py to pickle GameState w/ closures
