@@ -79,9 +79,76 @@ export MATCH_ID AI_PLAYER_ID HUMAN_PLAYER_ID SERVER_BASE GAME_MODE
 # Capture this shell's TTY so we can close the right Terminal window after.
 TTY_NAME=$(tty)
 
-# Run claude (NOT exec — we need to run cleanup after it exits).
-claude "$INITIAL_PROMPT"
+# Run claude in the background so a watchdog can stop it when the match
+# ends or stalls. Once claude exits (naturally or killed), the window-close
+# logic below fires.
+claude "$INITIAL_PROMPT" &
+CLAUDE_PID=$!
+
+# --- Watchdog ---
+# Polls the match state every 30s. Signals claude to exit when:
+#   * is_game_over=true (match ended), or
+#   * no state change for 5 minutes (idle).
+STATE_URL="${SERVER_BASE}/api/match/${MATCH_ID}/state?player_id=${AI_PLAYER_ID}"
+WATCHDOG_POLL_INTERVAL=30
+WATCHDOG_IDLE_LIMIT=300
+(
+    last_hash=""
+    last_change_ts=$(date +%s)
+    while kill -0 "$CLAUDE_PID" 2>/dev/null; do
+        sleep "$WATCHDOG_POLL_INTERVAL"
+        kill -0 "$CLAUDE_PID" 2>/dev/null || break
+
+        body=$(curl -fs --max-time 5 "$STATE_URL" 2>/dev/null || true)
+        [ -z "$body" ] && continue
+
+        verdict=$(printf '%s' "$body" | python3 -c '
+import json, sys, hashlib
+try:
+    s = json.load(sys.stdin)
+except Exception:
+    print("ERR")
+    sys.exit(0)
+tag = "OVER" if s.get("is_game_over") else "OK"
+print(tag, hashlib.sha1(json.dumps(s, sort_keys=True).encode()).hexdigest())
+' 2>/dev/null || echo "ERR")
+
+        case "$verdict" in
+            OVER*)
+                echo
+                echo "[watchdog] match $MATCH_ID ended; closing window."
+                kill "$CLAUDE_PID" 2>/dev/null || true
+                break
+                ;;
+            ERR*)
+                continue
+                ;;
+            *)
+                hash=${verdict#OK }
+                now=$(date +%s)
+                if [ "$hash" != "$last_hash" ]; then
+                    last_hash="$hash"
+                    last_change_ts=$now
+                elif [ $((now - last_change_ts)) -ge "$WATCHDOG_IDLE_LIMIT" ]; then
+                    echo
+                    echo "[watchdog] no state change for ${WATCHDOG_IDLE_LIMIT}s; closing window."
+                    kill "$CLAUDE_PID" 2>/dev/null || true
+                    break
+                fi
+                ;;
+        esac
+    done
+) &
+WATCHDOG_PID=$!
+
+# wait can return non-zero when claude is killed by the watchdog (SIGTERM
+# -> 143); that's expected, don't let `set -e` abort cleanup.
+set +e
+wait "$CLAUDE_PID" 2>/dev/null
 CLAUDE_EXIT=$?
+kill "$WATCHDOG_PID" 2>/dev/null
+wait "$WATCHDOG_PID" 2>/dev/null
+set -e
 
 echo
 echo "========================================================================"
