@@ -609,14 +609,21 @@ async def create_match(
 def _spawn_ultra_terminal(
     *, match_id: str, ai_player_id: str, human_player_id: str, game_mode: str
 ) -> None:
-    """Open a macOS Terminal window running ``scripts/launch_ultra_agent.sh``.
+    """Open a terminal window running ``scripts/launch_ultra_agent.sh``.
 
-    Best-effort. Failure to spawn the terminal must NOT break match creation —
-    the user can still play the heuristic AI; they just won't get an Ultra
-    opponent until the terminal is launched manually.
+    Cross-platform: tries macOS (Terminal.app / iTerm2), Linux (respects
+    ``$TERMINAL`` env var, falls through common terminal emulators), and
+    Windows (Windows Terminal preferred). Falls back to printing a copyable
+    command if no terminal can be spawned automatically.
+
+    Best-effort. Failure must NOT break match creation — the user can still
+    play (the AI seat just sits idle until they launch the agent manually).
     """
+    import os
     import shlex
+    import shutil
     import subprocess
+    import sys
     from pathlib import Path
 
     project_root = Path(__file__).resolve().parents[3]
@@ -625,7 +632,6 @@ def _spawn_ultra_terminal(
         print(f"[ultra] launcher not found: {launcher}", flush=True)
         return
 
-    # Build the command to run inside the new Terminal window.
     env_assignments = (
         f"MATCH_ID={shlex.quote(match_id)} "
         f"AI_PLAYER_ID={shlex.quote(ai_player_id)} "
@@ -634,19 +640,118 @@ def _spawn_ultra_terminal(
     )
     inner = f"cd {shlex.quote(str(project_root))} && {env_assignments} {shlex.quote(str(launcher))}"
 
-    # AppleScript escapes: backslash + double quote.
-    apple_inner = inner.replace("\\", "\\\\").replace('"', '\\"')
-    osa = f'tell application "Terminal" to do script "{apple_inner}"'
-
-    try:
-        subprocess.Popen(
-            ["osascript", "-e", osa],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+    def _print_manual(reason: str) -> None:
+        print(
+            f"[ultra] {reason}; run this manually in a terminal:\n  {inner}",
+            flush=True,
         )
-        print(f"[ultra] spawned Terminal for match {match_id} ({game_mode})", flush=True)
+
+    spawned = False
+    try:
+        if sys.platform == "darwin":
+            spawned = _spawn_macos(inner, match_id)
+        elif sys.platform.startswith("linux"):
+            spawned = _spawn_linux(inner)
+        elif sys.platform.startswith("win"):
+            spawned = _spawn_windows(inner)
+        else:
+            _print_manual(f"unsupported platform {sys.platform}")
+            return
     except Exception as exc:  # pylint: disable=broad-except
-        print(f"[ultra] failed to spawn Terminal: {exc}", flush=True)
+        _print_manual(f"spawn failed: {exc}")
+        return
+
+    if spawned:
+        print(f"[ultra] spawned terminal for match {match_id} ({game_mode})", flush=True)
+    else:
+        _print_manual("no usable terminal found")
+
+
+def _spawn_macos(inner: str, match_id: str) -> bool:
+    """macOS: pick Terminal.app or iTerm2 based on $TERM_PROGRAM."""
+    import os
+    import subprocess
+
+    term = os.environ.get("TERM_PROGRAM", "")
+    apple_inner = inner.replace("\\", "\\\\").replace('"', '\\"')
+
+    if term == "iTerm.app":
+        # iTerm2 — open a new window with the command.
+        osa = (
+            'tell application "iTerm"\n'
+            '  create window with default profile\n'
+            f'  tell current session of current window to write text "{apple_inner}"\n'
+            'end tell'
+        )
+    else:
+        # Terminal.app (default). Works for unknown $TERM_PROGRAM too.
+        osa = f'tell application "Terminal" to do script "{apple_inner}"'
+
+    subprocess.Popen(
+        ["osascript", "-e", osa],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return True
+
+
+def _spawn_linux(inner: str) -> bool:
+    """Linux: respect $TERMINAL, then try common terminal emulators."""
+    import os
+    import shutil
+    import subprocess
+
+    # Tuples of (binary, args-template). Args use {cmd} as placeholder.
+    candidates: list[tuple[str, list[str]]] = []
+    user_term = os.environ.get("TERMINAL")
+    if user_term:
+        # Generic fallback args; if user's terminal needs different syntax
+        # they can override via wrapping their own script.
+        candidates.append((user_term, ["-e", "bash", "-c", inner]))
+    candidates.extend([
+        ("x-terminal-emulator", ["-e", "bash", "-c", inner]),  # Debian alternatives
+        ("gnome-terminal", ["--", "bash", "-c", inner]),
+        ("konsole", ["-e", "bash", "-c", inner]),
+        ("alacritty", ["-e", "bash", "-c", inner]),
+        ("kitty", ["bash", "-c", inner]),
+        ("wezterm", ["start", "--", "bash", "-c", inner]),
+        ("tilix", ["-e", "bash", "-c", inner]),
+        ("xfce4-terminal", ["-e", f"bash -c {shlex_quote(inner)}"]),
+        ("xterm", ["-e", "bash", "-c", inner]),
+    ])
+
+    for prog, args in candidates:
+        if shutil.which(prog):
+            subprocess.Popen(
+                [prog] + args,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+    return False
+
+
+def _spawn_windows(inner: str) -> bool:
+    """Windows: prefer Windows Terminal, fall back to cmd. Requires bash on PATH."""
+    import shutil
+    import subprocess
+
+    # The launcher script is bash — user must have Git Bash, WSL, or similar.
+    if shutil.which("bash") is None:
+        return False
+
+    if shutil.which("wt.exe"):
+        subprocess.Popen(["wt.exe", "bash", "-c", inner])
+        return True
+
+    # Plain cmd fallback.
+    subprocess.Popen(["cmd", "/c", "start", "cmd", "/k", f"bash -c \"{inner}\""])
+    return True
+
+
+def shlex_quote(s: str) -> str:
+    import shlex
+    return shlex.quote(s)
 
 
 @router.post("/{match_id}/start")

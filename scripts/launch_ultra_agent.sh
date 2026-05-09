@@ -89,7 +89,30 @@ echo "Ultra AI session ended (exit=$CLAUDE_EXIT). Closing window in 3s..."
 echo "========================================================================"
 sleep 3
 
-osascript <<APPLESCRIPT
+# Try to auto-close the terminal window. Only macOS Terminal.app and iTerm2
+# are supported; on Linux/Windows the shell just exits and the terminal
+# emulator decides what to do per its own settings.
+case "$(uname -s)" in
+    Darwin)
+        case "$TERM_PROGRAM" in
+            iTerm.app)
+                osascript <<APPLESCRIPT
+tell application "iTerm"
+    repeat with w in windows
+        repeat with t in tabs of w
+            tell current session of t
+                if tty is "$TTY_NAME" then
+                    tell w to close
+                    return
+                end if
+            end tell
+        end repeat
+    end repeat
+end tell
+APPLESCRIPT
+                ;;
+            *)
+                osascript <<APPLESCRIPT
 tell application "Terminal"
     repeat with w in windows
         repeat with t in tabs of w
@@ -101,4 +124,11 @@ tell application "Terminal"
     end repeat
 end tell
 APPLESCRIPT
+                ;;
+        esac
+        ;;
+    *)
+        echo "(close this window when ready)"
+        ;;
+esac
 
