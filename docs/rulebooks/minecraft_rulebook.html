@@ -1,0 +1,1335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minecraft TCG — Crafter's Manual</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <style>
+    /* ─── Reset & Base ─── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #2D2D2D;
+      --bg-light:  #3A3A3A;
+      --bg-card:   #1E1E1E;
+      --green:     #5D9E3A;
+      --green-dim: #3D6E25;
+      --green-glow:#8FD455;
+      --gold:      #D4A74A;
+      --text:      #DADADA;
+      --text-dim:  #999;
+      --red:       #C0392B;
+      --blue:      #2980B9;
+      --stone:     #7F7F7F;
+    }
+
+    html { font-size: 14px; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Share Tech Mono', monospace;
+      line-height: 1.6;
+    }
+
+    /* ─── Print ─── */
+    @page {
+      size: A4;
+      margin: 18mm 15mm 18mm 15mm;
+    }
+    @media print {
+      body { background: #fff; color: #111; font-size: 11px; }
+      :root {
+        --bg: #fff; --bg-light: #f5f5f5; --bg-card: #eee;
+        --green: #3A7520; --green-glow: #3A7520;
+        --text: #111; --text-dim: #555;
+      }
+      .no-print { display: none !important; }
+      .page-break { page-break-before: always; }
+      a { text-decoration: none; color: inherit; }
+    }
+
+    /* ─── Typography ─── */
+    h1, h2, h3, h4 { font-family: 'VT323', monospace; letter-spacing: 0.05em; }
+    h1 { font-size: 4rem;   color: var(--green-glow); text-shadow: 0 0 20px var(--green); }
+    h2 { font-size: 2.4rem; color: var(--green);      border-bottom: 2px solid var(--green-dim); padding-bottom: 4px; margin-bottom: 1rem; }
+    h3 { font-size: 1.7rem; color: var(--gold);       margin-top: 1.4rem; margin-bottom: 0.5rem; }
+    h4 { font-size: 1.3rem; color: var(--green-glow); margin-top: 1rem; margin-bottom: 0.3rem; }
+    p  { margin-bottom: 0.8rem; }
+
+    /* ─── Layout ─── */
+    .wrapper { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem; }
+    .section  { margin-bottom: 3rem; }
+
+    /* ─── Cover Page ─── */
+    .cover {
+      background: var(--bg-card);
+      border: 4px solid var(--green);
+      text-align: center;
+      padding: 5rem 2rem 4rem;
+      margin-bottom: 0;
+      position: relative;
+      overflow: hidden;
+    }
+    .cover::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: repeating-linear-gradient(
+        0deg, transparent, transparent 28px, rgba(93,158,58,0.04) 28px, rgba(93,158,58,0.04) 29px
+      ),
+      repeating-linear-gradient(
+        90deg, transparent, transparent 28px, rgba(93,158,58,0.04) 28px, rgba(93,158,58,0.04) 29px
+      );
+    }
+    .cover-subtitle {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 1.1rem;
+      color: var(--text-dim);
+      margin-top: 0.5rem;
+      letter-spacing: 0.2em;
+    }
+    .cover-edition {
+      font-family: 'VT323', monospace;
+      font-size: 1.4rem;
+      color: var(--gold);
+      margin-top: 2rem;
+      letter-spacing: 0.15em;
+    }
+    .cover-tagline {
+      font-size: 1rem;
+      color: var(--text-dim);
+      max-width: 480px;
+      margin: 1.5rem auto 0;
+      font-style: italic;
+    }
+    .cover-img {
+      margin: 2rem auto 0;
+      max-width: 700px;
+      width: 100%;
+      border: 3px solid var(--green-dim);
+      display: block;
+    }
+    .cover-img-placeholder {
+      margin: 2rem auto 0;
+      max-width: 700px;
+      height: 180px;
+      background: var(--bg);
+      border: 3px dashed var(--green-dim);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-dim);
+      font-size: 0.9rem;
+    }
+
+    /* ─── Pixel Divider ─── */
+    .divider {
+      border: none;
+      border-top: 3px solid var(--green-dim);
+      margin: 2rem 0;
+      position: relative;
+    }
+    .divider::after {
+      content: '⛏';
+      position: absolute;
+      top: -0.75rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg);
+      padding: 0 0.5rem;
+      font-size: 1rem;
+    }
+
+    /* ─── Table of Contents ─── */
+    .toc { background: var(--bg-card); border: 2px solid var(--green-dim); padding: 1.5rem 2rem; border-radius: 2px; }
+    .toc-title { font-family: 'VT323', monospace; font-size: 2rem; color: var(--green); margin-bottom: 1rem; }
+    .toc ol { padding-left: 1.5rem; }
+    .toc li { margin-bottom: 0.4rem; }
+    .toc a { color: var(--green-glow); text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    .toc-num { color: var(--text-dim); }
+
+    /* ─── Info Boxes ─── */
+    .infobox {
+      background: var(--bg-card);
+      border-left: 4px solid var(--green);
+      padding: 1rem 1.2rem;
+      margin: 1rem 0;
+      border-radius: 0 2px 2px 0;
+    }
+    .infobox.gold  { border-left-color: var(--gold); }
+    .infobox.red   { border-left-color: var(--red); }
+    .infobox.stone { border-left-color: var(--stone); }
+    .infobox-title { font-family: 'VT323', monospace; font-size: 1.3rem; margin-bottom: 0.4rem; }
+    .infobox.gold  .infobox-title { color: var(--gold); }
+    .infobox.red   .infobox-title { color: var(--red); }
+    .infobox.stone .infobox-title { color: var(--stone); }
+
+    /* ─── Cheatsheet / Quick-Reference ─── */
+    .cheatsheet {
+      background: var(--bg-card);
+      border: 3px double var(--green);
+      padding: 1.5rem;
+    }
+    .cheatsheet-row {
+      display: flex;
+      align-items: baseline;
+      gap: 0.8rem;
+      padding: 0.35rem 0;
+      border-bottom: 1px solid var(--bg-light);
+    }
+    .cheatsheet-num { color: var(--green); font-family: 'VT323', monospace; font-size: 1.4rem; min-width: 2rem; }
+    .cheatsheet-label { color: var(--gold); min-width: 180px; }
+    .cheatsheet-desc  { color: var(--text-dim); }
+
+    /* ─── Card Gallery Table ─── */
+    .card-table-wrap { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    thead th {
+      background: var(--green-dim);
+      color: #fff;
+      font-family: 'VT323', monospace;
+      font-size: 1rem;
+      padding: 0.5rem 0.6rem;
+      text-align: left;
+      border-bottom: 2px solid var(--green);
+    }
+    tbody tr:nth-child(even) { background: var(--bg-light); }
+    tbody tr:hover { background: rgba(93,158,58,0.12); }
+    tbody td { padding: 0.35rem 0.6rem; border-bottom: 1px solid #1a1a1a; vertical-align: top; }
+    .td-name  { color: var(--green-glow); font-weight: bold; white-space: nowrap; }
+    .td-type  { color: var(--gold); white-space: nowrap; }
+    .td-cost  { color: var(--text-dim); white-space: nowrap; font-size: 0.78rem; }
+    .td-stats { color: var(--text); text-align: center; }
+    .td-rules { color: var(--text-dim); font-size: 0.79rem; }
+
+    /* ─── Type section dividers in table ─── */
+    .type-header td {
+      background: var(--bg-card) !important;
+      color: var(--green);
+      font-family: 'VT323', monospace;
+      font-size: 1.2rem;
+      padding: 0.6rem;
+      border-top: 2px solid var(--green-dim);
+    }
+
+    /* ─── Keyword Pills ─── */
+    .keyword {
+      display: inline-block;
+      background: var(--green-dim);
+      color: #fff;
+      font-size: 0.72rem;
+      padding: 0 0.35rem;
+      border-radius: 1px;
+      margin: 1px;
+      white-space: nowrap;
+    }
+    .keyword.hostile   { background: var(--red); }
+    .keyword.compleated { background: #5B2C6F; }
+    .keyword.worker    { background: #1A5276; }
+
+    /* ─── Two-col layout for setup etc ─── */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    @media (max-width: 600px) { .two-col { grid-template-columns: 1fr; } }
+
+    /* ─── Material Icons (text emoji) ─── */
+    .mat-wood    { color: #8B4513; }
+    .mat-stone   { color: #999; }
+    .mat-iron    { color: #C0C0C0; }
+    .mat-redstone{ color: #E74C3C; }
+    .mat-diamond { color: #7FB3FF; }
+
+    /* ─── Phase blocks ─── */
+    .phase {
+      background: var(--bg-card);
+      border: 1px solid var(--green-dim);
+      margin: 0.8rem 0;
+      padding: 0.9rem 1.1rem;
+    }
+    .phase-num { font-family: 'VT323', monospace; font-size: 2rem; color: var(--green); float: left; margin-right: 0.6rem; line-height: 1; }
+    .phase-name { font-family: 'VT323', monospace; font-size: 1.4rem; color: var(--gold); }
+    .phase-sub  { font-size: 0.78rem; color: var(--text-dim); }
+
+    /* ─── Zone diagram ─── */
+    .zone-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.6rem;
+      margin: 1rem 0;
+    }
+    .zone-block {
+      background: var(--bg-card);
+      border: 1px solid var(--stone);
+      padding: 0.6rem 0.8rem;
+    }
+    .zone-block h4 { margin-top: 0; font-size: 1.1rem; }
+
+    /* ─── Biome table ─── */
+    .biome-table { width: 100%; border-collapse: collapse; margin: 0.8rem 0; }
+    .biome-table th { background: #2C3E50; color: var(--gold); font-family: 'VT323', monospace; font-size: 1rem; padding: 0.4rem 0.7rem; }
+    .biome-table td { padding: 0.3rem 0.7rem; border-bottom: 1px solid #1a1a1a; }
+    .biome-table tr:nth-child(even) { background: var(--bg-light); }
+
+    /* ─── Audit appendix ─── */
+    .audit-item { margin: 0.5rem 0; padding: 0.5rem 0.8rem; background: var(--bg-card); border-left: 3px solid var(--stone); }
+    .audit-item.minor   { border-left-color: var(--stone); }
+    .audit-item.major   { border-left-color: var(--red); }
+    .audit-item.undoc   { border-left-color: var(--gold); }
+    .badge {
+      display: inline-block; font-size: 0.7rem; padding: 0 0.4rem;
+      border-radius: 1px; margin-right: 0.4rem; vertical-align: middle;
+    }
+    .badge.minor   { background: var(--stone);  color: #fff; }
+    .badge.major   { background: var(--red);    color: #fff; }
+    .badge.undoc   { background: var(--gold);   color: #000; }
+
+    /* ─── Screenshot images ─── */
+    .screenshot {
+      width: 100%;
+      border: 2px solid var(--green-dim);
+      display: block;
+      margin: 1rem 0;
+    }
+    .screenshot-placeholder {
+      width: 100%;
+      height: 200px;
+      border: 2px dashed var(--green-dim);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-dim);
+      font-size: 0.85rem;
+      margin: 1rem 0;
+    }
+
+    /* ─── Mechanic entry ─── */
+    .mechanic {
+      background: var(--bg-card);
+      border: 1px solid var(--green-dim);
+      padding: 1rem 1.2rem;
+      margin: 1rem 0;
+    }
+    .mechanic-name { font-family: 'VT323', monospace; font-size: 1.6rem; color: var(--green-glow); }
+    .mechanic-example { color: var(--text-dim); font-size: 0.82rem; margin-top: 0.4rem; }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+
+<!-- ══════════════════════════════════════════════════════════
+     COVER
+══════════════════════════════════════════════════════════ -->
+<div class="cover section">
+  <h1>MINECRAFT TCG</h1>
+  <p class="cover-subtitle">▓ A HYPERDRAFT CARD GAME ▓</p>
+  <p class="cover-edition">✦ CRAFTER'S MANUAL — FIRST EDITION ✦</p>
+  <p class="cover-tagline">
+    Mine. Build. Survive. Destroy your opponent's Bed, then take their life — or let
+    the Phyrexian corruption spread until there's nothing left to respawn into.
+  </p>
+
+  <img src="assets/minecraft_board.png" class="cover-img" alt="Minecraft TCG game board"
+       onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+  <div class="cover-img-placeholder" style="display:none;">[ Game board screenshot ]</div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════
+     TABLE OF CONTENTS
+══════════════════════════════════════════════════════════ -->
+<div class="toc section">
+  <div class="toc-title">▌ TABLE OF CONTENTS</div>
+  <ol>
+    <li><a href="#welcome"><span class="toc-num">I.</span> Welcome to Minecraft TCG</a></li>
+    <li><a href="#components"><span class="toc-num">II.</span> Components</a></li>
+    <li><a href="#setup"><span class="toc-num">III.</span> Setup</a></li>
+    <li><a href="#turn"><span class="toc-num">IV.</span> How to Play — Turn Structure</a></li>
+    <li><a href="#zones"><span class="toc-num">V.</span> Card Types &amp; the Play Area</a></li>
+    <li><a href="#resources"><span class="toc-num">VI.</span> Resources &amp; Materials</a></li>
+    <li><a href="#winning"><span class="toc-num">VII.</span> Winning &amp; Losing</a></li>
+    <li><a href="#mechanics"><span class="toc-num">VIII.</span> Special Mechanics</a></li>
+    <li><a href="#gallery"><span class="toc-num">IX.</span> Card Gallery</a></li>
+    <li><a href="#audit"><span class="toc-num">X.</span> Rules Audit (Appendix)</a></li>
+    <li><a href="#quickref"><span class="toc-num">XI.</span> Quick Reference</a></li>
+  </ol>
+</div>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SECTION I — WELCOME
+══════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="welcome">
+  <h2>I. Welcome to Minecraft TCG</h2>
+
+  <p>
+    Minecraft TCG is a two-player strategic card game set in the blocky, procedurally
+    generated world you know. Each player controls an <strong>Avatar</strong> — a lone survivor
+    with 20 hit points — navigating a world of hostile mobs, biome riches, and the creeping
+    dread of Phyrexian corruption. Cards represent the creatures, tools, structures, and
+    actions that define every Minecraft playthrough.
+  </p>
+
+  <p>
+    Unlike most card games where life is lost passively, Minecraft TCG revolves around
+    <strong>material economy</strong>. You mine biomes to gather Wood, Stone, Iron, Redstone,
+    and Diamond — then spend those materials to deploy Mobs on the battlefield, erect Structures
+    on a 3×3 grid behind your Avatar, craft Tools that empower your Avatar's attacks, and
+    unleash one-time Actions. The side that builds the better engine wins.
+  </p>
+
+  <p>
+    What makes Minecraft TCG unique in the Hyperdraft collection:
+  </p>
+  <ul style="margin: 0 0 1rem 1.5rem; line-height: 1.9;">
+    <li><strong>The Bed mechanic</strong> — your Avatar can respawn indefinitely until your Bed is destroyed first.</li>
+    <li><strong>A physical 3×3 grid</strong> — Structures and Blocks occupy real board positions. Column targeting means your grid layout is a tactical decision.</li>
+    <li><strong>The Day/Night cycle</strong> — every two turns, the world flips, granting bonuses to builders by day and buffing Hostile mobs at night.</li>
+    <li><strong>Phyrexian corruption</strong> — a second win condition: accumulate 5 oil counters through Infect damage and your Avatar is Compleated, which counts as a loss.</li>
+  </ul>
+
+  <div class="infobox">
+    <div class="infobox-title">At a Glance</div>
+    <strong>Players:</strong> 2 &nbsp;|&nbsp; <strong>Deck size:</strong> ~50 cards &nbsp;|&nbsp;
+    <strong>Starting hand:</strong> 6 cards &nbsp;|&nbsp; <strong>Starting HP:</strong> 20 &nbsp;|&nbsp;
+    <strong>Game length:</strong> 18–36 turns (approx. 20–45 min)
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SECTION II — COMPONENTS
+══════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="components">
+  <h2>II. Components</h2>
+
+  <h3>Card Pool — 178 Cards</h3>
+  <div class="two-col">
+    <div>
+      <table class="biome-table" style="width:100%">
+        <thead><tr><th>Card Type</th><th>Count</th></tr></thead>
+        <tbody>
+          <tr><td>Mobs</td><td>69</td></tr>
+          <tr><td>Structures</td><td>27</td></tr>
+          <tr><td>Blocks</td><td>12</td></tr>
+          <tr><td>Tools</td><td>22</td></tr>
+          <tr><td>Actions</td><td>48</td></tr>
+          <tr style="font-weight:bold"><td>Total</td><td>178</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <table class="biome-table" style="width:100%">
+        <thead><tr><th>Material</th><th>Symbol</th><th>Rarity</th></tr></thead>
+        <tbody>
+          <tr><td class="mat-wood">Wood</td><td>W</td><td>Abundant</td></tr>
+          <tr><td class="mat-stone">Stone</td><td>S</td><td>Common</td></tr>
+          <tr><td class="mat-iron">Iron</td><td>I</td><td>Moderate</td></tr>
+          <tr><td class="mat-redstone">Redstone</td><td>R</td><td>Scarce</td></tr>
+          <tr><td class="mat-diamond">Diamond</td><td>D</td><td>Rare</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Starter Decks</h3>
+  <div class="two-col">
+    <div class="mechanic">
+      <div class="mechanic-name">⛏ Builder Deck</div>
+      <p style="font-size:0.85rem;">~50 cards. Emphasises Workers, ramp Structures, and mid-range threats.
+      Ramp into material income, defend with Walls and Blocks, then overwhelm through resource conversion into powerful mid-game Mobs.</p>
+    </div>
+    <div class="mechanic">
+      <div class="mechanic-name">💎 Miner Deck</div>
+      <p style="font-size:0.85rem;">~50 cards. Mining bonus Workers, high-value Tools, and Avatar-direct power.
+      Build up mining production, equip powerful weapons, and leverage Beacon synergies for burst Avatar damage.</p>
+    </div>
+    <div class="mechanic">
+      <div class="mechanic-name">⚔ Raider Deck</div>
+      <p style="font-size:0.85rem;">~50 cards. Aggressive Hostile and Raider subtypes, removal actions, iron weapons.
+      Deploy cheap bodies early, chip the Avatar with on-attack triggers, finish with burn actions or Ravager destruction.</p>
+    </div>
+    <div class="mechanic">
+      <div class="mechanic-name">🦠 Compleated Dominion</div>
+      <p style="font-size:0.85rem;">~48 cards. Phyrexian Compleated lords, sweepers, and drain effects.
+      Ramp into Compleated threats; win via Infect oil-counter accumulation or drain combos from Sheoldred and friends.</p>
+    </div>
+    <div class="mechanic" style="grid-column: 1 / -1;">
+      <div class="mechanic-name">👁 Box of Horrors</div>
+      <p style="font-size:0.85rem;">~50 cards. Horror tribal, mind-erosion, cursed structures, and possession mechanics.
+      Establish cheap defensive structures, use discard and mill to weaken the opponent's hand, then convert wounded enemy Mobs into your own Horror army.</p>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SECTION III — SETUP
+══════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="setup">
+  <h2>III. Setup</h2>
+
+  <div class="two-col">
+    <div>
+      <h3>Each Player Receives</h3>
+      <ul style="margin-left:1.3rem; line-height:2;">
+        <li>1 shuffled 50-card deck</li>
+        <li>Starting hand of <strong>6 cards</strong></li>
+        <li><strong>20 Hit Points</strong> (Avatar HP)</li>
+        <li>0 of each material</li>
+        <li>No oil counters</li>
+        <li>An empty 3×3 grid</li>
+        <li>No Mobs, no gear</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Starting Biomes (per player)</h3>
+      <table class="biome-table">
+        <thead><tr><th>Biome</th><th>Yields</th></tr></thead>
+        <tbody>
+          <tr><td>🌲 Forest</td><td>1 <span class="mat-wood">Wood</span></td></tr>
+          <tr><td>⛰ Hills</td><td>1 <span class="mat-stone">Stone</span></td></tr>
+          <tr><td>🕳 Cave</td><td>1 <span class="mat-stone">Stone</span> + 1 <span class="mat-iron">Iron</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>World State</h3>
+  <p>The game begins in <strong>Day Phase</strong>. The active player is determined by the game server
+  (coin flip equivalent). <em>There is no "skip draw on first turn" rule in Minecraft TCG</em> —
+  both players draw 1 card at the start of their first turn.</p>
+
+  <div class="infobox gold">
+    <div class="infobox-title">💡 No Mulligan</div>
+    Minecraft TCG has no mulligan. Your opening 6-card hand is fixed — what you draw is what you play with.
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SECTION IV — TURN STRUCTURE
+══════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="turn">
+  <h2>IV. How to Play — Turn Structure</h2>
+
+  <p>Each turn flows through five sequential phases. There is <strong>no priority system or stack</strong>
+  in Minecraft TCG — all card effects resolve immediately when they trigger.</p>
+
+  <div class="phase">
+    <div class="phase-num">1</div>
+    <div class="phase-name">Turn Start — Dawn Procedures</div>
+    <div class="phase-sub">Automatic — no player action required</div>
+    <div style="clear:both; margin-top:0.5rem;">
+      <ul style="margin-left:1.3rem; line-height:1.9; font-size:0.9rem;">
+        <li>Untap all your tapped Mobs (Workers and attackers).</li>
+        <li>Clear summoning sickness from Mobs that survived a full round.</li>
+        <li>Reset all biome <em>mined-this-turn</em> flags — every biome is minable again.</li>
+        <li>Each Structure on your grid that has a <strong>turn bonus</strong> fires: gain materials or draw cards as listed on the card.</li>
+        <li>Each Compleated Mob you control deals <strong>1 damage to your own Avatar</strong> (Phyrexian upkeep tax).</li>
+        <li>If the Day/Night cycle has elapsed (every full round of 2 turns), flip the phase.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-num">2</div>
+    <div class="phase-name">Draw — Replenish Your Hand</div>
+    <div class="phase-sub">Automatic</div>
+    <div style="clear:both; margin-top:0.5rem; font-size:0.9rem;">
+      Draw <strong>1 card</strong> from the top of your deck.
+      Some Structures (Chest, Lectern of Whispers) already granted you additional draws in Phase 1.
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-num">3</div>
+    <div class="phase-name">Main Phase — Lay Your Plans</div>
+    <div class="phase-sub">Your full action window. Actions can be taken in any order, any number of times.</div>
+    <div style="clear:both; margin-top:0.7rem;">
+      <h4>Actions Available This Phase</h4>
+      <table class="biome-table" style="width:100%">
+        <thead><tr><th>Action</th><th>Who can do it</th><th>Limit</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Mine a Biome</strong></td>
+            <td>Avatar <em>or</em> any untapped Worker Mob</td>
+            <td>1 per biome per turn (any actor)</td>
+            <td>Each biome can be mined once per turn — by your Avatar or one Worker, not both. Avatar uses its <em>avatar action</em> slot (1/turn). Workers tap after mining.</td>
+          </tr>
+          <tr>
+            <td><strong>Explore a Biome</strong></td>
+            <td>Avatar only</td>
+            <td>Uses avatar action (1/turn)</td>
+            <td>Upgrades one biome to the next tier (e.g. Forest → Old Growth Forest).</td>
+          </tr>
+          <tr>
+            <td><strong>Play a Card</strong></td>
+            <td>You</td>
+            <td>Unlimited (if you can pay)</td>
+            <td>Pay the material cost; place Mob on creature row, Structure/Block on grid cell, Tool equips to gear slot, Action resolves immediately.</td>
+          </tr>
+          <tr>
+            <td><strong>Declare Attackers</strong></td>
+            <td>Your Mobs</td>
+            <td>Once per turn total</td>
+            <td>Tap Mobs you want to attack, assign each a column target. Triggers the Combat Phase.</td>
+          </tr>
+          <tr>
+            <td><strong>Avatar Attack</strong></td>
+            <td>Avatar</td>
+            <td>Uses avatar action (1/turn)</td>
+            <td>Requires an equipped Weapon. Deals weapon damage to the frontmost target in a chosen column, or directly to the opponent's Avatar if the column is empty.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="infobox gold" style="margin-top:1rem;">
+        <div class="infobox-title">☀ Day Phase Bonuses</div>
+        During Day phase: your first mine action each turn yields <strong>+1</strong> of that biome's primary material.
+        The first Structure or Block you play costs <strong>1 less</strong> of its cheapest material (Wood or Stone).
+      </div>
+      <div class="infobox" style="margin-top:0.5rem;">
+        <div class="infobox-title">🌙 Night Phase Bonus</div>
+        During Night phase: all your <span class="keyword hostile">Hostile</span> Mobs gain <strong>+1 Attack</strong>.
+      </div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-num">4</div>
+    <div class="phase-name">Combat Phase — Clash</div>
+    <div class="phase-sub">Triggered when you declare attackers. Skipped if you don't.</div>
+    <div style="clear:both; margin-top:0.5rem; font-size:0.9rem;">
+      <ol style="margin-left:1.3rem; line-height:2;">
+        <li><strong>Declare Attackers:</strong> Tap each attacking Mob and assign it a column (0, 1, or 2).</li>
+        <li><strong>Declare Blockers:</strong> Your opponent assigns untapped Mobs as blockers — one blocker per attacker.</li>
+        <li><strong>Deal Damage:</strong>
+          <ul style="margin-left:1.3rem;">
+            <li>An attacker without a blocker hits the <em>frontmost</em> object in its column (row 2 → 1 → 0). If the column is empty, it hits the opponent's Avatar.</li>
+            <li>A blocked attacker and its blocker deal damage to each other simultaneously.</li>
+            <li>Unless the attacker has <span class="keyword">Ranged</span>, it receives return damage equal to the blocker's power.</li>
+            <li>If damage destroys the frontmost block but power remains, overflow damage carries to the next target.</li>
+          </ul>
+        </li>
+        <li><strong>Resolve Deaths:</strong> Mobs and Structures at 0 HP go to the graveyard. Deathrattles fire here. Avatar deaths trigger respawn checks.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-num">5</div>
+    <div class="phase-name">Turn End — Pass the Torch</div>
+    <div class="phase-sub">Automatic</div>
+    <div style="clear:both; margin-top:0.5rem; font-size:0.9rem;">
+      The turn passes to your opponent. The Day/Night cycle counter advances by 1.
+    </div>
+  </div>
+
+  <div class="infobox stone" style="margin-top:1.5rem;">
+    <div class="infobox-title">Quick Turn Cheat Sheet</div>
+    <div style="font-size:0.85rem; line-height:1.9;">
+      <strong>1.</strong> Start: Untap and reset biomes → start-of-turn bonuses (Structures + Compleated tax in the same pass) → Day/Night flip<br>
+      <strong>2.</strong> Draw: Draw 1 card<br>
+      <strong>3.</strong> Main: Mine / Explore / Play cards / Attack (any order, any number)<br>
+      <strong>4.</strong> Combat: If you attacked — blockers declared, damage resolved, deaths checked<br>
+      <strong>5.</strong> End: Pass to opponent
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SECTION V — CARD TYPES & PLAY AREA
+══════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="zones">
+  <h2>V. Card Types &amp; the Play Area</h2>
+
+  <img src="assets/minecraft_board.png" class="screenshot" alt="Play area"
+       onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+  <div class="screenshot-placeholder" style="display:none;">[ Play area screenshot ]</div>
+
+  <h3>Your Side of the Table</h3>
+  <div class="zone-grid">
+    <div class="zone-block">
+      <h4>🧱 The Grid (3×3)</h4>
+      <p style="font-size:0.85rem;">Three columns (0–2) × three rows (front-2, mid-1, back-0).
+      Structures and Blocks occupy one cell each. Combat targets the <em>frontmost</em> occupied cell in a column first.</p>
+    </div>
+    <div class="zone-block">
+      <h4>⚔ Creature Row</h4>
+      <p style="font-size:0.85rem;">All Mobs you control live here. They can attack opponent columns or block incoming Mobs.</p>
+    </div>
+    <div class="zone-block">
+      <h4>👤 Avatar Gear Slots</h4>
+      <p style="font-size:0.85rem;">Three slots: <strong>Weapon</strong> (enables avatar attacks), <strong>Armor</strong> (reduces incoming damage), <strong>Tool</strong> (boosts mining yield). Only one card per slot.</p>
+    </div>
+    <div class="zone-block">
+      <h4>🌲 Biome Lanes</h4>
+      <p style="font-size:0.85rem;">Three biomes per player: Forest, Hills, Cave. Not a zone — stored as game state. Each can be mined once per turn per actor.</p>
+    </div>
+    <div class="zone-block">
+      <h4>🃏 Hand</h4>
+      <p style="font-size:0.85rem;">Cards held but not yet played. No maximum hand-size limit.</p>
+    </div>
+    <div class="zone-block">
+      <h4>🪦 Graveyard</h4>
+      <p style="font-size:0.85rem;">Destroyed cards, used Actions, discarded gear on respawn. Some Actions interact with the graveyard.</p>
+    </div>
+  </div>
+
+  <h3>Card Types</h3>
+
+  <div class="mechanic">
+    <div class="mechanic-name">🐺 Mob (MC_MOB)</div>
+    <p>Mobs live on the Creature Row. They can attack or be declared as blockers. A new Mob has <em>summoning sickness</em> and cannot attack or mine until the following turn.
+    Mobs have Power (attack) / Toughness (HP). When toughness reaches 0, they go to the graveyard.</p>
+    <p>Subtype <span class="keyword worker">Worker</span> — can mine biomes by tapping.
+    Subtype <span class="keyword hostile">Hostile</span> — gains +1 Attack at Night.
+    Subtype <span class="keyword compleated">Compleated</span> — deals 1 damage to its controller each turn start.</p>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">🏠 Structure (MC_STRUCTURE)</div>
+    <p>Structures are placed on a specific cell of your 3×3 grid. They cannot attack or block Mobs directly. Many trigger turn bonuses (materials, card draw). They have Toughness (durability) and are destroyed when it reaches 0.</p>
+    <p>The frontmost Structure in each column absorbs column-targeted attacks before the Avatar can be hit.</p>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">🧱 Block (MC_BLOCK)</div>
+    <p>A subtype of Structure — smaller, cheaper, purely defensive grid fillers. Blocks with the <em>Wall</em> subtype stop Mobs with the Climb keyword.</p>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">⛏ Tool (MC_TOOL)</div>
+    <p>Tools equip to one of the Avatar's three gear slots. A Tool card is played directly from hand and immediately occupies its slot, replacing any prior card in that slot (the replaced card goes to the graveyard).</p>
+    <ul style="margin-left:1.3rem; line-height:1.8; font-size:0.88rem;">
+      <li><strong>Weapon slot</strong> — grants the Avatar an attack action each turn that deals weapon damage.</li>
+      <li><strong>Armor slot</strong> — reduces incoming damage to the Avatar by the stated amount.</li>
+      <li><strong>Tool slot</strong> — adds mining yield when the Avatar mines a biome.</li>
+    </ul>
+    <p style="margin-top:0.5rem;">All gear is discarded to the graveyard if the Avatar respawns via the Bed.</p>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">💥 Action (MC_ACTION)</div>
+    <p>Actions are one-shot spells. Pay the material cost from your hand, resolve the effect immediately, then the card goes to the graveyard. Actions can be played at any point during your Main Phase.</p>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SECTION VI — RESOURCES
+══════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="resources">
+  <h2>VI. Resources &amp; Materials</h2>
+
+  <p>Materials are the currency of Minecraft TCG. There is no "land" or "energy" system —
+  your income depends entirely on how efficiently you mine and build your economy.</p>
+
+  <h3>The Five Materials</h3>
+  <table class="biome-table" style="margin-bottom:1.5rem;">
+    <thead><tr><th>Material</th><th>Abbr.</th><th>Primary source</th><th>Typical use</th></tr></thead>
+    <tbody>
+      <tr><td class="mat-wood">🪵 Wood</td><td>W</td><td>Forest biome</td><td>Cheap Mobs, Beds, first Structures</td></tr>
+      <tr><td class="mat-stone">🪨 Stone</td><td>S</td><td>Hills + Cave biomes</td><td>Walls, Furnaces, mid-cost Mobs</td></tr>
+      <tr><td class="mat-iron">⚙ Iron</td><td>I</td><td>Cave biome, Strip Mine</td><td>Iron Golem, weapons, Wolf Pack</td></tr>
+      <tr><td class="mat-redstone">🔴 Redstone</td><td>R</td><td>Strip Mine, Redstone Engine</td><td>Most removal Actions, the Phyrexian package</td></tr>
+      <tr><td class="mat-diamond">💎 Diamond</td><td>D</td><td>Diamond Depths biome, Enchanting Table</td><td>Legendary Mobs, Diamond gear</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Gaining Materials</h3>
+
+  <div class="infobox">
+    <div class="infobox-title">1. Mining (Primary)</div>
+    During your Main Phase, tap an untapped Worker Mob or use your Avatar action to mine one of your biomes.
+    <strong>Each biome may be mined only once per turn</strong> — your Avatar and your Workers compete for the same three biome slots.
+    With three biomes that means up to three mining actions per turn. The action card <em>Bone Meal</em> resets a Worker (untaps and re-enables that biome); <em>Redstone Contraption</em> resets up to two.
+  </div>
+
+  <div class="infobox gold">
+    <div class="infobox-title">2. Day Bonus (Once per day turn)</div>
+    During Day phase, your <strong>first mine action</strong> that turn gains +1 of the biome's primary material.
+    Example: Forest normally yields 1 Wood. On a Day turn, the first Forest mine yields <strong>2 Wood</strong>.
+  </div>
+
+  <div class="infobox">
+    <div class="infobox-title">3. Structure Turn Bonuses (Automatic)</div>
+    Each turn, every Structure on your grid with a listed turn bonus adds materials to your pool automatically.
+    Key examples: Crafting Table (+1W), Furnace (+1I), Redstone Engine (+1R), Chest (draw 1).
+  </div>
+
+  <h3>Biome Upgrades</h3>
+  <p>Use your Avatar's explore action (uses avatar action slot) to upgrade a biome. Each biome has three tiers:</p>
+  <table class="biome-table">
+    <thead><tr><th>Biome</th><th>Tier 1</th><th>Tier 2</th><th>Tier 3</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="mat-wood">Forest</td>
+        <td>1 W</td>
+        <td>Old Growth Forest — 2 W</td>
+        <td>Woodland Mansion — 2W + 1R</td>
+      </tr>
+      <tr>
+        <td class="mat-stone">Hills</td>
+        <td>1 S</td>
+        <td>Stony Peaks — 2S + 1I</td>
+        <td>Ancient Mountain — 2S + 1D</td>
+      </tr>
+      <tr>
+        <td class="mat-iron">Cave</td>
+        <td>1S + 1I</td>
+        <td>Deep Cave — 1S + 1I + 1R</td>
+        <td>Diamond Depths — 1S + 1I + 1D</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SECTION VII — WINNING & LOSING
+══════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="winning">
+  <h2>VII. Winning &amp; Losing</h2>
+
+  <div class="infobox red">
+    <div class="infobox-title">⚔ Primary Win Condition</div>
+    <p>Deal enough damage to reduce your opponent's Avatar to <strong>0 or fewer HP</strong> while they control
+    <strong>no Bed</strong> on the grid.</p>
+    <p style="margin-bottom:0;">The last player whose Avatar is still alive wins.</p>
+  </div>
+
+  <h3>The Bed — Respawn Mechanic</h3>
+  <p>If a player's Avatar reaches 0 HP and they control a Bed Structure anywhere on the grid, instead of losing:</p>
+  <ul style="margin-left:1.3rem; line-height:2;">
+    <li>Their Avatar returns to <strong>20 HP</strong>.</li>
+    <li>All equipped gear (Weapon, Armor, Tool) is <strong>discarded to the graveyard</strong>.</li>
+    <li>The Bed <strong>remains</strong> — it can trigger unlimited respawns until the Bed itself is destroyed.</li>
+    <li>Multiple Beds don't stack respawn capacity; all Beds must be destroyed before lethal damage sticks.</li>
+  </ul>
+
+  <div class="infobox red">
+    <div class="infobox-title">🦠 Alternate Loss — Phyrexian Compleation</div>
+    If a player accumulates <strong>5 or more oil counters</strong> on their Avatar (placed by Infect-keyword Mobs
+    dealing combat damage), that player <strong>loses immediately</strong>, regardless of remaining HP.
+    Oil counters are not removed by respawn.
+  </div>
+
+  <div class="infobox stone">
+    <div class="infobox-title">📋 Key Sequencing Rule</div>
+    To win against a player with a Bed:
+    <ol style="margin-left:1.3rem; line-height:1.9; font-size:0.9rem;">
+      <li>First, destroy all of their Beds (Mobs attacking the Bed's column, or Actions like TNT Blast).</li>
+      <li>Then, reduce the Avatar to 0 HP in the same or a subsequent attack.</li>
+    </ol>
+    This makes Bed placement one of the most important tactical decisions in the game.
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SECTION VIII — SPECIAL MECHANICS
+══════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="mechanics">
+  <h2>VIII. Special Mechanics</h2>
+
+  <div class="mechanic">
+    <div class="mechanic-name">📅 Day / Night Cycle</div>
+    <p>The world flips between Day and Night every full round (once per player per 2-turn cycle).
+    Day favours builders; Night favours aggression.</p>
+    <p><strong>Day:</strong> +1 material on your first mine; first Structure/Block played costs 1 less.<br>
+    <strong>Night:</strong> All <span class="keyword hostile">Hostile</span> Mobs gain +1 Attack until the next flip.</p>
+    <div class="mechanic-example">Strategy: Deploy cheap Hostile Mobs just before the Night flip for immediate bonus. Save your first mine for your best biome on Day turns to maximise the day bonus.</div>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">⚒ Biome Mining &amp; Upgrading</div>
+    <p>Your three biomes are your income engine. <strong>Each biome may only be mined once per turn</strong> — by your Avatar or one Worker, not both. The Avatar's mining uses its single avatar-action slot; Workers consume only their own tap.</p>
+    <p>Use <em>Explore Map</em> (1W Action) or your Avatar's Explore action to upgrade a biome permanently.
+    The Cave → Diamond Depths upgrade is the most powerful: yields 1S + 1I + 1D per turn.</p>
+    <div class="mechanic-example">Example: With 3 Workers you can have each Worker mine a different biome (3 mines total). Adding your Avatar would only matter if you could re-enable a biome — for instance, casting <em>Bone Meal</em> untaps a Worker AND resets every biome's "mined" flag, letting that turn's economy double.</div>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">🦠 Infect &amp; Phyrexian Compleation</div>
+    <p>When a Mob with the <span class="keyword">Infect</span> keyword deals combat damage to the opponent's Avatar,
+    instead of (or in addition to) dealing HP damage, it deposits <strong>oil counters</strong> equal to the damage.
+    At 5+ oil counters the player loses immediately.</p>
+    <p>Certain Actions can also add or remove oil counters.
+    Oil counters do <em>not</em> reset on Avatar respawn — they persist across deaths.</p>
+    <div class="mechanic-example">Example cards: Plague Myr (1/1 Infect), Phyrexian Crusader (Aerial + Infect), Skithiryx (Aerial + Infect + Haste).</div>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">🐉 Avatar Gear System</div>
+    <p>Your Avatar has three gear slots. Equipping a new Tool to an occupied slot replaces the old one (old card → graveyard).
+    On Avatar respawn, <em>all three slots are wiped</em>.</p>
+    <ul style="margin-left:1.3rem; line-height:1.9; font-size:0.88rem;">
+      <li><strong>Weapon:</strong> Enables the Avatar Attack action. Damage and keywords (Ranged, Infect, Aerial) come from the equipped weapon.</li>
+      <li><strong>Armor:</strong> Subtracts a flat amount from all incoming damage to the Avatar (e.g., Iron Armor reduces each hit by 2).</li>
+      <li><strong>Tool:</strong> Adds to mining yield each time the Avatar mines (e.g., Iron Pickaxe grants +1 Iron per mine).</li>
+    </ul>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">🐺 Worker Mobs</div>
+    <p>Mobs with the <span class="keyword worker">Worker</span> subtype can tap to mine one biome per turn.
+    They can still block or attack, but tapping to mine exhausts them — a tapped Worker cannot block.</p>
+    <p>Many Workers have a <em>mining bonus</em> that adds extra materials when they mine.
+    Examples: Steve's Helper (+1W per mine), Villager Mason (+1S), Allay Courier (+1R).</p>
+    <p>Workers die easily — protect them behind Walls. Losing your Workers collapses your economy.</p>
+  </div>
+
+  <h3>Combat Keywords</h3>
+  <div class="two-col">
+    <div class="mechanic">
+      <div class="mechanic-name"><span class="keyword">Haste</span></div>
+      <p style="font-size:0.85rem;">Ignores summoning sickness. Can attack or mine the same turn it enters play.</p>
+      <div class="mechanic-example">Example: Alex's Scout, Skithiryx.</div>
+    </div>
+    <div class="mechanic">
+      <div class="mechanic-name"><span class="keyword">Aerial</span></div>
+      <p style="font-size:0.85rem;">Bypasses Blocks entirely — flies over them to hit the next target or Avatar directly. Can be blocked only by Mobs with <strong>Reach or Aerial</strong>.</p>
+      <div class="mechanic-example">Example: Ghast, Blaze Wraith.</div>
+    </div>
+    <div class="mechanic">
+      <div class="mechanic-name"><span class="keyword">Reach</span></div>
+      <p style="font-size:0.85rem;">Can block Aerial attackers. Has no offensive benefit.</p>
+      <div class="mechanic-example">Example: Snow Golem, Skeleton Archer.</div>
+    </div>
+    <div class="mechanic">
+      <div class="mechanic-name"><span class="keyword">Climb</span></div>
+      <p style="font-size:0.85rem;">Ignores Wall-subtype Blocks and Structures when determining column targets. Cannot be stopped by a Wall — but can be stopped by non-Wall Structures.</p>
+      <div class="mechanic-example">Example: Spider, Cave Crawler.</div>
+    </div>
+    <div class="mechanic">
+      <div class="mechanic-name"><span class="keyword">Ranged</span></div>
+      <p style="font-size:0.85rem;">When this Mob attacks and is blocked, it takes <em>no return damage</em> from the blocker. The blocker still takes normal damage.</p>
+      <div class="mechanic-example">Example: Skeleton Archer, Blaze.</div>
+    </div>
+    <div class="mechanic">
+      <div class="mechanic-name"><span class="keyword">Siege</span></div>
+      <p style="font-size:0.85rem;">After this Mob deals damage to a Block (MC_BLOCK subtype), the Block is also <em>destroyed</em>, regardless of remaining HP.</p>
+      <div class="mechanic-example">Example: Ravager (also gains a +1/+1 counter when a Block dies).</div>
+    </div>
+  </div>
+
+  <div class="mechanic" style="margin-top:0.5rem;">
+    <div class="mechanic-name">💀 Deathrattle</div>
+    <p style="font-size:0.85rem;">A triggered ability that fires when the card is destroyed and moves to the graveyard.
+    Deathrattles resolve before replacement effects from new tokens can claim priority.</p>
+    <div class="mechanic-example">Example: Creeper (deals 3 to the frontmost in its attacked column on death).</div>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">🩸 Drain</div>
+    <p style="font-size:0.85rem;">An effect that simultaneously deals damage to the opponent's Avatar and heals the same amount to yours.</p>
+    <div class="mechanic-example">Example: Sheoldred, the Whispering One (drain 5).</div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SECTION IX — CARD GALLERY
+══════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="gallery">
+  <h2>IX. Card Gallery</h2>
+  <p style="color:var(--text-dim); margin-bottom:1rem; font-size:0.85rem;">
+    All 178 cards. Sorted by type, then alphabetically. Cost abbreviations: W=Wood, S=Stone, I=Iron, R=Redstone, D=Diamond.
+    Stats column shows Power/Toughness for Mobs; Durability (HP) for Structures and Blocks; — for Tools and Actions.
+  </p>
+
+  <div class="card-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th><th>Type</th><th>Cost</th><th>Stats</th><th>Rules Text</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- MOBS -->
+        <tr class="type-header"><td colspan="5">⚔ MOBS (69)</td></tr>
+        <tr><td class="td-name">Alex's Scout</td><td class="td-type">Mob</td><td class="td-cost">1W</td><td class="td-stats">2/1</td><td class="td-rules"><span class="keyword worker">Worker</span> <span class="keyword">Haste</span>. Mining yields +1W.</td></tr>
+        <tr><td class="td-name">Allay Courier</td><td class="td-type">Mob</td><td class="td-cost">1R</td><td class="td-stats">1/2</td><td class="td-rules"><span class="keyword worker">Worker</span>. Mining yields +1R.</td></tr>
+        <tr><td class="td-name">Atraxa, Grand Unifier</td><td class="td-type">Mob</td><td class="td-cost">1W 2I 2R 2D</td><td class="td-stats">7/8</td><td class="td-rules"><span class="keyword">Aerial</span> <span class="keyword">Reach</span>. When played: gain 1 of each material + draw 2.</td></tr>
+        <tr><td class="td-name">Axolotl Guardian</td><td class="td-type">Mob</td><td class="td-cost">1W 1I</td><td class="td-stats">2/4</td><td class="td-rules">When this blocks, gain 1W.</td></tr>
+        <tr><td class="td-name">Blaze</td><td class="td-type">Mob</td><td class="td-cost">2R 1I</td><td class="td-stats">3/3</td><td class="td-rules"><span class="keyword hostile">Hostile</span> <span class="keyword">Ranged</span>. On attack, deal 1 to defender's avatar. Whenever you spend R, Blaze gets +1 ATK until EOT.</td></tr>
+        <tr><td class="td-name">Blaze Wraith</td><td class="td-type">Mob</td><td class="td-cost">1I 2R</td><td class="td-stats">3/3</td><td class="td-rules"><span class="keyword">Aerial</span> <span class="keyword">Ranged</span>.</td></tr>
+        <tr><td class="td-name">Carnophage</td><td class="td-type">Mob</td><td class="td-cost">1W</td><td class="td-stats">2/2</td><td class="td-rules"><span class="keyword compleated">Compleated</span> <span class="keyword hostile">Hostile</span>. +1 ATK at Night.</td></tr>
+        <tr><td class="td-name">Cave Crawler</td><td class="td-type">Mob</td><td class="td-cost">1W 1S 1I</td><td class="td-stats">4/2</td><td class="td-rules"><span class="keyword">Climb</span>.</td></tr>
+        <tr><td class="td-name">Cave Dweller</td><td class="td-type">Mob</td><td class="td-cost">2W 2I 1R</td><td class="td-stats">6/4</td><td class="td-rules"><span class="keyword">Climb</span> <span class="keyword">Haste</span>. On attack: opponent discards the most-recent card in hand.</td></tr>
+        <tr><td class="td-name">Compleated Creeper</td><td class="td-type">Mob</td><td class="td-cost">2S</td><td class="td-stats">5/2</td><td class="td-rules"><span class="keyword compleated">Compleated</span>. Deathrattle: deal 4 to frontmost in attacked column.</td></tr>
+        <tr><td class="td-name">Compleated Enderman</td><td class="td-type">Mob</td><td class="td-cost">2I 1R</td><td class="td-stats">5/5</td><td class="td-rules"><span class="keyword compleated">Compleated</span> <span class="keyword">Aerial</span>.</td></tr>
+        <tr><td class="td-name">Compleated Ender Dragon</td><td class="td-type">Mob</td><td class="td-cost">2R 4D</td><td class="td-stats">10/10</td><td class="td-rules"><span class="keyword compleated">Compleated</span> <span class="keyword">Aerial</span> <span class="keyword">Infect</span>.</td></tr>
+        <tr><td class="td-name">Compleated Iron Golem</td><td class="td-type">Mob</td><td class="td-cost">3I 2R</td><td class="td-stats">6/6</td><td class="td-rules"><span class="keyword compleated">Compleated</span>. Massive body.</td></tr>
+        <tr><td class="td-name">Compleated Skeleton</td><td class="td-type">Mob</td><td class="td-cost">1W 1S</td><td class="td-stats">4/2</td><td class="td-rules"><span class="keyword compleated">Compleated</span> <span class="keyword">Ranged</span> <span class="keyword">Reach</span>.</td></tr>
+        <tr><td class="td-name">Compleated Spider</td><td class="td-type">Mob</td><td class="td-cost">1W 1S</td><td class="td-stats">3/4</td><td class="td-rules"><span class="keyword compleated">Compleated</span> <span class="keyword">Climb</span> <span class="keyword">Infect</span>.</td></tr>
+        <tr><td class="td-name">Compleated Steve</td><td class="td-type">Mob</td><td class="td-cost">2W</td><td class="td-stats">2/3</td><td class="td-rules"><span class="keyword compleated">Compleated</span> <span class="keyword worker">Worker</span>. Mining yields +1W.</td></tr>
+        <tr><td class="td-name">Compleated Villager</td><td class="td-type">Mob</td><td class="td-cost">1W</td><td class="td-stats">2/2</td><td class="td-rules"><span class="keyword compleated">Compleated</span> <span class="keyword worker">Worker</span>. Mining yields +1S.</td></tr>
+        <tr><td class="td-name">Compleated Wither</td><td class="td-type">Mob</td><td class="td-cost">3R 2D</td><td class="td-stats">8/7</td><td class="td-rules"><span class="keyword compleated">Compleated</span>. When played: deal 3 to every opponent grid object.</td></tr>
+        <tr><td class="td-name">Compleated Wolf Pack</td><td class="td-type">Mob</td><td class="td-cost">1W 2I</td><td class="td-stats">4/3</td><td class="td-rules"><span class="keyword compleated">Compleated</span>. Pack: +1 ATK per other Worker you control.</td></tr>
+        <tr><td class="td-name">Creeper</td><td class="td-type">Mob</td><td class="td-cost">2S</td><td class="td-stats">4/1</td><td class="td-rules"><span class="keyword hostile">Hostile</span>. Deathrattle: deal 3 to frontmost in attacked column.</td></tr>
+        <tr><td class="td-name">Dread Husk</td><td class="td-type">Mob</td><td class="td-cost">2W 1S</td><td class="td-stats">3/3</td><td class="td-rules"><span class="keyword hostile">Hostile</span>. +1 ATK at Night.</td></tr>
+        <tr><td class="td-name">Drowned Lurker</td><td class="td-type">Mob</td><td class="td-cost">2W 1S</td><td class="td-stats">3/3</td><td class="td-rules"><span class="keyword">Ranged</span>.</td></tr>
+        <tr><td class="td-name">Elder Guardian</td><td class="td-type">Mob</td><td class="td-cost">2S 1I</td><td class="td-stats">4/6</td><td class="td-rules">Whenever a Worker you control mines, each Worker gets +1 ATK until EOT.</td></tr>
+        <tr><td class="td-name">Elder Phantom</td><td class="td-type">Mob</td><td class="td-cost">1S 1R 1D</td><td class="td-stats">5/4</td><td class="td-rules"><span class="keyword">Aerial</span>. When played: opponent discards 1.</td></tr>
+        <tr><td class="td-name">Elesh Norn, Grand Cenobite</td><td class="td-type">Mob</td><td class="td-cost">3I 1R 2D</td><td class="td-stats">6/9</td><td class="td-rules"><span class="keyword compleated">Compleated</span>. Other Compleated Mobs get +1 ATK. When played: deal 2 to every enemy Mob.</td></tr>
+        <tr><td class="td-name">Enderman</td><td class="td-type">Mob</td><td class="td-cost">2I 1R</td><td class="td-stats">4/4</td><td class="td-rules"><span class="keyword hostile">Hostile</span>. When played: draw 1.</td></tr>
+        <tr><td class="td-name">Endermite Cluster</td><td class="td-type">Mob</td><td class="td-cost">1R</td><td class="td-stats">1/1</td><td class="td-rules">Deathrattle: summon a 1/1 Endermite token (Horror).</td></tr>
+        <tr><td class="td-name">Ender Dragon</td><td class="td-type">Mob</td><td class="td-cost">1I 2D</td><td class="td-stats">6/6</td><td class="td-rules"><span class="keyword">Aerial</span>. When played: deal 2 to opponent per other Diamond-cost permanent you control.</td></tr>
+        <tr><td class="td-name">Entity 303</td><td class="td-type">Mob</td><td class="td-cost">1S 2I 2R</td><td class="td-stats">7/5</td><td class="td-rules">When played: deal 4 to every opponent grid object.</td></tr>
+        <tr><td class="td-name">Evoker</td><td class="td-type">Mob</td><td class="td-cost">1W 1I 1R</td><td class="td-stats">3/3</td><td class="td-rules">When played: summon a 1/1 Vex token (Aerial, Horror).</td></tr>
+        <tr><td class="td-name">Geth, Lord of the Vault</td><td class="td-type">Mob</td><td class="td-cost">1W 2I</td><td class="td-stats">4/5</td><td class="td-rules"><span class="keyword compleated">Compleated</span>. When played: gain 2R.</td></tr>
+        <tr><td class="td-name">Ghast</td><td class="td-type">Mob</td><td class="td-cost">2R 1D</td><td class="td-stats">5/3</td><td class="td-rules"><span class="keyword hostile">Hostile</span> <span class="keyword">Aerial</span>.</td></tr>
+        <tr><td class="td-name">Glissa, the Traitor</td><td class="td-type">Mob</td><td class="td-cost">1W 1I 1R</td><td class="td-stats">3/3</td><td class="td-rules"><span class="keyword compleated">Compleated</span>. When this kills a Mob in combat: draw 1.</td></tr>
+        <tr><td class="td-name">Glistening Mite</td><td class="td-type">Mob</td><td class="td-cost">1W</td><td class="td-stats">2/1</td><td class="td-rules"><span class="keyword compleated">Compleated</span> <span class="keyword">Infect</span>.</td></tr>
+        <tr><td class="td-name">Goatman, Crooked Stalker</td><td class="td-type">Mob</td><td class="td-cost">2W 1S 1I 1R</td><td class="td-stats">5/5</td><td class="td-rules"><span class="keyword">Climb</span>. On attack: opponent discards most-recent card in hand.</td></tr>
+        <tr><td class="td-name">Hex Parasite</td><td class="td-type">Mob</td><td class="td-cost">2R</td><td class="td-stats">3/3</td><td class="td-rules"><span class="keyword compleated">Compleated</span>. When played: deal 2 to any 1 Mob.</td></tr>
+        <tr><td class="td-name">Hollowed Villager</td><td class="td-type">Mob</td><td class="td-cost">1W 1S</td><td class="td-stats">2/4</td><td class="td-rules">Horror Lord: +1 ATK per other Horror Mob you control.</td></tr>
+        <tr><td class="td-name">Inkmoth Nexus</td><td class="td-type">Mob</td><td class="td-cost">1W</td><td class="td-stats">1/1</td><td class="td-rules"><span class="keyword compleated">Compleated</span> <span class="keyword">Infect</span>.</td></tr>
+        <tr><td class="td-name">Iron Golem</td><td class="td-type">Mob</td><td class="td-cost">1I 1R</td><td class="td-stats">3/4</td><td class="td-rules">When played: deal 2× your Worker count to opponent's avatar. Deathrattle: summon a 0/4 Iron Block.</td></tr>
+        <tr><td class="td-name">Jin-Gitaxias, Core Augur</td><td class="td-type">Mob</td><td class="td-cost">3R 2D</td><td class="td-stats">5/7</td><td class="td-rules"><span class="keyword">Aerial</span>. When played: draw 3.</td></tr>
+        <tr><td class="td-name">K'rrik, Son of Yawgmoth</td><td class="td-type">Mob</td><td class="td-cost">2I 1R</td><td class="td-stats">4/4</td><td class="td-rules"><span class="keyword compleated">Compleated</span> <span class="keyword">Reach</span>.</td></tr>
+        <tr><td class="td-name">Lost Soul</td><td class="td-type">Mob</td><td class="td-cost">1W</td><td class="td-stats">1/1</td><td class="td-rules">Deathrattle: draw 1.</td></tr>
+        <tr><td class="td-name">Magma Cube Heart</td><td class="td-type">Mob</td><td class="td-cost">1S 2I 1R</td><td class="td-stats">4/4</td><td class="td-rules">Deathrattle: summon two 2/2 Magma Cube tokens.</td></tr>
+        <tr><td class="td-name">Mooshroom Herd</td><td class="td-type">Mob</td><td class="td-cost">2W 1S</td><td class="td-stats">2/5</td><td class="td-rules">When played: heal your avatar 2.</td></tr>
+        <tr><td class="td-name">Mycoid Shepherd</td><td class="td-type">Mob</td><td class="td-cost">2W 1S</td><td class="td-stats">4/4</td><td class="td-rules"><span class="keyword compleated">Compleated</span>. When played: heal 4.</td></tr>
+        <tr><td class="td-name">Null, the Empty Skin</td><td class="td-type">Mob</td><td class="td-cost">1W 1S 2I 1D</td><td class="td-stats">4/8</td><td class="td-rules"><span class="keyword">Aerial</span>. When played: opponent discards 2.</td></tr>
+        <tr><td class="td-name">Panda Forager</td><td class="td-type">Mob</td><td class="td-cost">2W</td><td class="td-stats">2/3</td><td class="td-rules"><span class="keyword worker">Worker</span>. Mining yields +1W.</td></tr>
+        <tr><td class="td-name">Phantom Wing</td><td class="td-type">Mob</td><td class="td-cost">2W</td><td class="td-stats">2/2</td><td class="td-rules"><span class="keyword">Aerial</span> <span class="keyword hostile">Hostile</span>. +1 ATK at Night.</td></tr>
+        <tr><td class="td-name">Phyrexian Crusader</td><td class="td-type">Mob</td><td class="td-cost">1W 2I</td><td class="td-stats">3/3</td><td class="td-rules"><span class="keyword compleated">Compleated</span> <span class="keyword">Aerial</span> <span class="keyword">Infect</span>.</td></tr>
+        <tr><td class="td-name">Phyrexian Mycoderm</td><td class="td-type">Mob</td><td class="td-cost">1W 2S</td><td class="td-stats">3/4</td><td class="td-rules"><span class="keyword compleated">Compleated</span> <span class="keyword">Reach</span>.</td></tr>
+        <tr><td class="td-name">Phyrexian Negator</td><td class="td-type">Mob</td><td class="td-cost">2W</td><td class="td-stats">5/5</td><td class="td-rules"><span class="keyword compleated">Compleated</span>. When damaged, sacrifice another Mob (or destroy self).</td></tr>
+        <tr><td class="td-name">Phyrexian Obliterator</td><td class="td-type">Mob</td><td class="td-cost">2I 2R</td><td class="td-stats">5/5</td><td class="td-rules"><span class="keyword compleated">Compleated</span> <span class="keyword hostile">Hostile</span>.</td></tr>
+        <tr><td class="td-name">Phyrexian Tyranny</td><td class="td-type">Mob</td><td class="td-cost">2I</td><td class="td-stats">4/3</td><td class="td-rules"><span class="keyword compleated">Compleated</span> <span class="keyword hostile">Hostile</span>.</td></tr>
+        <tr><td class="td-name">Phyrexian Walker</td><td class="td-type">Mob</td><td class="td-cost">1S</td><td class="td-stats">1/3</td><td class="td-rules"><span class="keyword compleated">Compleated</span>. Cheap blocker.</td></tr>
+        <tr><td class="td-name">Piglin Raider</td><td class="td-type">Mob</td><td class="td-cost">1I 1R</td><td class="td-stats">3/2</td><td class="td-rules"><span class="keyword hostile">Hostile</span>. Raider tempo body.</td></tr>
+        <tr><td class="td-name">Pillager Patrol</td><td class="td-type">Mob</td><td class="td-cost">1W 2I</td><td class="td-stats">3/3</td><td class="td-rules">Other Raiders you control get +1 ATK.</td></tr>
+        <tr><td class="td-name">Plague Myr</td><td class="td-type">Mob</td><td class="td-cost">1W</td><td class="td-stats">1/1</td><td class="td-rules"><span class="keyword compleated">Compleated</span> <span class="keyword">Infect</span>.</td></tr>
+        <tr><td class="td-name">Ratman</td><td class="td-type">Mob</td><td class="td-cost">1W 1S 1R</td><td class="td-stats">3/2</td><td class="td-rules"><span class="keyword">Climb</span>. When played: opponent discards 1.</td></tr>
+        <tr><td class="td-name">Ravager</td><td class="td-type">Mob</td><td class="td-cost">1I 1R</td><td class="td-stats">4/3</td><td class="td-rules"><span class="keyword">Siege</span>. Whenever a Block is destroyed, gains a +1/+1 counter.</td></tr>
+        <tr><td class="td-name">Sangromancer</td><td class="td-type">Mob</td><td class="td-cost">1I 1R</td><td class="td-stats">3/3</td><td class="td-rules"><span class="keyword compleated">Compleated</span>. When played: heal 4.</td></tr>
+        <tr><td class="td-name">Sculk Stalker</td><td class="td-type">Mob</td><td class="td-cost">1S 1I 1R</td><td class="td-stats">4/3</td><td class="td-rules">When this attacks: gain 1R.</td></tr>
+        <tr><td class="td-name">Shadow Crawler</td><td class="td-type">Mob</td><td class="td-cost">1W 1S</td><td class="td-stats">3/1</td><td class="td-rules"><span class="keyword">Climb</span>.</td></tr>
+        <tr><td class="td-name">Sheoldred, the Whispering One</td><td class="td-type">Mob</td><td class="td-cost">1W 2I 2R</td><td class="td-stats">5/8</td><td class="td-rules">When played: drain 5 (deal 5 to opponent, heal 5).</td></tr>
+        <tr><td class="td-name">Shulker Sentry</td><td class="td-type">Mob</td><td class="td-cost">2R 1D</td><td class="td-stats">3/5</td><td class="td-rules">When this blocks: summon a 0/2 Shulker Bullet.</td></tr>
+        <tr><td class="td-name">Silverfish Swarm</td><td class="td-type">Mob</td><td class="td-cost">1S</td><td class="td-stats">1/1</td><td class="td-rules">Deathrattle: summon a 1/1 Silverfish token.</td></tr>
+        <tr><td class="td-name">Skeleton Archer</td><td class="td-type">Mob</td><td class="td-cost">1W 1S</td><td class="td-stats">3/1</td><td class="td-rules"><span class="keyword hostile">Hostile</span> <span class="keyword">Ranged</span> <span class="keyword">Reach</span>.</td></tr>
+        <tr><td class="td-name">Skithiryx, the Blight Dragon</td><td class="td-type">Mob</td><td class="td-cost">2R 1D 1I</td><td class="td-stats">5/5</td><td class="td-rules"><span class="keyword compleated">Compleated</span> <span class="keyword">Aerial</span> <span class="keyword">Infect</span> <span class="keyword">Haste</span>.</td></tr>
+        <tr><td class="td-name">Sleep-Stealer</td><td class="td-type">Mob</td><td class="td-cost">2W</td><td class="td-stats">2/3</td><td class="td-rules"><span class="keyword">Aerial</span>. When played: deal 1 to opponent's avatar.</td></tr>
+        <tr><td class="td-name">Snow Golem</td><td class="td-type">Mob</td><td class="td-cost">2S</td><td class="td-stats">1/4</td><td class="td-rules"><span class="keyword">Reach</span>. When this blocks: deal 1 to the attacker.</td></tr>
+        <tr><td class="td-name">Spider</td><td class="td-type">Mob</td><td class="td-cost">1W 1S</td><td class="td-stats">2/3</td><td class="td-rules"><span class="keyword hostile">Hostile</span> <span class="keyword">Climb</span>.</td></tr>
+        <tr><td class="td-name">Steve's Helper</td><td class="td-type">Mob</td><td class="td-cost">1W</td><td class="td-stats">1/2</td><td class="td-rules"><span class="keyword worker">Worker</span>. Mining yields +1W.</td></tr>
+        <tr><td class="td-name">Stray Skeleton</td><td class="td-type">Mob</td><td class="td-cost">1W 1S</td><td class="td-stats">2/2</td><td class="td-rules"><span class="keyword">Ranged</span> <span class="keyword">Reach</span>.</td></tr>
+        <tr><td class="td-name">The Man From The Fog</td><td class="td-type">Mob</td><td class="td-cost">1S 2I 1R 1D</td><td class="td-stats">6/6</td><td class="td-rules"><span class="keyword">Aerial</span>. On attack: deal 2 to defending avatar.</td></tr>
+        <tr><td class="td-name">The Mimicer</td><td class="td-type">Mob</td><td class="td-cost">1W 1I 1R 1D</td><td class="td-stats">3/3</td><td class="td-rules">When played: +X/+X where X = target enemy Mob's printed power.</td></tr>
+        <tr><td class="td-name">The Old Watcher</td><td class="td-type">Mob</td><td class="td-cost">1W 1S 1I 1R</td><td class="td-stats">4/5</td><td class="td-rules">Other Horror Mobs you control get +1 ATK.</td></tr>
+        <tr><td class="td-name">Tyrant of Kher Ridges</td><td class="td-type">Mob</td><td class="td-cost">2S 2R</td><td class="td-stats">5/5</td><td class="td-rules"><span class="keyword compleated">Compleated</span>. When played: deal 2 to all enemy Mobs.</td></tr>
+        <tr><td class="td-name">Urabrask, the Heretic</td><td class="td-type">Mob</td><td class="td-cost">2S 2R 1I</td><td class="td-stats">5/5</td><td class="td-rules"><span class="keyword">Haste</span>. Other Hostile Mobs you control have Haste. On attack: deal 1 to opponent.</td></tr>
+        <tr><td class="td-name">Villager Mason</td><td class="td-type">Mob</td><td class="td-cost">1W 1S</td><td class="td-stats">1/3</td><td class="td-rules"><span class="keyword worker">Worker</span>. Mining yields +1S.</td></tr>
+        <tr><td class="td-name">Vorinclex, Voice of Hunger</td><td class="td-type">Mob</td><td class="td-cost">3W 2I 1R</td><td class="td-stats">7/9</td><td class="td-rules"><span class="keyword">Reach</span>. When played: gain 1 of each material.</td></tr>
+        <tr><td class="td-name">Vorinclex's Spawn</td><td class="td-type">Mob</td><td class="td-cost">2W 1R</td><td class="td-stats">4/6</td><td class="td-rules"><span class="keyword compleated">Compleated</span>.</td></tr>
+        <tr><td class="td-name">Warden</td><td class="td-type">Mob</td><td class="td-cost">4I 2R 1D</td><td class="td-stats">7/8</td><td class="td-rules">When played: deal 4 to every enemy Mob.</td></tr>
+        <tr><td class="td-name">Whispering Wraith</td><td class="td-type">Mob</td><td class="td-cost">1W 1S</td><td class="td-stats">2/2</td><td class="td-rules"><span class="keyword">Aerial</span>. When this blocks: deal 1 to attacker.</td></tr>
+        <tr><td class="td-name">Wither</td><td class="td-type">Mob</td><td class="td-cost">1R 1I</td><td class="td-stats">4/4</td><td class="td-rules">When played: deal 2× your Hostile count to opponent's avatar.</td></tr>
+        <tr><td class="td-name">Wither Skeleton</td><td class="td-type">Mob</td><td class="td-cost">1S 1I 1R</td><td class="td-stats">4/3</td><td class="td-rules">Wither rot: on attack, target Mob permanently loses 1 Toughness.</td></tr>
+        <tr><td class="td-name">Wither Storm</td><td class="td-type">Mob</td><td class="td-cost">1S 1I 2R 3D</td><td class="td-stats">10/8</td><td class="td-rules"><span class="keyword">Aerial</span>. When played: deal 1 to every opponent Mob and grid object.</td></tr>
+        <tr><td class="td-name">Wolf Pack</td><td class="td-type">Mob</td><td class="td-cost">1W 1I</td><td class="td-stats">3/2</td><td class="td-rules">Pack: +1 ATK per other Worker you control.</td></tr>
+        <tr><td class="td-name">Yawgmoth, Father of Machines</td><td class="td-type">Mob</td><td class="td-cost">2S 3I 3R 2D</td><td class="td-stats">9/9</td><td class="td-rules">When played: deal 4 to every enemy Mob and every enemy grid object.</td></tr>
+        <tr><td class="td-name">Zombie</td><td class="td-type">Mob</td><td class="td-cost">1W</td><td class="td-stats">2/2</td><td class="td-rules"><span class="keyword hostile">Hostile</span>. +1 ATK at Night.</td></tr>
+
+        <!-- STRUCTURES -->
+        <tr class="type-header"><td colspan="5">🏠 STRUCTURES (27)</td></tr>
+        <tr><td class="td-name">Beacon</td><td class="td-type">Structure</td><td class="td-cost">2I 2D 1R</td><td class="td-stats">7</td><td class="td-rules">Turn start: gain 1I + 1R. Your Workers get +1 ATK.</td></tr>
+        <tr><td class="td-name">Bed</td><td class="td-type">Structure</td><td class="td-cost">2W</td><td class="td-stats">4</td><td class="td-rules">If your Avatar dies while you control a Bed: respawn at 20 HP and discard all gear.</td></tr>
+        <tr><td class="td-name">Chest</td><td class="td-type">Structure</td><td class="td-cost">2W</td><td class="td-stats">3</td><td class="td-rules">Turn start: draw 1.</td></tr>
+        <tr><td class="td-name">Crafting Table</td><td class="td-type">Structure</td><td class="td-cost">1W</td><td class="td-stats">3</td><td class="td-rules">Turn start: gain 1W.</td></tr>
+        <tr><td class="td-name">Cranial Plating Workshop</td><td class="td-type">Structure</td><td class="td-cost">2S</td><td class="td-stats">4</td><td class="td-rules">Foundry for Phyrexian gear.</td></tr>
+        <tr><td class="td-name">Cursed Bed</td><td class="td-type">Structure</td><td class="td-cost">1W</td><td class="td-stats">2</td><td class="td-rules">Bed (avatar respawns). Cheap and fragile.</td></tr>
+        <tr><td class="td-name">Eldritch Altar</td><td class="td-type">Structure</td><td class="td-cost">1W 1S 1I 1R</td><td class="td-stats">4</td><td class="td-rules">Turn start: gain 1R. When played: draw 1.</td></tr>
+        <tr><td class="td-name">Enchanting Table</td><td class="td-type">Structure</td><td class="td-cost">2S 1D</td><td class="td-stats">5</td><td class="td-rules">Turn start: gain 1D. When played: equipped weapon gains +1 ATK.</td></tr>
+        <tr><td class="td-name">End Portal Frame</td><td class="td-type">Structure</td><td class="td-cost">3S 2D</td><td class="td-stats">7</td><td class="td-rules">Turn start: gain 1D.</td></tr>
+        <tr><td class="td-name">Farm Plot</td><td class="td-type">Structure</td><td class="td-cost">1W 1S</td><td class="td-stats">4</td><td class="td-rules">Turn start: gain 1W. When played: heal 2.</td></tr>
+        <tr><td class="td-name">Furnace</td><td class="td-type">Structure</td><td class="td-cost">2S</td><td class="td-stats">5</td><td class="td-rules">Turn start: gain 1I.</td></tr>
+        <tr><td class="td-name">Lectern of Whispers</td><td class="td-type">Structure</td><td class="td-cost">2W</td><td class="td-stats">3</td><td class="td-rules">Turn start: draw 1.</td></tr>
+        <tr><td class="td-name">Mycosynth Garden</td><td class="td-type">Structure</td><td class="td-cost">2S 1R</td><td class="td-stats">4</td><td class="td-rules">Turn start: gain 1W + 1R.</td></tr>
+        <tr><td class="td-name">Mycosynth Wellspring</td><td class="td-type">Structure</td><td class="td-cost">1R</td><td class="td-stats">3</td><td class="td-rules">When played: gain 1R + draw 1.</td></tr>
+        <tr><td class="td-name">Nether Portal</td><td class="td-type">Structure</td><td class="td-cost">3S 2R</td><td class="td-stats">6</td><td class="td-rules">Turn start: gain 1R.</td></tr>
+        <tr><td class="td-name">Oil Refinery</td><td class="td-type">Structure</td><td class="td-cost">2S 1I</td><td class="td-stats">4</td><td class="td-rules">Turn start: gain 1R.</td></tr>
+        <tr><td class="td-name">Phyrexian Arena</td><td class="td-type">Structure</td><td class="td-cost">2W 1I</td><td class="td-stats">5</td><td class="td-rules">Turn start: draw 1.</td></tr>
+        <tr><td class="td-name">Phyrexian Tower</td><td class="td-type">Structure</td><td class="td-cost">2S 1I</td><td class="td-stats">5</td><td class="td-rules">When played: gain 2I.</td></tr>
+        <tr><td class="td-name">Realmbreaker Spire</td><td class="td-type">Structure</td><td class="td-cost">3S 2D</td><td class="td-stats">8</td><td class="td-rules">Turn start: gain 1 of each material.</td></tr>
+        <tr><td class="td-name">Redstone Engine</td><td class="td-type">Structure</td><td class="td-cost">1S 2R</td><td class="td-stats">4</td><td class="td-rules">Turn start: gain 1R.</td></tr>
+        <tr><td class="td-name">Sculk Catalyst</td><td class="td-type">Structure</td><td class="td-cost">1S 1R</td><td class="td-stats">3</td><td class="td-rules">Turn start: gain 1R.</td></tr>
+        <tr><td class="td-name">Sludge Strider Hive</td><td class="td-type">Structure</td><td class="td-cost">1W 1R</td><td class="td-stats">4</td><td class="td-rules">Turn start: gain 1W.</td></tr>
+        <tr><td class="td-name">Soul Forge</td><td class="td-type">Structure</td><td class="td-cost">2S</td><td class="td-stats">4</td><td class="td-rules">Turn start: gain 1I.</td></tr>
+        <tr><td class="td-name">Stalker's Den</td><td class="td-type">Structure</td><td class="td-cost">1W 1S 1R</td><td class="td-stats">4</td><td class="td-rules">Other Stalker Mobs you control get +1 ATK.</td></tr>
+        <tr><td class="td-name">Throne of Geth</td><td class="td-type">Structure</td><td class="td-cost">1W 1S</td><td class="td-stats">3</td><td class="td-rules">Phyrexian monument.</td></tr>
+        <tr><td class="td-name">Village Watchtower</td><td class="td-type">Structure</td><td class="td-cost">2W 2S</td><td class="td-stats">5</td><td class="td-rules">Your Villagers get +1 ATK.</td></tr>
+
+        <!-- BLOCKS -->
+        <tr class="type-header"><td colspan="5">🧱 BLOCKS (12)</td></tr>
+        <tr><td class="td-name">Cobblestone Wall</td><td class="td-type">Block</td><td class="td-cost">2S</td><td class="td-stats">6</td><td class="td-rules">Wall — soaks damage in its column. Stops Climb-less attackers.</td></tr>
+        <tr><td class="td-name">Fog Wall</td><td class="td-type">Block</td><td class="td-cost">2S</td><td class="td-stats">6</td><td class="td-rules">Wall variant.</td></tr>
+        <tr><td class="td-name">Glistening Pool</td><td class="td-type">Block</td><td class="td-cost">1W</td><td class="td-stats">3</td><td class="td-rules">Deathrattle: opponent gains 1 oil counter.</td></tr>
+        <tr><td class="td-name">Iron Door</td><td class="td-type">Block</td><td class="td-cost">2I</td><td class="td-stats">5</td><td class="td-rules">Durable door.</td></tr>
+        <tr><td class="td-name">Lattice of Steel</td><td class="td-type">Block</td><td class="td-cost">2I</td><td class="td-stats">4</td><td class="td-rules">Wall variant. Other Compleated permanents grant your Mobs +1 ATK (lord aura).</td></tr>
+        <tr><td class="td-name">Oak Planks</td><td class="td-type">Block</td><td class="td-cost">1W</td><td class="td-stats">3</td><td class="td-rules">Cheap grid filler.</td></tr>
+        <tr><td class="td-name">Obsidian Block</td><td class="td-type">Block</td><td class="td-cost">3S 1D</td><td class="td-stats">9</td><td class="td-rules">Premium wall.</td></tr>
+        <tr><td class="td-name">Phyrexian Pylon</td><td class="td-type">Block</td><td class="td-cost">1W 1R</td><td class="td-stats">3</td><td class="td-rules">Turn start: gain 1R.</td></tr>
+        <tr><td class="td-name">Piston Gate</td><td class="td-type">Block</td><td class="td-cost">2R 1I</td><td class="td-stats">5</td><td class="td-rules">Wall variant.</td></tr>
+        <tr><td class="td-name">Redstone Lamp</td><td class="td-type">Block</td><td class="td-cost">1R 1S</td><td class="td-stats">3</td><td class="td-rules">Turn start: gain 1R.</td></tr>
+        <tr><td class="td-name">Sculk Shrieker</td><td class="td-type">Block</td><td class="td-cost">1S 1R</td><td class="td-stats">4</td><td class="td-rules">Wall. The shriek attracts something deep below.</td></tr>
+        <tr><td class="td-name">Soul Sand Trap</td><td class="td-type">Block</td><td class="td-cost">1S 1R</td><td class="td-stats">2</td><td class="td-rules">Deathrattle: summon a 4/3 Wither Skeleton token.</td></tr>
+        <tr><td class="td-name">TNT Trap</td><td class="td-type">Block</td><td class="td-cost">1R 1S</td><td class="td-stats">2</td><td class="td-rules">Deathrattle: deal 4 to opponent's avatar.</td></tr>
+        <tr><td class="td-name">Water Bucket Moat</td><td class="td-type">Block</td><td class="td-cost">1I 1S</td><td class="td-stats">4</td><td class="td-rules">Wall variant. Blocks Mob attacks; does NOT stop Avatar weapon attacks.</td></tr>
+
+        <!-- TOOLS -->
+        <tr class="type-header"><td colspan="5">⛏ TOOLS (22)</td></tr>
+        <tr><td class="td-name">Bone Helm</td><td class="td-type">Tool (Armor)</td><td class="td-cost">1S 1I 1R</td><td class="td-stats">—</td><td class="td-rules">Avatar takes 2 less damage.</td></tr>
+        <tr><td class="td-name">Bow</td><td class="td-type">Tool (Weapon)</td><td class="td-cost">2W 1I</td><td class="td-stats">—</td><td class="td-rules">Avatar attack deals 3. Ranged.</td></tr>
+        <tr><td class="td-name">Cranial Plating</td><td class="td-type">Tool (Tool)</td><td class="td-cost">2I</td><td class="td-stats">—</td><td class="td-rules">Avatar mines +1I.</td></tr>
+        <tr><td class="td-name">Crossbow</td><td class="td-type">Tool (Weapon)</td><td class="td-cost">1W 2I 1R</td><td class="td-stats">—</td><td class="td-rules">Avatar attack deals 5. Ranged.</td></tr>
+        <tr><td class="td-name">Cursed Pickaxe</td><td class="td-type">Tool (Tool)</td><td class="td-cost">1S 1R</td><td class="td-stats">—</td><td class="td-rules">Avatar mines +1S + 1R.</td></tr>
+        <tr><td class="td-name">Diamond Armor</td><td class="td-type">Tool (Armor)</td><td class="td-cost">3D 1I</td><td class="td-stats">—</td><td class="td-rules">Avatar takes 4 less damage.</td></tr>
+        <tr><td class="td-name">Diamond Pickaxe</td><td class="td-type">Tool (Tool)</td><td class="td-cost">1W 2D</td><td class="td-stats">—</td><td class="td-rules">Avatar mines +1D.</td></tr>
+        <tr><td class="td-name">Diamond Sword</td><td class="td-type">Tool (Weapon)</td><td class="td-cost">2D 1I</td><td class="td-stats">—</td><td class="td-rules">Avatar attack deals 6.</td></tr>
+        <tr><td class="td-name">Eldritch Bow</td><td class="td-type">Tool (Weapon)</td><td class="td-cost">2W 1R</td><td class="td-stats">—</td><td class="td-rules">Avatar attack deals 4. Ranged.</td></tr>
+        <tr><td class="td-name">Elytra</td><td class="td-type">Tool (Armor)</td><td class="td-cost">2D 2R</td><td class="td-stats">—</td><td class="td-rules">Avatar takes 1 less damage. Aerial (Avatar bypasses Blocks).</td></tr>
+        <tr><td class="td-name">Glistening Cloak</td><td class="td-type">Tool (Armor)</td><td class="td-cost">1R 1D</td><td class="td-stats">—</td><td class="td-rules">Avatar takes 2 less damage. Aerial.</td></tr>
+        <tr><td class="td-name">Iron Armor</td><td class="td-type">Tool (Armor)</td><td class="td-cost">3I</td><td class="td-stats">—</td><td class="td-rules">Avatar takes 2 less damage.</td></tr>
+        <tr><td class="td-name">Iron Pickaxe</td><td class="td-type">Tool (Tool)</td><td class="td-cost">1W 2I</td><td class="td-stats">—</td><td class="td-rules">Avatar mines +1I.</td></tr>
+        <tr><td class="td-name">Iron Sword</td><td class="td-type">Tool (Weapon)</td><td class="td-cost">2I</td><td class="td-stats">—</td><td class="td-rules">Avatar attack deals 4.</td></tr>
+        <tr><td class="td-name">Lantern of the Lost</td><td class="td-type">Tool (Tool)</td><td class="td-cost">1W 1R 1D</td><td class="td-stats">—</td><td class="td-rules">Avatar mines +1D.</td></tr>
+        <tr><td class="td-name">Mycosynth Bracers</td><td class="td-type">Tool (Tool)</td><td class="td-cost">1S 1R</td><td class="td-stats">—</td><td class="td-rules">Avatar mines +1R.</td></tr>
+        <tr><td class="td-name">Netherite Armor</td><td class="td-type">Tool (Armor)</td><td class="td-cost">3D 2R 2I</td><td class="td-stats">—</td><td class="td-rules">Avatar takes 5 less damage.</td></tr>
+        <tr><td class="td-name">Phyrexian Pickaxe</td><td class="td-type">Tool (Tool)</td><td class="td-cost">1I 1S</td><td class="td-stats">—</td><td class="td-rules">Avatar mines +2S.</td></tr>
+        <tr><td class="td-name">Phyrexian Sword</td><td class="td-type">Tool (Weapon)</td><td class="td-cost">1I 1R</td><td class="td-stats">—</td><td class="td-rules">Avatar attack deals 5. Infect.</td></tr>
+        <tr><td class="td-name">Praetor's Crown</td><td class="td-type">Tool (Tool)</td><td class="td-cost">2R 1D</td><td class="td-stats">—</td><td class="td-rules">Avatar mines +1D.</td></tr>
+        <tr><td class="td-name">Reaper's Scythe</td><td class="td-type">Tool (Weapon)</td><td class="td-cost">2I 1R 1D</td><td class="td-stats">—</td><td class="td-rules">Avatar attack deals 6. Ranged.</td></tr>
+        <tr><td class="td-name">Skin of the Mimicer</td><td class="td-type">Tool (Armor)</td><td class="td-cost">1W 1I 1R</td><td class="td-stats">—</td><td class="td-rules">Avatar takes 2 less damage. Climb.</td></tr>
+        <tr><td class="td-name">Skinrender Greaves</td><td class="td-type">Tool (Armor)</td><td class="td-cost">2I 1R</td><td class="td-stats">—</td><td class="td-rules">Avatar takes 3 less damage.</td></tr>
+        <tr><td class="td-name">Soulstealer Blade</td><td class="td-type">Tool (Weapon)</td><td class="td-cost">1I 1D</td><td class="td-stats">—</td><td class="td-rules">Avatar attack deals 5.</td></tr>
+        <tr><td class="td-name">Sword of the Compleat</td><td class="td-type">Tool (Weapon)</td><td class="td-cost">2I 1D</td><td class="td-stats">—</td><td class="td-rules">Avatar attack deals 6. Aerial.</td></tr>
+        <tr><td class="td-name">Throne Helm</td><td class="td-type">Tool (Armor)</td><td class="td-cost">2I</td><td class="td-stats">—</td><td class="td-rules">Avatar takes 3 less damage.</td></tr>
+        <tr><td class="td-name">Wooden Pickaxe</td><td class="td-type">Tool (Tool)</td><td class="td-cost">1W</td><td class="td-stats">—</td><td class="td-rules">Avatar mines +1S.</td></tr>
+        <tr><td class="td-name">Wraith Cloak</td><td class="td-type">Tool (Armor)</td><td class="td-cost">1W 1R 1D</td><td class="td-stats">—</td><td class="td-rules">Avatar takes 1 less damage. Aerial.</td></tr>
+
+        <!-- ACTIONS -->
+        <tr class="type-header"><td colspan="5">💥 ACTIONS (48)</td></tr>
+        <tr><td class="td-name">Annihilator Symbol</td><td class="td-type">Action</td><td class="td-cost">1S</td><td class="td-stats">—</td><td class="td-rules">Gain 5 of any material (caster picks).</td></tr>
+        <tr><td class="td-name">Backrooms Trip</td><td class="td-type">Action</td><td class="td-cost">1S 1R</td><td class="td-stats">—</td><td class="td-rules">Mill top 3 cards of opponent's library.</td></tr>
+        <tr><td class="td-name">Black Sun's Zenith</td><td class="td-type">Action</td><td class="td-cost">2R</td><td class="td-stats">—</td><td class="td-rules">Deal 4 to every Mob (yours and opponents').</td></tr>
+        <tr><td class="td-name">Bloodmoon Ritual</td><td class="td-type">Action</td><td class="td-cost">1I 1R</td><td class="td-stats">—</td><td class="td-rules">Target one of your Mobs — it permanently gains Aerial.</td></tr>
+        <tr><td class="td-name">Bone Meal</td><td class="td-type">Action</td><td class="td-cost">1W</td><td class="td-stats">—</td><td class="td-rules">Untap a Worker; it can mine again this turn.</td></tr>
+        <tr><td class="td-name">Chop Trees</td><td class="td-type">Action</td><td class="td-cost">Free</td><td class="td-stats">—</td><td class="td-rules">Gain 2W.</td></tr>
+        <tr><td class="td-name">Compleat</td><td class="td-type">Action</td><td class="td-cost">1R</td><td class="td-stats">—</td><td class="td-rules">Add the Compleated subtype to one of your Mobs.</td></tr>
+        <tr><td class="td-name">Compulsive Research</td><td class="td-type">Action</td><td class="td-cost">2R</td><td class="td-stats">—</td><td class="td-rules">Draw 3.</td></tr>
+        <tr><td class="td-name">Cremate</td><td class="td-type">Action</td><td class="td-cost">1S</td><td class="td-stats">—</td><td class="td-rules">Banish a card from a graveyard; draw 1.</td></tr>
+        <tr><td class="td-name">Creeper Ambush</td><td class="td-type">Action</td><td class="td-cost">2S</td><td class="td-stats">—</td><td class="td-rules">Summon a 4/1 Creeper token (Deathrattle: 3 to column).</td></tr>
+        <tr><td class="td-name">Despise</td><td class="td-type">Action</td><td class="td-cost">1W</td><td class="td-stats">—</td><td class="td-rules">Look at opponent's hand; discard the most expensive card.</td></tr>
+        <tr><td class="td-name">Disfigure</td><td class="td-type">Action</td><td class="td-cost">1W</td><td class="td-stats">—</td><td class="td-rules">Deal 3 to a target Mob.</td></tr>
+        <tr><td class="td-name">Drag to the Dark</td><td class="td-type">Action</td><td class="td-cost">1W 1R</td><td class="td-stats">—</td><td class="td-rules">Destroy a target Mob with 3 or fewer remaining HP.</td></tr>
+        <tr><td class="td-name">Eldritch Insight</td><td class="td-type">Action</td><td class="td-cost">1R</td><td class="td-stats">—</td><td class="td-rules">Draw 2.</td></tr>
+        <tr><td class="td-name">Explore Map</td><td class="td-type">Action</td><td class="td-cost">1W</td><td class="td-stats">—</td><td class="td-rules">Upgrade one of your biomes to the next tier.</td></tr>
+        <tr><td class="td-name">Eyes of Ender</td><td class="td-type">Action</td><td class="td-cost">1R 1D</td><td class="td-stats">—</td><td class="td-rules">Search top 5 of your deck; take an End or Nether Mob to hand.</td></tr>
+        <tr><td class="td-name">Find Diamonds</td><td class="td-type">Action</td><td class="td-cost">2I</td><td class="td-stats">—</td><td class="td-rules">Gain 1D.</td></tr>
+        <tr><td class="td-name">Fog Roll</td><td class="td-type">Action</td><td class="td-cost">1W 1S</td><td class="td-stats">—</td><td class="td-rules">Target one of your Mobs — it permanently gains Climb.</td></tr>
+        <tr><td class="td-name">Glistening Oil</td><td class="td-type">Action</td><td class="td-cost">2R</td><td class="td-stats">—</td><td class="td-rules">Compleate target enemy Mob with HP ≤ 2 — it joins your side.</td></tr>
+        <tr><td class="td-name">Goatman's Hex</td><td class="td-type">Action</td><td class="td-cost">1W 1R</td><td class="td-stats">—</td><td class="td-rules">Deal 1 to every opponent Mob.</td></tr>
+        <tr><td class="td-name">Herobrine, World's Eye</td><td class="td-type">Action</td><td class="td-cost">2R 2D</td><td class="td-stats">—</td><td class="td-rules">Destroy any 1 Mob.</td></tr>
+        <tr><td class="td-name">Inkmoth Surge</td><td class="td-type">Action</td><td class="td-cost">1W</td><td class="td-stats">—</td><td class="td-rules">One of your Mobs permanently gains Infect.</td></tr>
+        <tr><td class="td-name">Mass Compleation</td><td class="td-type">Action</td><td class="td-cost">2R 1D</td><td class="td-stats">—</td><td class="td-rules">All your Mobs become Compleated.</td></tr>
+        <tr><td class="td-name">Massacre</td><td class="td-type">Action</td><td class="td-cost">1W 2R</td><td class="td-stats">—</td><td class="td-rules">Deal 3 to every opponent Mob.</td></tr>
+        <tr><td class="td-name">Nether Expedition</td><td class="td-type">Action</td><td class="td-cost">1R 1I</td><td class="td-stats">—</td><td class="td-rules">Gain 1R + draw 1.</td></tr>
+        <tr><td class="td-name">Phantom Flock</td><td class="td-type">Action</td><td class="td-cost">1W 1I 1R</td><td class="td-stats">—</td><td class="td-rules">Summon two 2/2 Phantom tokens (Aerial, Horror).</td></tr>
+        <tr><td class="td-name">Phyrexian Rebirth</td><td class="td-type">Action</td><td class="td-cost">1S 2I 2R</td><td class="td-stats">—</td><td class="td-rules">Destroy every Mob in the battle row; create a 4/4 Phyrexian Horror.</td></tr>
+        <tr><td class="td-name">Phyrexian Vault</td><td class="td-type">Action</td><td class="td-cost">1S</td><td class="td-stats">—</td><td class="td-rules">Gain 2R.</td></tr>
+        <tr><td class="td-name">Possession</td><td class="td-type">Action</td><td class="td-cost">1I 1R</td><td class="td-stats">—</td><td class="td-rules">Take control of a target enemy Mob with 2 or fewer remaining HP; it becomes a Horror.</td></tr>
+        <tr><td class="td-name">Praetor's Bounty</td><td class="td-type">Action</td><td class="td-cost">1S</td><td class="td-stats">—</td><td class="td-rules">Gain 3W.</td></tr>
+        <tr><td class="td-name">Praetor's Grasp</td><td class="td-type">Action</td><td class="td-cost">2R 1D</td><td class="td-stats">—</td><td class="td-rules">Search opponent's library; exile a card (draw 2).</td></tr>
+        <tr><td class="td-name">Putrefy</td><td class="td-type">Action</td><td class="td-cost">1W 1I</td><td class="td-stats">—</td><td class="td-rules">Destroy a target Mob.</td></tr>
+        <tr><td class="td-name">Reanimate</td><td class="td-type">Action</td><td class="td-cost">1W 1R</td><td class="td-stats">—</td><td class="td-rules">Return a target Compleated Mob from your graveyard to play.</td></tr>
+        <tr><td class="td-name">Realmbreaker's Reach</td><td class="td-type">Action</td><td class="td-cost">1S 1R</td><td class="td-stats">—</td><td class="td-rules">Gain 1 of each material.</td></tr>
+        <tr><td class="td-name">Redstone Contraption</td><td class="td-type">Action</td><td class="td-cost">2R</td><td class="td-stats">—</td><td class="td-rules">Untap up to 2 Workers.</td></tr>
+        <tr><td class="td-name">Sheoldred's Restoration</td><td class="td-type">Action</td><td class="td-cost">1R</td><td class="td-stats">—</td><td class="td-rules">Heal 5 to your avatar + draw 1.</td></tr>
+        <tr><td class="td-name">Sickening Dreams</td><td class="td-type">Action</td><td class="td-cost">2R</td><td class="td-stats">—</td><td class="td-rules">Deal 2 to every Mob (yours and opponents').</td></tr>
+        <tr><td class="td-name">Skinwalker Trick</td><td class="td-type">Action</td><td class="td-cost">1W 1R</td><td class="td-stats">—</td><td class="td-rules">Summon a 3/3 Horror token (Stalker).</td></tr>
+        <tr><td class="td-name">Sleep Deprivation</td><td class="td-type">Action</td><td class="td-cost">1W 1R</td><td class="td-stats">—</td><td class="td-rules">Deal 2 to opponent's avatar; opponent discards 1.</td></tr>
+        <tr><td class="td-name">Strip Mine</td><td class="td-type">Action</td><td class="td-cost">1S</td><td class="td-stats">—</td><td class="td-rules">Gain 1I + 1R.</td></tr>
+        <tr><td class="td-name">Surgical Extraction</td><td class="td-type">Action</td><td class="td-cost">1R</td><td class="td-stats">—</td><td class="td-rules">Banish a card from a graveyard; draw 1.</td></tr>
+        <tr><td class="td-name">Suspicious Stew</td><td class="td-type">Action</td><td class="td-cost">1W</td><td class="td-stats">—</td><td class="td-rules">Heal your avatar 4.</td></tr>
+        <tr><td class="td-name">The Cave Calls</td><td class="td-type">Action</td><td class="td-cost">1W 1S 1R</td><td class="td-stats">—</td><td class="td-rules">Summon a 4/2 Cave Crawler token (Climb, Hostile, Horror).</td></tr>
+        <tr><td class="td-name">The Wither Calls</td><td class="td-type">Action</td><td class="td-cost">1S 1I 1R</td><td class="td-stats">—</td><td class="td-rules">Deal 3 to every opponent Mob.</td></tr>
+        <tr><td class="td-name">TNT Blast</td><td class="td-type">Action</td><td class="td-cost">1R 1S</td><td class="td-stats">—</td><td class="td-rules">Deal 4 to a target. If it's a Block, also destroy it.</td></tr>
+        <tr><td class="td-name">Totem of Undying</td><td class="td-type">Action</td><td class="td-cost">1D 2R</td><td class="td-stats">—</td><td class="td-rules">Heal your avatar to 20.</td></tr>
+        <tr><td class="td-name">Toxic Deluge</td><td class="td-type">Action</td><td class="td-cost">1S 1R 1I</td><td class="td-stats">—</td><td class="td-rules">Pay 3 HP. Deal 3 to every Mob.</td></tr>
+        <tr><td class="td-name">Villager Trade</td><td class="td-type">Action</td><td class="td-cost">1W</td><td class="td-stats">—</td><td class="td-rules">Draw 1.</td></tr>
+        <tr><td class="td-name">Village Reinforcements</td><td class="td-type">Action</td><td class="td-cost">2W 1I</td><td class="td-stats">—</td><td class="td-rules">Create a 2/3 Village Guard.</td></tr>
+        <tr><td class="td-name">Voltage Surge</td><td class="td-type">Action</td><td class="td-cost">1R</td><td class="td-stats">—</td><td class="td-rules">Deal 2 to a target.</td></tr>
+        <tr><td class="td-name">Whispering Curse</td><td class="td-type">Action</td><td class="td-cost">1R</td><td class="td-stats">—</td><td class="td-rules">Opponent discards most-recent card in hand.</td></tr>
+        <tr><td class="td-name">Wither Skull</td><td class="td-type">Action</td><td class="td-cost">1S 1R</td><td class="td-stats">—</td><td class="td-rules">Deal 3 to a target.</td></tr>
+        <tr><td class="td-name">Yawgmoth's Mandate</td><td class="td-type">Action</td><td class="td-cost">1W 1I</td><td class="td-stats">—</td><td class="td-rules">Gain 1 of each material.</td></tr>
+        <tr><td class="td-name">Yawgmoth's Will</td><td class="td-type">Action</td><td class="td-cost">2R 1D</td><td class="td-stats">—</td><td class="td-rules">Replay a target Action card from your graveyard.</td></tr>
+      </tbody>
+    </table>
+  </div><!-- end card-table-wrap -->
+</div>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SECTION X — RULES AUDIT
+══════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="audit">
+  <h2>X. Rules Audit</h2>
+  <p style="color:var(--text-dim); font-size:0.88rem; margin-bottom:1.2rem;">
+    Cross-reference between documentation and code, generated at rulebook creation time.
+    MINOR items are cosmetic; MAJOR items affect gameplay; UNDOCUMENTED items are in code but not described in any doc.
+  </p>
+
+  <p style="color: var(--text-dim); font-size:0.9rem;">
+    All audit items from the previous edition have been resolved. The list below documents
+    each fix and points to the regression test or commit that locks it in.
+  </p>
+
+  <div class="audit-item undoc" style="border-left-color: var(--green);">
+    <span class="badge" style="background: var(--green); color: #000;">FIXED</span>
+    <strong>Village Reinforcements lands the Village Guard</strong><br>
+    Earlier playtesting (iter-7) suggested the 2/3 Village Guard token might not appear after casting. Verified end-to-end: a regression test (<code>test_village_reinforcements_full_play_lands_guard</code>) drives the action through <code>play_card</code> and asserts a 2/3 Villager-subtype mob on the battlefield. Behaviour is correct.
+  </div>
+
+  <div class="audit-item undoc" style="border-left-color: var(--green);">
+    <span class="badge" style="background: var(--green); color: #000;">FIXED</span>
+    <strong>Frontend grid now labelled "Your 3×3 Base" with 3 columns</strong><br>
+    Previously the React component was hard-coded to <code>grid-cols-4</code> and titled "Your 4×4 Base", contradicting the engine's 3×3 design. <code>MCGameBoard.tsx</code> now uses <code>grid-cols-3</code> and the matching label.
+  </div>
+
+  <div class="audit-item undoc">
+    <span class="badge undoc">DOCUMENTED</span>
+    <strong>Compleated upkeep tax</strong><br>
+    Each turn-start, every Compleated Mob you control deals 1 damage to your own Avatar. This is the balancing cost for Compleated lord bonuses and is now described in Section IV (Turn Start) and Section VIII (Compleation).
+  </div>
+
+  <div class="audit-item undoc">
+    <span class="badge undoc">DOCUMENTED</span>
+    <strong>Auto-block fallback logic</strong><br>
+    If the defending player has no AI handler attached, the engine's <code>auto_blockers()</code> heuristic assigns blockers automatically. Mostly relevant in AI-vs-AI sandboxes — described in Section IV (Combat) for completeness.
+  </div>
+
+  <div class="audit-item undoc">
+    <span class="badge undoc">DOCUMENTED</span>
+    <strong>Deathrattle vs. token resolution order</strong><br>
+    Creeper-style deathrattles ("deal 3 to frontmost in column") resolve before tokens spawned in the same death event claim the frontmost position. This matters for Endermite Cluster + Creeper interactions and is now described under Deathrattle in Section VIII.
+  </div>
+
+  <div class="audit-item undoc" style="border-left-color: var(--green);">
+    <span class="badge" style="background: var(--green); color: #000;">CLARIFIED</span>
+    <strong>No turn cap in the rules engine</strong><br>
+    Earlier strategy notes referenced a "35-turn cap" — that figure was a tournament-harness <code>max_turns</code> parameter, not a game rule. Removing the claim from the rulebook. Games end on Avatar lethal or Phyrexian Compleation; there is no built-in turn limit.
+  </div>
+
+  <div class="audit-item undoc" style="border-left-color: var(--green);">
+    <span class="badge" style="background: var(--green); color: #000;">CLARIFIED</span>
+    <strong>No mulligan</strong><br>
+    Earlier rulebook draft suggested an optional free mulligan as a house rule. The engine has no mulligan path for Minecraft, so the suggestion has been removed. The starting hand of 6 is final.
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SECTION XI — QUICK REFERENCE
+══════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="quickref">
+  <h2>XI. Quick Reference</h2>
+
+  <div class="cheatsheet">
+    <div style="font-family:'VT323',monospace; font-size:1.8rem; color:var(--green); margin-bottom:0.8rem;">▌ TURN ORDER</div>
+    <div class="cheatsheet-row">
+      <span class="cheatsheet-num">1</span>
+      <span class="cheatsheet-label">Turn Start</span>
+      <span class="cheatsheet-desc">Untap + reset biomes → start-of-turn bonuses (Structures &amp; Compleated tax) → Day/Night flip</span>
+    </div>
+    <div class="cheatsheet-row">
+      <span class="cheatsheet-num">2</span>
+      <span class="cheatsheet-label">Draw</span>
+      <span class="cheatsheet-desc">Draw 1 card</span>
+    </div>
+    <div class="cheatsheet-row">
+      <span class="cheatsheet-num">3</span>
+      <span class="cheatsheet-label">Main Phase</span>
+      <span class="cheatsheet-desc">Mine / Explore / Play cards / Declare attacks / Avatar attack — any order, unlimited</span>
+    </div>
+    <div class="cheatsheet-row">
+      <span class="cheatsheet-num">4</span>
+      <span class="cheatsheet-label">Combat</span>
+      <span class="cheatsheet-desc">Blockers declared → damage dealt → deaths resolved (only if you attacked)</span>
+    </div>
+    <div class="cheatsheet-row">
+      <span class="cheatsheet-num">5</span>
+      <span class="cheatsheet-label">End Turn</span>
+      <span class="cheatsheet-desc">Pass to opponent. Day/Night counter +1.</span>
+    </div>
+  </div>
+
+  <div style="margin-top:1.5rem;" class="two-col">
+    <div class="cheatsheet">
+      <div style="font-family:'VT323',monospace; font-size:1.5rem; color:var(--gold); margin-bottom:0.6rem;">☀ DAY / 🌙 NIGHT</div>
+      <div style="font-size:0.85rem; line-height:1.9;">
+        <strong>Day:</strong> +1 on first mine; first Structure/Block costs 1 less<br>
+        <strong>Night:</strong> Hostile Mobs gain +1 ATK<br>
+        <strong>Flip:</strong> Every full round (every 2 turns in a 2-player game)
+      </div>
+    </div>
+    <div class="cheatsheet">
+      <div style="font-family:'VT323',monospace; font-size:1.5rem; color:var(--red); margin-bottom:0.6rem;">💀 WIN / LOSE</div>
+      <div style="font-size:0.85rem; line-height:1.9;">
+        <strong>Win:</strong> Opponent Avatar at 0 HP with no Bed<br>
+        <strong>Respawn:</strong> Avatar at 0 HP + Bed present → back to 20 HP, lose all gear<br>
+        <strong>Compleation:</strong> 5+ oil counters → instant loss
+      </div>
+    </div>
+  </div>
+
+  <div class="cheatsheet" style="margin-top:1rem;">
+    <div style="font-family:'VT323',monospace; font-size:1.5rem; color:var(--green); margin-bottom:0.6rem;">🔑 KEY INTERACTIONS</div>
+    <div style="font-size:0.85rem; line-height:2;">
+      <strong>Q: Can my Avatar mine AND have a Worker mine the same biome?</strong><br>
+      A: No. Each biome can be mined once per <em>turn</em>, by either your Avatar or one Worker. The "mined" flag is shared across actors. <em>Bone Meal</em> and <em>Redstone Contraption</em> reset biome mined flags as a side effect of untapping Workers, which is the only way to mine the same biome twice in one turn.<br><br>
+      <strong>Q: Does Aerial bypass all Blocks?</strong><br>
+      A: Yes — Aerial attackers skip over MC_BLOCK type cards. They can still be stopped by Mobs with <strong>Reach or Aerial</strong>, or by Structures (non-Block type) in the column.<br><br>
+      <strong>Q: Do oil counters reset on respawn?</strong><br>
+      A: No. Oil counters persist through Avatar deaths. Bed respawn resets HP only.<br><br>
+      <strong>Q: If I equip a new Weapon over my current one, what happens?</strong><br>
+      A: The old Weapon goes to your graveyard immediately. The new Weapon equips.<br><br>
+      <strong>Q: Can Workers attack?</strong><br>
+      A: Yes, but they tap when they mine. A tapped Worker cannot attack that turn (and vice versa — if a Worker attacks and taps, it cannot mine that turn).
+    </div>
+  </div>
+
+  <div style="margin-top:2rem; text-align:center; color:var(--text-dim); font-size:0.78rem; border-top:1px solid var(--green-dim); padding-top:1rem;">
+    Minecraft TCG · Hyperdraft Collection · Generated by /rulebook · 178 cards · 5 starter decks
+  </div>
+</div>
+
+</div><!-- end .wrapper -->
+</body>
+</html>

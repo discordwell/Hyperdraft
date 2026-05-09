@@ -576,6 +576,55 @@ def test_card_village_reinforcements_on_play():
         f"Expected CREATE_TOKEN, got {[e.type for e in events]}"
 
 
+def test_village_reinforcements_full_play_lands_guard():
+    # Regression: iter-7 strategy doc reported Village Guards never appearing
+    # on the battlefield. Drives the action through play_card() (the path
+    # both human and AI take) and asserts the full effect: a 2/3 Village
+    # Guard token on the battlefield, materials deducted, and the spent
+    # Action card sent to the graveyard.
+    from src.engine import minecraft as mc
+    game, p1, p2 = _build_game()
+    p1.mc_materials = {"wood": 5, "stone": 0, "iron": 5, "redstone": 0, "diamond": 0}
+    card_def = MINECRAFT_CARDS["Village Reinforcements"]
+    card = game.create_object(
+        name=card_def.name, owner_id=p1.id, zone=ZoneType.HAND,
+        characteristics=card_def.characteristics, card_def=card_def,
+    )
+    card.controller = p1.id
+
+    ok, msg, _events = mc.play_card(game, p1.id, card.id)
+    assert ok, f"play_card failed: {msg}"
+
+    # Token landed.
+    guards = [
+        game.state.objects[oid]
+        for oid in game.state.zones["battlefield"].objects
+        if oid in game.state.objects
+        and game.state.objects[oid].controller == p1.id
+        and CardType.MC_MOB in game.state.objects[oid].characteristics.types
+        and game.state.objects[oid].name == "Village Guard"
+    ]
+    assert len(guards) == 1, f"Expected one Village Guard on battlefield, got {len(guards)}"
+    g = guards[0]
+    assert g.characteristics.power == 2 and g.characteristics.toughness == 3
+    assert "Villager" in g.characteristics.subtypes
+    # Token is a token (not a real card), per CREATE_TOKEN handler.
+    assert g.state.is_token is True
+
+    # Materials actually deducted (catches a short-circuited pay_materials).
+    assert p1.mc_materials["wood"] == 3
+    assert p1.mc_materials["iron"] == 4
+
+    # Spent action card moved to graveyard (catches play_card forgetting
+    # to clean up the source card).
+    gy = game.state.zones.get(f"graveyard_{p1.id}")
+    assert gy is not None and card.id in gy.objects, \
+        "Village Reinforcements card should be in p1's graveyard after resolve"
+    # And not still in hand.
+    hand = game.state.zones.get(f"hand_{p1.id}")
+    assert hand is not None and card.id not in hand.objects
+
+
 def test_card_evoker_on_play():
     """Evoker: on_play — expects CREATE_TOKEN (1/1 Vex)."""
     game, p1, p2 = _build_game()

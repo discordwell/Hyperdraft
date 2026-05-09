@@ -819,9 +819,10 @@ Farm Plot, Crafting Table as primary structure economy) or when facing it.
     or Eyes of Ender draw engine to find it by T6-8 at the latest.
   - **`weapon_no_bed_penalty=40` working in builder context.** AI held 2x Bow in hand for 10+
     turns without equipping. Confirmed effective suppression.
-  - **Village Reinforcements (W2+I1) sorcery: Guards may not appear.** Played T4, spent W2+I1,
-    but Village Guards never appeared on battlefield. Possible engine/card resolution bug —
-    flag for investigation.
+  - **Village Reinforcements (W2+I1) — RESOLVED.** Earlier iteration flagged that
+    Guards might not appear after casting. End-to-end regression in
+    `tests/test_minecraft_interceptors.py::test_village_reinforcements_full_play_lands_guard`
+    confirms the 2/3 Village Guard reliably lands on the battlefield via `play_card`.
 - Strategy doc updates:
   - **"Builder-deck strategic notes"**: Added Wolf Pack kill-turn sequencing note and
     col-2 window timing correction (not fixed at T12-T20).
