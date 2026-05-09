@@ -729,6 +729,13 @@ class DepthsTurnManager(TurnManager):
             if action is None:
                 break
 
+            # Normalise: AI adapter returns dataclass instances; turn manager
+            # expects dicts with "action_type" key. Convert here so both
+            # paths share the same downstream dispatch logic.
+            action = self._normalise_action(action)
+            if action is None:
+                break
+
             action_type = action.get("action_type")
             if action_type == end_action or action_type in ("DEPTHS_END_TURN", "END_PHASE"):
                 break
@@ -741,6 +748,91 @@ class DepthsTurnManager(TurnManager):
                 break
 
         return events
+
+    # =====================================================================
+    # Action normalisation (dataclass → dict)
+    # =====================================================================
+
+    def _normalise_action(self, action: Any) -> Optional[dict]:
+        """Convert an AI-adapter dataclass into the canonical action dict.
+
+        The AI adapter (depths_adapter.py) returns typed dataclasses
+        (DeployVessel, Dive, Done, …). The turn manager's dispatch layer
+        expects plain dicts with an "action_type" key. This method bridges
+        the two representations so both AI and human actions share the same
+        downstream execute_action path.
+
+        Returns None if the action signals "end phase" (Done / None).
+        Returns the original dict unchanged if action is already a dict.
+        """
+        # Already a dict (human action or test stub)
+        if isinstance(action, dict):
+            return action
+
+        cls_name = type(action).__name__
+
+        if cls_name == "Done":
+            # Done signals end-of-phase — the caller breaks on None.
+            return None
+
+        if cls_name == "DeployVessel":
+            return {
+                "action_type": ACTION_DEPLOY_VESSEL,
+                "card_id": action.card_id,
+                "depth_band": getattr(action, "depth_band", None),
+            }
+        if cls_name == "Dive":
+            return {
+                "action_type": ACTION_DIVE,
+                "vessel_id": action.vessel_id,
+            }
+        if cls_name == "SurfaceVessel":
+            return {
+                "action_type": ACTION_SURFACE_VESSEL,
+                "vessel_id": action.vessel_id,
+            }
+        if cls_name == "LayMine":
+            return {
+                "action_type": ACTION_LAY_MINE,
+                "card_id": action.card_id,
+                "depth_band": getattr(action, "depth_band", None),
+            }
+        if cls_name in ("AttachCrew", "AttachWeapon"):
+            crew_id = getattr(action, "crew_id", None) or getattr(action, "weapon_id", None)
+            return {
+                "action_type": ACTION_ATTACH,
+                "card_id": crew_id,
+                "target_id": action.vessel_id,
+            }
+        if cls_name == "CastAction":
+            targets = [action.target] if getattr(action, "target", None) else []
+            return {
+                "action_type": ACTION_CAST_SPELL,
+                "card_id": action.card_id,
+                "targets": targets,
+            }
+        if cls_name == "ActivateAbility":
+            return {
+                "action_type": ACTION_ACTIVATE_ABILITY,
+                "vessel_id": action.vessel_id,
+                "ability_idx": getattr(action, "ability_idx", 0),
+                "target": getattr(action, "target", None),
+            }
+
+        # Fallback: try dataclasses.asdict if it's a dataclass, else skip
+        try:
+            import dataclasses
+            if dataclasses.is_dataclass(action):
+                d = dataclasses.asdict(action)
+                if "action_type" not in d:
+                    # Guess from class name
+                    d["action_type"] = f"DEPTHS_{cls_name.upper()}"
+                return d
+        except Exception:
+            pass
+
+        # Unknown type — skip silently.
+        return None
 
     async def execute_action(self, player_id: str, action: dict) -> tuple[bool, str, list[Event]]:
         """Dispatch a single Depths action.

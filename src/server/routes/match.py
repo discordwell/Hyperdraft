@@ -422,6 +422,68 @@ async def create_match(
             )
             if ai2_id:
                 session.add_cards_to_deck(ai2_id, ai2_deck)
+    elif request.game_mode == "finance":
+        from src.cards.finance.fina import FINA_STARTER_DECKS
+        import random
+
+        deck_keys = list(FINA_STARTER_DECKS.keys())
+        human_deck_key = (
+            request.player_deck_id if request.player_deck_id in FINA_STARTER_DECKS
+            else "FINA_high_frequency"
+        )
+        ai_deck_key = (
+            request.ai_deck_id if request.ai_deck_id in FINA_STARTER_DECKS
+            else "FINA_quant"
+        )
+        if request.mode == "bot_vs_bot":
+            random.shuffle(deck_keys)
+            human_deck_key, ai_deck_key = deck_keys[0], deck_keys[1]
+
+        for pid in session.player_ids:
+            player = session.game.state.players.get(pid)
+            if player:
+                session.game.setup_finance_player(player)
+
+        session.add_cards_to_deck(human_id, FINA_STARTER_DECKS[human_deck_key]())
+        if request.mode == "human_vs_bot" and ai_id:
+            session.add_cards_to_deck(ai_id, FINA_STARTER_DECKS[ai_deck_key]())
+        elif request.mode == "bot_vs_bot":
+            session.add_cards_to_deck(ai_id, FINA_STARTER_DECKS[human_deck_key]())
+            if ai2_id:
+                session.add_cards_to_deck(ai2_id, FINA_STARTER_DECKS[ai_deck_key]())
+
+    elif request.game_mode == "depths":
+        from src.cards.depths.submarine_fleet.decks import SUBS_STARTER_DECKS, make_subs_flagship
+        import random
+
+        DEPTHS_DECK_KEYS = ["SUBS_wolfpack", "SUBS_silent_hunter", "SUBS_carrier", "SUBS_deep_strike"]
+        human_deck_key = (
+            request.player_deck_id if request.player_deck_id in SUBS_STARTER_DECKS
+            else "SUBS_wolfpack"
+        )
+        ai_deck_key = (
+            request.ai_deck_id if request.ai_deck_id in SUBS_STARTER_DECKS
+            else "SUBS_silent_hunter"
+        )
+        if request.mode == "bot_vs_bot":
+            keys = list(DEPTHS_DECK_KEYS)
+            random.shuffle(keys)
+            human_deck_key, ai_deck_key = keys[0], keys[1]
+
+        # Build flagships and decks, then call setup_depths_player via turn manager
+        from src.engine.depths import setup_depths_player
+
+        for pid in session.player_ids:
+            player = session.game.state.players.get(pid)
+            if player is None:
+                continue
+            flagship_def = make_subs_flagship(f"{session.player_names.get(pid, 'Player')} Flagship")
+            if pid == human_id:
+                deck = SUBS_STARTER_DECKS[human_deck_key]()
+            else:
+                deck = SUBS_STARTER_DECKS[ai_deck_key]()
+            setup_depths_player(session.game, player, deck, flagship_def)
+
     else:
         # Build decks - prefer deck_id, fallback to card names, else random
         if request.player_deck_id:

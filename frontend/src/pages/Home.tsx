@@ -19,7 +19,7 @@ export function Home() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [gameMode, setGameMode] = useState<'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'finance'>('hearthstone');
+  const [gameMode, setGameMode] = useState<'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'finance' | 'depths'>('hearthstone');
   const [hsVariant, setHsVariant] = useState<string | null>('riftclash');
   const [heroClass, setHeroClass] = useState<string>('Pyromancer');
   const [playerName, setPlayerName] = useState('Player');
@@ -32,6 +32,8 @@ export function Home() {
   const [aiYgoDeck, setAiYgoDeck] = useState<string>('');
   const [playerMinecraftDeck, setPlayerMinecraftDeck] = useState<string>('builder');
   const [aiMinecraftDeck, setAiMinecraftDeck] = useState<string>('raider');
+  const [playerDepthsDeck, setPlayerDepthsDeck] = useState<string>('SUBS_wolfpack');
+  const [aiDepthsDeck, setAiDepthsDeck] = useState<string>('SUBS_silent_hunter');
   const [claudexModel, setClaudexModel] = useState('claude-opus-4.6');
   const [gptModel, setGptModel] = useState('gpt-5.3');
   const [recordPrompts, setRecordPrompts] = useState(false);
@@ -70,7 +72,8 @@ export function Home() {
       const isYugioh = gameMode === 'yugioh';
       const isMinecraft = gameMode === 'minecraft';
       const isFinance = gameMode === 'finance';
-      const skipDeckSelection = isHearthstone || isPokemon || isFinance;
+      const isDepths = gameMode === 'depths';
+      const skipDeckSelection = isHearthstone || isPokemon || isFinance || isDepths;
 
       // Create match
       const response = await matchAPI.create({
@@ -80,8 +83,10 @@ export function Home() {
         hero_class: isHearthstone && hsVariant !== null ? heroClass : undefined,
         player_name: playerName,
         ai_difficulty: difficulty,
-        player_deck_id: skipDeckSelection ? undefined : (isYugioh ? (playerYgoDeck || undefined) : (isMinecraft ? playerMinecraftDeck : (playerDeck || undefined))),
-        ai_deck_id: skipDeckSelection ? undefined : (isYugioh ? (aiYgoDeck || undefined) : (isMinecraft ? aiMinecraftDeck : (aiDeck || undefined))),
+        player_deck_id: isDepths ? playerDepthsDeck
+          : (skipDeckSelection ? undefined : (isYugioh ? (playerYgoDeck || undefined) : (isMinecraft ? playerMinecraftDeck : (playerDeck || undefined)))),
+        ai_deck_id: isDepths ? aiDepthsDeck
+          : (skipDeckSelection ? undefined : (isYugioh ? (aiYgoDeck || undefined) : (isMinecraft ? aiMinecraftDeck : (aiDeck || undefined)))),
       });
 
       // Set connection info in store
@@ -93,6 +98,7 @@ export function Home() {
       // Navigate to game
       const gamePath = isMinecraft ? `/game/${response.match_id}/mc`
         : isFinance ? `/game/${response.match_id}/fin`
+        : isDepths ? `/game/${response.match_id}/depths`
         : `/game/${response.match_id}`;
       navigate(gamePath);
     } catch (err) {
@@ -298,6 +304,17 @@ export function Home() {
                 style={gameMode === 'finance' ? { background: '#0a1a0a', color: '#00FF88', border: '1px solid #00FF88' } : {}}
               >
                 Finance TCG
+              </button>
+              <button
+                onClick={() => setGameMode('depths')}
+                className={`px-4 py-2 rounded transition-colors font-mono col-span-2 ${
+                  gameMode === 'depths'
+                    ? 'text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+                style={gameMode === 'depths' ? { background: '#0a1f2f', color: '#22d3ee', border: '1px solid #22d3ee' } : {}}
+              >
+                Depths: Submarine Fleet
               </button>
             </div>
           </div>
@@ -578,6 +595,39 @@ export function Home() {
                   <option value="builder">Builder Control</option>
                   <option value="miner">Miner Ramp</option>
                   <option value="raider">Raider Aggro</option>
+                </select>
+              </div>
+            </>
+          )}
+
+          {gameMode === 'depths' && (
+            <>
+              <div className="mb-4">
+                <label className="block text-sm text-gray-400 mb-1">Your Fleet</label>
+                <select
+                  value={playerDepthsDeck}
+                  onChange={(e) => setPlayerDepthsDeck(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none"
+                  style={{ borderColor: '#22d3ee33' }}
+                >
+                  <option value="SUBS_wolfpack">Wolfpack — Fast Aggro</option>
+                  <option value="SUBS_silent_hunter">Silent Hunter — Stealth Control</option>
+                  <option value="SUBS_carrier">Carrier — Drone Swarm</option>
+                  <option value="SUBS_deep_strike">Deep Strike — Ambush</option>
+                </select>
+              </div>
+              <div className="mb-6">
+                <label className="block text-sm text-gray-400 mb-1">AI Fleet</label>
+                <select
+                  value={aiDepthsDeck}
+                  onChange={(e) => setAiDepthsDeck(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none"
+                  style={{ borderColor: '#22d3ee33' }}
+                >
+                  <option value="SUBS_wolfpack">Wolfpack — Fast Aggro</option>
+                  <option value="SUBS_silent_hunter">Silent Hunter — Stealth Control</option>
+                  <option value="SUBS_carrier">Carrier — Drone Swarm</option>
+                  <option value="SUBS_deep_strike">Deep Strike — Ambush</option>
                 </select>
               </div>
             </>

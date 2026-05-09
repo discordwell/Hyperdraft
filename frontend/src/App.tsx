@@ -16,6 +16,7 @@ const PKMGameView = lazy(() => import('./pages/PKMGameView'));
 const YGOGameView = lazy(() => import('./pages/YGOGameView').then(m => ({ default: m.YGOGameView })));
 const MCGameView = lazy(() => import('./pages/MCGameView'));
 const FinanceGameView = lazy(() => import('./pages/FinanceGameView').then(m => ({ default: m.FinanceGameView })));
+const DepthsGameView = lazy(() => import('./pages/DepthsGameView').then(m => ({ default: m.DepthsGameView })));
 const SpectatorView = lazy(() => import('./pages/SpectatorView'));
 const ReplayView = lazy(() => import('./pages/ReplayView'));
 const Deckbuilder = lazy(() => import('./pages/Deckbuilder'));
@@ -46,6 +47,7 @@ export function App() {
           <Route path="/game/:matchId/ygo" element={<YGOGameView />} />
           <Route path="/game/:matchId/mc" element={<MCGameView />} />
           <Route path="/game/:matchId/fin" element={<FinanceGameView />} />
+          <Route path="/game/:matchId/depths" element={<DepthsGameView />} />
           <Route path="/spectate/:gameId" element={<SpectatorView />} />
           <Route path="/replay/:gameId" element={<ReplayView />} />
           <Route path="/deckbuilder" element={<Deckbuilder />} />

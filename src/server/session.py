@@ -42,7 +42,7 @@ def generate_id() -> str:
 
 
 # Action type prefixes handled by specific mode adapters.
-_MODE_ACTION_PREFIXES = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO", "minecraft": "MC", "finance": "FIN"}
+_MODE_ACTION_PREFIXES = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO", "minecraft": "MC", "finance": "FIN", "depths": "DEPTHS"}
 
 _HS_ACTION_TYPES = frozenset({
     "HS_PLAY_CARD", "HS_ATTUNE_CARD", "HS_ATTACK", "HS_HERO_POWER", "HS_END_TURN",
@@ -69,6 +69,14 @@ _MC_ACTION_TYPES = frozenset({
 _FIN_ACTION_TYPES = frozenset({
     "FIN_PLAY_CARD", "FIN_DECLARE_ATTACKERS", "FIN_DECLARE_BLOCKERS",
     "FIN_ACTIVATE_ABILITY", "FIN_END_PHASE", "FIN_END_TURN",
+})
+
+_DEPTHS_ACTION_TYPES = frozenset({
+    "DEPTHS_DEPLOY_VESSEL", "DEPTHS_PLAY_CARD", "DEPTHS_DIVE",
+    "DEPTHS_SURFACE_VESSEL", "DEPTHS_SURFACE",
+    "DEPTHS_ATTACH", "DEPTHS_CAST_SPELL", "DEPTHS_LAY_MINE",
+    "DEPTHS_ACTIVATE_ABILITY", "DEPTHS_DECLARE_ATTACKERS", "DEPTHS_DETECT",
+    "DEPTHS_DECLARE_INTERCEPTORS", "DEPTHS_END_TURN",
 })
 
 
@@ -374,6 +382,12 @@ class GameSession:
                 mc_materials=dict(getattr(player, 'mc_materials', {}) or {}),
                 mc_avatar_gear=dict(getattr(player, 'mc_avatar_gear', {}) or {}),
                 mc_avatar_action_used=bool(getattr(player, 'mc_avatar_action_used', False)),
+                # Depths: Submarine Fleet fields
+                tc=int(getattr(player, 'tc', 0) or 0),
+                sc=int(getattr(player, 'sc', 0) or 0),
+                tc_max=int(getattr(player, 'tc_max', 10) or 10),
+                sc_max=int(getattr(player, 'sc_max', 10) or 10),
+                flagship_id=getattr(player, 'flagship_id', None),
             )
 
         # Get battlefield (exclude heroes/hero powers in HS mode — those are in player data)
@@ -629,6 +643,8 @@ class GameSession:
         finance_phase = None
         finance_dark_pool_val = None
         finance_turn_data_extra: dict = {}
+        finance_stack_dto: list[dict] = []
+        finance_pending_response_dto: Optional[dict] = None
         if game_state.game_mode == "finance":
             tm = self.game.turn_manager
             if hasattr(tm, "fin_turn_state"):
@@ -637,6 +653,49 @@ class GameSession:
             for pid in game_state.players:
                 desk_key = f"finance_deriv_desk_{pid}"
                 finance_turn_data_extra[desk_key] = game_state.turn_data.get(desk_key, [])
+            fin_stack = getattr(tm, "fin_stack", None)
+            if fin_stack is not None:
+                for item in fin_stack.items:
+                    obj = game_state.objects.get(item.card_id)
+                    name = ""
+                    if obj is not None and obj.characteristics:
+                        name = obj.characteristics.name or ""
+                    finance_stack_dto.append({
+                        "card_id": item.card_id,
+                        "controller": item.controller,
+                        "name": name,
+                        "is_response": item.is_response,
+                        "countered": item.countered,
+                    })
+            pending_player = getattr(
+                getattr(tm, "fin_turn_state", None),
+                "pending_response_player",
+                None,
+            )
+            if pending_player and finance_stack_dto:
+                top = finance_stack_dto[-1]
+                finance_pending_response_dto = {
+                    "prompted_player_id": pending_player,
+                    "top_card_id": top["card_id"],
+                    "top_card_name": top["name"],
+                    "top_controller": top["controller"],
+                }
+
+        # Depths-specific state
+        depths_phase_val = None
+        depths_combat_val: dict = {}
+        if game_state.game_mode == "depths":
+            tm = self.game.turn_manager
+            # Current phase label from the turn state
+            ts = getattr(tm, "turn_state", None)
+            if ts is not None:
+                phase_obj = getattr(ts, "phase", None)
+                if phase_obj is not None:
+                    depths_phase_val = getattr(phase_obj, "name", str(phase_obj))
+            # Combat context stored on game state or turn manager
+            raw_combat = getattr(game_state, "depths_combat_context", None)
+            if isinstance(raw_combat, dict):
+                depths_combat_val = dict(raw_combat)
 
         return GameStateResponse(
             match_id=self.id,
@@ -680,6 +739,10 @@ class GameSession:
             finance_phase=finance_phase,
             finance_dark_pool=finance_dark_pool_val,
             finance_turn_data=finance_turn_data_extra,
+            finance_stack=finance_stack_dto,
+            finance_pending_response=finance_pending_response_dto,
+            depths_phase=depths_phase_val,
+            depths_combat=depths_combat_val,
         )
 
     async def handle_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
@@ -710,6 +773,8 @@ class GameSession:
             return await get_server_mode_adapter("minecraft").handle_action(self, request)
         if request.action_type in _FIN_ACTION_TYPES:
             return await get_server_mode_adapter("finance").handle_action(self, request)
+        if request.action_type in _DEPTHS_ACTION_TYPES:
+            return await get_server_mode_adapter("depths").handle_action(self, request)
 
         # Combat declarations are not wired through the priority action loop yet.
         if request.action_type in ("DECLARE_ATTACKERS", "DECLARE_BLOCKERS"):
@@ -1916,6 +1981,19 @@ class GameSession:
         )
         toughness = get_toughness(obj, self.game.state) if has_pt else obj.characteristics.toughness
 
+        # Depths card fields
+        _depth_band_raw = getattr(obj.state, "depth_band", None)
+        _depth_band = None
+        if _depth_band_raw is not None:
+            _depth_band = getattr(_depth_band_raw, "name", str(_depth_band_raw))
+        _depths_cost: dict = {}
+        if obj.card_def:
+            _cd_cost = getattr(obj.card_def, "depths_cost", None)
+            if isinstance(_cd_cost, dict):
+                _depths_cost = dict(_cd_cost)
+            elif _cd_cost is not None and hasattr(_cd_cost, "torpedo"):
+                _depths_cost = {"tc": int(_cd_cost.torpedo), "sc": int(_cd_cost.sonar)}
+
         return CardData(
             id=obj.id,
             name=obj.name,
@@ -1944,10 +2022,26 @@ class GameSession:
             mc_gear_slot=obj.state.mc_gear_slot,
             mc_exhausted=obj.state.mc_exhausted,
             mc_keywords=sorted(getattr(obj.card_def, "mc_keywords", None) or ()) if obj.card_def else [],
+            # Depths fields
+            depth_band=_depth_band,
+            detected=bool(getattr(obj.state, "detected", False)),
+            is_flagship=bool(
+                getattr(obj.state, "is_flagship", False)
+                or "Flagship" in list(obj.characteristics.subtypes)
+            ),
+            depths_cost=_depths_cost,
         )
 
     def _serialize_card(self, obj) -> CardData:
         """Serialize a card for the client (hand/graveyard)."""
+        # Depths cost for hand cards
+        _depths_cost_hand: dict = {}
+        if obj.card_def:
+            _cd_cost = getattr(obj.card_def, "depths_cost", None)
+            if isinstance(_cd_cost, dict):
+                _depths_cost_hand = dict(_cd_cost)
+            elif _cd_cost is not None and hasattr(_cd_cost, "torpedo"):
+                _depths_cost_hand = {"tc": int(_cd_cost.torpedo), "sc": int(_cd_cost.sonar)}
         return CardData(
             id=obj.id,
             name=obj.name,
@@ -1967,6 +2061,7 @@ class GameSession:
             mc_gear_slot=obj.state.mc_gear_slot,
             mc_exhausted=obj.state.mc_exhausted,
             mc_keywords=sorted(getattr(obj.card_def, "mc_keywords", None) or ()) if obj.card_def else [],
+            depths_cost=_depths_cost_hand,
         )
 
     def _serialize_stack_item(self, item) -> StackItemData:

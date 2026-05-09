@@ -85,6 +85,12 @@ export function GameView() {
     }
   }, [gameState?.game_mode, matchId, navigate]);
 
+  useEffect(() => {
+    if (gameState?.game_mode === 'depths' && matchId) {
+      navigate(`/game/${matchId}/depths`, { replace: true });
+    }
+  }, [gameState?.game_mode, matchId, navigate]);
+
   // Handle card clicks
   const handleCardClick = useCallback(
     (card: CardData, zone: 'hand' | 'battlefield') => {
@@ -404,6 +410,17 @@ export function GameView() {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: '#03080f' }}>
         <div className="w-16 h-16 border-4 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#00FF88', borderTopColor: 'transparent' }} />
+      </div>
+    );
+  }
+
+  if (gameState?.game_mode === 'depths') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <div
+          className="w-16 h-16 border-4 border-t-transparent rounded-full animate-spin"
+          style={{ borderColor: '#22d3ee', borderTopColor: 'transparent' }}
+        />
       </div>
     );
   }

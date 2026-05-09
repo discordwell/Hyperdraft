@@ -89,6 +89,22 @@ class ActionType(str, Enum):
     FIN_ACTIVATE_ABILITY = "FIN_ACTIVATE_ABILITY"
     FIN_END_PHASE = "FIN_END_PHASE"
     FIN_END_TURN = "FIN_END_TURN"
+    FIN_PLAY_RESPONSE = "FIN_PLAY_RESPONSE"
+    FIN_PASS_RESPONSE = "FIN_PASS_RESPONSE"
+    # Depths: Submarine Fleet action types
+    DEPTHS_DEPLOY_VESSEL = "DEPTHS_DEPLOY_VESSEL"
+    DEPTHS_PLAY_CARD = "DEPTHS_PLAY_CARD"         # frontend alias for DEPLOY_VESSEL
+    DEPTHS_DIVE = "DEPTHS_DIVE"
+    DEPTHS_SURFACE_VESSEL = "DEPTHS_SURFACE_VESSEL"
+    DEPTHS_SURFACE = "DEPTHS_SURFACE"              # frontend alias for SURFACE_VESSEL
+    DEPTHS_ATTACH = "DEPTHS_ATTACH"
+    DEPTHS_CAST_SPELL = "DEPTHS_CAST_SPELL"
+    DEPTHS_LAY_MINE = "DEPTHS_LAY_MINE"
+    DEPTHS_ACTIVATE_ABILITY = "DEPTHS_ACTIVATE_ABILITY"
+    DEPTHS_DECLARE_ATTACKERS = "DEPTHS_DECLARE_ATTACKERS"
+    DEPTHS_DETECT = "DEPTHS_DETECT"
+    DEPTHS_DECLARE_INTERCEPTORS = "DEPTHS_DECLARE_INTERCEPTORS"
+    DEPTHS_END_TURN = "DEPTHS_END_TURN"
 
 
 class ChoiceType(str, Enum):
@@ -111,9 +127,9 @@ class ChoiceType(str, Enum):
 class CreateMatchRequest(BaseModel):
     """Request to create a new match."""
     mode: MatchMode = MatchMode.HUMAN_VS_BOT
-    game_mode: Literal["mtg", "hearthstone", "pokemon", "yugioh", "minecraft", "finance"] = Field(
+    game_mode: Literal["mtg", "hearthstone", "pokemon", "yugioh", "minecraft", "finance", "depths"] = Field(
         default="mtg",
-        description="Rules engine: 'mtg', 'hearthstone', 'pokemon', 'yugioh', 'minecraft', or 'finance'"
+        description="Rules engine: 'mtg', 'hearthstone', 'pokemon', 'yugioh', 'minecraft', 'finance', or 'depths'"
     )
     variant: Optional[str] = Field(default=None, description="Game variant (e.g. 'stormrift') — installs heroes/decks/modifiers")
     hero_class: Optional[str] = Field(default=None, description="Hero class for variant (e.g. 'Pyromancer', 'Cryomancer')")
@@ -141,6 +157,11 @@ class PlayerActionRequest(BaseModel):
     action_kind: Optional[str] = Field(default=None, description="Minecraft avatar action kind")
     target_column: Optional[int] = Field(default=None, description="Minecraft column index for column-based attacks")
     keep: Optional[bool] = Field(default=None, description="Mulligan decision: True to keep current hand, False to mulligan")
+    # Depths: Submarine Fleet action fields
+    depth_band: Optional[str] = Field(default=None, description="Depth band for deploy/mine (SURFACE/PERISCOPE/MID/DEEP/CRUSH)")
+    vessel_id: Optional[str] = Field(default=None, description="Vessel object ID for dive/surface actions")
+    interceptors: list[dict] = Field(default_factory=list, description="Interceptor pairings {attacker_id, interceptor_id}")
+    detect_targets: list[str] = Field(default_factory=list, description="Vessel IDs to detect via sonar")
 
 
 class StartBotGameRequest(BaseModel):
@@ -246,6 +267,11 @@ class CardData(BaseModel):
     mc_gear_slot: Optional[str] = None
     mc_exhausted: bool = False
     mc_keywords: list[str] = Field(default_factory=list)
+    # Depths: Submarine Fleet card state
+    depth_band: Optional[str] = None
+    detected: bool = False
+    is_flagship: bool = False
+    depths_cost: dict = Field(default_factory=dict)
 
 
 class StackItemData(BaseModel):
@@ -338,6 +364,12 @@ class PlayerData(BaseModel):
     mc_materials: dict[str, int] = Field(default_factory=dict)
     mc_avatar_gear: dict[str, Optional[str]] = Field(default_factory=dict)
     mc_avatar_action_used: bool = False
+    # Depths: Submarine Fleet fields
+    tc: int = 0
+    sc: int = 0
+    tc_max: int = 0
+    sc_max: int = 0
+    flagship_id: Optional[str] = None
 
 
 class CombatData(BaseModel):
@@ -409,6 +441,16 @@ class GameStateResponse(BaseModel):
     finance_phase: Optional[str] = None
     finance_dark_pool: Optional[str] = None
     finance_turn_data: dict = Field(default_factory=dict)
+    # MTG-style priority stack: list of {card_id, controller, is_response,
+    # countered, name} dicts in LIFO order (last = top).
+    finance_stack: list[dict] = Field(default_factory=list)
+    # When the engine is awaiting a response from a player, this carries:
+    # { prompted_player_id, top_card_id, top_card_name, allowed_card_ids: [..] }.
+    # None when no priority window is open.
+    finance_pending_response: Optional[dict] = None
+    # Depths: Submarine Fleet state
+    depths_phase: Optional[str] = None
+    depths_combat: dict = Field(default_factory=dict)
     # Game log
     game_log: list[GameLogEntry] = Field(default_factory=list)
 
