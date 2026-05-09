@@ -714,17 +714,16 @@ def _hedge_fund_pm_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 HEDGE_FUND_PM = make_trader(
     "Hedge Fund PM",
-    "{5}",  # rebalance: voltron-problem cost {4} → {5} (mass-attach effect requires its original cost)
+    "{7}",  # rebalance: voltron centralization {5} → {7}. The mass-attach
+            # payoff is balanced by being a T7-T8 drop, giving opponents 2
+            # extra turns of board development. Death-kills-Derivatives
+            # penalty removed — Equipment-style cleanup applies (attached
+            # Derivatives un-attach and return to Desk for re-attach later).
     4, 4,
-    text="Leverage 2. When this enters, attach all Derivatives from your Derivatives Desk to this Trader. When this dies, all Derivatives attached to it die with it.",
+    text="Leverage 2. When this enters, attach all Derivatives from your Derivatives Desk to this Trader.",
     setup_interceptors=_hedge_fund_pm_setup,
     rarity="rare",
 )
-# voltron-nerf: HFPM-specific override for the new Equipment-style cleanup
-# (finance._register_derivative_host_death_cleanup).  When HFPM dies, ALL
-# attached Derivatives are destroyed with it instead of returning to the
-# Desk — the cost of free mass-attach.
-HEDGE_FUND_PM._destroys_attached_on_death = True
 
 # 11. Synthetic Long {5} 5/4 — Leverage 3. At Market Close, may pay 2 CR per
 #     counter instead of 1 to keep all; if so, get +1/+0 permanently.

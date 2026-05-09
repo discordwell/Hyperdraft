@@ -2636,7 +2636,9 @@ class TestEquipmentCleanup:
 
     def test_hfpm_death_kills_attached_derivatives(self):
         """Deploy HFPM with 2 staged Derivatives in Desk; ETB attaches both.
-        Destroy HFPM.  Both Derivatives must end up in graveyard, NOT desk.
+        Destroy HFPM.  After the death-kills-Derivatives penalty was REMOVED
+        (HFPM cost {5} → {7} alone is sufficient), the general Equipment-style
+        cleanup applies: both Derivatives return to the Desk for re-attach.
         """
         from src.cards.finance.fina.derivatives import (
             HEDGE_FUND_PM,
@@ -2685,32 +2687,27 @@ class TestEquipmentCleanup:
         assert d1.state.attached_to == host.id
         assert d2.state.attached_to == host.id
 
-        # Destroy HFPM.  HFPM-specific override: Derivatives die with host.
+        # Destroy HFPM.  Equipment-style cleanup: Derivatives un-attach and
+        # return to the Desk (death-kills-Derivatives penalty removed when
+        # HFPM cost was raised to {7}).
         game.emit(_E(
             type=EventType.OBJECT_DESTROYED,
             payload={"object_id": host.id, "reason": "test"},
             source="test",
         ))
 
-        # Both Derivatives must be in graveyard, NOT on the desk.
+        # Both Derivatives must be back on the Desk, NOT in graveyard.
+        desk = get_deriv_desk(game.state, p1.id)
+        assert d1.id in desk, "Equipment cleanup: d1 must return to Desk on host death"
+        assert d2.id in desk, "Equipment cleanup: d2 must return to Desk on host death"
+        # attached_to must be cleared.
+        assert d1.state.attached_to is None
+        assert d2.state.attached_to is None
+        # Neither should be in graveyard.
         gy = game.state.zones.get(f"graveyard_{p1.id}")
         gy_ids = list(gy.objects) if gy else []
-        assert d1.id in gy_ids, (
-            f"HFPM override: d1 must be destroyed (in graveyard), got zones: "
-            f"d1.zone={d1.zone!r}"
-        )
-        assert d2.id in gy_ids, (
-            f"HFPM override: d2 must be destroyed (in graveyard), got zones: "
-            f"d2.zone={d2.zone!r}"
-        )
-        # And NEITHER should be on the desk.
-        desk = get_deriv_desk(game.state, p1.id)
-        assert d1.id not in desk, (
-            "HFPM override: d1 must NOT return to desk on HFPM death"
-        )
-        assert d2.id not in desk, (
-            "HFPM override: d2 must NOT return to desk on HFPM death"
-        )
+        assert d1.id not in gy_ids, "Equipment cleanup: d1 must NOT die with host"
+        assert d2.id not in gy_ids, "Equipment cleanup: d2 must NOT die with host"
         print("test_hfpm_death_kills_attached_derivatives  PASS")
 
     # ---- Change 3: Synthetic Collar nerf ---------------------------------
