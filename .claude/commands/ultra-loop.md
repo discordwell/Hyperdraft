@@ -373,6 +373,10 @@ After all iterations:
   mismatched, not the pilots — re-run with `--my-deck` and `--ai-deck`
   swapped, OR pick different decks.
 - Strategy doc + bias presets are committed after the loop finishes
-  (one commit, message summarizing the progression).
+  (one commit, message summarizing the progression). **Before the
+  commit**, run `scripts/ci_quick.sh <game>` from repo root. If it
+  fails, do NOT commit — surface the failure in the final report and
+  stop. The check is ~5–10s and catches untracked-imports / type
+  drift that the per-iter pilot/coach loop doesn't notice.
 - This skill is invoked by `/new-game-plus` P2 in both modes
   back-to-back.

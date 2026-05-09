@@ -442,6 +442,27 @@ def cmd_start(args) -> None:
 
     asyncio.run(tm.setup_game(game, deck1, deck2, flag, flag))
 
+    # Seed P2's opening hand with a specific card (for test repeatability).
+    seed_p2 = getattr(args, "seed_hand_p2", None)
+    if seed_p2:
+        lib = game.state.zones.get(f"library_{p2.id}")
+        hand = game.state.zones.get(f"hand_{p2.id}")
+        prefix = seed_p2.lower()
+        found = next(
+            (oid for oid in (lib.objects if lib else [])
+             if (o := game.state.objects.get(oid))
+             and (getattr(o, "card_def", None) or getattr(getattr(o, "characteristics", None), "card_def", None))
+             and (getattr(o.card_def if hasattr(o, "card_def") else o.characteristics.card_def, "name", "")).lower().startswith(prefix)),
+            None,
+        )
+        if found and lib and hand:
+            lib.objects.remove(found)
+            hand.objects.append(found)
+            seed_name = game.state.objects[found].card_def.name if hasattr(game.state.objects[found], "card_def") else seed_p2
+            print(f"[seed] Moved '{seed_name}' from P2 library → hand.")
+        else:
+            print(f"[seed] WARNING: '{seed_p2}' not found in P2 library — hand unchanged.")
+
     payload = {
         "game": game,
         "p1_id": p1.id,
@@ -754,7 +775,12 @@ def cmd_play_active_turn(args) -> None:
     active = order[idx % len(order)]
     seat = "p1" if active == p1_id else "p2"
     expected = getattr(args, "seat", None)
-    if expected and expected != seat:
+    if expected is None:
+        # In two-pilot mode every call must claim a seat so neither pilot can
+        # accidentally advance the other's turn.
+        print(f"error: --seat p1|p2 is required in two-pilot mode (active seat is {seat})")
+        return
+    if expected != seat:
         print(f"refused: active seat is {seat}, you specified --seat {expected}")
         print(f"(poll whose-turn and try again when it returns {expected})")
         return
@@ -1023,6 +1049,8 @@ def main() -> None:
     p.add_argument("--two-pilot", action="store_true",
                    help="Both seats are LLM-controlled. Use plan-* --seat p2 for opponent's actions, "
                         "play-active-turn instead of play-turn, and whose-turn to poll the active seat.")
+    p.add_argument("--seed-hand-p2", metavar="CARD_PREFIX",
+                   help="Move first library card whose name starts with CARD_PREFIX into P2's opening hand.")
     p.set_defaults(fn=cmd_start)
 
     sub.add_parser("state").set_defaults(fn=cmd_state)

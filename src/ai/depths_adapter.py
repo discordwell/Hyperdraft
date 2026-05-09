@@ -293,6 +293,8 @@ MEDIUM_FLAGSHIP_LETHAL_BUFFER = 3
 MEDIUM_RECENT_DAMAGE_WINDOW = 4  # Iter-7 widened 3→4: more history points catches faster chip streams earlier
 # Iter-6 lowered 6→4: drone swarms deal 4-5 hull/attack-turn; the 6-hull trigger
 # never fired even with 4 uncontested 2/1-drone swings (each 4-5 chip, always <6).
+# Iter-10 note: kept at 4; VSL-buffed drones (power 3, effective 2/swing) may benefit
+# from a tighter trigger, but the iter-10 blank-turn bug corrupted P2 game data — defer.
 MEDIUM_RECENT_DAMAGE_TRIGGER = 4  # 4+ hull lost in last 4 turns starts the escalation
 # When chip-stream is detected, force-detect this many top attackers regardless of
 # lethal projection (stops the AI from sitting idle while a swarm bleeds it out).
@@ -897,9 +899,11 @@ class DepthsAIAdapter:
             attacker = state.objects.get(spec.vessel_id)
             if attacker is None:
                 continue
+            target_obj = state.objects.get(spec.target_id)
+            t_band = (target_obj.state.depth_band if target_obj is not None else None)
             candidates = [
                 v for v in ready
-                if v.id not in used and _can_intercept(v, attacker)
+                if v.id not in used and _can_intercept(v, attacker, t_band)
             ]
             if not candidates:
                 continue
@@ -1348,10 +1352,29 @@ class DepthsAIAdapter:
                 else:
                     # Trade scoring: prefer to sink high-value enemy Vessels.
                     target_value = _power(target) + _hull(target)
+                    base_score = 0.0
                     if dmg >= _hull(target):
-                        scored.append((float(target_value) * 1.5, tid))
+                        base_score = float(target_value) * 1.5
                     elif dmg >= MEDIUM_MIN_ATTACK_DAMAGE:
-                        scored.append((float(target_value) * 0.5, tid))
+                        base_score = float(target_value) * 0.5
+                    if base_score > 0:
+                        # iter-11: Priority 3 — prefer killing low-hull Carrier (drone engine).
+                        # P2 decisive play T11: redirect attacker to finish EC at 1 hull rather
+                        # than chip flagship. Killing the engine beats 2 flagship damage (P2 report).
+                        is_low_hull_carrier = (
+                            "Carrier" in target.characteristics.subtypes
+                            and _hull(target) <= 2
+                        )
+                        if is_low_hull_carrier and dmg >= _hull(target):
+                            # Outbid the flagship urgency score — engine kill is the top priority.
+                            base_score = max(base_score, 30.0)
+                        # iter-11: Priority 4 — prefer killing homing vessels immediately.
+                        # P2 T17: Recon killed Patrol Bomber before it ever fired — homing
+                        # bypasses depth modifier so 2/turn effective regardless of band.
+                        is_homing = "homing" in (target.characteristics.keywords or set())
+                        if is_homing and dmg >= _hull(target):
+                            base_score = max(base_score, 20.0)
+                        scored.append((base_score, tid))
 
             if not scored:
                 continue
@@ -1407,14 +1430,18 @@ class DepthsAIAdapter:
         # swing — i.e., the alpha-strike scenario.
         detect_cap = MEDIUM_MAX_DETECT_PER_TURN
 
-        # Iter-7 guard: detecting without any ready interceptors is SC waste —
-        # detected attackers can still deal damage if no interceptor can be
-        # assigned. Skip voluntary detection entirely when no interceptors are
-        # available. (The history-update below still runs so future turns that
-        # DO have interceptors can see the chip-stream history.)
+        # Iter-7 guard (over-corrected, revised iter-9): detecting without any
+        # ready interceptors is usually SC waste — detected attackers can still
+        # deal damage if no interceptor can be assigned. However, detection is
+        # still worthwhile even without interceptors when:
+        #   (a) the cumulative chip stream is active (recent_damage >= trigger), OR
+        #   (b) the unintercepted lethal projection exceeds the flagship lethal buffer
+        # In those cases, detection reveals the attacker for future interception.
+        # If no interceptors AND no chip/lethal pressure → skip (the only case where
+        # detection truly wastes SC with no compensating value).
         ready_interceptors = [v for v in _own_vessels(state, defender_id) if _is_ready_to_attack(v)]
         if not ready_interceptors:
-            # Still update hull history for future turns.
+            # Always update hull history so future turns can see the chip-stream.
             turn = int(getattr(state, "turn_number", 0) or 0)
             history = self._flagship_hull_history.setdefault(defender_id, [])
             if not history or history[-1][0] != turn:
@@ -1423,7 +1450,26 @@ class DepthsAIAdapter:
                 self._flagship_hull_history[defender_id] = [
                     (t, h) for (t, h) in history if t >= cutoff
                 ]
-            return {}
+            # Check chip stream with the updated history.
+            _recent_now = self._recent_damage_taken(defender_id)
+            _chip_active = _recent_now >= MEDIUM_RECENT_DAMAGE_TRIGGER
+            # Quick lethal projection from undetected flagship-bound attackers.
+            _proj = 0
+            for s in attackers:
+                a_obj = state.objects.get(s.vessel_id)
+                t_obj = state.objects.get(s.target_id)
+                if (a_obj is None or t_obj is None
+                        or is_detected(a_obj)
+                        or "Flagship" not in (t_obj.characteristics.subtypes or set())):
+                    continue
+                _proj += _depth_modifier_damage(a_obj, t_obj, state)
+            _lethal_threat = _proj > max(0, flagship_hull - MEDIUM_FLAGSHIP_LETHAL_BUFFER)
+            if not _chip_active and not _lethal_threat:
+                # No interceptors AND no urgent threat — skip detection entirely.
+                return {}
+            # Has chip stream or lethal threat but no interceptors: fall through
+            # to normal detection logic. Detections will be emitted for reveal
+            # value even though no intercepts will be assigned this swing.
 
         # Update the per-defender hull history (iter-5 cumulative tracking).
         turn = int(getattr(state, "turn_number", 0) or 0)
@@ -1519,6 +1565,18 @@ class DepthsAIAdapter:
         ready.sort(key=lambda v: (1 if _is_carrier_vessel(v) else 0, _hull(v)))
         if not ready:
             return []
+
+        # iter-11: Pre-compute per-swing exclusions for low-hull Carriers.
+        # Never sacrifice low-hull EC unless lethal and no alternative (iter-11).
+        # Also protect the drone-spawning engine: if Drones >= 2 on our board
+        # and EC is the only candidate and EC hull <= 3, skip EC — take the hit.
+        # These checks are applied inside the per-threat loop (see below) so each
+        # swing can independently decide whether EC is the last resort.
+        own_drones_on_board = sum(
+            1 for v in _own_vessels(state, defender_id)
+            if "Drone" in v.characteristics.subtypes
+        )
+
         # Sort attackers by damage threat (descending).
         threats: list[tuple[int, AttackerSpec]] = []
         for spec in detected:
@@ -1536,9 +1594,46 @@ class DepthsAIAdapter:
             attacker = state.objects.get(spec.vessel_id)
             if attacker is None:
                 continue
-            candidates = [v for v in ready if v.id not in used and _can_intercept(v, attacker)]
+            # Iter-10 fix: pass the target's depth band (usually PERISCOPE Flagship)
+            # to _can_intercept so the engine-matching rule fires: LP at MID is within
+            # range-1 of PERISCOPE (diff=1) and should be a legal interceptor for
+            # SURFACE→PERISCOPE attacks even though distance(SURFACE,MID)=2 > 1.
+            target_obj = state.objects.get(spec.target_id)
+            t_band = (target_obj.state.depth_band if target_obj is not None else None)
+            candidates = [v for v in ready if v.id not in used and _can_intercept(v, attacker, t_band)]
             if not candidates:
                 continue
+
+            # iter-11: Apply EC hard threshold — remove low-hull Carriers unless
+            # the swing is lethal AND no non-Carrier alternative exists.
+            flagship = get_flagship(state, defender_id)
+            flagship_hull_now = _hull(flagship) if flagship is not None else 0
+            attacker_dmg = _danger  # already computed above
+            swing_is_lethal = flagship_hull_now - attacker_dmg <= 0
+            non_carrier_candidates = [v for v in candidates if not _is_carrier_vessel(v)]
+            # Build the filtered candidate pool: exclude Carriers with hull <= 2 unless
+            # the swing is lethal and there's no non-Carrier left.
+            if non_carrier_candidates or not swing_is_lethal:
+                # At least one non-Carrier exists, OR the swing is not lethal:
+                # remove any Carrier with hull <= 2 from candidates entirely.
+                # If swing IS lethal but we have non-Carrier options, still prefer them.
+                filtered = [
+                    v for v in candidates
+                    if not (_is_carrier_vessel(v) and _hull(v) <= 2)
+                ]
+                if filtered:
+                    candidates = filtered
+                # Additional drone-engine guard (Priority 2): if drones >= 2 on board
+                # AND EC is the only remaining candidate AND EC hull <= 3, skip intercept
+                # entirely — preserve the engine over blocking a non-lethal hit.
+                if (
+                    not filtered
+                    and own_drones_on_board >= 2
+                    and all(_is_carrier_vessel(v) and _hull(v) <= 3 for v in candidates)
+                    and not swing_is_lethal
+                ):
+                    # Never sacrifice low-hull EC unless lethal and no alternative (iter-11).
+                    continue
             # Prefer interceptors that survive the trade and ideally kill the attacker.
             # Pass state on attacker reads so PT pumps register; blocker stats
             # are our own so printed power is fine for relative ordering.
@@ -1555,7 +1650,6 @@ class DepthsAIAdapter:
             kills = _power(blocker) >= _hull(attacker)
             if not survives and not kills:
                 # Only chump if attacker is heading at the Flagship for >= MIN_ATTACK_DAMAGE.
-                target_obj = state.objects.get(spec.target_id)
                 if target_obj is None or "Flagship" not in target_obj.characteristics.subtypes:
                     continue
             used.add(blocker.id)
@@ -1972,13 +2066,27 @@ class DepthsAIAdapter:
 # Internal combat helpers (free functions — used by Easy + Medium policies)
 # =============================================================================
 
-def _can_intercept(blocker: 'GameObject', attacker: 'GameObject') -> bool:
-    """Reach <= 1 band by default; ``reach`` keyword bumps it to 2 (§7 keywords)."""
-    a = attacker.state.depth_band
+def _can_intercept(blocker: 'GameObject', attacker: 'GameObject',
+                   target_band: Optional['DepthBand'] = None) -> bool:
+    """Check whether ``blocker`` can intercept ``attacker``.
+
+    The engine rule (depths_combat.py:381) measures the band distance between
+    the blocker and the *attacker's target* (usually the PERISCOPE Flagship),
+    not the attacker itself.  Using the attacker's band caused the heuristic AI
+    to incorrectly reject LP at MID as an interceptor for SURFACE→PERISCOPE
+    attacks: depth_difference(SURFACE, MID)=2 > 1, but the engine allows it
+    because depth_difference(PERISCOPE, MID)=1 <= 1.
+
+    Iter-10 fix: when ``target_band`` is provided (e.g. PERISCOPE for a
+    Flagship-targeting attacker), use that for the separation check.  Falls back
+    to the attacker's own band when the target is unknown, preserving legacy
+    behaviour for non-Flagship-bound attacks.
+    """
+    sep_band = target_band if target_band is not None else attacker.state.depth_band
     b = blocker.state.depth_band
-    if a is None or b is None:
+    if sep_band is None or b is None:
         return False
-    sep = depth_difference(a, b)
+    sep = depth_difference(sep_band, b)
     max_reach = 2 if "reach" in blocker.characteristics.keywords else 1
     return sep <= max_reach
 
@@ -1997,7 +2105,9 @@ def _would_die_to_lethal_interceptor(state: GameState, attacker: 'GameObject',
     for v in _own_vessels(state, defender_id):
         if v.id == target.id:
             continue
-        if not _can_intercept(v, attacker):
+        # Pass target_band so the check mirrors the engine rule (intercept range
+        # is measured against the attack's target, not the attacker's own band).
+        if not _can_intercept(v, attacker, target_band):
             continue
         if _power(v) >= _hull(attacker) and _power(attacker) < _hull(v):
             return True

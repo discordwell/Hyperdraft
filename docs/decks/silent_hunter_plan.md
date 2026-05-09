@@ -124,6 +124,44 @@ OR (b) the opp is a combo deck that out-grinds (Deep Strike).
   the aggressive-race plan from T1).
 - **Auto-mull**: 0 cards costing ≤2T.
 
+## Iter-11 key lessons
+
+**EC kill is the highest-value play after landing combat damage on EC**:
+When Snorkel combat damage (or any intercept exchange) reduces EC to ≤2 hull,
+redirect an attacker to finish it immediately. Do not chip the Flagship instead.
+EC kill freezes the drone engine permanently — worth more than any 2 Flagship hull.
+Confirmed iter-11: EC kill on T11 froze P1 at 3 Drones for turns 11-23.
+
+**LP gate — SC banking for burst interception**:
+LP only intercepts when SC is spent to detect the attacker first. SC income is ~1/turn.
+With 3 Drones attacking simultaneously, LP can intercept at most 1/turn. To guarantee
+LP fires during critical early turns (T4-T5), bank SC in T1-T3 (spend 0 SC on other
+detections). Arriving at T4 with SC=3-4 lets LP intercept 3-4 Drone attacks in burst
+while Snorkel chips the Flagship uncontested.
+
+**Patrol Bomber must be killed immediately (homing priority)**:
+Patrol Bomber (2/1 homing) bypasses depth modifier. Every turn PB is alive costs 2
+effective hull. Use cheapest available vessel attack (Periscope Recon 1/2 trades into
+PB 2/1 favorably — PB's power 2 at SURFACE→PERISCOPE = max(1,2-1)=1 vs Recon's hull 2,
+Recon survives). Priority: detect+kill PB the turn after it deploys.
+
+**Width closing alpha beats partial interception**:
+Iter-11 closing alpha: 6 attackers, P1 intercepted Snorkel with Escort Frigate (best
+response). Remaining 5 attackers dealt 7 damage to 4-hull Flagship. Build wide — even
+losing your best attacker to interception, enough width closes the game.
+
+**Fallback when Snorkel not in opener**:
+T1 LP → T2 Stalker Sub → T3 start attacking. Probe to DEEP for SC-drain pressure. Clock
+is 2/turn instead of 4/turn, but the attrition plan (kill EC, reduce drone count, build
+width) still wins vs Carrier. Target lethal T20-T25 without Snorkel opener. Do not hold
+Wolf at the Door hoping to play it — with constant TC pressure it is rarely affordable
+during the race. Treat Wolf as insurance, not a plan.
+
+**Bottom-Crawler Probe as vessel-killer**:
+Probe (1/4 DEEP) can redirect from Flagship to kill individual Drones (1 damage exactly
+kills 1-hull Drone; Probe takes 1 back, remains at 3 hull). Reducing drone count by 1/turn
+is worth more than 1 Flagship chip/turn in the endgame when the opponent's board is wide.
+
 ## Play priorities (order)
 
 0. **AGGRESSIVE-RACE PIVOT (iter-3 add) when neither Listening Post
@@ -139,11 +177,14 @@ OR (b) the opp is a combo deck that out-grinds (Deep Strike).
    This is a viable Plan B for the deck, NOT a desperation move.
 1. **Listening Post on T1 if available** — sets the wall the
    opponent must remove (and Wolfpack has no removal).
-2. **Bank Sonar through T7-T11.** Do NOT spend SC on speculative
-   detections. The opponent's chip damage in this window is *cheap to
-   absorb* relative to the SC you'd burn detecting it. Pilot B
-   followed this line cleanly: through T11 they spent 0 SC even while
-   taking ~9 hull damage.
+2. **Bank Sonar for burst detection at LP's critical window (T4-T5)**. Against Carrier,
+   spend 0 SC on T1-T3 even if taking chip damage. Arrive at T4-T5 with SC=3-4 banked.
+   Use banked SC to fund LP interceptions during the turns before EC comes online (T4 is
+   EC's earliest landing). LP-with-banked-SC absorbs 3-4 Drone attacks in burst; after
+   EC lands and spawns Drones, the volume will exceed your bank. Pivot to surgical
+   detection (priority #3 below) after EC lands.
+   Against Wolfpack (slower clock): bank through T7-T11 as before — the opponent's chip
+   damage is cheap to absorb relative to the SC you'd burn detecting it.
 3. **Surgical detection T13+.** Spend banked SC on the *threats you
    cannot afford to leave alive* — the Pack Leaders, Hammerheads,
    buffed Snorkel Stalkers. Let the 1-power Wolf-cubs through.
@@ -408,6 +449,31 @@ OR (b) the opp is a combo deck that out-grinds (Deep Strike).
     Untested; suspect this is a much harder matchup. See contested
     question in strategy doc.
 
+### Iter 9 (2026-05-07) — vs Carrier (LLM Pilot A), both engine fixes applied
+**Won**. Engine bugs fixed this pass; first clean result since iter-8.
+
+Key findings:
+- **LP draw variance (critical pattern)**: Iters 8 AND 9 both failed to get LP in the
+  opening hand in at least one run. The LP-less-opener risk is a recurring structural
+  problem. **Recommendation for iter-10**: use a seeded hand or harness `--force-hand`
+  flag to guarantee LP in at least one test. Two consecutive natural draws without LP
+  is insufficient sample size to evaluate the LP-present matchup.
+- **Homing bug fix benefits SH**: SURFACE Drones now deal 1 damage each (not 2) when
+  undetected. SH's Flagship absorbs drone swarms at half the previous rate. P2 banked
+  SC=9+ without needing to spend any SC on detection — the corrected damage rate is low
+  enough that detection can be entirely deferred.
+- **No-interceptors detection guard fix helps P1 not P2**: the `_medium_detections`
+  guard fix was a P1 AI improvement (Carrier's heuristic AI now detects even when no
+  interceptors are ready, if lethal threat is projected). Does not directly affect SH
+  game plan.
+- **SC banking confirmed dominant**: P2 banked 9+ SC without spending any. The corrected
+  1-damage drone rate means SH does NOT need to invest SC in early detection vs Carrier
+  swarms. The SC saved funds late-game surgical interception of the Carrier engine itself.
+
+**Iter-10 recommendation**: run a 3-game mini-tournament (best-of-3) with seeded LP in P2
+opener for at least 2 of the 3 games, to isolate Carrier matchup quality from LP draw
+variance.
+
 ### Iter 6 (2026-05-07) — vs Carrier (LLM Pilot A), P2 mostly heuristic
 **Lost** in T17, ME=0/25, OPP=25/25. Harness pickle race condition degraded
 P2 to heuristic autopilot after T2 (concurrent writes from both pilots).
@@ -417,9 +483,13 @@ Calibration findings (from P2's T2 window + heuristic behavior observed):
 - **Bank-until-T8 is WRONG vs Carrier**: Carrier builds a 4-drone board by T5.
   4 × 2/1 drones = 4-5 hull/swing. 12 free turns of chip = certain loss.
   SH vs Carrier: detection investment must begin T5, not T11.
-- **LP band placement is load-bearing**: Heuristic deployed LP at MID. SURFACE
+- ~~**LP band placement is load-bearing**: Heuristic deployed LP at MID. SURFACE
   attackers targeting PERISCOPE flagship cannot be intercepted by a MID vessel
-  (band coverage rule). LP must be at SURFACE or PERISCOPE for SURFACE attackers.
+  (band coverage rule). LP must be at SURFACE or PERISCOPE for SURFACE attackers.~~
+  **RETRACTED (iter-10)**: LP at MID IS within intercept range of the PERISCOPE
+  flagship (depth_difference(PERISCOPE, MID)=1 ≤ DEFAULT_INTERCEPT_RANGE=1). The
+  AI heuristic was not assigning LP as an interceptor due to an adapter bug in
+  `_can_intercept`, now fixed. LP at MID (its default) is correct placement.
 - **Heuristic SH never attacked**: the heuristic has no attack policy vs a wide
   board without clear interception opportunities. Manual pilots must push
   counter-attacks aggressively when ahead on SC.
@@ -432,6 +502,70 @@ Calibration findings (from P2's T2 window + heuristic behavior observed):
 Open question: can SH's stealth attackers create a race where P1 is forced to
 spend SC detecting YOUR vessels while your Listening Post walls chump P1's
 drones? Untested — would require a fully LLM-piloted P2 game.
+
+### Iter 11 (2026-05-09) — vs Carrier (LLM Pilot A), first clean LP-active game
+**Won** in 23 turns, ME=2/25, OPP=0/25. First clean LP-active game with all fixes active.
+
+Key findings:
+- **Snorkel not in opener — fallback plan worked**: Snorkel appeared T7 via draw. Clock delayed 4
+  turns. Despite the delay, the attrition plan (LP wall + kill EC + build width) won. Confirmed:
+  the fallback plan is viable. Target lethal is T20-T25 without Snorkel opener.
+- **EC kill was the game-deciding play**: Redirected Stalker Sub at T11 to finish EC (at 1 hull
+  from Snorkel T9 combat damage). EC killed. P1 frozen at 3 Drones for the rest of the game.
+  Flagship chipping would have been worth ~2 hull; EC kill was worth ~12 hull-equivalent in
+  Drones P1 never spawned. This is the highest-value target when EC is at ≤2 hull.
+- **LP did intercept (adapter fix confirmed)**: LP hull went 3→1 over 2 interceptions (T4-T14
+  window). However, the binding constraint was SC: with SC income ~1/turn and 3 Drones attacking,
+  LP only fired when detection was funded. LP is reactive, not passive. 13 turns elapsed before
+  P2's detection threshold triggered reliably. LP provided exactly 2 confirmed intercepts before dying.
+- **Killing Patrol Bomber immediately was correct**: Periscope Recon killed PB on T17 before it
+  fired. PB (homing 2/1) would have dealt 2 hull/turn for the rest of the game — a total of
+  ~4-6 hull saved for the cost of 1 Recon hull. Any time PB deploys, kill it before your next turn.
+- **Width alpha closed the game despite losing Snorkel**: Closing alpha with 6 attackers; P1
+  intercepted Snorkel with Escort Frigate (both died). Remaining 5 attackers dealt 7 damage to
+  4-hull Flagship. Build wide — partial interception cannot stop width at game end.
+- **Wolf at the Door never cast**: Constant TC pressure meant Wolf (3T,1S) was unaffordable
+  throughout the race. Confirmed: treat Wolf as insurance, not a plan component.
+- **Defense AI EC-as-interceptor bug helped P2**: The AI assigned EC (at 1 hull) as interceptor
+  for Stalker Sub, killing it. This is a bug the encoder will fix — do not rely on it in future
+  games. Instead, plan for P1's EC to survive and target it with a vessel attack.
+
+### Iter 10 (2026-05-07) — vs Carrier (LLM Pilot A), harness blank-turn bug corrupted data
+**Lost** in 20 turns, ME=0/25, OPP=21/25. **Data is not clean** — turns 5, 7, 9, 11, 13, 17
+ran blank due to the `--seat` two-pilot coordination bug (now fixed). P2 took only ~4 meaningful
+turns. The LP+Snorkel opener test never materialized — Snorkel Stalker was never deployed.
+
+**LP band analysis — CORRECTED (overrides iter-6/8/A claims)**:
+- LP's `default_depth=MID` is correct by design. LP at MID IS within intercept range of the
+  PERISCOPE Flagship: `depth_difference(PERISCOPE=1, MID=2)=1 <= DEFAULT_INTERCEPT_RANGE=1`.
+  LP at MID CAN legally intercept SURFACE→PERISCOPE attacks.
+- Prior iter-6 claim "LP at MID is a complete defensive blank vs SURFACE attackers" was wrong.
+  The observed blanking was caused by an adapter bug: `_can_intercept` in depths_adapter.py used
+  `depth_difference(attacker.band, blocker.band)` (diff SURFACE/MID=2 > 1 → rejected) instead of
+  the engine rule `depth_difference(target.band, blocker.band)` (diff PERISCOPE/MID=1 ≤ 1 → legal).
+- **Fix shipped iter-10**: `_can_intercept` now accepts `target_band` and all callers pass the
+  attack target's depth band. LP at MID will correctly intercept SURFACE→PERISCOPE attacks.
+- **Strategic implication**: LP at MID absorbs ~3 drone hits before dying (hull=3). Deploy LP T1-T2,
+  let it act as the wall. No need to manually surface it to PERISCOPE (that was wrong guidance).
+
+**Wolf at the Door confirmed strong T6-T8 deploy**:
+- DEEP homing (power 3, effective at full vs PERISCOPE despite depth) + hull=4 makes it resilient.
+  P2's final dead-cat-bounce included Wolf contributing meaningful hits. Elevate Wolf's priority in
+  the deployment order when Snorkel is not in hand by T4.
+
+**Iter-10 suggested opening with LP**:
+- T1: LP ({1S}) — deploys at MID (correct, within PERISCOPE intercept range). No TC cost.
+- T2: Snorkel Stalker ({2T}) at PERISCOPE. Flagship clock starts T3 (4 dmg/turn).
+- T3-T5: LP absorbs 1-2 SURFACE drones/swing (now that adapter bug is fixed). Snorkel chips.
+- T6-T7: If VSL appears on Carrier side, escalate SC detection immediately (VSL = 2 dmg/drone).
+
+**Phantom as T9 emergency play**:
+- Type-XXI Phantom (5/4, {4T,2S}, DEEP, homing+SR): deals 5 homing damage/turn from DEEP.
+  When P1 SC < 5, Phantom is effectively undetectable. In games where LP opener is not drawn,
+  deploy Phantom T9-T11 as the primary clock alternative. Do not hold it as theoretical late-game.
+
+**Iter-11 plan**: this will be the first clean LP opener test with (a) harness fix active,
+(b) LP intercept adapter fix active, (c) seeded LP in P2 opener. Critical matchup data pending.
 
 ### Iter 7 (2026-05-07) — vs Carrier (LLM Pilot A + Pilot B dual-seat), P2 heuristic AI
 **Lost** in 18 turns, ME=0/25, OPP≈11/25. Pilot B controlled both seats in a

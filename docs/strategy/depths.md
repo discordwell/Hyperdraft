@@ -18,16 +18,27 @@ Format-level lessons go here; deck-specific lessons live in
 - Damage from attacker → target = `max(1, power - |attacker_band - target_band|)`.
 - Flagship sits at PERISCOPE (band 1). So attacking from PERISCOPE → no
   penalty. From SURFACE (band 0) or MID (band 2) → −1. From DEEP (band 3) → −2.
-- **RESOLVED (iter-7): depth modifier fires for ALL combat, detected or undetected.**
-  Both Pilot A and Pilot B observed "2 damage" from SURFACE (band 0) → PERISCOPE
-  (band 1) and hypothesised undetected attackers bypass the modifier. This hypothesis
-  is INCORRECT. Investigation: `assign_damage` in `src/engine/depths_combat.py`
-  captures pre-pipeline events (raw power=2) in its `emitted` return list; the
-  pipeline transform interceptor then modifies the event to amount=1; the actual
-  damage recorded on the target object is 1. Harness logs printed the pre-transform
-  value, causing the "2 damage" confusion. Unit test `test_undetected_attack_depth_modifier`
-  in `tests/test_depths_smoke.py` confirms: SURFACE 2/1 attacker vs PERISCOPE flagship
-  applies 1 actual damage (not 2). The depth modifier formula applies to ALL combat.
+- **CORRECTED (iter-9): depth modifier IS applied to all combat — but a library-
+  registration bug caused it to silently skip for SURFACE→PERISCOPE attacks in iters
+  6-8.** Root cause: `_damage_modifier_handler` in `src/engine/depths_combat.py` used
+  `has_ability(src, "homing", state)` to decide whether to skip the modifier.
+  `has_ability()` scans QUERY interceptors from `state.interceptors` WITHOUT zone-gating
+  — so Fleet Admiral Yamamoto's "Drones you control have homing" QUERY interceptor
+  (registered when Yamamoto was put in the library at game setup) was visible and
+  matched all Drones controlled by P1, even Drones Yamamoto never grants homing to
+  in actual play. Effect: every P1 Drone was treated as homing → modifier skipped →
+  Drones dealt full printed power (2) instead of depth-modified (1) for SURFACE→PERISCOPE.
+  **Fix (iter-9)**: `_damage_modifier_handler` now checks
+  `"homing" in src.characteristics.keywords` (the printed/battlefield-static value)
+  instead of `has_ability()`. Regression confirmed: hull delta is now 1 for an
+  undetected non-homing SURFACE→PERISCOPE attacker, and 2 for a printed-homing attacker.
+  Unit test added to `tests/test_subs.py`. The iter-7 "RESOLVED" conclusion
+  ("harness display artifact") was incorrect — both pilots were observing real engine
+  behaviour. Corrected here.
+  **Strategic implication**: SURFACE drones deal 1 (not 2) to a PERISCOPE flagship
+  when detected. Undetected non-homing drones also deal 1 (after fix). Detection cost
+  (1 SC) is now break-even per drone intercepted at this range. Carrier's advantage
+  is WIDTH, not undetected full-power hits.
 - Detection sub-game: an undetected attacker may not be intercepted, but
   still deals damage. Defender pays Sonar (cost = `1 + depth_difficulty`)
   to detect, then can declare interceptors.
@@ -167,6 +178,19 @@ oxygen tick, EOT modifier sweep).
   "greedy" and the patch surface is wider. Document as a contested
   question if a future iter exploits it.
 
+- **PATCHED (2026-05-07, iter 10): `_can_intercept` used wrong band reference.**
+  `_can_intercept(blocker, attacker)` in `depths_adapter.py` computed
+  `depth_difference(attacker.band, blocker.band)`. For SURFACE attacker vs MID LP:
+  `diff(SURFACE=0, MID=2)=2 > DEFAULT_INTERCEPT_RANGE=1` → LP rejected as interceptor.
+  But the engine's `can_intercept` (depths_combat.py:381) uses the attacker's TARGET
+  band (the PERISCOPE Flagship): `diff(PERISCOPE=1, MID=2)=1 ≤ 1` → LP is legal.
+  This was the root cause of LP appearing useless in iters 6-10 — the adapter's
+  heuristic refused to assign LP as an interceptor even when it was engine-legal.
+  **Fix**: `_can_intercept` accepts an optional `target_band` param; all call sites
+  (easy, medium, would-die-to-lethal check) now pass the attack target's depth band.
+  LP at MID will now correctly volunteer to intercept SURFACE→PERISCOPE attacks.
+  The LP-being-a-wall lesson is now unblocked for iter-11 testing.
+
 (Each new ultra-loop run that surfaces a heuristic-specific exploit
 goes here.)
 
@@ -237,6 +261,24 @@ goes here.)
     here. Future iters should test the no-LP/no-Snorkel B opener
     explicitly (force-mulligan harness) to settle this.
 
+## Settled lessons (resolved questions)
+
+- **CONFIRMED iter-11 (N=1 clean game): LP+Snorkel opener beats Carrier EC swarm.**
+  SH won 2/25 hull remaining in 23 turns with LP at MID correctly intercepting (adapter
+  fix confirmed working). The iter-10 question "Does LP+Snorkel race beat Carrier before
+  VSL comes online?" is now answered: YES, SH wins if Snorkel lands by T4 and LP
+  intercepts 1-2 drones/swing. Carrier's VSL must land by T7 with EC alive to contest
+  this. N=1, so treat as provisional — a second clean game is warranted.
+
+- **CONFIRMED iter-11: EC kill is a higher-priority target than Flagship chip when EC ≤2 hull.**
+  Killing EC at 1 hull froze P1's drone engine for 12 turns. The engine kill was worth more
+  hull-equivalent value than any 12 turns of direct Flagship chip would have been.
+
+- **CONFIRMED iter-11: LP is detection-gated (REACTIVE), not static.**
+  SC income (~1/turn) is the binding constraint on LP's usefulness, not its band position.
+  Against 3 drones, LP can at most intercept 1/turn (costs 1 SC to detect). Any more
+  requires banked SC. "LP absorbs 3 drone hits" requires 3 separate SC-funded detections.
+
 ## Contested strategic questions
 
 - **Should defensive 0-power chump interceptors have a downside?**
@@ -262,9 +304,31 @@ goes here.)
   T23-T28 advanced without P2 having a window to queue actions; Pilot
   A's poll-and-play loop ran ahead. This is a harness bug, not a
   strategy question, but it directly affected iter-2's outcome —
-  Pilot B's late game ran on autopilot. Fix in `scripts/llm_pilot/`
-  before iter-3 (out of scope for this doc; flagged so it doesn't get
-  lost).
+  Pilot B's late game ran on autopilot. **FIXED iter-10**: `--seat` is
+  now required in two-pilot mode; the harness refuses and prints an error
+  if omitted. This prevents P1's agent from accidentally advancing P2's
+  turn blank.
+
+- **RESOLVED iter-11: Does LP+Snorkel opener race beat Carrier before VSL comes online?**
+  YES — confirmed N=1 clean game (iter-11). SH won 2/25 hull with LP at MID intercepting
+  (adapter fix active, harness clean). Snorkel landed T4 (delayed from ideal T2 due to draw
+  variance), LP intercepted 1-2 drones/turn when SC was available. Carrier reached 2 hull
+  before losing — margin is thin but the result is clear. VSL must land by T7 AND EC must
+  survive for Carrier to contest this line. Reclassified to Settled once N=2.
+
+- **NEW iter-11 (OPEN): Can Carrier win if VSL lands T7 and EC is protected?**
+  Not yet tested. The iter-11 game saw EC die T11 to AI interceptor assignment (EC at 1 hull
+  used as blocker for Stalker Sub — adapter bug, see Engine punchlist). With EC surviving and
+  VSL at T7, P1's projected output doubles: 3 drones × 2 effective = 6 hull/turn vs SH's
+  6-7/turn. The race may be close enough to flip. Iter-12 should force Carrier to: (a) never
+  use EC as interceptor regardless of board state, (b) attach VSL T7. Compare hull totals to
+  iter-11 to isolate EC survival value.
+
+- **NEW iter-11 (OPEN): Can P2 deliberately drain P1 SC via Recon-bait targeting?**
+  P2's Periscope Recon (SR keyword, detection cost 3 SC) was the direct cause of P1's T17
+  SC bankruptcy. If SH can force P1 to detect Recon (via vessel-to-vessel targeting threats),
+  the SC cascade fires automatically. Iter-12 should test whether this bait pattern is
+  reproducible across different opener mixes.
 
 - **NEW iter-5: Are post-fix balance numbers signs of over-correction?**
   Tournament data after all iter-1→4 engine fixes
@@ -613,6 +677,125 @@ goes here.)
 
 ## Changelog
 
+- **2026-05-09 (iter 11)**: **Carrier (P1, LLM Pilot A) LOST 0/25 vs Silent_Hunter (P2, LLM Pilot B) WIN 2/25 in 23 turns.**
+  First confirmed LP-active, harness-clean game. Both pilots reported consistent observations. Key updates:
+
+  **LP gate behavior — CONFIRMED AND DOCUMENTED**: LP's intercept geometry fix (iter-10) is verified working.
+  LP at MID correctly intercepted SURFACE→PERISCOPE Drones when the defense AI spent SC to detect first.
+  LP fired 1-2 times total across the game — not because it was mispositioned, but because SC income
+  (~1/turn) is the binding constraint. With 3+ drones attacking simultaneously, the AI cannot afford
+  detection for every drone every turn, so LP only intercepts when detection is funded. LP is a
+  REACTIVE wall (detection-gated), not a STATIC wall (passive auto-block). This resolves the
+  iter-10 contested question: LP IS functional, but SC budget management is the true bottleneck.
+
+  **EC kill priority — CONFIRMED HIGH VALUE**: Killing Escort Carrier at 1 hull (after Snorkel
+  combat damage on T9) froze P1's drone engine at 3 Drones for the rest of the game (turns 11–23).
+  EC at ≤2 hull is now a higher-value kill target than chipping the Flagship. Redirecting one
+  attacker to finish EC saves ~6-8 drone bodies that would otherwise spawn.
+
+  **SC starvation cascade — STILL LIVE**: P1 spent 3 SC detecting Periscope Recon on T17,
+  leaving SC=0. Snorkel's T19 swing (4 damage) was uncontested. The cascade pattern persists
+  even with MEDIUM_MAX_DETECT_PER_TURN=3 in place — the cap only applies to the AI, not to
+  LLM pilots who may voluntarily over-spend.
+
+  **Defense AI EC interceptor threshold bug — PERSISTS**: The Carrier-deprioritization sort
+  (iter-8) was insufficient. When EC was the ONLY available interceptor (non-Carrier vessels
+  tapped or dead), the sort had no effect — EC at 1 hull was still assigned. A hard threshold
+  ("never use EC as interceptor if EC.hull ≤ 2") is needed in the encoder, not in BIAS_PRESETS.
+  This is the single highest-impact remaining AI logic bug.
+
+  **Patrol Bomber homing threat — CONFIRMED**: P2 killed Patrol Bomber on T17 before it could
+  fire. Homing (bypasses depth modifier) makes PB a disproportionate threat. SH must answer it
+  immediately. Carrier should deploy PB only on the turn it can attack.
+
+  **Contested question resolved — "Does LP+Snorkel race beat Carrier?"**: YES, confirmed clean
+  iter-11 (N=1, LP at MID active, LP intercept fix active). SH won 2/25 hull. Margin is thin —
+  P1 reached 2 hull before losing. The matchup leans SH but is not a blowout.
+
+  **New contested question**: "Can Carrier win if VSL lands T7 and EC is protected from
+  interceptor assignment?" — not yet tested. Iter-12 should force Carrier to protect EC
+  (never assign as interceptor) AND attach VSL T7.
+
+  **Vessel-to-vessel targeting new format lesson**: P2's Periscope Recon (1/2) killed P1's
+  Patrol Bomber (2/1) via direct vessel attack, not interception. This kill format is legal
+  and tactically decisive — killing key attackers before they fire is the correct play.
+  Carrier should assume any newly deployed homing attacker will be targeted next turn.
+
+  **Heuristic constants stable**: no BIAS_PRESET changes this iter. The SC starvation cascade
+  is an LLM pilot behavior pattern (not addressable via AI constants alone). The EC threshold
+  bug is an encoder fix, not a constant change.
+
+- **2026-05-07 (iter 10)**: Iter-10 entry. **Carrier (P1, LLM Pilot A) WON 21/25 vs 0/25 in 20 turns.
+  Silent_Hunter (P2, LLM Pilot B) lost.** Harness blank-turn bug (fixed this pass — `--seat` now required
+  in two-pilot mode) corrupted P2's game: turns 5, 7, 9, 11, 13, 17 ran blank. P2 took only ~4 meaningful
+  turns. The LP+Snorkel opener test is still unresolved. Carrier win is real; matchup data is
+  not clean.
+
+  **Doctrine corrections (two pre-verified facts override iter-6/8/A analysis)**:
+  - **LP band geometry — CORRECTED**: `can_intercept` in `depths_combat.py:381` checks
+    `depth_difference(target_band, interceptor_band)` where `target_band` is the FLAGSHIP's
+    PERISCOPE band. LP at MID: `depth_difference(PERISCOPE=1, MID=2)=1 <= DEFAULT_INTERCEPT_RANGE=1` →
+    LP at MID CAN legally intercept SURFACE→PERISCOPE attacks. The iter-6 claim "LP at MID is a
+    complete defensive blank vs SURFACE attackers" was wrong. LP's `default_depth=MID` is correct by
+    design. **Strike all prior claims that LP must be at SURFACE.**
+  - **AI interceptor bug found and fixed**: The adapter's `_can_intercept` (depths_adapter.py) used
+    `depth_difference(attacker.band, blocker.band)` — the wrong operand. For SURFACE attacker vs MID LP:
+    diff=2 > 1 → LP rejected. But the engine uses `depth_difference(target.band, blocker.band)` =
+    `depth_difference(PERISCOPE, MID)=1 ≤ 1` → LP is legal. **This is why the AI never volunteered LP
+    as an interceptor in iters 6-10.** Fix shipped: `_can_intercept` now takes an optional `target_band`
+    param; all callers in the medium/easy/hard tiers pass the attack target's band. LP at MID will now
+    correctly volunteer for SURFACE→PERISCOPE interception.
+  - **Harness blank-turn bug (FIXED)**: `play-active-turn` without `--seat` in two-pilot mode ran
+    whichever seat was active. P1's agent could advance P2's turn as a blank. Fix: `--seat` is now
+    required in two-pilot mode; wrong-seat calls print an error and refuse. In `scripts/play/depths_wet_test.py`.
+
+  **VSL (Veteran Squadron Lead) effect confirmed**:
+  - VSL attached to EC on T8 boosted Drone power 2→3. Post-fix depth modifier (SURFACE→PERISCOPE) = 1,
+    so effective damage: power-3 Drone = max(1, 3-1) = 2/swing. This doubled per-attacker output.
+    Six-attacker swing dealt 11 hull damage (all undetected; P2 spent 0 SC despite having SC=4).
+  - **Detection value of VSL-buffed Drones shifts**: detecting a 3-power Drone (2 effective) costs 1 SC
+    and saves 2 hull — strongly value-positive for the defender (was break-even at power 2). Once VSL
+    attaches, P2 should immediately escalate detection budget. P2 iter-10 failure to detect the T8 swing
+    was the decisive mistake.
+  - **Recommended VSL timing**: attach T7 (one turn after EC lands T6) not T8. Iter-10 attached T8 —
+    T7 VSL would have doubled output one turn earlier.
+
+  **Still open — LP+Snorkel vs Carrier clean test**: P2 never deployed Snorkel Stalker due to
+  blank-turn cascade. The question "Can SH race Carrier when LP is active and AI intercepts correctly?"
+  is now more urgent: with the LP intercept bug fixed, iter-11 is the first opportunity for a clean
+  test. Recommend seeded LP in P2 opener.
+
+  **Heuristic patches (iter-10)**:
+  - `_can_intercept` target_band fix described above. This resolves the LP interception bug across all
+    difficulty tiers.
+  - `MEDIUM_RECENT_DAMAGE_TRIGGER` kept at 4 (VSL data corrupted by blank turns; deferring tightening).
+
+- **2026-05-07 (iter 9)**: Iter-9 entry. **Re-run of Carrier (P1, LLM Pilot A) vs Silent_Hunter
+  (P2, LLM Pilot B) with iter-8 fixes applied. P1 WON 11/25 vs 0/25 in 19 turns.**
+  Token engine confirmed fully working (all Drone tokens at SURFACE, full damage delivered).
+  EC never sacrificed as interceptor (AI fix confirmed). SC starvation cap (MEDIUM_MAX_DETECT_PER_TURN=3)
+  not triggered — P2 spent 0 SC detecting across the entire game. LP was NOT in P2's opening hand
+  (second consecutive iter without LP). The "no-interceptors" guard from iter-7 over-blocked
+  detection: P2 had SC=9+ banked and never spent any despite Snorkel Stalkers dealing 4 dmg/turn.
+
+  **Three fixes shipped this iter**:
+  1. **Bug 1 (CRITICAL): No-interceptors guard revised.** The iter-7 guard
+     (`_medium_detections` returns {} when no ready interceptors) is now conditional:
+     returns {} only when no interceptors AND no chip-stream AND no lethal projection.
+     When chip or lethal threat is present, detection proceeds (for reveal value).
+  2. **Bug 2 (CRITICAL): Depth modifier was silently skipped.** `_damage_modifier_handler`
+     used `has_ability(src, "homing", state)` which scanned all QUERY interceptors
+     including library-registered ones (Fleet Admiral Yamamoto's homing grant, active
+     from game setup before Yamamoto was ever played). All Carrier Drones appeared
+     "homing" → modifier skipped → full printed power (2) applied instead of 1.
+     Fix: use `"homing" in src.characteristics.keywords` (zone-safe printed check).
+     Regression tests added.
+  3. **Bug 3 (DOC only): Crash-Boat Pilot sac is unconditional.** No hull threshold.
+     Fires on any Flagship attack. Updated carrier_plan.md.
+
+  **LP absent two consecutive iters**: SH has drawn LP 0/2 iters in this matchup.
+  True LP+Snorkel vs Carrier test still pending. Recommend iter-10 seeded hand.
+
 - **2026-05-07 (iter 8)**: Iter-8 entry. **New matchup repeat: Carrier (P1, LLM Pilot A,
   EC-by-T4 directive) vs Silent_Hunter (P2, LLM Pilot B, LP-T1+Snorkel-T2 mandatory).
   P2 WON 18/25 vs 0/25 in 17 turns — first clean SH victory in the Carrier matchup.**
@@ -725,8 +908,11 @@ goes here.)
   - Bank-SC-until-T8 is the WRONG doctrine vs Carrier swarm. Carrier builds a
     4-drone board by T5 and starts dealing 4+ hull/swing immediately.
     Against swarm archetypes: detection investment must begin T5, not T11.
-  - 0-power LP deployed at wrong depth band (MID) vs SURFACE attackers is a
-    complete defensive blank. The depth-band interceptor coverage rule matters.
+  - ~~0-power LP deployed at wrong depth band (MID) vs SURFACE attackers is a
+    complete defensive blank.~~ **RETRACTED (iter-10)**: LP at MID is within
+    DEFAULT_INTERCEPT_RANGE of the PERISCOPE Flagship — it IS a legal interceptor
+    for SURFACE→PERISCOPE attacks. The observed blanking in iter-6 was an adapter
+    bug (`_can_intercept` used wrong operand), not a geometry rule. Bug fixed iter-10.
   - Crew lord effects (Veteran Squadron Lead, Drone Pen Mate, Air-Sea Coordinator)
     were never tested in LLM pilot games — harness Crew deployment fix pending.
 

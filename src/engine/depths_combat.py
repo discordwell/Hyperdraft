@@ -433,7 +433,21 @@ def _damage_modifier_handler(event: Event, state: GameState) -> InterceptorResul
         return InterceptorResult(action=InterceptorAction.PASS)
 
     # Homing skip — either explicit payload flag or actual keyword.
-    if event.payload.get("source_keyword_homing") or has_ability(src, "homing", state):
+    # NOTE: We check the source object's printed keywords directly rather than
+    # calling has_ability() here. has_ability() consults QUERY interceptors from
+    # state.interceptors without zone-gating, so a keyword-grant card sitting in
+    # the LIBRARY (e.g. Fleet Admiral Yamamoto's homing grant to all Drones) can
+    # cause unrelated combat attackers to be treated as homing. The depth modifier
+    # should only honour keywords that are currently active on the battlefield —
+    # i.e., either printed on the attacker or granted by a *battlefield* permanent.
+    # Battlefield-based grants DO update characteristics.keywords via static
+    # interceptors that run through the gated pipeline, so reading printed keywords
+    # is the correct zone-safe check. (iter-9 bug fix)
+    src_has_homing = (
+        event.payload.get("source_keyword_homing")
+        or "homing" in (src.characteristics.keywords or set())
+    )
+    if src_has_homing:
         # Mark as processed so we don't re-enter on the modified copy.
         new_payload = dict(event.payload)
         new_payload[DEPTHS_DAMAGE_MODIFIER_TAG] = True

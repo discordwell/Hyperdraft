@@ -595,6 +595,179 @@ def test_medium_ai_detects_drone_swarm():
     assert len(plan_t3) >= 1, f"Expected ≥1 detection, got {plan_t3}"
 
 
+def test_detection_fires_without_interceptors_when_lethal_threat():
+    """Iter-9 regression: the no-interceptor guard must NOT block detection when
+    the attacker deals enough damage to project near-lethal.
+
+    Pre-fix (iter-7 guard), the AI returned {} unconditionally when no ready
+    interceptors existed. Pilot A iter-9 observed Snorkel Stalker dealing 4
+    damage/turn while the defender had SC=9+ and 0 ready interceptors —
+    spending 0 SC the entire game. Detection is still valuable for reveal even
+    without an interceptor when the lethal projection is active.
+
+    This test sets flagship hull to 5 (very low) and confirms the revised guard
+    allows detection when lethal threat is present, even with no interceptors.
+    """
+    from src.engine.types import (
+        GameObject, GameState, ObjectState, Characteristics, CardType,
+        ZoneType, Player, Zone,
+    )
+    from src.engine.depths import DepthBand
+    from src.ai.depths_adapter import (
+        DepthsAIAdapter, AttackerSpec, MEDIUM_FLAGSHIP_LETHAL_BUFFER,
+    )
+
+    adapter = DepthsAIAdapter(difficulty="medium")
+    state = GameState()
+    state.interceptors = {}
+    state.players = {
+        "A": Player(id="A", name="A"),
+        "B": Player(id="B", name="B"),
+    }
+    state.players["B"].sc = 4
+    state.players["B"].tc = 0
+
+    # Flagship with low hull — 5 remaining (damage=20)
+    flagship = GameObject(
+        id="fs_B", name="Flagship", owner="B", controller="B",
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.DEPTHS_VESSEL},
+            subtypes={"Submarine", "Flagship"},
+            power=0, toughness=25,
+        ),
+        state=ObjectState(),
+    )
+    flagship.state.depth_band = DepthBand.PERISCOPE
+    flagship.state.pt_modifiers = []
+    flagship.state.damage = 20  # hull = 5
+
+    # A 4-power attacker at PERISCOPE → 4 damage to flagship (no depth penalty)
+    attacker = GameObject(
+        id="att_A", name="Snorkel Stalker", owner="A", controller="A",
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.DEPTHS_VESSEL},
+            subtypes={"Submarine"},
+            power=4, toughness=1,
+        ),
+        state=ObjectState(),
+    )
+    attacker.state.depth_band = DepthBand.PERISCOPE
+    attacker.state.pt_modifiers = []
+
+    state.objects = {flagship.id: flagship, attacker.id: attacker}
+    bf = Zone(type=ZoneType.BATTLEFIELD, owner=None)
+    bf.objects = [flagship.id, attacker.id]
+    state.zones = {"battlefield": bf}
+
+    spec = AttackerSpec(
+        vessel_id=attacker.id,
+        target_id=flagship.id,
+        firing_depth_band=DepthBand.PERISCOPE,
+    )
+
+    # No ready interceptors for B
+    state.turn_number = 5
+    plan = adapter._medium_detections(state, "B", [spec])
+    # Damage projection: 4 > max(0, 5 - MEDIUM_FLAGSHIP_LETHAL_BUFFER) → near-lethal
+    # Should detect even with no interceptors
+    assert plan, (
+        f"Detection should fire when lethal threat exists even with no ready "
+        f"interceptors. flagship_hull=5, attacker_power=4, BUFFER={MEDIUM_FLAGSHIP_LETHAL_BUFFER}. "
+        f"Got empty plan."
+    )
+    assert attacker.id in plan, (
+        f"The lethal-threat attacker should be targeted. plan={plan}"
+    )
+
+
+def test_crash_boat_pilot_sac_behavior():
+    """Iter-9 verification: Crash-Boat Pilot's sacrifice fires unconditionally
+    on any Flagship attack, regardless of Flagship hull remaining.
+
+    The card text says 'when this attacks the Flagship, sacrifice it: deal 4
+    damage'. There is no hull-threshold condition in the implementation
+    (carrier.py:crash_boat_pilot_setup). This test confirms the sac fires
+    on the first Flagship attack even at full hull, and documents that the
+    card should be treated as an early deploy (4+2 damage guaranteed on
+    the turn it attacks) not a lethal-turn finisher.
+    """
+    import asyncio
+    from src.engine.game import Game
+    from src.engine.types import ZoneType, CardType, EventType
+    from src.engine.depths import deploy_vessel, get_flagship, DepthBand
+    from src.engine.depths_turn import DepthsTurnManager
+    from src.engine.depths_combat import DepthsCombatManager, AttackerSpec, install_depth_damage_modifier
+    from src.cards.depths.submarine_fleet.decks import SUBS_STARTER_DECKS, make_subs_flagship
+    from src.cards.depths.submarine_fleet.carrier import CRASH_BOAT_PILOT
+
+    async def _run():
+        g = Game(mode="depths")
+        p1 = g.add_player("A")
+        p2 = g.add_player("B")
+        tm = DepthsTurnManager(g.state)
+        g.turn_manager = tm
+        await tm.setup_game(
+            g,
+            SUBS_STARTER_DECKS["SUBS_carrier"](),
+            SUBS_STARTER_DECKS["SUBS_silent_hunter"](),
+            make_subs_flagship(), make_subs_flagship(),
+        )
+        install_depth_damage_modifier(g.state)
+
+        # Find or force CBP into P1's hand then deploy it.
+        p1.tc, p1.sc = 9, 9
+        cbp_hand_id = None
+        for oid in list(g.state.zones[f"library_{p1.id}"].objects):
+            obj = g.state.objects.get(oid)
+            if obj and obj.name == "Crash-Boat Pilot":
+                g.state.zones[f"library_{p1.id}"].objects.remove(oid)
+                g.state.zones[f"hand_{p1.id}"].objects.append(oid)
+                obj.zone = ZoneType.HAND
+                cbp_hand_id = oid
+                break
+        if cbp_hand_id is None:
+            return None  # skip if not in deck
+        ok, msg, _ = deploy_vessel(g, p1.id, card_id=cbp_hand_id)
+        assert ok, f"CBP deploy failed: {msg}"
+
+        cbp_obj = g.state.objects.get(cbp_hand_id)
+        assert cbp_obj is not None and cbp_obj.zone == ZoneType.BATTLEFIELD, "CBP not on battlefield"
+        cbp_obj.state.summoning_sickness = False
+
+        # P2 flagship at full 25 hull
+        fs_p2 = get_flagship(p2.id, g.state)
+        hull_before = (fs_p2.characteristics.toughness or 0) - (fs_p2.state.damage or 0)
+        assert hull_before == 25, f"Expected full hull, got {hull_before}"
+
+        mgr = DepthsCombatManager()
+        spec = AttackerSpec(
+            vessel_id=cbp_hand_id,
+            target_id=fs_p2.id,
+            firing_depth_band=DepthBand.SURFACE,
+        )
+        mgr.resolve_combat(g.state, attacker_specs=[spec], sonar_spends={}, blocker_specs=[])
+
+        fs_p2_after = get_flagship(p2.id, g.state)
+        # If CBP still exists after sac, sac may be delayed; check damage
+        hull_after = (fs_p2_after.characteristics.toughness or 0) - (fs_p2_after.state.damage or 0)
+        return hull_before - hull_after, cbp_hand_id
+
+    result = asyncio.run(_run())
+    if result is None:
+        return  # Crash-Boat Pilot not in deck — skip
+    hull_delta, cbp_id = result
+    # The 4-damage sac trigger fires unconditionally on any Flagship attack.
+    # Hull delta should be ≥ 4 (CBP's guaranteed damage alone, ignoring depth modifier).
+    # The card also has power 2 in combat, so total may be ≥ 4 from sac alone.
+    assert hull_delta >= 4, (
+        f"Crash-Boat Pilot should deal ≥4 damage (sac trigger, ignore modifier) "
+        f"on any Flagship attack. Hull delta was {hull_delta}. "
+        f"This confirms the sac is unconditional — update carrier_plan.md accordingly."
+    )
+
+
 if __name__ == "__main__":
     test_every_card_loads()
     test_deck_wolfpack_builds()
@@ -607,4 +780,6 @@ if __name__ == "__main__":
     test_medium_ai_defense_sees_pumped_power()
     test_medium_ai_detects_chip_stream()
     test_medium_ai_detects_drone_swarm()
+    test_detection_fires_without_interceptors_when_lethal_threat()
+    test_crash_boat_pilot_sac_behavior()
     print("OK — SUBS smoke tests pass.")

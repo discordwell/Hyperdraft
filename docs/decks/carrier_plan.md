@@ -66,8 +66,11 @@ intercepts carries.
   Snorkel Stalker or other stealth attackers that the AI's defense might miss.
   Also attacks Flagship reliably at power 2.
 - **Crash-Boat Pilot** ({2T} 2/2): special case — auto-deals 4 unblockable
-  damage to the Flagship when it attacks (ignores depth modifier). Spend it
-  as a finisher on the "almost lethal" turn. Do NOT trade it into interceptors.
+  damage to the Flagship AND sacrifices itself the first time it attacks
+  (fires unconditionally, no hull threshold). Deploy only when you are ready
+  for it to fire immediately. Do NOT deploy into a turn where your Flagship
+  attack is suicidal. The sac is not optional — it triggers on any Flagship
+  attack regardless of board state.
 - **Veteran Squadron Lead** (Crew, {2T,1S}): the lord card. +1/+1 to all
   your Drones elevates 2/1 Drones to 3/2, clearing most enemy 2-power
   interceptors. This is the pump that breaks the LP/Stalker Sub wall. Attach
@@ -98,28 +101,66 @@ intercepts carries.
 Stalker doing 4 dmg/turn to your Flagship while you try to chip theirs.
 
 **Counter-strategy**:
-1. **Ignore Listening Post early**. 2/1 Drones attacking into a 0/3 wall is
-   a losing trade (Drone dies, LP lives). Instead send Drones at the Flagship
-   undetected while LP sits idle. LP can only intercept one attacker per swing
-   — send 4 and it can at most clog one.
-2. **Prioritize killing Snorkel Stalker** if the AI deploys it (their carry is
+1. **Kill LP with mass Drone targeting (iter-11 lesson)**. LP has power 0 — attacking it
+   with 3+ Drones means zero return damage to your Drones. All 3 survive. LP dies in
+   1-2 swings. This is far better than ignoring LP (lets it absorb your drones forever)
+   or waiting for VSL (VSL requires SC you may not have). Execute LP kill as early as
+   T3-T4 when EC spawns enough Drones. After LP dies, all future Drones hit the Flagship
+   unblockable unless SH spends SC for detection. Prior guidance to "ignore LP" was wrong
+   — target LP directly with 3+ Drones and remove it cleanly.
+2. **Protect EC — do NOT use it as an interceptor (iter-11 critical lesson)**. EC at
+   any hull value is the engine piece that produces all future Drones. Using it as an
+   interceptor can kill it (AI interceptor assignment bug does this at ≤2 hull when no
+   other options exist — encoder patch pending). Manual guidance: never assign EC as
+   interceptor once its hull drops below 3. Consider diving EC to MID (1 SC) to move
+   it out of the intercept pool entirely when at low hull.
+3. **Deploy Patrol Bomber ONLY on a turn it can immediately attack (iter-11 lesson)**.
+   Homing (bypasses depth modifier) makes PB a priority kill for P2. If PB sits
+   for one turn after deployment, P2 will kill it via vessel-to-vessel targeting (a Recon
+   at 1 power trades into PB's 1 toughness for free). Deploy PB in the Maneuver phase,
+   then attack with it that same Engagement phase.
+4. **Prioritize killing Snorkel Stalker** if the AI deploys it (their carry is
    4 dmg/turn). Use Escort Frigate (reach) to intercept Snorkel Stalker before
    it accumulates chip. If it's at PERISCOPE and you have reach, intercept it.
    One Snorkel Stalker kill is worth 12-16 hull damage saved over the game.
-3. **Hit the Flagship, not the walls**. Width (5-6 attackers) forces the AI to
+5. **Hit the Flagship, not the walls**. Width (5-6 attackers) forces the AI to
    spend SC detecting. At 2 SC/turn budget, detecting all your Drones is
    impossible — some will land. Saturate detection before it matters.
-4. **Veteran Squadron Lead ASAP**. +1/+1 on Drones elevates 2/1 → 3/2.
+6. **Veteran Squadron Lead ASAP**. +1/+1 on Drones elevates 2/1 → 3/2.
    3-power attackers beat Listening Post (0/3) cleanly and KO most Stalker
    Subs. This is the deck's built-in answer to SH's 0-power chump wall.
-5. **Deploy Crash-Boat Pilot on lethal turn**. When Flagship is at <4 hull,
-   attack with Crash-Boat and get the automatic +4 ignoring depth modifiers.
-   Combine with regular drone swarm for the closing alpha.
-6. **Race SH's Snorkel clock**. SH needs T3-T10 to land 25 hull damage at
+   After LP is removed via Drone targeting, VSL-buffed Drones deal 2 effective
+   per swing vs PERISCOPE Flagship (power 3, max(1,3-1)=2).
+7. **Time Crash-Boat Pilot deployment carefully**. CBP sacs itself the first
+   time it attacks the Flagship — unconditionally (iter-9 confirmed: fires at
+   full 25 hull, no threshold). Deploy only on the turn you plan to attack
+   with it. Combine with the drone swarm for a multi-threat alpha where the
+   automatic 4 ignoring depth modifiers is guaranteed to connect.
+8. **Never over-spend SC detecting any single target**. The SC starvation
+   cascade (iter-8, confirmed again iter-11) is the most common way Carrier
+   loses control. P1 spent 3 SC detecting Recon on T17 → SC=0 → Snorkel
+   T19 alpha uncontested. Rule: never spend more than 2 SC/turn on detection
+   unless the swing is clearly lethal. Keep 1 SC in reserve at all times.
+9. **Race SH's Snorkel clock**. SH needs T3-T10 to land 25 hull damage at
    4/turn. Carrier needs T1-T3 cheap bodies eating detection budget, Carrier
    Engine T3-T5 doubling production. If Carrier is landing 6-8 chip/turn by
    T5-T8, SH can't bank SC and has to spend it detecting — breaking their
    grind plan.
+
+**LP gate understanding (iter-11 lesson)**: LP is detection-gated, not passive.
+P2 must spend 1 SC to detect your Drone before LP can intercept it. With SC income
+~1/turn and 3 Drones attacking, LP fires at most 1 interception per swing when SC is
+banked. If you keep 3 Drones attacking simultaneously, LP effectively blocks 1/turn —
+the other 2 land uncontested. This is why LP kill (strategy #1 above) beats "send 4
+drones to saturate LP" — removing LP entirely costs 2-3 Drone attacks; keeping LP
+alive costs 1 Drone hit per turn for the rest of the game.
+
+**Mulligan update (iter-11 lesson)**: The critical check is not "2 cards ≤2T" but
+"at least 1 card at {1T}" specifically. Opening 3× Escort Frigate ({2T}) + 2 Carriers
+is technically 3 cards at ≤2T but zero {1T} bodies. With no {1T} Drones, the deck
+cannot force P2 detection spending on T1-T2. The fastest Carrier path needs at least 1
+{1T} Drone (Skipjack, Recon, or Cadet) to threaten damage before P2's Snorkel
+stabilizes. Revise auto-keep condition: must include at least 1 card costing {1T}.
 
 ## TC Management (iter-7 CRITICAL correction)
 
@@ -227,10 +268,15 @@ MEDIUM_CHIP_FORCE_DETECT=2) was active. Carrier still won, but the game was hard
 - A 7-attacker swing on T14 dealt only 3 damage (P2 detected+intercepted 4 of 7 attackers)
 - ME took 14 hull damage (vs 0 in iter-6) — the patch IS constraining drone swarms
 
-**CRITICAL ENGINE DISCOVERY — RESOLVED**: Undetected SURFACE→PERISCOPE attacks deal FULL
-printed power (2 damage), not max(1, 2-1)=1. The depth modifier only applies to detected
-attackers. See strategy doc combat math section for the correction. This fundamentally
-changes damage projection: SURFACE drones at 2/1 are full-power vs Flagship when undetected.
+**ENGINE BUG — SUPERSEDED (iter-9)**: The iter-7 report claimed undetected attacks dealt full
+printed power (bypassing depth modifier). This was INCORRECT — it was a library-zone homing
+grant bug, not a detection-gating rule. Root cause: Fleet Admiral Yamamoto registers a QUERY
+interceptor (homing grant) when added to the library; `has_ability(..., "homing")` scanned
+`state.interceptors` without zone-gating, causing ALL P1 Drones to appear "homing" (depth
+modifier skipped → raw 2 damage). Fix shipped iter-9: homing check in `_damage_modifier_handler`
+now reads `characteristics.keywords` (printed/zone-safe) instead of `has_ability()`. Correct
+rule: depth modifier fires for ALL combat, detected OR undetected. SURFACE→PERISCOPE =
+max(1, 2-1)=1 effective damage (not 2). Revise all damage projections downward accordingly.
 
 **Key iter-7 findings**:
 - **Escort Carrier NEVER landed** — TC starvation from greedy {1T} deploys. Won without the
@@ -297,3 +343,85 @@ added to `_medium_detections`; cap relaxes to 2× when near-lethal alpha is proj
 **Verdict**: Both bugs combined made the Carrier engine non-functional this iter.
 A clean iter-9 (token bug fixed, AI interceptor fix applied) is needed to get the true answer
 to: "Can EC-by-T4 Carrier beat SH's LP+Snorkel opener?"
+
+### Iter 9 (2026-05-07) — vs Silent_Hunter (LLM Pilot B, LP-T1 + Snorkel-T2)
+**LOST** in 19 turns. Engine bugs fixed this pass; results now reflect true matchup dynamics.
+
+Two bugs shipped as fixes this iter:
+- **Homing grant library contamination (FIXED)**: `has_ability("homing")` returned True for
+  all P1 Drones whenever Yamamoto was in the library, skipping the depth modifier and
+  dealing 2 damage instead of 1 for SURFACE→PERISCOPE attacks. Fixed: `_damage_modifier_handler`
+  now checks `characteristics.keywords` (zone-safe). SURFACE Drones correctly deal 1 damage vs
+  PERISCOPE Flagship. Damage projection must be revised: 5 SURFACE Drones = 5 damage/swing
+  (not 10).
+- **No-interceptors detection guard (FIXED)**: iter-7 added a guard in `_medium_detections` that
+  returned `{}` immediately if no ready interceptors existed — even when lethal threat was active.
+  Fixed: guard now checks chip stream AND lethal projection before skipping. Detection fires
+  correctly when projected damage > flagship_hull - MEDIUM_FLAGSHIP_LETHAL_BUFFER.
+- **CBP sac behavior confirmed**: Crash-Boat Pilot sac fired T3 (full 25-hull Flagship). The
+  trigger is unconditional — fires on ANY Flagship attack. 4 damage dealt and vessel sacrificed
+  immediately. Plan updated: do NOT deploy CBP before the intended attack turn.
+
+P2 (SH Pilot B) spent 0 SC detecting all game (banked SC=9+ throughout). P1 spent SC on
+early detection then ran dry. Drone damage was 1/swing (not 2) after fix — half the previously
+projected pressure.
+
+**Open iter-10 questions**:
+- Does the corrected 1-damage drone rate require 2× Carrier engine online to race SH's 4-dmg/turn
+  Snorkel clock?
+- Can Yamamoto's real homing grant (once he's on battlefield) close the gap — Patrol Bombers at
+  full power despite depth penalty?
+- What is SH vs Carrier win rate over N=5 clean games (both bugs now fixed)?
+
+### Iter 11 (2026-05-09) — vs Silent_Hunter (LLM Pilot B, first clean LP-active game)
+**LOST** in 23 turns, ME=0/25, OPP=2/25. First clean LP-active game (adapter fix, harness fix both active).
+
+Key findings:
+- **TC banking executed correctly**: P1 banked T1-T2 (no {1T} Drones in opening hand — 3× EF,
+  Shoho, EC). Escort Carrier deployed P1 T3 (game T6). Engine online with 2 ETB Drones. Plan
+  executed; result shows a hand without {1T} bodies is a suboptimal keep even with TC discipline.
+- **EC killed by AI interceptor assignment at 1 hull (iter-11's decisive mistake)**: Defense AI
+  used EC (1 hull after Snorkel combat) as interceptor for Stalker Sub on P2 T5. EC died.
+  Non-EC interceptors were unavailable (tapped/dead). The Carrier-deprioritization sort from iter-8
+  is insufficient — hard threshold ("never use EC at ≤2 hull as interceptor") is needed.
+  Engine frozen at 3 Drones for turns 11-23 as a result.
+- **LP kill with Drones confirmed correct**: Iter-11 P1 directed all 3 Drones at LP across 2 turns.
+  LP power=0 → zero return damage. All Drones survived. LP died T14 (P1 T6-T7). This is the
+  primary LP counter — faster and cheaper than waiting for VSL.
+- **CBP alpha strike decisive**: Crash-Boat Pilot T1 T5 contributed 4 unblockable + 3 Drones = 8
+  damage in one turn. P2 dropped 20→12. CBP is the deck's highest burst play.
+- **Patrol Bomber killed before firing**: P2's Periscope Recon targeted PB directly (vessel-to-vessel
+  attack) the turn after PB deployed. PB never attacked. Deploy PB only on a turn it can immediately
+  swing.
+- **VSL dead weight without EC**: Drew VSL T4 but EC died T5. VSL unplayable for the rest of the game.
+  VSL is contingent on EC survival; protect EC above all other considerations.
+- **Race math**: P2 at 2 hull at game end. Carrier nearly won despite EC death — the LP kill + CBP
+  alpha were decisive. With EC alive and VSL attached, the math would have flipped.
+
+### Iter 10 (2026-05-07) — vs Silent_Hunter (LLM Pilot B, blank-turn harness bug)
+**Won** in 20 turns, ME=21/25, OPP=0/25. Fastest Carrier win in the series. **Data is not clean** —
+P2's turns 5, 7, 9, 11, 13, 17 ran blank due to the `--seat` coordination bug (fixed this pass).
+P2 only took ~4 meaningful turns. This win does not resolve the LP+Snorkel matchup question.
+
+Key findings:
+- **VSL attachment timing**: VSL attached to EC on T8 (2 turns after EC landed T6). The T8
+  VSL-buffed 6-attacker swing dealt 11 hull damage. Recommended optimum: **attach VSL on T7** if
+  TC=2 + SC=1 available. Every additional pre-VSL swing is running at half damage (1 instead of 2
+  per drone). VSL T7 adds another doubled-output turn.
+- **VSL doubles Drone output**: power 3 Drones → max(1, 3-1)=2 effective vs PERISCOPE Flagship.
+  Detection value flips: detecting a VSL-buffed Drone saves 2 hull for 1 SC (excellent). Defenders
+  should escalate detection immediately when VSL attaches. P2 iter-10 spent 0 SC on the T8 VSL swing
+  with SC=4 available — decisive mistake.
+- **Crash-Boat Pilot never drawn** this game. Not needed at 6-attacker VSL clock, but would have
+  been a strong T6-T7 combined-alpha play if drawn. Keep in the 60.
+- **LP intercept adapter bug (fixed this pass)**: the heuristic AI was never assigning LP at MID as
+  a legal interceptor for SURFACE→PERISCOPE attacks. This is fixed. Iter-11 with LP active will be
+  the first true test of whether the LP wall can stop Carrier drones.
+- **Patrol Bomber early**: P2's Periscope Recon intercepted and killed Patrol Bomber on T5.
+  The trade (kill 1/2 Recon, deal 1 extra Flagship damage, lose 2/1 Patrol Bomber) is neutral.
+  Patrol Bomber's homing is valuable early precisely because LP+Recon defense cannot stop it.
+
+**Iter-11 priorities**:
+- Clean LP+Snorkel test with fixed harness and fixed LP intercept adapter.
+- Aim for VSL on T7 (one turn earlier than this game).
+- Expect LP to finally intercept 1-2 drones/swing — account for this in the attack-count math.
