@@ -1244,7 +1244,10 @@ CARRY_TRADE = make_strategy(
 # ORDERS (3 cards)
 # =============================================================================
 
-# 22. Volatility Crush {2} — Remove all Leverage counters from target Trader.
+# 22. Volatility Crush {1} — Remove all Leverage counters from target Trader.
+# rebalance: counterplay costing — strategy-specific Lev-removal answer should be {1}
+# per MTG benchmark. Pairs with VA's polarized Lev-6 design: {1} Volatility Crush
+# on Lev-6 VA = 6 damage tempo swing.
 #     If opponent's, deal damage equal to counters removed.
 def _volatility_crush_resolve(event: Event, state: GameState) -> list[Event]:
     events: list[Event] = []
@@ -1289,7 +1292,7 @@ def _volatility_crush_resolve(event: Event, state: GameState) -> list[Event]:
 
 VOLATILITY_CRUSH = make_order(
     "Volatility Crush",
-    "{2}",
+    "{1}",
     text="Remove all Leverage counters from target Trader. If opponent's, deal damage equal to counters removed to that Trader.",
     resolve=_volatility_crush_resolve,
     rarity="common",
