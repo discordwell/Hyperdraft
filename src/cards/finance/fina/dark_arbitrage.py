@@ -1962,6 +1962,191 @@ BOOK_BUILDING = make_order(
 
 
 # =============================================================================
+# SPICE PASS v1 — cost-cards skill pilot (2026-05-09)
+# =============================================================================
+# Three new spice cards (2 DA + 1 cross-archetype Neutral). DA is over-
+# centralized at 83.3% WR per polish punchlist — spice for DA adds
+# *value-without-centralization* (DP-stage counter scaling) and a tempo
+# AOE Order that doesn't push the wide-DP combo. Neutral adds a multi-
+# archetype lord that supports any archetype's spice-pass synergies.
+
+# --- Phantom Pool Operator {4} 3/3 Leverage 2 (Mythic) ---
+# Patterns: 11 (build-around — needs DP fans), 3 (snowball).
+# Heuristic walk:
+#   vanilla 3/3 = {3} (HS curve, P+T=6 ~ {3.5})
+#   Leverage 2 = +1.0
+#   Alpha Strike on power-3 ×0.7 alone-condition = +0.7
+#   recurring +1/+1 per DP staged (avg 2-3 per game) = +1.5
+#   total {6.7} → push to {4} as build-around mythic (×0.6 build-around
+#   discount: needs DP fans to be on-curve).
+def _phantom_pool_operator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    leverage_etb = _add_leverage_etb(obj, 2)
+    leverage_power = _make_leverage_power_query(obj)
+    alpha_atk = _make_alpha_strike(obj)
+
+    def dp_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.FIN_PLAY_CARD:
+            return False
+        if event.payload.get("controller") != obj.controller:
+            return False
+        played_id = event.payload.get("object_id") or event.payload.get("card_id")
+        if not played_id:
+            return False
+        played = state.objects.get(played_id)
+        if played is None or played.card_def is None:
+            return False
+        return bool(getattr(played.card_def, "_dark_pool", False)
+                    or getattr(played.card_def, "dark_pool", False))
+
+    def dp_handler(event: Event, state: GameState) -> InterceptorResult:
+        me = state.objects.get(obj.id)
+        if me is None or me.zone != ZoneType.BATTLEFIELD:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.COUNTER_ADDED,
+                payload={
+                    "object_id": obj.id,
+                    "counter_type": "+1/+1",
+                    "amount": 1,
+                },
+                source=obj.id,
+                controller=obj.controller,
+            )],
+        )
+
+    dp_icp = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=dp_filter,
+        handler=dp_handler,
+        duration="while_on_battlefield",
+    )
+    dp_icp.is_triggered_ability = True
+    dp_icp.effect_fn = lambda ev, st: [Event(
+        type=EventType.COUNTER_ADDED,
+        payload={"object_id": obj.id, "counter_type": "+1/+1", "amount": 1},
+        source=obj.id,
+    )]
+    return [leverage_etb, leverage_power, alpha_atk, dp_icp]
+
+
+PHANTOM_POOL_OPERATOR = make_trader(
+    "Phantom Pool Operator", "{4}", 3, 3,
+    text=("Leverage 2. Alpha Strike. Whenever you stage a Dark Pool Order, "
+          "place a +1/+1 counter on this Trader."),
+    rarity="mythic",
+    setup_interceptors=_phantom_pool_operator_setup,
+)
+
+
+# --- Coordinated Block Strategy {2} Order Dark Pool (Rare) ---
+# Patterns: 4 (compression — small AoE + cantrip).
+# Heuristic walk:
+#   1 dmg AoE to opp Traders (~1.5 dmg average board) = +1.5
+#   draw 1 = +1.0
+#   Dark Pool premium (hostile) = +0.5
+#   total {3.0} → push to {2} as DA spice (build-around DA timing window).
+def _coordinated_block_strategy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def dark_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        bf = state.zones.get("battlefield")
+        if bf is not None:
+            for oid in list(bf.objects):
+                o = state.objects.get(oid)
+                if (o is None
+                        or o.controller == obj.controller
+                        or CardType.FIN_TRADER not in o.characteristics.types):
+                    continue
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={
+                        "target": oid,
+                        "amount": 1,
+                        "source": obj.id,
+                        "is_finance": True,
+                    },
+                    source=obj.id,
+                ))
+        events.append(Event(
+            type=EventType.DRAW,
+            payload={"player": obj.controller, "count": 1},
+            source=obj.id,
+        ))
+        # increment the DP-triggered counter so other DA cards (Off-Exchange
+        # Yield, Rho Leverage Amplifier, Dark Liquidity Surge) see this fire.
+        key = f"fin_dp_triggered_{obj.controller}"
+        state.turn_data[key] = state.turn_data.get(key, 0) + 1
+        return events
+    return dark_pool_setup(obj, state, dark_effect)
+
+
+COORDINATED_BLOCK_STRATEGY = make_order(
+    "Coordinated Block Strategy", "{2}",
+    text=("Dark Pool. When this triggers, deal 1 damage to each of opponent's "
+          "Traders. Draw a card."),
+    rarity="rare",
+    dark_pool=True,
+    setup_interceptors=_coordinated_block_strategy_setup,
+)
+
+
+# --- Floor Captain Caro {4} 3/4 Neutral Legendary Trader (Mythic) ---
+# Patterns: 4 (compression — lord + ramp on a body), 1 (efficiency).
+# Heuristic walk:
+#   vanilla 3/4 = {3} (HS curve, P+T=7)
+#   ETB lord +1/+0 to all other Traders (avg 2-3 affected, one-shot) = +0.7
+#   ETB +1 Liquidity = +0.5
+#   legendary tax (rule of one in deckbuilding) = -0.5
+#   total {3.7} → fair {4} (round up, legendary single-copy variance).
+def _floor_captain_caro_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_fn(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        bf = state.zones.get("battlefield")
+        if bf is not None:
+            for oid in list(bf.objects):
+                if oid == obj.id:
+                    continue
+                o = state.objects.get(oid)
+                if (o is None
+                        or o.controller != obj.controller
+                        or CardType.FIN_TRADER not in o.characteristics.types):
+                    continue
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        "object_id": oid,
+                        "power_mod": 1,
+                        "toughness_mod": 0,
+                        "duration": "end_of_turn",
+                    },
+                    source=obj.id,
+                ))
+        # gain 1 Liquidity this turn.
+        player = state.players.get(obj.controller)
+        if player is not None:
+            player.mana_crystals_available = min(
+                player.mana_crystals_available + 1,
+                player.mana_crystals,
+            )
+        return events
+    return [make_etb_trigger(obj, etb_fn)]
+
+
+FLOOR_CAPTAIN_CARO = make_trader(
+    "Floor Captain Caro", "{4}", 3, 4,
+    text=("Legendary. When this enters, each other Trader you control gets "
+          "+1/+0 until Market Close. When this enters, gain 1 Liquidity this "
+          "turn."),
+    rarity="mythic",
+    setup_interceptors=_floor_captain_caro_setup,
+)
+
+
+# =============================================================================
 # Export
 # =============================================================================
 
@@ -2015,4 +2200,9 @@ DARK_ARBITRAGE_CARDS: dict[str, CardDefinition] = {
     "Market Maker": MARKET_MAKER,
     "Capital Injection": CAPITAL_INJECTION,
     "Book Building": BOOK_BUILDING,
+    # Spice pass v1 (cost-cards skill pilot, 2026-05-09): +3 cards
+    # (2 DA + 1 Neutral cross-archetype legendary)
+    "Phantom Pool Operator": PHANTOM_POOL_OPERATOR,
+    "Coordinated Block Strategy": COORDINATED_BLOCK_STRATEGY,
+    "Floor Captain Caro": FLOOR_CAPTAIN_CARO,
 }

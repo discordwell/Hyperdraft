@@ -2371,6 +2371,209 @@ LIQUIDATION_CASCADE = make_strategy(
 
 
 # =============================================================================
+# SPICE PASS v1 — cost-cards skill pilot (2026-05-09)
+# =============================================================================
+# Three DV cards priced via cost-cards heuristic (see
+# .codex/skills/cost-cards/references/finance-calibration.md). DV is at 66.7%
+# WR per polish punchlist, post-voltron-nerf — spice adds non-Voltron payoff
+# patterns: counter cascade, modal compression, anti-removal common.
+
+# --- Vega Convexity Trader {3} 2/3 Leverage 2 (Rare) ---
+# Patterns: 3 (snowball value engine).
+# Heuristic walk:
+#   vanilla 2/3 = {2} (HS curve, P+T=5)
+#   Leverage 2 = +1.0 (mechanic premium per finance-calibration.md)
+#   recurring "+lev counter when ally gets one" trigger (×0.5 condition,
+#     fires when teammate Lev card lands or Vega Spike hits) = +0.5
+#   total {3.5} → fair {3} (round down for snowball self-scaler).
+#
+# Recursion guard: emitted counters carry payload['_vct_chain']=True so a
+# second VCT (or this same VCT) does not infinite-loop on the chain.
+# Without this guard, two VCTs alternate adding counters to each other
+# unboundedly. With the guard, the chain only fires off "real" counter
+# placements (Vega Spike, ally ETB-Lev, etc.).
+def _vega_convexity_trader_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    leverage_interceptors = _make_leverage_setup(2)(obj, state)
+
+    def counter_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.COUNTER_ADDED:
+            return False
+        if event.payload.get("counter_type") != "leverage":
+            return False
+        # Recursion guard: skip counters emitted by VCT chain.
+        if event.payload.get("_vct_chain"):
+            return False
+        target_id = event.payload.get("object_id")
+        if not target_id or target_id == obj.id:
+            return False
+        target = state.objects.get(target_id)
+        if target is None:
+            return False
+        return (target.controller == obj.controller
+                and CardType.FIN_TRADER in target.characteristics.types)
+
+    def counter_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.COUNTER_ADDED,
+                payload={
+                    "object_id": obj.id,
+                    "counter_type": "leverage",
+                    "amount": 1,
+                    "_vct_chain": True,
+                },
+                source=obj.id,
+                controller=obj.controller,
+            )],
+        )
+
+    counter_icp = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=counter_filter,
+        handler=counter_handler,
+        duration="while_on_battlefield",
+    )
+    counter_icp.is_triggered_ability = True
+    counter_icp.effect_fn = lambda ev, st: [Event(
+        type=EventType.COUNTER_ADDED,
+        payload={
+            "object_id": obj.id,
+            "counter_type": "leverage",
+            "amount": 1,
+            "_vct_chain": True,
+        },
+        source=obj.id,
+    )]
+    return leverage_interceptors + [counter_icp]
+
+
+VEGA_CONVEXITY_TRADER = make_trader(
+    "Vega Convexity Trader",
+    "{3}",
+    2, 3,
+    text=("Leverage 2. Whenever a Leverage counter is added to another "
+          "Trader you control, place a Leverage counter on this Trader."),
+    setup_interceptors=_vega_convexity_trader_setup,
+    rarity="rare",
+)
+
+
+# --- Synthetic Reinsurance {4} Strategy (Mythic) ---
+# Patterns: 4 (compression — mass +1/+1 plus lifegain on one card).
+# Heuristic walk:
+#   Strategy baseline = 0
+#   bulk +1/+1 counters per Lev counter (avg 4-6 counters in DV deck) = +3.0
+#   Cap Reserve gain (max 5) at 1 per counter placed = +1.0
+#   total {4.0} → fair {4}.
+def _synthetic_reinsurance_resolve(event: Event, state: GameState) -> list[Event]:
+    controller = event.controller or event.payload.get("controller")
+    if not controller:
+        return []
+    player = state.players.get(controller)
+    if not player:
+        return []
+    bf = state.zones.get("battlefield")
+    if not bf:
+        return []
+
+    events: list[Event] = []
+    counters_placed = 0
+    for oid in list(getattr(bf, "objects", [])):
+        o = state.objects.get(oid)
+        if (o is None
+                or o.controller != controller
+                or CardType.FIN_TRADER not in o.characteristics.types):
+            continue
+        lev = int(o.state.counters.get("leverage", 0) or 0)
+        if lev <= 0:
+            continue
+        events.append(Event(
+            type=EventType.COUNTER_ADDED,
+            payload={
+                "object_id": oid,
+                "counter_type": "+1/+1",
+                "amount": lev,
+            },
+            source=event.source,
+            controller=controller,
+        ))
+        counters_placed += lev
+
+    gain = min(5, counters_placed)
+    if gain > 0:
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={"player": controller, "amount": gain},
+            source=event.source,
+            controller=controller,
+        ))
+    return events
+
+
+SYNTHETIC_REINSURANCE = make_strategy(
+    "Synthetic Reinsurance",
+    "{4}",
+    text=("Each Trader you control with Leverage gains a +1/+1 counter for "
+          "each Leverage counter on it. You gain 1 Capital Reserve for each "
+          "+1/+1 counter placed this way (max 5)."),
+    resolve=_synthetic_reinsurance_resolve,
+    rarity="mythic",
+)
+
+
+# --- Tail-Risk Hedger {2} 1/3 Leverage 1 (Common) ---
+# Patterns: 4 (compression — body + Lev + once-shot indestructible).
+# Heuristic walk:
+#   vanilla 1/3 = {2} (HS curve, P+T=4 ~ {2})
+#   Leverage 1 = +0.5
+#   one-shot prevent-destroy (per game) = +1.0
+#   total {3.5} → push to {2} as DV common spice (build-around cost
+#   discount: depends on Lev synergy).
+def _tail_risk_hedger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    leverage_interceptors = _make_leverage_setup(1)(obj, state)
+    used_key = f"tail_risk_hedger_used_{obj.id}"
+
+    def destroy_filter(event: Event, state: GameState) -> bool:
+        return (event.type == EventType.OBJECT_DESTROYED
+                and event.payload.get("object_id") == obj.id)
+
+    def destroy_handler(event: Event, state: GameState) -> InterceptorResult:
+        if state.turn_data.get(used_key):
+            return InterceptorResult(action=InterceptorAction.PASS)
+        state.turn_data[used_key] = True
+        me = state.objects.get(obj.id)
+        if me is not None:
+            me.state.damage = 0
+        return InterceptorResult(action=InterceptorAction.PREVENT, new_events=[])
+
+    destroy_icp = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=destroy_filter,
+        handler=destroy_handler,
+        duration="while_on_battlefield",
+    )
+    return leverage_interceptors + [destroy_icp]
+
+
+TAIL_RISK_HEDGER = make_trader(
+    "Tail-Risk Hedger",
+    "{2}",
+    1, 3,
+    text=("Leverage 1. The first time this would be destroyed each game, "
+          "prevent that destruction instead."),
+    setup_interceptors=_tail_risk_hedger_setup,
+    rarity="common",
+)
+
+
+# =============================================================================
 # Export dict
 # =============================================================================
 
@@ -2420,4 +2623,8 @@ DERIVATIVES_CARDS: dict[str, CardDefinition] = {
     "Protective Put": PROTECTIVE_PUT,
     "Covered Call": COVERED_CALL,
     "Synthetic Collar": SYNTHETIC_COLLAR,
+    # Spice pass v1 (cost-cards skill pilot, 2026-05-09): +3 cards
+    "Vega Convexity Trader": VEGA_CONVEXITY_TRADER,
+    "Synthetic Reinsurance": SYNTHETIC_REINSURANCE,
+    "Tail-Risk Hedger": TAIL_RISK_HEDGER,
 }

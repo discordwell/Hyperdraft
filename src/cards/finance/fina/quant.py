@@ -1736,6 +1736,144 @@ BLACK_MONDAY = make_strategy(
 
 
 # =============================================================================
+# SPICE PASS v1 — cost-cards skill pilot (2026-05-09)
+# =============================================================================
+# Three QT cards priced via cost-cards heuristics. QT closes at 33.3% WR per
+# polish punchlist — spice extends Arbitrage scaling and selection consistency
+# (pattern 7 tutoring, pattern 4 compression).
+
+# --- Smart Beta Compounder {4} 3/4 Arbitrage 2 (Mythic) ---
+# Patterns: 11 (build-around — Trader tribal), 3 (snowball).
+# Heuristic walk:
+#   vanilla 3/4 = {3} (HS curve, P+T=7)
+#   Arbitrage 2 = +0.6 (×0.6 lead-condition discount)
+#   ETB +1/+1 per other Trader (avg 2-3 ally Traders) = +1.5
+#   total {5.1} → push to {4} as build-around mythic (×0.6 build-around
+#   discount: depends on a wide Quant board to be on-curve).
+def _smart_beta_compounder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    arb_setup = _make_arbitrage_setup(2)
+    base_interceptors = arb_setup(obj, state)
+
+    def etb_count_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get("battlefield")
+        if not bf:
+            return []
+        other_count = 0
+        for oid in list(getattr(bf, "objects", [])):
+            if oid == obj.id:
+                continue
+            o = state.objects.get(oid)
+            if (o is not None
+                    and o.controller == obj.controller
+                    and CardType.FIN_TRADER in o.characteristics.types):
+                other_count += 1
+        if other_count <= 0:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={
+                "object_id": obj.id,
+                "counter_type": "+1/+1",
+                "amount": other_count,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return base_interceptors + [make_etb_trigger(obj, etb_count_fn)]
+
+
+SMART_BETA_COMPOUNDER = make_trader(
+    "Smart Beta Compounder",
+    "{4}",
+    3, 4,
+    "Arbitrage 2. When this enters, place a +1/+1 counter on it for each "
+    "other Trader you control.",
+    rarity="mythic",
+    setup_interceptors=_smart_beta_compounder_setup,
+)
+
+
+# --- Monte Carlo Simulator {3} Asset (Rare) ---
+# Patterns: 7 (consistency), 11 (build-around — leads-board condition).
+# Heuristic walk:
+#   Asset baseline = 0
+#   recurring conditional pre-market scry-1-to-hand (×0.6 lead-condition,
+#     ~5 fires per game) = +2.5
+#   total {2.5} → fair {3} (round up: card slot + multi-turn engine).
+def _monte_carlo_simulator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def pm_effect(event: Event, state: GameState) -> list[Event]:
+        if not _player_leads_traders_strict(state, obj.controller):
+            return []
+        library = state.zones.get(f"library_{obj.controller}")
+        hand = state.zones.get(f"hand_{obj.controller}")
+        if library is None or hand is None or not library.objects:
+            return []
+        top_id = library.objects.pop(0)
+        hand.objects.append(top_id)
+        top_obj = state.objects.get(top_id)
+        if top_obj is not None:
+            top_obj.zone = ZoneType.HAND
+            top_obj.entered_zone_at = state.timestamp
+        return []
+
+    return [_make_pre_market_interceptor(obj, pm_effect)]
+
+
+MONTE_CARLO_SIMULATOR = make_asset(
+    "Monte Carlo Simulator",
+    "{3}",
+    "At the start of your Pre-Market, if you control more Traders than your "
+    "opponent, look at the top card of your Book and put it into your hand.",
+    rarity="rare",
+    setup_interceptors=_monte_carlo_simulator_setup,
+)
+
+
+# --- Pricing Model Oracle {3} 2/3 Arbitrage 1 (Rare) ---
+# Patterns: 7 (consistency), 4 (compression — body + selection).
+# Heuristic walk:
+#   vanilla 2/3 = {2} (HS curve, P+T=5)
+#   Arbitrage 1 = +0.3
+#   ETB conditional reveal-and-keep-if-Order-or-Strategy (~50% hit-rate
+#     in QT/HF mixed deck × 1 mana of value) = +0.5
+#   total {2.8} → fair {3}.
+def _pricing_model_oracle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    arb_setup = _make_arbitrage_setup(1)
+    base_interceptors = arb_setup(obj, state)
+
+    def etb_reveal_fn(event: Event, state: GameState) -> list[Event]:
+        library = state.zones.get(f"library_{obj.controller}")
+        hand = state.zones.get(f"hand_{obj.controller}")
+        if library is None or hand is None or not library.objects:
+            return []
+        top_id = library.objects[0]
+        top_obj = state.objects.get(top_id)
+        if top_obj is None:
+            return []
+        keep_types = {CardType.FIN_ORDER, CardType.FIN_STRATEGY}
+        if top_obj.characteristics.types & keep_types:
+            library.objects.pop(0)
+            hand.objects.append(top_id)
+            top_obj.zone = ZoneType.HAND
+            top_obj.entered_zone_at = state.timestamp
+        return []
+
+    return base_interceptors + [make_etb_trigger(obj, etb_reveal_fn)]
+
+
+PRICING_MODEL_ORACLE = make_trader(
+    "Pricing Model Oracle",
+    "{3}",
+    2, 3,
+    "Arbitrage 1. When this enters, reveal the top card of your Book. If it "
+    "is an Order or Strategy, put it into your hand.",
+    rarity="rare",
+    setup_interceptors=_pricing_model_oracle_setup,
+)
+
+
+# =============================================================================
 # EXPORT
 # =============================================================================
 
@@ -1784,4 +1922,8 @@ QUANT_CARDS: dict[str, CardDefinition] = {
     "Signal Processing Rig": SIGNAL_PROCESSING_RIG,
     "Portfolio Insurance Wrap": PORTFOLIO_INSURANCE_WRAP,
     "Black Monday": BLACK_MONDAY,
+    # Spice pass v1 (cost-cards skill pilot, 2026-05-09): +3 cards
+    "Smart Beta Compounder": SMART_BETA_COMPOUNDER,
+    "Monte Carlo Simulator": MONTE_CARLO_SIMULATOR,
+    "Pricing Model Oracle": PRICING_MODEL_ORACLE,
 }

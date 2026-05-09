@@ -2111,6 +2111,287 @@ SPEED_AMPLIFIER = make_derivative(
 
 
 # =============================================================================
+# SPICE PASS v1 — cost-cards skill pilot (2026-05-09)
+# =============================================================================
+# Three pushed HF Traders priced via the cost-cards heuristic decision tree
+# (see .codex/skills/cost-cards/references/cost-heuristics.md). Each card
+# targets 1-3 of the 11 broken-card patterns from the spice-pass skill.
+# All three accelerate HF's clock — the polish punchlist flagged HF closing
+# at T20 rather than the T11 plan, so spice intentionally pushes HF
+# disproportionate-efficiency and Order-driven snowball patterns.
+
+# --- Spoof Bot Flotilla {3} 2/2 (Rare) ---
+# Patterns: 11 (build-around — Dark Pool support), 3 (snowball value engine).
+# Heuristic walk:
+#   vanilla 2/2 = {2} (HS curve, P+T=4 ~ {2.5})
+#   ETB lord pump (+1/+0 to AS Traders, one-shot, avg 2-3 affected) = +0.7
+#   recurring DP-cast lord pump (×0.4 build-around discount) = +0.3
+#   total {3.0} → fair {3}.
+def _spoof_bot_flotilla_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def _pump_alpha_strike_traders(state: GameState) -> list[Event]:
+        bf = state.zones.get("battlefield")
+        if not bf:
+            return []
+        evts: list[Event] = []
+        for oid in list(getattr(bf, "objects", [])):
+            o = state.objects.get(oid)
+            if (o is None
+                    or o.controller != obj.controller
+                    or CardType.FIN_TRADER not in o.characteristics.types):
+                continue
+            text = str(getattr(o.characteristics, "text", "")
+                       or getattr(o, "text", "")
+                       or (o.card_def and o.card_def.text)
+                       or "")
+            if "Alpha Strike" not in text:
+                continue
+            evts.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    "object_id": oid,
+                    "power_mod": 1,
+                    "toughness_mod": 0,
+                    "duration": "end_of_turn",
+                },
+                source=obj.id,
+            ))
+        return evts
+
+    def etb_fn(event: Event, state: GameState) -> list[Event]:
+        return _pump_alpha_strike_traders(state)
+
+    def dp_filter(event: Event, state: GameState) -> bool:
+        if FIN_PLAY_CARD is None or event.type != FIN_PLAY_CARD:
+            return False
+        if event.payload.get("controller") != obj.controller:
+            return False
+        played_id = event.payload.get("object_id") or event.payload.get("card_id")
+        if not played_id:
+            return False
+        played = state.objects.get(played_id)
+        if played is None or played.card_def is None:
+            return False
+        return bool(getattr(played.card_def, "_dark_pool", False)
+                    or getattr(played.card_def, "dark_pool", False))
+
+    def dp_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=_pump_alpha_strike_traders(state),
+        )
+
+    dp_icp = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=dp_filter,
+        handler=dp_handler,
+        duration="while_on_battlefield",
+    )
+    dp_icp.is_triggered_ability = True
+    dp_icp.effect_fn = lambda ev, st: _pump_alpha_strike_traders(st)
+    return [make_etb_trigger(obj, etb_fn), dp_icp]
+
+
+SPOOF_BOT_FLOTILLA = make_trader(
+    "Spoof Bot Flotilla",
+    "{3}",
+    power=2,
+    toughness=2,
+    text=("When this enters, your Traders with Alpha Strike get +1/+0 until "
+          "Market Close. Whenever you stage a Dark Pool Order, your Traders "
+          "with Alpha Strike get +1/+0 until Market Close."),
+    setup_interceptors=_spoof_bot_flotilla_setup,
+    rarity="rare",
+)
+
+
+# --- Microsecond Sniper {2} 2/3 Alpha Strike (Rare) ---
+# Patterns: 1 (disproportionate efficiency), 3 (snowball).
+# Heuristic walk:
+#   vanilla 2/3 = {2} (HS curve, P+T=5)
+#   Alpha Strike on 2-power = +0.5
+#   recurring +1/+0 per non-Trader cast (×0.5 condition) = +0.7
+#   total {3.2} → push to {2} for rare HF spice (pattern 1).
+def _microsecond_sniper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def attack_fn(event: Event, state: GameState) -> list[Event]:
+        return _alpha_strike_bonus(obj, state)
+
+    def cast_filter(event: Event, state: GameState) -> bool:
+        if FIN_PLAY_CARD is None or event.type != FIN_PLAY_CARD:
+            return False
+        if event.payload.get("controller") != obj.controller:
+            return False
+        played_id = event.payload.get("object_id") or event.payload.get("card_id")
+        if not played_id or played_id == obj.id:
+            return False
+        played = state.objects.get(played_id)
+        if played is None:
+            return False
+        types = played.characteristics.types
+        return (CardType.FIN_ORDER in types
+                or CardType.FIN_STRATEGY in types)
+
+    def cast_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    "object_id": obj.id,
+                    "power_mod": 1,
+                    "toughness_mod": 0,
+                    "duration": "end_of_turn",
+                },
+                source=obj.id,
+            )],
+        )
+
+    cast_icp = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=cast_filter,
+        handler=cast_handler,
+        duration="while_on_battlefield",
+    )
+    cast_icp.is_triggered_ability = True
+    cast_icp.effect_fn = lambda ev, st: [Event(
+        type=EventType.PT_MODIFICATION,
+        payload={
+            "object_id": obj.id,
+            "power_mod": 1,
+            "toughness_mod": 0,
+            "duration": "end_of_turn",
+        },
+        source=obj.id,
+    )]
+    return [make_attack_trigger(obj, attack_fn), cast_icp]
+
+
+MICROSECOND_SNIPER = make_trader(
+    "Microsecond Sniper",
+    "{2}",
+    power=2,
+    toughness=3,
+    text=("Alpha Strike. Whenever you cast another Order or Strategy, "
+          "this gets +1/+0 until Market Close."),
+    setup_interceptors=_microsecond_sniper_setup,
+    rarity="rare",
+)
+
+
+# --- Co-Location Master Cycle {2} 1/2 (Rare) ---
+# Patterns: 11 (build-around — Order tribal), 3 (snowball).
+# Heuristic walk:
+#   vanilla 1/2 = {1} (HS curve, P+T=3)
+#   Alpha Strike on 1-power body = +0.5 (×0.7 alone-condition)
+#   Order-cast self pump (×0.4 build-around discount) = +0.3
+#   recurring solo-attack draw on CR damage (×0.5 alone+unblocked) = +1.0
+#   total {2.45} → fair {2} (rare gets the push).
+def _co_location_master_cycle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def attack_fn(event: Event, state: GameState) -> list[Event]:
+        return _alpha_strike_bonus(obj, state)
+
+    def cast_filter(event: Event, state: GameState) -> bool:
+        if FIN_PLAY_CARD is None or event.type != FIN_PLAY_CARD:
+            return False
+        if event.payload.get("controller") != obj.controller:
+            return False
+        played_id = event.payload.get("object_id") or event.payload.get("card_id")
+        if not played_id or played_id == obj.id:
+            return False
+        played = state.objects.get(played_id)
+        if played is None:
+            return False
+        return CardType.FIN_ORDER in played.characteristics.types
+
+    def cast_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    "object_id": obj.id,
+                    "power_mod": 1,
+                    "toughness_mod": 0,
+                    "duration": "end_of_turn",
+                },
+                source=obj.id,
+            )],
+        )
+
+    def dmg_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get("source") != obj.id:
+            return False
+        return event.payload.get("target_player") is not None
+
+    def dmg_handler(event: Event, state: GameState) -> InterceptorResult:
+        if _count_attacking_traders(obj.controller, state) != 1:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.DRAW,
+                payload={"player": obj.controller, "amount": 1},
+                source=obj.id,
+            )],
+        )
+
+    cast_icp = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=cast_filter,
+        handler=cast_handler,
+        duration="while_on_battlefield",
+    )
+    cast_icp.is_triggered_ability = True
+    cast_icp.effect_fn = lambda ev, st: [Event(
+        type=EventType.PT_MODIFICATION,
+        payload={"object_id": obj.id, "power_mod": 1, "toughness_mod": 0,
+                 "duration": "end_of_turn"},
+        source=obj.id,
+    )]
+
+    dmg_icp = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=dmg_filter,
+        handler=dmg_handler,
+        duration="while_on_battlefield",
+    )
+    dmg_icp.is_triggered_ability = True
+    dmg_icp.effect_fn = lambda ev, st: (
+        [Event(type=EventType.DRAW,
+               payload={"player": obj.controller, "amount": 1},
+               source=obj.id)]
+        if _count_attacking_traders(obj.controller, st) == 1 else []
+    )
+    return [make_attack_trigger(obj, attack_fn), cast_icp, dmg_icp]
+
+
+CO_LOCATION_MASTER_CYCLE = make_trader(
+    "Co-Location Master Cycle",
+    "{2}",
+    power=1,
+    toughness=2,
+    text=("Alpha Strike. Whenever you cast an Order, this gets +1/+0 until "
+          "Market Close. When this attacks alone and damages a Capital "
+          "Reserve, draw a card."),
+    setup_interceptors=_co_location_master_cycle_setup,
+    rarity="rare",
+)
+
+
+# =============================================================================
 # Export dict — exact card names from fina.md HIGH-FREQUENCY section
 # =============================================================================
 
@@ -2163,8 +2444,12 @@ HIGH_FREQUENCY_CARDS: dict[str, CardDefinition] = {
     # Derivatives (2)
     "Ticker Tape Derivative": TICKER_TAPE_DERIVATIVE,
     "Speed Amplifier":        SPEED_AMPLIFIER,
+    # Spice pass v1 (cost-cards skill pilot, 2026-05-09): +3 pushed Traders
+    "Spoof Bot Flotilla":     SPOOF_BOT_FLOTILLA,
+    "Microsecond Sniper":     MICROSECOND_SNIPER,
+    "Co-Location Master Cycle": CO_LOCATION_MASTER_CYCLE,
 }
 
-assert len(HIGH_FREQUENCY_CARDS) == 42, (
-    f"Expected 42 HIGH-FREQUENCY cards, got {len(HIGH_FREQUENCY_CARDS)}"
+assert len(HIGH_FREQUENCY_CARDS) == 45, (
+    f"Expected 45 HIGH-FREQUENCY cards, got {len(HIGH_FREQUENCY_CARDS)}"
 )

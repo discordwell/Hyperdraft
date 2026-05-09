@@ -19,7 +19,7 @@ FINA_CARDS: dict = {
     **DARK_ARBITRAGE_CARDS,
 }
 
-assert len(FINA_CARDS) == 161, (
+assert len(FINA_CARDS) == 173, (
     # rebalance v2 (2026-05-09): +5 voltron-meta answers + burn seed:
     #   - DERIVATIVES (+2): Position Audit, Liquidation Cascade
     #   - DARK_ARBITRAGE (+2): Forced Unwinding, Margin Squeeze
@@ -30,7 +30,17 @@ assert len(FINA_CARDS) == 161, (
     #   - HIGH_FREQUENCY (+4): Tick Sniper {1} 2/1 Alpha Strike,
     #     Capital Skim {1} 1-dmg burn, Volatility Bomb {2} 3-dmg Bolt analog,
     #     Cascading Liquidations {3} graveyard-Trader-count finisher (max 6)
-    f"FINA set should have 161 cards, got {len(FINA_CARDS)}. "
+    # spice v1 (2026-05-09): +12 cards via cost-cards skill pilot
+    #   - HIGH_FREQUENCY (+3): Spoof Bot Flotilla {3}, Microsecond Sniper {2},
+    #     Co-Location Master Cycle {2}
+    #   - DERIVATIVES (+3): Vega Convexity Trader {3} Lev 2, Synthetic
+    #     Reinsurance {4} Strategy, Tail-Risk Hedger {2} 1/3 Lev 1
+    #   - QUANT (+3): Smart Beta Compounder {4} Arb 2, Monte Carlo Simulator
+    #     {3} Asset, Pricing Model Oracle {3} Arb 1
+    #   - DARK_ARBITRAGE (+3): Phantom Pool Operator {4} Lev 2 + AS,
+    #     Coordinated Block Strategy {2} DP-AoE+draw, Floor Captain Caro {4}
+    #     legendary cross-archetype lord (in NEUTRAL slot)
+    f"FINA set should have 173 cards, got {len(FINA_CARDS)}. "
     f"HF={len(HIGH_FREQUENCY_CARDS)} DV={len(DERIVATIVES_CARDS)} "
     f"QT={len(QUANT_CARDS)} DA={len(DARK_ARBITRAGE_CARDS)}"
 )
