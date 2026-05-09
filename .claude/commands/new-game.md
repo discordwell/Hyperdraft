@@ -177,6 +177,8 @@ The new engine is now ready. Delegate the rest of the pipeline to `/new-set`'s l
 
 The set label / set code chosen by the stage-3 planner should be the **first set** of this engine — typically `<ENGINE>` or `<ENGINE>1` or a flavorful one-word code from the theme.
 
+**Stage 7.5 (per-card effect verification)** is critical for first sets — a freshly-built engine + freshly-generated cards have not been wet-tested together, so the "interceptor wired but effect_fn returns []" failure mode is at maximum prevalence. Do NOT skip 7.5 to "save time" on the first set; the tournament loop in Stage 8 produces meaningless balance data when half the cards are silent-failure. Read `/new-set`'s Stage 7.5 spec carefully.
+
 ## Final report
 
 After /new-set's stage 9 completes, append a "Pipeline summary" section to `docs/games/<engine>.md` with:

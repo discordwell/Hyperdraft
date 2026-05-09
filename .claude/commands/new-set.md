@@ -247,63 +247,133 @@ python tests/test_<set>.py
 
 If it fails, fix the root cause (don't loosen the assertions). Common failures: a card definition missing `setup_interceptors` for a card with substantive rules text → fix the card, not the test.
 
-### Stage 8 — Balance loop (up to `--max-cycles`, default 10)
+### Stage 7.5 — Per-card effect verification (LOAD-BEARING)
 
-**Tournament runner per engine** (run from `<repo_root>`):
+The smoke test in Stage 7 only validates that the engine boots and the AI completes a game. It does **not** verify that each card actually does what its text claims. Skipping straight to Stage 8 (tournament / balance) means the loop chases "this deck is bad" results that are really "this card does nothing." The Finance ultra-loop iter 1–3 found 20 distinct bugs that this stage would catch: cards whose `resolve` is never invoked (e.g. Correlation Matrix's `DRAW` was wired through `card_def.resolve` while the engine only checked `cast_effect`), wrong `InterceptorPriority` (leverage power query returned `TRANSFORM`-priority while `get_power` only iterates `QUERY`), text/code drift (Hidden Aggression printed `+4/+0` while code applied `+2/+0`), helper functions with off-by-one (multi-attacker alpha checked `count==1` before all attackers were declared), and oneshot routing gaps (Dark Pool Orders skipped staging entirely and resolved to graveyard).
 
-| Engine        | Runner                                                   | Emits target JSON shape? |
-|---------------|----------------------------------------------------------|--------------------------|
-| `mtg-custom`  | `scripts/play/custom_set_tournament.py`                  | YES — direct input to `balance_loop.py` |
-| `minecraft`   | `scripts/play/custom_set_tournament.py` with `--decks` for the new set's archetypes | YES — same script, different decks |
-| `pokemon`     | `scripts/stress/stress_test_pokemon.py`                  | NO — write a small adapter (10–20 lines) emitting `{set_summary, card_scores}` from its anomaly-format output |
-| `yugioh`      | `scripts/wet/wet_test_ygo_bvb.py` (or build a tournament wrapper) | NO — write adapter |
-| `hearthstone` | `scripts/stress/stress_test_hearthstone.py`              | NO — write adapter |
+Two sub-stages. Both gate Stage 8.
 
-For engines without a native tournament runner emitting the right JSON, place the adapter at `scripts/new_set/_adapters/<engine>_tournament_adapter.py`. It should:
-1. Run N games via the engine's existing AI-vs-AI driver
-2. Track per-card cast/in_play/winning_side via the engine's event log (mirror `_collect_card_stats` in `custom_set_tournament.py`)
-3. Emit `{set_summary, matchup, card_scores}` to the same output path
-**Do not modify `balance_loop.py`** — it is engine-agnostic by design.
+#### 7.5a — Card-text / code drift check (cheap, structural)
 
-Pseudocode:
+Spawn one general-purpose agent. Brief:
+
+> For each card in `src/cards/<game>/<set_module>/`, compare the printed `text` field against the code that registers the effect:
+>
+> 1. Extract numerals from `text` matching common patterns: `\+(\d+)/\+(\d+)` (P/T mods), `draw (\d+|a) cards?`, `deal (\d+) damage`, `gain (\d+) life`, `Arbitrage (\d+)`, `Leverage (\d+)`, etc. Assert the matching code constant equals the parsed value. Mismatches go in the punch list.
+> 2. Extract canonical keyword phrases from text (`Alpha Strike`, `Trample`, `Vigilance`, `Arbitrage N`, etc.) and assert each is granted by the card's `keywords=` field or by an interceptor it registers.
+> 3. Flag any text clause that names an effect (`draw`, `deal damage`, `destroy`, `create token`) where no code path on that card emits the corresponding `EventType`.
+>
+> Output a single test file `tests/test_<set>_text_drift.py` containing one assertion per card it could check; print a summary `<N> cards checked, <K> drift failures` and list the failures by name. Cards with effects too complex to parse heuristically go in a `SKIPPED_CARDS` dict at the top with a one-line reason — surface them, don't silently exclude.
+
+Run the generated drift test. **Halt the pipeline if any drift failure is found** — drift is fixable in-place (~5 min per card) and contaminates every downstream stage.
+
+#### 7.5b — Interceptor / effect-firing verification
+
+Invoke the existing `/test-interceptors` skill with `--game <engine> --set <CODE> --fail-on-empty --out tests/test_<set>_interceptors.py`. The skill reads card defs, generates one unit test per card that fires the trigger and asserts the expected `EventType` is emitted, then runs them.
+
+**Decision gate**:
+
+| Pass rate | Action |
+|---|---|
+| ≥ 90% | Proceed to Stage 8 |
+| 70%–90% | Spawn a fixer agent on the top 5 failures, re-run once, then proceed if ≥ 70% |
+| < 70% | Halt with a report — the engine or card pool needs structural work before tournament cycles waste resources |
+
+The fixer agent gets the failure list and the relevant card source files. Brief: "categorize each failure (empty-effect / wrong-effect / trigger-never-fires / engine-gap), fix what you can in cards, escalate engine gaps to a punch list in `engine_gaps.md`. Re-run `tests/test_<set>_interceptors.py` after edits. Don't loosen assertions to make tests pass."
+
+#### Why both sub-stages?
+
+- **Drift check** catches text/code mismatches (cheap, deterministic, parser-driven). 5-minute fixes; would have caught Hidden Aggression in 1s.
+- **Interceptor verification** catches "wired but does nothing" — the depths trap, where ~30% of generated cards historically register an interceptor whose `effect_fn` returns `[]`. CLAUDE.md notes ~736 of 2,486 wired MTG cards across 12 sets currently fall into this bucket.
+
+Together they close the gap between "smoke test passed" and "the cards actually work." Without this stage, every Stage 8 tournament result is contaminated by silent-failure cards, and every LLM-pilot iteration in `/ultra-loop` (which `/new-game-plus` invokes downstream) burns hours rediscovering the same bugs through gameplay.
+
+### Stage 8 — Capability-audit + multi-agent fix loop (up to 3 cycles, parallel within each cycle)
+
+**Replaces the old "tournament → balance_loop → revise flagged cards" cycle.** That logic only ever dispatched card-stat revisions, which can't fix the dominant failure modes — AI omissions (the AI never plays Doctrines, never detects, never lays Mines), engine omissions (cards that need primitives the engine doesn't expose), and structural archetype weakness (a 0% deck can't be saved by per-card tweaks). The audit-driven loop diagnoses the actual root cause and dispatches the right specialist agent.
+
+#### Tournament runner per engine
+
+| Engine        | Runner | Notes |
+|---|---|---|
+| `mtg-custom`  | `scripts/play/custom_set_tournament.py` | Native shape; extend to emit `ai_action_counts` + `mechanic_triggers` if not present |
+| `minecraft`   | `scripts/play/custom_set_tournament.py` with depths-style adapter | |
+| `pokemon` / `yugioh` / `hearthstone` / new engines | `scripts/new_set/_adapters/<engine>_tournament_adapter.py` (mirror `depths_tournament_adapter.py`) | Must emit the extended JSON contract below |
+
+#### Tournament JSON contract (extended)
 
 ```
-for cycle in 1..max_cycles:
-    1. Run engine-specific tournament with the new set's archetype decks.
+{
+  "set_summary":       { ... },              // existing
+  "matchup":           { ... },              // existing
+  "card_scores":       { ... },              // existing — keys are <DECK_LABEL>::<Card>
+  "ai_action_counts":  { "<ACTION_TYPE>": int, ... },   // NEW — per-action-type tournament total
+  "mechanic_triggers": { "<MECHANIC_NAME>": int, ... }, // NEW — named mechanic trigger counts
+  "available_actions": [ "<ACTION_TYPE>", ... ],        // NEW — universe of legal actions
+  "card_errors":       { "<Card>": "trace excerpt", ... }, // NEW (optional) — cards that crashed
+  "engine_todo_clusters": [ ... ]                       // NEW (optional) — clusters from stage 4.7
+}
+```
+
+The depths adapter at `scripts/new_set/_adapters/depths_tournament_adapter.py` is the reference implementation.
+
+#### Audit loop pseudocode
+
+```
+for cycle in 1..3:
+    1. Run engine-specific tournament with the set's archetype decks.
        Output: logs/balance_<set>_round_<cycle>.json
-       (See the table above for the right runner per engine.)
 
-    2. Run coverage analyzer:
-       python -m scripts.new_set.coverage \
-           --tournament logs/balance_<set>_round_<cycle>.json \
-           --set <SET_LABEL> \
-           --card-list /tmp/<set>_cardlist.txt \
-           --out logs/coverage_<set>_round_<cycle>.json
+    2. Run coverage analyzer (unchanged):
+       python -m scripts.new_set.coverage --tournament <json> --set <SET> \
+           --card-list /tmp/<set>_cardlist.txt --out logs/coverage_<cycle>.json
+       If zero-play cards exist, run a force-include round before metrics.
 
-    3. If coverage report shows zero-play cards, run a force-include
-       round (build a deck per zero-play card via
-       scripts.new_set.coverage.build_force_include_spec, run K games
-       each, merge results into the tournament JSON before metrics).
+    3. Run capability audit:
+       python -m scripts.new_set.capability_audit \
+           --tournament <json> --set <SET> \
+           --archetypes <a1>,<a2>,<a3>,<a4> --cycle <cycle> \
+           --out logs/audit_<set>_cycle_<cycle>.json
+       Exit 0 = no actionable findings (converged). Exit 2 = fixes needed.
 
-    4. Run balance analyzer:
-       python -m scripts.new_set.balance_loop \
-           --tournament <merged_json> --set <SET_LABEL> \
-           --archetypes <a1>,<a2>,<a3> --cycle <cycle> \
-           --max-cycles <max_cycles> \
-           --out logs/balance_<set>_flags_<cycle>.json
-       Exit 0 = converged, exit 2 = revisions needed.
+    4. If converged → done, break.
 
-    5. If converged → done, break.
+    5. Else: parse the findings JSON. Group findings by `fix_dispatch`.
+       Dispatch up to N parallel agents IN A SINGLE MESSAGE (one per
+       distinct fix_dispatch + scope unit):
 
-    6. Else: spawn one Agent (general-purpose). Brief it with the flags
-       JSON. Instruct it to revise flagged cards (cost ±, P/T ±, text
-       simplification) in the appropriate archetype module file. Append
-       a changelog entry to docs/sets/<set>.md describing each change
-       and its rationale.
+         ai_extension       → 1 agent  (consolidates all ai_omission findings)
+         engine_extension   → 1 agent per missing primitive
+         card_revision      → 1 agent per affected archetype file
+         archetype_redesign → 1 agent per flagged archetype
+         mechanic_repair    → 1 agent per dead-end mechanic
+         card_repair        → 1 agent per crashing card
 
-    7. After agent returns, re-run smoke test (stage 7's pytest); fix
-       failures before proceeding to next cycle.
+       Each agent gets the relevant findings' `fix_brief` field as its
+       prompt seed PLUS the file scope it's allowed to touch. Run them
+       in parallel (single tool-use message with multiple Agent calls).
+
+    6. Regression test pass:
+       python tests/test_<engine>_smoke.py
+       python tests/test_<set>.py
+       If anything broke (engine smoke OR set smoke fails), spawn one
+       test-fix agent with the failure output. It must restore green
+       without weakening assertions; if it can't, REVERT the cycle's
+       changes (git stash) and continue to next cycle with the
+       unchanged code, logging the failure in the audit changelog.
+
+    7. Append cycle changelog to docs/sets/<set>.md: cycle number,
+       findings dispatched, fixes applied, regression status.
+
+    8. Re-tournament + re-audit on the next cycle iteration.
 ```
+
+#### Critical guardrails
+
+- **Do NOT modify `balance_loop.py` or `capability_audit.py`** — they are engine-agnostic by design. Adapters and per-engine logic live elsewhere.
+- **Anything-goes scope is real.** A cycle's fix can touch `src/engine/`, `src/ai/`, `src/cards/`, the design doc, even types.py. The regression-test pass + revert mechanism is what makes this safe.
+- **Parallel within a cycle, sequential across cycles.** This is intentional — within-cycle fixes are usually orthogonal (ai_extension and archetype_redesign don't overlap), but the regression test must validate them together before the next round.
+- **Cap at 3 cycles by default.** The audit can churn if fixes uncover new findings; 3 cycles is enough for the dominant problems. Past 3, ship with the residual findings logged in stage 9's report.
 
 ### Stage 9 — Final report + art follow-up prompt
 
