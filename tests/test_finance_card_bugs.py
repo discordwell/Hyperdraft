@@ -3413,9 +3413,12 @@ class TestAntiVoltronAI:
 
     # ---- 2. Position Audit on 4 opp Derivatives ------------------------------
 
-    def test_ai_casts_position_audit_on_4_derivatives(self):
-        """Opp has 2 attached + 2 in Desk = 4 total Derivatives.  AI hand has
+    def test_ai_casts_position_audit_on_5_derivatives(self):
+        """Opp has 2 attached + 3 in Desk = 5 total Derivatives.  AI hand has
         Position Audit affordable.  Hard AI must select it.
+
+        Threshold tightened 2026-05-09 (rebalance v3): was 4+, now 5+.  Lev
+        decks running 4 cheap derivatives no longer trigger Position Audit.
         """
         from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
         from src.cards.finance.fina.derivatives import (
@@ -3424,6 +3427,7 @@ class TestAntiVoltronAI:
             GAMMA_AMPLIFIER,
             IRON_CONDOR,
             PROTECTIVE_PUT,
+            SYNTHETIC_COLLAR,
         )
         from src.engine.finance import (
             add_to_deriv_desk,
@@ -3434,7 +3438,7 @@ class TestAntiVoltronAI:
         game, p1, p2 = _make_finance_game()
         self._wire_system_interceptors(game)
 
-        # Opp board: 1 host + 2 attached + 2 on Desk.
+        # Opp board: 1 host + 2 attached + 3 on Desk = 5 total derivs.
         host = _put_on_battlefield(game, p2.id, SPOOFING_ALGO)
         att_a = _put_on_battlefield(game, p2.id, THETA_DECAY_COLLAR)
         att_b = _put_on_battlefield(game, p2.id, GAMMA_AMPLIFIER)
@@ -3442,18 +3446,21 @@ class TestAntiVoltronAI:
         att_b.state.attached_to = host.id
         remove_from_deriv_desk(game.state, p2.id, att_a.id)
         remove_from_deriv_desk(game.state, p2.id, att_b.id)
-        # Two unattached on the Desk.  _put_on_battlefield uses create_object
-        # which does NOT fire the system ZONE_CHANGE interceptor that
-        # auto-stages Derivatives onto the Desk; stage them manually.
+        # Three unattached on the Desk (5 total: 2 attached + 3 desk).
         desk_a = _put_on_battlefield(game, p2.id, IRON_CONDOR)
         desk_b = _put_on_battlefield(game, p2.id, PROTECTIVE_PUT)
-        for d in (desk_a, desk_b):
+        desk_c = _put_on_battlefield(game, p2.id, SYNTHETIC_COLLAR)
+        for d in (desk_a, desk_b, desk_c):
             try:
                 add_to_deriv_desk(game.state, p2.id, d.id)
             except ValueError:
                 pass  # already staged
         opp_desk = get_deriv_desk(game.state, p2.id)
-        assert desk_a.id in opp_desk and desk_b.id in opp_desk, (
+        assert (
+            desk_a.id in opp_desk
+            and desk_b.id in opp_desk
+            and desk_c.id in opp_desk
+        ), (
             f"precondition: desk Derivatives must be staged "
             f"(desk={opp_desk!r})"
         )
@@ -3475,7 +3482,7 @@ class TestAntiVoltronAI:
             f"AI must select Position Audit "
             f"(picked={action.get('card_id')!r}, expected={pa.id!r})"
         )
-        print("test_ai_casts_position_audit_on_4_derivatives  PASS")
+        print("test_ai_casts_position_audit_on_5_derivatives  PASS")
 
     # ---- 3. Forced Unwinding pre-burst counter -------------------------------
 
@@ -3544,6 +3551,241 @@ class TestAntiVoltronAI:
 
     # ---- 4. Filter must not drop anti-voltron answers ------------------------
 
+    # ---- 5. Threshold tightening: 2 attached is NOT enough --------------------
+
+    def test_ai_does_not_cast_margin_squeeze_on_2_attached(self):
+        """Opp has 2 attached Derivatives on a non-HFPM host (Theta Decay
+        Collar + Iron Condor on a Spoofing Algo).  Under the tightened gate
+        (rebalance v3, 2026-05-09) this is NOT voltron — AI should prefer
+        body deployment over Margin Squeeze.
+
+        Repro for the user-flagged bug: "2+ attached Derivatives" was firing
+        on any deck running TDC + IC, but only a real voltron host (3+
+        attached or HFPM) is the right MS target.
+        """
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        from src.cards.finance.fina.derivatives import (
+            THETA_DECAY_COLLAR,
+            IRON_CONDOR,
+        )
+        from src.cards.finance.fina.dark_arbitrage import MARGIN_SQUEEZE
+        from src.engine.finance import remove_from_deriv_desk
+
+        game, p1, p2 = _make_finance_game()
+        self._wire_system_interceptors(game)
+
+        # Opp board: Spoofing Algo (non-HFPM) with 2 attached derivs.
+        host = _put_on_battlefield(game, p2.id, SPOOFING_ALGO)
+        d1 = _put_on_battlefield(game, p2.id, THETA_DECAY_COLLAR)
+        d2 = _put_on_battlefield(game, p2.id, IRON_CONDOR)
+        d1.state.attached_to = host.id
+        d2.state.attached_to = host.id
+        remove_from_deriv_desk(game.state, p2.id, d1.id)
+        remove_from_deriv_desk(game.state, p2.id, d2.id)
+
+        # P1 hand: Margin Squeeze + a Trader to deploy.
+        ms = self._make_hand_card(game, p1, MARGIN_SQUEEZE)
+        body = self._make_hand_card(game, p1, SPOOFING_ALGO)
+        p1.mana_crystals = 5
+        p1.mana_crystals_available = 5
+
+        ai = self._hard_ai()
+        action = ai.choose_play_action(game.state, p1.id)
+
+        # AI must NOT cast Margin Squeeze; should pick body or end_phase.
+        # The body Trader has positive V-delta (cheap, +stats), so the
+        # lookahead should pick the Trader.
+        assert action is not None, "AI must produce an action"
+        if action.get("type") == "play_card":
+            assert action.get("card_id") != ms.id, (
+                f"AI cast Margin Squeeze on a 2-attached non-HFPM target; "
+                f"should have deployed body instead "
+                f"(picked card_id={action.get('card_id')!r}, ms.id={ms.id!r})"
+            )
+        # Acceptable outcomes: play body, or end_phase (if filter dropped MS
+        # and lookahead found nothing else worthwhile).
+        print("test_ai_does_not_cast_margin_squeeze_on_2_attached  PASS")
+
+    def test_ai_does_not_cast_position_audit_on_4_derivs(self):
+        """Opp has 1 attached + 3 on Desk = 4 total Derivatives (was the old
+        Position Audit threshold).  Under the tightened gate (5+) this is
+        NOT enough — AI must prefer body deployment.
+        """
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        from src.cards.finance.fina.derivatives import (
+            POSITION_AUDIT,
+            THETA_DECAY_COLLAR,
+            GAMMA_AMPLIFIER,
+            IRON_CONDOR,
+            PROTECTIVE_PUT,
+        )
+        from src.engine.finance import (
+            add_to_deriv_desk,
+            get_deriv_desk,
+            remove_from_deriv_desk,
+        )
+
+        game, p1, p2 = _make_finance_game()
+        self._wire_system_interceptors(game)
+
+        # Opp: 1 host + 1 attached (TDC) + 3 on Desk = 4 total derivs.
+        host = _put_on_battlefield(game, p2.id, SPOOFING_ALGO)
+        att = _put_on_battlefield(game, p2.id, THETA_DECAY_COLLAR)
+        att.state.attached_to = host.id
+        remove_from_deriv_desk(game.state, p2.id, att.id)
+        for cd in (GAMMA_AMPLIFIER, IRON_CONDOR, PROTECTIVE_PUT):
+            d = _put_on_battlefield(game, p2.id, cd)
+            try:
+                add_to_deriv_desk(game.state, p2.id, d.id)
+            except ValueError:
+                pass
+        opp_desk = get_deriv_desk(game.state, p2.id)
+        assert len(opp_desk) == 3, (
+            f"precondition: 3 Derivatives on Desk (got {len(opp_desk)})"
+        )
+
+        # P1 hand: Position Audit + a body to deploy.
+        pa = self._make_hand_card(game, p1, POSITION_AUDIT)
+        body = self._make_hand_card(game, p1, SPOOFING_ALGO)
+        p1.mana_crystals = 5
+        p1.mana_crystals_available = 5
+
+        ai = self._hard_ai()
+        action = ai.choose_play_action(game.state, p1.id)
+
+        assert action is not None, "AI must produce an action"
+        if action.get("type") == "play_card":
+            assert action.get("card_id") != pa.id, (
+                f"AI cast Position Audit on 4 total derivs; threshold should "
+                f"be 5+ now (picked={action.get('card_id')!r}, pa.id={pa.id!r})"
+            )
+        print("test_ai_does_not_cast_position_audit_on_4_derivs  PASS")
+
+    def test_ai_recognizes_hfpm_specifically(self):
+        """Opp has Hedge Fund PM with 1 attached Derivative.  Even at 1
+        attached this is voltron (HFPM-specific override) — AI must cast
+        Margin Squeeze targeting HFPM.
+
+        HFPM is 2/4 printed but with a single attached Derivative (e.g. a
+        Synthetic Collar granting +3) the effective power is ≥4.  We attach
+        one buff to hit the power gate.
+        """
+        from src.cards.finance.fina.derivatives import (
+            HEDGE_FUND_PM,
+            SYNTHETIC_COLLAR,
+        )
+        from src.cards.finance.fina.dark_arbitrage import MARGIN_SQUEEZE
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        from src.engine.finance import remove_from_deriv_desk
+
+        game, p1, p2 = _make_finance_game()
+        self._wire_system_interceptors(game)
+
+        # Opp: HFPM + 1 attached Synthetic Collar (gives effective power ≥4).
+        host = _put_on_battlefield(game, p2.id, HEDGE_FUND_PM)
+        # Need a SECOND opp Trader for SYNTHETIC_COLLAR's "+1/+1 per other
+        # Derivative attached" buff to apply, but for this test the gate
+        # itself is what matters.  Use a generic +power buff via a buddy
+        # Trader for board context.
+        buddy = _put_on_battlefield(game, p2.id, SPOOFING_ALGO)
+        sc = _put_on_battlefield(game, p2.id, SYNTHETIC_COLLAR)
+        sc.state.attached_to = host.id
+        remove_from_deriv_desk(game.state, p2.id, sc.id)
+
+        # Manually bump effective power so the gate fires.  Add a +3 power
+        # mod via pt_modifiers (simulates a single attached buff being
+        # active).  Real game state would have this from the QUERY_POWER
+        # interceptor of the attached Derivative.
+        if not hasattr(host.state, "pt_modifiers"):
+            host.state.pt_modifiers = []
+        host.state.pt_modifiers.append({"power": 3, "toughness": 0})
+
+        # P1 hand: Margin Squeeze + body decoy.
+        ms = self._make_hand_card(game, p1, MARGIN_SQUEEZE)
+        decoy = self._make_hand_card(game, p1, SPOOFING_ALGO)
+        p1.mana_crystals = 5
+        p1.mana_crystals_available = 5
+
+        ai = self._hard_ai()
+        action = ai.choose_play_action(game.state, p1.id)
+
+        assert action is not None and action.get("type") == "play_card", (
+            f"AI must produce a play_card action (got {action!r})"
+        )
+        assert action.get("card_id") == ms.id, (
+            f"HFPM-specific override: AI must cast Margin Squeeze even at "
+            f"1 attached when host is HFPM with effective power ≥4 "
+            f"(picked={action.get('card_id')!r}, ms.id={ms.id!r})"
+        )
+        assert action.get("targets") == [host.id], (
+            f"AI must target the HFPM host "
+            f"(got {action.get('targets')!r}, expected [{host.id!r}])"
+        )
+        print("test_ai_recognizes_hfpm_specifically  PASS")
+
+    def test_ai_in_non_voltron_match_filters_answers_as_traps(self):
+        """Opp has 0 Derivatives.  P1 hand: Margin Squeeze + a body Trader.
+        The trap-card filter must drop Margin Squeeze (no voltron) so the
+        AI plays the body instead.
+        """
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        from src.cards.finance.fina.dark_arbitrage import (
+            MARGIN_SQUEEZE,
+            FORCED_UNWINDING,
+        )
+        from src.cards.finance.fina.derivatives import (
+            POSITION_AUDIT,
+            LIQUIDATION_CASCADE,
+        )
+        from src.ai.finance_adapter import FinanceAIAdapter
+
+        game, p1, p2 = _make_finance_game()
+        self._wire_system_interceptors(game)
+
+        # Opp: 1 vanilla Trader, NO Derivatives (non-voltron).
+        opp_trader = _put_on_battlefield(game, p2.id, SPOOFING_ALGO)
+
+        # P1 hand: all 4 anti-voltron answers + a body.
+        ms = self._make_hand_card(game, p1, MARGIN_SQUEEZE)
+        pa = self._make_hand_card(game, p1, POSITION_AUDIT)
+        fu = self._make_hand_card(game, p1, FORCED_UNWINDING)
+        lc = self._make_hand_card(game, p1, LIQUIDATION_CASCADE)
+        body = self._make_hand_card(game, p1, SPOOFING_ALGO)
+        p1.mana_crystals = 10
+        p1.mana_crystals_available = 10
+
+        ai = FinanceAIAdapter(difficulty="hard")
+
+        # 1. Filter must drop all 4 anti-voltron answers (no voltron shape).
+        affordable = [ms, pa, fu, lc, body]
+        kept = ai._filter_trap_cards(game.state, p1.id, affordable)
+        kept_names = {c.name for c in kept}
+        for name in ("Margin Squeeze", "Position Audit",
+                     "Forced Unwinding", "Liquidation Cascade"):
+            assert name not in kept_names, (
+                f"_filter_trap_cards must drop {name!r} when opponent is "
+                f"NOT voltron-shaped (kept_names={kept_names!r})"
+            )
+        # Body must survive the filter.
+        assert "Spoofing Algo" in kept_names, (
+            f"body Trader must be kept (got {kept_names!r})"
+        )
+
+        # 2. End-to-end: AI must NOT select an anti-voltron answer.  Either
+        #    body deploy (preferred) or end_phase (acceptable when delta
+        #    doesn't beat attack_threshold) is fine — the bug being prevented
+        #    is "AI greedy-casts MS on non-voltron".
+        action = ai.choose_play_action(game.state, p1.id)
+        assert action is not None, "AI must produce an action"
+        if action.get("type") == "play_card":
+            picked = action.get("card_id")
+            answer_ids = {ms.id, pa.id, fu.id, lc.id}
+            assert picked not in answer_ids, (
+                f"AI cast an anti-voltron answer in a non-voltron match "
+                f"(picked={picked!r}, answer_ids={answer_ids!r})"
+            )
+        print("test_ai_in_non_voltron_match_filters_answers_as_traps  PASS")
+
     def test_ai_does_not_filter_answers_as_traps(self):
         """In a voltron-shaped opponent setup, the trap-card filter must NOT
         drop Margin Squeeze / Position Audit / Forced Unwinding / Liquidation
@@ -3600,12 +3842,325 @@ class TestAntiVoltronAI:
         print("test_ai_does_not_filter_answers_as_traps  PASS")
 
 
+class TestAggroBurnBuffCards:
+    """Rebalance v3b (2026-05-09): 4 new cards lifting HF aggro and Burn into
+    pinnacle archetypes.
+
+      - Tick Sniper {1} 2/1 — vanilla Alpha Strike. The missing T1 body.
+      - Capital Skim {1} Order — Deal 1 damage to target Trader or opponent.
+      - Volatility Bomb {2} Order — Deal 3 damage to target Trader or opponent.
+      - Cascading Liquidations {3} Strategy — Deal damage to target opponent
+        equal to # Traders in your graveyard, max 6.
+    """
+
+    # ---- Tick Sniper ---------------------------------------------------------
+
+    def test_tick_sniper_is_2_1_alpha_strike(self):
+        """Deploy Tick Sniper; assert P=2 T=1 + alpha-strike trigger applies
+        when attacking alone."""
+        from src.cards.finance.fina.high_frequency import TICK_SNIPER
+
+        game, p1, p2 = _make_finance_game()
+        sniper = _put_on_battlefield(game, p1.id, TICK_SNIPER)
+
+        # Body stats: 2/1.
+        assert sniper.characteristics.power == 2 and sniper.characteristics.toughness == 1, (
+            f"Tick Sniper must be a 2/1 "
+            f"(got {sniper.characteristics.power}/{sniper.characteristics.toughness})"
+        )
+
+        # Mana cost: {1}.
+        assert sniper.characteristics.mana_cost == "{1}", (
+            f"Tick Sniper must cost {{1}} (got {sniper.characteristics.mana_cost!r})"
+        )
+
+        # Alpha Strike: when attacking alone, _alpha_strike_bonus emits
+        # a +3 PT_MODIFICATION carrying _tag='alpha_strike'.  Mark sniper
+        # as solo attacker and verify the bonus fires.
+        sniper.state.attacking = True
+        events = _alpha_strike_bonus(sniper, game.state, power_mod=3)
+        assert events, (
+            "Tick Sniper must emit alpha-strike bonus when attacking alone"
+        )
+        ev = events[0]
+        assert ev.type == EventType.PT_MODIFICATION, (
+            f"alpha-strike bonus must be PT_MODIFICATION (got {ev.type!r})"
+        )
+        assert ev.payload.get("power_mod") == 3, (
+            f"alpha-strike bonus must be +3 power "
+            f"(got {ev.payload.get('power_mod')!r})"
+        )
+        assert ev.payload.get("_tag") == "alpha_strike", (
+            f"alpha-strike bonus must be tagged for SBA cleanup "
+            f"(got {ev.payload.get('_tag')!r})"
+        )
+
+        # Pinnacle T1 deploy: setup_interceptors must register an attack trigger.
+        assert sniper.interceptor_ids, (
+            "Tick Sniper setup must register at least one interceptor "
+            "(the alpha-strike attack trigger)"
+        )
+        print("test_tick_sniper_is_2_1_alpha_strike  PASS")
+
+    # ---- Capital Skim --------------------------------------------------------
+
+    def test_capital_skim_deals_1_to_opponent(self):
+        """Cast Capital Skim with no target → auto-targets opponent's Capital
+        Reserve, drops it by 1."""
+        from src.cards.finance.fina.high_frequency import CAPITAL_SKIM
+
+        game, p1, p2 = _make_finance_game()
+
+        skim = game.create_object(
+            name=CAPITAL_SKIM.name,
+            owner_id=p1.id,
+            zone=ZoneType.HAND,
+            characteristics=CAPITAL_SKIM.characteristics,
+            card_def=CAPITAL_SKIM,
+        )
+        p1.mana_crystals = 5
+        p1.mana_crystals_available = 5
+        capital_before = p2.life
+
+        events = asyncio.run(
+            game.turn_manager._play_card_action(p1.id, skim.id, [])
+        )
+        assert events, "Capital Skim cast must produce events"
+
+        # Cost paid.
+        assert p1.mana_crystals_available == 5 - 1, (
+            f"Capital Skim must cost {{1}} "
+            f"(got {5 - p1.mana_crystals_available} drained)"
+        )
+
+        # Capital Reserve dropped by 1.
+        capital_after = p2.life
+        assert capital_after == capital_before - 1, (
+            f"Capital Skim with no target must auto-target opponent and drop "
+            f"Capital by 1 (before={capital_before}, after={capital_after})"
+        )
+
+        # Spell ends in graveyard.
+        assert skim.zone == ZoneType.GRAVEYARD, (
+            f"Capital Skim must end in graveyard (got {skim.zone!r})"
+        )
+        print("test_capital_skim_deals_1_to_opponent  PASS")
+
+    def test_capital_skim_deals_1_to_trader(self):
+        """Cast Capital Skim targeting an opponent Trader → 1 damage marked."""
+        from src.cards.finance.fina.high_frequency import (
+            CAPITAL_SKIM,
+            SPOOFING_ALGO,
+        )
+
+        game, p1, p2 = _make_finance_game()
+
+        target = _put_on_battlefield(game, p2.id, SPOOFING_ALGO)
+        damage_before = int(target.state.damage or 0)
+
+        skim = game.create_object(
+            name=CAPITAL_SKIM.name,
+            owner_id=p1.id,
+            zone=ZoneType.HAND,
+            characteristics=CAPITAL_SKIM.characteristics,
+            card_def=CAPITAL_SKIM,
+        )
+        p1.mana_crystals = 5
+        p1.mana_crystals_available = 5
+
+        events = asyncio.run(
+            game.turn_manager._play_card_action(p1.id, skim.id, [target.id])
+        )
+        assert events, "Capital Skim cast must produce events"
+
+        damage_after = int(target.state.damage or 0)
+        assert damage_after == damage_before + 1, (
+            f"Capital Skim must mark 1 damage on the targeted Trader "
+            f"(before={damage_before}, after={damage_after})"
+        )
+        print("test_capital_skim_deals_1_to_trader  PASS")
+
+    # ---- Volatility Bomb -----------------------------------------------------
+
+    def test_volatility_bomb_deals_3_damage(self):
+        """Both target modes: opponent → -3 Capital, Trader → 3 damage marked
+        (which kills any 1- or 2-toughness Trader by SBA)."""
+        from src.cards.finance.fina.high_frequency import (
+            VOLATILITY_BOMB,
+            SPOOFING_ALGO,
+        )
+
+        # --- Phase 1: face damage ---
+        game, p1, p2 = _make_finance_game()
+        bomb = game.create_object(
+            name=VOLATILITY_BOMB.name,
+            owner_id=p1.id,
+            zone=ZoneType.HAND,
+            characteristics=VOLATILITY_BOMB.characteristics,
+            card_def=VOLATILITY_BOMB,
+        )
+        p1.mana_crystals = 5
+        p1.mana_crystals_available = 5
+        capital_before = p2.life
+
+        events = asyncio.run(
+            game.turn_manager._play_card_action(p1.id, bomb.id, [])
+        )
+        assert events, "Volatility Bomb (face) cast must produce events"
+        # Cost paid: {2}.
+        assert p1.mana_crystals_available == 5 - 2, (
+            f"Volatility Bomb must cost {{2}} "
+            f"(got {5 - p1.mana_crystals_available} drained)"
+        )
+        capital_after = p2.life
+        assert capital_after == capital_before - 3, (
+            f"Volatility Bomb must drop opponent Capital Reserve by 3 "
+            f"(before={capital_before}, after={capital_after})"
+        )
+
+        # --- Phase 2: hit a Trader ---
+        game2, q1, q2 = _make_finance_game()
+        target = _put_on_battlefield(game2, q2.id, SPOOFING_ALGO)
+        damage_before = int(target.state.damage or 0)
+
+        bomb2 = game2.create_object(
+            name=VOLATILITY_BOMB.name,
+            owner_id=q1.id,
+            zone=ZoneType.HAND,
+            characteristics=VOLATILITY_BOMB.characteristics,
+            card_def=VOLATILITY_BOMB,
+        )
+        q1.mana_crystals = 5
+        q1.mana_crystals_available = 5
+
+        events_2 = asyncio.run(
+            game2.turn_manager._play_card_action(q1.id, bomb2.id, [target.id])
+        )
+        assert events_2, "Volatility Bomb (Trader) cast must produce events"
+        # Spoofing Algo is 2/1: 3 damage marks 3 (kill is via SBA elsewhere).
+        # We assert the damage marker reached the Trader.
+        damage_after = int(target.state.damage or 0)
+        # Either the Trader died (damage cleared by SBA) or 3 damage is marked.
+        # Both are acceptable; the proof of effect is "damage was applied".
+        if target.zone == ZoneType.GRAVEYARD:
+            # Lethal SBA fired — Volatility Bomb killed it.
+            print("  (Trader died to Volatility Bomb via SBA)")
+        else:
+            assert damage_after == damage_before + 3, (
+                f"Volatility Bomb must mark 3 damage on the targeted Trader "
+                f"(before={damage_before}, after={damage_after})"
+            )
+        print("test_volatility_bomb_deals_3_damage  PASS")
+
+    # ---- Cascading Liquidations ----------------------------------------------
+
+    def test_cascading_liquidations_scales_with_graveyard_traders(self):
+        """0 Traders in GY → 0 dmg; 4 in GY → 4 dmg; 8 in GY → caps at 6."""
+        from src.cards.finance.fina.high_frequency import (
+            CASCADING_LIQUIDATIONS,
+            SPOOFING_ALGO,
+        )
+
+        # --- Phase 1: 0 Traders in GY → 0 damage (no-op) ---
+        game, p1, p2 = _make_finance_game()
+        cl = game.create_object(
+            name=CASCADING_LIQUIDATIONS.name,
+            owner_id=p1.id,
+            zone=ZoneType.HAND,
+            characteristics=CASCADING_LIQUIDATIONS.characteristics,
+            card_def=CASCADING_LIQUIDATIONS,
+        )
+        p1.mana_crystals = 5
+        p1.mana_crystals_available = 5
+        capital_before = p2.life
+
+        asyncio.run(game.turn_manager._play_card_action(p1.id, cl.id, []))
+
+        capital_after = p2.life
+        assert capital_after == capital_before, (
+            f"Cascading Liquidations with 0 GY Traders must deal 0 damage "
+            f"(before={capital_before}, after={capital_after})"
+        )
+
+        # --- Phase 2: 4 Traders in GY → 4 damage ---
+        game2, q1, q2 = _make_finance_game()
+        gz = game2.state.zones.get(f"graveyard_{q1.id}")
+        assert gz is not None, "Graveyard zone must exist for player"
+        # Drop 4 Trader objects into q1's graveyard.
+        for i in range(4):
+            t_obj = game2.create_object(
+                name=SPOOFING_ALGO.name,
+                owner_id=q1.id,
+                zone=ZoneType.GRAVEYARD,
+                characteristics=SPOOFING_ALGO.characteristics,
+                card_def=SPOOFING_ALGO,
+            )
+            # create_object with zone=GRAVEYARD should land in q1's graveyard
+            # zone, but be defensive — append by id if missing.
+            if t_obj.id not in getattr(gz, "objects", []):
+                gz.objects.append(t_obj.id)
+
+        cl2 = game2.create_object(
+            name=CASCADING_LIQUIDATIONS.name,
+            owner_id=q1.id,
+            zone=ZoneType.HAND,
+            characteristics=CASCADING_LIQUIDATIONS.characteristics,
+            card_def=CASCADING_LIQUIDATIONS,
+        )
+        q1.mana_crystals = 5
+        q1.mana_crystals_available = 5
+        capital_before_2 = q2.life
+
+        asyncio.run(game2.turn_manager._play_card_action(q1.id, cl2.id, []))
+
+        capital_after_2 = q2.life
+        assert capital_after_2 == capital_before_2 - 4, (
+            f"Cascading Liquidations with 4 GY Traders must deal 4 damage "
+            f"(before={capital_before_2}, after={capital_after_2})"
+        )
+
+        # --- Phase 3: 8 Traders in GY → caps at 6 ---
+        game3, r1, r2 = _make_finance_game()
+        gz3 = game3.state.zones.get(f"graveyard_{r1.id}")
+        for i in range(8):
+            t_obj = game3.create_object(
+                name=SPOOFING_ALGO.name,
+                owner_id=r1.id,
+                zone=ZoneType.GRAVEYARD,
+                characteristics=SPOOFING_ALGO.characteristics,
+                card_def=SPOOFING_ALGO,
+            )
+            if t_obj.id not in getattr(gz3, "objects", []):
+                gz3.objects.append(t_obj.id)
+
+        cl3 = game3.create_object(
+            name=CASCADING_LIQUIDATIONS.name,
+            owner_id=r1.id,
+            zone=ZoneType.HAND,
+            characteristics=CASCADING_LIQUIDATIONS.characteristics,
+            card_def=CASCADING_LIQUIDATIONS,
+        )
+        r1.mana_crystals = 5
+        r1.mana_crystals_available = 5
+        capital_before_3 = r2.life
+
+        asyncio.run(game3.turn_manager._play_card_action(r1.id, cl3.id, []))
+
+        capital_after_3 = r2.life
+        assert capital_after_3 == capital_before_3 - 6, (
+            f"Cascading Liquidations with 8 GY Traders must cap at 6 damage "
+            f"(before={capital_before_3}, after={capital_after_3})"
+        )
+        print("test_cascading_liquidations_scales_with_graveyard_traders  PASS")
+
+
 # Module-level wrappers so the legacy ``_run_all`` driver picks them up.
 _V3_FOLLOWUP_BUGS = TestV3FollowupBugs()
 _ITER4_CARD_BUGS = TestIter4CardBugs()
 _EQUIPMENT_CLEANUP = TestEquipmentCleanup()
 _NEW_META_CARDS = TestNewMetaCards()
 _ANTI_VOLTRON_AI = TestAntiVoltronAI()
+_AGGRO_BURN_BUFF = TestAggroBurnBuffCards()
 
 
 def test_derivative_returns_to_desk_when_host_dies():
@@ -3692,8 +4247,8 @@ def test_ai_casts_margin_squeeze_on_voltron_host():
     _ANTI_VOLTRON_AI.test_ai_casts_margin_squeeze_on_voltron_host()
 
 
-def test_ai_casts_position_audit_on_4_derivatives():
-    _ANTI_VOLTRON_AI.test_ai_casts_position_audit_on_4_derivatives()
+def test_ai_casts_position_audit_on_5_derivatives():
+    _ANTI_VOLTRON_AI.test_ai_casts_position_audit_on_5_derivatives()
 
 
 def test_ai_casts_forced_unwinding_preemptively():
@@ -3702,6 +4257,47 @@ def test_ai_casts_forced_unwinding_preemptively():
 
 def test_ai_does_not_filter_answers_as_traps():
     _ANTI_VOLTRON_AI.test_ai_does_not_filter_answers_as_traps()
+
+
+# Anti-voltron tightening (rebalance v3, 2026-05-09).
+# Verify the heuristic does NOT fire its anti-voltron answers against
+# non-voltron decks (Iron Condor + TDC piles, 4-derivative Lev decks, etc.).
+
+def test_ai_does_not_cast_margin_squeeze_on_2_attached():
+    _ANTI_VOLTRON_AI.test_ai_does_not_cast_margin_squeeze_on_2_attached()
+
+
+def test_ai_does_not_cast_position_audit_on_4_derivs():
+    _ANTI_VOLTRON_AI.test_ai_does_not_cast_position_audit_on_4_derivs()
+
+
+def test_ai_recognizes_hfpm_specifically():
+    _ANTI_VOLTRON_AI.test_ai_recognizes_hfpm_specifically()
+
+
+# Rebalance v3b (2026-05-09): aggro/burn buff cards.
+def test_tick_sniper_is_2_1_alpha_strike():
+    _AGGRO_BURN_BUFF.test_tick_sniper_is_2_1_alpha_strike()
+
+
+def test_capital_skim_deals_1_to_opponent():
+    _AGGRO_BURN_BUFF.test_capital_skim_deals_1_to_opponent()
+
+
+def test_capital_skim_deals_1_to_trader():
+    _AGGRO_BURN_BUFF.test_capital_skim_deals_1_to_trader()
+
+
+def test_volatility_bomb_deals_3_damage():
+    _AGGRO_BURN_BUFF.test_volatility_bomb_deals_3_damage()
+
+
+def test_cascading_liquidations_scales_with_graveyard_traders():
+    _AGGRO_BURN_BUFF.test_cascading_liquidations_scales_with_graveyard_traders()
+
+
+def test_ai_in_non_voltron_match_filters_answers_as_traps():
+    _ANTI_VOLTRON_AI.test_ai_in_non_voltron_match_filters_answers_as_traps()
 
 
 # ---------------------------------------------------------------------------
@@ -3785,9 +4381,20 @@ def _run_all():
         test_capital_skimmer_tap_deals_damage_to_trader_or_opponent,
         # Anti-voltron AI (rebalance v2, 2026-05-09):
         test_ai_casts_margin_squeeze_on_voltron_host,
-        test_ai_casts_position_audit_on_4_derivatives,
+        test_ai_casts_position_audit_on_5_derivatives,
         test_ai_casts_forced_unwinding_preemptively,
         test_ai_does_not_filter_answers_as_traps,
+        # Anti-voltron tightening (rebalance v3, 2026-05-09):
+        test_ai_does_not_cast_margin_squeeze_on_2_attached,
+        test_ai_does_not_cast_position_audit_on_4_derivs,
+        test_ai_recognizes_hfpm_specifically,
+        test_ai_in_non_voltron_match_filters_answers_as_traps,
+        # Aggro/Burn pinnacle buff (rebalance v3b, 2026-05-09):
+        test_tick_sniper_is_2_1_alpha_strike,
+        test_capital_skim_deals_1_to_opponent,
+        test_capital_skim_deals_1_to_trader,
+        test_volatility_bomb_deals_3_damage,
+        test_cascading_liquidations_scales_with_graveyard_traders,
     ]
     failures = []
     for t in tests:

@@ -650,33 +650,76 @@ def _hand_has_card_named(
     return None
 
 
+def _effective_power(obj: "GameObject", state: GameState) -> int:
+    """Effective power including attached buffs, counters, and continuous
+    effects.  Used by anti-voltron heuristic to gate Margin Squeeze on
+    "is the host actually a 4+ power threat?" — printed power alone is
+    insufficient (HFPM's printed power is 2 but with 2 attached Derivatives
+    the effective power can be 6+).
+    """
+    try:
+        from src.engine.queries import get_power
+        return int(get_power(obj, state))
+    except Exception:
+        return _power(obj)
+
+
+def _opponent_has_hfpm_on_battlefield(
+    state: GameState, my_player_id: str
+) -> bool:
+    """True if opponent has Hedge Fund PM on the battlefield (specific override).
+
+    HFPM-specifically signals voltron commitment regardless of attachment count:
+    its ETB mass-attaches the Desk, so even 1 attached Derivative implies
+    voltron threat.
+    """
+    opp_id = _other_player(state, my_player_id)
+    if opp_id is None:
+        return False
+    bf = _battlefield(state)
+    if bf is None:
+        return False
+    for oid in bf.objects:
+        obj = state.objects.get(oid)
+        if obj is None:
+            continue
+        if obj.controller == opp_id and _card_name(obj) == "Hedge Fund PM":
+            return True
+    return False
+
+
 def _opponent_has_voltron_threats(
     state: GameState, my_player_id: str
 ) -> bool:
-    """True if opponent's board looks like an active voltron threat.
+    """True if opponent's board looks like an *active* voltron threat.
 
-    Triggers when:
-      - any opp Trader has ≥2 attached Derivatives, OR
-      - opp has ≥4 total Derivatives (attached + Desk), OR
-      - ≥2 opp Traders each have ≥1 attached Derivative.
+    Tightened (2026-05-09 anti-voltron rebalance v3) — voltron-detection is a
+    polarized win-more decision, must be confident before triggering. The
+    previous gate fired on any Derivatives-burst / Lev-ramp / Lev-detonate
+    deck running 4+ derivatives (e.g. Iron Condor + Theta Decay Collar pile)
+    even when no voltron host existed, causing the AI to greedy-cast Margin
+    Squeeze on 2/3 traders instead of developing its own board.
+
+    Triggers when ANY of:
+      - any opp Trader has ≥3 attached Derivatives (real voltron host), OR
+      - opp has Hedge Fund PM on the battlefield WITH any attached Derivative
+        (HFPM-specific override — its ETB mass-attaches Desk), OR
+      - opp has ≥5 total Derivatives (attached + Desk).
     """
-    if _count_opponent_attached_derivatives(state, my_player_id) >= 2:
-        host = _find_voltron_host(state, my_player_id, min_attached=2)
+    # Stricter threshold: require 3+ attached on a single host (was 2+).
+    if _count_opponent_attached_derivatives(state, my_player_id) >= 3:
+        host = _find_voltron_host(state, my_player_id, min_attached=3)
         if host is not None:
             return True
-    if _count_opponent_total_derivatives(state, my_player_id) >= 4:
+    # HFPM-specific override: its existence on board signals voltron.
+    if _opponent_has_hfpm_on_battlefield(state, my_player_id):
+        if _count_opponent_attached_derivatives(state, my_player_id) >= 1:
+            return True
+    # Stricter total-derivatives threshold: 5+ (was 4+) — any Lev/Derivatives
+    # deck runs 4 cheap derivatives without committing to voltron.
+    if _count_opponent_total_derivatives(state, my_player_id) >= 5:
         return True
-    # Multi-trader Derivative spread (e.g. opp has 2 hosts each holding 1).
-    opp_traders = _opp_traders(state, my_player_id)
-    multi_host = 0
-    for trader in opp_traders:
-        for obj in state.objects.values():
-            if not _is_derivative(obj):
-                continue
-            if getattr(getattr(obj, "state", None), "attached_to", None) == trader.id:
-                multi_host += 1
-                break
-    return multi_host >= 2
+    return False
 
 
 def _board_value(state: GameState, player_id: str) -> float:
@@ -1380,19 +1423,14 @@ class FinanceAIAdapter:
             len(_own_traders(state, opp_id_for_body_check))
             if opp_id_for_body_check else 0
         )
-        # anti-voltron: in control mode (opp has 2+ Derivative-attached Traders)
-        # the body-priority heuristic is wrong — we want to keep removal in hand
-        # priced for the next voltron host, not chase Trader parity by deploying
-        # a 1/1.  Skip body-priority when control mode applies.
-        opp_voltron_hosts = sum(
-            1 for trader in _opp_traders(state, player_id)
-            if any(
-                _is_derivative(o)
-                and getattr(getattr(o, "state", None), "attached_to", None) == trader.id
-                for o in state.objects.values()
-            )
-        )
-        in_control_mode = opp_voltron_hosts >= 2
+        # anti-voltron: control-mode is ON only when opponent shows true
+        # voltron commitment (per the tightened _opponent_has_voltron_threats
+        # gate: 3+ attached on a single host, OR HFPM on the battlefield with
+        # any attachment, OR 5+ total Derivatives).  When control-mode is OFF
+        # the AI fully prioritises body deployment over removal — the
+        # control-mode branch is now explicit, no longer always-on subtly
+        # via a 2-host loophole (rebalance v3, 2026-05-09).
+        in_control_mode = _opponent_has_voltron_threats(state, player_id)
         if (
             not in_control_mode
             and own_trader_count < opp_trader_count_for_body_check - 1
@@ -1449,13 +1487,21 @@ class FinanceAIAdapter:
         warrants it.  Returns ``None`` when no anti-voltron play applies and
         the caller should fall through to the regular lookahead.
 
-        Branch priority (highest EV first):
-          1. Margin Squeeze on a 2+ attached host (cheap precise removal {2}).
-          2. Position Audit when opp has 4+ total Derivatives (sweeper {3}).
-          3. Liquidation Cascade when opp has 4+ Derivatives AND we have own
+        Branch priority (highest EV first).  Tightened 2026-05-09 (rebalance
+        v3) so the AI doesn't fire {2}-{4} answers against non-voltron decks
+        that simply happen to run derivatives.
+
+          1. Margin Squeeze: 3+ attached on a single host (was 2+) AND host
+             effective power ≥4 — don't waste {2} on a 2/3 derivative-pile.
+             HFPM-specific override: any attached count fires (HFPM is the
+             true voltron commit signal).
+          2. Position Audit: opp has 5+ total Derivatives (was 4+) AND we
+             have ≤1 own Derivative (asymmetric).
+          3. Liquidation Cascade: opp has 4+ Derivatives AND we have own
              Derivatives that would die to Position Audit ({4} asymmetric).
-          4. Forced Unwinding pre-burst: opp has 3+ in Desk, T6+, opp has held
-             cards (likely HFPM in hand).  Strips Desk pre-emptively.
+          4. Forced Unwinding: opp has 3+ Desk Derivatives AND turn ≥6 AND
+             opp hand suggests held HFPM.  No firing pre-emptively against
+             non-voltron decks.
         """
         # Quick exit: if NONE of our affordable cards are anti-voltron, skip
         # the (cheap but non-zero) detection scans below.
@@ -1463,58 +1509,58 @@ class FinanceAIAdapter:
         if not (affordable_names & _ANTI_VOLTRON_CARD_NAMES):
             return None
 
-        # ── 1. Margin Squeeze on a 2+ attached host ─────────────────────────
+        # ── 1. Margin Squeeze on a 3+ attached host (or HFPM specifically) ──
         # anti-voltron: cheap precise removal of a Derivative-stacked Trader.
-        # At {2}, Margin Squeeze is the highest-EV play on the spot when a
-        # voltron host exists — it strips ALL attached buffs (via Equipment-
-        # cleanup interceptor), turning an 8/4 HFPM into a dead investment.
+        # At {2}, Margin Squeeze must be earning its slot — only fire on a
+        # real voltron host (3+ attached AND effective power ≥4) or HFPM
+        # specifically.  Otherwise it's a body-swap-tempo loss vs non-voltron.
         ms_card = next((c for c in affordable
                         if _card_name(c) == "Margin Squeeze"), None)
         if ms_card is not None:
-            host = _find_voltron_host(state, player_id, min_attached=2)
-            if host is not None:
-                # anti-voltron: lock in target so resolve doesn't auto-pick
-                # a different host than the one we evaluated.
+            # Primary gate: 3+ attached Derivatives AND host effective power ≥4.
+            # Effective (not printed) power matters here — HFPM is printed 2
+            # but with 2 attached Derivatives the effective power can be 6+.
+            host = _find_voltron_host(state, player_id, min_attached=3)
+            if host is not None and _effective_power(host, state) >= 4:
                 return {
                     "type": "play_card",
                     "card_id": ms_card.id,
                     "targets": [host.id],
                 }
-            # Don't hold MS if hand has 2+ copies and opponent has voltron-shape.
-            ms_in_hand = sum(
-                1 for c in _hand_cards(state, player_id)
-                if _card_name(c) == "Margin Squeeze"
-            )
-            if ms_in_hand >= 2 and _opponent_has_voltron_threats(state, player_id):
-                # Even at min_attached=1 the card still profits when opp is
-                # a voltron deck — fish for a single-attached host.
-                soft_host = _find_voltron_host(state, player_id, min_attached=1)
-                if soft_host is not None:
+            # HFPM-specific override: HFPM-with-any-attached is voltron-shape
+            # regardless of attachment count (HFPM's ETB mass-attaches Desk).
+            # Power gate still applies (effective, not printed).
+            if _opponent_has_hfpm_on_battlefield(state, player_id):
+                hfpm_host = _find_voltron_host(state, player_id, min_attached=1)
+                if (
+                    hfpm_host is not None
+                    and _card_name(hfpm_host) == "Hedge Fund PM"
+                    and _effective_power(hfpm_host, state) >= 4
+                ):
                     return {
                         "type": "play_card",
                         "card_id": ms_card.id,
-                        "targets": [soft_host.id],
+                        "targets": [hfpm_host.id],
                     }
 
-        # ── 2. Position Audit when opp has 4+ total Derivatives ──────────────
+        # ── 2. Position Audit when opp has 5+ Derivatives + our own ≤1 ──────
         # anti-voltron: board-clearing tempo swing when opp is Derivative-heavy.
+        # Tightened 2026-05-09: 5+ (was 4+) AND our own derivs ≤1, so the cast
+        # is mostly asymmetric.  Lev decks running 4 cheap derivatives no
+        # longer trigger this.
         pa_card = next((c for c in affordable
                         if _card_name(c) == "Position Audit"), None)
         if pa_card is not None:
             opp_total_derivs = _count_opponent_total_derivatives(state, player_id)
-            if opp_total_derivs >= 4:
-                # anti-voltron: weigh own Derivatives (symmetric loss) before
-                # firing.  When we have NO own Derivatives, this is a pure
-                # asymmetric blowout; otherwise weigh the loss.
+            if opp_total_derivs >= 5:
                 own_derivs = sum(
                     1 for o in state.objects.values()
                     if _is_derivative(o)
                     and o.controller == player_id
                     and getattr(o, "zone", None) == ZoneType.BATTLEFIELD
                 )
-                # Fire if opp has 2+ more derivs than us (asymmetric blowout)
-                # OR if opp has 4+ and we have 0 (pure asymmetric).
-                if own_derivs == 0 or (opp_total_derivs - own_derivs) >= 2:
+                # Asymmetric only: own derivs ≤ 1.
+                if own_derivs <= 1:
                     return {
                         "type": "play_card",
                         "card_id": pa_card.id,
@@ -1524,13 +1570,15 @@ class FinanceAIAdapter:
         # ── 3. Liquidation Cascade for opp-attached + own-Derivative case ───
         # anti-voltron: {4} preserves up to 3 of our own (priority avoids them);
         # use when opp has 4+ derivs but we have own and don't want a sweeper.
+        # Kept at 4+ (LC is asymmetric by construction so it still profits).
         lc_card = next((c for c in affordable
                         if _card_name(c) == "Liquidation Cascade"), None)
         if lc_card is not None:
             opp_total_derivs = _count_opponent_total_derivatives(state, player_id)
-            if opp_total_derivs >= 3:
+            # Tightened 2026-05-09: 4+ (was 3+) — match Position Audit threshold.
+            if opp_total_derivs >= 4:
                 # LC priority targets opp Derivatives first (auto-pick), so
-                # firing is always asymmetrically positive when opp has ≥3.
+                # firing is always asymmetrically positive when opp has ≥4.
                 return {
                     "type": "play_card",
                     "card_id": lc_card.id,
@@ -1538,25 +1586,16 @@ class FinanceAIAdapter:
                 }
 
         # ── 4. Forced Unwinding pre-burst counter ────────────────────────────
-        # anti-voltron: strip the Desk before HFPM burst.  Trigger conditions:
-        #   - opp has 3+ Derivatives in Desk (about to burst-attach), OR
-        #   - opp has any attached Derivatives (general detach value).
-        #   - turn ≥ 6 AND opp hand size ≥ 3 implies HFPM held back.
+        # anti-voltron: strip the Desk before HFPM burst.  Tightened 2026-05-09:
+        # only fire on the pre-burst signal (3+ Desk derivs + T6+ + opp hand
+        # ≥3 implies held HFPM).  No longer fires on "2+ attached" — that
+        # branch was firing against any Lev/Derivatives deck.
         fu_card = next((c for c in affordable
                         if _card_name(c) == "Forced Unwinding"), None)
         if fu_card is not None:
-            opp_attached = _count_opponent_attached_derivatives(state, player_id)
             opp_desk = _count_opponent_desk_derivatives(state, player_id)
-            # anti-voltron: detach attached Derivatives — kills voltron buffs.
-            if opp_attached >= 2:
-                return {
-                    "type": "play_card",
-                    "card_id": fu_card.id,
-                    "targets": [],
-                }
             # anti-voltron: pre-empt Desk burst when HFPM is likely in hand.
             opp_id = _other_player(state, player_id)
-            opp = state.players.get(opp_id) if opp_id else None
             opp_hand = _hand_cards(state, opp_id) if opp_id else []
             turn_no = int(getattr(state, "turn_number", 0) or 0)
             if (
@@ -1654,27 +1693,19 @@ class FinanceAIAdapter:
                 and _mana_cost(card) <= 3
             ):
                 continue
-            # anti-voltron: never mark these as traps; they're situational
-            # answers that the lookahead value function won't price correctly.
-            # When opp is voltron-shaped, the anti-voltron branch already
-            # routed before this filter ran; falling through means we're in
-            # a non-voltron matchup and the card is just a dead draw, but
-            # keeping it (rather than filtering) preserves the AI's option
-            # to fire it if the lookahead happens to find positive V (e.g.
-            # opp has 1 attached Derivative + a dangerous Trader to remove).
+            # anti-voltron: when opp is voltron-shaped the answer cards
+            # already routed via _choose_anti_voltron_action.  When opp is
+            # NOT voltron-shaped, treat these cards as traps and filter
+            # them out — keeping them was causing the hard tier to greedy-
+            # cast Margin Squeeze on 2/3 traders in mid-Lev / derivatives-
+            # burst / leverage-detonate matchups (rebalance v3, 2026-05-09).
+            #
+            # control-mode-OFF signal: when there's no voltron detection,
+            # body deployment fully wins over removal.  Drop these cards
+            # so the lookahead can't pick them as a "best V-delta" by
+            # accident.
             if name in _ANTI_VOLTRON_CARD_NAMES and not opp_has_voltron:
-                # Only keep if the card has a plausible target (Margin Squeeze
-                # needs at least 1 attached host, Position Audit/LC need 1+
-                # opp Derivatives, Forced Unwinding needs 1+ attached).
-                opp_attached = _count_opponent_attached_derivatives(state, player_id)
-                opp_total = _count_opponent_total_derivatives(state, player_id)
-                if name == "Margin Squeeze" and opp_attached < 1:
-                    continue  # no valid target
-                if name == "Forced Unwinding" and opp_attached < 1:
-                    continue  # nothing to detach
-                if name in ("Position Audit", "Liquidation Cascade") and opp_total < 1:
-                    continue  # no Derivatives to destroy
-                # else: pass through to keep the card playable.
+                continue  # not a voltron matchup → answer is a trap
             if name == "Liquidity Provision":
                 # Trap at full mana: gains 3 up to current max → 0 net.
                 # Only cast when there's headroom OR we're chaining a 4+ play.
