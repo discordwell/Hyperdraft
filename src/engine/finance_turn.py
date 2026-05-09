@@ -89,6 +89,8 @@ ACTION_ACTIVATE           = "FIN_ACTIVATE_ABILITY"
 ACTION_DISCARD            = "FIN_DISCARD"
 ACTION_DECLARE_ATTACKERS  = "FIN_DECLARE_ATTACKERS"
 ACTION_DECLARE_BLOCKERS   = "FIN_DECLARE_BLOCKERS"
+ACTION_PLAY_RESPONSE      = "FIN_PLAY_RESPONSE"
+ACTION_PASS_RESPONSE      = "FIN_PASS_RESPONSE"
 
 # Safety cap: action loops exit after this many iterations regardless.
 _ACTION_LOOP_CAP = 200
@@ -120,6 +122,9 @@ class FinanceTurnState:
     phase: FinancePhase = FinancePhase.PRE_MARKET
     combat_blocks: dict[str, str] = field(default_factory=dict)  # attacker_id -> blocker_id
     attackers_declared: list[str] = field(default_factory=list)
+    # Set while ``_poll_response`` is awaiting a player's response to the
+    # top of the FinanceStack. Cleared when the priority window closes.
+    pending_response_player: Optional[str] = None
 
 
 # =============================================================================
@@ -152,6 +157,12 @@ class FinanceTurnManager(TurnManager):
         self.human_action_handler = None   # async fn(player_id, state) -> action_dict
         self.action_log_handler = None     # sync fn(player_id, action_type, obj_or_payload)
         self.finance_combat_manager = None  # set after construction
+
+        # MTG-style priority stack for FINA spells. Only Orders/Strategies push;
+        # permanents bypass. Mirrored on state so card resolve_fns can reach it.
+        from .finance_stack import FinanceStack
+        self.fin_stack = FinanceStack()
+        state.fin_stack = self.fin_stack
 
     # ------------------------------------------------------------------
     # AI handler registration
@@ -830,35 +841,361 @@ class FinanceTurnManager(TurnManager):
                 # No graveyard event for staged DP Orders — they leave the slot
                 # only when the system interceptor fires FIN_MARKET_EVENT.
             else:
-                # Execute card effect before moving to graveyard.
-                if card_def is not None:
-                    # Bug #7/#8: previously only spell_effect/cast_effect/effect
-                    # were probed, but FINA Orders/Strategies use ``resolve=`` —
-                    # so DRAW/LOOK_AT_TOP events never fired. Try resolve first.
-                    resolve_fn = getattr(card_def, "resolve", None)
-                    if callable(resolve_fn):
+                # Non-DP Orders/Strategies push onto the FinanceStack and
+                # the opponent gets a priority window before resolution.
+                # The resolve_fn / ZONE_CHANGE-to-graveyard path runs in
+                # ``_resolve_stack_top``.
+                from .finance_stack import FinanceStackItem
+
+                # Move card out of hand into a "casting" zone (still
+                # battlefield-adjacent — Dark Pool already does this with
+                # EXILE; we use the same approach for stack residency).
+                hand_zone = self.state.zones.get(f"hand_{player_id}")
+                if hand_zone and card_id in hand_zone.objects:
+                    hand_zone.objects.remove(card_id)
+
+                stack_item = FinanceStackItem(
+                    card_id=card_id,
+                    controller=player_id,
+                    targets=list(targets),
+                    resolve_fn=getattr(card_def, "resolve", None) if card_def else None,
+                    is_response=False,
+                    cost_paid=cost,
+                )
+                self.fin_stack.push(stack_item)
+
+                # FIN_CARD_CAST signals the frontend to play "order placed".
+                cast_ev = Event(
+                    type=EventType.FIN_CARD_CAST,
+                    payload={
+                        "card_id": card_id,
+                        "controller": player_id,
+                        "is_response": False,
+                        "stack_depth": self.fin_stack.depth(),
+                    },
+                    source=card_id,
+                    controller=player_id,
+                )
+                if (pl := self._emit_pipeline):
+                    pl.emit(cast_ev)
+                events.append(cast_ev)
+                if self.action_log_handler is not None:
+                    try:
+                        self.action_log_handler(player_id, "fin_card_cast", obj)
+                    except Exception:
+                        pass
+
+                # Run the priority loop — opponent may push responses.
+                opponent_id = self._get_opponent(player_id)
+                if opponent_id:
+                    events.extend(await self._run_priority_loop(opponent_id))
+
+                # Resolve the stack LIFO until empty.
+                events.extend(await self._resolve_stack())
+
+        # Track cards played this turn.
+        if hasattr(player, "cards_played_this_turn"):
+            player.cards_played_this_turn += 1
+
+        self._check_game_over()
+        return events
+
+    # ------------------------------------------------------------------
+    # Stack: priority loop + LIFO resolve
+    # ------------------------------------------------------------------
+
+    async def _run_priority_loop(self, start_player_id: str) -> list[Event]:
+        """Alternate priority between players until both pass.
+
+        On each pass we ask `start_player_id` whether they want to play a
+        responding Order. If yes, we cast it onto the stack and switch
+        priority to the opponent. If they pass, we exit the loop.
+
+        Strategies cannot be played as responses — only Orders. Per the
+        plan: "if response.card not Order: break". This is enforced in
+        ``_poll_response`` (the AI is asked to pick an Order; humans are
+        UI-gated).
+        """
+        events: list[Event] = []
+        current = start_player_id
+        # Bound the loop to keep tournaments terminating even if an AI
+        # bugs into infinite repush.
+        for _ in range(_ACTION_LOOP_CAP):
+            response = await self._poll_response(current)
+            if response is None:
+                break
+            atype = response.get("action_type") or response.get("type", "")
+            if atype in (ACTION_PASS_RESPONSE, "pass", "FIN_PASS"):
+                break
+            if atype not in (ACTION_PLAY_RESPONSE, "play_response"):
+                # Anything other than play_response is treated as pass.
+                break
+            card_id = response.get("card_id")
+            targets = response.get("targets", [])
+            if not card_id:
+                break
+            cast_events = await self._cast_response_to_stack(
+                current, card_id, targets
+            )
+            if not cast_events:
+                # Cast failed (cost, illegal target, not an Order, etc.) —
+                # treat as a pass so we don't loop forever.
+                break
+            events.extend(cast_events)
+            current = self._get_opponent(current) or current
+        return events
+
+    async def _poll_response(self, player_id: str) -> Optional[dict]:
+        """Ask `player_id` whether they want to respond to the top of stack.
+
+        Returns the action dict, or None to pass. AI players decide
+        synchronously via ``choose_response_action``; humans round-trip
+        via ``human_action_handler``.
+        """
+        if self.fin_stack.is_empty():
+            return None
+        if self._is_ai_player(player_id):
+            ai = self._get_ai(player_id)
+            if ai is None or not hasattr(ai, "choose_response_action"):
+                return None
+            top = self.fin_stack.peek()
+            try:
+                result = ai.choose_response_action(self.state, player_id, top)
+            except Exception:
+                return None
+            return await self._maybe_await(result)
+        if self.human_action_handler is not None:
+            self.fin_turn_state.pending_response_player = player_id
+            try:
+                action = await self.human_action_handler(player_id, self.state)
+            except Exception:
+                return None
+            finally:
+                self.fin_turn_state.pending_response_player = None
+            if action is None:
+                return None
+            atype = action.get("action_type") or action.get("type", "")
+            # Only response-flavored actions are honored; anything else
+            # (e.g. play_card, end_turn) is treated as a pass at this
+            # priority window.
+            if atype in (
+                ACTION_PLAY_RESPONSE,
+                ACTION_PASS_RESPONSE,
+                "play_response",
+                "pass",
+                "FIN_PASS",
+            ):
+                return action
+            return None
+        return None
+
+    async def _cast_response_to_stack(
+        self,
+        player_id: str,
+        card_id: str,
+        targets: list,
+    ) -> list[Event]:
+        """Cast a responding Order onto the stack. Mirrors the cost-pay
+        and FIN_PLAY_CARD emission of ``_play_card_action`` for spells."""
+        import re as _re
+        from .finance_stack import FinanceStackItem
+        from .types import CardType
+
+        events: list[Event] = []
+        obj = self.state.objects.get(card_id)
+        if obj is None:
+            return events
+        player = self.state.players.get(player_id)
+        if player is None:
+            return events
+
+        # Only Orders can be played as responses.
+        fin_order = getattr(CardType, "FIN_ORDER", None)
+        if fin_order is None:
+            return events
+        card_types = obj.characteristics.types if obj.characteristics else set()
+        if fin_order not in card_types:
+            return events
+
+        # Compute cost (same path as _play_card_action).
+        cost = 0
+        if obj.characteristics and obj.characteristics.mana_cost:
+            nums = _re.findall(r'\{(\d+)\}', obj.characteristics.mana_cost)
+            cost = sum(int(n) for n in nums)
+        if (
+            getattr(obj, "card_def", None) is not None
+            and hasattr(obj.card_def, "dynamic_cost")
+            and obj.card_def.dynamic_cost
+        ):
+            try:
+                cost = obj.card_def.dynamic_cost(obj, self.state)
+            except Exception:
+                pass
+        for mod in getattr(player, "cost_modifiers", []):
+            if mod.get("amount"):
+                cost = max(0, cost + mod["amount"])
+        if player.mana_crystals_available < cost:
+            return events
+
+        card_def = getattr(obj, "card_def", None)
+        # Dark Pool Orders cannot be played as responses (they stage,
+        # they don't resolve). Skip for now — stack semantics don't fit.
+        if card_def and getattr(card_def, "_dark_pool", False):
+            return events
+
+        # Pay the cost and remove from hand.
+        player.mana_crystals_available -= cost
+        hand_zone = self.state.zones.get(f"hand_{player_id}")
+        if hand_zone and card_id in hand_zone.objects:
+            hand_zone.objects.remove(card_id)
+
+        # Emit FIN_PLAY_CARD marker (existing card filters expect this).
+        play_event = Event(
+            type=EventType.FIN_PLAY_CARD,
+            payload={
+                "card_id": card_id,
+                "object_id": card_id,
+                "player": player_id,
+                "controller": player_id,
+                "cost": cost,
+                "targets": list(targets),
+            },
+            source=card_id,
+        )
+        if (pl := self._emit_pipeline):
+            pl.emit(play_event)
+        events.append(play_event)
+
+        if self._is_ai_player(player_id) and self.action_log_handler is not None:
+            try:
+                self.action_log_handler(player_id, "play_response", obj)
+            except Exception:
+                pass
+
+        # Push onto the stack.
+        stack_item = FinanceStackItem(
+            card_id=card_id,
+            controller=player_id,
+            targets=list(targets),
+            resolve_fn=getattr(card_def, "resolve", None) if card_def else None,
+            is_response=True,
+            cost_paid=cost,
+        )
+        self.fin_stack.push(stack_item)
+
+        cast_ev = Event(
+            type=EventType.FIN_CARD_CAST,
+            payload={
+                "card_id": card_id,
+                "controller": player_id,
+                "is_response": True,
+                "stack_depth": self.fin_stack.depth(),
+            },
+            source=card_id,
+            controller=player_id,
+        )
+        if (pl := self._emit_pipeline):
+            pl.emit(cast_ev)
+        events.append(cast_ev)
+        if self.action_log_handler is not None:
+            try:
+                self.action_log_handler(player_id, "fin_card_cast", obj)
+            except Exception:
+                pass
+
+        if hasattr(player, "cards_played_this_turn"):
+            player.cards_played_this_turn += 1
+
+        return events
+
+    async def _resolve_stack(self) -> list[Event]:
+        """Pop and resolve all stack items LIFO. Countered items skip
+        the resolve_fn but still go to the graveyard with a
+        FIN_CARD_COUNTERED event."""
+        events: list[Event] = []
+        # Bound to prevent runaway infinite resolution.
+        for _ in range(_ACTION_LOOP_CAP):
+            item = self.fin_stack.pop()
+            if item is None:
+                break
+            events.extend(self._resolve_stack_item(item))
+        return events
+
+    def _resolve_stack_item(self, item) -> list[Event]:
+        """Resolve a single stack item. Mirrors the inner block of the
+        old ``_play_card_action`` is_oneshot path."""
+        events: list[Event] = []
+        card_id = item.card_id
+        player_id = item.controller
+        targets = list(item.targets)
+
+        obj = self.state.objects.get(card_id)
+        card_def = getattr(obj, "card_def", None) if obj else None
+
+        if item.countered:
+            counter_ev = Event(
+                type=EventType.FIN_CARD_COUNTERED,
+                payload={
+                    "card_id": card_id,
+                    "controller": player_id,
+                },
+                source=card_id,
+                controller=player_id,
+            )
+            if (pl := self._emit_pipeline):
+                pl.emit(counter_ev)
+            events.append(counter_ev)
+            if self.action_log_handler is not None:
+                try:
+                    self.action_log_handler(player_id, "fin_card_countered", obj)
+                except Exception:
+                    pass
+        else:
+            # Run effect via resolve_fn (FINA convention) or legacy
+            # spell_effect/cast_effect/effect for compatibility.
+            resolve_fn = item.resolve_fn or (
+                getattr(card_def, "resolve", None) if card_def else None
+            )
+            if callable(resolve_fn):
+                try:
+                    if (pl := self._emit_pipeline):
+                        pl.sba_deferred = True
+                    target_id = None
+                    if targets:
+                        first = targets[0]
+                        if isinstance(first, list) and first:
+                            target_id = first[0]
+                        elif isinstance(first, str):
+                            target_id = first
+                    resolve_event = Event(
+                        type=EventType.FIN_PLAY_CARD,
+                        payload={
+                            "controller": player_id,
+                            "source_id": card_id,
+                            "target_id": target_id,
+                            "targets": list(targets),
+                        },
+                        source=card_id,
+                        controller=player_id,
+                    )
+                    effect_events = resolve_fn(resolve_event, self.state) or []
+                    for ev in effect_events:
+                        if (pl := self._emit_pipeline):
+                            pl.emit(ev)
+                        events.append(ev)
+                except Exception:
+                    pass
+                finally:
+                    if (pl := self._emit_pipeline):
+                        pl.sba_deferred = False
+            elif card_def is not None:
+                for attr in ("spell_effect", "cast_effect", "effect"):
+                    fn = getattr(card_def, attr, None)
+                    if callable(fn):
                         try:
                             if (pl := self._emit_pipeline):
                                 pl.sba_deferred = True
-                            target_id = None
-                            if targets:
-                                first = targets[0]
-                                if isinstance(first, list) and first:
-                                    target_id = first[0]
-                                elif isinstance(first, str):
-                                    target_id = first
-                            resolve_event = Event(
-                                type=getattr(EventType, "FIN_PLAY_CARD", EventType.ZONE_CHANGE),
-                                payload={
-                                    "controller": player_id,
-                                    "source_id": card_id,
-                                    "target_id": target_id,
-                                    "targets": list(targets),
-                                },
-                                source=card_id,
-                                controller=player_id,
-                            )
-                            effect_events = resolve_fn(resolve_event, self.state) or []
+                            effect_events = fn(obj, self.state, targets)
                             for ev in effect_events:
                                 if (pl := self._emit_pipeline):
                                     pl.emit(ev)
@@ -868,43 +1205,44 @@ class FinanceTurnManager(TurnManager):
                         finally:
                             if (pl := self._emit_pipeline):
                                 pl.sba_deferred = False
-                    else:
-                        for attr in ("spell_effect", "cast_effect", "effect"):
-                            fn = getattr(card_def, attr, None)
-                            if callable(fn):
-                                try:
-                                    if (pl := self._emit_pipeline):
-                                        pl.sba_deferred = True
-                                    effect_events = fn(obj, self.state, targets)
-                                    for ev in effect_events:
-                                        if (pl := self._emit_pipeline):
-                                            pl.emit(ev)
-                                        events.append(ev)
-                                except Exception:
-                                    pass
-                                finally:
-                                    if (pl := self._emit_pipeline):
-                                        pl.sba_deferred = False
-                                break
+                        break
 
-                grv_ev = Event(
-                    type=EventType.ZONE_CHANGE,
-                    payload={
-                        "object_id": card_id,
-                        "from_zone": f"hand_{player_id}",
-                        "from_zone_type": ZoneType.HAND,
-                        "to_zone": f"graveyard_{player_id}",
-                        "to_zone_type": ZoneType.GRAVEYARD,
-                    },
-                    source=card_id,
-                )
-                if (pl := self._emit_pipeline):
-                    pl.emit(grv_ev)
-                events.append(grv_ev)
+            resolved_ev = Event(
+                type=EventType.FIN_CARD_RESOLVED,
+                payload={
+                    "card_id": card_id,
+                    "controller": player_id,
+                },
+                source=card_id,
+                controller=player_id,
+            )
+            if (pl := self._emit_pipeline):
+                pl.emit(resolved_ev)
+            events.append(resolved_ev)
+            if self.action_log_handler is not None:
+                try:
+                    self.action_log_handler(player_id, "fin_card_resolved", obj)
+                except Exception:
+                    pass
 
-        # Track cards played this turn.
-        if hasattr(player, "cards_played_this_turn"):
-            player.cards_played_this_turn += 1
+        # Move card to graveyard regardless of countered state.
+        grv_ev = Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                "object_id": card_id,
+                # The card is no longer in hand by this point — it was
+                # removed when it went onto the stack. We still emit the
+                # ZONE_CHANGE so the pipeline runs cleanup interceptors.
+                "from_zone": "stack",
+                "from_zone_type": ZoneType.STACK if hasattr(ZoneType, "STACK") else ZoneType.HAND,
+                "to_zone": f"graveyard_{player_id}",
+                "to_zone_type": ZoneType.GRAVEYARD,
+            },
+            source=card_id,
+        )
+        if (pl := self._emit_pipeline):
+            pl.emit(grv_ev)
+        events.append(grv_ev)
 
         self._check_game_over()
         return events

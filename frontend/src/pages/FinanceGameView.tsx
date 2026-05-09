@@ -10,6 +10,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useFinanceGame } from '../hooks/useFinanceGame';
 import { useGameStore } from '../stores/gameStore';
 import { FinanceGameBoard } from '../games/finance';
+import { SettingsPopover } from '../games/finance/SettingsPopover';
 import { matchAPI } from '../services/api';
 
 export function FinanceGameView() {
@@ -43,6 +44,8 @@ export function FinanceGameView() {
     declareBlockers,
     activateAbility,
     endTurn,
+    playResponse,
+    passResponse,
     setError,
     error,
   } = useFinanceGame();
@@ -119,6 +122,7 @@ export function FinanceGameView() {
             <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
             <span className="font-mono text-xs text-gray-500">{isConnected ? 'LIVE' : 'OFFLINE'}</span>
           </div>
+          <SettingsPopover />
           <button
             onClick={handleConcede}
             className="font-mono uppercase text-xs px-3 py-1 border border-red-800 text-red-600 hover:bg-red-900/20 transition-colors"
@@ -168,6 +172,8 @@ export function FinanceGameView() {
           onDeclareBlockers={declareBlockers}
           onActivateAbility={activateAbility}
           onEndTurn={endTurn}
+          onPlayResponse={playResponse}
+          onPassResponse={passResponse}
         />
       </div>
     </div>

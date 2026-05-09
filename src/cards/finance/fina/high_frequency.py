@@ -1016,14 +1016,22 @@ PRE_MARKET_RAID = make_order(
 # --- Execution Glitch {2} Market Order ---
 # Counter target Order.
 def _execution_glitch_resolve(event: Event, state: GameState) -> list[Event]:
-    # Counter the top Order on the stack.
-    for stack_item in reversed(list(getattr(state, "stack", []) or [])):
-        if hasattr(stack_item, "card_type") and stack_item.card_type == CardType.FIN_ORDER:
-            return [Event(
-                type=EventType.COUNTER_SPELL,
-                payload={"stack_item_id": getattr(stack_item, "id", None)},
-                source=event.payload.get("source_id", ""),
-            )]
+    target_id = event.payload.get("target_id")
+    if not target_id:
+        return []
+    fin_stack = getattr(state, "fin_stack", None)
+    if fin_stack is None:
+        return []
+    target_item = fin_stack.find(target_id)
+    if target_item is None:
+        return []
+    target_obj = state.objects.get(target_id)
+    if target_obj is None:
+        return []
+    fin_order = getattr(CardType, "FIN_ORDER", None)
+    if fin_order is None or fin_order not in target_obj.characteristics.types:
+        return []
+    fin_stack.mark_countered(target_id)
     return []
 
 

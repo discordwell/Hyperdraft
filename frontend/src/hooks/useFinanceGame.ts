@@ -169,6 +169,21 @@ export function useFinanceGame() {
 
   const endTurn = useCallback(() => sendFinanceAction('FIN_END_TURN'), [sendFinanceAction]);
 
+  const playResponse = useCallback(
+    (cardId: string, targetStackCardId: string) => {
+      sendFinanceAction('FIN_PLAY_RESPONSE', {
+        cardId,
+        targets: [[targetStackCardId]],
+      });
+    },
+    [sendFinanceAction],
+  );
+
+  const passResponse = useCallback(
+    () => sendFinanceAction('FIN_PASS_RESPONSE'),
+    [sendFinanceAction],
+  );
+
   const sendAction = useCallback(
     (action: object) => sendFinanceAction((action as { action_type: ActionType }).action_type, action as never),
     [sendFinanceAction],
@@ -202,6 +217,8 @@ export function useFinanceGame() {
     declareBlockers,
     activateAbility,
     endTurn,
+    playResponse,
+    passResponse,
     sendAction,
     setError,
     error: store.ui.error,

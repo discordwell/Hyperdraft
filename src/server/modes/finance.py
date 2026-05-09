@@ -39,9 +39,12 @@ class FinanceModeAdapter(ModeAdapter):
 
         tm = session.game.turn_manager
 
-        # Register AI handlers per AI player.
+        # Register AI handlers per AI player. Skip ultra-AI players — those are
+        # driven externally via /action (an external Claude Code agent).
         ai_player_ids = [pid for pid in session.player_ids if pid not in session.human_players]
         for pid in ai_player_ids:
+            if session.is_ultra_ai_player(pid):
+                continue
             profile = session.ai_profiles_by_player.get(pid) or {}
             player_diff = profile.get("difficulty", difficulty)
             adapter = FinanceAIAdapter(difficulty=str(player_diff).strip().lower())
@@ -54,8 +57,12 @@ class FinanceModeAdapter(ModeAdapter):
             if combat_mgr is not None:
                 tm.finance_combat_manager = combat_mgr
 
-        # Wire human action handler.
-        if session.human_players and hasattr(tm, "human_action_handler"):
+        # Detach ultra-AI seats so the finance turn manager routes them via
+        # human_action_handler (resolved by /action).
+        session.detach_ultra_from_engine_ai_sets()
+
+        # Wire human action handler (humans OR ultra AIs).
+        if (session.human_players or session.has_ultra_ai) and hasattr(tm, "human_action_handler"):
             tm.human_action_handler = (
                 lambda pid, gs: self.get_human_action(session, pid, gs)
             )
@@ -116,9 +123,11 @@ class FinanceModeAdapter(ModeAdapter):
         active_player = session.game.get_active_player()
 
         # Blockers can come from the non-active player during the opponent's
-        # TRADING_SESSION combat sub-phase.
+        # TRADING_SESSION combat sub-phase. Response actions can also come
+        # from the non-active player during a priority window.
         is_block_declaration = request.action_type == "FIN_DECLARE_BLOCKERS"
-        if request.player_id != active_player and not is_block_declaration:
+        is_response = request.action_type in ("FIN_PLAY_RESPONSE", "FIN_PASS_RESPONSE")
+        if request.player_id != active_player and not is_block_declaration and not is_response:
             return False, "Not your turn"
 
         target_id = request.targets[0][0] if request.targets and request.targets[0] else None
@@ -156,6 +165,18 @@ class FinanceModeAdapter(ModeAdapter):
                 "action_type": "FIN_DECLARE_BLOCKERS",
                 "blocks": blocks,
             }
+        elif request.action_type == "FIN_PLAY_RESPONSE":
+            if not request.card_id:
+                return False, "FIN_PLAY_RESPONSE requires card_id"
+            # Targets here name the stack item being responded to (top of
+            # stack). Pass through verbatim so engine.find() works.
+            action_dict = {
+                "action_type": "FIN_PLAY_RESPONSE",
+                "card_id": request.card_id,
+                "targets": list(request.targets or []),
+            }
+        elif request.action_type == "FIN_PASS_RESPONSE":
+            action_dict = {"action_type": "FIN_PASS_RESPONSE"}
         elif request.action_type in ("FIN_END_PHASE", "FIN_END_TURN"):
             action_dict = {"action_type": request.action_type}
         else:
@@ -200,15 +221,25 @@ class FinanceModeAdapter(ModeAdapter):
         action_type: str,
         obj: Any,
     ) -> None:
-        """Append a market-feed entry for an AI action.
+        """Append a market-feed entry for an AI action OR a stack event.
 
-        Called by FinanceTurnManager when an AI plays a card so the
-        human sees what the opponent did.
+        Called by FinanceTurnManager when an AI plays a card AND when
+        any spell hits/leaves the FinanceStack — so the frontend can
+        render it in the market feed AND trigger the audio cues
+        (order-placed / order-filled / order-cancelled).
         """
         player_name = session.player_names.get(player_id, "AI Opponent")
+        card_name = getattr(obj, "name", None) or "a card"
         if action_type == "play_card":
-            card_name = getattr(obj, "name", None) or "a card"
             text = f"{player_name} played {card_name}."
+        elif action_type == "fin_card_cast":
+            text = f"{player_name} cast {card_name}."
+        elif action_type == "fin_card_resolved":
+            text = f"{card_name} resolved."
+        elif action_type == "fin_card_countered":
+            text = f"{card_name} was countered."
+        elif action_type == "play_response":
+            text = f"{player_name} responded with {card_name}."
         else:
             text = f"{player_name} acted."
         tm = session.game.turn_manager

@@ -100,6 +100,14 @@ class FinanceAIBias:
     # in the Dark Pool rather than playing them immediately (§8 Medium).
     hold_order_threshold: int = 10
 
+    # Response window — how aggressively to spend a counterspell/removal Order
+    # when the opponent casts something. Higher = more eager to interrupt.
+    # Range roughly 0.0 (never) to 1.0 (always if you can pay).
+    counterspell_eagerness: float = 0.6
+    # Cap on how deep we'll repush during a single priority loop. Prevents
+    # AIs that have multiple cheap counters from chaining infinitely.
+    response_depth_cap: int = 2
+
 
 # =============================================================================
 # Internal free helpers (shared by all tiers)
@@ -197,6 +205,23 @@ def _can_afford(state: GameState, player_id: str, card_id: str) -> bool:
     cost = _mana_cost(obj)
     available = int(getattr(player, "mana_crystals_available", 0) or 0)
     return available >= cost
+
+
+# Counterspells are only useful as responses to opponent spells. The default
+# `choose_play_action` heuristic doesn't model "save for later" — it just
+# picks the highest-scoring affordable card every action loop, which would
+# burn IRE/Glitch/Regime on the active player's own turn for no effect.
+# We exclude these cards from regular play; they're only cast via
+# choose_response_action.
+_RESPONSE_ONLY_CARD_NAMES = frozenset({
+    "Information Ratio Enforcer",
+    "Regime Change Detection",
+    "Execution Glitch",
+})
+
+
+def _is_response_only(obj: "GameObject") -> bool:
+    return _card_name(obj) in _RESPONSE_ONLY_CARD_NAMES
 
 
 def _own_traders(state: GameState, player_id: str) -> list["GameObject"]:
@@ -617,6 +642,103 @@ class FinanceAIAdapter:
             return self._medium_play_action(state, player_id)
         return self._hard_play_action(state, player_id)
 
+    # ─── Response action (priority window) ─────────────────────────────────
+
+    def choose_response_action(
+        self,
+        state: GameState,
+        player_id: str,
+        top_of_stack,
+    ) -> Optional[dict]:
+        """
+        Decide whether to play a responding Order to the top stack item.
+        Returns None to pass, or a dict::
+
+            {"action_type": "FIN_PLAY_RESPONSE",
+             "card_id": <order_id>,
+             "targets": [[<top_card_id>]]}
+
+        Heuristic: counter Strategies aggressively (they're big swings);
+        counter Orders only if cheap and we have spare Liquidity; otherwise
+        pass. Never burn our last counterspell on a low-value target.
+        """
+        if top_of_stack is None:
+            return None
+        # Don't respond to our own casts (priority loop sometimes pings the
+        # original caster after their own opponent passes).
+        if top_of_stack.controller == player_id:
+            return None
+        # Cap recursion depth — each response gets one chance, then we're
+        # back at the top of stack reading our own response. Stop there.
+        stack = getattr(state, "fin_stack", None)
+        if stack is not None and stack.depth() > int(self.bias.response_depth_cap):
+            return None
+
+        target_obj = state.objects.get(top_of_stack.card_id)
+        if target_obj is None:
+            return None
+
+        # Identify the targeted card's category — Strategies are higher value
+        # to counter than Orders (bigger effect, higher cost).
+        target_is_strategy = False
+        target_is_order = False
+        try:
+            from src.engine.types import CardType as _CT
+            fin_strategy = getattr(_CT, "FIN_STRATEGY", None)
+            fin_order_t = getattr(_CT, "FIN_ORDER", None)
+            target_is_strategy = (
+                fin_strategy is not None and fin_strategy in target_obj.characteristics.types
+            )
+            target_is_order = (
+                fin_order_t is not None and fin_order_t in target_obj.characteristics.types
+            )
+        except Exception:
+            pass
+
+        # Browse hand for affordable Orders that could counter.
+        hand = _hand_cards(state, player_id)
+        player = state.players.get(player_id)
+        avail = int(getattr(player, "mana_crystals_available", 0) or 0)
+
+        # Priority list: Information Ratio Enforcer > Regime Change (Strategy
+        # only) > Execution Glitch (Order only).
+        candidates: list[tuple[int, "GameObject"]] = []
+        for obj in hand:
+            if not _is_order(obj):
+                continue
+            cost = _mana_cost(obj)
+            if cost > avail:
+                continue
+            name = _card_name(obj)
+            if name == "Information Ratio Enforcer":
+                # Universal counter — always a candidate.
+                candidates.append((1, obj))
+            elif name == "Regime Change Detection" and target_is_strategy:
+                candidates.append((2, obj))
+            elif name == "Execution Glitch" and target_is_order:
+                candidates.append((3, obj))
+
+        if not candidates:
+            return None
+
+        # Eagerness gate: don't reflexively counter every cheap Order.
+        # If the top is just an Order (not a Strategy) and our roll exceeds
+        # eagerness, pass — we save the counter for something bigger.
+        eagerness = float(self.bias.counterspell_eagerness)
+        if not target_is_strategy:
+            if self.rng.random() > eagerness:
+                return None
+
+        # Pick the most-specific candidate first.
+        candidates.sort(key=lambda t: t[0])
+        chosen = candidates[0][1]
+
+        return {
+            "action_type": "FIN_PLAY_RESPONSE",
+            "card_id": chosen.id,
+            "targets": [[top_of_stack.card_id]],
+        }
+
     # ─── Attacker selection ────────────────────────────────────────────────
 
     def choose_attackers(
@@ -710,9 +832,12 @@ class FinanceAIAdapter:
     # ==========================================================================
 
     def _easy_play_action(self, state: GameState, player_id: str) -> dict:
-        """Random affordable card from hand; if none, end phase."""
+        """Random affordable non-response card from hand; if none, end phase."""
         hand = _hand_cards(state, player_id)
-        affordable = [c for c in hand if _can_afford(state, player_id, c.id)]
+        affordable = [
+            c for c in hand
+            if _can_afford(state, player_id, c.id) and not _is_response_only(c)
+        ]
         if not affordable:
             return {"type": "end_phase"}
         pick = self.rng.choice(affordable)
@@ -771,6 +896,10 @@ class FinanceAIAdapter:
 
         for card in hand:
             if not _can_afford(state, player_id, card.id):
+                continue
+            # Counterspells are saved for response windows — never burn them
+            # on our own turn (they have no target on the stack here).
+            if _is_response_only(card):
                 continue
             if _is_trader(card):
                 score = _trader_score(card)
@@ -942,7 +1071,12 @@ class FinanceAIAdapter:
           board count (3 vs 4) instead of Traders, losing on body count T13.
         """
         hand = _hand_cards(state, player_id)
-        affordable = [c for c in hand if _can_afford(state, player_id, c.id)]
+        # Filter out counterspells — they're response-only and saved for
+        # priority windows (handled by choose_response_action).
+        affordable = [
+            c for c in hand
+            if _can_afford(state, player_id, c.id) and not _is_response_only(c)
+        ]
         if not affordable:
             return {"type": "end_phase"}
 

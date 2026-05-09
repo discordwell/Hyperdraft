@@ -217,6 +217,64 @@ class GameSession:
 
         return player.id
 
+    # --- Ultra-AI helpers -------------------------------------------------
+    # An "ultra" AI seat is server-aware but plays via the REST /action endpoint
+    # (an external Claude Code agent submits actions for it). For these seats:
+    #   - we DON'T register a heuristic adapter handler with the turn manager
+    #   - we DON'T mark the player as AI in the engine's priority/turn AI sets
+    #     (so the engine treats them as human-controlled and routes via
+    #     human_action_handler, which the REST /action endpoint resolves).
+
+    def _player_difficulty(self, player_id: str) -> str:
+        """Resolve the configured difficulty for a player (profile -> session default)."""
+        profile = self.ai_profiles_by_player.get(player_id) or {}
+        diff = profile.get("difficulty", self.ai_difficulty or "medium")
+        if hasattr(diff, "value"):
+            diff = diff.value
+        return str(diff).strip().lower()
+
+    def is_ultra_ai_player(self, player_id: str) -> bool:
+        """True if this player is an AI seat configured to be driven externally."""
+        if player_id in self.human_players:
+            return False
+        if player_id not in self.player_ids:
+            return False
+        return self._player_difficulty(player_id) == "ultra"
+
+    @property
+    def ultra_ai_player_ids(self) -> list[str]:
+        """All AI seats in this session that are externally driven (ultra)."""
+        return [pid for pid in self.player_ids if self.is_ultra_ai_player(pid)]
+
+    @property
+    def has_ultra_ai(self) -> bool:
+        """True if any seat in this session is an ultra (externally driven) AI."""
+        return bool(self.ultra_ai_player_ids)
+
+    def detach_ultra_from_engine_ai_sets(self) -> None:
+        """Remove ultra-AI players from engine-level AI registries.
+
+        Called by mode adapters during setup_game(). Without this, the engine's
+        priority loop and turn manager will route the AI seat to a heuristic
+        adapter rather than blocking on the human_action_handler future.
+        """
+        ultra_ids = self.ultra_ai_player_ids
+        if not ultra_ids:
+            return
+        # MTG-style priority system tracks AI players for the get_action dispatch.
+        ps = getattr(self.game, "priority_system", None)
+        if ps is not None and hasattr(ps, "ai_players"):
+            for pid in ultra_ids:
+                ps.ai_players.discard(pid)
+        # Mode-specific turn managers each maintain their own ai_players set.
+        tm = getattr(self.game, "turn_manager", None)
+        if tm is not None and hasattr(tm, "ai_players"):
+            for pid in ultra_ids:
+                try:
+                    tm.ai_players.discard(pid)
+                except (AttributeError, TypeError):
+                    pass
+
     def connect_socket(self, player_id: str, socket_id: str) -> None:
         """Connect a player's socket."""
         self.player_sockets[player_id] = socket_id
@@ -323,18 +381,23 @@ class GameSession:
             if not pending_choice:
                 break
 
-            # Check if the choice is for an AI player
-            if pending_choice.player not in self.human_players:
-                # It's an AI player - make the choice
+            # Check if the choice is for an AI player. Ultra-AI seats are driven
+            # externally via /api/match/<id>/choice, so we skip them here too.
+            choice_player = pending_choice.player
+            if (
+                choice_player not in self.human_players
+                and not self.is_ultra_ai_player(choice_player)
+            ):
+                # It's a heuristic AI player - make the choice locally
                 self._handle_ai_choice(
-                    pending_choice.player,
+                    choice_player,
                     pending_choice,
                     self.game.state
                 )
                 # Small delay to prevent tight loops
                 await asyncio.sleep(0.01)
             else:
-                # Human player needs to make choice - stop processing
+                # Human player or ultra AI needs to make choice - stop processing
                 break
 
     def get_client_state(self, player_id: Optional[str] = None) -> GameStateResponse:

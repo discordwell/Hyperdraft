@@ -918,11 +918,20 @@ def _information_ratio_enforcer_resolve(event: Event, state: GameState) -> list[
     target_id = event.payload.get("target_id")
     if not target_id:
         return []
-    return [Event(
-        type=EventType.COUNTER_SPELL_UNLESS_PAY,
-        payload={"target_id": target_id, "amount": 2},
-        source=event.payload.get("source_id", ""),
-    )]
+    fin_stack = getattr(state, "fin_stack", None)
+    if fin_stack is None:
+        return []
+    target_item = fin_stack.find(target_id)
+    if target_item is None:
+        return []
+    # "unless its controller pays {2}". V1 heuristic: controller pays
+    # if they have ≥{2} Liquidity. V2 could ask via a sub-priority window.
+    target_player = state.players.get(target_item.controller)
+    if target_player and target_player.mana_crystals_available >= 2:
+        target_player.mana_crystals_available -= 2
+        return []
+    fin_stack.mark_countered(target_id)
+    return []
 
 
 INFORMATION_RATIO_ENFORCER = make_order(
@@ -1095,11 +1104,22 @@ def _regime_change_detection_resolve(event: Event, state: GameState) -> list[Eve
     target_id = event.payload.get("target_id")
     if not target_id:
         return []
-    return [Event(
-        type=EventType.COUNTER,
-        payload={"target_id": target_id},
-        source=event.payload.get("source_id", ""),
-    )]
+    fin_stack = getattr(state, "fin_stack", None)
+    if fin_stack is None:
+        return []
+    target_item = fin_stack.find(target_id)
+    if target_item is None:
+        return []
+    # "Counter target Strategy" — only fizzle if the target is a Strategy.
+    target_obj = state.objects.get(target_id)
+    if target_obj is None:
+        return []
+    from src.engine.types import CardType
+    fin_strategy = getattr(CardType, "FIN_STRATEGY", None)
+    if fin_strategy is None or fin_strategy not in target_obj.characteristics.types:
+        return []
+    fin_stack.mark_countered(target_id)
+    return []
 
 
 REGIME_CHANGE_DETECTION = make_order(

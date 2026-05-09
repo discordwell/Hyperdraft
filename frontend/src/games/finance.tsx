@@ -21,6 +21,8 @@ import type { GameModule } from './types';
 import type { DeckStats } from '../types/deckbuilder';
 import { defaultFormatType } from './types';
 import { StackedBar } from './StackedBar';
+import { FinanceResponseWindow } from './finance/ResponseWindow';
+import { useFinanceSounds } from '../hooks/useFinanceSounds';
 
 // ---- CSS keyframes (injected once into the document) --------------------
 
@@ -689,6 +691,8 @@ export interface FinanceGameBoardProps {
   onDeclareBlockers: (blockers: { attacker_id: string; blocker_id: string }[]) => void;
   onActivateAbility: (sourceId: string, abilityId?: string) => void;
   onEndTurn: () => void;
+  onPlayResponse?: (cardId: string, targetStackCardId: string) => void;
+  onPassResponse?: () => void;
 }
 
 export function FinanceGameBoard({
@@ -715,7 +719,12 @@ export function FinanceGameBoard({
   onDeclareAttackers,
   onDeclareBlockers,
   onEndTurn,
+  onPlayResponse,
+  onPassResponse,
 }: FinanceGameBoardProps) {
+  // Wire trading-floor audio cues to engine stack + game events.
+  useFinanceSounds(gameState, playerId);
+
   // Local UI state
   const [selectedAttackerId, setSelectedAttackerId] = useState<string | null>(null);
   const [selectedHandCardId, setSelectedHandCardId] = useState<string | null>(null);
@@ -804,6 +813,16 @@ export function FinanceGameBoard({
       style={{ background: '#03080f', position: 'relative' }}
     >
       <FinanceCSSInjector />
+
+      {/* MTG-style response overlay (visible when engine awaits a counter from us) */}
+      <FinanceResponseWindow
+        gameState={gameState}
+        playerId={playerId}
+        myHand={myHand}
+        myLiquidity={myLiquidity}
+        onPlayResponse={onPlayResponse || (() => {})}
+        onPassResponse={onPassResponse || (() => {})}
+      />
 
       {/* CRT scanline overlay — very subtle repeating horizontal lines */}
       <div

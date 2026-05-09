@@ -580,6 +580,9 @@ class EventType(Enum):
     # Finance TCG events — see src/engine/finance.py.
     # ------------------------------------------------------------------
     FIN_PLAY_CARD = auto()       # Finance card played from hand
+    FIN_CARD_CAST = auto()       # Spell pushed onto FinanceStack (frontend: order-placed sound)
+    FIN_CARD_RESOLVED = auto()   # Spell resolved off the top of the stack (sound: order-filled)
+    FIN_CARD_COUNTERED = auto()  # Spell countered before resolution (sound: order-cancelled)
     FIN_MARKET_EVENT = auto()    # Dark Pool card triggered (phase-deferred Order fires)
     FIN_LEVERAGE_TICK = auto()   # Leverage counter cost accrued at Market Close
     FIN_CAPITAL_CALL = auto()    # Capital Reserve damage from a non-combat source

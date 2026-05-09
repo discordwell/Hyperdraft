@@ -150,29 +150,33 @@ def build_quant_deck() -> list[CardDefinition]:
     # --- {1} Trader (4) ---      4
     deck += c("Statistical Arb Clerk", 4)          # 1/2 Arbitrage 1 cheap blocker
 
-    # --- {2} Traders (6) ---     10
+    # --- {2} Traders (5) ---     9
     deck += c("Factor Model Analyst", 2)           # 1/3 Arb 1 + draw on trigger
-    deck += c("Risk Manager", 3)                   # 1/4 Arb 1 + self-heal blocker
+    deck += c("Risk Manager", 2)                   # 1/4 Arb 1 + self-heal blocker
     deck += c("Market Maker", 1)                   # 2/2 neutral: ETB gain 1 Liq
 
-    # --- {3} Traders (6) ---     16
-    deck += c("Pairs Trader", 3)                   # 2/3 Arbitrage 2
+    # --- {3} Traders (5) ---     14
+    deck += c("Pairs Trader", 2)                   # 2/3 Arbitrage 2
     deck += c("Correlation Trader", 2)             # 2/4 Arb 1 + static +0/+1 lord
     deck += c("Mean Reversion Bot", 1)             # 1/4 pre-market self-repair
 
-    # --- {4} Traders (3) ---     19
+    # --- {4} Traders (3) ---     17
     deck += c("Portfolio Construction Desk", 2)    # 3/4 Arb 2 + global +0/+1
     deck += c("Drawdown Controller", 1)            # 2/5 ETB remove damage
 
-    # --- {7} Trader (1) ---      20
+    # --- {7} Trader (1) ---      18
     deck += c("Monopoly Position", 1)              # 3/5 alternate-win Portfolio counters
 
-    # --- {1} Order (2) ---       22
+    # --- {1} Order (2) ---       20
     deck += c("Quant Signal", 2)                   # look top 3, keep 1
 
-    # --- {2} Orders (5) ---      27
+    # --- {2} Orders (6) ---      26
     deck += c("Rebalancing Halt", 2)               # tap + draw a card
-    deck += c("Liquidity Provision", 3)            # gain 3 Liquidity this turn
+    deck += c("Liquidity Provision", 2)            # gain 3 Liquidity this turn
+    deck += c("Information Ratio Enforcer", 2)     # counter Order/Strategy unless pay {2}
+
+    # --- {3} Order (1) ---       27
+    deck += c("Regime Change Detection", 1)        # counter target Strategy
 
     # --- {2} Assets (4) ---      31
     deck += c("Portfolio Diversifier", 2)          # Liq max +1

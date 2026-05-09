@@ -63,7 +63,9 @@ export type ActionType =
   | 'FIN_DECLARE_BLOCKERS'
   | 'FIN_ACTIVATE_ABILITY'
   | 'FIN_END_PHASE'
-  | 'FIN_END_TURN';
+  | 'FIN_END_TURN'
+  | 'FIN_PLAY_RESPONSE'
+  | 'FIN_PASS_RESPONSE';
 
 export type Phase =
   | 'BEGINNING'
@@ -345,8 +347,32 @@ export interface GameState {
     attackers?: { attacker_id: string; target_id?: string; firing_band?: string }[];
     legal_interceptors?: string[];
   };
+  // Finance state
+  finance_phase?: string;
+  finance_dark_pool?: string | null;
+  finance_turn_data?: Record<string, unknown>;
+  finance_stack?: FinanceStackItem[];
+  finance_pending_response?: FinancePendingResponse | null;
   // Game log
   game_log?: GameLogEntry[];
+}
+
+// MTG-style priority stack item used by FINA spells.
+export interface FinanceStackItem {
+  card_id: string;
+  controller: string;
+  name: string;
+  is_response: boolean;
+  countered: boolean;
+}
+
+// Open priority window — engine is awaiting a response action from
+// the prompted player.
+export interface FinancePendingResponse {
+  prompted_player_id: string;
+  top_card_id: string;
+  top_card_name: string;
+  top_controller: string;
 }
 
 // Request/Response Types
