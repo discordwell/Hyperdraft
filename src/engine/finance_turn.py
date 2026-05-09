@@ -663,16 +663,39 @@ class FinanceTurnManager(TurnManager):
         if player.mana_crystals_available < cost:
             return events
 
+        # bug #13: Off-Exchange Position (and other DP-consumer cards) must
+        # refuse to cast when no Dark Pool slot is populated. Check prerequisite
+        # via card_def._dark_pool_consumer flag OR explicit cast_prerequisite hook.
+        cd_pre = getattr(obj, "card_def", None)
+        if cd_pre is not None:
+            consumer = getattr(cd_pre, "_dark_pool_consumer", False)
+            prereq_fn = getattr(cd_pre, "cast_prerequisite", None)
+            if consumer:
+                from .finance import get_dark_pool as _get_dp
+                if _get_dp(self.state) is None:
+                    # Refuse to cast — no DP slot populated. Caller sees no events.
+                    return events
+            if callable(prereq_fn):
+                try:
+                    if not prereq_fn(obj, self.state):
+                        return events
+                except Exception:
+                    pass
+
         # Deduct Liquidity.
         player.mana_crystals_available -= cost
 
         # Emit FIN_PLAY_CARD marker event.
+        # bug #15 (secondary): include both "player" and "controller" keys so
+        # card-level filters (Hidden Accumulator) reading "controller" match.
         fin_et = getattr(EventType, "FIN_PLAY_CARD", None) or EventType.ZONE_CHANGE
         play_event = Event(
             type=fin_et,
             payload={
                 "card_id": card_id,
+                "object_id": card_id,
                 "player": player_id,
+                "controller": player_id,
                 "cost": cost,
                 "targets": list(targets),
             },
@@ -751,16 +774,87 @@ class FinanceTurnManager(TurnManager):
                 )
 
         elif is_oneshot:
-            # Execute card effect before moving to graveyard.
+            # bug #15: route Dark Pool Orders to the DP slot via set_dark_pool
+            # instead of straight-to-graveyard. The card object stays alive in
+            # ZoneType.EXILE as a hidden staging zone (mirrors Dark Flow Aggregator).
             card_def = getattr(obj, "card_def", None)
-            if card_def is not None:
-                for attr in ("spell_effect", "cast_effect", "effect"):
-                    fn = getattr(card_def, attr, None)
-                    if callable(fn):
+            is_dp = bool(card_def and getattr(card_def, "_dark_pool", False))
+            if is_dp:
+                from .finance import get_dark_pool, set_dark_pool
+
+                # If DP slot occupied, the new card overwrites the old (last-in wins).
+                # Move the displaced order to graveyard so it doesn't leak.
+                existing = get_dark_pool(self.state)
+                if existing is not None:
+                    old = self.state.objects.get(existing)
+                    if old is not None:
+                        old.zone = ZoneType.GRAVEYARD
+                        gz = self.state.zones.get(f"graveyard_{old.controller}")
+                        if gz is not None and existing not in gz.objects:
+                            gz.objects.append(existing)
+                    set_dark_pool(self.state, None)
+
+                # Move the staged card out of hand into hidden staging (EXILE proxy).
+                hand_zone = self.state.zones.get(f"hand_{player_id}")
+                if hand_zone and card_id in hand_zone.objects:
+                    hand_zone.objects.remove(card_id)
+                obj.zone = ZoneType.EXILE
+                set_dark_pool(self.state, card_id)
+                # Track DP play count (used by Liquidity Event etc.)
+                key = f"fin_dp_played_{player_id}"
+                self.state.turn_data[key] = self.state.turn_data.get(key, 0) + 1
+                # Run setup_interceptors NOW so dark_pool_setup registers the
+                # card-level FIN_MARKET_EVENT REACT trigger before the next
+                # PHASE_START(trading_session) fires the system interceptor.
+                if card_def and getattr(card_def, "setup_interceptors", None):
+                    try:
+                        ics = card_def.setup_interceptors(obj, self.state)
+                        if ics:
+                            game = getattr(self, "game", None)
+                            for ic in ics:
+                                obj.interceptor_ids.append(ic.id)
+                                if game is not None and hasattr(game, "register_interceptor"):
+                                    game.register_interceptor(ic)
+                                elif (pl := self._emit_pipeline) is not None:
+                                    # Fallback: register via pipeline's interceptor list.
+                                    if hasattr(pl, "register_interceptor"):
+                                        pl.register_interceptor(ic)
+                                    elif hasattr(pl, "interceptors"):
+                                        pl.interceptors.append(ic)
+                    except Exception:
+                        pass
+                # No graveyard event for staged DP Orders — they leave the slot
+                # only when the system interceptor fires FIN_MARKET_EVENT.
+            else:
+                # Execute card effect before moving to graveyard.
+                if card_def is not None:
+                    # Bug #7/#8: previously only spell_effect/cast_effect/effect
+                    # were probed, but FINA Orders/Strategies use ``resolve=`` —
+                    # so DRAW/LOOK_AT_TOP events never fired. Try resolve first.
+                    resolve_fn = getattr(card_def, "resolve", None)
+                    if callable(resolve_fn):
                         try:
                             if (pl := self._emit_pipeline):
                                 pl.sba_deferred = True
-                            effect_events = fn(obj, self.state, targets)
+                            target_id = None
+                            if targets:
+                                first = targets[0]
+                                if isinstance(first, list) and first:
+                                    target_id = first[0]
+                                elif isinstance(first, str):
+                                    target_id = first
+                            resolve_event = Event(
+                                type=getattr(EventType, "FIN_PLAY_CARD", EventType.ZONE_CHANGE),
+                                payload={
+                                    "controller": player_id,
+                                    "source_id": card_id,
+                                    "target_id": target_id,
+                                    "targets": list(targets),
+                                },
+                                source=card_id,
+                                controller=player_id,
+                            )
+                            effect_events = resolve_fn(resolve_event, self.state) or []
                             for ev in effect_events:
                                 if (pl := self._emit_pipeline):
                                     pl.emit(ev)
@@ -770,22 +864,39 @@ class FinanceTurnManager(TurnManager):
                         finally:
                             if (pl := self._emit_pipeline):
                                 pl.sba_deferred = False
-                        break
+                    else:
+                        for attr in ("spell_effect", "cast_effect", "effect"):
+                            fn = getattr(card_def, attr, None)
+                            if callable(fn):
+                                try:
+                                    if (pl := self._emit_pipeline):
+                                        pl.sba_deferred = True
+                                    effect_events = fn(obj, self.state, targets)
+                                    for ev in effect_events:
+                                        if (pl := self._emit_pipeline):
+                                            pl.emit(ev)
+                                        events.append(ev)
+                                except Exception:
+                                    pass
+                                finally:
+                                    if (pl := self._emit_pipeline):
+                                        pl.sba_deferred = False
+                                break
 
-            grv_ev = Event(
-                type=EventType.ZONE_CHANGE,
-                payload={
-                    "object_id": card_id,
-                    "from_zone": f"hand_{player_id}",
-                    "from_zone_type": ZoneType.HAND,
-                    "to_zone": f"graveyard_{player_id}",
-                    "to_zone_type": ZoneType.GRAVEYARD,
-                },
-                source=card_id,
-            )
-            if (pl := self._emit_pipeline):
-                pl.emit(grv_ev)
-            events.append(grv_ev)
+                grv_ev = Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        "object_id": card_id,
+                        "from_zone": f"hand_{player_id}",
+                        "from_zone_type": ZoneType.HAND,
+                        "to_zone": f"graveyard_{player_id}",
+                        "to_zone_type": ZoneType.GRAVEYARD,
+                    },
+                    source=card_id,
+                )
+                if (pl := self._emit_pipeline):
+                    pl.emit(grv_ev)
+                events.append(grv_ev)
 
         # Track cards played this turn.
         if hasattr(player, "cards_played_this_turn"):

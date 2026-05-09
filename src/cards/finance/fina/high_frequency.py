@@ -250,13 +250,28 @@ def _count_attacking_traders(controller: str, state: GameState) -> int:
 
 
 def _alpha_strike_bonus(obj: GameObject, state: GameState, power_mod: int = 3) -> list[Event]:
-    """Emit PT_MODIFICATION if this Trader is attacking alone."""
+    """Emit PT_MODIFICATION if this Trader is attacking alone.
+
+    Bug #4 fix: when Direct Market Access is on the battlefield for the
+    controller, the upgrade flag ``fin_alpha_strike_upgrade_<controller>``
+    is set; in that case bump the bonus by +1 (so default 3 becomes 4, and
+    OEF's 4 becomes 5).
+
+    Bug #6 fix: when an Alpha Strike attacker is declared SOLO (count==1),
+    set ``fin_alpha_struck_alone_<controller>`` so Tick Data Archive's
+    next-turn pre-market trigger can fire.
+    """
     if _count_attacking_traders(obj.controller, state) == 1:
+        # Bug #6: mark that an alpha-striker attacked alone this turn.
+        state.turn_data[f"fin_alpha_struck_alone_{obj.controller}"] = True
+        # Bug #4: Direct Market Access upgrades the bonus by +1.
+        upgrade_key = f"fin_alpha_strike_upgrade_{obj.controller}"
+        bonus = power_mod + (1 if state.turn_data.get(upgrade_key) else 0)
         return [Event(
             type=EventType.PT_MODIFICATION,
             payload={
                 "object_id": obj.id,
-                "power_mod": power_mod,
+                "power_mod": bonus,
                 "toughness_mod": 0,
                 "duration": "end_of_turn",
             },
@@ -1184,10 +1199,24 @@ REGULATORY_HALT = make_order(
 
 # --- Low-Latency Strike {2} Strategy ---
 # Each of your Traders with Alpha Strike may attack this turn even if they have summoning sickness.
+#
+# Bug #3 fix: the finance engine's one-shot effect dispatcher
+# (finance_turn._play_card_action) looks for ``cast_effect`` /
+# ``spell_effect`` / ``effect`` with signature ``(obj, state, targets)``,
+# NOT ``resolve(event, state)``. The original ``resolve=...`` path was
+# never invoked, so Low-Latency Strike was a 2-mana no-op. Provide both
+# a ``resolve`` function (for any caller that uses the legacy event-based
+# signature) and a ``cast_effect`` adapter that the finance engine
+# actually dispatches.
 def _low_latency_strike_resolve(event: Event, state: GameState) -> list[Event]:
     controller = event.payload.get("controller")
+    return _low_latency_strike_apply(controller, state)
+
+
+def _low_latency_strike_apply(controller: str, state: GameState) -> list[Event]:
+    """Clear summoning sickness on every controlled Trader."""
     bf = state.zones.get("battlefield")
-    if not bf:
+    if not bf or not controller:
         return []
     for oid in getattr(bf, "objects", []):
         o = state.objects.get(oid)
@@ -1198,6 +1227,11 @@ def _low_latency_strike_resolve(event: Event, state: GameState) -> list[Event]:
     return []
 
 
+def _low_latency_strike_cast_effect(obj: GameObject, state: GameState, targets) -> list[Event]:
+    """Adapter for finance_turn one-shot dispatcher: signature (obj, state, targets)."""
+    return _low_latency_strike_apply(obj.controller, state)
+
+
 LOW_LATENCY_STRIKE = make_strategy(
     "Low-Latency Strike",
     "{2}",
@@ -1205,6 +1239,8 @@ LOW_LATENCY_STRIKE = make_strategy(
     resolve=_low_latency_strike_resolve,
     rarity="uncommon",
 )
+# Bug #3: wire the cast_effect attribute the finance engine actually invokes.
+LOW_LATENCY_STRIKE.cast_effect = _low_latency_strike_cast_effect  # type: ignore[attr-defined]
 
 
 # --- Momentum Ignition {3} Strategy ---
@@ -1717,7 +1753,58 @@ def _speed_amplifier_setup(obj: GameObject, state: GameState) -> list[Intercepto
             source=obj.id,
         )] if _count_attacking_traders(obj.controller, st) == 1 else []
     )
-    return [pwr_icp, atk_icp]
+
+    # Bug #5 fix: when the attached host leaves the battlefield (dies, exiles,
+    # bounces) Speed Amplifier orphans on a stale object_id and contributes
+    # nothing for the rest of the game. Tie our lifetime to the host's: when
+    # the host is destroyed OR ZONE_CHANGEs off battlefield, destroy ourselves
+    # (and clear attached_to so the static +2/+0 stops applying immediately).
+    def host_leave_filter(event: Event, state: GameState) -> bool:
+        attached_to = getattr(obj.state, "attached_to", None)
+        if attached_to is None:
+            return False
+        if event.type == EventType.OBJECT_DESTROYED:
+            return event.payload.get("object_id") == attached_to
+        if event.type == EventType.ZONE_CHANGE:
+            if event.payload.get("object_id") != attached_to:
+                return False
+            # Engine emits multiple shapes: from_zone_type=BATTLEFIELD,
+            # or "from"="battlefield" (finance_combat liquidation path).
+            return (event.payload.get("from_zone_type") == ZoneType.BATTLEFIELD
+                    or event.payload.get("from") == "battlefield")
+        return False
+
+    def host_leave_handler(event: Event, state: GameState) -> InterceptorResult:
+        # Clear our attached_to immediately so the static power buff stops
+        # applying even before our destroy-event resolves.
+        obj.state.attached_to = None
+        # Issue an OBJECT_DESTROYED on ourselves so we hit the graveyard
+        # via the standard SBA pathway (consistent with other Derivatives).
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={"object_id": obj.id, "reason": "host_died"},
+                source=obj.id,
+            )],
+        )
+
+    host_leave_icp = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=host_leave_filter,
+        handler=host_leave_handler,
+        duration="while_on_battlefield",
+    )
+    host_leave_icp.is_triggered_ability = True
+    host_leave_icp.effect_fn = lambda ev, st: [Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={"object_id": obj.id, "reason": "host_died"},
+        source=obj.id,
+    )]
+    return [pwr_icp, atk_icp, host_leave_icp]
 
 
 SPEED_AMPLIFIER = make_derivative(

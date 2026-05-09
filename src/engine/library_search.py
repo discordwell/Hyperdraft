@@ -225,7 +225,7 @@ def _handle_search_library_event(event: Event, state: GameState):
         - filter              : string filter shorthand:
                                 "basic_land", "creature", "creature_or_land",
                                 "land", "instant", "sorcery", "enchantment",
-                                "artifact"
+                                "artifact", "dark_pool_order"
         - card_type           : CardType enum value or one of the strings above
         - subtype             : optional subtype string ("Plains", "Forest",
                                 "Dragon", ...) — combined with card_type
@@ -296,6 +296,12 @@ def _handle_search_library_event(event: Event, state: GameState):
         chars = obj.characteristics
         if filter_str == "creature_or_land":
             if not (CardType.CREATURE in chars.types or CardType.LAND in chars.types):
+                return False
+        elif filter_str == "dark_pool_order":  # bug #20a: Finance Dark Arbitrage tutor filter
+            fin_order = getattr(CardType, "FIN_ORDER", None)
+            if fin_order is None or fin_order not in chars.types:
+                return False
+            if not getattr(obj.card_def, "_dark_pool", False):
                 return False
         elif card_type is not None:
             if card_type not in chars.types:

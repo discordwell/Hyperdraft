@@ -203,40 +203,34 @@ def _make_leverage_setup(n: int):
     """Return a setup_interceptors function that gives a Trader Leverage N.
 
     Registers:
-    1. ETB trigger that places N Leverage counters (via direct counter set as
-       fallback in case COUNTER_ADDED pipeline handler is absent for FIN cards).
+    1. ETB trigger that places N Leverage counters via a single COUNTER_ADDED
+       event. Pipeline's _handle_counter_added writes the counters; we do NOT
+       direct-set as a fallback because that double-stacks (bug #14).
     2. QUERY_POWER interceptor granting +1/+0 per leverage counter.
     """
     def setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         # ------------------------------------------------------------------
-        # ETB: add N leverage counters
+        # ETB: add N leverage counters (single event, pipeline applies amount)
+        # bug #14: previously emitted N events AND direct-set, doubling counters
         # ------------------------------------------------------------------
         def etb_effect(event: Event, state: GameState) -> list[Event]:
-            events = []
-            for _ in range(n):
-                events.append(Event(
-                    type=EventType.COUNTER_ADDED,
-                    payload={
-                        "object_id": obj.id,
-                        "counter_type": "leverage",
-                        "amount": 1,
-                    },
-                    source=obj.id,
-                    controller=obj.controller,
-                ))
-            # Fallback: set counters directly in case pipeline doesn't handle
-            # COUNTER_ADDED for FIN cards yet.
-            current = state.objects.get(obj.id)
-            if current:
-                current.state.counters["leverage"] = (
-                    current.state.counters.get("leverage", 0) + n
-                )
-            return events
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={
+                    "object_id": obj.id,
+                    "counter_type": "leverage",
+                    "amount": n,
+                },
+                source=obj.id,
+                controller=obj.controller,
+            )]
 
         etb_interceptor = make_etb_trigger(obj, etb_effect)
 
         # ------------------------------------------------------------------
         # QUERY_POWER: grant +1/+0 per leverage counter (continuous)
+        # bug #19 fellow: must return TRANSFORM with payload['value'] updated;
+        # get_power reads result.transformed_event.payload['value'].
         # ------------------------------------------------------------------
         def power_filter(event: Event, state: GameState) -> bool:
             return (
@@ -249,9 +243,14 @@ def _make_leverage_setup(n: int):
             lev = 0
             if current:
                 lev = int(current.state.counters.get("leverage", 0) or 0)
-            if lev > 0:
-                event.payload["power"] = event.payload.get("power", 0) + lev
-            return InterceptorResult(action=InterceptorAction.PASS)
+            if lev <= 0:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            new_event = event.copy()
+            new_event.payload["value"] = new_event.payload.get("value", 0) + lev
+            return InterceptorResult(
+                action=InterceptorAction.TRANSFORM,
+                transformed_event=new_event,
+            )
 
         power_interceptor = Interceptor(
             id=new_id(),

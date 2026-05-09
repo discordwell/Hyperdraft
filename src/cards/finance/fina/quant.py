@@ -483,30 +483,38 @@ FACTOR_MODEL_ANALYST = make_trader(
 def _risk_manager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     arb_interceptor = _make_arbitrage_setup(1)(obj, state)[0]
 
-    # Post-block damage removal: react on BLOCK_DECLARED for this object
-    def block_filter(event: Event, state: GameState) -> bool:
-        return (
-            event.type == EventType.BLOCK_DECLARED
-            and event.payload.get("blocker_id") == obj.id
-        )
-
-    def block_effect(event: Event, state: GameState) -> InterceptorResult:
-        # Remove 1 damage after combat ends — emit a delayed reduce at end of combat
+    # Bug #9: previously this reacted on BLOCK_DECLARED and decremented
+    # damage BEFORE combat damage was assigned — no-op against the lethal
+    # check downstream. Re-implement as a TRANSFORM on combat DAMAGE: while
+    # blocking, reduce incoming combat damage by 1. Net effect = "heal 1
+    # after combat" because the lethal check sees damage_dealt - 1.
+    def damage_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get("target") != obj.id:
+            return False
+        if not event.payload.get("is_combat"):
+            return False
+        # Only reduce when this Trader is currently blocking.
         o = state.objects.get(obj.id)
-        if o and o.zone == ZoneType.BATTLEFIELD:
-            o.state.damage = max(0, o.state.damage - 1)
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        return bool(o and o.zone == ZoneType.BATTLEFIELD and o.state.blocking)
 
-    block_interceptor = Interceptor(
+    def damage_effect(event: Event, state: GameState) -> InterceptorResult:
+        amt = int(event.payload.get("amount", 0) or 0)
+        new_amt = max(0, amt - 1)
+        event.payload["amount"] = new_amt
+        return InterceptorResult(action=InterceptorAction.TRANSFORM)
+
+    arb_dmg_reduction = Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=block_filter,
-        handler=block_effect,
+        priority=InterceptorPriority.TRANSFORM,
+        filter=damage_filter,
+        handler=damage_effect,
         duration="while_on_battlefield",
     )
-    return [arb_interceptor, block_interceptor]
+    return [arb_interceptor, arb_dmg_reduction]
 
 
 RISK_MANAGER = make_trader(
@@ -898,11 +906,47 @@ INFORMATION_RATIO_ENFORCER = make_order(
 
 # --- Rebalancing Halt {2} — Target Trader cannot attack this turn. Draw a card. ---
 def _rebalancing_halt_resolve(event: Event, state: GameState) -> list[Event]:
+    # Bug #17: previously TAP-only; targeted attacker remained in the combat
+    # manager's declared-attackers list and damage still resolved. Now we
+    # ALSO un-declare the attacker (clear it from the combat state and zero
+    # any pending block assignment). Effect: works at instant speed during
+    # the block window.
     target_id = event.payload.get("target_id")
     controller = event.payload.get("controller", "")
     events: list[Event] = []
+
     if target_id:
-        # Tap the target Trader to prevent attack
+        target_obj = state.objects.get(target_id)
+        # Clear the attacking flag so finance_combat skips it during damage
+        # resolution AND remove it from the turn-state attackers_declared
+        # list so the assertion-based fairness checks see an accurate set.
+        if target_obj is not None:
+            target_obj.state.attacking = False
+        # Reach into the active turn manager (if any) to scrub the attacker
+        # from the declared-attackers list and any pre-recorded block.
+        tm = getattr(state, "turn_manager", None)
+        if tm is None:
+            game = getattr(state, "_game", None)
+            tm = getattr(game, "turn_manager", None) if game is not None else None
+        fin_state = getattr(tm, "fin_turn_state", None) if tm is not None else None
+        if fin_state is not None:
+            if hasattr(fin_state, "attackers_declared"):
+                try:
+                    fin_state.attackers_declared = [
+                        aid for aid in fin_state.attackers_declared
+                        if aid != target_id
+                    ]
+                except Exception:
+                    pass
+            if hasattr(fin_state, "combat_blocks"):
+                try:
+                    fin_state.combat_blocks = {
+                        a: b for a, b in fin_state.combat_blocks.items()
+                        if a != target_id
+                    }
+                except Exception:
+                    pass
+        # Tap the target Trader to prevent attack on subsequent declarations.
         events.append(Event(
             type=EventType.TAP,
             payload={"object_id": target_id},
@@ -953,19 +997,30 @@ EFFICIENT_FRONTIER = make_order(
 
 # --- Quant Signal {1} — Look at the top 3 cards of your Book. Put one into your hand, the rest on the bottom. ---
 def _quant_signal_resolve(event: Event, state: GameState) -> list[Event]:
+    # Bug #8: previously emitted a LOOK_AT_TOP event with no handler, so no
+    # card ever landed in hand. Resolve inline: pop top of library into hand,
+    # rotate the next two to the bottom (greedy first-card-keep heuristic).
     controller = event.payload.get("controller", "")
     if not controller:
         return []
-    return [Event(
-        type=EventType.LOOK_AT_TOP,
-        payload={
-            "player": controller,
-            "count": 3,
-            "put_to_hand": 1,
-            "put_to_bottom": 2,
-        },
-        source=event.payload.get("source_id", ""),
-    )]
+    library = state.zones.get(f"library_{controller}")
+    hand = state.zones.get(f"hand_{controller}")
+    if library is None or hand is None or not library.objects:
+        return []
+    # Take top card → hand.
+    top_id = library.objects.pop(0)
+    hand.objects.append(top_id)
+    obj = state.objects.get(top_id)
+    if obj is not None:
+        obj.zone = ZoneType.HAND
+        obj.entered_zone_at = state.timestamp
+    # Rotate next two to the bottom (if available).
+    for _ in range(2):
+        if not library.objects:
+            break
+        next_id = library.objects.pop(0)
+        library.objects.append(next_id)
+    return []
 
 
 QUANT_SIGNAL = make_order(

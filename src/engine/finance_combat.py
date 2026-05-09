@@ -59,6 +59,28 @@ try:
 except AttributeError:
     FIN_TRADER = None  # TODO: needs FIN_TRADER from types.py (added by Agent 1)
 
+
+# Bug #1: Trample (overflow to defender) must be opt-in via the trample
+# keyword; the default for blocked combat damage is NO overflow.
+def _has_trample(obj: GameObject, state: GameState) -> bool:
+    """Return True iff *obj* carries the trample keyword/ability."""
+    if obj is None:
+        return False
+    try:
+        from .queries import has_ability
+        return bool(has_ability(obj, "trample", state))
+    except Exception:
+        for ability in (obj.characteristics.abilities or []):
+            if isinstance(ability, dict):
+                names = (ability.get("keyword"), ability.get("name"))
+            else:
+                names = (ability,)
+            for n in names:
+                if isinstance(n, str) and n.lower() == "trample":
+                    return True
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Power / toughness queries — use the pipeline-aware helpers when available.
 # ---------------------------------------------------------------------------
@@ -194,10 +216,22 @@ class FinanceCombatManager:
         Silently skips IDs that are no longer legal (e.g. tapped between now
         and when the AI chose them). Returns the list of ATTACK_DECLARED events
         that were emitted.
+
+        Bug #2/#18 fix: set ``attacking=True`` on ALL attackers BEFORE emitting
+        any ATTACK_DECLARED events, so that alpha-strike triggers (which count
+        attacking traders at trigger time) see the final count, not a partial
+        one. Otherwise the first-declared attacker sees count==1 and gets +3,
+        but subsequent attackers see count==N>1 and get nothing — even though
+        the player declared a multi-attack and "alone" should not apply.
         """
         emitted: list[Event] = []
         legal = set(self.get_legal_attackers(player_id))
 
+        # First pass: mark all valid attackers as tapped/attacking. This makes
+        # _count_attacking_traders() consistent across every trigger that fires
+        # below — every per-attacker ATTACK_DECLARED handler sees the same
+        # final attacker set, regardless of declaration order.
+        valid_attackers: list[str] = []
         for aid in attacker_ids:
             if aid not in legal:
                 logger.debug("finance_combat: skipping illegal attacker %s", aid)
@@ -207,7 +241,11 @@ class FinanceCombatManager:
                 continue
             obj.state.tapped = True
             obj.state.attacking = True
+            valid_attackers.append(aid)
 
+        # Second pass: emit ATTACK_DECLARED per attacker (alpha triggers see
+        # the full set due to the first-pass marking).
+        for aid in valid_attackers:
             ev = Event(
                 type=EventType.ATTACK_DECLARED,
                 payload={
@@ -333,9 +371,10 @@ class FinanceCombatManager:
                 emitted.extend(evs)
                 damage_recipients.add(attacker_id)
 
-                # Overflow rule: attacker Aggression > blocker Defense Rating
-                # → excess damages defending player's Capital Reserve.
-                if atk_power > blk_toughness:
+                # Bug #1: overflow to defender's Capital Reserve only when the
+                # attacker has the trample keyword. Without trample, blocked
+                # damage is fully absorbed by the blocker.
+                if atk_power > blk_toughness and _has_trample(attacker, self.state):
                     overflow = atk_power - blk_toughness
                     ev = Event(
                         type=EventType.LIFE_CHANGE,
@@ -433,12 +472,26 @@ class FinanceCombatManager:
                 else None
             ),
         )
+        # Bug #1 (intermittent any-damage-kills root cause): when the pipeline
+        # is wired, ``_handle_damage`` already accumulates ``obj.state.damage``.
+        # Adding the amount again here double-counted, so a 3-power hit on a
+        # 4-toughness blocker pushed damage to 6 and tripped lethality. Only
+        # apply the manual increment when no pipeline is attached (unit-test
+        # mode).
+        damage_before = int(target.state.damage or 0)
         await self._emit(ev)
+        damage_after = int(target.state.damage or 0)
 
-        # Accumulate damage (may have been modified by a TRANSFORM interceptor).
-        # Read the (possibly transformed) amount from the emitted event payload.
-        resolved_amount = int(ev.payload.get("amount", amount) or amount)
-        target.state.damage = int(target.state.damage or 0) + resolved_amount
+        # Read the post-TRANSFORM amount; default to original if missing.
+        # IMPORTANT: do not coalesce with ``or amount`` — a transformed amount
+        # of 0 (e.g. Risk Manager's damage reduction) would otherwise be
+        # treated as falsy and reverted back to the original.
+        raw_amount = ev.payload.get("amount")
+        resolved_amount = int(raw_amount if raw_amount is not None else amount)
+        if damage_after == damage_before:
+            # No pipeline handler ran (unit-test mode) — apply the increment
+            # ourselves so tests can still observe accumulated damage.
+            target.state.damage = damage_before + resolved_amount
         target.state.last_damage_source = source_id
 
         return [ev]
@@ -446,8 +499,19 @@ class FinanceCombatManager:
     async def _liquidate_if_lethal(self, obj_id: str) -> list[Event]:
         """If the Trader at *obj_id* has lethal damage, liquidate it.
 
-        Emits OBJECT_DESTROYED followed by ZONE_CHANGE to GRAVEYARD.
-        Returns the events emitted, or [] if the Trader is not yet dead.
+        Emits OBJECT_DESTROYED. The pipeline's _handle_object_destroyed routes
+        the corpse to its owner's graveyard (graveyard_<owner_id>) and the
+        REACT phase fires death triggers before interceptor cleanup.
+
+        bug #16: previously emitted a follow-up ZONE_CHANGE with
+        from='battlefield', to='graveyard' (literal strings, not zone keys).
+        That event ran _remove_object_from_all_zones (yanking the corpse out
+        of the graveyard where OBJECT_DESTROYED had just placed it) and then
+        failed to re-add since 'graveyard' is not a real zone key (the actual
+        keys are 'graveyard_<player_id>'). Net effect: the obj.zone was set
+        to GRAVEYARD but the graveyard zone list was empty.
+
+        Returns the OBJECT_DESTROYED event, or [] if the Trader is not yet dead.
         """
         obj = self.state.objects.get(obj_id)
         if obj is None:
@@ -472,20 +536,6 @@ class FinanceCombatManager:
         )
         await self._emit(destroyed)
         emitted.append(destroyed)
-
-        zone_change = Event(
-            type=EventType.ZONE_CHANGE,
-            payload={
-                "object_id": obj_id,
-                "from": "battlefield",
-                "to": "graveyard",
-                "reason": "finance_liquidated",
-            },
-            source=obj.state.last_damage_source,
-            controller=obj.controller,
-        )
-        await self._emit(zone_change)
-        emitted.append(zone_change)
 
         return emitted
 

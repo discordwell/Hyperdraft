@@ -341,6 +341,184 @@ def test_single_pilot_mode_unchanged():
     print("test_single_pilot_mode_unchanged  PASS")
 
 
+# ---------------------------------------------------------------------------
+# Bug #11 — pickle file-race / fcntl lock
+# ---------------------------------------------------------------------------
+
+def test_round_id_increments_on_each_save():
+    """Bug #11 telemetry — every successful mutation must bump round_id so a
+    pilot can detect intervening writes between their `state` and action."""
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as fh:
+        save = fh.name
+    payload = _start_two_pilot(save)
+    initial_round = int(payload.get("round_id", 0))
+    assert initial_round >= 1, (
+        f"Bug #11: round_id should be ≥1 after start, got {initial_round}"
+    )
+
+    # Calling end_turn (no attackers) must bump round_id.
+    harness.cmd_end_turn(_Args(save=save))
+    payload2 = _load(save)
+    assert int(payload2.get("round_id", 0)) > initial_round, (
+        f"Bug #11: round_id must monotonically increase per save; "
+        f"before={initial_round} after={payload2.get('round_id')}"
+    )
+    Path(save).unlink(missing_ok=True)
+    Path(save + ".lock").unlink(missing_ok=True)
+    print("test_round_id_increments_on_each_save  PASS")
+
+
+def _bug11_lock_worker(save_path: str):
+    """Top-level worker for test_concurrent_play_is_serialized_by_fcntl_lock.
+
+    Must be at module scope (not a closure) so the spawn-context fork on
+    macOS can pickle/unpickle the target.
+    """
+    import time as _t
+    # Re-import in the child since spawn context starts a fresh interpreter.
+    import sys as _sys
+    from pathlib import Path as _P
+    repo_root = _P(__file__).resolve().parents[1]
+    if str(repo_root) not in _sys.path:
+        _sys.path.insert(0, str(repo_root))
+    from scripts.play import finance_wet_test as _h
+    with _h._exclusive_lock(save_path):
+        pl = _h._load(save_path)
+        _t.sleep(0.05)  # widen the window so concurrency is real
+        _h._save(pl, save_path)
+
+
+def test_concurrent_play_is_serialized_by_fcntl_lock():
+    """Bug #11 — two subprocesses both running an RMW against the same pickle
+    must serialize via fcntl.flock; both writes land (no lost updates)."""
+    import multiprocessing as _mp
+
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as fh:
+        save = fh.name
+    _start_two_pilot(save)
+
+    # Spawn two child processes (default on macOS) and have each acquire the
+    # exclusive lock for ~50ms before writing. If the lock is honoured,
+    # round_id increments deterministically by 2; if not, the read-modify-
+    # write windows interleave and one increment is lost.
+    ctx = _mp.get_context("spawn")
+    procs = [
+        ctx.Process(target=_bug11_lock_worker, args=(save,)),
+        ctx.Process(target=_bug11_lock_worker, args=(save,)),
+    ]
+    initial = int(_load(save).get("round_id", 0))
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join(timeout=15)
+    for p in procs:
+        assert not p.is_alive(), "worker hung — flock deadlock?"
+        assert p.exitcode == 0, f"worker crashed exitcode={p.exitcode}"
+
+    final = _load(save)
+    final_round = int(final.get("round_id", 0))
+    expected = initial + 2
+    assert final_round == expected, (
+        f"Bug #11: lock must serialize concurrent saves; "
+        f"initial={initial} expected={expected} got={final_round} "
+        f"(missing increments → lost-update race)"
+    )
+
+    Path(save).unlink(missing_ok=True)
+    Path(save + ".lock").unlink(missing_ok=True)
+    print("test_concurrent_play_is_serialized_by_fcntl_lock  PASS")
+
+
+# ---------------------------------------------------------------------------
+# Bug #20b — `choose` subcommand for tutor PendingChoice
+# ---------------------------------------------------------------------------
+
+def test_choose_command_resolves_tutor_pending_choice():
+    """Bug #20b — induce a SEARCH_LIBRARY tutor PendingChoice (via Dark
+    Inventory Position's ETB), then call cmd_choose to submit a pick.
+    Game must advance with the chosen card moving to the player's hand."""
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as fh:
+        save = fh.name
+    payload = _start_two_pilot(save)
+    p1_id = payload["p1_id"]
+
+    from src.engine.types import CardType, ZoneType
+    from src.cards.finance.fina.dark_arbitrage import (
+        ICEBERG_ORDER, BLOCK_TRADE_SWEEP,
+    )
+    game = payload["game"]
+    state = game.state
+
+    # Inject Iceberg + BTS into P1's library so the tutor has options.
+    ico = game.create_object(
+        name="ICO", owner_id=p1_id, zone=ZoneType.LIBRARY,
+        characteristics=ICEBERG_ORDER.characteristics,
+        card_def=ICEBERG_ORDER,
+    )
+    bts = game.create_object(
+        name="BTS", owner_id=p1_id, zone=ZoneType.LIBRARY,
+        characteristics=BLOCK_TRADE_SWEEP.characteristics,
+        card_def=BLOCK_TRADE_SWEEP,
+    )
+
+    # Manually emit SEARCH_LIBRARY (filter=dark_pool_order) — this is the
+    # simulation of Dark Inventory Position's ETB tutor.
+    from src.engine.types import Event, EventType
+    from src.engine.library_search import _handle_search_library_event
+    evt = Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            "player": p1_id,
+            "filter": "dark_pool_order",
+            "destination": "hand",
+            "count": 1,
+            "min_count": 0,
+        },
+        source="dip_test",
+    )
+    _handle_search_library_event(evt, state)
+    assert state.pending_choice is not None, (
+        "Bug #20b setup: tutor must produce a PendingChoice"
+    )
+    chosen_id = ico.id  # arbitrary pick
+
+    harness._save(payload, save)
+    # Now invoke cmd_choose with the index of Iceberg's option.
+    # We pass the id-prefix so the harness exercises both code paths.
+    args = _Args(save=save, options=[chosen_id[:6]])
+    harness.cmd_choose(args)
+
+    payload2 = _load(save)
+    state2 = payload2["game"].state
+    # Pending choice must be cleared.
+    assert state2.pending_choice is None, (
+        "Bug #20b: cmd_choose must clear pending_choice after submitting"
+    )
+    # Iceberg must now be in P1's hand.
+    hand_zone = state2.zones.get(f"hand_{p1_id}")
+    assert hand_zone is not None and chosen_id in hand_zone.objects, (
+        f"Bug #20b: chosen card must be moved to hand; hand="
+        f"{hand_zone.objects if hand_zone else None}"
+    )
+
+    Path(save).unlink(missing_ok=True)
+    Path(save + ".lock").unlink(missing_ok=True)
+    print("test_choose_command_resolves_tutor_pending_choice  PASS")
+
+
+def test_choose_command_no_pending_choice_is_noop():
+    """Bug #20b — `choose` with no pending choice must report and not crash."""
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as fh:
+        save = fh.name
+    _start_two_pilot(save)
+    args = _Args(save=save, options=["0"])
+    # Should not raise.
+    harness.cmd_choose(args)
+    Path(save).unlink(missing_ok=True)
+    Path(save + ".lock").unlink(missing_ok=True)
+    print("test_choose_command_no_pending_choice_is_noop  PASS")
+
+
 if __name__ == "__main__":
     test_two_pilot_block_window_opens_on_end_turn()
     test_block_command_routes_to_defender_during_window()
@@ -348,4 +526,8 @@ if __name__ == "__main__":
     test_end_turn_no_attackers_advances_directly()
     test_second_end_turn_during_block_window_resolves_combat()
     test_single_pilot_mode_unchanged()
+    test_round_id_increments_on_each_save()
+    test_concurrent_play_is_serialized_by_fcntl_lock()
+    test_choose_command_resolves_tutor_pending_choice()
+    test_choose_command_no_pending_choice_is_noop()
     print("\nAll two-pilot block-window tests passed.")

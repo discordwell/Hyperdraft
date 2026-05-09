@@ -87,15 +87,79 @@ DEFAULT_STATE_PATH = "/tmp/finance_wet_test_state.pkl"
 
 
 # ---------- persistence ----------
+#
+# bug #11: two-pilot state file-race. Concurrent `python -m scripts.play.finance_wet_test ...`
+# invocations from two pilots can interleave a read with another's write,
+# corrupting the perceived state mid-decision. Fix: use fcntl.flock so each
+# command holds an exclusive lock around its read-modify-write window. Also
+# bump a `round_id` int on every successful mutation so a pilot can detect
+# state drift between their `state` print and their action attempt.
+
+import fcntl
+import os
+from contextlib import contextmanager
+
+
+def _lock_path(path: str) -> str:
+    return path + ".lock"
+
+
+@contextmanager
+def _exclusive_lock(path: str):
+    """Acquire an exclusive (POSIX) flock on a sidecar lock file.
+
+    Sidecar lockfile (``<path>.lock``) is used so the lock survives
+    truncation of the actual pickle, and so we can lock before the pickle
+    exists yet (during ``cmd_start``).
+    """
+    lock_path = _lock_path(path)
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield fd
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
 
 def _save(payload: dict[str, Any], path: str) -> None:
-    with open(path, "wb") as fh:
+    """Write the payload pickle. Caller MUST hold the exclusive lock."""
+    # round_id mutation telemetry — pilots can detect intervening writes.
+    payload["round_id"] = int(payload.get("round_id", 0)) + 1
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "wb") as fh:
         pickle.dump(payload, fh)
+    os.replace(tmp_path, path)
 
 
 def _load(path: str) -> dict[str, Any]:
+    """Read the payload pickle. Caller MUST hold the exclusive lock."""
     with open(path, "rb") as fh:
         return pickle.load(fh)
+
+
+@contextmanager
+def _session(path: str):
+    """Context manager: acquire lock, load payload, save+release on exit.
+
+    Usage::
+
+        with _session(path) as ctx:
+            payload = ctx["payload"]
+            ...
+            ctx["payload"] = payload   # if mutated; same object is fine
+            ctx["save"] = True         # default; set False to skip save
+    """
+    with _exclusive_lock(path):
+        payload = _load(path)
+        ctx = {"payload": payload, "save": True}
+        try:
+            yield ctx
+        finally:
+            if ctx.get("save", True):
+                _save(ctx["payload"], path)
 
 
 # ---------- deck resolution ----------
@@ -514,8 +578,12 @@ def cmd_start(args) -> None:
         # state.active_player) drives the harness via `block ...` and
         # finally `resolve_combat`.
         "awaiting_blocks": False,
+        # bug #11: round_id increments per successful mutation, so pilots
+        # can detect intervening writes between their `state` and action.
+        "round_id": 0,
     }
-    _save(payload, args.save)
+    with _exclusive_lock(args.save):
+        _save(payload, args.save)
     print(f"Started Finance game: P1={p1.id[:8]} (deck={args.p1_deck}) "
           f"vs P2={p2.id[:8]} (deck={args.p2_deck})"
           f"{' [two-pilot]' if two_pilot else ''}")
@@ -523,13 +591,17 @@ def cmd_start(args) -> None:
 
 
 def cmd_state(args) -> None:
-    payload = _load(args.save)
+    # bug #11: take exclusive lock to ensure read sees a fully written state.
+    with _exclusive_lock(args.save):
+        payload = _load(args.save)
     _print_state(payload)
 
 
 def cmd_hand(args) -> None:
     import re
-    payload = _load(args.save)
+    # bug #11: take exclusive lock to ensure read sees a fully written state.
+    with _exclusive_lock(args.save):
+        payload = _load(args.save)
     game = payload["game"]
     state = game.state
     pid = _acting_player_id(payload)
@@ -562,73 +634,77 @@ def cmd_hand(args) -> None:
 
 def cmd_play(args) -> None:
     import re
-    payload = _load(args.save)
-    game = payload["game"]
-    pid = _acting_player_id(payload)
-    obj = _find_in_hand(game.state, pid, args.card_id)
-    if not obj:
-        print(f"No card matching {args.card_id!r} in {_label_for(payload, pid)}'s hand")
-        return
-    # Pre-flight cost check (turn manager silently no-ops if cost > available).
-    cost = 0
-    if obj.characteristics and obj.characteristics.mana_cost:
-        cost = sum(int(n) for n in re.findall(r"\{(\d+)\}", obj.characteristics.mana_cost))
-    avail = int(getattr(game.state.players[pid], "mana_crystals_available", 0) or 0)
-    if avail < cost:
-        print(f"Cannot play {obj.name!r}: cost={cost} but Liquidity={avail} (need {cost-avail} more).")
-        return
-    targets: list[str] = []
-    if args.target:
-        targets = [args.target]
-    events = asyncio.run(
-        game.turn_manager._play_card_action(pid, obj.id, targets)
-    )
-    print(f"play {obj.name!r}: emitted {len(events)} events")
-    payload["history"].append(
-        (game.state.turn_number, _label_for(payload, pid), f"play {obj.name}")
-    )
-    _save(payload, args.save)
+    # bug #11: hold the exclusive lock for the full read-modify-write window.
+    with _exclusive_lock(args.save):
+        payload = _load(args.save)
+        game = payload["game"]
+        pid = _acting_player_id(payload)
+        obj = _find_in_hand(game.state, pid, args.card_id)
+        if not obj:
+            print(f"No card matching {args.card_id!r} in {_label_for(payload, pid)}'s hand")
+            return
+        # Pre-flight cost check (turn manager silently no-ops if cost > available).
+        cost = 0
+        if obj.characteristics and obj.characteristics.mana_cost:
+            cost = sum(int(n) for n in re.findall(r"\{(\d+)\}", obj.characteristics.mana_cost))
+        avail = int(getattr(game.state.players[pid], "mana_crystals_available", 0) or 0)
+        if avail < cost:
+            print(f"Cannot play {obj.name!r}: cost={cost} but Liquidity={avail} (need {cost-avail} more).")
+            return
+        targets: list[str] = []
+        if args.target:
+            targets = [args.target]
+        events = asyncio.run(
+            game.turn_manager._play_card_action(pid, obj.id, targets)
+        )
+        print(f"play {obj.name!r}: emitted {len(events)} events")
+        payload["history"].append(
+            (game.state.turn_number, _label_for(payload, pid), f"play {obj.name}")
+        )
+        _save(payload, args.save)
     _print_state(payload)
 
 
 def cmd_attack(args) -> None:
-    payload = _load(args.save)
-    game = payload["game"]
-    state = game.state
-    pid = _acting_player_id(payload)
-    tm = game.turn_manager
-    if tm.finance_combat_manager is None:
-        print("No combat manager wired — cannot declare attackers.")
-        return
-    # Resolve attacker prefixes.
-    full_ids: list[str] = []
-    for prefix in args.attackers:
-        obj = _find_on_battlefield(state, pid, prefix)
-        if not obj:
-            print(f"  attacker {prefix!r} not found, skipping")
-            continue
-        full_ids.append(obj.id)
-    if not full_ids:
-        print("No valid attackers — nothing declared.")
-        return
-    # Filter to legal attackers (untapped, no summoning sickness).
-    legal = set(tm.finance_combat_manager.get_legal_attackers(pid))
-    illegal = [a for a in full_ids if a not in legal]
-    if illegal:
-        print(f"  warning: skipping illegal attackers (tapped or summoning-sick): "
-              f"{[a[:8] for a in illegal]}")
-    chosen = [a for a in full_ids if a in legal]
-    if not chosen:
-        print("All requested attackers are illegal — nothing declared.")
-        return
-    asyncio.run(tm.finance_combat_manager.declare_attackers(pid, chosen))
-    tm.fin_turn_state.attackers_declared = list(chosen)
-    print(f"declared attackers: {[a[:8] for a in chosen]}")
-    payload["history"].append(
-        (game.state.turn_number, _label_for(payload, pid),
-         f"attack {[a[:8] for a in chosen]}")
-    )
-    _save(payload, args.save)
+    # bug #11: hold the exclusive lock for the full read-modify-write window.
+    with _exclusive_lock(args.save):
+        payload = _load(args.save)
+        game = payload["game"]
+        state = game.state
+        pid = _acting_player_id(payload)
+        tm = game.turn_manager
+        if tm.finance_combat_manager is None:
+            print("No combat manager wired — cannot declare attackers.")
+            return
+        # Resolve attacker prefixes.
+        full_ids: list[str] = []
+        for prefix in args.attackers:
+            obj = _find_on_battlefield(state, pid, prefix)
+            if not obj:
+                print(f"  attacker {prefix!r} not found, skipping")
+                continue
+            full_ids.append(obj.id)
+        if not full_ids:
+            print("No valid attackers — nothing declared.")
+            return
+        # Filter to legal attackers (untapped, no summoning sickness).
+        legal = set(tm.finance_combat_manager.get_legal_attackers(pid))
+        illegal = [a for a in full_ids if a not in legal]
+        if illegal:
+            print(f"  warning: skipping illegal attackers (tapped or summoning-sick): "
+                  f"{[a[:8] for a in illegal]}")
+        chosen = [a for a in full_ids if a in legal]
+        if not chosen:
+            print("All requested attackers are illegal — nothing declared.")
+            return
+        asyncio.run(tm.finance_combat_manager.declare_attackers(pid, chosen))
+        tm.fin_turn_state.attackers_declared = list(chosen)
+        print(f"declared attackers: {[a[:8] for a in chosen]}")
+        payload["history"].append(
+            (game.state.turn_number, _label_for(payload, pid),
+             f"attack {[a[:8] for a in chosen]}")
+        )
+        _save(payload, args.save)
     _print_state(payload)
 
 
@@ -645,75 +721,77 @@ def cmd_block(args) -> None:
         Legacy behavior — the active player is recording their own
         opponent's blocker (rare, used during AI/human asymmetric flows).
     """
-    payload = _load(args.save)
-    game = payload["game"]
-    state = game.state
-    tm = game.turn_manager
-    awaiting = _is_awaiting_blocks(payload)
+    # bug #11: hold the exclusive lock for the full read-modify-write window.
+    with _exclusive_lock(args.save):
+        payload = _load(args.save)
+        game = payload["game"]
+        state = game.state
+        tm = game.turn_manager
+        awaiting = _is_awaiting_blocks(payload)
 
-    if awaiting:
-        # Defender's seat owns blockers; attacker is the active player.
-        defender_id = _acting_player_id(payload)
-        attacker_player_id = game.state.active_player
-        if attacker_player_id == defender_id:
-            print("  block window state inconsistent (defender == active player)")
+        if awaiting:
+            # Defender's seat owns blockers; attacker is the active player.
+            defender_id = _acting_player_id(payload)
+            attacker_player_id = game.state.active_player
+            if attacker_player_id == defender_id:
+                print("  block window state inconsistent (defender == active player)")
+                return
+            blocker = _find_on_battlefield(state, defender_id, args.blocker_id)
+            if not blocker:
+                print(f"  blocker {args.blocker_id!r} not found on defender's battlefield")
+                return
+            attacker = _find_on_battlefield(state, attacker_player_id, args.attacker_id)
+            if not attacker:
+                print(f"  attacker {args.attacker_id!r} not found on attacker's battlefield")
+                return
+            if attacker.id not in tm.fin_turn_state.attackers_declared:
+                print(f"  warning: {attacker.id[:8]} is not in declared attackers — block ignored")
+                return
+            # Disallow assigning the same blocker to two attackers.
+            already_used_for = next(
+                (atk_id for atk_id, blk_id in tm.fin_turn_state.combat_blocks.items()
+                 if blk_id == blocker.id and atk_id != attacker.id),
+                None,
+            )
+            if already_used_for:
+                print(f"  blocker {blocker.name!r} already assigned to "
+                      f"{already_used_for[:8]} — reassign by `resolve_combat` first or pick another.")
+                return
+            tm.fin_turn_state.combat_blocks[attacker.id] = blocker.id
+            print(f"recorded block: {blocker.name!r} -> {attacker.name!r}")
+            payload["history"].append(
+                (game.state.turn_number, _label_for(payload, defender_id),
+                 f"block {blocker.name} <- {attacker.name}")
+            )
+            _save(payload, args.save)
+            _print_state(payload)
             return
-        blocker = _find_on_battlefield(state, defender_id, args.blocker_id)
+
+        # Legacy / single-pilot path — active player records opponent's blocker.
+        pid = _acting_player_id(payload)
+        opp_id = tm._get_opponent(pid)
+        if opp_id is None:
+            print("No opponent found.")
+            return
+        # Blockers belong to the opponent.
+        blocker = _find_on_battlefield(state, opp_id, args.blocker_id)
         if not blocker:
-            print(f"  blocker {args.blocker_id!r} not found on defender's battlefield")
+            print(f"  blocker {args.blocker_id!r} not found on opponent's battlefield")
             return
-        attacker = _find_on_battlefield(state, attacker_player_id, args.attacker_id)
+        attacker = _find_on_battlefield(state, pid, args.attacker_id)
         if not attacker:
-            print(f"  attacker {args.attacker_id!r} not found on attacker's battlefield")
+            print(f"  attacker {args.attacker_id!r} not found on active battlefield")
             return
         if attacker.id not in tm.fin_turn_state.attackers_declared:
             print(f"  warning: {attacker.id[:8]} is not in declared attackers — block ignored")
             return
-        # Disallow assigning the same blocker to two attackers.
-        already_used_for = next(
-            (atk_id for atk_id, blk_id in tm.fin_turn_state.combat_blocks.items()
-             if blk_id == blocker.id and atk_id != attacker.id),
-            None,
-        )
-        if already_used_for:
-            print(f"  blocker {blocker.name!r} already assigned to "
-                  f"{already_used_for[:8]} — reassign by `resolve_combat` first or pick another.")
-            return
         tm.fin_turn_state.combat_blocks[attacker.id] = blocker.id
         print(f"recorded block: {blocker.name!r} -> {attacker.name!r}")
         payload["history"].append(
-            (game.state.turn_number, _label_for(payload, defender_id),
+            (game.state.turn_number, _label_for(payload, opp_id),
              f"block {blocker.name} <- {attacker.name}")
         )
         _save(payload, args.save)
-        _print_state(payload)
-        return
-
-    # Legacy / single-pilot path — active player records opponent's blocker.
-    pid = _acting_player_id(payload)
-    opp_id = tm._get_opponent(pid)
-    if opp_id is None:
-        print("No opponent found.")
-        return
-    # Blockers belong to the opponent.
-    blocker = _find_on_battlefield(state, opp_id, args.blocker_id)
-    if not blocker:
-        print(f"  blocker {args.blocker_id!r} not found on opponent's battlefield")
-        return
-    attacker = _find_on_battlefield(state, pid, args.attacker_id)
-    if not attacker:
-        print(f"  attacker {args.attacker_id!r} not found on active battlefield")
-        return
-    if attacker.id not in tm.fin_turn_state.attackers_declared:
-        print(f"  warning: {attacker.id[:8]} is not in declared attackers — block ignored")
-        return
-    tm.fin_turn_state.combat_blocks[attacker.id] = blocker.id
-    print(f"recorded block: {blocker.name!r} -> {attacker.name!r}")
-    payload["history"].append(
-        (game.state.turn_number, _label_for(payload, opp_id),
-         f"block {blocker.name} <- {attacker.name}")
-    )
-    _save(payload, args.save)
     _print_state(payload)
 
 
@@ -792,54 +870,61 @@ def cmd_end_turn(args) -> None:
     Otherwise (no attackers, or single-pilot mode), finish the turn and
     advance immediately.
     """
-    payload = _load(args.save)
-    game = payload["game"]
-    two_pilot = payload.get("two_pilot", False)
-    if game.is_game_over():
-        print("Game already over.")
-        _print_state(payload)
-        return
-
-    if two_pilot and payload.get("awaiting_blocks"):
-        # Forgiving alias: defender hit `end_turn` instead of `resolve_combat`.
+    # bug #11: peek at awaiting_blocks under lock so the forgiving-alias
+    # delegate (cmd_resolve_combat) can take its own fresh lock without
+    # us holding it.
+    with _exclusive_lock(args.save):
+        payload = _load(args.save)
+        is_alias = bool(payload.get("two_pilot") and payload.get("awaiting_blocks"))
+    if is_alias:
         print("(awaiting_blocks=True — treating `end_turn` as `resolve_combat`.)")
         cmd_resolve_combat(args)
         return
 
-    if two_pilot:
-        from src.engine.finance_turn import FinancePhase
-        tm = game.turn_manager
-        attackers = list(tm.fin_turn_state.attackers_declared or [])
-        if attackers and tm.finance_combat_manager is not None:
-            # Active player declared attackers — open the block window.
-            pid = tm.fin_turn_state.active_player_id
-            # Close TRADING_SESSION cleanly so the defender's window has a
-            # well-defined phase.
-            tm._emit_phase("trading_session", "end", pid)
-            # Move into SETTLEMENT but DO NOT resolve combat yet.
-            tm.fin_turn_state.phase = FinancePhase.SETTLEMENT
-            tm._emit_phase("settlement", "start", pid)
-            payload["awaiting_blocks"] = True
+    # bug #11: hold the lock for the full RMW window of the normal end_turn path.
+    with _exclusive_lock(args.save):
+        payload = _load(args.save)
+        game = payload["game"]
+        two_pilot = payload.get("two_pilot", False)
+        if game.is_game_over():
+            print("Game already over.")
+            _print_state(payload)
+            return
+
+        if two_pilot:
+            from src.engine.finance_turn import FinancePhase
+            tm = game.turn_manager
+            attackers = list(tm.fin_turn_state.attackers_declared or [])
+            if attackers and tm.finance_combat_manager is not None:
+                # Active player declared attackers — open the block window.
+                pid = tm.fin_turn_state.active_player_id
+                # Close TRADING_SESSION cleanly so the defender's window has a
+                # well-defined phase.
+                tm._emit_phase("trading_session", "end", pid)
+                # Move into SETTLEMENT but DO NOT resolve combat yet.
+                tm.fin_turn_state.phase = FinancePhase.SETTLEMENT
+                tm._emit_phase("settlement", "start", pid)
+                payload["awaiting_blocks"] = True
+                payload["history"].append(
+                    (game.state.turn_number, _label_for(payload, pid),
+                     f"end_turn (await blocks: {[a[:8] for a in attackers]})")
+                )
+                _save(payload, args.save)
+                _print_state(payload)
+                return
+
+        # Finish current player's turn (combat resolution + settlement + market_close).
+        asyncio.run(_finish_turn(payload))
+        if game.is_game_over():
             payload["history"].append(
-                (game.state.turn_number, _label_for(payload, pid),
-                 f"end_turn (await blocks: {[a[:8] for a in attackers]})")
+                (game.state.turn_number, "SYS", "game over")
             )
             _save(payload, args.save)
             _print_state(payload)
             return
 
-    # Finish current player's turn (combat resolution + settlement + market_close).
-    asyncio.run(_finish_turn(payload))
-    if game.is_game_over():
-        payload["history"].append(
-            (game.state.turn_number, "SYS", "game over")
-        )
-        _save(payload, args.save)
-        _print_state(payload)
-        return
-
-    payload["awaiting_blocks"] = False
-    _advance_to_next_turn(payload, args.save)
+        payload["awaiting_blocks"] = False
+        _advance_to_next_turn(payload, args.save)
 
 
 def cmd_resolve_combat(args) -> None:
@@ -855,63 +940,69 @@ def cmd_resolve_combat(args) -> None:
     ``end_turn``). Single-pilot mode does not use this command — the
     AI's blocker logic runs synchronously during ``end_turn``.
     """
-    payload = _load(args.save)
-    game = payload["game"]
-    if game.is_game_over():
-        print("Game already over.")
-        _print_state(payload)
-        return
+    # bug #11: hold the exclusive lock for the full RMW window.
+    with _exclusive_lock(args.save):
+        payload = _load(args.save)
+        game = payload["game"]
+        if game.is_game_over():
+            print("Game already over.")
+            _print_state(payload)
+            return
 
-    if not payload.get("two_pilot"):
-        print("resolve_combat is only meaningful in --two-pilot mode. "
-              "In single-pilot mode use `end_turn` (AI blocks automatically).")
-        return
+        if not payload.get("two_pilot"):
+            print("resolve_combat is only meaningful in --two-pilot mode. "
+                  "In single-pilot mode use `end_turn` (AI blocks automatically).")
+            return
 
-    if not payload.get("awaiting_blocks"):
-        print("Not awaiting blocks — nothing to resolve. "
-              "Use `attack <id>...` then `end_turn` to enter the block window.")
-        _print_state(payload)
-        return
+        if not payload.get("awaiting_blocks"):
+            print("Not awaiting blocks — nothing to resolve. "
+                  "Use `attack <id>...` then `end_turn` to enter the block window.")
+            _print_state(payload)
+            return
 
-    # Resolve combat using whatever blocks the defender recorded.
-    asyncio.run(_resolve_declared_combat(payload))
-    if game.is_game_over():
+        # Resolve combat using whatever blocks the defender recorded.
+        asyncio.run(_resolve_declared_combat(payload))
+        if game.is_game_over():
+            payload["history"].append(
+                (game.state.turn_number, "SYS", "game over (combat)")
+            )
+            payload["awaiting_blocks"] = False
+            _save(payload, args.save)
+            _print_state(payload)
+            return
+
+        # Finish the active turn (post-combat phases). SETTLEMENT/start was
+        # already emitted in cmd_end_turn when we opened the block window.
+        asyncio.run(_finish_active_turn_post_combat(payload, settlement_already_started=True))
+        if game.is_game_over():
+            payload["history"].append(
+                (game.state.turn_number, "SYS", "game over (post-combat)")
+            )
+            payload["awaiting_blocks"] = False
+            _save(payload, args.save)
+            _print_state(payload)
+            return
+
         payload["history"].append(
-            (game.state.turn_number, "SYS", "game over (combat)")
+            (game.state.turn_number, "SYS", "combat resolved (two-pilot)")
         )
         payload["awaiting_blocks"] = False
-        _save(payload, args.save)
-        _print_state(payload)
-        return
-
-    # Finish the active turn (post-combat phases). SETTLEMENT/start was
-    # already emitted in cmd_end_turn when we opened the block window.
-    asyncio.run(_finish_active_turn_post_combat(payload, settlement_already_started=True))
-    if game.is_game_over():
-        payload["history"].append(
-            (game.state.turn_number, "SYS", "game over (post-combat)")
-        )
-        payload["awaiting_blocks"] = False
-        _save(payload, args.save)
-        _print_state(payload)
-        return
-
-    payload["history"].append(
-        (game.state.turn_number, "SYS", "combat resolved (two-pilot)")
-    )
-    payload["awaiting_blocks"] = False
-    _advance_to_next_turn(payload, args.save)
+        _advance_to_next_turn(payload, args.save)
 
 
 def cmd_history(args) -> None:
-    payload = _load(args.save)
+    # bug #11: lock the read so we don't observe a half-written pickle.
+    with _exclusive_lock(args.save):
+        payload = _load(args.save)
     print("=== Action history ===")
     for turn, actor, action in payload["history"]:
         print(f"  turn {turn}  {actor:<3}  {action}")
 
 
 def cmd_result(args) -> None:
-    payload = _load(args.save)
+    # bug #11: lock the read so we don't observe a half-written pickle.
+    with _exclusive_lock(args.save):
+        payload = _load(args.save)
     game = payload["game"]
     if not game.is_game_over():
         print("in progress")
@@ -925,6 +1016,80 @@ def cmd_result(args) -> None:
         print("P2 won")
     else:
         print("draw")
+
+
+# ---------- choose subcommand (bug #20b) ----------
+
+def cmd_choose(args) -> None:
+    """Submit a player's pending-choice selection.
+
+    Resolves stall in two-pilot mode where a card emits SEARCH_LIBRARY or
+    similar PendingChoice (e.g. Dark Inventory Position's tutor) and the
+    harness has no way to advance.
+
+    Usage:
+        finance_wet_test choose <option_index|option_id>
+        finance_wet_test choose <option_index> <option_index> ...   # for multi-pick
+
+    The option_id can be:
+      - an integer (treated as offset into the current pending_choice.options list);
+      - a card-id prefix (matched against object IDs in options);
+      - the literal string "skip" (submits an empty selection — only valid for
+        optional / may-style choices).
+    """
+    # bug #11: hold lock for full RMW window.
+    with _exclusive_lock(args.save):
+        payload = _load(args.save)
+        game = payload["game"]
+        choice = game.state.pending_choice
+        if choice is None:
+            print("No pending choice — nothing to submit.")
+            _print_state(payload)
+            return
+
+        # Resolve raw option tokens to choice IDs.
+        raw_options = list(args.options)
+        selected: list = []
+        if not raw_options or (len(raw_options) == 1 and raw_options[0] == "skip"):
+            selected = []
+        else:
+            for token in raw_options:
+                # Try integer index first.
+                opt_idx = None
+                try:
+                    opt_idx = int(token)
+                except ValueError:
+                    pass
+                if opt_idx is not None and 0 <= opt_idx < len(choice.options):
+                    chosen = choice.options[opt_idx]
+                    selected.append(
+                        chosen.get("id") if isinstance(chosen, dict) else chosen
+                    )
+                    continue
+                # Otherwise, prefix-match against option IDs.
+                matched = False
+                for opt in choice.options:
+                    opt_id = opt.get("id") if isinstance(opt, dict) else opt
+                    if isinstance(opt_id, str) and opt_id.startswith(token):
+                        selected.append(opt_id)
+                        matched = True
+                        break
+                if not matched:
+                    print(f"  option {token!r} not found in pending_choice.options")
+                    return
+
+        ok, err, _events = game.submit_choice(choice.id, choice.player, selected)
+        if not ok:
+            print(f"  submit_choice failed: {err}")
+            return
+
+        print(f"choose: submitted {selected!r} for choice_id={choice.id}")
+        payload["history"].append(
+            (game.state.turn_number, _label_for(payload, choice.player),
+             f"choose {selected!r}")
+        )
+        _save(payload, args.save)
+    _print_state(payload)
 
 
 # ---------- argparse ----------
@@ -992,6 +1157,18 @@ def main() -> None:
     p_res = sub.add_parser("result", help="Show winner or 'in progress'")
     _add_save(p_res)
     p_res.set_defaults(fn=cmd_result)
+
+    # bug #20b: choose subcommand for resolving PendingChoice (e.g. tutors).
+    p_choose = sub.add_parser(
+        "choose",
+        help="Submit a pending choice (tutor pick, modal, etc.). Pass option index/id(s) or 'skip'.",
+    )
+    p_choose.add_argument(
+        "options", nargs="*",
+        help="Option index (0-based) or id-prefix; pass nothing or 'skip' for empty/optional choices",
+    )
+    _add_save(p_choose)
+    p_choose.set_defaults(fn=cmd_choose)
 
     args = parser.parse_args()
     args.fn(args)

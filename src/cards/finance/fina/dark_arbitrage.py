@@ -79,10 +79,15 @@ def make_order(
     text: str = "",
     rarity: str = "common",
     dark_pool: bool = False,
+    dark_pool_consumer: bool = False,
     setup_interceptors=None,
     resolve=None,
 ) -> CardDefinition:
-    """Factory for FIN_ORDER cards (instant-speed)."""
+    """Factory for FIN_ORDER cards (instant-speed).
+
+    If dark_pool_consumer=True (bug #13), the card refuses to cast unless
+    the Dark Pool slot is already populated.
+    """
     cd = CardDefinition(
         name=name,
         mana_cost=mana_cost,
@@ -98,6 +103,7 @@ def make_order(
     )
     # Tag dark pool status for the engine's dark pool handler
     cd._dark_pool = dark_pool
+    cd._dark_pool_consumer = dark_pool_consumer
     return cd
 
 
@@ -245,7 +251,13 @@ def _add_leverage_etb(obj: GameObject, n: int) -> Interceptor:
 
 
 def _make_leverage_power_query(obj: GameObject) -> Interceptor:
-    """TRANSFORM interceptor: QUERY_POWER += leverage counter count."""
+    """QUERY interceptor: QUERY_POWER += leverage counter count.
+
+    bug #19: was priority=TRANSFORM (never iterated by get_power) and mutated
+    payload['power'] (never read). Now priority=QUERY and returns TRANSFORM
+    with transformed_event.payload['value'] updated, matching the contract
+    in queries.get_power.
+    """
     def _filter(event: Event, state: GameState) -> bool:
         return (
             event.type == EventType.QUERY_POWER
@@ -255,15 +267,20 @@ def _make_leverage_power_query(obj: GameObject) -> Interceptor:
     def _handler(event: Event, state: GameState) -> InterceptorResult:
         o = state.objects.get(obj.id)
         lev = o.state.counters.get("leverage", 0) if o else 0
-        if lev > 0:
-            event.payload["power"] = event.payload.get("power", 0) + lev
-        return InterceptorResult(action=InterceptorAction.PASS)
+        if lev <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        new_event = event.copy()
+        new_event.payload["value"] = new_event.payload.get("value", 0) + lev
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
 
     return Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
-        priority=InterceptorPriority.TRANSFORM,
+        priority=InterceptorPriority.QUERY,  # bug #19: was TRANSFORM (unread)
         filter=_filter,
         handler=_handler,
         duration="while_on_battlefield",
@@ -300,7 +317,15 @@ def _make_arbitrage_etb(obj: GameObject, n: int) -> Interceptor:
 
 
 def _make_alpha_strike(obj: GameObject) -> Interceptor:
-    """ATTACK trigger: if attacking alone (+3/+0 or archetype variant), grant PT bonus."""
+    """ATTACK trigger: if attacking alone (+3/+0 or archetype variant), grant PT bonus.
+
+    Bug #2/#18 fix: relies on finance_combat.declare_attackers() marking ALL
+    attackers as attacking BEFORE emitting per-attacker ATTACK_DECLARED events
+    so the count below reflects the final attacker set.
+
+    Bug #4 fix: Direct Market Access upgrade flag bumps the bonus by +1.
+    Bug #6 fix: solo-alpha attack sets fin_alpha_struck_alone_<controller>.
+    """
     def atk_fn(event: Event, state: GameState) -> list[Event]:
         bf = state.zones.get("battlefield")
         if not bf:
@@ -313,9 +338,14 @@ def _make_alpha_strike(obj: GameObject) -> Interceptor:
             and CardType.FIN_TRADER in o.characteristics.types
         )
         if attacking_count == 1:
+            # Bug #6: mark that an alpha-striker attacked alone this turn.
+            state.turn_data[f"fin_alpha_struck_alone_{obj.controller}"] = True
+            # Bug #4: Direct Market Access upgrades the bonus by +1.
+            upgrade_key = f"fin_alpha_strike_upgrade_{obj.controller}"
+            bonus = 3 + (1 if state.turn_data.get(upgrade_key) else 0)
             return [Event(
                 type=EventType.PT_MODIFICATION,
-                payload={"object_id": obj.id, "power_mod": 3, "toughness_mod": 0, "duration": "end_of_turn"},
+                payload={"object_id": obj.id, "power_mod": bonus, "toughness_mod": 0, "duration": "end_of_turn"},
                 source=obj.id,
             )]
         return []
@@ -323,7 +353,16 @@ def _make_alpha_strike(obj: GameObject) -> Interceptor:
 
 
 def _make_alpha_strike_plus4(obj: GameObject) -> Interceptor:
-    """ATTACK trigger: Alpha Strike with +4/+0 bonus (variant for special cards)."""
+    """ATTACK trigger: Alpha Strike with +4/+0 bonus (variant for special cards).
+
+    Bug #2/#18 fix: relies on finance_combat.declare_attackers() marking ALL
+    attackers as attacking BEFORE emitting per-attacker ATTACK_DECLARED events.
+    Multi-attack now correctly fails the count==1 check for ALL attackers
+    (not just the first declared).
+
+    Bug #4 fix: Direct Market Access upgrade flag bumps the bonus by +1.
+    Bug #6 fix: solo-alpha attack sets fin_alpha_struck_alone_<controller>.
+    """
     def atk_fn(event: Event, state: GameState) -> list[Event]:
         bf = state.zones.get("battlefield")
         if not bf:
@@ -336,9 +375,14 @@ def _make_alpha_strike_plus4(obj: GameObject) -> Interceptor:
             and CardType.FIN_TRADER in o.characteristics.types
         )
         if attacking_count == 1:
+            # Bug #6: mark that an alpha-striker attacked alone this turn.
+            state.turn_data[f"fin_alpha_struck_alone_{obj.controller}"] = True
+            # Bug #4: Direct Market Access upgrades the bonus by +1.
+            upgrade_key = f"fin_alpha_strike_upgrade_{obj.controller}"
+            bonus = 4 + (1 if state.turn_data.get(upgrade_key) else 0)
             return [Event(
                 type=EventType.PT_MODIFICATION,
-                payload={"object_id": obj.id, "power_mod": 4, "toughness_mod": 0, "duration": "end_of_turn"},
+                payload={"object_id": obj.id, "power_mod": bonus, "toughness_mod": 0, "duration": "end_of_turn"},
                 source=obj.id,
             )]
         return []
@@ -858,8 +902,9 @@ def _off_exchange_position_setup(obj: GameObject, state: GameState) -> list[Inte
 
 OFF_EXCHANGE_POSITION = make_order(
     "Off-Exchange Position", "{2}",
-    text="Dark Pool. When this triggers, target Trader gets -3/-0 until Market Close.",
+    text="Dark Pool. Requires a populated Dark Pool slot to cast. When this triggers, target Trader gets -3/-0 until Market Close.",  # bug #13: clarify prerequisite
     dark_pool=True,
+    dark_pool_consumer=True,  # bug #13: refuse cast without DP slot already populated
     setup_interceptors=_off_exchange_position_setup,
 )
 
@@ -955,7 +1000,7 @@ def _hidden_aggression_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 HIDDEN_AGGRESSION = make_order(
     "Hidden Aggression", "{2}",
-    text="Dark Pool. When this triggers, target Trader you control gets +4/+0 until Market Close.",
+    text="Dark Pool. When this triggers, target Trader you control gets +2/+0 until Market Close.",  # bug #12: text was +4/+0 but code applies +2/+0 (cyc3 nerf)
     dark_pool=True,
     setup_interceptors=_hidden_aggression_setup,
 )
