@@ -1,0 +1,1189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finance TCG — Investment Prospectus</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=Source+Sans+Pro:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #FAFAFA;
+      --bg-warm:   #FAF8F2;
+      --bg-card:   #FFFFFF;
+      --bg-soft:   #F0EEE6;
+      --green:     #1B5E20;
+      --green-dim: #2E7D32;
+      --green-soft:#C8E6C9;
+      --gold:      #BF9132;
+      --gold-soft: #F5E6B3;
+      --text:      #212121;
+      --text-dim:  #5F5F5F;
+      --text-mute: #8A8A8A;
+      --red:       #C0392B;
+      --red-dim:   #A53125;
+      --rule:      #D0CCC0;
+      --rule-dk:   #9C9886;
+      --tape-bg:   #1A1A1A;
+      --tape-tx:   #4DDB68;
+    }
+
+    html { font-size: 14px; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Source Sans Pro', sans-serif;
+      line-height: 1.6;
+    }
+
+    @page {
+      size: A4;
+      margin: 18mm 16mm 18mm 16mm;
+    }
+    @media print {
+      body { background: #fff; }
+      .no-print { display: none !important; }
+      .page-break { page-break-before: always; }
+    }
+
+    h1, h2, h3, h4 { font-family: 'Merriweather', serif; font-weight: 900; letter-spacing: -0.01em; }
+    h1 { font-size: 3.4rem; color: var(--green); line-height: 1.05; }
+    h2 { font-size: 2rem; color: var(--green); border-bottom: 2px solid var(--gold); padding-bottom: 6px; margin-bottom: 1rem; }
+    h3 { font-size: 1.4rem; color: var(--text); margin-top: 1.4rem; margin-bottom: 0.5rem; font-weight: 700; }
+    h4 { font-size: 1.1rem; color: var(--green-dim); margin-top: 1rem; margin-bottom: 0.3rem; font-weight: 700; }
+    p  { margin-bottom: 0.85rem; }
+
+    .wrapper { max-width: 920px; margin: 0 auto; padding: 2rem 1.5rem; }
+    .section { margin-bottom: 2.4rem; }
+
+    /* ─── Cover ─── */
+    .cover {
+      background: var(--bg-card);
+      border-top: 8px solid var(--green);
+      border-bottom: 4px double var(--gold);
+      padding: 4rem 2.5rem 3rem;
+      position: relative;
+    }
+    .cover::before {
+      content: 'CONFIDENTIAL · FOR QUALIFIED PARTICIPANTS ONLY';
+      position: absolute;
+      top: 14px; right: 18px;
+      font-family: 'Source Sans Pro', sans-serif;
+      font-size: 0.62rem;
+      letter-spacing: 0.3em;
+      color: var(--text-mute);
+    }
+    .cover-eyebrow {
+      font-size: 0.85rem; letter-spacing: 0.4em; color: var(--gold);
+      font-weight: 700; text-transform: uppercase; margin-bottom: 1rem;
+    }
+    .cover h1 { margin-bottom: 0.5rem; }
+    .cover-subtitle {
+      font-family: 'Merriweather', serif;
+      font-size: 1.1rem;
+      font-style: italic;
+      color: var(--text-dim);
+      margin-bottom: 2rem;
+    }
+    .cover-meta {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;
+      margin: 1.5rem 0;
+      padding: 1rem 0;
+      border-top: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
+    }
+    .cover-meta dt {
+      font-size: 0.7rem; letter-spacing: 0.2em;
+      color: var(--text-mute); text-transform: uppercase; margin-bottom: 0.3rem;
+    }
+    .cover-meta dd {
+      font-family: 'Merriweather', serif;
+      font-size: 1.1rem; color: var(--text); font-weight: 700;
+    }
+    .cover-img {
+      width: 100%; border: 1px solid var(--rule);
+      margin-top: 1.5rem;
+    }
+    .cover-tagline {
+      font-style: italic;
+      color: var(--text-dim);
+      font-size: 1rem;
+      max-width: 600px;
+      margin-top: 1.5rem;
+    }
+
+    /* ─── Tickertape ─── */
+    .tape {
+      background: var(--tape-bg);
+      color: var(--tape-tx);
+      font-family: 'Source Sans Pro', monospace;
+      letter-spacing: 0.05em;
+      padding: 0.5rem 1rem;
+      font-size: 0.78rem;
+      border: 1px solid var(--tape-bg);
+      margin: 1.5rem 0;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    .tape .up { color: #4DDB68; }
+    .tape .down { color: #FF6A6A; }
+    .tape .sym { color: #FFFFFF; font-weight: 700; padding-right: 6px; }
+    .tape .sep { color: #555; padding: 0 12px; }
+
+    /* ─── TOC ─── */
+    .toc {
+      background: var(--bg-warm);
+      border-left: 4px solid var(--green);
+      padding: 1.4rem 1.6rem;
+    }
+    .toc-title {
+      font-family: 'Merriweather', serif;
+      font-size: 1.1rem; letter-spacing: 0.2em;
+      color: var(--green); margin-bottom: 0.8rem;
+      text-transform: uppercase;
+    }
+    .toc ol { list-style: none; padding-left: 0; }
+    .toc li {
+      padding: 0.25rem 0;
+      border-bottom: 1px dotted var(--rule);
+      display: flex; justify-content: space-between;
+      font-family: 'Merriweather', serif;
+    }
+    .toc a { color: var(--text); text-decoration: none; }
+    .toc-num { color: var(--gold); font-weight: 700; padding-right: 0.6rem; }
+
+    /* ─── Boxes ─── */
+    .pullquote {
+      border-left: 4px solid var(--gold);
+      padding: 0.8rem 1.2rem;
+      background: var(--bg-warm);
+      margin: 1.2rem 0;
+      font-family: 'Merriweather', serif;
+      font-size: 0.95rem;
+      color: var(--text-dim);
+      font-style: italic;
+    }
+    .infobox {
+      background: var(--bg-card);
+      border: 1px solid var(--rule);
+      padding: 0.9rem 1.2rem;
+      margin: 1rem 0;
+      box-shadow: 0 1px 0 var(--rule);
+    }
+    .infobox.gold { border-left: 4px solid var(--gold); }
+    .infobox.green { border-left: 4px solid var(--green); }
+    .infobox.red { border-left: 4px solid var(--red); }
+    .infobox-title {
+      font-family: 'Merriweather', serif; font-weight: 700;
+      font-size: 1rem; color: var(--text);
+      margin-bottom: 0.3rem;
+    }
+
+    /* ─── Phase blocks ─── */
+    .phase {
+      background: var(--bg-card);
+      border: 1px solid var(--rule);
+      border-left: 5px solid var(--green);
+      padding: 1rem 1.2rem;
+      margin: 0.7rem 0;
+    }
+    .phase-num { font-family: 'Merriweather', serif; font-size: 1.8rem; color: var(--green-dim); float: left; margin-right: 0.7rem; line-height: 0.9; font-weight: 900; }
+    .phase-name { font-family: 'Merriweather', serif; font-size: 1.2rem; color: var(--text); font-weight: 900; }
+    .phase-sub  { font-size: 0.78rem; color: var(--text-mute); letter-spacing: 0.15em; text-transform: uppercase; }
+
+    /* ─── Two-col ─── */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    @media (max-width: 600px) { .two-col { grid-template-columns: 1fr; } }
+
+    /* ─── Tables ─── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.86rem;
+      margin: 0.6rem 0;
+    }
+    .biome-table th {
+      background: var(--green);
+      color: #fff;
+      font-family: 'Merriweather', serif;
+      padding: 0.5rem 0.7rem;
+      text-align: left;
+    }
+    .biome-table td {
+      padding: 0.4rem 0.7rem;
+      border-bottom: 1px solid var(--rule);
+    }
+    .biome-table tr:nth-child(even) td { background: var(--bg-warm); }
+
+    /* ─── Card gallery table ─── */
+    .gallery-wrap { overflow-x: auto; }
+    .gallery {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+    }
+    .gallery thead th {
+      background: var(--green);
+      color: #fff;
+      font-family: 'Merriweather', serif;
+      padding: 0.45rem 0.6rem;
+      text-align: left;
+      font-size: 0.85rem;
+    }
+    .gallery tbody tr:nth-child(even) td { background: var(--bg-warm); }
+    .gallery tbody tr:hover td { background: var(--green-soft); }
+    .gallery tbody td {
+      padding: 0.3rem 0.55rem;
+      border-bottom: 1px solid var(--rule);
+      vertical-align: top;
+    }
+    .gallery .td-name { font-weight: 700; color: var(--green-dim); white-space: nowrap; }
+    .gallery .td-cost { font-family: 'Merriweather', serif; color: var(--gold); white-space: nowrap; text-align: right; }
+    .gallery .td-stats { text-align: center; font-weight: 700; color: var(--text); }
+    .gallery .td-rules { color: var(--text-dim); font-size: 0.76rem; }
+    .type-header td {
+      background: var(--bg-soft) !important;
+      color: var(--green);
+      font-family: 'Merriweather', serif;
+      font-size: 0.95rem;
+      padding: 0.6rem 0.7rem !important;
+      letter-spacing: 0.15em;
+      font-weight: 900;
+      border-top: 2px solid var(--green-dim);
+    }
+
+    /* ─── Mechanic blocks ─── */
+    .mechanic {
+      background: var(--bg-card);
+      border-left: 4px solid var(--green);
+      padding: 0.9rem 1.2rem;
+      margin: 0.8rem 0;
+    }
+    .mechanic-name {
+      font-family: 'Merriweather', serif;
+      font-size: 1.1rem;
+      font-weight: 900;
+      color: var(--green);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .mechanic-example {
+      color: var(--text-mute);
+      font-size: 0.8rem;
+      font-style: italic;
+      margin-top: 0.3rem;
+    }
+
+    /* ─── Cheatsheet ─── */
+    .cheatsheet {
+      background: var(--bg-warm);
+      border: 1px double var(--gold);
+      padding: 1.2rem;
+    }
+    .cheatsheet-title {
+      font-family: 'Merriweather', serif;
+      font-size: 1.2rem; color: var(--green);
+      margin-bottom: 0.7rem;
+      letter-spacing: 0.05em;
+    }
+    .cheatsheet-row {
+      display: flex; gap: 0.8rem; padding: 0.35rem 0;
+      border-bottom: 1px dotted var(--rule);
+    }
+    .cheatsheet-num { color: var(--gold); font-family: 'Merriweather', serif; font-size: 1.15rem; min-width: 2.2rem; font-weight: 900; }
+    .cheatsheet-label { color: var(--green); min-width: 200px; font-weight: 700; }
+    .cheatsheet-desc  { color: var(--text-dim); }
+
+    /* ─── Divider ─── */
+    .divider {
+      border: none; border-top: 1px solid var(--rule);
+      margin: 2.4rem 0;
+      position: relative;
+      text-align: center;
+    }
+    .divider::after {
+      content: '§';
+      position: absolute; top: -0.85rem; left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg);
+      padding: 0 0.7rem;
+      color: var(--gold);
+      font-family: 'Merriweather', serif;
+      font-size: 1.1rem;
+    }
+
+    /* ─── Screenshot ─── */
+    .screenshot {
+      width: 100%;
+      border: 1px solid var(--rule);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      margin: 1rem 0;
+    }
+
+    /* ─── Inline ─── */
+    .keyword {
+      display: inline-block;
+      background: var(--green-soft);
+      color: var(--green);
+      font-size: 0.72rem;
+      padding: 1px 6px;
+      letter-spacing: 0.05em;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin: 0 1px;
+    }
+    .keyword.alpha { background: var(--gold-soft); color: #6B4F0F; }
+    .keyword.dark { background: #2C2C2C; color: #fff; }
+    .keyword.lev { background: #FFE0E0; color: var(--red-dim); }
+
+    /* ─── Cost glyph ─── */
+    .cost { font-family: 'Merriweather', serif; color: var(--gold); }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     COVER
+══════════════════════════════════════════════════════════════════════ -->
+<div class="cover section">
+  <div class="cover-eyebrow">Hyperdraft Quant Series · Vol. I</div>
+  <h1>Finance TCG</h1>
+  <p class="cover-subtitle">An investment prospectus &amp; rulebook for the trading-floor card game.</p>
+  <dl class="cover-meta">
+    <div>
+      <dt>Players</dt>
+      <dd>Two head-to-head desks</dd>
+    </div>
+    <div>
+      <dt>Starting Capital</dt>
+      <dd>$30 Capital Reserve</dd>
+    </div>
+    <div>
+      <dt>Card Pool</dt>
+      <dd>150 cards across 6 instrument types</dd>
+    </div>
+    <div>
+      <dt>Game Length</dt>
+      <dd>9 – 30 turns (≈ 25 – 60 min)</dd>
+    </div>
+  </dl>
+  <p class="cover-tagline">
+    Mana ramps like a quant fund's discretionary capital. Combat overflows like
+    a margin call. Leverage gives you alpha — and asks for capital back at
+    Market Close. Welcome to the Trading Floor.
+  </p>
+  <img src="assets/finance_board.png" class="cover-img" alt="Finance TCG game board">
+
+  <div class="tape">
+    <span class="sym">VEGA</span> <span class="up">+2.10%</span><span class="sep">|</span>
+    <span class="sym">THETA</span> <span class="down">-1.40%</span><span class="sep">|</span>
+    <span class="sym">PCD</span> <span class="up">+0.80%</span><span class="sep">|</span>
+    <span class="sym">DMA</span> <span class="up">+5.20%</span><span class="sep">|</span>
+    <span class="sym">BSM</span> <span class="down">-0.30%</span><span class="sep">|</span>
+    <span class="sym">PT</span> <span class="up">+1.70%</span><span class="sep">|</span>
+    <span class="sym">RM</span> <span class="up">+0.40%</span><span class="sep">|</span>
+    <span class="sym">DARK POOL</span> <span class="up">▲ ACTIVE</span>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     TOC
+══════════════════════════════════════════════════════════════════════ -->
+<div class="toc section">
+  <div class="toc-title">▌ Contents</div>
+  <ol>
+    <li><a href="#welcome"><span><span class="toc-num">I.</span>Welcome to the Trading Floor</span><span>3</span></a></li>
+    <li><a href="#components"><span><span class="toc-num">II.</span>Components</span><span>4</span></a></li>
+    <li><a href="#setup"><span><span class="toc-num">III.</span>Setup &amp; Opening Position</span><span>5</span></a></li>
+    <li><a href="#turn"><span><span class="toc-num">IV.</span>The Trading Day — Turn Structure</span><span>6</span></a></li>
+    <li><a href="#zones"><span><span class="toc-num">V.</span>Card Types &amp; the Trading Floor</span><span>9</span></a></li>
+    <li><a href="#resources"><span><span class="toc-num">VI.</span>Resources &amp; the Capital Stack</span><span>11</span></a></li>
+    <li><a href="#winning"><span><span class="toc-num">VII.</span>Winning &amp; Losing</span><span>12</span></a></li>
+    <li><a href="#mechanics"><span><span class="toc-num">VIII.</span>Special Mechanics</span><span>13</span></a></li>
+    <li><a href="#gallery"><span><span class="toc-num">IX.</span>Card Catalogue (150 cards)</span><span>15</span></a></li>
+    <li><a href="#quickref"><span><span class="toc-num">X.</span>Quick Reference</span><span>22</span></a></li>
+  </ol>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     I. WELCOME
+══════════════════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="welcome">
+  <h2>I. Welcome to the Trading Floor</h2>
+
+  <p>
+    Finance TCG is a two-player game in which rival quantitative-trading desks
+    fight for solvency. Each player controls a desk of <strong>Traders</strong>,
+    a portfolio of <strong>Assets</strong>, a wing of <strong>Structures</strong>,
+    and a stack of <strong>Orders</strong>, <strong>Strategies</strong>, and
+    <strong>Derivatives</strong>. Every turn you either out-trade your
+    opponent or get bankrupted.
+  </p>
+
+  <p>
+    The mana system is HS-style ramping <strong>Liquidity</strong> (1 → 10),
+    but the combat system is MTG-style: declared attackers, declared blockers,
+    and damage that <em>overflows</em> through the front line and into your
+    opponent's Capital Reserve. Three things make Finance TCG distinctive in
+    the Hyperdraft collection:
+  </p>
+  <ul style="margin-left: 1.2rem; margin-bottom: 1rem;">
+    <li><strong>Leverage.</strong> Borrow power, pay capital back at the bell. Each Leverage counter is +1/+0 today and 1 capital tomorrow.</li>
+    <li><strong>The Dark Pool.</strong> A single hidden Order zone. Your opponent doesn't see what's staged there — it triggers at the start of <em>their</em> next Trading Session.</li>
+    <li><strong>The Derivatives Desk.</strong> A second on-table zone where Derivatives stage when no Trader is available to attach. The next Trader you play absorbs them automatically.</li>
+  </ul>
+
+  <p class="pullquote">
+    "We are not in the business of being right. We are in the business of being
+    sized correctly when we are." — internal memo, Quant Desk A
+  </p>
+
+  <div class="infobox green">
+    <div class="infobox-title">At a Glance</div>
+    <strong>Players:</strong> 2 &nbsp;·&nbsp;
+    <strong>Deck size:</strong> ~40 cards &nbsp;·&nbsp;
+    <strong>Opening hand:</strong> 5 cards &nbsp;·&nbsp;
+    <strong>Hand limit:</strong> 7 (enforced at Market Close) &nbsp;·&nbsp;
+    <strong>Starting Capital:</strong> $30 &nbsp;·&nbsp;
+    <strong>Liquidity cap:</strong> 10
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     II. COMPONENTS
+══════════════════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="components">
+  <h2>II. Components</h2>
+
+  <h3>The Card Pool — 150 cards</h3>
+  <div class="two-col">
+    <div>
+      <table class="biome-table">
+        <thead><tr><th>Instrument Type</th><th>Count</th></tr></thead>
+        <tbody>
+          <tr><td>📈 Traders</td><td>58</td></tr>
+          <tr><td>💱 Orders (instant)</td><td>30</td></tr>
+          <tr><td>📊 Strategies (sorcery)</td><td>22</td></tr>
+          <tr><td>🏛 Assets (passive)</td><td>17</td></tr>
+          <tr><td>🏢 Structures (max 3 per player)</td><td>9</td></tr>
+          <tr><td>🎯 Derivatives (attach to Trader)</td><td>14</td></tr>
+          <tr style="font-weight: 900;"><td>Total</td><td>150</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h4>Counters in play</h4>
+      <p style="font-size: 0.88rem;">
+        <strong>Leverage</strong> — placed on Traders by Leverage cards. Each
+        counter = +1/+0 and 1 capital due at Market Close.<br><br>
+        <strong>+1/+1</strong> — placed by Short Squeeze returns and select
+        Strategies; permanent stat boost.<br><br>
+        <strong>Portfolio Value</strong> — only on Monopoly Position; ≥ 20 at
+        Pre-Market = alternate-win.
+      </p>
+    </div>
+  </div>
+
+  <h3>Starter Decks (≈ 37 cards each)</h3>
+  <div class="two-col">
+    <div class="mechanic">
+      <div class="mechanic-name">High-Frequency Trading</div>
+      <p style="font-size: 0.88rem;">
+        Aggro tempo. Cheap <span class="keyword alpha">Alpha Strike</span> Traders deploy turns 1–4,
+        Direct Market Access boosts Alpha to <strong>+4/+0</strong>, and a wide
+        multi-attack on turn 9 closes by turn 11. Dark-pool Orders disrupt the
+        opponent's curve.
+      </p>
+    </div>
+    <div class="mechanic">
+      <div class="mechanic-name">Derivatives Leverage</div>
+      <p style="font-size: 0.88rem;">
+        Midrange. Stack Leverage counters on bodies, manage the capital cost
+        with Theta Decay Trader, Black-Scholes Model, and Theta Decay Collar.
+        Vega Amplifier and Synthetic Long swing for lethal turns 11–13.
+      </p>
+    </div>
+    <div class="mechanic">
+      <div class="mechanic-name">Quant Arbitrage Control</div>
+      <p style="font-size: 0.88rem;">
+        Value/wall. 4-toughness Arbitrage Traders soak attacks while
+        <span class="keyword">Arbitrage</span> generates Liquidity advantage.
+        Portfolio Construction Desk lord buffs the ground game; Pairs Trader
+        cascades. Wins by trader-count asymmetry around turn 13.
+      </p>
+    </div>
+    <div class="mechanic">
+      <div class="mechanic-name">Dark Arbitrage Combo</div>
+      <p style="font-size: 0.88rem;">
+        Combo/tempo. Stage <span class="keyword dark">Dark Pool</span> Orders early to
+        feed Hidden Accumulator and Off-Exchange Boost Rig pumps. Off-Exchange
+        Finisher closes turn 6 via Alpha Strike; Block Trade Sweep is the
+        finisher.
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     III. SETUP
+══════════════════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="setup">
+  <h2>III. Setup &amp; Opening Position</h2>
+
+  <div class="two-col">
+    <div>
+      <h3>Each player opens with</h3>
+      <ul style="margin-left: 1.3rem; line-height: 2;">
+        <li>1 shuffled deck (≈ 40 cards)</li>
+        <li><strong>5 cards</strong> drawn into hand</li>
+        <li><strong>$30 Capital Reserve</strong></li>
+        <li><strong>0 Liquidity</strong> (max grows by 1 per turn)</li>
+        <li>Empty Trading Floor</li>
+        <li>Empty Derivatives Desk</li>
+        <li>Empty Dark Pool</li>
+        <li>Hand size cap of 7 (discard at Market Close)</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Resource ramp</h3>
+      <table class="biome-table">
+        <thead><tr><th>Turn</th><th>Liquidity Available</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>1</td></tr>
+          <tr><td>2</td><td>2</td></tr>
+          <tr><td>3</td><td>3</td></tr>
+          <tr><td>…</td><td>…</td></tr>
+          <tr><td>10+</td><td>10 (cap)</td></tr>
+        </tbody>
+      </table>
+      <p style="font-size: 0.86rem; color: var(--text-dim);">
+        Unspent Liquidity does <em>not</em> carry over. Every Pre-Market the
+        pool is fully refilled to your current maximum.
+      </p>
+    </div>
+  </div>
+
+  <div class="infobox gold">
+    <div class="infobox-title">First-turn rules</div>
+    Both players draw and play normally on their first turn. There is no
+    skip-draw. Empty libraries deal escalating fatigue damage on the next
+    Research phase ($1 capital, then $2, then $3, …).
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     IV. TURN STRUCTURE
+══════════════════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="turn">
+  <h2>IV. The Trading Day — Turn Structure</h2>
+
+  <p>
+    Each turn flows through five phases. Orders may be played at instant
+    speed in any phase the active player can act in; Strategies may only be
+    played at sorcery speed during your own Trading Session or Settlement.
+  </p>
+
+  <div class="phase">
+    <div class="phase-num">1</div>
+    <div class="phase-name">Pre-Market — Open the Books</div>
+    <div class="phase-sub">Automatic. No priority window.</div>
+    <div style="clear: both; margin-top: 0.5rem; font-size: 0.92rem;">
+      <ul style="margin-left: 1.4rem; line-height: 1.85;">
+        <li>Untap all your Traders, Assets, and Structures.</li>
+        <li>Liquidity max increments by 1 (cap 10); pool refills to maximum.</li>
+        <li>Summoning sickness clears on your Traders.</li>
+        <li>Any Trader exiled by Short Selling returns to the Trading Floor with two +1/+1 counters.</li>
+        <li>Theta Decay Collar / Theta Decay Trader / similar effects strip Leverage counters here.</li>
+        <li>Pre-Market triggers fire (Quant Lab, Sharpe Ratio Monitor, Live P&amp;L Dashboard, Monopoly Position alt-win check, etc.).</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-num">2</div>
+    <div class="phase-name">Research — Draw the Day's Edge</div>
+    <div class="phase-sub">Automatic.</div>
+    <div style="clear: both; margin-top: 0.5rem; font-size: 0.92rem;">
+      Draw 1 card. If your library is empty, take <strong>fatigue damage</strong>
+      — $1 the first time, $2 the second time, $3 the third, and so on. (Empty
+      library is <em>not</em> an instant loss.)
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-num">3</div>
+    <div class="phase-name">Trading Session — Pre-Combat &amp; Combat</div>
+    <div class="phase-sub">Active player priority. Loop until pass.</div>
+    <div style="clear: both; margin-top: 0.6rem;">
+      <p style="font-size: 0.92rem;">
+        The main action window. You may take any of the following actions in any
+        order, any number of times:
+      </p>
+      <table class="biome-table" style="margin-top: 0.5rem;">
+        <thead><tr><th>Action</th><th>Cost</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Play a Trader / Asset / Structure / Derivative</td><td>{N} Liquidity</td><td>Permanent enters with summoning sickness (Traders only). Structures cap at 3 per player.</td></tr>
+          <tr><td>Play an Order or Strategy</td><td>{N} Liquidity</td><td>Pushes onto the FinanceStack; opponent gets a response window before resolution.</td></tr>
+          <tr><td>Stage a Dark Pool Order</td><td>{N} Liquidity</td><td>Goes face-down to the Dark Pool slot instead of resolving. Triggers at start of opponent's next Trading Session.</td></tr>
+          <tr><td>Activate a tap ability</td><td>varies</td><td>Tap Asset / Structure for its activated effect.</td></tr>
+          <tr><td>Declare attackers</td><td>—</td><td>Tap Traders, choose targets. Triggers Combat sub-phase.</td></tr>
+        </tbody>
+      </table>
+      <p style="font-size: 0.92rem; margin-top: 0.6rem;">
+        <strong>Combat sub-phase</strong>: declare attackers → opponent declares
+        blockers → simultaneous damage → state-based actions (liquidate Traders
+        with damage ≥ toughness) → return to action loop.
+      </p>
+      <p style="font-size: 0.92rem;">
+        <strong>Trample is the default.</strong> Excess damage from a blocked
+        Trader overflows directly into the defender's Capital Reserve. Damage
+        on Traders does <em>not</em> reset between combats — only at Market
+        Close. <span class="keyword alpha">Alpha Strike</span> bonuses are
+        applied <em>before</em> assignment.
+      </p>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-num">4</div>
+    <div class="phase-name">Settlement — Post-Combat Window</div>
+    <div class="phase-sub">Active player priority. Loop until pass.</div>
+    <div style="clear: both; margin-top: 0.5rem; font-size: 0.92rem;">
+      A second action window. Same rules as Trading Session, but no further
+      attacks are legal. Useful for: post-combat Strategy plays, attaching
+      Derivatives to surviving Traders, holding Liquidity for response Orders.
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-num">5</div>
+    <div class="phase-name">Market Close — Settle the Books</div>
+    <div class="phase-sub">Automatic.</div>
+    <div style="clear: both; margin-top: 0.5rem; font-size: 0.92rem;">
+      <ul style="margin-left: 1.4rem; line-height: 1.85;">
+        <li>End-of-turn triggers fire (Off-Exchange Yield, etc.).</li>
+        <li>The active player pays $1 capital per Leverage counter on each Trader they control.</li>
+        <li>"Until end of turn" effects expire.</li>
+        <li>Discard down to 7 cards.</li>
+        <li>Capital ≤ 0 → bankruptcy check (game ends).</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="infobox green" style="margin-top: 1.4rem;">
+    <div class="infobox-title">Quick Turn Cheat Sheet</div>
+    <div style="font-size: 0.9rem; line-height: 1.95;">
+      <strong>1.</strong> <em>Pre-Market</em>: untap, refill Liquidity, return Short Sells, fire start triggers<br>
+      <strong>2.</strong> <em>Research</em>: draw 1 (or take fatigue damage)<br>
+      <strong>3.</strong> <em>Trading Session</em>: play / attack / block (action loop)<br>
+      <strong>4.</strong> <em>Settlement</em>: post-combat action loop<br>
+      <strong>5.</strong> <em>Market Close</em>: end triggers → leverage tax → cleanup → discard to 7 → bankruptcy check
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     V. CARD TYPES & ZONES
+══════════════════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="zones">
+  <h2>V. Card Types &amp; the Trading Floor</h2>
+
+  <img src="assets/finance_board.png" class="screenshot" alt="Finance TCG board layout">
+
+  <h3>The Six Instrument Types</h3>
+
+  <div class="mechanic">
+    <div class="mechanic-name">📈 Trader (FIN_TRADER)</div>
+    <p>
+      Creature-equivalent. Has <strong>Aggression</strong> (power) and
+      <strong>Defense Rating</strong> (toughness). Can attack on the turn after
+      it enters (summoning sickness), can block any time, deals damage in
+      combat, and is liquidated when its damage ≥ Defense Rating. May carry
+      Leverage counters, +1/+1 counters, attached Derivatives, and keywords
+      like Alpha Strike or Arbitrage.
+    </p>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">💱 Order (FIN_ORDER)</div>
+    <p>
+      Instant-speed. Two flavours:
+    </p>
+    <ul style="margin-left: 1.3rem; font-size: 0.9rem;">
+      <li><strong>Market Order</strong> — pushes onto the FinanceStack; opponent gets a priority window to respond; resolves LIFO.</li>
+      <li><strong>Dark Pool Order</strong> — bypasses the stack entirely; goes face-down to the Dark Pool slot. Triggers at the start of opponent's next Trading Session.</li>
+    </ul>
+    <p>
+      The Dark Pool slot holds at most one Order. A new Dark Pool Order
+      <em>displaces</em> the old one, sending it to the graveyard unresolved.
+    </p>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">📊 Strategy (FIN_STRATEGY)</div>
+    <p>
+      Sorcery-equivalent. Higher-impact, slower; only playable during your own
+      Trading Session or Settlement. Pushes onto the FinanceStack the same
+      way Market Orders do. Strategies <strong>cannot</strong> be played as a
+      response to a stacked spell.
+    </p>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">🏛 Asset (FIN_ASSET)</div>
+    <p>
+      Permanent. Sits on the Trading Floor, cannot attack or block. Provides a
+      passive static effect (e.g., Direct Market Access boosts Alpha Strike
+      bonus to +4/+0) or an activated tap ability. Removed via destruction
+      effects only.
+    </p>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">🏢 Structure (FIN_STRUCTURE)</div>
+    <p>
+      Building. Has tap-to-activate or start-of-phase effects.
+      <strong>Maximum three Structures per player on the Trading Floor</strong>
+      — the engine refuses entry beyond the cap.
+    </p>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">🎯 Derivative (FIN_DERIVATIVE)</div>
+    <p>
+      Attaches to a Trader the way an Aura attaches to a creature. When played,
+      it auto-attaches to your highest-power Trader. If you have no Traders, it
+      stages to the <strong>Derivatives Desk</strong> and auto-attaches to the
+      next Trader you play. Desk capacity: 3 Derivatives per player. While
+      attached, the Derivative grants stat bonuses, keywords, and triggered
+      abilities. Destroyed if its host is destroyed.
+    </p>
+  </div>
+
+  <h3>Zones on the Table</h3>
+  <table class="biome-table">
+    <thead><tr><th>Zone</th><th>Owner</th><th>Role</th></tr></thead>
+    <tbody>
+      <tr><td>Hand</td><td>Per player</td><td>Cards held but not played. Cap 7 at Market Close.</td></tr>
+      <tr><td>Library</td><td>Per player</td><td>Draw pile. Empty = fatigue damage, not loss.</td></tr>
+      <tr><td>Trading Floor (Battlefield)</td><td>Shared</td><td>Where Traders, Assets, Structures, Derivatives live.</td></tr>
+      <tr><td>Graveyard</td><td>Per player</td><td>Resolved Orders/Strategies and destroyed permanents.</td></tr>
+      <tr><td>Dark Pool</td><td>Shared, capacity 1</td><td>Single hidden Dark Pool Order awaiting trigger.</td></tr>
+      <tr><td>Derivatives Desk</td><td>Per player, capacity 3</td><td>Staging area for Derivatives waiting to attach.</td></tr>
+      <tr><td>Exile</td><td>Hidden</td><td>Short-Sell exile and certain banishments.</td></tr>
+      <tr><td>Finance Stack</td><td>Shared</td><td>LIFO queue of cast Orders/Strategies awaiting resolution.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     VI. RESOURCES
+══════════════════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="resources">
+  <h2>VI. Resources &amp; the Capital Stack</h2>
+
+  <p>The game runs on three independent resources:</p>
+
+  <div class="infobox green">
+    <div class="infobox-title">1. Liquidity (your spendable buying power)</div>
+    Ramps from 1 on turn 1 to a cap of 10 on turn 10+, gaining 1 max per turn.
+    The pool refills to its current maximum at every Pre-Market. Cards cost
+    <span class="cost">{N}</span> Liquidity to play.
+    <strong>Unspent Liquidity does not carry over.</strong>
+  </div>
+
+  <div class="infobox red">
+    <div class="infobox-title">2. Capital Reserve (your life)</div>
+    Each player begins at <strong>$30</strong>. Combat overflow, fatigue,
+    Leverage tax, and direct-damage Orders drain it. At $0 you declare
+    bankruptcy and lose.
+  </div>
+
+  <div class="infobox gold">
+    <div class="infobox-title">3. Counters</div>
+    Three flavours: Leverage (+1/+0 each, due at MC), +1/+1 (permanent), and
+    Portfolio Value (only on Monopoly Position; ≥ 20 = alt-win at next
+    Pre-Market).
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     VII. WINNING & LOSING
+══════════════════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="winning">
+  <h2>VII. Winning &amp; Losing</h2>
+
+  <div class="infobox red">
+    <div class="infobox-title">⚖ Primary Loss — Bankruptcy</div>
+    A player whose Capital Reserve hits <strong>$0 or lower</strong> declares
+    bankruptcy and loses immediately. The other player wins.
+  </div>
+
+  <h3>Damage sources</h3>
+  <ul style="margin-left: 1.4rem; line-height: 1.95;">
+    <li><strong>Combat overflow</strong> — excess damage from a blocked attacker overflows to the defender's Capital Reserve.</li>
+    <li><strong>Direct-damage Orders / Strategies</strong> — e.g. Pre-Positioned Strike (Dark Pool) deals 2 directly.</li>
+    <li><strong>Leverage tax at Market Close</strong> — $1 per Leverage counter on each of your Traders.</li>
+    <li><strong>Fatigue</strong> — $1 / $2 / $3 / … on consecutive empty-library draws.</li>
+    <li><strong>Margin Call</strong> — opponent pays $2 per Leverage counter or takes that much damage.</li>
+  </ul>
+
+  <div class="infobox gold">
+    <div class="infobox-title">⚡ Alternate Win — Monopoly Position</div>
+    The mythic Trader <strong>Monopoly Position</strong> (cost {7}, 3/5)
+    enters with <strong>5 Portfolio Value counters</strong>. At the start of
+    each of your Pre-Markets, if the total Portfolio Value counters on cards
+    you control is <strong>≥ 20</strong>, you win the game.
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     VIII. SPECIAL MECHANICS
+══════════════════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="mechanics">
+  <h2>VIII. Special Mechanics</h2>
+
+  <div class="mechanic">
+    <div class="mechanic-name">📈 Alpha Strike</div>
+    <p>
+      When a Trader with Alpha Strike attacks <strong>alone</strong> (no other
+      Traders you control are attacking), it gets <strong>+3/+0 until Market
+      Close</strong>. <em>Direct Market Access</em> upgrades this to
+      <strong>+4/+0</strong>. Solo damage premium for concentrated positions.
+    </p>
+    <div class="mechanic-example">Examples: Flash Crash Bot, Front-Running Algo, Nanosecond Assassin (which prints +4/+0).</div>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">📊 Arbitrage N</div>
+    <p>
+      When a Trader with Arbitrage <em>N</em> enters, if you control more
+      Traders than your opponent, gain <em>N</em> Liquidity <strong>this turn
+      only</strong> (one-shot ramp; doesn't carry over).
+    </p>
+    <div class="mechanic-example">Examples: Statistical Arb Clerk (Arb 1), Pairs Trader (Arb 2 — most efficient ramp), Cross-Sectional Alpha Machine (Arb 3).</div>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">⚡ Leverage N</div>
+    <p>
+      A Trader with Leverage <em>N</em> enters with <em>N</em> Leverage
+      counters on it. Each counter grants <strong>+1/+0</strong>. At
+      <strong>Market Close</strong>, the controller pays <strong>$1 capital
+      per counter</strong> on each of their Traders. Counter-removers
+      (Theta Decay Trader, Black-Scholes Model, Theta Decay Collar,
+      Volatility Crush) are how you avoid going bankrupt to your own
+      portfolio.
+    </p>
+    <div class="mechanic-example">Examples: Vega Amplifier (Lev 3, lord), Delta Hedger (Lev 2, damage soak), Synthetic Long (Lev 2 + ramp on play).</div>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">🌒 Dark Pool</div>
+    <p>
+      An Order keyword. When you play a Dark Pool Order, instead of going onto
+      the FinanceStack it goes <strong>face-down into the Dark Pool slot</strong>
+      — a single shared zone. It triggers at the start of your opponent's next
+      Trading Session, after which it goes to the graveyard. The Dark Pool
+      slot holds <strong>one</strong> Order at a time; staging another
+      displaces the old one without effect.
+    </p>
+    <div class="mechanic-example">Examples: Iceberg Order (1 dmg + draw), Pre-Positioned Strike (2 to face), Block Trade Sweep (mass destruction).</div>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">🔁 Short Selling</div>
+    <p>
+      <em>Short Squeeze</em> exiles target Trader you control. At the start of
+      your <strong>next Pre-Market</strong>, it returns to the Trading Floor
+      with <strong>two +1/+1 counters</strong>. Damage on the Trader resets
+      while exiled. Convexity Rider can adjust the bonus; Cover Short returns
+      it earlier with its counters intact.
+    </p>
+    <div class="mechanic-example">Mainline use: park a damaged 4-power Trader on Short Squeeze, return next turn at +1/+1, +1/+1, healed.</div>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">🪝 Trample (implicit)</div>
+    <p>
+      Every Trader has trample by default. Damage that exceeds a blocker's
+      remaining toughness <strong>overflows to the defender's Capital
+      Reserve</strong>. Damage <em>persists</em> on Traders between combats —
+      it only clears at Market Close.
+    </p>
+    <div class="mechanic-example">A 6-power attacker into a 4-toughness blocker → blocker liquidated + $2 to opponent's Capital Reserve.</div>
+  </div>
+
+  <div class="mechanic">
+    <div class="mechanic-name">🪜 The Finance Stack &amp; Response Window</div>
+    <p>
+      When a non-Dark-Pool Order or Strategy is played, it pushes onto the
+      shared <strong>Finance Stack</strong>. The opponent gains priority and
+      may respond with <strong>Orders only</strong> (Strategies are
+      sorcery-speed and cannot be played as responses). Stack resolves
+      LIFO when both players pass priority. Order types that explicitly
+      <em>counter</em> (Execution Glitch, Information Ratio Enforcer,
+      Regime Change Detection) work here.
+    </p>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     IX. CARD CATALOGUE
+══════════════════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="gallery">
+  <h2>IX. Card Catalogue</h2>
+  <p style="color: var(--text-dim); font-size: 0.9rem; margin-bottom: 1rem;">
+    All 150 cards. Sorted by type, then alphabetically. Costs are in Liquidity
+    ({N}). Stats column shows Aggression/Defense for Traders; — for everything
+    else.
+  </p>
+  <div class="gallery-wrap">
+    <table class="gallery">
+      <thead>
+        <tr><th>Name</th><th>Cost</th><th>Stats</th><th>Rules Text</th></tr>
+      </thead>
+      <tbody>
+<tr class="type-header"><td colspan="4">📈 TRADERS (58)</td></tr>
+<tr><td class="td-name">Bandwidth Predator</td><td class="td-cost">{4}</td><td class="td-stats">2/3</td><td class="td-rules">Alpha Strike. When this deals damage to a Trader, that Trader does not untap next Pre-Market.</td></tr>
+<tr><td class="td-name">Basis Trade Analyst</td><td class="td-cost">{3}</td><td class="td-stats">4/2</td><td class="td-rules">Leverage 1. When this attacks, you may move 1 Leverage counter from it to another Trader you control.</td></tr>
+<tr><td class="td-name">Colocation Server</td><td class="td-cost">{2}</td><td class="td-stats">2/2</td><td class="td-rules">Alpha Strike. Summoning sickness does not apply to this Trader.</td></tr>
+<tr><td class="td-name">Convexity Rider</td><td class="td-cost">{4}</td><td class="td-stats">3/5</td><td class="td-rules">Leverage 2. When this is Short Sold, return with 3 +1/+1 counters instead of 2.</td></tr>
+<tr><td class="td-name">Correlation Trader</td><td class="td-cost">{3}</td><td class="td-stats">2/4</td><td class="td-rules">Arbitrage 1. Static: your other Traders with Defense Rating 3 or greater get +0/+1.</td></tr>
+<tr><td class="td-name">Cross-Sectional Alpha Machine</td><td class="td-cost">{6}</td><td class="td-stats">4/5</td><td class="td-rules">Arbitrage 3. When Arbitrage triggers, also gain 1 Liquidity for each Trader you control beyond the opponent count.</td></tr>
+<tr><td class="td-name">Crossing Network Pilot</td><td class="td-cost">{4}</td><td class="td-stats">3/3</td><td class="td-rules">Leverage 2. When this attacks, deal 1 damage to target Trader regardless of blocking.</td></tr>
+<tr><td class="td-name">Dark Flow Aggregator</td><td class="td-cost">{3}</td><td class="td-stats">3/2</td><td class="td-rules">When this enters, place a Dark Pool Order from your hand into the Dark Pool zone (bypassing cost).</td></tr>
+<tr><td class="td-name">Dark Inventory Position</td><td class="td-cost">{3}</td><td class="td-stats">2/3</td><td class="td-rules">When this enters, search your Book for a Dark Pool Order and put it into your hand.</td></tr>
+<tr><td class="td-name">Dark Pool Aggressor</td><td class="td-cost">{7}</td><td class="td-stats">3/4</td><td class="td-rules">Leverage 3. Arbitrage 2. Alpha Strike.</td></tr>
+<tr><td class="td-name">Dark Pool Architect</td><td class="td-cost">{5}</td><td class="td-stats">4/4</td><td class="td-rules">Leverage 2. Arbitrage 2. When this enters, you may play a Dark Pool Order from your hand at no cost.</td></tr>
+<tr><td class="td-name">Delta Hedger</td><td class="td-cost">{3}</td><td class="td-stats">3/4</td><td class="td-rules">Leverage 2. When damage is dealt to this Trader, reduce it by 1 (minimum 0).</td></tr>
+<tr><td class="td-name">Drawdown Controller</td><td class="td-cost">{4}</td><td class="td-stats">2/5</td><td class="td-rules">When this enters, remove all damage from one Trader you control.</td></tr>
+<tr><td class="td-name">Exposure Manager</td><td class="td-cost">{2}</td><td class="td-stats">2/3</td><td class="td-rules">Leverage 1. When any Leverage counter is removed from a Trader you control, gain 1 Liquidity.</td></tr>
+<tr><td class="td-name">Factor Exposure Desk</td><td class="td-cost">{4}</td><td class="td-stats">2/5</td><td class="td-rules">Arbitrage 2. When this enters, if Arbitrage triggers, draw a card.</td></tr>
+<tr><td class="td-name">Factor Model Analyst</td><td class="td-cost">{2}</td><td class="td-stats">1/3</td><td class="td-rules">Arbitrage 1. When Arbitrage triggers, draw a card.</td></tr>
+<tr><td class="td-name">Fill-or-Kill Executor</td><td class="td-cost">{3}</td><td class="td-stats">3/2</td><td class="td-rules">Alpha Strike. When this attacks alone and is not blocked, gain 2 Liquidity this turn.</td></tr>
+<tr><td class="td-name">Flash Crash Bot</td><td class="td-cost">{1}</td><td class="td-stats">2/1</td><td class="td-rules">Alpha Strike. When this enters, gain 1 Liquidity this turn.</td></tr>
+<tr><td class="td-name">Front-Running Algo</td><td class="td-cost">{2}</td><td class="td-stats">2/1</td><td class="td-rules">Alpha Strike. When this deals unblocked damage to Capital Reserve, draw a card.</td></tr>
+<tr><td class="td-name">Gamma Scalper</td><td class="td-cost">{4}</td><td class="td-stats">3/3</td><td class="td-rules">Leverage 3. Once per game, if the Market Close drain would reduce your Capital Reserve to 0, remove all Leverage counters instead.</td></tr>
+<tr><td class="td-name">Hedge Fund PM</td><td class="td-cost">{4}</td><td class="td-stats">4/4</td><td class="td-rules">Leverage 2. When this enters, attach all Derivatives from your Derivatives Desk to this Trader.</td></tr>
+<tr><td class="td-name">Hidden Accumulator</td><td class="td-cost">{2}</td><td class="td-stats">2/2</td><td class="td-rules">When you play a Dark Pool Order, this Trader gets +1/+1 until Market Close.</td></tr>
+<tr><td class="td-name">Institutional Block Trader</td><td class="td-cost">{5}</td><td class="td-stats">3/4</td><td class="td-rules">Leverage 2. Arbitrage 1. When this enters, gain 2 Liquidity this turn.</td></tr>
+<tr><td class="td-name">Internalized Flow Monster</td><td class="td-cost">{7}</td><td class="td-stats">6/5</td><td class="td-rules">Leverage 4. Arbitrage 3. Alpha Strike. When this enters, trigger all Dark Pool Orders currently staged.</td></tr>
+<tr><td class="td-name">Latency Arbitrageur</td><td class="td-cost">{3}</td><td class="td-stats">3/1</td><td class="td-rules">Alpha Strike. When this attacks alone and deals unblocked damage, it deals 1 additional damage.</td></tr>
+<tr><td class="td-name">Leveraged Buyout Specialist</td><td class="td-cost">{5}</td><td class="td-stats">5/5</td><td class="td-rules">Leverage 4. When this enters, gain Liquidity equal to its Leverage count this turn.</td></tr>
+<tr><td class="td-name">Machine Learning Optimizer</td><td class="td-cost">{7}</td><td class="td-stats">4/6</td><td class="td-rules">Arbitrage 3. When this enters, draw cards equal to your Arbitrage triggers this game (maximum 4).</td></tr>
+<tr><td class="td-name">Market Maker</td><td class="td-cost">{2}</td><td class="td-stats">2/2</td><td class="td-rules">When this enters, gain 1 Liquidity this turn.</td></tr>
+<tr><td class="td-name">Mean Reversion Bot</td><td class="td-cost">{3}</td><td class="td-stats">1/4</td><td class="td-rules">At the start of your Pre-Market, remove 1 damage from this Trader.</td></tr>
+<tr><td class="td-name">Microwave Relay</td><td class="td-cost">{4}</td><td class="td-stats">3/3</td><td class="td-rules">Alpha Strike. When this enters, if you have no other Traders, gain 2 Liquidity this turn.</td></tr>
+<tr><td class="td-name">Momentum Igniter</td><td class="td-cost">{3}</td><td class="td-stats">3/2</td><td class="td-rules">Alpha Strike. When this enters, each other Trader you control gains Alpha Strike until Market Close.</td></tr>
+<tr><td class="td-name">Monopoly Position</td><td class="td-cost">{7}</td><td class="td-stats">3/5</td><td class="td-rules">Alternate win: at the start of your Pre-Market, if your Portfolio Value counter total is 20 or greater, you win the game. When this enters, place 5 Portfolio Value counters on it. Each other Trader you control with Arbitrage places 1 Portfolio Value counter on this each Pre-Market.</td></tr>
+<tr><td class="td-name">Nanosecond Assassin</td><td class="td-cost">{5}</td><td class="td-stats">5/3</td><td class="td-rules">Alpha Strike. Leverage 2. Alpha Strike bonus is +4/+0 for this Trader.</td></tr>
+<tr><td class="td-name">OTC Behemoth</td><td class="td-cost">{6}</td><td class="td-stats">5/5</td><td class="td-rules">Leverage 3. Arbitrage 2. When this attacks alone, opponent cannot play Orders this turn.</td></tr>
+<tr><td class="td-name">Off-Exchange Finisher</td><td class="td-cost">{5}</td><td class="td-stats">3/4</td><td class="td-rules">Leverage 2. Arbitrage 2. Alpha Strike bonus is +4/+0 for this Trader.</td></tr>
+<tr><td class="td-name">Off-Exchange Operative</td><td class="td-cost">{3}</td><td class="td-stats">3/3</td><td class="td-rules">Leverage 1. Arbitrage 1.</td></tr>
+<tr><td class="td-name">Options Desk Intern</td><td class="td-cost">{1}</td><td class="td-stats">2/2</td><td class="td-rules">When this enters, you may attach a Derivative from your Derivatives Desk to it for free.</td></tr>
+<tr><td class="td-name">Order Router</td><td class="td-cost">{3}</td><td class="td-stats">2/3</td><td class="td-rules">Alpha Strike. When this blocks, draw a card.</td></tr>
+<tr><td class="td-name">Pairs Trader</td><td class="td-cost">{3}</td><td class="td-stats">2/3</td><td class="td-rules">Arbitrage 2. When this attacks, gain 4 Liquidity this turn.</td></tr>
+<tr><td class="td-name">Portfolio Construction Desk</td><td class="td-cost">{4}</td><td class="td-stats">3/4</td><td class="td-rules">Arbitrage 2. Your other Traders get +0/+1.</td></tr>
+<tr><td class="td-name">Principal Crossings Desk</td><td class="td-cost">{4}</td><td class="td-stats">3/4</td><td class="td-rules">Leverage 2. When this attacks, if the Dark Pool slot is occupied, this gets +2/+0 until Market Close.</td></tr>
+<tr><td class="td-name">Retail Flow Chaser</td><td class="td-cost">{1}</td><td class="td-stats">1/1</td><td class="td-rules">Alpha Strike.</td></tr>
+<tr><td class="td-name">Rho Opportunist</td><td class="td-cost">{3}</td><td class="td-stats">4/3</td><td class="td-rules">Leverage 1. When a Leverage counter is added to this, draw a card.</td></tr>
+<tr><td class="td-name">Risk Manager</td><td class="td-cost">{2}</td><td class="td-stats">1/4</td><td class="td-rules">Arbitrage 1. When this blocks, remove 1 damage from it after combat.</td></tr>
+<tr><td class="td-name">Risk-Parity Quant</td><td class="td-cost">{3}</td><td class="td-stats">3/3</td><td class="td-rules">When a +1/+1 counter is placed on this, place an additional +1/+1 counter on it.</td></tr>
+<tr><td class="td-name">Shadow Accumulation Desk</td><td class="td-cost">{4}</td><td class="td-stats">3/4</td><td class="td-rules">Arbitrage 2. When this enters, look at opponent&#x27;s hand.</td></tr>
+<tr><td class="td-name">Smart Beta Strategist</td><td class="td-cost">{4}</td><td class="td-stats">3/4</td><td class="td-rules">Arbitrage 1. When this attacks, if your Capital Reserve is higher than your opponent&#x27;s, draw a card.</td></tr>
+<tr><td class="td-name">Speed Advantage Desk</td><td class="td-cost">{4}</td><td class="td-stats">3/2</td><td class="td-rules">Alpha Strike. Leverage 1. When this attacks alone, +3/+0 applies before Leverage bonus.</td></tr>
+<tr><td class="td-name">Spoofing Algo</td><td class="td-cost">{2}</td><td class="td-stats">2/1</td><td class="td-rules">Alpha Strike. When this attacks alone, opponent cannot play Orders until Market Close.</td></tr>
+<tr><td class="td-name">Statistical Arb Clerk</td><td class="td-cost">{1}</td><td class="td-stats">1/2</td><td class="td-rules">Arbitrage 1. (When this enters, if you control more Traders than your opponent, gain 1 Liquidity this turn.)</td></tr>
+<tr><td class="td-name">Stealth Position Builder</td><td class="td-cost">{3}</td><td class="td-stats">2/4</td><td class="td-rules">When a Dark Pool Order you staged triggers, draw a card.</td></tr>
+<tr><td class="td-name">Structured Product Builder</td><td class="td-cost">{4}</td><td class="td-stats">4/4</td><td class="td-rules">Leverage 2. Derivatives attached to this cost {1} less to play.</td></tr>
+<tr><td class="td-name">Synthetic Long</td><td class="td-cost">{4}</td><td class="td-stats">5/4</td><td class="td-rules">Leverage 3. At Market Close, you may pay 2 Capital Reserve per counter instead of 1 to keep all Leverage counters; if you do, this gets +1/+0 permanently.</td></tr>
+<tr><td class="td-name">Systematic Rebalancer</td><td class="td-cost">{5}</td><td class="td-stats">3/5</td><td class="td-rules">Arbitrage 2. At the start of your Pre-Market, you may move 1 damage counter from one of your Traders to another.</td></tr>
+<tr><td class="td-name">Tape Painter</td><td class="td-cost">{2}</td><td class="td-stats">1/2</td><td class="td-rules">Alpha Strike. When this attacks alone, gain 1 Liquidity this turn.</td></tr>
+<tr><td class="td-name">Theta Decay Trader</td><td class="td-cost">{3}</td><td class="td-stats">3/3</td><td class="td-rules">Leverage 2. At the start of your Pre-Market, remove 1 Leverage counter from this (does not cost Capital Reserve).</td></tr>
+<tr><td class="td-name">Underlying Asset Runner</td><td class="td-cost">{2}</td><td class="td-stats">3/3</td><td class="td-rules">Leverage 1.</td></tr>
+<tr><td class="td-name">Vega Amplifier</td><td class="td-cost">{4}</td><td class="td-stats">4/3</td><td class="td-rules">Leverage 3. When this enters, each other Trader you control with Leverage gets +1/+0 until Market Close.</td></tr>
+<tr class="type-header"><td colspan="4">💱 ORDERS (30)</td></tr>
+<tr><td class="td-name">Block Trade Sweep</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Dark Pool. When this triggers, destroy target Trader with Defense Rating 3 or less.</td></tr>
+<tr><td class="td-name">Book Building</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Draw 2 cards. Discard 1 card.</td></tr>
+<tr><td class="td-name">Cancel Order</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Target Trader cannot attack this turn.</td></tr>
+<tr><td class="td-name">Circuit Breaker Trip</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Destroy target Trader with Aggression 4 or greater.</td></tr>
+<tr><td class="td-name">Cover Short</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Return an exiled Trader you own to the Trading Floor immediately, with its counters.</td></tr>
+<tr><td class="td-name">Crossed Market</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Dark Pool. When this triggers, target Trader cannot block this turn.</td></tr>
+<tr><td class="td-name">Dark Pool Flash Order</td><td class="td-cost">{1}</td><td class="td-stats">—</td><td class="td-rules">Dark Pool. When this triggers, deal 2 damage to target Trader.</td></tr>
+<tr><td class="td-name">Delta Neutral</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Target Trader you control loses all Leverage counters. Remove all damage from it.</td></tr>
+<tr><td class="td-name">Efficient Frontier</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Prevent all damage to target Trader you control until end of Trading Session.</td></tr>
+<tr><td class="td-name">Execution Glitch</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Counter target Order.</td></tr>
+<tr><td class="td-name">Gamma Hedge</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Target Trader you control gets +1/+1 for each Leverage counter on it until Market Close.</td></tr>
+<tr><td class="td-name">Hidden Aggression</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Dark Pool. When this triggers, target Trader you control gets +2/+0 until Market Close.</td></tr>
+<tr><td class="td-name">Iceberg Order</td><td class="td-cost">{1}</td><td class="td-stats">—</td><td class="td-rules">Dark Pool. When this triggers, deal 1 damage to target Trader and draw a card.</td></tr>
+<tr><td class="td-name">Information Ratio Enforcer</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Counter target Order or Strategy unless its controller pays {2}.</td></tr>
+<tr><td class="td-name">Internalization Order</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Dark Pool. When this triggers, deal 3 damage to target Trader.</td></tr>
+<tr><td class="td-name">Liquidity Provision</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Gain 3 Liquidity this turn. (Cannot exceed your Liquidity maximum.)</td></tr>
+<tr><td class="td-name">Lit-Market Decoy</td><td class="td-cost">{1}</td><td class="td-stats">—</td><td class="td-rules">Draw a card. You may play a Dark Pool Order from your hand this turn without paying its cost.</td></tr>
+<tr><td class="td-name">Off-Exchange Position</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Dark Pool. Requires a populated Dark Pool slot to cast. When this triggers, target Trader gets -3/-0 until Market Close.</td></tr>
+<tr><td class="td-name">Payment for Order Flow</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Dark Pool. When this triggers, gain 3 Liquidity this turn.</td></tr>
+<tr><td class="td-name">Pre-Market Raid</td><td class="td-cost">{1}</td><td class="td-stats">—</td><td class="td-rules">During opponent&#x27;s Trading Session only: deal 1 damage to target Trader.</td></tr>
+<tr><td class="td-name">Pre-Positioned Strike</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Dark Pool. When this triggers, deal 2 damage to target player&#x27;s Capital Reserve directly.</td></tr>
+<tr><td class="td-name">Quant Signal</td><td class="td-cost">{1}</td><td class="td-stats">—</td><td class="td-rules">Look at the top 3 cards of your Book. Put one into your hand, the rest on the bottom.</td></tr>
+<tr><td class="td-name">Quote Stuffing Burst</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Target Trader you control gets +3/+0 and Alpha Strike until Market Close.</td></tr>
+<tr><td class="td-name">Rebalancing Halt</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Target Trader cannot attack this turn. Draw a card.</td></tr>
+<tr><td class="td-name">Regime Change Detection</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Counter target Strategy.</td></tr>
+<tr><td class="td-name">Regulatory Halt</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Dark Pool. When this triggers, tap target Trader (it cannot attack this turn).</td></tr>
+<tr><td class="td-name">Sharpe Ratio Alert</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">If your Capital Reserve is at least 5 more than your opponent&#x27;s, draw 2 cards.</td></tr>
+<tr><td class="td-name">Spoofed Bid</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Dark Pool. When this triggers, target Trader gets -3/-0 until Market Close.</td></tr>
+<tr><td class="td-name">Sub-Penny Intercept</td><td class="td-cost">{1}</td><td class="td-stats">—</td><td class="td-rules">Target attacking Trader gets -2/-0 until end of Trading Session.</td></tr>
+<tr><td class="td-name">Volatility Crush</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Remove all Leverage counters from target Trader. If opponent&#x27;s, deal damage equal to counters removed to that Trader.</td></tr>
+<tr class="type-header"><td colspan="4">📊 STRATEGYS (22)</td></tr>
+<tr><td class="td-name">Acceleration Protocol</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">Your Traders get +2/+0 until Market Close. Each Trader with Alpha Strike gets +1/+0 additionally.</td></tr>
+<tr><td class="td-name">Capital Call</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">Search your Book for a Trader with Leverage and put it into your hand. Gain Liquidity equal to its Leverage value this turn.</td></tr>
+<tr><td class="td-name">Capital Injection</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Gain 5 Capital Reserve.</td></tr>
+<tr><td class="td-name">Capital Structure Arb</td><td class="td-cost">{5}</td><td class="td-stats">—</td><td class="td-rules">Place 3 Leverage counters on target Trader you control. It also gets Arbitrage 2 until Market Close.</td></tr>
+<tr><td class="td-name">Carry Trade</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Gain 1 Liquidity for each Leverage counter across all Traders you control (maximum 5).</td></tr>
+<tr><td class="td-name">Correlation Matrix</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">Draw cards equal to Traders you control minus opponent&#x27;s Traders (minimum 0, maximum 4).</td></tr>
+<tr><td class="td-name">Dark Liquidity Surge</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">Gain 2 Liquidity for each Dark Pool Order that has triggered this game (maximum 6).</td></tr>
+<tr><td class="td-name">Factor Neutralization</td><td class="td-cost">{5}</td><td class="td-stats">—</td><td class="td-rules">Destroy all Traders with Aggression greater than Defense Rating.</td></tr>
+<tr><td class="td-name">Flash Crash Event</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Destroy all Traders with Defense Rating 2 or less.</td></tr>
+<tr><td class="td-name">Information Advantage</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Draw 2 cards. If you control more Traders than your opponent, draw 3 instead.</td></tr>
+<tr><td class="td-name">Information Asymmetry</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Gain control of the opponent&#x27;s currently staged Dark Pool Order.</td></tr>
+<tr><td class="td-name">Leveraged Buyout</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">Gain control of target Trader. Place Leverage counters on it equal to its Defense Rating.</td></tr>
+<tr><td class="td-name">Liquidity Event</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">Gain Liquidity equal to the number of Dark Pool Orders you have played this game (maximum 5).</td></tr>
+<tr><td class="td-name">Low-Latency Strike</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Each of your Traders with Alpha Strike may attack this turn even if they have summoning sickness.</td></tr>
+<tr><td class="td-name">Margin Call</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Each of your Traders loses all Leverage counters. For each counter removed this way, deal 1 damage to target opponent Trader.</td></tr>
+<tr><td class="td-name">Momentum Ignition</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Each of your Traders attacks this turn if able. Traders with Alpha Strike get +2/+0 until Market Close.</td></tr>
+<tr><td class="td-name">Portfolio Stress Test</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">Each player discards down to 3 cards. You draw 2 cards.</td></tr>
+<tr><td class="td-name">Pump-and-Dump</td><td class="td-cost">{5}</td><td class="td-stats">—</td><td class="td-rules">Target Trader you control gets +4/+0 until Market Close. Then place 2 Leverage counters on it.</td></tr>
+<tr><td class="td-name">Risk-Adjusted Return</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Gain Liquidity equal to the number of Traders you control beyond your opponent&#x27;s count (minimum 0, maximum 4).</td></tr>
+<tr><td class="td-name">Short Squeeze</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Short Selling — exile target Trader you control. Return it at the start of your next Pre-Market with a +1/+1 counter.</td></tr>
+<tr><td class="td-name">Spoofing Campaign</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Destroy all Traders with Aggression 2 or less.</td></tr>
+<tr><td class="td-name">Vega Spike</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Place 2 Leverage counters on target Trader you control.</td></tr>
+<tr class="type-header"><td colspan="4">🏛 ASSETS (17)</td></tr>
+<tr><td class="td-name">Backtesting Engine</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Activated: {2}, tap — look at the top 5 cards of your Book; put one into your hand and the rest on the bottom.</td></tr>
+<tr><td class="td-name">Dark Flow Engine</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Static: Dark Pool Orders you control cost {1} less to stage.</td></tr>
+<tr><td class="td-name">Direct Market Access</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Static: your Alpha Strike bonus is +4/+0 instead of +3/+0.</td></tr>
+<tr><td class="td-name">Greeks Dashboard</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">Activated: {2}, tap — add 1 Leverage counter to target Trader you control.</td></tr>
+<tr><td class="td-name">HFT Feed Colocation</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Static: your Traders with Alpha Strike get +1/+0.</td></tr>
+<tr><td class="td-name">High-Speed Network</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">Activated: {2}, tap — give target Trader Alpha Strike until Market Close.</td></tr>
+<tr><td class="td-name">Implied Volatility Surface</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Static: Traders you control with Leverage counters get +0/+1.</td></tr>
+<tr><td class="td-name">Live P&amp;L Dashboard</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">At the start of your Research phase, draw an additional card if you control more Traders than your opponent.</td></tr>
+<tr><td class="td-name">Off-Exchange Yield</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">At the start of your Market Close, if a Dark Pool Order triggered this turn, gain 3 Capital Reserve.</td></tr>
+<tr><td class="td-name">Order Flow Analytics</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">At the start of your Pre-Market, if the Dark Pool slot is occupied, gain 2 Liquidity this turn.</td></tr>
+<tr><td class="td-name">Portfolio Diversifier</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Your Liquidity maximum is 1 higher than normal (max 11).</td></tr>
+<tr><td class="td-name">Risk Attribution Model</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Static: your Traders with Defense Rating 4 or greater get +0/+1.</td></tr>
+<tr><td class="td-name">Sharpe Ratio Monitor</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">At the start of your Pre-Market, if you control more Traders than your opponent, gain 1 Liquidity this turn.</td></tr>
+<tr><td class="td-name">Speed Co-location Hub</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">At the start of your Trading Session, you may have one Trader lose summoning sickness this turn.</td></tr>
+<tr><td class="td-name">Systematic Alpha Engine</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">At the start of your Pre-Market, if you control more Traders than your opponent, gain 2 Liquidity this turn.</td></tr>
+<tr><td class="td-name">The Black-Scholes Model</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">At the start of your Pre-Market, you may pay 1 Liquidity to remove 1 Leverage counter from any Trader you control.</td></tr>
+<tr><td class="td-name">Tick Data Archive</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">At the start of your Pre-Market, if any of your Traders attacked alone last turn, draw a card.</td></tr>
+<tr class="type-header"><td colspan="4">🏢 STRUCTURES (9)</td></tr>
+<tr><td class="td-name">Alpha Capture Platform</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">At the start of your Trading Session, your Traders with Arbitrage get +1/+0 until Market Close.</td></tr>
+<tr><td class="td-name">Dark Venue Console</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">At the start of your Trading Session, you may pay {1} to trigger the staged Dark Pool Order immediately.</td></tr>
+<tr><td class="td-name">Derivatives Desk Console</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">At the start of your Pre-Market, if you have at least one Derivative on your Derivatives Desk, draw a card.</td></tr>
+<tr><td class="td-name">Low-Latency Exchange</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">At the start of your Trading Session, each of your Traders with Alpha Strike gets +1/+0 until Market Close.</td></tr>
+<tr><td class="td-name">Order Matching Engine</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Tap: target Trader you control gets +2/+0 until Market Close.</td></tr>
+<tr><td class="td-name">Principal Trading Desk</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">At the start of your Pre-Market, if the Dark Pool slot is empty, draw a card.</td></tr>
+<tr><td class="td-name">Quant Lab</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">At the start of your Pre-Market, if you control more Traders than your opponent, gain 2 Liquidity this turn.</td></tr>
+<tr><td class="td-name">Research Server Farm</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">At the start of your Research phase, draw an additional card if your Capital Reserve is 10 or more above your opponent&#x27;s.</td></tr>
+<tr><td class="td-name">Risk Waterfall</td><td class="td-cost">{4}</td><td class="td-stats">—</td><td class="td-rules">At the start of your Market Close, reduce the Capital Reserve cost of Leverage counters on one of your Traders by 1 (minimum 0 per counter).</td></tr>
+<tr class="type-header"><td colspan="4">🎯 DERIVATIVES (14)</td></tr>
+<tr><td class="td-name">Covered Call</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Attach to a Trader: it gets +1/+0 and, when it attacks unblocked, gain 1 Liquidity.</td></tr>
+<tr><td class="td-name">Delta Neutral Wrap</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Attach to a Trader: remove all damage from it and it gets +0/+2.</td></tr>
+<tr><td class="td-name">Gamma Amplifier</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Attach to a Trader: it gets +2/+1. Its Leverage counters cost 0 Capital Reserve at Market Close this turn.</td></tr>
+<tr><td class="td-name">Iron Condor</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Attach to a Trader: when this Trader is blocked, deal 1 damage to the blocker.</td></tr>
+<tr><td class="td-name">Off-Exchange Boost Rig</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Attach to a Trader: when a Dark Pool Order triggers, this Trader gets +2/+0 until Market Close.</td></tr>
+<tr><td class="td-name">Portfolio Insurance Wrap</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Attach to a Trader: when this Trader would be destroyed, instead remove this Derivative and it survives with 1 Defense Rating remaining.</td></tr>
+<tr><td class="td-name">Protective Put</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Attach to a Trader: the first time this Trader would be destroyed, remove this Derivative instead.</td></tr>
+<tr><td class="td-name">Rho Leverage Amplifier</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Attach to a Trader: it gets +1/+1 for each Dark Pool Order that has triggered this game (maximum +4/+4).</td></tr>
+<tr><td class="td-name">Shadow Protocol Module</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Attach to a Trader: Dark Pool Orders you stage while this Trader is on the field cost {1} less.</td></tr>
+<tr><td class="td-name">Signal Processing Rig</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Attach to a Trader: it gains Arbitrage 1. When Arbitrage triggers, remove 1 damage from it.</td></tr>
+<tr><td class="td-name">Speed Amplifier</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Attach to a Trader: it gets +2/+0. When it attacks alone, draw a card.</td></tr>
+<tr><td class="td-name">Synthetic Collar</td><td class="td-cost">{3}</td><td class="td-stats">—</td><td class="td-rules">Attach to a Trader: it gets +1/+1 for each Derivative attached to it (including this one).</td></tr>
+<tr><td class="td-name">Theta Decay Collar</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Attach to a Trader: it gets +1/+2 and loses 1 Leverage counter at the end of each Pre-Market.</td></tr>
+<tr><td class="td-name">Ticker Tape Derivative</td><td class="td-cost">{2}</td><td class="td-stats">—</td><td class="td-rules">Attach to a Trader: it gains Alpha Strike.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     X. QUICK REFERENCE
+══════════════════════════════════════════════════════════════════════ -->
+<div class="section page-break" id="quickref">
+  <h2>X. Quick Reference</h2>
+
+  <div class="cheatsheet">
+    <div class="cheatsheet-title">⏱ Turn Order</div>
+    <div class="cheatsheet-row"><span class="cheatsheet-num">1</span><span class="cheatsheet-label">Pre-Market</span><span class="cheatsheet-desc">Untap → +1 max Liquidity, refill → Short Sell returns → start triggers</span></div>
+    <div class="cheatsheet-row"><span class="cheatsheet-num">2</span><span class="cheatsheet-label">Research</span><span class="cheatsheet-desc">Draw 1 (or fatigue damage if library is empty)</span></div>
+    <div class="cheatsheet-row"><span class="cheatsheet-num">3</span><span class="cheatsheet-label">Trading Session</span><span class="cheatsheet-desc">Play / activate / Dark-Pool stage → declare attackers → blockers → damage</span></div>
+    <div class="cheatsheet-row"><span class="cheatsheet-num">4</span><span class="cheatsheet-label">Settlement</span><span class="cheatsheet-desc">Post-combat action loop (no further combat)</span></div>
+    <div class="cheatsheet-row"><span class="cheatsheet-num">5</span><span class="cheatsheet-label">Market Close</span><span class="cheatsheet-desc">End triggers → Leverage tax → cleanup → discard to 7 → bankruptcy check</span></div>
+  </div>
+
+  <div class="two-col" style="margin-top: 1.4rem;">
+    <div class="cheatsheet">
+      <div class="cheatsheet-title">⚖ Win &amp; Lose</div>
+      <p style="font-size: 0.86rem; line-height: 1.85;">
+        <strong>Loss:</strong> Capital ≤ $0 (bankruptcy)<br>
+        <strong>Alt-win:</strong> Monopoly Position with ≥ 20 Portfolio Value counters at start of your Pre-Market<br>
+        <strong>Empty library:</strong> not a loss; fatigue damage on draw
+      </p>
+    </div>
+    <div class="cheatsheet">
+      <div class="cheatsheet-title">💱 Order Speed</div>
+      <p style="font-size: 0.86rem; line-height: 1.85;">
+        <strong>Orders</strong> — instant; respond to stack<br>
+        <strong>Strategies</strong> — sorcery; your own Trading Session / Settlement only<br>
+        <strong>Dark Pool Orders</strong> — instant on cast; resolve at start of opponent's Trading Session
+      </p>
+    </div>
+  </div>
+
+  <div class="cheatsheet" style="margin-top: 1rem;">
+    <div class="cheatsheet-title">❓ Common Q&amp;A</div>
+    <p style="font-size: 0.86rem; line-height: 1.95;">
+      <strong>Q:</strong> If I have two Leverage Traders, what does Market Close cost me?<br>
+      <strong>A:</strong> $1 per counter per Trader. A Lev-3 Vega Amplifier and a Lev-2 Delta Hedger cost you $5 capital at the bell.<br><br>
+      <strong>Q:</strong> Does Alpha Strike apply when I attack with two Alpha-Strike Traders?<br>
+      <strong>A:</strong> No — by rules text "alone" — only one Trader gets the bonus. (See engine note: in current code only the <em>first declared</em> attacker gets +3/+0 in a multi-attack; this is documented as a known engine asymmetry.)<br><br>
+      <strong>Q:</strong> Can I respond to my opponent's Strategy with a Strategy?<br>
+      <strong>A:</strong> No. Strategies are sorcery-speed and cannot be played in response. You can answer with an Order (Execution Glitch, Information Ratio Enforcer, Regime Change Detection).<br><br>
+      <strong>Q:</strong> What happens to a Derivative if I play it with no Traders out?<br>
+      <strong>A:</strong> It stages on your Derivatives Desk (capacity 3). The next Trader you play absorbs it automatically.<br><br>
+      <strong>Q:</strong> Does a Dark Pool Order trigger if my opponent skips combat?<br>
+      <strong>A:</strong> Yes — Dark Pool Orders trigger at the start of opponent's next Trading Session phase, regardless of whether they actually attack.
+    </p>
+  </div>
+
+  <div style="margin-top: 2rem; text-align: center; color: var(--text-mute); font-size: 0.78rem; border-top: 1px solid var(--rule); padding-top: 1rem;">
+    Finance TCG · Hyperdraft Quant Series · Generated by /rulebook · 150 cards · 4 starter decks · 30 starting Capital
+  </div>
+</div>
+
+</div>
+</body>
+</html>

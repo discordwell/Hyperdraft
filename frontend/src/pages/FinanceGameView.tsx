@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useFinanceGame } from '../hooks/useFinanceGame';
 import { useGameStore } from '../stores/gameStore';
 import { FinanceGameBoard } from '../games/finance';
@@ -16,6 +16,7 @@ import { matchAPI } from '../services/api';
 export function FinanceGameView() {
   const { matchId } = useParams<{ matchId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const {
     gameState,
@@ -53,11 +54,20 @@ export function FinanceGameView() {
   const storeMatchId = useGameStore((state) => state.matchId);
   const storePlayerId = useGameStore((state) => state.playerId);
   const setGameState = useGameStore((state) => state.setGameState);
+  const setConnection = useGameStore((state) => state.setConnection);
 
   useEffect(() => {
     if (!matchId) return;
     if (!storeMatchId || storeMatchId !== matchId) {
-      navigate('/');
+      // Allow joining a finance match by URL alone — useful for sharing
+      // links and for headless rendering. Falls back to home if the URL
+      // has no player_id and the store is empty.
+      const queryPlayerId = new URLSearchParams(location.search).get('player_id');
+      if (!queryPlayerId) {
+        navigate('/');
+        return;
+      }
+      setConnection(matchId, queryPlayerId, false);
       return;
     }
     if (!gameState && storePlayerId) {
@@ -65,7 +75,7 @@ export function FinanceGameView() {
         .then(setGameState)
         .catch((err) => setError(err instanceof Error ? err.message : 'Failed to fetch state'));
     }
-  }, [matchId, storeMatchId, storePlayerId, gameState, navigate, setGameState, setError]);
+  }, [matchId, storeMatchId, storePlayerId, gameState, location.search, navigate, setConnection, setGameState, setError]);
 
   const handleConcede = useCallback(async () => {
     if (!matchId || !playerId) return;
