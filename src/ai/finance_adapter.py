@@ -84,12 +84,17 @@ class FinanceAIBias:
     # V(state) = capital_weight * cap_diff
     #          + board_weight   * board_diff
     #          + liquidity_weight * liq_diff
-    capital_weight: float = 0.5
-    board_weight: float = 0.3
+    # Iter-4 single pilot (HF mirror): board flooding wins over capital accumulation;
+    # bumped board_weight 0.3→0.4, capital_weight 0.5→0.4 to reflect empirical result.
+    capital_weight: float = 0.4
+    board_weight: float = 0.4
     liquidity_weight: float = 0.2
 
-    # Hard combat: minimum V-delta improvement required to commit attackers
-    attack_threshold: float = 0.0
+    # Hard combat: minimum V-delta improvement required to commit attackers.
+    # Iter-6 single pilot (P2a iter-3): nudged 0.0→0.05 so AI waits for a
+    # meaningful attack window (≥2 unblocked attackers OR DMA in play) before
+    # committing — avoids trickling 1-body attacks into chump-trades early.
+    attack_threshold: float = 0.05
 
     # Medium: Capital Reserve threshold below which AI holds Orders defensively
     # in the Dark Pool rather than playing them immediately (§8 Medium).
@@ -354,6 +359,134 @@ def _card_text_leverage_n(obj: "GameObject") -> int:
         return 0
 
 
+def _affordable_traders_in_hand(state: GameState, player_id: str) -> list["GameObject"]:
+    """Return Traders in hand that the player can afford right now.
+
+    Iter-7 (P2a iter-5) body-priority encoder: used by _hard_play_action to
+    detect when an affordable Trader exists so we can prioritise it over
+    non-Trader plays when trailing on board count.
+    """
+    hand = _hand_cards(state, player_id)
+    return [c for c in hand if _is_trader(c) and _can_afford(state, player_id, c.id)]
+
+
+def _find_opponent_lord(state: GameState, player_id: str) -> Optional["GameObject"]:
+    """Return the opponent's lord Trader (grants +0/+N to all allies), or None.
+
+    Iter-7 (P2a iter-5) lord-killing encoder: a 'lord' grants a static +0/+N
+    buff to all friendly Traders (e.g., Portfolio Construction Desk +0/+1).
+    Heuristic detection: opponent Trader whose card text contains '+0/+' and
+    references 'other' Traders or 'each'/'all' Traders — covers lord patterns
+    in the current Finance pool.
+    """
+    opp_traders = _opp_traders(state, player_id)
+    for obj in opp_traders:
+        try:
+            text = str(
+                getattr(obj.characteristics, "text", None)
+                or getattr(obj, "text", None)
+                or ""
+            )
+            # Lord pattern: grants a bonus to "other" friendly Traders.
+            if "other" in text and "+0/+" in text:
+                return obj
+            # Also match "each Trader you control" / "all" wording variants.
+            if "+0/+" in text and ("each" in text or "all" in text):
+                return obj
+        except (AttributeError, TypeError):
+            continue
+    return None
+
+
+def _highest_power_own_trader(state: GameState, player_id: str) -> Optional["GameObject"]:
+    """Return the highest-power own Trader on the battlefield; None if board is empty.
+
+    Iter-4 single pilot (Bug 22): QSB auto-targeted first Trader in list (RFC 1/1)
+    rather than highest-power Trader (FCE 3/2), wasting the alpha grant on the
+    weakest body. Use this helper to select the correct QSB/buff target.
+    """
+    traders = _own_traders(state, player_id)
+    if not traders:
+        return None
+    return max(traders, key=_power)
+
+
+def _has_ttd_attached(obj: "GameObject", state: GameState) -> bool:
+    """True if a Ticker Tape Derivative is attached to this Trader.
+
+    P2b iter-3: FCB+TTD is the strongest combo body in the HF deck.
+    Once TTD is attached, FCB becomes a 5-power Alpha Striker that must
+    be answered every turn.  Use this to identify the combo piece so it
+    can receive highest-attack-priority and be protected from discard.
+    """
+    bf = state.zones.get("battlefield")
+    if bf is None:
+        return False
+    for oid in bf.objects:
+        deriv = state.objects.get(oid)
+        if deriv is None:
+            continue
+        if _card_name(deriv) != "Ticker Tape Derivative":
+            continue
+        attached_to = getattr(getattr(deriv, "state", None), "attached_to", None)
+        if attached_to == obj.id:
+            return True
+    return False
+
+
+def _find_ttd_combo_body(state: GameState, player_id: str) -> Optional["GameObject"]:
+    """Return the own Trader that has TTD attached and native Alpha Strike, or None.
+
+    P2b iter-3: FCB+TTD (post Bug-30 fix: 5-power) is the kill engine.
+    When this body is live, it should be the first declared attacker and
+    the last candidate for discard.
+    """
+    for obj in _own_traders(state, player_id):
+        if _has_alpha_strike(obj) and _has_ttd_attached(obj, state):
+            return obj
+    return None
+
+
+def _has_dma_on_board(state: GameState, player_id: str) -> bool:
+    """True if Direct Market Access is currently in play for this player.
+
+    Iter-4 single pilot (Bug 21): DMA's +4/+0 is an ETB spike, not a persistent
+    static. The bonus only applies on the turn DMA enters. After that turn it
+    reverts. Tracking whether DMA is fresh (deployed this turn) requires turn_data,
+    but the conservative heuristic is: if DMA is on board AND we have a high-power
+    Alpha Striker, treat this turn's attack as DMA-enhanced.
+    """
+    bf = _battlefield(state)
+    if not bf:
+        return False
+    for oid in bf.objects:
+        obj = state.objects.get(oid)
+        if obj is None:
+            continue
+        if obj.controller == player_id and _card_name(obj) == "Direct Market Access":
+            return True
+    return False
+
+
+def _dma_played_this_turn(state: GameState, player_id: str) -> bool:
+    """True if Direct Market Access was deployed on the current turn.
+
+    Iter-4 single pilot (Bug 21): DMA's +4/+0 is a 1-turn ETB spike.
+    Checks turn_data flag set when DMA enters the battlefield this turn.
+    Falls back to False if turn_data is absent (safe default).
+    """
+    try:
+        turn_data = getattr(state, "turn_data", {}) or {}
+        return bool(turn_data.get(f"fin_dma_entered_{player_id}", False))
+    except (AttributeError, TypeError):
+        return False
+
+
+def _opp_trader_count(state: GameState, player_id: str) -> int:
+    """Count opponent's Traders currently on the battlefield."""
+    return len(_opp_traders(state, player_id))
+
+
 def _board_value(state: GameState, player_id: str) -> float:
     """Sum of (Aggression + Defense Rating) for all Traders on the Trading Floor."""
     total = 0.0
@@ -546,13 +679,23 @@ class FinanceAIAdapter:
         All tiers: discard the lowest-value card by ``_card_total_value``
         (cost + power + toughness for Traders; cost alone for other types).
         """
+        # P2b iter-3: protect the FCB+TTD combo body from discard.
+        # If a native Alpha Striker with TTD attached is in the hand (unlikely
+        # but theoretically possible during harness state reads), never discard it.
+        # Implemented by giving the combo body a very high value so it sorts last.
+        combo_body = _find_ttd_combo_body(state, player_id)
+        combo_body_id = combo_body.id if combo_body is not None else None
+
         objs: list[tuple[float, str]] = []
         for item in hand:
             cid = item if isinstance(item, str) else item.id
             obj = state.objects.get(cid)
             if obj is None:
                 continue
-            if _is_trader(obj):
+            if cid == combo_body_id:
+                # Highest possible value — never discard the combo piece.
+                val = 10000.0
+            elif _is_trader(obj):
                 val = _card_total_value(obj)
             else:
                 val = float(_mana_cost(obj))
@@ -790,11 +933,38 @@ class FinanceAIAdapter:
           on board (engine bug: orphans on attached Trader's death).
         - Filter out Tick Data Archive (engine bug: trigger flag never
           set; asset is currently dead).
+
+        Iter-7 (P2a iter-5) patch — body-priority when trailing:
+        - When own Trader count < opp Trader count - 1 AND an affordable
+          Trader exists in hand, play that Trader immediately before entering
+          the lookahead loop. This is a hard heuristic (not a weight): the
+          Derivatives AI was deploying BSM/TDC non-Traders when trailing on
+          board count (3 vs 4) instead of Traders, losing on body count T13.
         """
         hand = _hand_cards(state, player_id)
         affordable = [c for c in hand if _can_afford(state, player_id, c.id)]
         if not affordable:
             return {"type": "end_phase"}
+
+        # ── Iter-7 body-priority heuristic (hard condition, runs BEFORE filters) ──
+        # When trailing on Trader count by ≥2 AND an affordable Trader is in hand,
+        # play the cheapest affordable Trader immediately (skip lookahead overhead).
+        # Condition: own_trader_count < opp_trader_count - 1 (trailing by ≥2 Traders).
+        # Rationale: each missed Trader deploy when trailing widens the gap; the
+        # lookahead value function may still prefer a non-Trader play because ASSET/
+        # DERIVATIVE cards have high nominal scores — this overrides that preference.
+        own_trader_count = len(_own_traders(state, player_id))
+        opp_id_for_body_check = _other_player(state, player_id)
+        opp_trader_count_for_body_check = (
+            len(_own_traders(state, opp_id_for_body_check))
+            if opp_id_for_body_check else 0
+        )
+        if own_trader_count < opp_trader_count_for_body_check - 1:
+            affordable_traders = _affordable_traders_in_hand(state, player_id)
+            if affordable_traders:
+                # Play the cheapest affordable Trader to minimise Liquidity waste.
+                cheapest_trader = min(affordable_traders, key=_mana_cost)
+                return {"type": "play_card", "card_id": cheapest_trader.id, "targets": []}
 
         # Surgical name-based filters for known dead/trap cards.
         affordable = self._filter_trap_cards(state, player_id, affordable)
@@ -816,7 +986,17 @@ class FinanceAIAdapter:
 
         if best_card is None:
             return {"type": "end_phase"}
-        return {"type": "play_card", "card_id": best_card.id, "targets": []}
+
+        # Iter-4 single pilot (Bug 22): QSB auto-targeted first Trader in list
+        # (RFC 1/1) instead of highest-power Trader (FCE 3/2), wasting the alpha
+        # grant. When playing QSB, pass the highest-power own Trader as target.
+        targets: list[str] = []
+        if _card_name(best_card) == "Quote Stuffing Burst":
+            best_trader = _highest_power_own_trader(state, player_id)
+            if best_trader is not None:
+                targets = [best_trader.id]
+
+        return {"type": "play_card", "card_id": best_card.id, "targets": targets}
 
     def _filter_trap_cards(
         self,
@@ -862,9 +1042,40 @@ class FinanceAIAdapter:
         leverage_safety_margin = 5
         leverage_bug_multiplier = 1.7  # iter-2 observed: tick is ~1.7× Σleverage
 
+        # Iter-6 single pilot (P2a iter-3) — spell filtering in pure aggro mirror:
+        # In the HF mirror (opponent has only cheap Alpha Strikers, no blockers >1
+        # toughness), non-Trader spells costing ≤3 are dead weight — no targets,
+        # no tempo value, no board impact at this game speed. Deprioritize them
+        # by excluding non-Trader non-DMA cards when:
+        #   (a) opponent is pure aggro (all opp Traders have Alpha Strike text), AND
+        #   (b) we have <4 own Traders (still in flood mode), AND
+        #   (c) there IS a Trader we can afford (play the Trader instead).
+        # DMA is kept (it IS the spike tool). The filter returns the original list
+        # if it would eliminate everything (safe fallback).
+        opp_traders_list = _opp_traders(state, player_id)
+        own_traders_list = _own_traders(state, player_id)
+        opp_is_pure_alpha = (
+            len(opp_traders_list) > 0
+            and all(_has_alpha_strike(t) for t in opp_traders_list)
+            and all(_toughness(t) <= 1 for t in opp_traders_list)
+        )
+        in_flood_mode = len(own_traders_list) < 4
+        has_affordable_trader = any(
+            _is_trader(c) and _can_afford(state, player_id, c.id) for c in cards
+        )
+        in_spell_filter_mode = opp_is_pure_alpha and in_flood_mode and has_affordable_trader
+
         kept: list["GameObject"] = []
         for card in cards:
             name = _card_name(card)
+            # Spell filter: skip non-Trader cards in pure-aggro flood mode (keep DMA).
+            if (
+                in_spell_filter_mode
+                and not _is_trader(card)
+                and name != "Direct Market Access"
+                and _mana_cost(card) <= 3
+            ):
+                continue
             if name == "Liquidity Provision":
                 # Trap at full mana: gains 3 up to current max → 0 net.
                 # Only cast when there's headroom OR we're chaining a 4+ play.
@@ -898,6 +1109,21 @@ class FinanceAIAdapter:
                 # the engine fix lands or until phase-aware activation is
                 # added to the adapter.
                 continue
+            elif name == "Gamma Scalper":
+                # P2b iter-3 (Pilot B loss): Gamma Scalper adds Lev 3, which
+                # raises Σlev by 3 immediately.  Without counter-removal on
+                # board OR in hand, this is an unrecoverable self-destruct.
+                # Rule: NEVER play Gamma Scalper unless Theta Decay Trader (TDT)
+                # or Theta Decay Collar (TDC) is on board or in hand.
+                # The `_has_leverage_remover` check covers board presence.
+                # Additionally check hand for TDT/TDC.
+                _GS_SAFE_NAMES = {"Theta Decay Trader", "Theta Decay Collar"}
+                hand_for_gs = _hand_cards(state, player_id)
+                hand_has_remover = any(
+                    _card_name(c) in _GS_SAFE_NAMES for c in hand_for_gs
+                )
+                if not has_remover and not hand_has_remover:
+                    continue  # unplayable without safety valve
             elif name == "Off-Exchange Position":
                 # Iter-3 engine bug 13/15: silent no-op without DP slot,
                 # AND DP staging itself is unwired (`_play_card_action`
@@ -920,14 +1146,29 @@ class FinanceAIAdapter:
                 #
                 # Theta Decay Trader is itself a remover, so playing it always
                 # passes (it manages its own counter via pre-MC trigger).
+                #
+                # Iter-4 patch (P2a iter-4, DA AI flaw):
+                # Original threshold (Σlev ≥ 1 → blocked) was too aggressive
+                # for Dark Arbitrage: OEF (Lev 2) and IBT (Lev 2) were NEVER
+                # deployed because any existing Leverage counter (even from a
+                # prior Trader with Lev 1) would push projected_total to ≥ 1
+                # and trigger the block. DA's best finisher bodies were
+                # effectively locked out all game. Relax to: only block when
+                # projected Σlev > 2 AND no counter-remover present. This
+                # allows deploying OEF/IBT when Σlev ≤ 2 (safe per iter-4
+                # observation: Σlev=2–3 + Theta Decay Collar = ~1.6 cap/turn
+                # drain, sustainable for a 10-15 turn game).
                 if name not in _LEVERAGE_COUNTER_REMOVERS and _is_trader(card):
                     new_lev = _card_text_leverage_n(card)
                     if new_lev > 0:
                         projected_total = current_lev_total + new_lev
                         projected_tax = projected_total * leverage_bug_multiplier
                         projected_capital = cur_capital - projected_tax
+                        # Relaxed guard: allow deploy if projected Σlev ≤ 2
+                        # (was: any Σlev increase blocked without remover).
                         if (
-                            projected_capital <= leverage_safety_margin
+                            projected_total > 2
+                            and projected_capital <= leverage_safety_margin
                             and not has_remover
                         ):
                             # Refuse to deploy — would self-kill in 1-2 MCs.
@@ -952,10 +1193,162 @@ class FinanceAIAdapter:
           asymmetric trader count forces unblockable damage. Only applies
           when no Alpha Strikers (or alpha is irrelevant due to non-AS
           mix).
+
+        Iter-4 single pilot patches (HF mirror):
+        - **Mirror flood mode**: when opponent has ≥4 bodies, body count > solo
+          quality. Switch to flooding all legal attackers to race by volume,
+          even if some attackers lack alpha (iter-4: AI's 6 Traders outpaced
+          pilot's DMA + 3 Traders because multi-attack volume > solo alpha in
+          absolute damage terms when attacker count is ≥4 vs ≥4).
+        - **DMA same-turn attack priority**: DMA's +4/+0 is an ETB spike, not a
+          persistent static (Bug 21). When DMA was played this turn, prioritise
+          the highest-power Alpha Striker for a solo attack to capture the +4
+          before it expires. Don't hold it to "build a static buff" next turn.
+
+        Iter-7 (P2a iter-5) patch — lord-killing priority:
+        - When opponent controls a lord Trader (grants +0/+N to all allies),
+          rank it highest for attack targeting. Implemented as: before the
+          general subset search, check whether any single legal attacker has
+          Aggression ≥ lord's remaining Defense (would kill it). If so,
+          declare that attacker alone as a kill-the-lord strike (verify it
+          passes V threshold). This prevents the AI from directing attacks
+          into non-lord bodies while the lord buffs opponent's entire board.
+
+        P2b iter-1 patches (HF wins T10 vs Derivatives, both pilots confirmed):
+        - **Leverage kill-shot recognition**: When opponent's Σlev ≥ 3 AND their
+          capital ≤ 5, the MARKET_CLOSE leverage tick (~3+/turn) will finish them
+          without us needing to all-in. Reduce attack aggression: hold the
+          highest-toughness own Trader back as a blocker rather than all-in.
+          Avoids losing our best blocker to a wall trade when we can let the tick
+          win instead. Pilot A observed this exact scenario at T10: opponent died
+          at MC from Σlev=3 tick while at 2 capital — a combat all-in was
+          unnecessary and would have been costly.
+        - **Never all-in when opponent has 3+ bodies**: Before committing all
+          Traders to attack, check _opp_trader_count() >= 3. If true, hold the
+          highest-toughness own Trader back as a blocker. Pilot B (P2 Derivatives)
+          confirmed: tapping all Traders for T8 attack left zero blockers for T9,
+          allowing P1's 5-body all-in to deal full lethal face.
         """
         legal = _legal_attackers(state, player_id)
         if not legal:
             return []
+
+        # ── P2b iter-3: FCB+TTD combo priority ──────────────────────────────────
+        # When a native Alpha Striker has TTD attached (post Bug-30 fix: 5-power
+        # Alpha Striker), it is the highest-value attack body in the deck.  Always
+        # declare it FIRST when attacking — it gets the alpha +3 bonus (count==1 at
+        # trigger time) and forces an answer every turn.
+        # Note: if the combo body is the ONLY legal attacker, the solo-alpha path
+        # below also handles it correctly.  This block handles the multi-body case
+        # where we need to ensure the combo body is listed first.
+        combo_body = _find_ttd_combo_body(state, player_id)
+        if combo_body is not None and combo_body in legal:
+            # Build attack list: combo body first, then remaining legal attackers.
+            rest_after_combo = [t for t in legal if t.id != combo_body.id]
+            baseline_combo = _eval_state(state, player_id, self.bias)
+            forecast_combo = self._simulate_attack_resolution(
+                state, player_id, [combo_body.id]
+            )
+            if forecast_combo is not None:
+                delta_combo = (
+                    _eval_state(forecast_combo, player_id, self.bias) - baseline_combo
+                )
+                if delta_combo > self.bias.attack_threshold:
+                    # Declare combo body first; remaining bodies follow.
+                    return [combo_body.id] + [t.id for t in rest_after_combo]
+
+        # ── P2b iter-1: leverage kill-shot recognition (runs before all-in paths) ──
+        # When opponent's Σlev ≥ 3 AND their capital ≤ 5, their MC tick will close
+        # the game without risky all-in combat. Hold the highest-toughness Trader back.
+        opp_id_for_lev = _other_player(state, player_id)
+        if opp_id_for_lev is not None:
+            opp_sigma_lev = _expected_leverage_tax(state, opp_id_for_lev)
+            opp_capital = int(getattr(
+                state.players.get(opp_id_for_lev), "life", 999
+            ) or 999)
+            if opp_sigma_lev >= 3 and opp_capital <= 5 and len(legal) >= 2:
+                # Don't all-in — hold the tankiest own Trader back as blocker.
+                anchor = max(legal, key=_toughness)
+                legal = [t for t in legal if t.id != anchor.id]
+                if not legal:
+                    return []   # only 1 legal attacker, skip attack entirely
+
+        # ── P2b iter-1: never all-in when opponent has 3+ bodies ──
+        # With 3+ opponent Traders available to block/counter-attack, all-in leaves
+        # us open to a lethal response. Keep the highest-toughness own Trader back.
+        if _opp_trader_count(state, player_id) >= 3 and len(legal) >= 2:
+            anchor_nai = max(legal, key=_toughness)
+            legal = [t for t in legal if t.id != anchor_nai.id]
+            if not legal:
+                return []   # only 1 legal attacker after removal, skip
+
+        # ── Iter-7 lord-killing priority (runs before DMA and mirror checks) ──
+        # When opponent has a lord on board, try to kill it: declare the lowest-
+        # power legal attacker whose Aggression ≥ lord's remaining Defense as a
+        # solo strike. Killing the lord is worth more V than the raw combat math
+        # because it removes the toughness buff from every opponent Trader.
+        opp_lord = _find_opponent_lord(state, player_id)
+        if opp_lord is not None:
+            lord_defense = _remaining_defense(opp_lord)
+            # Find attackers that can kill the lord (Aggression >= lord Defense).
+            lord_killers = [t for t in legal if _power(t) >= lord_defense]
+            if lord_killers:
+                # Prefer the weakest attacker that can kill it (conserve power).
+                kill_attacker = min(lord_killers, key=_power)
+                baseline_lord = _eval_state(state, player_id, self.bias)
+                forecast_lord = self._simulate_attack_resolution(
+                    state, player_id, [kill_attacker.id]
+                )
+                if forecast_lord is not None:
+                    delta_lord = (
+                        _eval_state(forecast_lord, player_id, self.bias)
+                        - baseline_lord
+                    )
+                    if delta_lord > self.bias.attack_threshold:
+                        return [kill_attacker.id]
+
+        # Iter-6 single pilot (P2a iter-3) — DMA multi-attack priority:
+        # When DMA is in play AND ≥3 other Traders exist, flood ALL attackers
+        # with the best Alpha Striker declared first. DMA's +4/+0 ETB spike
+        # fires on whichever attacker has count==1 at trigger time (Bug 2/18
+        # alpha-asymmetry) — declaring the best Alpha Striker first captures
+        # both +3 alpha AND +4 DMA for a 9/1 body. The remaining bodies deal
+        # base power, converting a 4-body wave into 9+ face (confirmed T9 win).
+        # Supersedes iter-4 solo-DMA heuristic for the multi-body case.
+        if _dma_played_this_turn(state, player_id):
+            own_trader_count = len(_own_traders(state, player_id))
+            as_attackers_dma = [t for t in legal if _has_alpha_strike(t)]
+            if as_attackers_dma and own_trader_count >= 4:
+                # 4+ Traders total (≥3 others besides alpha striker): flood attack.
+                # Sort: Alpha Strikers first (highest-power first), then non-alpha.
+                best_alpha = max(as_attackers_dma, key=_power)
+                rest = [t for t in legal if t.id != best_alpha.id]
+                return [best_alpha.id] + [t.id for t in rest]
+            elif as_attackers_dma:
+                # Fewer than 4 bodies: fall back to solo-alpha (iter-4 lesson —
+                # solo spike is still better than trickling non-alpha bodies early).
+                best_dma = max(as_attackers_dma, key=_power)
+                return [best_dma.id]
+
+        # Iter-4 single pilot (HF mirror): when opponent has ≥4 bodies, body
+        # count races beat solo-alpha quality. Flood all legal attackers to race
+        # by volume — even non-alpha bodies add meaningful damage per turn when
+        # the opponent can't block profitably (all their bodies are 2/1 vs our
+        # 4-7 power attacks, death + overflow either way).
+        opp_body_count = _opp_trader_count(state, player_id)
+        if opp_body_count >= 4 and len(legal) >= 2:
+            # Verify flooding improves V before committing all attackers.
+            baseline_flood = _eval_state(state, player_id, self.bias)
+            all_ids_flood = [t.id for t in legal]
+            forecast_flood = self._simulate_attack_resolution(
+                state, player_id, all_ids_flood
+            )
+            if forecast_flood is not None:
+                delta_flood = (
+                    _eval_state(forecast_flood, player_id, self.bias) - baseline_flood
+                )
+                if delta_flood > self.bias.attack_threshold:
+                    return all_ids_flood
 
         # Heuristic preflight: if all legal attackers are Alpha Strikers,
         # solo-attack with the highest-power one. This avoids the multi-
@@ -1048,6 +1441,17 @@ class FinanceAIAdapter:
         - **Empty assignment is allowed**: if every assignment loses V
           worse than taking face, return ``{}`` (no blocks) — the prior
           fallback to ``_medium_blockers`` could force suicide chumps.
+
+        Iter-4 patch (P2a iter-4, DA AI flaw):
+        - **High-toughness wall pre-assignment**: before the brute-force
+          permutation search, scan available blockers for any Trader whose
+          remaining Defense Rating ≥ attacker's Aggression. If such a
+          "wall" blocker exists against a given attacker, pre-assign it
+          immediately. This ensures SPB (2/4) and similar high-toughness
+          bodies are not left idle when they can stop damage profitably.
+          The pre-assignment is included in the final block map regardless
+          of V delta — high-toughness blocks are always profitable when
+          the blocker survives the trade.
         """
         available = [
             obj for obj in _own_traders(state, player_id)
@@ -1056,6 +1460,35 @@ class FinanceAIAdapter:
         ]
         if not available:
             return {}
+
+        # Iter-4: Pre-assign wall blockers (toughness ≥ attacker power).
+        # A blocker that survives the trade is ALWAYS worth committing,
+        # regardless of what the V-delta search returns — blocking for
+        # free (no capital leak) is strictly better than taking the face.
+        pre_assignments: dict[str, str] = {}
+        pre_used: set[str] = set()
+        # Sort attackers descending by power so largest threats get walls first.
+        sorted_atk_for_walls = sorted(
+            attacker_ids,
+            key=lambda aid: _power(state.objects[aid]) if aid in state.objects else 0,
+            reverse=True,
+        )
+        for atk_id in sorted_atk_for_walls:
+            atk_obj = state.objects.get(atk_id)
+            if atk_obj is None:
+                continue
+            atk_power = _power(atk_obj)
+            # Find cheapest wall that survives (remaining defense > attacker power).
+            wall_candidates = [
+                b for b in available
+                if b.id not in pre_used
+                and _remaining_defense(b) > atk_power
+            ]
+            if wall_candidates:
+                # Prefer wall with smallest remaining defense (least waste).
+                wall = min(wall_candidates, key=_remaining_defense)
+                pre_assignments[atk_id] = wall.id
+                pre_used.add(wall.id)
 
         # Mandatory-block check: if unblocked damage is lethal-range,
         # commit every blocker we have. Computed against current life.
@@ -1074,19 +1507,28 @@ class FinanceAIAdapter:
         # Collect all valid (attacker_id → blocker_id) assignment dicts
         # via a greedy permutation search (cap at 120 permutations = 5!).
         import itertools
+        # Exclude blockers already pre-assigned to walls from the permutation search.
+        remaining_available = [b for b in available if b.id not in pre_used]
         attacker_objs = [state.objects.get(aid) for aid in attacker_ids if state.objects.get(aid)]
-        blocker_ids = [b.id for b in available]
+        blocker_ids = [b.id for b in remaining_available]
+
+        # Attackers without a wall pre-assignment need the permutation search.
+        unassigned_atk_objs = [
+            obj for obj in attacker_objs
+            if obj is not None and obj.id not in pre_assignments
+        ]
 
         baseline = _eval_state(state, player_id, self.bias)
         best_loss = float("inf")
         best_assignment: dict[str, str] = {}
 
-        # Limit permutation search to first 5 blockers × 5 attackers.
+        # Limit permutation search to first 5 remaining blockers × 5 unassigned attackers.
+        search_attackers = unassigned_atk_objs[:5]
         for perm in itertools.islice(
             itertools.permutations(blocker_ids[:5]), 120
         ):
-            assignment: dict[str, str] = {}
-            for i, atk_obj in enumerate(attacker_objs[:5]):
+            assignment: dict[str, str] = dict(pre_assignments)  # always include walls
+            for i, atk_obj in enumerate(search_attackers):
                 if i < len(perm):
                     assignment[atk_obj.id] = perm[i]
             forecast = self._simulate_blocking(state, player_id, assignment)
@@ -1097,6 +1539,11 @@ class FinanceAIAdapter:
             if loss < best_loss:
                 best_loss = loss
                 best_assignment = assignment
+
+        # If pre_assignments found wall blockers, always return them
+        # even if the permutation search found nothing better.
+        if pre_assignments and not best_assignment:
+            best_assignment = pre_assignments
 
         # If we'd otherwise leak ≥ 25% capital reserve, force a block:
         # delegate to medium (which assigns smallest-survivor blockers

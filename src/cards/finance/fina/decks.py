@@ -276,11 +276,266 @@ FINA_STARTER_DECKS: dict[str, object] = {
 
 
 # =============================================================================
+# HYBRID AGGRO — Alpha Strike swarm + Dark Arbitrage midrange finishers (40 cards)
+# =============================================================================
+# Hypothesis: cheap Alpha Strike pressure early + large DA bodies to close late.
+# HF 1-2 drops establish Alpha Strike inevitability; DA 3-5 drops (OEF, IBT, DPA)
+# finish what HF started. Counters Quant's wall plan by having both speed AND
+# a top-end that outscales Arbitrage walls. Avoids broken Dark Pool mechanics.
+
+def build_hybrid_aggro_deck() -> list[CardDefinition]:
+    from src.cards.finance.fina import FINA_CARDS
+
+    def c(name: str, n: int = 1) -> list[CardDefinition]:
+        return [FINA_CARDS[name]] * n
+
+    deck: list[CardDefinition] = []
+
+    # --- {1} Traders (8) ---     8
+    deck += c("Flash Crash Bot", 4)             # 2/1 Alpha Strike + ETB gain 1 Liq
+    deck += c("Retail Flow Chaser", 4)          # 1/1 Alpha Strike vanilla
+
+    # --- {2} Traders (6) ---     14
+    deck += c("Front-Running Algo", 3)          # 2/1 Alpha Strike + draw on face damage
+    deck += c("Hidden Accumulator", 3)          # 2/2 DA midrange body (+1/+1 per DP)
+
+    # --- {3} Traders (4) ---     18
+    deck += c("Latency Arbitrageur", 2)         # 3/1 Alpha Strike + bonus damage
+    deck += c("Off-Exchange Operative", 2)      # 3/3 Leverage 1 Arbitrage 1 bridge
+
+    # --- {4} Traders (4) ---     22
+    deck += c("Institutional Block Trader", 2)  # 3/4 Leverage 2 Arb 1 + 2 Liq ETB
+    deck += c("Dark Pool Architect", 2)         # 4/4 Leverage 2 Arb 2 + free DP play
+
+    # --- {5} Traders (2) ---     24
+    deck += c("Off-Exchange Finisher", 2)       # 5/4 Leverage 2 Arb 2 Alpha+4 finisher
+
+    # --- {1} Orders (4) ---      28
+    deck += c("Dark Pool Flash Order", 4)       # DP: deal 2 to target Trader (tempo clear)
+
+    # --- {2} Orders (4) ---      32
+    deck += c("Quote Stuffing Burst", 2)        # +3/+0 + Alpha Strike grant
+    deck += c("Sub-Penny Intercept", 2)         # -2/-0 to attacking Trader
+
+    # --- {2} Assets (4) ---      36
+    deck += c("HFT Feed Colocation", 2)         # static +1/+0 to Alpha Strike Traders
+    deck += c("Dark Flow Engine", 2)            # static DP Orders cost {1} less
+
+    # --- {3} Strategies (2) ---  38
+    deck += c("Low-Latency Strike", 2)          # remove summoning sickness from Alpha Strikers
+
+    # --- {2} Derivatives (2) ---  40
+    deck += c("Ticker Tape Derivative", 2)      # attach: grant Alpha Strike to DA bodies
+
+    assert len(deck) == 40, f"hybrid_aggro deck: {len(deck)}"
+    return deck
+
+
+# =============================================================================
+# LEVERAGE STORM — Derivatives Leverage core + Quant Arbitrage draw engine (40 cards)
+# =============================================================================
+# Hypothesis: Derivatives' counter-management problem is solved by Quant's Arbitrage
+# draw engine. Arbitrage fires when leading Traders; Leverage Traders ensure strong
+# bodies. Quant draw refuels after Leverage tick depletes hand; Black-Scholes +
+# Theta Decay Trader manage the self-damage tax. Midrange grind strategy.
+
+def build_leverage_storm_deck() -> list[CardDefinition]:
+    from src.cards.finance.fina import FINA_CARDS
+
+    def c(name: str, n: int = 1) -> list[CardDefinition]:
+        return [FINA_CARDS[name]] * n
+
+    deck: list[CardDefinition] = []
+
+    # --- {1} Trader (3) ---      3
+    deck += c("Statistical Arb Clerk", 3)           # 1/2 Arbitrage 1 early blocker
+
+    # --- {2} Traders (6) ---     9
+    deck += c("Underlying Asset Runner", 3)          # 2/2 Leverage 1 body
+    deck += c("Exposure Manager", 3)                 # 1/3 Leverage 1 + Liq on counter removal
+
+    # --- {3} Traders (6) ---     15
+    deck += c("Theta Decay Trader", 3)               # 2/3 Leverage 2 free tick removal (KEY)
+    deck += c("Delta Hedger", 2)                     # 2/4 Leverage 2 damage reduction
+    deck += c("Pairs Trader", 1)                     # 2/3 Arbitrage 2 board presence
+
+    # --- {4} Traders (4) ---     19
+    deck += c("Vega Amplifier", 2)                   # 4/3 Leverage 3 +1/+0 to all Leverage
+    deck += c("Correlation Trader", 2)               # 2/4 Arb 1 + static +0/+1 lord
+
+    # --- {5} Trader (1) ---      20
+    deck += c("Hedge Fund PM", 1)                    # 4/4 Leverage 2 attach whole Desk
+
+    # --- {2} Strategies (3) ---  23
+    deck += c("Short Squeeze", 3)                    # exile then return +2 counters
+
+    # --- {3} Strategies (2) ---  25
+    deck += c("Vega Spike", 2)                       # +2 Leverage counters on a Trader
+
+    # --- {1} Orders (2) ---      27
+    deck += c("Quant Signal", 2)                     # look top 3, keep 1 (draw engine)
+
+    # --- {2} Orders (4) ---      31
+    deck += c("Gamma Hedge", 2)                      # +1/+1 per Leverage counter until EOT
+    deck += c("Liquidity Provision", 2)              # gain 3 Liq this turn (ramp)
+
+    # --- {3} Assets (4) ---      35
+    deck += c("The Black-Scholes Model", 2)          # pre-market: pay 1 Liq remove counter
+    deck += c("Systematic Alpha Engine", 2)          # pre-market: gain 2 Liq if leading
+
+    # --- {3} Structures (2) ---  37
+    deck += c("Derivatives Desk Console", 1)         # pre-market draw if Derivative on Desk
+    deck += c("Quant Lab", 1)                        # pre-market gain 2 Liq if leading
+
+    # --- {3} Derivatives (3) ---  40
+    deck += c("Theta Decay Collar", 2)               # attach +1/+2 + free tick remove
+    deck += c("Gamma Amplifier", 1)                  # attach +2/+1 + 0-cost tick once
+
+    assert len(deck) == 40, f"leverage_storm deck: {len(deck)}"
+    return deck
+
+
+# =============================================================================
+# TEMPO CONTROL — Light HF speed pressure + Quant value walls (40 cards)
+# =============================================================================
+# Hypothesis: pure HF is too fragile (1-toughness bodies die to chumps); pure Quant
+# is too slow. Mix: HF 1-2 drops create early pressure, Quant 2-4 drops stabilize
+# and generate card advantage. Alpha Strike disrupts opponent's tempo while Quant's
+# Arbitrage engine refuels. Mid-curve hybrid aiming for T15 close.
+
+def build_tempo_control_deck() -> list[CardDefinition]:
+    from src.cards.finance.fina import FINA_CARDS
+
+    def c(name: str, n: int = 1) -> list[CardDefinition]:
+        return [FINA_CARDS[name]] * n
+
+    deck: list[CardDefinition] = []
+
+    # --- {1} Traders (8) ---     8
+    deck += c("Flash Crash Bot", 4)             # 2/1 Alpha Strike + ETB gain 1 Liq
+    deck += c("Retail Flow Chaser", 4)          # 1/1 Alpha Strike vanilla
+
+    # --- {2} Traders (6) ---     14
+    deck += c("Spoofing Algo", 2)               # 2/1 Alpha Strike + suppresses Orders
+    deck += c("Risk Manager", 2)                # 1/4 Arb 1 + self-heal blocker
+    deck += c("Factor Model Analyst", 2)        # 1/3 Arb 1 + draw on trigger
+
+    # --- {3} Traders (4) ---     18
+    deck += c("Fill-or-Kill Executor", 2)       # 3/2 Alpha Strike + gain 2 Liq unblocked
+    deck += c("Correlation Trader", 2)          # 2/4 Arb 1 + static +0/+1 lord
+
+    # --- {4} Traders (4) ---     22
+    deck += c("Portfolio Construction Desk", 2) # 3/4 Arb 2 + global +0/+1 lord
+    deck += c("Smart Beta Strategist", 2)       # 3/4 Arb 1 + draw on attack if leading
+
+    # --- {1} Orders (4) ---      26
+    deck += c("Dark Pool Flash Order", 2)       # DP: deal 2 to target Trader
+    deck += c("Quant Signal", 2)                # look top 3, keep 1
+
+    # --- {2} Orders (4) ---      30
+    deck += c("Rebalancing Halt", 2)            # tap + draw a card (HF disruption)
+    deck += c("Liquidity Provision", 2)         # gain 3 Liq this turn
+
+    # --- {2} Assets (4) ---      34
+    deck += c("HFT Feed Colocation", 2)         # static +1/+0 to Alpha Strike Traders
+    deck += c("Sharpe Ratio Monitor", 2)        # pre-market: gain 1 Liq if leading
+
+    # --- {3} Assets (2) ---      36
+    deck += c("Systematic Alpha Engine", 2)     # pre-market: gain 2 Liq if leading
+
+    # --- {2} Strategies (2) ---  38
+    deck += c("Low-Latency Strike", 2)          # remove summoning sickness from Alpha Strikers
+
+    # --- {2} Derivatives (2) ---  40
+    deck += c("Speed Amplifier", 1)             # attach: +2/+0 + draw on solo attack
+    deck += c("Signal Processing Rig", 1)       # attach: Arbitrage 1 + self-heal on trigger
+
+    assert len(deck) == 40, f"tempo_control deck: {len(deck)}"
+    return deck
+
+
+# =============================================================================
+# DARK QUANT — Dark Arbitrage midrange bodies + Quant Arbitrage engine (40 cards)
+# =============================================================================
+# Hypothesis: both DA and Quant win via Trader-count advantage. DA brings bigger
+# bodies (OTC Behemoth, DPA, IFM); Quant brings Arbitrage Liq refuel + draw engines.
+# Together: overwhelm on board count AND generate resource advantage every ETB.
+# Target: out-grind Derivatives, outlast HF, go over Quant's pure-wall plan.
+
+def build_dark_quant_deck() -> list[CardDefinition]:
+    from src.cards.finance.fina import FINA_CARDS
+
+    def c(name: str, n: int = 1) -> list[CardDefinition]:
+        return [FINA_CARDS[name]] * n
+
+    deck: list[CardDefinition] = []
+
+    # --- {1} Traders (4) ---     4
+    deck += c("Statistical Arb Clerk", 4)           # 1/2 Arbitrage 1 cheap blocker
+
+    # --- {2} Traders (6) ---     10
+    deck += c("Hidden Accumulator", 3)              # 2/2 DA body with counter synergy
+    deck += c("Factor Model Analyst", 3)            # 1/3 Arb 1 + draw on trigger
+
+    # --- {3} Traders (6) ---     16
+    deck += c("Stealth Position Builder", 2)        # 2/4 DA body draws when DP triggers
+    deck += c("Pairs Trader", 2)                    # 2/3 Arbitrage 2 board count
+    deck += c("Correlation Trader", 2)              # 2/4 Arb 1 + static +0/+1 lord
+
+    # --- {4} Traders (4) ---     20
+    deck += c("Institutional Block Trader", 2)      # 3/4 Leverage 2 Arb 1 + 2 Liq ETB
+    deck += c("Portfolio Construction Desk", 2)     # 3/4 Arb 2 + global +0/+1 lord
+
+    # --- {5} Traders (2) ---     22
+    deck += c("Dark Pool Aggressor", 1)             # 4/4 Leverage 3 Arb 2 Alpha Strike
+    deck += c("Off-Exchange Finisher", 1)           # 5/4 Leverage 2 Arb 2 Alpha+4
+
+    # --- {1} Orders (2) ---      24
+    deck += c("Quant Signal", 2)                    # look top 3, keep 1
+
+    # --- {2} Orders (6) ---      30
+    deck += c("Liquidity Provision", 3)             # gain 3 Liq this turn
+    deck += c("Rebalancing Halt", 3)                # tap + draw a card
+
+    # --- {2} Assets (4) ---      34
+    deck += c("Sharpe Ratio Monitor", 2)            # pre-market: gain 1 Liq if leading
+    deck += c("Portfolio Diversifier", 2)           # Liq max +1
+
+    # --- {4} Assets (2) ---      36
+    deck += c("Systematic Alpha Engine", 2)         # pre-market: gain 2 Liq if leading
+
+    # --- {3} Structures (2) ---  38
+    deck += c("Quant Lab", 2)                       # pre-market gain 2 Liq if leading
+
+    # --- {3} Strategy (1) ---    39
+    deck += c("Information Advantage", 1)           # draw 2 (or 3 if leading)
+
+    # --- {2} Derivative (1) ---  40
+    deck += c("Signal Processing Rig", 1)           # attach: Arbitrage 1 + self-heal
+
+    assert len(deck) == 40, f"dark_quant deck: {len(deck)}"
+    return deck
+
+
+# =============================================================================
+# Candidate deck registry — separate from starters, tested in ng-plus P1
+# =============================================================================
+
+FINA_CANDIDATE_DECKS: dict[str, object] = {
+    "FINA_hybrid_aggro": build_hybrid_aggro_deck,
+    "FINA_leverage_storm": build_leverage_storm_deck,
+    "FINA_tempo_control": build_tempo_control_deck,
+    "FINA_dark_quant": build_dark_quant_deck,
+}
+
+
+# =============================================================================
 # Module-level validation
 # =============================================================================
 
 if __name__ == "__main__":
-    for name, builder in FINA_STARTER_DECKS.items():
+    all_decks = {**FINA_STARTER_DECKS, **FINA_CANDIDATE_DECKS}
+    for name, builder in all_decks.items():
         deck = builder()
         assert len(deck) == 40, f"{name} deck has {len(deck)} cards, expected 40"
-    print(f"All FINA starter decks validated ({len(FINA_STARTER_DECKS)} decks, 40 cards each)")
+    print(f"All FINA decks validated ({len(all_decks)} decks, 40 cards each)")

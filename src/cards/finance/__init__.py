@@ -1,4 +1,5 @@
-from .fina import FINA_CARDS
+from .fina import FINA_CARDS, FINA_STARTER_DECKS
 # Finance TCG card sets
 
 FINANCE_CARDS: dict = {**FINA_CARDS, }
+FINANCE_STARTER_DECKS = FINA_STARTER_DECKS

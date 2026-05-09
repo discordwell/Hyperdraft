@@ -515,6 +515,41 @@ def _label_for(payload: dict[str, Any], player_id: str) -> str:
     return "P1" if player_id == payload["p1_id"] else "P2"
 
 
+# ---------- bug #25: seat isolation helper ----------
+
+def _check_seat(args, payload: dict[str, Any], *, allow_during_block_window: bool = False) -> bool:
+    """Verify --seat matches the active player.  Returns True if OK to proceed.
+
+    When ``allow_during_block_window=True`` the check is skipped while
+    ``awaiting_blocks=True`` so that the non-active defender can issue
+    ``block`` and ``resolve_combat`` commands freely.
+
+    If ``--seat`` is omitted (``args.seat is None``) the legacy behaviour
+    (no verification) is preserved so single-pilot tests keep working.
+    """
+    seat = getattr(args, "seat", None)
+    if seat is None:
+        return True                     # no --seat flag → legacy path, always OK
+    if not payload.get("two_pilot"):
+        return True                     # seat flag is only meaningful in two-pilot mode
+
+    # During the block window the defender drives the harness — skip active-player check.
+    if allow_during_block_window and payload.get("awaiting_blocks"):
+        return True
+
+    p1_id = payload["p1_id"]
+    p2_id = payload["p2_id"]
+    game  = payload["game"]
+    active = game.state.active_player
+
+    seat_player_id = p1_id if seat == "P1" else p2_id
+    if seat_player_id != active:
+        active_label = "P1" if active == p1_id else "P2"
+        print(f"ERROR: not your turn (active: {active_label})")
+        return False
+    return True
+
+
 # ---------- subcommands ----------
 
 def cmd_start(args) -> None:
@@ -584,6 +619,8 @@ def cmd_start(args) -> None:
     }
     with _exclusive_lock(args.save):
         _save(payload, args.save)
+    # Print save path clearly so both pilots can agree on the file before play begins.
+    print(f"[harness] state file: {args.save}")
     print(f"Started Finance game: P1={p1.id[:8]} (deck={args.p1_deck}) "
           f"vs P2={p2.id[:8]} (deck={args.p2_deck})"
           f"{' [two-pilot]' if two_pilot else ''}")
@@ -594,6 +631,8 @@ def cmd_state(args) -> None:
     # bug #11: take exclusive lock to ensure read sees a fully written state.
     with _exclusive_lock(args.save):
         payload = _load(args.save)
+    # Print save path so both pilots can verify they share the same state file.
+    print(f"[harness] state file: {args.save}")
     _print_state(payload)
 
 
@@ -637,6 +676,9 @@ def cmd_play(args) -> None:
     # bug #11: hold the exclusive lock for the full read-modify-write window.
     with _exclusive_lock(args.save):
         payload = _load(args.save)
+        # bug #25: reject if --seat supplied and it's not that seat's turn.
+        if not _check_seat(args, payload):
+            return
         game = payload["game"]
         pid = _acting_player_id(payload)
         obj = _find_in_hand(game.state, pid, args.card_id)
@@ -669,6 +711,9 @@ def cmd_attack(args) -> None:
     # bug #11: hold the exclusive lock for the full read-modify-write window.
     with _exclusive_lock(args.save):
         payload = _load(args.save)
+        # bug #25: reject if --seat supplied and it's not that seat's turn.
+        if not _check_seat(args, payload):
+            return
         game = payload["game"]
         state = game.state
         pid = _acting_player_id(payload)
@@ -698,7 +743,12 @@ def cmd_attack(args) -> None:
             print("All requested attackers are illegal — nothing declared.")
             return
         asyncio.run(tm.finance_combat_manager.declare_attackers(pid, chosen))
-        tm.fin_turn_state.attackers_declared = list(chosen)
+        # Bug #23 fix: APPEND to attackers_declared rather than replace it.
+        # Prior to this fix, each sequential `attack <id>` call overwrote the
+        # list so only the LAST declared attacker's damage resolved — 4+ body
+        # floods always produced ~2 face total (last attacker only).
+        already = list(tm.fin_turn_state.attackers_declared or [])
+        tm.fin_turn_state.attackers_declared = already + [a for a in chosen if a not in already]
         print(f"declared attackers: {[a[:8] for a in chosen]}")
         payload["history"].append(
             (game.state.turn_number, _label_for(payload, pid),
@@ -724,6 +774,10 @@ def cmd_block(args) -> None:
     # bug #11: hold the exclusive lock for the full read-modify-write window.
     with _exclusive_lock(args.save):
         payload = _load(args.save)
+        # bug #25: block/resolve_combat are allowed for the non-active defender
+        # during the awaiting_blocks window; otherwise verify seat.
+        if not _check_seat(args, payload, allow_during_block_window=True):
+            return
         game = payload["game"]
         state = game.state
         tm = game.turn_manager
@@ -884,6 +938,10 @@ def cmd_end_turn(args) -> None:
     # bug #11: hold the lock for the full RMW window of the normal end_turn path.
     with _exclusive_lock(args.save):
         payload = _load(args.save)
+        # bug #25: during end_turn the active player must match --seat (if given).
+        # Block window case is handled above (delegated to resolve_combat).
+        if not _check_seat(args, payload):
+            return
         game = payload["game"]
         two_pilot = payload.get("two_pilot", False)
         if game.is_game_over():
@@ -943,6 +1001,10 @@ def cmd_resolve_combat(args) -> None:
     # bug #11: hold the exclusive lock for the full RMW window.
     with _exclusive_lock(args.save):
         payload = _load(args.save)
+        # bug #25: resolve_combat is issued by the defender during the block
+        # window, so allow the non-active seat to call it (allow_during_block_window).
+        if not _check_seat(args, payload, allow_during_block_window=True):
+            return
         game = payload["game"]
         if game.is_game_over():
             print("Game already over.")
@@ -960,13 +1022,14 @@ def cmd_resolve_combat(args) -> None:
             _print_state(payload)
             return
 
-        # Resolve combat using whatever blocks the defender recorded.
+        # bug #24: clear awaiting_blocks immediately after resolve_combat so
+        # the flag never persists if an early-return or exception fires below.
         asyncio.run(_resolve_declared_combat(payload))
+        payload["awaiting_blocks"] = False          # bug #24 fix — explicit clear
         if game.is_game_over():
             payload["history"].append(
                 (game.state.turn_number, "SYS", "game over (combat)")
             )
-            payload["awaiting_blocks"] = False
             _save(payload, args.save)
             _print_state(payload)
             return
@@ -1102,6 +1165,17 @@ def main() -> None:
         p.add_argument("--save", default=DEFAULT_STATE_PATH,
                        help=f"State pickle path (default: {DEFAULT_STATE_PATH})")
 
+    # bug #25: shared helper to add --seat to action subparsers.
+    def _add_seat(p):
+        p.add_argument(
+            "--seat", choices=["P1", "P2"], default=None,
+            help="(two-pilot) Declare which seat is acting. "
+                 "Action is rejected with 'not your turn' if the seat doesn't match "
+                 "state.active_player_id. Omit for legacy single-pilot behaviour. "
+                 "Exception: block/resolve_combat accept either seat during the "
+                 "awaiting_blocks defender window.",
+        )
+
     p_start = sub.add_parser("start", help="Start a new Finance game")
     p_start.add_argument("--p1-deck", default="FINA_high_frequency",
                          help="Starter deck name for P1 (default: FINA_high_frequency)")
@@ -1120,27 +1194,32 @@ def main() -> None:
 
     p_hand = sub.add_parser("hand", help="List the active player's hand")
     _add_save(p_hand)
+    _add_seat(p_hand)   # bug #25 (accepted for symmetry; read-only, no enforcement)
     p_hand.set_defaults(fn=cmd_hand)
 
     p_play = sub.add_parser("play", help="Play a card by ID prefix")
     p_play.add_argument("card_id", help="Card ID prefix (or full name)")
     p_play.add_argument("--target", default=None, help="Optional target object ID")
     _add_save(p_play)
+    _add_seat(p_play)   # bug #25
     p_play.set_defaults(fn=cmd_play)
 
     p_atk = sub.add_parser("attack", help="Declare attackers (variadic ID prefixes)")
     p_atk.add_argument("attackers", nargs="+", help="Attacker ID prefixes")
     _add_save(p_atk)
+    _add_seat(p_atk)    # bug #25
     p_atk.set_defaults(fn=cmd_attack)
 
     p_blk = sub.add_parser("block", help="Assign a single blocker to an attacker")
     p_blk.add_argument("blocker_id", help="Defender's blocker ID prefix")
     p_blk.add_argument("attacker_id", help="Attacker ID prefix to block")
     _add_save(p_blk)
+    _add_seat(p_blk)    # bug #25 (allowed for defender during block window)
     p_blk.set_defaults(fn=cmd_block)
 
     p_end = sub.add_parser("end_turn", help="End the current player's turn")
     _add_save(p_end)
+    _add_seat(p_end)    # bug #25
     p_end.set_defaults(fn=cmd_end_turn)
 
     p_resolve = sub.add_parser(
@@ -1148,6 +1227,7 @@ def main() -> None:
         help="(two-pilot) After defender assigns blocks, resolve combat & advance",
     )
     _add_save(p_resolve)
+    _add_seat(p_resolve)  # bug #25 (allowed for defender during block window)
     p_resolve.set_defaults(fn=cmd_resolve_combat)
 
     p_hist = sub.add_parser("history", help="Show recent action log")

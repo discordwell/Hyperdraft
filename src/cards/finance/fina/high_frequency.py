@@ -1670,15 +1670,57 @@ LOW_LATENCY_EXCHANGE = make_structure(
 
 # --- Ticker Tape Derivative {2} Derivative ---
 # Attach to a Trader: it gains Alpha Strike.
+# Bug #26 fix: the original ETB-based impl set `fin_alpha_strike_granted_` in
+# turn_data, which resets every Market Close.  The grant therefore expired after
+# the very first turn, making TTD a single-turn Alpha grant at best.  The fix
+# registers a *persistent* ATTACK_DECLARED interceptor that fires on behalf of
+# the attached Trader every turn TTD remains attached, calling
+# `_alpha_strike_bonus` exactly as a native Alpha Strike card does.
 def _ticker_tape_derivative_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # On ETB, mark the attached Trader as having Alpha Strike.
-    def etb_fn(event: Event, state: GameState) -> list[Event]:
+    def attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
         attached_to = getattr(obj.state, "attached_to", None)
-        if attached_to:
-            state.turn_data[f"fin_alpha_strike_granted_{attached_to}"] = True
-        return []
+        return (attached_to is not None
+                and event.payload.get("attacker_id") == attached_to)
 
-    return [make_etb_trigger(obj, etb_fn)]
+    def attack_handler(event: Event, state: GameState) -> InterceptorResult:
+        attached_to = getattr(obj.state, "attached_to", None)
+        if attached_to is None:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        target = state.objects.get(attached_to)
+        if target is None:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        # Bug #30 fix: if the attached Trader already has native Alpha Strike
+        # (detected via card text), its own ATTACK_DECLARED interceptor will
+        # call _alpha_strike_bonus independently.  Calling it a second time
+        # here would double-stack the bonus (+6 instead of +3).  Only grant
+        # the alpha bonus when the Trader does NOT have native Alpha Strike.
+        target_text = str(
+            getattr(target.characteristics, "text", None)
+            or getattr(target, "text", None)
+            or ""
+        )
+        if "Alpha Strike" in target_text:
+            # Native Alpha Strike already wired — TTD grant is a no-op here.
+            return InterceptorResult(action=InterceptorAction.PASS)
+        bonus_events = _alpha_strike_bonus(target, state)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=bonus_events,
+        )
+
+    alpha_icp = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=attack_handler,
+        duration="while_on_battlefield",
+    )
+    alpha_icp.is_triggered_ability = True
+    return [alpha_icp]
 
 
 TICKER_TAPE_DERIVATIVE = make_derivative(

@@ -340,9 +340,19 @@ def main() -> int:
     parser.add_argument("--games", type=int, default=10, help="games per matchup pair")
     parser.add_argument("--difficulty", default="medium", choices=["easy", "medium", "hard"])
     parser.add_argument("--out", default="logs/fina_tournament.json")
+    parser.add_argument("--include-candidates", action="store_true",
+                        help="Include FINA_CANDIDATE_DECKS in the tournament alongside starters")
     args = parser.parse_args()
 
-    print(f"=== FINA Balance Tournament — {args.games} games × 6 pairs ===")
+    if args.include_candidates:
+        from src.cards.finance.fina.decks import FINA_CANDIDATE_DECKS
+        ARCHETYPES.update(FINA_CANDIDATE_DECKS)
+        n_pairs = len(ARCHETYPES) * (len(ARCHETYPES) - 1) // 2
+        print(f"=== FINA Balance Tournament — {args.games} games × {n_pairs} pairs (starters + candidates) ===")
+    else:
+        n_pairs = len(ARCHETYPES) * (len(ARCHETYPES) - 1) // 2
+        print(f"=== FINA Balance Tournament — {args.games} games × {n_pairs} pairs ===")
+
     result = asyncio.run(run_tournament(args.games, args.difficulty))
 
     out_path = Path(args.out)

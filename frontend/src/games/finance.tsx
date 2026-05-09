@@ -22,6 +22,84 @@ import type { DeckStats } from '../types/deckbuilder';
 import { defaultFormatType } from './types';
 import { StackedBar } from './StackedBar';
 
+// ---- CSS keyframes (injected once into the document) --------------------
+
+function FinanceCSSInjector() {
+  return (
+    <style dangerouslySetInnerHTML={{ __html: `
+      @keyframes fin-ticker {
+        0%   { transform: translateX(0); }
+        100% { transform: translateX(-50%); }
+      }
+      @keyframes fin-phase-pulse {
+        0%, 100% { text-shadow: 0 0 8px currentColor, 0 0 2px currentColor; }
+        50%       { text-shadow: 0 0 24px currentColor, 0 0 8px currentColor, 0 0 1px #fff; }
+      }
+      @keyframes fin-pool-throb {
+        0%, 100% { box-shadow: 0 0 12px #7c3aed40, inset 0 0 8px #7c3aed10; }
+        50%       { box-shadow: 0 0 28px #7c3aed70, inset 0 0 18px #7c3aed30; }
+      }
+      @keyframes fin-scanline {
+        0%   { background-position: 0 0; }
+        100% { background-position: 0 4px; }
+      }
+      @keyframes fin-end-turn-glow {
+        0%, 100% { box-shadow: 0 0 6px #00ff8830; }
+        50%       { box-shadow: 0 0 18px #00ff8870, 0 0 4px #00ff88; }
+      }
+      @keyframes fin-atk-bounce {
+        0%, 100% { transform: scale(1); }
+        50%       { transform: scale(1.04); }
+      }
+      @keyframes fin-capital-danger {
+        0%, 100% { filter: brightness(1); }
+        50%       { filter: brightness(1.5); }
+      }
+    `}} />
+  );
+}
+
+// ---- Animated price ticker across the top --------------------------------
+
+const TICKER_ITEMS = [
+  'HFT ALGO ▲ +3.2%', 'DARK ARB ▼ −1.8%', 'QUANT SIG ▲ +0.4%',
+  'DERIV IDX ▲ +2.1%', 'VOL INDEX ▲ +8.5%', 'LEV RATIO ▼ −0.3%',
+  'ALPHA STR ▲ +5.7%', 'DARK POOL ▲ +12.1%', 'CAP RES ▲ +1.0%',
+  'MKTCAP ▼ −2.4%', 'SPREAD WID ▲ +0.9%', 'FLOW COST ▼ −0.6%',
+];
+
+function TickerTape() {
+  const text = TICKER_ITEMS.join('   ·   ');
+  const doubled = text + '   ·   ' + text; // seamless loop
+  return (
+    <div
+      style={{
+        overflow: 'hidden',
+        borderBottom: '1px solid #0a1e30',
+        background: '#010508',
+        height: 18,
+        display: 'flex',
+        alignItems: 'center',
+      }}
+    >
+      <span
+        style={{
+          display: 'inline-block',
+          whiteSpace: 'nowrap',
+          animation: 'fin-ticker 60s linear infinite',
+          fontSize: 9,
+          fontFamily: 'monospace',
+          letterSpacing: '0.12em',
+          textTransform: 'uppercase',
+          color: '#2d5a40',
+        }}
+      >
+        {doubled}
+      </span>
+    </div>
+  );
+}
+
 // ---- Phase display names -----------------------------------------------
 
 const PHASE_LABELS: Record<string, string> = {
@@ -72,10 +150,7 @@ function liquidityCost(card: CardData): number {
 
 // ---- Atoms --------------------------------------------------------------
 
-/**
- * Capital Reserve bar — glowing emerald, PS1 polygon style.
- * Uses solid color + box-shadow for the glow rather than gradients.
- */
+/** Capital Reserve bar — segmented blocks, glowing when healthy, pulsing when critical. */
 function CapitalBar({
   life,
   maxLife,
@@ -87,18 +162,26 @@ function CapitalBar({
 }) {
   const pct = maxLife > 0 ? Math.max(0, Math.min(100, (life / maxLife) * 100)) : 0;
   const color = pct > 50 ? '#00ff88' : pct > 25 ? '#ffd700' : '#ff3355';
-  const shadow = pct > 50
-    ? '0 0 8px #00ff8880, 0 0 2px #00ff88'
-    : pct > 25
-      ? '0 0 8px #ffd70080'
-      : '0 0 8px #ff335580';
+  const segments = compact ? 8 : 10;
+  const filled = Math.round((pct / 100) * segments);
+  const critical = pct <= 25;
 
   return (
-    <div className={`w-full ${compact ? 'h-2' : 'h-3'} border border-slate-700 bg-black/60`}>
-      <div
-        className="h-full transition-all duration-300"
-        style={{ width: `${pct}%`, background: color, boxShadow: shadow }}
-      />
+    <div
+      className={`flex gap-px w-full ${compact ? 'h-2' : 'h-3'}`}
+      style={critical ? { animation: 'fin-capital-danger 1.2s ease-in-out infinite' } : {}}
+    >
+      {Array.from({ length: segments }).map((_, i) => (
+        <div
+          key={i}
+          className="flex-1 h-full transition-all duration-300"
+          style={{
+            background: i < filled ? color : '#0a100a',
+            border: `1px solid ${i < filled ? color + '50' : '#141f14'}`,
+            boxShadow: i < filled ? `0 0 3px ${color}50` : 'none',
+          }}
+        />
+      ))}
     </div>
   );
 }
@@ -161,7 +244,13 @@ function TraderTile({
         ${tapped ? 'opacity-60 rotate-6' : ''}
       `}
       title="Right-click to inspect"
-      style={{ minWidth: 100, maxWidth: 130 }}
+      style={{
+        minWidth: 100,
+        maxWidth: 130,
+        backgroundImage: !isMe
+          ? 'repeating-linear-gradient(135deg, transparent 0px, transparent 8px, rgba(239,68,68,0.03) 8px, rgba(239,68,68,0.03) 9px)'
+          : undefined,
+      }}
     >
       {attackerBadge && (
         <div className="absolute -top-2 left-1/2 -translate-x-1/2 border border-yellow-400 bg-yellow-900/80 px-1 text-[8px] font-black uppercase tracking-wider text-yellow-200">
@@ -651,10 +740,13 @@ export function FinanceGameBoard({
     return m;
   }, [gameState.battlefield]);
 
-  // Selectable IDs — my attackers I can choose, or opp targets
+  // Selectable IDs — attack declaration is only valid during TRADING_SESSION
+  // (engine reads attackers_declared before Settlement starts; anything declared
+  // in Settlement is wiped at the next turn's start and has no effect).
+  const inTradingSession = currentPhase === 'TRADING_SESSION' || currentPhase === 'PRECOMBAT_MAIN';
   const selectableMyTraders = useMemo(
-    () => new Set(isMyTurn && !isCombatBlockStep ? myTraders.filter(canAttack).map((c) => c.id) : []),
-    [isMyTurn, isCombatBlockStep, myTraders, canAttack],
+    () => new Set(isMyTurn && !isCombatBlockStep && inTradingSession ? myTraders.filter(canAttack).map((c) => c.id) : []),
+    [isMyTurn, isCombatBlockStep, inTradingSession, myTraders, canAttack],
   );
 
   const selectableOppTraders = useMemo(
@@ -709,8 +801,26 @@ export function FinanceGameBoard({
   return (
     <div
       className="min-h-screen text-slate-100 selection:bg-sky-700/30 font-mono"
-      style={{ background: '#03080f' }}
+      style={{ background: '#03080f', position: 'relative' }}
     >
+      <FinanceCSSInjector />
+
+      {/* CRT scanline overlay — very subtle repeating horizontal lines */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          inset: 0,
+          pointerEvents: 'none',
+          zIndex: 9999,
+          backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px)',
+          backgroundSize: '100% 4px',
+        }}
+      />
+
+      {/* Price ticker */}
+      <TickerTape />
+
       <div className="grid min-h-screen grid-rows-[auto_1fr_auto] gap-2 p-3">
 
         {/* === TOP HEADER BAR === */}
@@ -751,28 +861,43 @@ export function FinanceGameBoard({
           {/* Center: Phase + turn */}
           <div
             className="flex flex-col items-center justify-center gap-1 border px-6 py-2"
-            style={{ borderColor: '#1a3a5c', background: '#040d1a' }}
+            style={{
+              borderColor: isMyTurn ? '#1a4a3a' : '#1a3a5c',
+              background: '#040d1a',
+              transition: 'border-color 0.4s',
+            }}
           >
             <div className="text-[8px] uppercase tracking-[0.35em] text-slate-500">PHASE</div>
             <div
               className="text-sm font-black uppercase tracking-widest"
               style={{
                 color: isMyTurn ? '#00ff88' : '#6b8fa8',
-                textShadow: isMyTurn ? '0 0 8px #00ff8860' : 'none',
+                animation: isMyTurn ? 'fin-phase-pulse 2.5s ease-in-out infinite' : 'none',
               }}
             >
               {phaseLabel}
             </div>
-            <div className="text-[9px] uppercase tracking-wider text-slate-500">
+            <div
+              className="text-[9px] uppercase tracking-wider"
+              style={{
+                color: isMyTurn ? '#00cc66' : '#4a6a7a',
+                letterSpacing: '0.25em',
+              }}
+            >
               TURN {gameState.turn_number}
             </div>
             {selectedAttackerId && (
               <button
                 onClick={handleAttackPlayer}
-                className="mt-1 border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest transition hover:brightness-125"
-                style={{ borderColor: '#ef4444', color: '#ef4444', background: '#1a0505' }}
+                className="mt-1 border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest"
+                style={{
+                  borderColor: '#ef4444',
+                  color: '#ef4444',
+                  background: '#1a0505',
+                  animation: 'fin-atk-bounce 0.8s ease-in-out infinite',
+                }}
               >
-                ATTACK DIRECT
+                ⚔ ATTACK DIRECT
               </button>
             )}
           </div>
@@ -805,7 +930,7 @@ export function FinanceGameBoard({
                   borderColor: isMyTurn ? '#00ff88' : '#0a3020',
                   color: isMyTurn ? '#00ff88' : '#0a3020',
                   background: '#03080f',
-                  boxShadow: isMyTurn ? '0 0 8px #00ff8830' : 'none',
+                  animation: isMyTurn ? 'fin-end-turn-glow 2s ease-in-out infinite' : 'none',
                 }}
               >
                 CLOSE MARKET
@@ -870,7 +995,8 @@ export function FinanceGameBoard({
               style={{
                 borderColor: darkPoolActive ? '#7c3aed' : '#1a1230',
                 background: darkPoolActive ? '#0d0820' : '#02030a',
-                boxShadow: darkPoolActive ? '0 0 12px #7c3aed40' : 'none',
+                animation: darkPoolActive ? 'fin-pool-throb 2s ease-in-out infinite' : 'none',
+                transition: 'border-color 0.4s, background 0.4s',
               }}
             >
               <div
@@ -883,10 +1009,10 @@ export function FinanceGameBoard({
                 className="text-[11px] font-black uppercase tracking-widest"
                 style={{ color: darkPoolActive ? '#c4b5fd' : '#3d2b6a' }}
               >
-                {darkPoolActive ? '● ACTIVE' : '○ VACANT'}
+                {darkPoolActive ? '▮ ACTIVE' : '▯ VACANT'}
               </div>
               {darkPoolActive && (
-                <div className="mt-1 text-[9px] uppercase tracking-wide text-violet-300/60">
+                <div className="mt-1 text-[9px] uppercase tracking-wide" style={{ color: '#7c3aed90' }}>
                   Triggers on opponent's Trading Session
                 </div>
               )}
@@ -950,7 +1076,10 @@ export function FinanceGameBoard({
             {/* Trading Floor center label */}
             <div
               className="border px-3 py-1.5 text-center"
-              style={{ borderColor: '#0d2a45', background: '#020b16' }}
+              style={{
+                borderColor: '#0d2a45',
+                background: 'repeating-linear-gradient(90deg, #020b16 0px, #020b16 39px, #040f1c 39px, #040f1c 40px), repeating-linear-gradient(0deg, #020b16 0px, #020b16 19px, #040f1c 19px, #040f1c 20px)',
+              }}
             >
               <div className="text-[9px] uppercase tracking-[0.4em] text-slate-600">
                 ─── TRADING FLOOR ───
@@ -999,27 +1128,45 @@ export function FinanceGameBoard({
           <aside className="space-y-3 overflow-y-auto">
             <section
               className="border p-3"
-              style={{ borderColor: '#1a2a3a', background: '#030a12' }}
+              style={{ borderColor: '#0e2030', background: '#020810' }}
             >
-              <div className="mb-2 text-[9px] font-bold uppercase tracking-[0.25em] text-slate-500">
-                MARKET FEED
+              <div className="mb-2 flex items-center gap-2">
+                <div className="text-[9px] font-bold uppercase tracking-[0.25em] text-slate-500">
+                  MARKET FEED
+                </div>
+                <div
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ background: '#00ff88', boxShadow: '0 0 4px #00ff88', animation: 'fin-capital-danger 2s ease-in-out infinite' }}
+                />
               </div>
-              <ul className="max-h-80 space-y-1 overflow-y-auto text-[10px] text-slate-400">
+              <ul className="max-h-80 space-y-0.5 overflow-y-auto">
                 {(gameState.game_log || [])
                   .slice(-16)
                   .reverse()
                   .map((entry, idx) => (
                     <li
                       key={`${entry.timestamp ?? idx}-${idx}`}
-                      className="border-l-2 pl-2"
-                      style={{ borderColor: '#1a3a5c' }}
+                      className="flex gap-2 border-l-2 pl-2 py-0.5"
+                      style={{
+                        borderColor: idx === 0 ? '#00ff8840' : '#0e2030',
+                        background: idx === 0 ? '#010f06' : 'transparent',
+                      }}
                     >
-                      <span className="text-sky-700">T{entry.turn}</span>{' '}
-                      <span className="text-slate-300">{entry.text}</span>
+                      <span
+                        className="shrink-0 font-black tabular-nums"
+                        style={{ fontSize: 9, color: '#004d26', letterSpacing: '0.1em' }}
+                      >
+                        T{entry.turn}
+                      </span>
+                      <span style={{ fontSize: 10, color: idx === 0 ? '#94a3b8' : '#475569', lineHeight: 1.4 }}>
+                        {entry.text}
+                      </span>
                     </li>
                   ))}
                 {(!gameState.game_log || gameState.game_log.length === 0) && (
-                  <li className="text-slate-700">No transactions yet.</li>
+                  <li style={{ fontSize: 10, color: '#1e3a2a', fontFamily: 'monospace' }}>
+                    — awaiting first transaction —
+                  </li>
                 )}
               </ul>
             </section>

@@ -48,6 +48,29 @@ Aggressive tempo deck built around Alpha Strike chip damage. 2-cost Trader chass
 
 ## Iteration log
 
+- **2026-05-09 (P2b iter-3 double, vs FINA_derivatives — valid two-pilot)**: **Won T13**; P1=9, P2=−4. P2 died at MARKET_CLOSE T13 from leverage tick (2-2=0). First fully valid HF vs Derivatives two-pilot game. Key findings:
+  - **FCB+TTD post-Bug-30-fix = 5-power Alpha Striker.** Bug 30 fixed: TTD no longer double-stacks alpha with native Alpha Strike Traders. FCB+TTD = 2 base + 3 alpha (not 8). Still the strongest T5 play in the deck: 5-power must-answer attacker for 3 total mana.
+  - **Attach TTD to non-alpha bodies when possible.** Post-fix, TTD on FCB/FCE is redundant bonus-wise. Best targets: high-power non-alpha bodies (LA 3/1, FRA 2/1). TTD adds alpha where there was none.
+  - **Leverage kill-clock confirmed as HF secondary win condition.** P2 Σlev reached 5 by T8 (UAR+Rho+GS), draining 5 capital/turn. Hold 1 Trader back when opponent Σlev ≥ 3 AND capital ≤ 10 — tick closes in 3-4 turns without combat.
+  - **Block command still broken for P2 (Bug 28).** FCB unblocked T5-T9. HF exploits fully in current two-pilot mode.
+  - **DMA persistence confirmed NOT a factor.** LA's 6/1 at T13 was LA's own native alpha (+3 solo), not DMA. Bug 21 (DMA = 1-turn ETB spike) confirmed.
+  - Pilot A report: `logs/finance_ultra_iter3_double_pilotA.md`.
+
+- **2026-05-09 (P2b iter-2 double, vs FINA_derivatives — Pilot A only, Pilot B invalid)**: **Won T11**; P1=30, P2≤0. Two-pilot mode with no active Pilot B — P2 deployed ZERO Traders. Not a valid matchup test; valid for HF plan execution only. Key findings:
+  - **Bug 26 FIXED: TTD alpha-strike grant was ephemeral.** Original code set `fin_alpha_strike_granted_` in `turn_data` on ETB; flag cleared at each Market Close. TTD was effectively a 1-turn Alpha grant. Fixed with persistent ATTACK_DECLARED interceptor. See `_ticker_tape_derivative_setup` in `high_frequency.py`.
+  - **Solo alpha is superior to multi-attack in T1-T6 with no blockers.** T5 two-body multi-attack (FRA+RFC, neither alone) dealt 3 face vs T3 solo alpha (RFC=4) and T7 solo alpha (FRA=5). Prefer solo alpha when <4 Traders are live.
+  - **4-Trader board closes ≤11 capital in one swing.** FCE(3)+FRA(2)+FCB(2)+RFC(1)=8 minimum unblocked. Add QSB for ≤11 close.
+  - **QSB as finisher: declare buffed Trader first.** Bug 22 still applies — QSB buffed RFC (1/1) instead of FCE (3/2). Adaptation: identify the buffed Trader post-cast and declare it first in multi-attack order to extract alpha-range damage.
+  - **State file coordination is a known harness issue (Bug 26b).** Pilot B operated on wrong pickle. Harness now prints save path clearly at `start` and `state` commands to prevent recurrence.
+  - Pilot A report: `logs/finance_ultra_iter2_double_pilotA.md`.
+
+- **2026-05-09 (P2b iter-1 double, vs FINA_derivatives)**: **Won T10**; P1=10, P2=−1. P2 died at MARKET_CLOSE from Σlev=3 leverage tick. Key findings:
+  - **Track opponent Σlev for kill-clock timing.** At T10 P2 had Σlev=3 (UAR Lev1 + DH Lev2) and capital=2. MC tick = 3 → P2 died without needing a final combat attack. When opponent Σlev ≥ 3 AND capital ≤ 5, hold 1 Trader back and let the tick finish the game. Reduces unnecessary Trader deaths in blocked combat.
+  - **Sequential alpha-strike sequence confirmed.** Declare FCE/FRA first (solo call → alpha fires), then append RFCs. T7 verified: FCE(6)+FRA(2)+RFC(1)+RFC(1) = 10 face. T5 verified: FRA(5)+RFC(1)+RFC(1) = 7 face.
+  - **Multi-turn flood plan executed.** 3 RFCs by T3, FRA T5, FCE T7 = 5 Traders by T7. Flood first, attack every turn.
+  - **DMA not drawn.** Win achieved via flood + leverage tick assist without DMA. Confirms Plan A is not solely DMA-dependent; raw flood + opponent self-damage is a valid close.
+  - Pilot report: `logs/finance_ultra_iter1_double_pilotA.md`.
+
 - **2026-05-08 (iter-1 v2, post 20-bug-fix batch)**: vs FINA_quant (LLM Pilot B). **Effective Quant win — stalled at T26**; final P1=20, P2=11 (HF leading capital but traderless, Quant has 5 Traders incl. 3/5 Monopoly Position). Predicted finish T30-T32. Key findings:
   - **Hypothesis "HF can stall against Quant" REJECTED.** With walls now actually holding (bug 1 fix) and RM Arb-heal recurring, HF chipped Quant from 30→11 in 23 turns (19% better than v1's 30→18) but ran out of Traders — hand starvation T23+ left HF with only DPFO/LLS/TTD/QSB (all unplayable in zero-Trader hand). HF must close before T20 or grind to defeat.
   - **Bug 1 fix CONFIRMED.** PT 2/3 took 2 dmg and survived T7. RM 1/4 took 2 dmg and survived T19 with Arb-heal.
