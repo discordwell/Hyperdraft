@@ -258,6 +258,11 @@ class Game:
                     card_def=card_def
                 )
 
+    def setup_finance_player(self, player: Player) -> None:
+        """Set up a Finance TCG player (Capital Reserve=30, Liquidity=0)."""
+        from .finance import setup_finance_player
+        setup_finance_player(self, player)
+
     def setup_minecraft_player(self, player: Player, deck: list = None):
         """
         Set up a Minecraft TCG player with avatar health, materials, biomes,

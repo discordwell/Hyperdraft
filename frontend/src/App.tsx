@@ -15,6 +15,7 @@ const HSGameView = lazy(() => import('./pages/HSGameView'));
 const PKMGameView = lazy(() => import('./pages/PKMGameView'));
 const YGOGameView = lazy(() => import('./pages/YGOGameView').then(m => ({ default: m.YGOGameView })));
 const MCGameView = lazy(() => import('./pages/MCGameView'));
+const FinanceGameView = lazy(() => import('./pages/FinanceGameView').then(m => ({ default: m.FinanceGameView })));
 const SpectatorView = lazy(() => import('./pages/SpectatorView'));
 const ReplayView = lazy(() => import('./pages/ReplayView'));
 const Deckbuilder = lazy(() => import('./pages/Deckbuilder'));
@@ -44,9 +45,11 @@ export function App() {
           <Route path="/game/:matchId/pkm" element={<PKMGameView />} />
           <Route path="/game/:matchId/ygo" element={<YGOGameView />} />
           <Route path="/game/:matchId/mc" element={<MCGameView />} />
+          <Route path="/game/:matchId/fin" element={<FinanceGameView />} />
           <Route path="/spectate/:gameId" element={<SpectatorView />} />
           <Route path="/replay/:gameId" element={<ReplayView />} />
           <Route path="/deckbuilder" element={<Deckbuilder />} />
+          <Route path="/deckbuilder/:game" element={<Deckbuilder />} />
           <Route path="/gatherer" element={<Gatherer />} />
           <Route path="/pokemon-gatherer" element={<PokemonGatherer />} />
           <Route path="/demo/phyrexian-frame" element={<PhyrexianFrameDemo />} />
