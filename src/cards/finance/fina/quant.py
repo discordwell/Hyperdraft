@@ -556,16 +556,36 @@ CORRELATION_TRADER = make_trader(
 )
 
 
-# --- Pairs Trader {3} 2/3 — Arbitrage 2. When this enters, if Arbitrage triggers, gain 2 Liquidity this turn. ---
+# --- Pairs Trader {3} 2/3 — Arbitrage 2. When this attacks, gain 4 Liquidity this turn. ---
 def _pairs_trader_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        if _player_leads_traders_strict(state, obj.controller):
-            # Arbitrage 2 fires, then the bonus 2 Liquidity on top
-            _gain_liquidity(state, obj.controller, 2)  # arb 2
-            _gain_liquidity(state, obj.controller, 2)  # bonus
-        return []
+    # Bug #33: previously gained Liquidity on ETB via two _gain_liquidity calls
+    # (Arb 2 + bonus 2). Card text says "when this attacks". Pilot A T9/T11
+    # confirmed casting PT did not move Liquidity (full-cap masked the ETB
+    # gain), then attacking PT also did nothing. Fix: rebuild as an
+    # ATTACK_DECLARED REACT trigger filtered to obj.id, mirroring
+    # _smart_beta_strategist_setup above. Effect: +4 Liquidity each time PT
+    # attacks (Arb 2 baseline 2 + bonus 2 = 4 total per attack).
+    def attack_filter(event: Event, state: GameState) -> bool:
+        return (
+            event.type == EventType.ATTACK_DECLARED
+            and event.payload.get("attacker_id") == obj.id
+        )
 
-    return [make_etb_trigger(obj, effect_fn)]
+    def attack_effect(event: Event, state: GameState) -> InterceptorResult:
+        if _player_leads_traders_strict(state, obj.controller):
+            _gain_liquidity(state, obj.controller, 4)
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+    attack_interceptor = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=attack_effect,
+        duration="while_on_battlefield",
+    )
+    return [attack_interceptor]
 
 
 PAIRS_TRADER = make_trader(
@@ -573,7 +593,7 @@ PAIRS_TRADER = make_trader(
     cost="{3}",
     power=2,
     toughness=3,
-    text="Arbitrage 2. When this enters, if Arbitrage triggers, gain 2 Liquidity this turn.",
+    text="Arbitrage 2. When this attacks, gain 4 Liquidity this turn.",
     rarity="uncommon",
     setup_interceptors=_pairs_trader_setup,
 )

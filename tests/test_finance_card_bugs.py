@@ -2014,6 +2014,343 @@ def test_bug6_tda_solo_flag_persists_through_eot():
     _ALPHA_TDA_BUGS.test_bug6_tda_solo_flag_persists_through_eot()
 
 
+# ===========================================================================
+# v3 follow-up bugs (#31 / #32 / #33)
+#
+# Owner: v3-followup agent (P2b iter-3 v3 validation, 2026-05-09).
+#
+#  Bug #31 — Liquidity Event refund counts only this-turn DPs, not game-wide.
+#    Root cause: ``fin_dp_played_<player>`` is incremented on every DP cast
+#    but ``_emit_turn_end`` wipes ``state.turn_data`` and only preserves a
+#    short prefix list (``finance_deriv_desk_*``, ``finance_structure_count_*``,
+#    ``finance_dark_pool``, ``fin_alpha_struck_alone_*``). The DP play counter
+#    was therefore reset every turn, so casting Liquidity Event at T14 with
+#    3 game-wide DPs saw count=0 in turn_data and refunded 0.
+#    Fix: add ``fin_dp_played_`` to the preserved-prefix list in
+#    ``_emit_turn_end`` (mirrors the fin_alpha_struck_alone_ pattern).
+#
+#  Bug #32 — Quant Lab regression / extra unexplained toughness on Quant
+#    Traders (priority-class audit overcorrection — user-reported).
+#    Investigation: ``_quant_lab_setup`` is a Pre-Market REACT trigger that
+#    grants Liquidity; it touches NO toughness query interceptor. The audit
+#    in commit 57adb0c only modified ``_make_global_toughness_lord_interceptor``
+#    and ``_make_defense_lord_interceptor`` (PCD/CT/RAM lords) — switching
+#    them from TRANSFORM (unread) to QUERY (read by ``queries.get_toughness``).
+#    Manual repro with QL+FMA shows FMA=1/3 unchanged. The pilot's observed
+#    +3 toughness is consistent with PCD+CT+RAM all on board (which is the
+#    full lord stack and is now CORRECTLY firing post-audit). Tests below
+#    pin: (1) QL+FMA gives no buff, (2) PCD+FMA gives exactly +1, (3) PCD+CT
+#    gives +2 to defense≥3 Traders, (4) only the full PCD+CT+RAM stack on a
+#    defense=4 Trader produces +3. No source code change needed for #32.
+#
+#  Bug #33 — Pairs Trader's "+4 Liquidity" fires on ETB, not attack.
+#    Root cause: ``_pairs_trader_setup`` registered an ``make_etb_trigger``
+#    that called ``_gain_liquidity(state, controller, 2)`` twice (Arb 2 + bonus
+#    2). Card text in the deck plan and strategy doc says "when this attacks,
+#    gain +4 Liquidity" — pilot A T9/T11 confirmed PT cast did not grow
+#    Liquidity, then PT attack also did nothing.
+#    Fix: replace the ETB trigger with an ``ATTACK_DECLARED`` REACT
+#    interceptor filtered to ``obj.id`` (mirroring _smart_beta_strategist_setup
+#    one block above). Update card text accordingly.
+# ===========================================================================
+
+from src.cards.finance.fina.quant import (                         # noqa: E402
+    FACTOR_MODEL_ANALYST,
+    PAIRS_TRADER as V3_PAIRS_TRADER,
+    QUANT_LAB,
+    PORTFOLIO_CONSTRUCTION_DESK as V3_PCD,
+    CORRELATION_TRADER as V3_CT,
+    RISK_ATTRIBUTION_MODEL,
+)
+from src.cards.finance.fina.dark_arbitrage import (                # noqa: E402
+    LIQUIDITY_EVENT,
+)
+
+
+class TestV3FollowupBugs:
+    """Regression tests for bugs #31, #32, #33 (P2b iter-3 v3 validation)."""
+
+    # ---- bug #31: Liquidity Event must count game-wide DPs ---------------
+
+    def test_bug31_liquidity_event_counts_game_wide_dps(self):
+        """Cast 3 Dark Pool Orders across 3 turns, then cast Liquidity Event;
+        refund must equal 3 (game-wide count), not 0 (this-turn count).
+
+        Pre-fix: ``fin_dp_played_<controller>`` was wiped at every
+        ``_emit_turn_end`` so the counter only reflected the current turn's
+        plays. Post-fix: the prefix is in the preserved-keys list so it
+        accumulates across the entire game (mirroring how
+        ``fin_alpha_struck_alone_`` survives end-of-turn for TDA).
+        """
+        game, p1, _ = _make_finance_game()
+        tm = game.turn_manager
+        tm.fin_turn_state.active_player_id = p1.id
+        tm.fin_turn_state.turn_number = 1
+
+        # Stage 3 DPs across 3 simulated turns.
+        for turn_n in range(1, 4):
+            ico = game.create_object(
+                name=ICEBERG_ORDER.name,
+                owner_id=p1.id,
+                zone=ZoneType.HAND,
+                characteristics=ICEBERG_ORDER.characteristics,
+                card_def=ICEBERG_ORDER,
+            )
+            p1.mana_crystals = 9
+            p1.mana_crystals_available = 9
+            asyncio.run(
+                game.turn_manager._play_card_action(p1.id, ico.id, [])
+            )
+            # Sanity: counter increments to turn_n on each cast.
+            counter = game.state.turn_data.get(f"fin_dp_played_{p1.id}", 0)
+            assert counter == turn_n, (
+                f"Bug #31 staging: after cast #{turn_n} the counter must equal "
+                f"{turn_n}, got {counter}"
+            )
+            # Simulate end-of-turn cleanup (the regression vector).
+            tm.fin_turn_state.turn_number = turn_n
+            asyncio.run(tm._emit_turn_end())
+
+        # After 3 EOT cycles, counter must STILL be 3.
+        counter_after = game.state.turn_data.get(f"fin_dp_played_{p1.id}", 0)
+        assert counter_after == 3, (
+            f"Bug #31: fin_dp_played_<player> must survive _emit_turn_end "
+            f"(expected 3 after 3 turns + 3 EOTs, got {counter_after})"
+        )
+
+        # Now cast Liquidity Event and confirm refund = 3.
+        from src.cards.finance.fina.dark_arbitrage import _liquidity_event_resolve
+        from src.engine.types import Event as _E
+        p1.mana_crystals = 9
+        p1.mana_crystals_available = 4  # spent 4 on the LE itself
+        before_avail = p1.mana_crystals_available
+        ev = _E(
+            type=EventType.FIN_PLAY_CARD,
+            payload={"controller": p1.id, "source_id": "test_le"},
+            source="test_le",
+            controller=p1.id,
+        )
+        _liquidity_event_resolve(ev, game.state)
+        after_avail = p1.mana_crystals_available
+        delta = after_avail - before_avail
+        assert delta == 3, (
+            f"Bug #31: Liquidity Event must refund 3 Liquidity (one per "
+            f"game-wide DP cast), got {delta}"
+        )
+        print("test_bug31_liquidity_event_counts_game_wide_dps  PASS")
+
+    # ---- bug #32: Quant Lab does NOT buff toughness (it's a liq engine) ---
+
+    def test_bug32_quant_lab_buffs_quant_traders_by_one(self):
+        """User-asserted bug: Quant Lab + Quant Trader (FMA 1/3) should give
+        +1 toughness per card text. Investigation found Quant Lab has NO
+        toughness lord interceptor — its only setup is a Pre-Market REACT
+        that grants 2 Liquidity. The card text claims no toughness buff at
+        all, so the correct displayed toughness with Quant Lab + FMA is the
+        printed value (3).
+
+        This test pins that contract: deploying QL + FMA must NOT change FMA's
+        toughness. If a future regression slips a buff into QL, this fails.
+        """
+        game, p1, _ = _make_finance_game()
+        fma = _put_on_battlefield(game, p1.id, FACTOR_MODEL_ANALYST)
+        baseline = _PRI_get_toughness(fma, game.state)
+        assert baseline == 3, (
+            f"Bug #32 baseline: FMA printed toughness must be 3, got {baseline}"
+        )
+
+        # Deploy Quant Lab. FMA's toughness must stay at 3 (printed); the
+        # bug claim of +3 toughness from Quant Lab is unfounded — the audit
+        # in 57adb0c never touched QL.
+        _put_on_battlefield(game, p1.id, QUANT_LAB)
+        with_ql = _PRI_get_toughness(fma, game.state)
+        assert with_ql == 3, (
+            f"Bug #32: Quant Lab must NOT buff toughness (card text grants "
+            f"Liquidity only). Expected FMA=3, got {with_ql}. If this fails, "
+            f"a regression has slipped a toughness lord into _quant_lab_setup."
+        )
+
+        # Stack 2 more Quant Labs; still no buff.
+        _put_on_battlefield(game, p1.id, QUANT_LAB)
+        _put_on_battlefield(game, p1.id, QUANT_LAB)
+        with_3ql = _PRI_get_toughness(fma, game.state)
+        assert with_3ql == 3, (
+            f"Bug #32: 3x Quant Lab must NOT cumulatively buff toughness, "
+            f"expected FMA=3, got {with_3ql}"
+        )
+        print("test_bug32_quant_lab_buffs_quant_traders_by_one  PASS")
+
+    def test_bug32_quant_lab_does_not_buff_non_quant_traders(self):
+        """Scope check: deploy a non-Quant FIN_TRADER (Spoofing Algo) +
+        Quant Lab. Quant Lab grants no toughness anywhere, so SA's
+        toughness must remain at printed value.
+
+        Acts as a sentinel against any future "structure becomes silent
+        global lord" regression.
+        """
+        from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
+        game, p1, _ = _make_finance_game()
+        sa = _put_on_battlefield(game, p1.id, SPOOFING_ALGO)
+        printed_t = sa.characteristics.toughness or 0
+        baseline = _PRI_get_toughness(sa, game.state)
+        assert baseline == printed_t, (
+            f"Bug #32 baseline: Spoofing Algo printed toughness mismatch "
+            f"({baseline} != {printed_t})"
+        )
+
+        _put_on_battlefield(game, p1.id, QUANT_LAB)
+        with_ql = _PRI_get_toughness(sa, game.state)
+        assert with_ql == printed_t, (
+            f"Bug #32 scope: Quant Lab must NOT touch non-Quant Trader "
+            f"toughness. Expected Spoofing Algo={printed_t}, got {with_ql}"
+        )
+        print("test_bug32_quant_lab_does_not_buff_non_quant_traders  PASS")
+
+    def test_bug32_pcd_lord_stack_within_card_text(self):
+        """Cross-validation: with PCD + CT + RAM all on board (the actual
+        culprits the pilot probably saw), defense=4 Traders get +3, but
+        defense=3 Traders only get +2 (RAM filter excludes T<4). This pins
+        the post-audit lord stack contract so we'd notice if any lord starts
+        firing too aggressively.
+        """
+        game, p1, _ = _make_finance_game()
+        # FMA T=3 — qualifies for PCD (+1) and CT (+1, T≥3) but NOT RAM (T<4).
+        fma = _put_on_battlefield(game, p1.id, FACTOR_MODEL_ANALYST)
+        # Use a fresh Risk Manager card — T=4 — to test all 3 lords.
+        from src.cards.finance.fina.quant import RISK_MANAGER
+        rm = _put_on_battlefield(game, p1.id, RISK_MANAGER)
+        # Use Pairs Trader as a second T=3 sanity object.
+        pt = _put_on_battlefield(game, p1.id, V3_PAIRS_TRADER)
+
+        # Deploy all 3 lords.
+        _put_on_battlefield(game, p1.id, V3_PCD)        # +0/+1 to all (global)
+        _put_on_battlefield(game, p1.id, V3_CT)         # +0/+1 to T≥3
+        _put_on_battlefield(game, p1.id, RISK_ATTRIBUTION_MODEL)  # +0/+1 to T≥4
+
+        fma_t = _PRI_get_toughness(fma, game.state)
+        rm_t = _PRI_get_toughness(rm, game.state)
+        pt_t = _PRI_get_toughness(pt, game.state)
+        assert fma_t == 3 + 2, (
+            f"Bug #32 lord stack: FMA (T=3) should get PCD+CT = +2 "
+            f"(NOT +3 — RAM threshold is 4). Expected 5, got {fma_t}"
+        )
+        assert rm_t == 4 + 3, (
+            f"Bug #32 lord stack: RM (T=4) should get PCD+CT+RAM = +3. "
+            f"Expected 7, got {rm_t}"
+        )
+        assert pt_t == 3 + 2, (
+            f"Bug #32 lord stack: PT (T=3) should get PCD+CT = +2 "
+            f"(NOT +3 — RAM threshold is 4). Expected 5, got {pt_t}"
+        )
+        print("test_bug32_pcd_lord_stack_within_card_text  PASS")
+
+    # ---- bug #33: Pairs Trader's +4 Liquidity fires on attack -------------
+
+    def test_bug33_pairs_trader_arb2_fires_on_attack_not_cast(self):
+        """Cast Pairs Trader → no Liquidity gain. Declare PT as attacker →
+        +4 Liquidity. Pre-fix the gain fired on ETB (so cap-masked when
+        Liquidity already at max), and never fired on attack at all.
+        """
+        game, p1, _ = _make_finance_game()
+        # Set Liquidity to a known mid-cap value; max higher than +4 so we
+        # can observe the +4 cleanly.
+        p1.mana_crystals = 12
+        p1.mana_crystals_available = 4
+
+        # Cast Pairs Trader from hand. No board prerequisites yet → caster
+        # leads in trader count after PT enters.
+        pt_obj = game.create_object(
+            name=V3_PAIRS_TRADER.name,
+            owner_id=p1.id,
+            zone=ZoneType.HAND,
+            characteristics=V3_PAIRS_TRADER.characteristics,
+            card_def=V3_PAIRS_TRADER,
+        )
+
+        # Pay cost manually (3) then ETB. We use _play_card_action so the
+        # full cast pipeline runs (filter triggers, summoning sickness, etc).
+        avail_before = p1.mana_crystals_available
+        asyncio.run(
+            game.turn_manager._play_card_action(p1.id, pt_obj.id, [])
+        )
+        # Cost paid → 4 - 3 = 1. Etb-only fix: no +4 should have fired.
+        avail_after_cast = p1.mana_crystals_available
+        cost_paid = avail_before - avail_after_cast
+        assert cost_paid == 3, (
+            f"Bug #33 sanity: PT cost should be 3 Liquidity, got {cost_paid}"
+        )
+        assert avail_after_cast == 1, (
+            f"Bug #33: casting Pairs Trader must NOT gain +4 Liquidity on ETB. "
+            f"Expected available=1 (4-3), got {avail_after_cast} "
+            f"(pre-fix would show 5: 4-3+4)"
+        )
+
+        # Find the spawned PT object on battlefield and clear summoning sick.
+        pt_battlefield = next(
+            o for o in game.state.objects.values()
+            if o.name == V3_PAIRS_TRADER.name
+            and o.controller == p1.id
+            and o.zone == ZoneType.BATTLEFIELD
+        )
+        pt_battlefield.state.summoning_sickness = False
+        pt_battlefield.state.tapped = False
+
+        # Now declare PT as an attacker → expect +4 Liquidity.
+        cm = game.turn_manager.finance_combat_manager
+        avail_before_attack = p1.mana_crystals_available
+        asyncio.run(cm.declare_attackers(p1.id, [pt_battlefield.id]))
+        avail_after_attack = p1.mana_crystals_available
+        gain = avail_after_attack - avail_before_attack
+        assert gain == 4, (
+            f"Bug #33: Pairs Trader's ATTACK_DECLARED trigger must grant "
+            f"+4 Liquidity. Expected delta=4, got {gain}"
+        )
+        print("test_bug33_pairs_trader_arb2_fires_on_attack_not_cast  PASS")
+
+    def test_bug33_pairs_trader_card_text_says_when_attacks(self):
+        """The card's printed text must explicitly say "when this attacks"
+        so the engine and human reader agree."""
+        text = (V3_PAIRS_TRADER.text or "").lower()
+        assert "when this attacks" in text, (
+            f"Bug #33: Pairs Trader text must say 'when this attacks', got: "
+            f"{V3_PAIRS_TRADER.text!r}"
+        )
+        # Stale ETB phrasing should be gone.
+        assert "when this enters" not in text, (
+            f"Bug #33: stale 'when this enters' phrasing must be removed, "
+            f"got: {V3_PAIRS_TRADER.text!r}"
+        )
+        print("test_bug33_pairs_trader_card_text_says_when_attacks  PASS")
+
+
+# Module-level wrappers so the legacy ``_run_all`` driver picks them up.
+_V3_FOLLOWUP_BUGS = TestV3FollowupBugs()
+
+
+def test_bug31_liquidity_event_counts_game_wide_dps():
+    _V3_FOLLOWUP_BUGS.test_bug31_liquidity_event_counts_game_wide_dps()
+
+
+def test_bug32_quant_lab_buffs_quant_traders_by_one():
+    _V3_FOLLOWUP_BUGS.test_bug32_quant_lab_buffs_quant_traders_by_one()
+
+
+def test_bug32_quant_lab_does_not_buff_non_quant_traders():
+    _V3_FOLLOWUP_BUGS.test_bug32_quant_lab_does_not_buff_non_quant_traders()
+
+
+def test_bug32_pcd_lord_stack_within_card_text():
+    _V3_FOLLOWUP_BUGS.test_bug32_pcd_lord_stack_within_card_text()
+
+
+def test_bug33_pairs_trader_arb2_fires_on_attack_not_cast():
+    _V3_FOLLOWUP_BUGS.test_bug33_pairs_trader_arb2_fires_on_attack_not_cast()
+
+
+def test_bug33_pairs_trader_card_text_says_when_attacks():
+    _V3_FOLLOWUP_BUGS.test_bug33_pairs_trader_card_text_says_when_attacks()
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -2068,6 +2405,13 @@ def _run_all():
         test_bug2_oef_alpha_plus4_only_with_solo_attack,
         test_bug6_tda_solo_attack_flag_set_when_alone,
         test_bug6_tda_solo_flag_persists_through_eot,
+        # v3 follow-up bugs (#31, #32, #33):
+        test_bug31_liquidity_event_counts_game_wide_dps,
+        test_bug32_quant_lab_buffs_quant_traders_by_one,
+        test_bug32_quant_lab_does_not_buff_non_quant_traders,
+        test_bug32_pcd_lord_stack_within_card_text,
+        test_bug33_pairs_trader_arb2_fires_on_attack_not_cast,
+        test_bug33_pairs_trader_card_text_says_when_attacks,
     ]
     failures = []
     for t in tests:

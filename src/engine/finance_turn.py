@@ -269,9 +269,9 @@ class FinanceTurnManager(TurnManager):
                 obj_id = key.replace("short_sell_return_", "")
                 obj = self.state.objects.get(obj_id)
                 if obj and obj.zone == ZoneType.EXILE and obj.owner == player_id:
-                    # Determine counter count (default 2; Convexity Rider may set 3)
+                    # Determine counter count (default 1; Convexity Rider may set 2)
                     bonus_key = f"short_sell_bonus_counters_{obj_id}"
-                    counter_count = int(self.state.turn_data.pop(bonus_key, 2))
+                    counter_count = int(self.state.turn_data.pop(bonus_key, 1))
                     del self.state.turn_data[key]
                     # Return to battlefield
                     return_evt = Event(
@@ -286,29 +286,21 @@ class FinanceTurnManager(TurnManager):
                     if self._emit_pipeline:
                         self._emit_pipeline.emit(return_evt)
                     events.append(return_evt)
-                    # Apply +1/+1 counters directly (fallback if COUNTER_ADDED
-                    # is not yet processed for FIN objects)
-                    returned_obj = self.state.objects.get(obj_id)
-                    if returned_obj:
-                        returned_obj.state.counters["+1/+1"] = (
-                            returned_obj.state.counters.get("+1/+1", 0) + counter_count
-                        )
-                        returned_obj.characteristics.power = (
-                            (returned_obj.characteristics.power or 0) + counter_count
-                        )
-                        returned_obj.characteristics.toughness = (
-                            (returned_obj.characteristics.toughness or 0) + counter_count
-                        )
-                    for _ in range(counter_count):
-                        counter_evt = Event(
-                            type=EventType.COUNTER_ADDED,
-                            payload={
-                                "object_id": obj_id,
-                                "counter_type": "+1/+1",
-                                "amount": 1,
-                            },
-                        )
-                        events.append(counter_evt)
+                    # Apply +1/+1 counters via pipeline so _handle_counter_added
+                    # updates state.counters — get_power() adds counters on top of
+                    # characteristics.power, so we must NOT touch characteristics
+                    # here or the Trader gets double the boost (bug #19).
+                    counter_evt = Event(
+                        type=EventType.COUNTER_ADDED,
+                        payload={
+                            "object_id": obj_id,
+                            "counter_type": "+1/+1",
+                            "amount": counter_count,
+                        },
+                    )
+                    if self._emit_pipeline:
+                        self._emit_pipeline.emit(counter_evt)
+                    events.append(counter_evt)
                 else:
                     # Object not found or not in exile; clear the stale marker
                     del self.state.turn_data[key]
@@ -1348,6 +1340,12 @@ class FinanceTurnManager(TurnManager):
                 or k.startswith("finance_structure_count_")
                 or k == "finance_dark_pool"
                 or k.startswith("fin_alpha_struck_alone_")
+                # Bug #31: ``fin_dp_played_<player>`` tracks game-wide Dark Pool
+                # Order play count for cards like Liquidity Event whose payoff
+                # scales with total DPs cast over the entire game (not per-turn).
+                # Without preservation, the counter resets every turn and
+                # Liquidity Event always saw 0 (or just THIS turn's plays).
+                or k.startswith("fin_dp_played_")
             }
             self.state.turn_data.clear()
             self.state.turn_data.update(persistent)

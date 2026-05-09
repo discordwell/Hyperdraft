@@ -978,7 +978,7 @@ def _short_squeeze_resolve(event: Event, state: GameState) -> list[Event]:
 SHORT_SQUEEZE = make_strategy(
     "Short Squeeze",
     "{2}",
-    text="Short Selling — exile target Trader you control. Return it at the start of your next Pre-Market with two +1/+1 counters.",
+    text="Short Selling — exile target Trader you control. Return it at the start of your next Pre-Market with a +1/+1 counter.",
     resolve=_short_squeeze_resolve,
     rarity="uncommon",
 )
