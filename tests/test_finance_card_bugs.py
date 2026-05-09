@@ -2323,8 +2323,164 @@ class TestV3FollowupBugs:
         print("test_bug33_pairs_trader_card_text_says_when_attacks  PASS")
 
 
+# ===========================================================================
+# Iter-4 Pilot B reported "card-side" bugs (both turned out to be NOT bugs).
+#
+# Bug A — "Quant Lab grants extra toughness without lord stack." Pilot B saw
+#   FMA 1/7 / Clerk 1/4 with only QL on board. Investigation: Quant Lab has
+#   ONLY a Pre-Market REACT for Liquidity gain (lines 1454-1470 of quant.py).
+#   The audit commit 57adb0c only touched _make_defense_lord and
+#   _make_global_toughness_lord (used by PCD/CT/RAM), NOT _quant_lab_setup.
+#   ROOT CAUSE of Pilot B's observation: misattribution. The pilot likely had
+#   PCD or CT on board too (their reproduction line "P2 board = Clerk + FMA +
+#   Quant Lab + SAE" excludes lords, but the actual game log shows them
+#   playing FMA/Clerk over a longer span where lords likely were present).
+#   FIX: none (no bug). Tests below pin the QL-alone contract aggressively.
+#
+# Bug B — "TDT shows 5/3 instead of 4/3 with Lev 2." Pilot B assumed TDT base
+#   power == 2 (matching the printed "Leverage 2" text). ACTUAL TDT printed
+#   power == 3 (cyc3 buff: comment "power 2 → 3 (FIN_TRADER buff, power ≤ 3)"
+#   in derivatives.py line 485). With Lev 2 the displayed power should be
+#   3 + 2 = 5. So 5/3 is CORRECT, not buggy. Bug B is NOT real.
+#   FIX: none (no bug). Tests below pin TDT base 3/3 and the displayed 5/3.
+# ===========================================================================
+
+class TestIter4CardBugs:
+    """Regression tests for iter-4 Pilot B's two card-side reports.
+
+    Both reports turned out to be NOT bugs after investigation:
+    - Bug A: Quant Lab does NOT grant toughness — pilot misattributed.
+    - Bug B: TDT base is 3/3 (cyc3 buff), so 5/3 with Lev 2 is correct.
+
+    These tests pin the contracts aggressively so any future regression
+    that *does* slip a stat-altering interceptor into Quant Lab (or that
+    breaks TDT's Leverage power query) will fail loudly.
+    """
+
+    # ---- Bug A: Quant Lab alone must not change Trader toughness ---------
+
+    def test_iter4_quant_lab_alone_does_not_grant_toughness(self):
+        """Pilot B claim: FMA shows 1/7 with only Quant Lab on board (no
+        PCD/CT/RAM). Reproduce the exact "isolation" setup and verify FMA
+        stays at printed 1/3 (and Clerk stays at 1/2).
+
+        This is the iter-4 sibling of test_bug32_quant_lab_buffs_quant_traders
+        with a stricter board: ALSO put SAE on board (the 4th card from
+        Pilot B's repro line "Clerk + FMA + Quant Lab + SAE") to confirm
+        SAE has no toughness side-effect either.
+        """
+        from src.cards.finance.fina.quant import (
+            STATISTICAL_ARB_CLERK,
+            SYSTEMATIC_ALPHA_ENGINE,
+        )
+        game, p1, _ = _make_finance_game()
+
+        fma = _put_on_battlefield(game, p1.id, FACTOR_MODEL_ANALYST)
+        clerk = _put_on_battlefield(game, p1.id, STATISTICAL_ARB_CLERK)
+
+        # Baselines first — printed P/T must match.
+        fma_baseline = _PRI_get_toughness(fma, game.state)
+        clerk_baseline = _PRI_get_toughness(clerk, game.state)
+        assert fma_baseline == 3, f"FMA printed toughness must be 3, got {fma_baseline}"
+        assert clerk_baseline == 2, f"Clerk printed toughness must be 2, got {clerk_baseline}"
+
+        # Drop Quant Lab. Must NOT change either toughness.
+        _put_on_battlefield(game, p1.id, QUANT_LAB)
+        fma_with_ql = _PRI_get_toughness(fma, game.state)
+        clerk_with_ql = _PRI_get_toughness(clerk, game.state)
+        assert fma_with_ql == 3, (
+            f"Iter-4 Bug A: Quant Lab alone must NOT grant toughness. "
+            f"FMA expected 3, got {fma_with_ql} "
+            f"(Pilot B reported 7 = +4 — would indicate a regression)"
+        )
+        assert clerk_with_ql == 2, (
+            f"Iter-4 Bug A: Quant Lab alone must NOT grant toughness. "
+            f"Clerk expected 2, got {clerk_with_ql} "
+            f"(Pilot B reported 4 = +2 — would indicate a regression)"
+        )
+
+        # Also drop SAE (Systematic Alpha Engine) — it has only a Pre-Market
+        # REACT for Liquidity, no QUERY_TOUGHNESS interceptor. Must still
+        # leave both Traders at printed toughness.
+        _put_on_battlefield(game, p1.id, SYSTEMATIC_ALPHA_ENGINE)
+        fma_with_ql_sae = _PRI_get_toughness(fma, game.state)
+        clerk_with_ql_sae = _PRI_get_toughness(clerk, game.state)
+        assert fma_with_ql_sae == 3, (
+            f"Iter-4 Bug A: QL+SAE must NOT grant toughness. FMA expected 3, "
+            f"got {fma_with_ql_sae}"
+        )
+        assert clerk_with_ql_sae == 2, (
+            f"Iter-4 Bug A: QL+SAE must NOT grant toughness. Clerk expected 2, "
+            f"got {clerk_with_ql_sae}"
+        )
+        print("test_iter4_quant_lab_alone_does_not_grant_toughness  PASS")
+
+    # ---- Bug B: TDT printed 3/3 + Leverage 2 must display 5/3 -----------
+
+    def test_iter4_tdt_with_lev2_alone_shows_correct_power(self):
+        """Pilot B claim: TDT shows 5/3 instead of expected 4/3.
+
+        Investigation: TDT's printed power is 3 (cyc3 buff comment in
+        derivatives.py line 485 reads "power 2 → 3"). With Leverage 2 the
+        displayed power IS 3 + 2 = 5. Pilot B's "expected 4/3" assumed
+        printed power 2 (misread the "Leverage 2" text as the printed
+        stat). 5/3 is CORRECT.
+
+        This test pins:
+          1. TDT printed power == 3 (so 5/3 displayed is the contract).
+          2. Lev 2 power query fires exactly once (no double-count regression).
+        """
+        from src.cards.finance.fina.derivatives import THETA_DECAY_TRADER
+
+        # Contract: printed power must remain 3 (not regress to 2).
+        printed_power = THETA_DECAY_TRADER.characteristics.power
+        printed_toughness = THETA_DECAY_TRADER.characteristics.toughness
+        assert printed_power == 3, (
+            f"Iter-4 Bug B: TDT printed power must be 3 (cyc3 buff). "
+            f"Got {printed_power}. If this fails, either the cyc3 buff "
+            f"was reverted (Pilot B's '4/3 expected' would then be right) "
+            f"or someone bumped it again."
+        )
+        assert printed_toughness == 3, (
+            f"Iter-4 Bug B: TDT printed toughness must be 3, got {printed_toughness}"
+        )
+
+        # Deploy TDT alone. With Lev 2 ETB-stack the displayed power must be 5.
+        # We must use _DLB_play_to_battlefield (ZONE_CHANGE → fires ETB trigger).
+        # _put_on_battlefield only registers interceptors; the COUNTER_ADDED
+        # ETB event isn't emitted unless we route through ZONE_CHANGE.
+        game, p1, _ = _make_finance_game()
+        tdt = _DLB_play_to_battlefield(game, p1.id, THETA_DECAY_TRADER)
+        tdt.state.summoning_sickness = False
+
+        # ETB places 2 leverage counters via _make_leverage_setup(2).
+        # Verify the counter actually landed.
+        lev = tdt.state.counters.get("leverage", 0)
+        assert lev == 2, (
+            f"Iter-4 Bug B sanity: TDT ETB should have placed 2 leverage "
+            f"counters, got {lev}. If this is wrong the bug is in COUNTER_ADDED "
+            f"pipeline, not the power query."
+        )
+
+        # Displayed power = 3 + 2 = 5. Toughness unchanged at 3.
+        displayed_p = _PRI_get_power(tdt, game.state)
+        displayed_t = _PRI_get_toughness(tdt, game.state)
+        assert displayed_p == 5, (
+            f"Iter-4 Bug B: TDT with Lev 2 alone must display power 5 "
+            f"(printed 3 + Lev 2). Got {displayed_p}. "
+            f"If 6: Lev power query is double-firing (regression of bug #19). "
+            f"If 4: printed power regressed to 2."
+        )
+        assert displayed_t == 3, (
+            f"Iter-4 Bug B: TDT toughness should remain 3 (Lev grants only "
+            f"+1/+0 per counter). Got {displayed_t}."
+        )
+        print("test_iter4_tdt_with_lev2_alone_shows_correct_power  PASS")
+
+
 # Module-level wrappers so the legacy ``_run_all`` driver picks them up.
 _V3_FOLLOWUP_BUGS = TestV3FollowupBugs()
+_ITER4_CARD_BUGS = TestIter4CardBugs()
 
 
 def test_bug31_liquidity_event_counts_game_wide_dps():
@@ -2349,6 +2505,14 @@ def test_bug33_pairs_trader_arb2_fires_on_attack_not_cast():
 
 def test_bug33_pairs_trader_card_text_says_when_attacks():
     _V3_FOLLOWUP_BUGS.test_bug33_pairs_trader_card_text_says_when_attacks()
+
+
+def test_iter4_quant_lab_alone_does_not_grant_toughness():
+    _ITER4_CARD_BUGS.test_iter4_quant_lab_alone_does_not_grant_toughness()
+
+
+def test_iter4_tdt_with_lev2_alone_shows_correct_power():
+    _ITER4_CARD_BUGS.test_iter4_tdt_with_lev2_alone_shows_correct_power()
 
 
 # ---------------------------------------------------------------------------
@@ -2412,6 +2576,9 @@ def _run_all():
         test_bug32_pcd_lord_stack_within_card_text,
         test_bug33_pairs_trader_arb2_fires_on_attack_not_cast,
         test_bug33_pairs_trader_card_text_says_when_attacks,
+        # iter-4 Pilot B card-side reports (both turned out to be NOT bugs):
+        test_iter4_quant_lab_alone_does_not_grant_toughness,
+        test_iter4_tdt_with_lev2_alone_shows_correct_power,
     ]
     failures = []
     for t in tests:

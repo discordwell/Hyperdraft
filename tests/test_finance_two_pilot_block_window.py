@@ -145,14 +145,14 @@ def test_two_pilot_block_window_opens_on_end_turn():
     _give_p2_blocker(payload)
     harness._save(payload, save)
 
-    # P1 declares attacker.
-    harness.cmd_attack(_Args(save=save, attackers=[attacker_oid]))
+    # P1 declares attacker. (Bug #31: --seat is required in two-pilot mode.)
+    harness.cmd_attack(_Args(save=save, attackers=[attacker_oid], seat="P1"))
     payload = _load(save)
     assert attacker_oid in payload["game"].turn_manager.fin_turn_state.attackers_declared
     assert payload.get("awaiting_blocks") is False
 
     # P1 ends turn — should open block window, NOT resolve combat.
-    harness.cmd_end_turn(_Args(save=save))
+    harness.cmd_end_turn(_Args(save=save, seat="P1"))
     payload = _load(save)
     assert payload["awaiting_blocks"] is True, (
         "end_turn with declared attackers must open block window, not resolve combat"
@@ -181,15 +181,15 @@ def test_block_command_routes_to_defender_during_window():
     blocker_oid = _give_p2_blocker(payload)
     harness._save(payload, save)
 
-    harness.cmd_attack(_Args(save=save, attackers=[attacker_oid]))
-    harness.cmd_end_turn(_Args(save=save))  # opens block window
+    harness.cmd_attack(_Args(save=save, attackers=[attacker_oid], seat="P1"))
+    harness.cmd_end_turn(_Args(save=save, seat="P1"))  # opens block window
     payload = _load(save)
     assert payload["awaiting_blocks"] is True
 
     # Defender records a block. NOTE: state.active_player is still P1
     # (the attacker), but the harness must accept the block from P2.
     harness.cmd_block(
-        _Args(save=save, blocker_id=blocker_oid, attacker_id=attacker_oid)
+        _Args(save=save, blocker_id=blocker_oid, attacker_id=attacker_oid, seat="P2")
     )
     payload = _load(save)
     blocks = payload["game"].turn_manager.fin_turn_state.combat_blocks
@@ -215,13 +215,13 @@ def test_resolve_combat_runs_damage_and_advances_turn():
     blocker_oid = _give_p2_blocker(payload)
     harness._save(payload, save)
 
-    harness.cmd_attack(_Args(save=save, attackers=[attacker_oid]))
-    harness.cmd_end_turn(_Args(save=save))  # opens block window
+    harness.cmd_attack(_Args(save=save, attackers=[attacker_oid], seat="P1"))
+    harness.cmd_end_turn(_Args(save=save, seat="P1"))  # opens block window
     harness.cmd_block(
-        _Args(save=save, blocker_id=blocker_oid, attacker_id=attacker_oid)
+        _Args(save=save, blocker_id=blocker_oid, attacker_id=attacker_oid, seat="P2")
     )
     # Now resolve.
-    harness.cmd_resolve_combat(_Args(save=save))
+    harness.cmd_resolve_combat(_Args(save=save, seat="P2"))
     payload = _load(save)
 
     # Block window cleared.
@@ -264,7 +264,7 @@ def test_end_turn_no_attackers_advances_directly():
     p2_id = payload["p2_id"]
 
     # Don't declare any attackers — just end_turn.
-    harness.cmd_end_turn(_Args(save=save))
+    harness.cmd_end_turn(_Args(save=save, seat="P1"))
     payload = _load(save)
     assert payload.get("awaiting_blocks") is False
     assert payload["game"].state.active_player == p2_id, (
@@ -288,13 +288,15 @@ def test_second_end_turn_during_block_window_resolves_combat():
     _give_p2_blocker(payload)
     harness._save(payload, save)
 
-    harness.cmd_attack(_Args(save=save, attackers=[attacker_oid]))
-    harness.cmd_end_turn(_Args(save=save))  # opens block window
+    harness.cmd_attack(_Args(save=save, attackers=[attacker_oid], seat="P1"))
+    harness.cmd_end_turn(_Args(save=save, seat="P1"))  # opens block window
     payload = _load(save)
     assert payload["awaiting_blocks"] is True
 
-    # Second end_turn should be treated as resolve_combat.
-    harness.cmd_end_turn(_Args(save=save))
+    # Second end_turn from the DEFENDER (P2) treated as resolve_combat.
+    # (Bug #31: --seat is required; defender is the only seat allowed to
+    # close the gate without first calling block / done_blocks.)
+    harness.cmd_end_turn(_Args(save=save, seat="P2"))
     payload = _load(save)
     assert payload.get("awaiting_blocks") is False
     assert payload["game"].state.active_player == p2_id
@@ -357,7 +359,8 @@ def test_round_id_increments_on_each_save():
     )
 
     # Calling end_turn (no attackers) must bump round_id.
-    harness.cmd_end_turn(_Args(save=save))
+    # Bug #31: --seat required in two-pilot mode.
+    harness.cmd_end_turn(_Args(save=save, seat="P1"))
     payload2 = _load(save)
     assert int(payload2.get("round_id", 0)) > initial_round, (
         f"Bug #11: round_id must monotonically increase per save; "
@@ -733,6 +736,287 @@ def test_bug30_attack_warning_only_when_actually_skipped(capsys):
     Path(save).unlink(missing_ok=True)
     Path(save + ".lock").unlink(missing_ok=True)
     print("test_bug30_attack_warning_only_when_actually_skipped  PASS")
+
+
+# ---------------------------------------------------------------------------
+# Bug #31 / iter-4 — Block-window race recurrence
+# ---------------------------------------------------------------------------
+
+def test_iter4_seat_required_or_round_id_check_prevents_race(capsys):
+    """Bug #31 (iter-4) — the bug-#23 attacker gate was bypassable when a
+    pilot forgot --seat (the gate was `if seat is not None and seat ==
+    attacker_seat`, so seat=None silently skipped). In two-pilot mode
+    --seat is now REQUIRED for any state-mutating command, so the
+    attacker can never bypass the block window by omitting --seat.
+
+    Also covers --expected-round-id drift detection: if the pilot read
+    state at round_id=N and someone wrote in between, the action is
+    rejected so they re-read.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as fh:
+        save = fh.name
+    payload = _start_two_pilot(save)
+    p1_id = payload["p1_id"]
+    p2_id = payload["p2_id"]
+
+    attacker_oid = _give_p1_attacker(payload)
+    _give_p2_blocker(payload)
+    harness._save(payload, save)
+
+    # Step 1: P1 declares attacker WITHOUT --seat — must be rejected.
+    harness.cmd_attack(_Args(save=save, attackers=[attacker_oid]))
+    captured = capsys.readouterr()
+    assert "--seat P1|P2 is required" in captured.out, (
+        f"Bug #31: --seat must be required in two-pilot mode; got: {captured.out!r}"
+    )
+    payload = _load(save)
+    assert attacker_oid not in payload["game"].turn_manager.fin_turn_state.attackers_declared, (
+        "Bug #31: rejected cmd_attack must NOT mutate state"
+    )
+
+    # Step 2: P1 with --seat declares attacker (legit) and ends turn → block window.
+    harness.cmd_attack(_Args(save=save, attackers=[attacker_oid], seat="P1"))
+    harness.cmd_end_turn(_Args(save=save, seat="P1"))
+    payload = _load(save)
+    assert payload["awaiting_blocks"] is True
+
+    # Step 3: ATTACKER (P1) tries to resolve_combat WITHOUT --seat in two-pilot.
+    # Must be rejected with the seat-required error (Bug #31 hardening).
+    harness.cmd_resolve_combat(_Args(save=save))
+    captured = capsys.readouterr()
+    assert "--seat P1|P2 is required" in captured.out, (
+        f"Bug #31: seatless resolve_combat in two-pilot must be rejected; got: {captured.out!r}"
+    )
+    payload = _load(save)
+    assert payload.get("awaiting_blocks") is True, (
+        "Bug #31: rejected resolve_combat must NOT close block window"
+    )
+    p2 = payload["game"].state.players[p2_id]
+    assert p2.life == 30, (
+        f"Bug #31: face damage leaked through seatless race; p2.life={p2.life}"
+    )
+
+    # Step 4: ATTACKER end_turn WITHOUT --seat — must also be rejected.
+    harness.cmd_end_turn(_Args(save=save))
+    captured = capsys.readouterr()
+    assert "--seat P1|P2 is required" in captured.out, (
+        f"Bug #31: seatless end_turn (alias path) in two-pilot must be rejected; "
+        f"got: {captured.out!r}"
+    )
+    payload = _load(save)
+    assert payload.get("awaiting_blocks") is True
+    assert payload["game"].state.players[p2_id].life == 30
+
+    # Step 5: --expected-round-id drift: pretend pilot read state at
+    # round_id=999999 (way out of date) — action must be rejected.
+    payload = _load(save)
+    stale_rid = int(payload.get("round_id", 0)) + 999
+    harness.cmd_done_blocks(
+        _Args(save=save, seat="P2", expected_round_id=stale_rid)
+    )
+    captured = capsys.readouterr()
+    assert "state advanced" in captured.out, (
+        f"Bug #31b: stale --expected-round-id must be rejected; got: {captured.out!r}"
+    )
+    payload = _load(save)
+    assert payload.get("blocks_committed_by_defender") is False, (
+        "Bug #31b: rejected stale-round action must not mutate state"
+    )
+
+    # Step 6: defender uses correct round_id — succeeds.
+    current_rid = int(payload.get("round_id", 0))
+    harness.cmd_done_blocks(
+        _Args(save=save, seat="P2", expected_round_id=current_rid)
+    )
+    payload = _load(save)
+    assert payload.get("blocks_committed_by_defender") is True, (
+        "Bug #31b: matching --expected-round-id must allow the action"
+    )
+
+    Path(save).unlink(missing_ok=True)
+    Path(save + ".lock").unlink(missing_ok=True)
+    print("test_iter4_seat_required_or_round_id_check_prevents_race  PASS")
+
+
+def test_iter4_block_2v2_applies_damage_correctly():
+    """Bug #D (iter-4) — Pilot B reported a 2v2 block where the block was
+    accepted but combat didn't apply 6 damage. Reproduce the 2-attacker
+    + 2-blocker scenario via the harness `cmd_block` path and assert
+    each blocked attacker takes the damage from its blocker."""
+    from src.engine.types import CardType, ZoneType
+
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as fh:
+        save = fh.name
+    payload = _start_two_pilot(save)
+    p1_id = payload["p1_id"]
+    p2_id = payload["p2_id"]
+
+    # Plant 2 attackers on P1's side and 2 blockers on P2's.
+    attacker1 = _give_p1_attacker(payload)
+    attacker2 = _give_p1_attacker(payload)
+    assert attacker1 != attacker2, "test setup needs two distinct attackers"
+    blocker1 = _give_p2_blocker(payload)
+    blocker2 = _give_p2_blocker(payload)
+    assert blocker1 != blocker2, "test setup needs two distinct blockers"
+
+    # Snapshot blocker baseline P/T so we can assert post-combat damage.
+    state = payload["game"].state
+    a1_obj = state.objects[attacker1]
+    a2_obj = state.objects[attacker2]
+    b1_obj = state.objects[blocker1]
+    b2_obj = state.objects[blocker2]
+    a1_pwr = a1_obj.characteristics.power or 0
+    a2_pwr = a2_obj.characteristics.power or 0
+    b1_pwr = b1_obj.characteristics.power or 0
+    b2_pwr = b2_obj.characteristics.power or 0
+    harness._save(payload, save)
+
+    # P1 declares both attackers.
+    harness.cmd_attack(
+        _Args(save=save, attackers=[attacker1, attacker2], seat="P1")
+    )
+    harness.cmd_end_turn(_Args(save=save, seat="P1"))
+    payload = _load(save)
+    assert payload["awaiting_blocks"] is True
+    declared = list(payload["game"].turn_manager.fin_turn_state.attackers_declared)
+    assert attacker1 in declared and attacker2 in declared, (
+        f"Bug #D: both attackers must be declared, got {declared!r}"
+    )
+
+    # P2 records two blocks: blocker1 → attacker1, blocker2 → attacker2.
+    harness.cmd_block(
+        _Args(save=save, blocker_id=blocker1, attacker_id=attacker1, seat="P2")
+    )
+    harness.cmd_block(
+        _Args(save=save, blocker_id=blocker2, attacker_id=attacker2, seat="P2")
+    )
+    payload = _load(save)
+    blocks = payload["game"].turn_manager.fin_turn_state.combat_blocks
+    assert blocks.get(attacker1) == blocker1, (
+        f"Bug #D: combat_blocks must map atk1→blk1; got {blocks!r}"
+    )
+    assert blocks.get(attacker2) == blocker2, (
+        f"Bug #D: combat_blocks must map atk2→blk2; got {blocks!r}"
+    )
+
+    # Snapshot pre-combat life — should be unchanged for both.
+    pre_p2_life = payload["game"].state.players[p2_id].life
+
+    # P2 resolves combat.
+    harness.cmd_resolve_combat(_Args(save=save, seat="P2"))
+    payload = _load(save)
+    state = payload["game"].state
+
+    # Each attacker must have taken its blocker's power as damage (or be
+    # destroyed if blocker_power >= attacker_toughness).
+    a1_post = state.objects.get(attacker1)
+    a2_post = state.objects.get(attacker2)
+    b1_post = state.objects.get(blocker1)
+    b2_post = state.objects.get(blocker2)
+
+    a1_touched = (
+        a1_post is not None
+        and (a1_post.state.damage > 0 or a1_post.zone != ZoneType.BATTLEFIELD)
+    )
+    a2_touched = (
+        a2_post is not None
+        and (a2_post.state.damage > 0 or a2_post.zone != ZoneType.BATTLEFIELD)
+    )
+    b1_touched = (
+        b1_post is not None
+        and (b1_post.state.damage > 0 or b1_post.zone != ZoneType.BATTLEFIELD)
+    )
+    b2_touched = (
+        b2_post is not None
+        and (b2_post.state.damage > 0 or b2_post.zone != ZoneType.BATTLEFIELD)
+    )
+
+    # If blocker has power > 0, attacker must show damage (or destruction).
+    if b1_pwr > 0:
+        assert a1_touched, (
+            f"Bug #D: blocker1 (power={b1_pwr}) must damage attacker1; "
+            f"a1_post.damage={a1_post.state.damage if a1_post else 'gone'} "
+            f"a1_post.zone={a1_post.zone.name if a1_post else 'gone'}"
+        )
+    if b2_pwr > 0:
+        assert a2_touched, (
+            f"Bug #D: blocker2 (power={b2_pwr}) must damage attacker2; "
+            f"a2_post.damage={a2_post.state.damage if a2_post else 'gone'} "
+            f"a2_post.zone={a2_post.zone.name if a2_post else 'gone'}"
+        )
+    # Symmetry — attacker damages blocker.
+    if a1_pwr > 0:
+        assert b1_touched, (
+            f"Bug #D: attacker1 (power={a1_pwr}) must damage blocker1"
+        )
+    if a2_pwr > 0:
+        assert b2_touched, (
+            f"Bug #D: attacker2 (power={a2_pwr}) must damage blocker2"
+        )
+
+    # Without trample, neither attacker overflows to face — P2 life unchanged.
+    post_p2_life = payload["game"].state.players[p2_id].life
+    assert post_p2_life == pre_p2_life, (
+        f"Bug #D: blocked attackers without trample must NOT damage face; "
+        f"pre={pre_p2_life} post={post_p2_life}"
+    )
+
+    Path(save).unlink(missing_ok=True)
+    Path(save + ".lock").unlink(missing_ok=True)
+    print("test_iter4_block_2v2_applies_damage_correctly  PASS")
+
+
+def test_iter4_attackers_declared_cleared_after_combat():
+    """Bug #E (iter-4) — Pilot B reported the same attackers reappearing
+    on the next turn's awaiting_blocks. We clear attackers_declared at
+    the end of `_resolve_declared_combat` (defensive) and again at the
+    start of the next turn's pre_market. Assert both happen."""
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as fh:
+        save = fh.name
+    payload = _start_two_pilot(save)
+    p1_id = payload["p1_id"]
+    p2_id = payload["p2_id"]
+
+    attacker_oid = _give_p1_attacker(payload)
+    _give_p2_blocker(payload)
+    harness._save(payload, save)
+
+    # Run the full attack → block → resolve cycle.
+    harness.cmd_attack(_Args(save=save, attackers=[attacker_oid], seat="P1"))
+    harness.cmd_end_turn(_Args(save=save, seat="P1"))
+    harness.cmd_done_blocks(_Args(save=save, seat="P2"))
+    harness.cmd_resolve_combat(_Args(save=save, seat="P2"))
+    payload = _load(save)
+
+    # After combat resolves we expect attackers_declared and combat_blocks
+    # to be empty regardless of where in the post-combat flow we look.
+    tm = payload["game"].turn_manager
+    assert tm.fin_turn_state.attackers_declared == [], (
+        f"Bug #E: attackers_declared must be cleared after combat; "
+        f"got {tm.fin_turn_state.attackers_declared!r}"
+    )
+    assert tm.fin_turn_state.combat_blocks == {}, (
+        f"Bug #E: combat_blocks must be cleared after combat; "
+        f"got {tm.fin_turn_state.combat_blocks!r}"
+    )
+
+    # Defender (P2) is now active; their fresh turn must also see empty.
+    assert payload["game"].state.active_player == p2_id
+
+    # End P2's turn (no attackers) and bounce back to P1 — fresh turn,
+    # attackers_declared still empty.
+    harness.cmd_end_turn(_Args(save=save, seat="P2"))
+    payload = _load(save)
+    tm = payload["game"].turn_manager
+    assert tm.fin_turn_state.attackers_declared == [], (
+        f"Bug #E: new turn must start with empty attackers_declared; "
+        f"got {tm.fin_turn_state.attackers_declared!r}"
+    )
+    assert payload["game"].state.active_player == p1_id
+
+    Path(save).unlink(missing_ok=True)
+    Path(save + ".lock").unlink(missing_ok=True)
+    print("test_iter4_attackers_declared_cleared_after_combat  PASS")
 
 
 if __name__ == "__main__":

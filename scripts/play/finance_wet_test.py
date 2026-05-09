@@ -198,12 +198,26 @@ def _session(path: str):
 
 # ---------- deck resolution ----------
 
-def _resolve_deck(name: str) -> list:
-    """Look up a FINA starter deck by name."""
+def _resolve_deck(name: str, decks_file: str | None = None) -> list:
+    """Look up a deck by name. First checks --decks-file (if given), then FINA starters."""
+    if decks_file:
+        import json
+        from pathlib import Path
+        from src.cards.finance import FINANCE_CARDS
+        spec = json.loads(Path(decks_file).read_text())
+        if name in spec.get("decks", {}):
+            card_names = spec["decks"][name]["cards"]
+            missing = [c for c in card_names if c not in FINANCE_CARDS]
+            if missing:
+                raise ValueError(f"Deck {name!r} references unknown cards: {missing[:3]}")
+            return [FINANCE_CARDS[c] for c in card_names]
     from src.cards.finance.fina.decks import FINA_STARTER_DECKS
     if name not in FINA_STARTER_DECKS:
+        avail = list(FINA_STARTER_DECKS)
+        if decks_file:
+            avail = list(spec.get("decks", {}).keys()) + avail
         raise ValueError(
-            f"Unknown deck {name!r}. Available: {list(FINA_STARTER_DECKS)}"
+            f"Unknown deck {name!r}. Available: {avail}"
         )
     return FINA_STARTER_DECKS[name]()
 
@@ -292,6 +306,13 @@ async def _resolve_declared_combat(payload: dict[str, Any]) -> None:
         opp_id,
     )
     tm._check_game_over()
+    # Bug #32 (iter-4): clear attackers_declared/combat_blocks immediately
+    # after combat resolves, so any unexpected re-entry into combat (e.g.
+    # extra-turn effects, defensive double-resolve) doesn't replay the
+    # same set. _run_pre_market_and_research also clears these on the
+    # next turn, but doing it here too is defensive.
+    tm.fin_turn_state.attackers_declared = []
+    tm.fin_turn_state.combat_blocks = {}
 
 
 async def _finish_active_turn_post_combat(
@@ -567,14 +588,45 @@ def _check_seat(args, payload: dict[str, Any], *, allow_during_block_window: boo
     ``awaiting_blocks=True`` so that the non-active defender can issue
     ``block`` and ``resolve_combat`` commands freely.
 
-    If ``--seat`` is omitted (``args.seat is None``) the legacy behaviour
+    If ``--seat`` is omitted in single-pilot mode the legacy behaviour
     (no verification) is preserved so single-pilot tests keep working.
+
+    Bug #31 (iter-4): in TWO-PILOT mode ``--seat`` is now REQUIRED for any
+    state-mutating command. The previous "seat=None → always OK" path
+    bypassed the bug-#23 attacker gate when a pilot forgot the flag,
+    letting the attacker race past the defender's block window. With
+    --seat required, the gate fires consistently.
+
+    Bug #31b: support ``--expected-round-id <N>``. If given and the
+    current pickle's ``round_id`` is greater (someone else wrote between
+    the pilot's `state` read and this action), reject with a clear
+    "state advanced" error so the pilot re-reads instead of mutating
+    based on stale info.
     """
     seat = getattr(args, "seat", None)
-    if seat is None:
-        return True                     # no --seat flag → legacy path, always OK
+
+    # Bug #31b: round-id drift detection (applies in any mode).
+    expected_rid = getattr(args, "expected_round_id", None)
+    if expected_rid is not None:
+        actual_rid = int(payload.get("round_id", 0))
+        if actual_rid != int(expected_rid):
+            print(
+                f"ERROR: state advanced since you read it "
+                f"(your round_id={expected_rid}, current={actual_rid}). "
+                f"Re-run `state` and try again."
+            )
+            return False
+
     if not payload.get("two_pilot"):
-        return True                     # seat flag is only meaningful in two-pilot mode
+        return True                     # single-pilot legacy path
+
+    # Bug #31: require --seat in two-pilot mode for state-mutating commands.
+    if seat is None:
+        print(
+            "ERROR: --seat P1|P2 is required in two-pilot mode "
+            "(bug #31). Re-run with `--seat P1` or `--seat P2`."
+        )
+        return False
 
     # During the block window the defender drives the harness — skip active-player check.
     if allow_during_block_window and payload.get("awaiting_blocks"):
@@ -598,8 +650,9 @@ def _check_seat(args, payload: dict[str, Any], *, allow_during_block_window: boo
 def cmd_start(args) -> None:
     from src.engine.game import Game
 
-    p1_deck = _resolve_deck(args.p1_deck)
-    p2_deck = _resolve_deck(args.p2_deck)
+    decks_file = getattr(args, "decks_file", None)
+    p1_deck = _resolve_deck(args.p1_deck, decks_file)
+    p2_deck = _resolve_deck(args.p2_deck, decks_file)
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -1034,20 +1087,30 @@ def cmd_end_turn(args) -> None:
     with _exclusive_lock(args.save):
         payload = _load(args.save)
         is_alias = bool(payload.get("two_pilot") and payload.get("awaiting_blocks"))
-        # Bug #23: if the attacker tries to end_turn during the block window
+        # Bug #23 + #31: if the attacker tries to end_turn during the block window
         # before the defender has acted, REJECT. Only the defender (or
         # blocks-committed flag flip) can release the gate.
+        #
+        # Bug #31 (iter-4 race recurrence): the original gate was
+        # `if seat is not None and seat == attacker_seat`. A pilot who
+        # forgot --seat in two-pilot mode bypassed the gate entirely and
+        # raced past the defender. Now that --seat is REQUIRED in
+        # two-pilot mode (enforced via _check_seat below), we can gate
+        # solely on `seat == attacker_seat` knowing seat is set.
         if is_alias and not payload.get("blocks_committed_by_defender", False):
             seat = getattr(args, "seat", None)
             attacker_id = payload["game"].state.active_player
             attacker_seat = "P1" if attacker_id == payload["p1_id"] else "P2"
-            # Determine if the caller is the ATTACKER. If --seat is provided
-            # and matches the active player, definitely the attacker. If no
-            # --seat is provided, infer: in the block window the defender
-            # is the implicit acting seat, so a caller WITHOUT --seat is
-            # treated as the defender (legacy single-pilot semantics in
-            # two-pilot block window). Only seat==attacker_seat is gated.
-            if seat is not None and seat == attacker_seat:
+            if seat is None and payload.get("two_pilot"):
+                # _check_seat will catch this below, but emit a specific
+                # error so the pilot understands why the action was
+                # rejected (gate vs seat-required).
+                print(
+                    "ERROR: --seat P1|P2 is required in two-pilot mode "
+                    "(bug #31). Re-run with `--seat P1` or `--seat P2`."
+                )
+                return
+            if seat == attacker_seat:
                 print(
                     "ERROR: Block window still open — wait for defender to "
                     "issue `block` or `done_blocks` (or for defender to call "
@@ -1151,22 +1214,24 @@ def cmd_resolve_combat(args) -> None:
             _print_state(payload)
             return
 
-        # Bug #23: gate the attacker. If --seat says the caller is the
-        # ATTACKER and the defender hasn't acted yet, refuse. The defender
-        # CAN call resolve_combat at any time (treated as "no blocks /
-        # proceed").
+        # Bug #23 + #31: gate the attacker. With --seat now REQUIRED in
+        # two-pilot mode (enforced via _check_seat above), we know seat
+        # is set if we get here in two-pilot. The bug-#31 fix closes the
+        # iter-4 recurrence where a pilot who forgot --seat bypassed the
+        # gate entirely. The defender CAN call resolve_combat at any
+        # time (treated as "no blocks / proceed").
         if not payload.get("blocks_committed_by_defender", False):
             seat = getattr(args, "seat", None)
             attacker_id = game.state.active_player
             attacker_seat = "P1" if attacker_id == payload["p1_id"] else "P2"
-            if seat is not None and seat == attacker_seat:
+            if seat == attacker_seat:
                 print(
                     "ERROR: Block window still open — wait for defender to "
                     "issue `block` or `done_blocks` (or for defender to call "
                     "`resolve_combat` themselves)."
                 )
                 return
-            # Defender (or seat-less legacy caller) is closing the window —
+            # Defender (or single-pilot legacy caller) is closing the window —
             # mark the gate satisfied so any post-resolve telemetry agrees.
             payload["blocks_committed_by_defender"] = True
 
@@ -1314,14 +1379,23 @@ def main() -> None:
                        help=f"State pickle path (default: {DEFAULT_STATE_PATH})")
 
     # bug #25: shared helper to add --seat to action subparsers.
+    # bug #31 (iter-4): also add --expected-round-id for state-drift detection.
     def _add_seat(p):
         p.add_argument(
             "--seat", choices=["P1", "P2"], default=None,
-            help="(two-pilot) Declare which seat is acting. "
-                 "Action is rejected with 'not your turn' if the seat doesn't match "
-                 "state.active_player_id. Omit for legacy single-pilot behaviour. "
+            help="(two-pilot) Declare which seat is acting. REQUIRED in two-pilot mode "
+                 "(bug #31). Action is rejected with 'not your turn' if the seat doesn't "
+                 "match state.active_player_id. Omit for legacy single-pilot behaviour. "
                  "Exception: block/resolve_combat accept either seat during the "
                  "awaiting_blocks defender window.",
+        )
+        p.add_argument(
+            "--expected-round-id", type=int, default=None,
+            dest="expected_round_id",
+            help="(optional) round_id you observed when you last ran `state`. "
+                 "If the current state's round_id is different, the action is "
+                 "rejected so you re-read state instead of mutating from stale info. "
+                 "Bug #31b — closes the read/act race window.",
         )
 
     p_start = sub.add_parser("start", help="Start a new Finance game")
@@ -1333,6 +1407,10 @@ def main() -> None:
                          help="Two-pilot mode (skip AI execution; pilots drive both seats)")
     p_start.add_argument("--seed", type=int, default=None,
                          help="Random seed for deck shuffling")
+    p_start.add_argument("--decks-file", default=None,
+                         help="Optional JSON file with custom deck specs "
+                              "(see logs/finance_candidate_decks.json shape). "
+                              "Names from the file take precedence over FINA starters.")
     _add_save(p_start)
     p_start.set_defaults(fn=cmd_start)
 
