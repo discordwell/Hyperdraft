@@ -1,0 +1,4 @@
+interface:
+  display_name: "Card Art Director"
+  short_description: "Direct varied card-set art production"
+  default_prompt: "Use $card-art-director to create varied art direction and production prompts for this Hyperdraft set."
