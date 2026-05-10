@@ -104,9 +104,10 @@ def _baseline_deck(deck_label: str = "raider") -> list[CardDefinition]:
 # ---------------------------------------------------------------------------
 
 
-def _make_stack_focal_hook(focal_name: str, copies_to_stack: int = 1):
+def _make_stack_focal_hook(focal_name: str, copies_to_stack: int = 1, target_seat: str = "p1"):
     def hook(game, p1_id: str, p2_id: str) -> None:
-        library = game.state.zones.get(f"library_{p1_id}")
+        target_id = p2_id if target_seat == "p2" else p1_id
+        library = game.state.zones.get(f"library_{target_id}")
         if not library or not library.objects:
             return
         focal_indices: list[int] = []
@@ -380,7 +381,8 @@ def run_capability_test(
         print(f"  baseline: {baseline_deck} ({len(baseline)} cards)", flush=True)
         print(f"  games: {games}, focal-in-opener: {focal_in_opener}", flush=True)
 
-    hook = _make_stack_focal_hook(focal_name) if focal_in_opener else None
+    p1_hook = _make_stack_focal_hook(focal_name, target_seat="p1") if focal_in_opener else None
+    p2_hook = _make_stack_focal_hook(focal_name, target_seat="p2") if focal_in_opener else None
 
     async def _run_all() -> list[MCGameResult]:
         results: list[MCGameResult] = []
@@ -388,10 +390,10 @@ def run_capability_test(
             # Alternate seats so first-player advantage cancels.
             if g % 2 == 0:
                 d1, d2, l1, l2 = synergy_deck, baseline, "synergy", "baseline"
-                run_hook = hook
+                run_hook = p1_hook
             else:
                 d1, d2, l1, l2 = baseline, synergy_deck, "baseline", "synergy"
-                run_hook = None  # only stack when synergy is p1
+                run_hook = p2_hook
             r = await play_one_minecraft_game(
                 d1, d2, l1, l2,
                 difficulty=difficulty,

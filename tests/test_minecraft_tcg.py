@@ -6,7 +6,7 @@ from src.engine.game import Game
 from src.engine.types import CardType, Event, EventType, ZoneType
 from src.engine import minecraft as mc
 from src.ai.minecraft_adapter import MinecraftAIAdapter
-from src.cards.minecraft import MINECRAFT_CARDS
+from src.cards.minecraft import MINECRAFT_CARDS, MINECRAFT_STARTER_DECKS
 from src.server.models import CreateMatchRequest
 from src.server.routes.match import create_match
 from src.server.session import session_manager
@@ -1434,6 +1434,63 @@ def test_create_match_minecraft_sets_up_players_decks_and_state():
         await session_manager.remove_session(response.match_id)
 
     asyncio.run(_run())
+
+
+def test_create_match_minecraft_bot_random_pool_includes_expansion_starters(monkeypatch):
+    import random
+
+    original_shuffle = random.shuffle
+
+    def choose_expansion_starters(deck_keys):
+        if "trial_chambers" not in deck_keys:
+            original_shuffle(deck_keys)
+            return
+        assert "tamed_trails" in deck_keys
+        deck_keys[:] = ["trial_chambers", "tamed_trails"] + [
+            key for key in deck_keys if key not in {"trial_chambers", "tamed_trails"}
+        ]
+
+    monkeypatch.setattr(random, "shuffle", choose_expansion_starters)
+
+    async def _run():
+        response = await create_match(
+            request=CreateMatchRequest(
+                mode="bot_vs_bot",
+                game_mode="minecraft",
+                player_name="Tester",
+            ),
+            background_tasks=BackgroundTasks(),
+        )
+        session = session_manager.get_session(response.match_id)
+        assert session is not None
+
+        player_ids = list(session.player_ids)
+        assert len(player_ids) == 3
+
+        def library_names(pid):
+            library = session.game.state.zones[f"library_{pid}"]
+            return {
+                session.game.state.objects[oid].name
+                for oid in library.objects
+            }
+
+        assert "Trial Supply Cache" in library_names(response.player_id)
+        assert "Trial Supply Cache" in library_names(response.opponent_id)
+        second_bot = next(pid for pid in player_ids if pid not in {response.player_id, response.opponent_id})
+        assert "Best Friends Forever" in library_names(second_bot)
+
+        await session_manager.remove_session(response.match_id)
+
+    asyncio.run(_run())
+
+
+def test_minecraft_home_deck_options_stay_in_sync_with_registered_starters():
+    source = "frontend/src/pages/Home.tsx"
+    with open(source, encoding="utf-8") as fh:
+        home_source = fh.read()
+
+    for deck_id in MINECRAFT_STARTER_DECKS:
+        assert f"value: '{deck_id}'" in home_source
 
 
 # ===========================================================================

@@ -29,7 +29,7 @@ import argparse
 import asyncio
 import dill as pickle  # dill handles closures (card_def has local fns)
 import sys
-from typing import Any
+from typing import Any, Optional
 
 STATE_PATH = "/tmp/mc_wet_test_state.pkl"
 
@@ -209,6 +209,39 @@ def _resolve_deck(name: str, decks_file: Optional[str]) -> list:
     return cards
 
 
+def _current_turn_player(game) -> Optional[str]:
+    active = getattr(game.state, "active_player", None)
+    if active:
+        return active
+    turn_order = getattr(game.turn_manager, "turn_order", []) or []
+    if not turn_order:
+        return None
+    index = getattr(game.turn_manager, "current_player_index", 0) % len(turn_order)
+    return turn_order[index]
+
+
+async def _establish_open_turn(game, p1_id: str, p2_id: str, two_pilot: bool) -> list[tuple[int, str, str]]:
+    """Run the first turn setup so saved wet-test state has a real active seat."""
+    history: list[tuple[int, str, str]] = []
+    active = _current_turn_player(game)
+    if active not in (p1_id, p2_id):
+        active = p1_id
+
+    if not two_pilot and active == p2_id:
+        await game.turn_manager.run_turn(player_id=p2_id)
+        history.append((game.state.turn_number, "AI", "took turn"))
+        if not game.is_game_over():
+            await game.turn_manager.run_turn(player_id=p1_id)
+            history.append((game.state.turn_number, "ME", "begin of turn (auto)"))
+        return history
+
+    await game.turn_manager.run_turn(player_id=active)
+    label = "P2" if active == p2_id else "ME"
+    action = "begin of turn (two-pilot)" if two_pilot else "begin of turn"
+    history.append((game.state.turn_number, label, action))
+    return history
+
+
 def cmd_start(args) -> None:
     from src.ai.minecraft_adapter import MinecraftAIAdapter
     from src.engine.game import Game
@@ -224,32 +257,29 @@ def cmd_start(args) -> None:
     game.shuffle_library(p1.id)
     game.shuffle_library(p2.id)
 
-    # Only P2 is AI. P1 (me) is "human" — turn manager will skip AI take_turn
-    # for P1 and we'll drive its actions directly.
-    game.set_ai_player(p2.id)
-    ai_adapter = MinecraftAIAdapter(difficulty="hard", bias=args.ai_bias)
-    game.turn_manager.set_ai_handler(ai_adapter)
+    two_pilot = getattr(args, "two_pilot", False)
+    if not two_pilot:
+        # Only P2 is AI. P1 (me) is "human" — turn manager will skip AI
+        # take_turn for P1 and we'll drive its actions directly.
+        game.set_ai_player(p2.id)
+        ai_adapter = MinecraftAIAdapter(difficulty="hard", bias=args.ai_bias)
+        game.turn_manager.set_ai_handler(ai_adapter)
 
     asyncio.run(game.start_game())
 
-    two_pilot = getattr(args, "two_pilot", False)
+    history = asyncio.run(_establish_open_turn(game, p1.id, p2.id, two_pilot))
     payload = {
         "game": game,
         "p1_id": p1.id,
         "p2_id": p2.id,
         "ai_bias": args.ai_bias,
         "two_pilot": two_pilot,
-        "history": [],  # log of (turn, actor, action_str)
+        "history": history,  # log of (turn, actor, action_str)
     }
-    _save(payload)
     print(f"Started game: P1={p1.id[:8]} (me, deck={args.my_deck}) vs "
           f"P2={p2.id[:8]} (AI bias={args.ai_bias}, deck={args.ai_deck})"
           f"{' [two-pilot]' if two_pilot else ''}")
-    # If P2 starts, run their turn before printing state (single-pilot only)
-    if not two_pilot and game.state.active_player == p2.id:
-        asyncio.run(game.turn_manager.run_turn())
-        payload["history"].append((game.state.turn_number, "AI", "took turn"))
-        _save(payload)
+    _save(payload)
     _print_state(payload)
 
 
@@ -438,6 +468,10 @@ def cmd_end_turn(args) -> None:
         current = game.state.active_player
         next_player = p2_id if current == p1_id else p1_id
         label = "P2" if next_player == p2_id else "P1"
+        ai_players = getattr(game.turn_manager, "ai_players", None)
+        if ai_players is not None:
+            ai_players.discard(p1_id)
+            ai_players.discard(p2_id)
         asyncio.run(game.turn_manager.run_turn(player_id=next_player))
         payload["history"].append((game.state.turn_number, label, "begin of turn (two-pilot)"))
         _save(payload)

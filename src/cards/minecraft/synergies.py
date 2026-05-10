@@ -74,4 +74,52 @@ MC_SYNERGY_PACKAGES: dict[str, list[str]] = {
         "Nether Expedition", "Iron Sword", "Bow",
         "Steve's Helper", "Furnace", "Crafting Table", "Bed",
     ],
+
+    # MCT / Tricky Trials: Trial grid-control midrange.
+    "Chamber Champion": [
+        "Trial Spawner", "Ominous Trial Spawner", "Vault of Rewards",
+        "Trial Barrier", "Trail Mapper", "Copper Miner",
+        "Breeze", "Ominous Captain", "Open the Vault",
+        "Chamber Rewards", "Vault Jackpot", "Bed",
+    ],
+
+    # MCT: Tame / Animal go-wide build-around.
+    "Pack Leader": [
+        "Stable Master", "Armadillo Friend", "Wolf Companion",
+        "Cat Familiar", "Sniffer Calf", "Fox Courier",
+        "Panda Protector", "Tame Wolf", "Pack Howl",
+        "Friendship Feast", "Cherry Grove", "Bed",
+    ],
+
+    # MCT: Redstone-spend Pulse engine.
+    "Redstone Titan": [
+        "Copper Bulb", "Redstone Clock", "Observer Chain",
+        "Copper Factory", "Redstone Engineer", "Repeater Mage",
+        "Comparator Savant", "Overclock", "Automate Mine",
+        "Redstone Drill", "Deep Delver", "Bed",
+    ],
+
+    # MCT: Deep Dark Echo death-value engine.
+    "Echo Warden": [
+        "Sculk Sensor", "Calibrated Sensor", "Sculk Library",
+        "Echo Shrieker", "Sculk Wisp", "Sculk Crawler",
+        "Deep Dark Stalker", "Sculk Bloom", "Echo Shards",
+        "Ancient Loot", "Deep Delver", "Bed",
+    ],
+
+    # MCT: Bastion Raid aggression.
+    "Piglin Warboss": [
+        "Piglin Scout", "Bastion Brute", "Nether Raider",
+        "Bastion Captain", "Ghast Bombardier", "Raid Banner",
+        "Bastion Ambush", "Raid the Bed", "Nether Shortcut",
+        "Piglin Crossbow", "Copper Mine", "Bed",
+    ],
+
+    # MCT: End Voyage diamond/aerial ramp.
+    "Ender Sovereign": [
+        "End Gateway", "Chorus Grove", "End Ship",
+        "Dragon Perch", "Enderling", "End Scout",
+        "Dragon Herald", "Void Voyager", "Locate Stronghold",
+        "Dragon Breath", "Chorus Pickaxe", "Bed",
+    ],
 }

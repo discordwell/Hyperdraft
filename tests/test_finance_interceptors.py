@@ -582,7 +582,7 @@ def test_factor_model_analyst_etb_not_leading_no_draw():
 
 
 def test_pairs_trader_attack_leading_gains_liquidity():
-    """Pairs Trader: ATTACK when leading gains +4 Liquidity (Arb 2 + bonus 2).
+    """Pairs Trader: ATTACK when leading gains +1 Liquidity post-rebalance.
 
     Bug #33: was previously fired on ETB; rewired to ATTACK_DECLARED so the
     text "when this attacks" matches the engine behavior. ETB now does NOT
@@ -600,10 +600,10 @@ def test_pairs_trader_attack_leading_gains_liquidity():
         f"got mana_crystals_available={p1.mana_crystals_available}"
     )
 
-    # Attack must gain +4 Liquidity (state mutation; capped by mana_crystals).
+    # Attack must gain +1 Liquidity (state mutation; capped by mana_crystals).
     _fire_attack(game, obj)
-    assert p1.mana_crystals_available == 4, (
-        f"Bug #33: Pairs Trader ATTACK_DECLARED when leading must gain +4 "
+    assert p1.mana_crystals_available == 1, (
+        f"Bug #33: Pairs Trader ATTACK_DECLARED when leading must gain +1 "
         f"Liquidity, got {p1.mana_crystals_available}"
     )
 

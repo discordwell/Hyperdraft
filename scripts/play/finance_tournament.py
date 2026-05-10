@@ -42,7 +42,6 @@ from src.engine.game import Game                                    # noqa: E402
 from src.engine.finance import setup_finance_player                 # noqa: E402
 from src.engine.finance_turn import FinanceTurnManager             # noqa: E402
 from src.engine.finance_combat import FinanceCombatManager         # noqa: E402
-from src.engine.types import ZoneType                               # noqa: E402
 from src.ai.finance_adapter import FinanceAIAdapter                 # noqa: E402
 from src.cards.finance.fina.decks import (                         # noqa: E402
     build_high_frequency_deck,
@@ -51,6 +50,8 @@ from src.cards.finance.fina.decks import (                         # noqa: E402
     build_dark_arbitrage_deck,
     FINA_STARTER_DECKS,
 )
+from src.cards.finance.finm.decks import FINM_STARTER_DECKS         # noqa: E402
+from src.cards.finance import FINANCE_CONSTRUCTED_DECKS             # noqa: E402
 
 MAX_TURNS = 60
 
@@ -59,6 +60,8 @@ ARCHETYPES = {
     "FINA_derivatives":    build_derivatives_deck,
     "FINA_quant":          build_quant_deck,
     "FINA_dark_arbitrage": build_dark_arbitrage_deck,
+    **FINM_STARTER_DECKS,
+    **FINANCE_CONSTRUCTED_DECKS,
 }
 
 
@@ -145,14 +148,17 @@ class TrackingAI:
         action = self.inner.choose_play_action(state, player_id)
         if action and action.get("type") == "play_card":
             card_id = action.get("card_id")
-            # Try to resolve the card name from hand
+            # Finance hands are keyed as hand_<player_id> in GameState.zones.
             if card_id:
-                for zone_obj in state.zones.get(player_id, {}).get(ZoneType.HAND, []):
-                    if hasattr(zone_obj, "id") and zone_obj.id == card_id:
-                        card_name = getattr(zone_obj, "name", None)
-                        if card_name:
-                            self.notify_card_played(card_name)
-                        break
+                hand = state.zones.get(f"hand_{player_id}")
+                for obj_id in list(getattr(hand, "objects", []) or []):
+                    if obj_id != card_id:
+                        continue
+                    card = state.objects.get(obj_id)
+                    card_name = getattr(card, "name", None)
+                    if card_name:
+                        self.notify_card_played(card_name)
+                    break
         return action
 
     def choose_attackers(self, state, player_id):
@@ -247,8 +253,11 @@ async def _run_game(
         # Record battlefield at end
         for pid, domain in [(p1.id, domain1), (p2.id, domain2)]:
             won = (domain == winner)
-            bf = game.state.zones.get(pid, {}).get(ZoneType.BATTLEFIELD, [])
-            for obj in bf:
+            bf = game.state.zones.get("battlefield")
+            for obj_id in list(getattr(bf, "objects", []) or []):
+                obj = game.state.objects.get(obj_id)
+                if obj is None or obj.controller != pid:
+                    continue
                 name = getattr(obj, "name", None)
                 if name:
                     tracker.record_in_play_at_end(domain, name, won=won)

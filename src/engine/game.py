@@ -279,6 +279,22 @@ class Game:
                 card_def=card_def,
             )
 
+    def setup_scp_player(self, player: Player, deck: list = None):
+        """
+        Set up an SCP Containment TCG player with site clocks and an optional
+        starting deck.
+        """
+        from .scp import setup_scp_player
+        setup_scp_player(self, player)
+        for card_def in (deck or []):
+            self.create_object(
+                name=card_def.name,
+                owner_id=player.id,
+                zone=ZoneType.LIBRARY,
+                characteristics=copy.deepcopy(card_def.characteristics),
+                card_def=card_def,
+            )
+
     def _setup_shared_zones(self):
         """Create battlefield, stack, exile, command (+ mode-specific shared zones)."""
         base = [ZoneType.BATTLEFIELD, ZoneType.STACK, ZoneType.EXILE, ZoneType.COMMAND]
@@ -417,6 +433,9 @@ class Game:
         if self.state.game_mode == "minecraft":
             from .minecraft import handle_avatar_deaths
             events.extend(handle_avatar_deaths(self))
+        elif self.state.game_mode == "scp":
+            from .scp import check_scp_loss
+            events.extend(check_scp_loss(self))
         else:
             for player in self.state.players.values():
                 if player.life <= 0 and not player.has_lost:

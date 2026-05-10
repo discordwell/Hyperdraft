@@ -16,6 +16,7 @@ import { ActionMenu, TargetPicker, ChoiceModal } from '../components/actions';
 import { HSGameView } from './HSGameView';
 import { PKMGameView } from './PKMGameView';
 import { YGOGameView } from './YGOGameView';
+import { SCPGameView } from './SCPGameView';
 import { matchAPI } from '../services/api';
 import type { CardData, LegalActionData } from '../types';
 
@@ -88,6 +89,12 @@ export function GameView() {
   useEffect(() => {
     if (gameState?.game_mode === 'depths' && matchId) {
       navigate(`/game/${matchId}/depths`, { replace: true });
+    }
+  }, [gameState?.game_mode, matchId, navigate]);
+
+  useEffect(() => {
+    if (gameState?.game_mode === 'scp' && matchId) {
+      navigate(`/game/${matchId}/scp`, { replace: true });
     }
   }, [gameState?.game_mode, matchId, navigate]);
 
@@ -423,6 +430,10 @@ export function GameView() {
         />
       </div>
     );
+  }
+
+  if (gameState?.game_mode === 'scp') {
+    return <SCPGameView />;
   }
 
   // Loading state

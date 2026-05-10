@@ -199,7 +199,7 @@ def _session(path: str):
 # ---------- deck resolution ----------
 
 def _resolve_deck(name: str, decks_file: str | None = None) -> list:
-    """Look up a deck by name. First checks --decks-file (if given), then FINA starters."""
+    """Look up a deck by name. First checks --decks-file, then built-in Finance decks."""
     if decks_file:
         import json
         from pathlib import Path
@@ -211,15 +211,15 @@ def _resolve_deck(name: str, decks_file: str | None = None) -> list:
             if missing:
                 raise ValueError(f"Deck {name!r} references unknown cards: {missing[:3]}")
             return [FINANCE_CARDS[c] for c in card_names]
-    from src.cards.finance.fina.decks import FINA_STARTER_DECKS
-    if name not in FINA_STARTER_DECKS:
-        avail = list(FINA_STARTER_DECKS)
+    from src.cards.finance import FINANCE_DECKS
+    if name not in FINANCE_DECKS:
+        avail = list(FINANCE_DECKS)
         if decks_file:
             avail = list(spec.get("decks", {}).keys()) + avail
         raise ValueError(
             f"Unknown deck {name!r}. Available: {avail}"
         )
-    return FINA_STARTER_DECKS[name]()
+    return FINANCE_DECKS[name]()
 
 
 # ---------- phase progression helpers ----------

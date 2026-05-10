@@ -15,6 +15,7 @@ import { yugioh } from './yugioh';
 import { hearthstone } from './hearthstone';
 import { depths } from './depths';
 import { finance } from './finance';
+import { scp } from './scp';
 
 export const GAME_MODULES: Record<Game, GameModule> = {
   mtg,
@@ -24,6 +25,7 @@ export const GAME_MODULES: Record<Game, GameModule> = {
   hearthstone,
   depths,
   finance,
+  scp,
 };
 
 export function getGameModule(game: Game): GameModule {

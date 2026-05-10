@@ -37,6 +37,15 @@ from scripts.new_set.balance_loop import (     # noqa: E402
     HIGH_WINRATE,
     DEFAULT_MAX_CYCLES,
 )
+from scripts.new_set.capability_audit import (  # noqa: E402
+    detect_ai_omissions,
+    detect_mechanic_dead_ends,
+    detect_engine_omissions,
+    detect_card_crashes,
+    detect_archetype_weakness,
+    run_audit,
+    should_continue_audit_loop,
+)
 from scripts.new_set import wire_set            # noqa: E402
 from scripts.new_set.art_harness import (       # noqa: E402
     build_prompt,
@@ -604,6 +613,202 @@ def test_load_style_validates_module(tmp_path: Path = None):
     finally:
         sys.path.remove(str(tmp))
 
+
+# =============================================================================
+# capability_audit.py
+# =============================================================================
+
+def test_audit_ai_omission_detects_zero_count():
+    tournament = {
+        "ai_action_counts": {"DEPLOY": 100, "DETECT": 0, "ATTACH": 0},
+        "available_actions": ["DEPLOY", "DETECT", "ATTACH", "DIVE"],
+    }
+    findings, skipped = detect_ai_omissions(tournament)
+    assert not skipped
+    crit = [f for f in findings if f.severity == "critical"]
+    actions = {f.evidence["action_type"] for f in crit}
+    # DETECT, ATTACH, DIVE all have count 0 → flagged critical
+    assert "DETECT" in actions
+    assert "ATTACH" in actions
+    assert "DIVE" in actions
+    # DEPLOY (100 uses) is NOT flagged
+    assert "DEPLOY" not in actions
+
+
+def test_audit_ai_omission_detects_under_use():
+    tournament = {
+        "ai_action_counts": {"DEPLOY": 100, "DIVE": 50, "DETECT": 1},
+        "available_actions": ["DEPLOY", "DIVE", "DETECT"],
+    }
+    findings, _ = detect_ai_omissions(tournament)
+    high = [f for f in findings if f.severity == "high"]
+    # DETECT used 1 time vs median ~50 → ratio 0.02 < 0.05 threshold → high
+    assert any(f.evidence["action_type"] == "DETECT" for f in high)
+
+
+def test_audit_ai_omission_skipped_when_data_absent():
+    findings, skipped = detect_ai_omissions({})
+    assert skipped is True
+    assert findings == []
+
+
+def test_audit_mechanic_dead_end():
+    tournament = {"mechanic_triggers": {
+        "WOLFPACK N": 0, "CRUSH-DIVE": 200, "CHARGE-SWAP": 2,
+    }}
+    findings, _ = detect_mechanic_dead_ends(tournament)
+    flagged = {f.evidence["mechanic"] for f in findings}
+    # WOLFPACK N (0) flagged HIGH; CHARGE-SWAP (2) flagged MEDIUM; CRUSH-DIVE (200) not flagged
+    assert "WOLFPACK N" in flagged
+    assert "CHARGE-SWAP" in flagged
+    assert "CRUSH-DIVE" not in flagged
+
+
+def test_audit_engine_omission_clusters():
+    tournament = {"engine_todo_clusters": [
+        {"primitive": "QUERY_COST", "affected_card_count": 6, "cards": ["A", "B"]},
+        {"primitive": "OBSCURE_THING", "affected_card_count": 1, "cards": ["X"]},
+    ]}
+    findings, _ = detect_engine_omissions(tournament)
+    # QUERY_COST (6) crosses threshold 4; OBSCURE_THING (1) doesn't
+    assert len(findings) == 1
+    assert findings[0].evidence["primitive"] == "QUERY_COST"
+    assert findings[0].fix_dispatch == "engine_extension"
+
+
+def test_audit_card_crashes_route_to_card_repair():
+    tournament = {"card_errors": {
+        "Boom Card": "AttributeError: 'NoneType' has no 'foo'",
+    }}
+    findings, _ = detect_card_crashes(tournament)
+    assert len(findings) == 1
+    assert findings[0].fix_dispatch == "card_repair"
+    assert findings[0].severity == "critical"
+
+
+def test_audit_archetype_weakness_zero_winrate_routes_to_redesign():
+    """A 0% archetype must route to archetype_redesign as HIGH severity,
+    regardless of per-card variance."""
+    tournament = {
+        "set_summary": {"PIRT_aggro": {"winrate": 0.0, "wins": 0,
+                                       "losses": 15, "draws": 0,
+                                       "games_played": 15}},
+        "card_scores": {
+            f"PIRT_aggro::C{i}": {"win_rate_in_play": 0.0,
+                                  "in_play_at_end": 5, "cast": 5,
+                                  "deck_copies": 4}
+            for i in range(5)
+        },
+    }
+    findings, _ = detect_archetype_weakness(
+        tournament, "PIRT", ["PIRT_aggro"]
+    )
+    assert len(findings) == 1
+    assert findings[0].severity == "high"
+    assert findings[0].fix_dispatch == "archetype_redesign"
+
+
+def test_audit_archetype_weakness_low_with_variance_routes_to_card_revision():
+    """An archetype with ~15% winrate AND high per-card variance routes to
+    card_revision (someone is dragging it down)."""
+    tournament = {
+        "set_summary": {"PIRT_aggro": {"winrate": 0.15, "wins": 2,
+                                       "losses": 13, "draws": 0,
+                                       "games_played": 15}},
+        "card_scores": {
+            "PIRT_aggro::Strong":  {"win_rate_in_play": 0.95,
+                                    "in_play_at_end": 10, "cast": 5,
+                                    "deck_copies": 4},
+            "PIRT_aggro::Average": {"win_rate_in_play": 0.45,
+                                    "in_play_at_end": 10, "cast": 5,
+                                    "deck_copies": 4},
+            "PIRT_aggro::Weak":    {"win_rate_in_play": 0.05,
+                                    "in_play_at_end": 10, "cast": 5,
+                                    "deck_copies": 4},
+        },
+    }
+    findings, _ = detect_archetype_weakness(
+        tournament, "PIRT", ["PIRT_aggro"]
+    )
+    assert len(findings) == 1
+    assert findings[0].fix_dispatch == "card_revision"
+    assert findings[0].severity == "medium"
+
+
+def test_audit_archetype_weakness_low_without_variance_routes_to_redesign():
+    """Low winrate (~15%) AND uniformly low per-card → archetype_redesign."""
+    tournament = {
+        "set_summary": {"PIRT_aggro": {"winrate": 0.15, "wins": 2,
+                                       "losses": 13, "draws": 0,
+                                       "games_played": 15}},
+        "card_scores": {
+            f"PIRT_aggro::C{i}": {"win_rate_in_play": 0.45,
+                                  "in_play_at_end": 10, "cast": 5,
+                                  "deck_copies": 4}
+            for i in range(5)
+        },
+    }
+    findings, _ = detect_archetype_weakness(
+        tournament, "PIRT", ["PIRT_aggro"]
+    )
+    assert len(findings) == 1
+    assert findings[0].fix_dispatch == "archetype_redesign"
+    assert findings[0].severity == "high"
+
+
+def test_audit_run_audit_records_skipped_detectors():
+    tournament = {
+        "set_summary": {"X": {"winrate": 0.5, "games_played": 50}},
+        "card_scores": {},
+        # No ai_action_counts, mechanic_triggers, engine_todo_clusters, card_errors
+    }
+    report = run_audit(tournament, "X", ["X"], cycle=1)
+    assert "ai_omissions" in report.skipped_detectors
+    assert "mechanic_dead_ends" in report.skipped_detectors
+    assert "engine_omissions" in report.skipped_detectors
+    assert "card_crashes" in report.skipped_detectors
+
+
+def test_audit_actionable_only_when_critical_or_high():
+    # Only medium archetype weakness — not actionable
+    tournament = {
+        "set_summary": {"X_a": {"winrate": 0.15, "wins": 2, "losses": 13,
+                                "draws": 0, "games_played": 15}},
+        "card_scores": {
+            "X_a::Strong": {"win_rate_in_play": 0.95, "in_play_at_end": 10,
+                            "cast": 5, "deck_copies": 4},
+            "X_a::Average": {"win_rate_in_play": 0.45, "in_play_at_end": 10,
+                             "cast": 5, "deck_copies": 4},
+            "X_a::Weak": {"win_rate_in_play": 0.05, "in_play_at_end": 10,
+                          "cast": 5, "deck_copies": 4},
+        },
+    }
+    report = run_audit(tournament, "X", ["X_a"], cycle=1)
+    assert any(f.severity == "medium" for f in report.findings)
+    assert report.has_actionable_findings is False
+
+
+def test_audit_should_continue_loop_stops_on_no_findings():
+    from scripts.new_set.capability_audit import AuditReport
+    report = AuditReport(set_label="X", cycle=1, has_actionable_findings=False)
+    assert should_continue_audit_loop(report, cycle=1, max_cycles=3) is False
+
+
+def test_audit_should_continue_loop_stops_at_max_cycles():
+    from scripts.new_set.capability_audit import AuditReport
+    report = AuditReport(set_label="X", cycle=3, has_actionable_findings=True)
+    assert should_continue_audit_loop(report, cycle=3, max_cycles=3) is False
+
+
+def test_audit_should_continue_loop_continues_when_actionable_and_under_cap():
+    from scripts.new_set.capability_audit import AuditReport
+    report = AuditReport(set_label="X", cycle=1, has_actionable_findings=True)
+    assert should_continue_audit_loop(report, cycle=1, max_cycles=3) is True
+
+
+# =============================================================================
+# art_harness.py — keep last for clear ordering
+# =============================================================================
 
 def test_load_style_rejects_missing_headline(tmp_path: Path = None):
     tmp = tmp_path or Path(tempfile.mkdtemp())

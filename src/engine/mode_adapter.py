@@ -848,6 +848,37 @@ class MinecraftModeAdapter(GameModeAdapter):
 
 
 # =============================================================================
+# SCP Containment TCG
+# =============================================================================
+
+class SCPModeAdapter(GameModeAdapter):
+    """SCP Containment TCG mode."""
+    mode: str = "scp"
+
+    def default_max_hand_size(self):
+        return 999
+
+    def create_mana_system(self, state):
+        return None
+
+    def create_turn_manager(self, state):
+        from .scp_turn import SCPTurnManager
+        return SCPTurnManager(state)
+
+    async def setup_starting_hands(self, game, player_ids):
+        for player_id in player_ids:
+            game.draw_cards(player_id, 5)
+        return True
+
+    def register_ai_player(self, game, player_id):
+        if hasattr(game.turn_manager, "set_ai_player"):
+            game.turn_manager.set_ai_player(player_id)
+
+    def includes_game_log_in_state(self):
+        return True
+
+
+# =============================================================================
 # Depths (submarine fleet)
 # =============================================================================
 
@@ -873,6 +904,7 @@ _REGISTRY: dict[str, GameModeAdapter] = {
     "pokemon": PokemonModeAdapter(),
     "yugioh": YugiohModeAdapter(),
     "minecraft": MinecraftModeAdapter(),
+    "scp": SCPModeAdapter(),
     "depths": _build_depths_adapter(),
     "finance": _build_finance_adapter(),
 }

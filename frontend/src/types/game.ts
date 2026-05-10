@@ -65,7 +65,19 @@ export type ActionType =
   | 'FIN_END_PHASE'
   | 'FIN_END_TURN'
   | 'FIN_PLAY_RESPONSE'
-  | 'FIN_PASS_RESPONSE';
+  | 'FIN_PASS_RESPONSE'
+  | 'SCP_OPEN_DOSSIER'
+  | 'SCP_REVEAL_DOSSIER'
+  | 'SCP_RESEARCH'
+  | 'SCP_CONTAIN'
+  | 'SCP_SUPPRESS'
+  | 'SCP_SPEND_ETHICS'
+  | 'SCP_SHIFT_MOOD'
+  | 'SCP_CROSS_CONTAIN'
+  | 'SCP_MEMORY_HOLE'
+  | 'SCP_APPLY_PROTOCOL'
+  | 'SCP_RESOLVE_INCIDENT'
+  | 'SCP_END_TURN';
 
 export type Phase =
   | 'BEGINNING'
@@ -158,6 +170,23 @@ export interface CardData {
   hull?: number;
   is_flagship?: boolean;
   depths_keywords?: string[];
+  // SCP Containment TCG state/metadata
+  scp_red_tape?: number;
+  scp_clearance?: number;
+  scp_containment?: number;
+  scp_curiosity?: number;
+  scp_hazard?: number;
+  scp_skills?: Record<string, number>;
+  scp_bonus?: Record<string, number>;
+  scp_status?: string | null;
+  scp_paperwork?: number;
+  scp_exhausted?: boolean;
+  scp_researched?: number;
+  scp_suppressed?: number;
+  scp_mood?: string | null;
+  scp_bound_to?: string | null;
+  scp_protocols?: string[];
+  scp_public_tags?: string[];
 }
 
 // Stack Item
@@ -309,7 +338,7 @@ export interface GameState {
   is_game_over: boolean;
   winner: string | null;
   pending_choice?: PendingChoice | null;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp';
   variant?: string | null;
   max_hand_size?: number;
   // Pokemon zones
@@ -353,8 +382,36 @@ export interface GameState {
   finance_turn_data?: Record<string, unknown>;
   finance_stack?: FinanceStackItem[];
   finance_pending_response?: FinancePendingResponse | null;
+  // SCP Containment TCG state
+  scp_sites?: Record<string, SCPSiteState>;
+  scp_anomalies?: Record<string, CardData[]>;
+  scp_contained?: Record<string, CardData[]>;
+  scp_personnel?: Record<string, CardData[]>;
+  scp_facilities?: Record<string, CardData[]>;
+  scp_mandates?: Record<string, CardData[]>;
+  scp_incidents?: Record<string, SCPIncident[]>;
+  scp_assignment_slots?: Record<string, number>;
   // Game log
   game_log?: GameLogEntry[];
+}
+
+export interface SCPSiteState {
+  secrecy?: number;
+  breach?: number;
+  archives?: number;
+  ethics_debt?: number;
+  clearance?: number;
+  briefing?: number;
+  assignment_slots?: number;
+  assignments_used?: number;
+}
+
+export interface SCPIncident {
+  name?: string;
+  turn?: number;
+  breach?: number;
+  effect?: string;
+  [key: string]: unknown;
 }
 
 // MTG-style priority stack item used by FINA spells.
@@ -378,8 +435,10 @@ export interface FinancePendingResponse {
 // Request/Response Types
 export interface CreateMatchRequest {
   mode: MatchMode;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp';
   variant?: string;
+  ultra_agent?: 'claude' | 'codex';
+  ultra_model?: string;
   player_deck?: string[];
   player_deck_id?: string;
   player_name: string;
@@ -416,6 +475,17 @@ export interface PlayerActionRequest {
   vessel_id?: string;
   interceptors?: { attacker_id: string; interceptor_id: string }[];
   detect_targets?: string[];
+  // SCP-specific
+  fast_track?: boolean;
+  sealed?: boolean;
+  anomaly_id?: string;
+  staff_ids?: string[];
+  contained_id?: string;
+  active_id?: string;
+  mood?: string;
+  protocol?: string;
+  index?: number;
+  amount?: number;
 }
 
 export interface ActionResultResponse {
@@ -427,7 +497,7 @@ export interface ActionResultResponse {
 
 // Bot Game Types
 export interface StartBotGameRequest {
-  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance';
+  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp';
   bot1_deck: string[];
   bot2_deck: string[];
   bot1_deck_id?: string;

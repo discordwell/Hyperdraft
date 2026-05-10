@@ -1,0 +1,878 @@
+"""SCP Containment TCG card pool.
+
+Original, SCP-inspired containment cards for Hyperdraft. The mode borrows the
+public-domain shape of anomalous containment fiction, but card names/text here
+are original and do not reproduce SCP article prose.
+"""
+
+from __future__ import annotations
+
+from src.engine.types import CardDefinition, CardType, Event, EventType, GameState, GameObject
+from src.engine import scp
+
+
+def _with_metadata(
+    card: CardDefinition,
+    *,
+    expansion: str = "SCP Core",
+    expansion_code: str = "CORE",
+    archetype: str = "foundation",
+    art_prompt: str | None = None,
+) -> CardDefinition:
+    card.scp_expansion = expansion
+    card.scp_expansion_code = expansion_code
+    card.scp_archetype = archetype
+    card.scp_art_prompt = art_prompt or (
+        f"Original SCP-inspired trading card art for {card.name}: cinematic classified-site containment, "
+        f"clear focal subject, readable silhouette, no text, no logos, high-detail digital painting."
+    )
+    return card
+
+
+def _anomaly(
+    name,
+    containment,
+    curiosity,
+    hazard,
+    red_tape,
+    subtypes,
+    text,
+    *,
+    clearance=0,
+    reveal=None,
+    rarity=None,
+    expansion="SCP Core",
+    expansion_code="CORE",
+    archetype="foundation",
+    art_prompt=None,
+):
+    card = scp.make_scp_card(
+        name,
+        CardType.SCP_ANOMALY,
+        containment=containment,
+        curiosity=curiosity,
+        hazard=hazard,
+        red_tape=red_tape,
+        clearance=clearance,
+        subtypes=set(subtypes),
+        text=text,
+        rarity=rarity,
+        on_reveal=reveal,
+    )
+    return _with_metadata(card, expansion=expansion, expansion_code=expansion_code, archetype=archetype, art_prompt=art_prompt)
+
+
+def _personnel(
+    name,
+    skills,
+    red_tape,
+    subtypes,
+    text,
+    *,
+    clearance=0,
+    rarity=None,
+    expansion="SCP Core",
+    expansion_code="CORE",
+    archetype="foundation",
+    art_prompt=None,
+):
+    card = scp.make_scp_card(
+        name,
+        CardType.SCP_PERSONNEL,
+        skills=skills,
+        red_tape=red_tape,
+        clearance=clearance,
+        subtypes=set(subtypes),
+        text=text,
+        rarity=rarity,
+    )
+    return _with_metadata(card, expansion=expansion, expansion_code=expansion_code, archetype=archetype, art_prompt=art_prompt)
+
+
+def _facility(
+    name,
+    bonus,
+    red_tape,
+    subtypes,
+    text,
+    *,
+    clearance=0,
+    rarity=None,
+    expansion="SCP Core",
+    expansion_code="CORE",
+    archetype="foundation",
+    art_prompt=None,
+):
+    card = scp.make_scp_card(
+        name,
+        CardType.SCP_FACILITY,
+        bonus=bonus,
+        red_tape=red_tape,
+        clearance=clearance,
+        subtypes=set(subtypes),
+        text=text,
+        rarity=rarity,
+    )
+    return _with_metadata(card, expansion=expansion, expansion_code=expansion_code, archetype=archetype, art_prompt=art_prompt)
+
+
+def _procedure(
+    name,
+    red_tape,
+    subtypes,
+    text,
+    effect,
+    *,
+    clearance=0,
+    rarity=None,
+    expansion="SCP Core",
+    expansion_code="CORE",
+    archetype="foundation",
+    art_prompt=None,
+):
+    card = scp.make_scp_card(
+        name,
+        CardType.SCP_PROCEDURE,
+        red_tape=red_tape,
+        clearance=clearance,
+        subtypes=set(subtypes),
+        text=text,
+        rarity=rarity,
+        effect=effect,
+    )
+    return _with_metadata(card, expansion=expansion, expansion_code=expansion_code, archetype=archetype, art_prompt=art_prompt)
+
+
+def _mandate(
+    name,
+    red_tape,
+    subtypes,
+    text,
+    *,
+    clearance=0,
+    bonus=None,
+    alt_win=None,
+    rarity=None,
+    expansion="SCP Core",
+    expansion_code="CORE",
+    archetype="foundation",
+    art_prompt=None,
+):
+    card = scp.make_scp_card(
+        name,
+        CardType.SCP_MANDATE,
+        red_tape=red_tape,
+        clearance=clearance,
+        bonus=bonus or {},
+        subtypes=set(subtypes),
+        text=text,
+        rarity=rarity,
+    )
+    card.scp_alt_win = alt_win
+    return _with_metadata(card, expansion=expansion, expansion_code=expansion_code, archetype=archetype, art_prompt=art_prompt)
+
+
+def _site_event(event_type, obj, **payload):
+    payload.setdefault("player", obj.controller)
+    return Event(type=event_type, payload=payload, source=obj.id, controller=obj.controller)
+
+
+def _adjust_site(*, secrecy=0, breach=0, ethics=0, clearance=0):
+    def effect(obj: GameObject, state: GameState, game=None):
+        s = scp.site(state, obj.controller)
+        s["secrecy"] += secrecy
+        s["breach"] = max(0, s["breach"] + breach)
+        s["ethics_debt"] = max(0, s["ethics_debt"] + ethics)
+        s["clearance"] = max(0, s["clearance"] + clearance)
+        return [_site_event(EventType.SCP_BREACH_TICK, obj, reason="procedure", breach=s["breach"], secrecy=s["secrecy"])]
+    return effect
+
+
+def _paperwork_bonfire(obj: GameObject, state: GameState, game=None):
+    s = scp.site(state, obj.controller)
+    for candidate in state.objects.values():
+        if candidate.controller != obj.controller or candidate.state.scp_status != "pending":
+            continue
+        s["secrecy"] -= 1
+        if game is not None:
+            events = scp.activate_dossier_now(game, candidate, source=obj.id)
+            return events or [_site_event(EventType.SCP_FAST_TRACK, obj, reason="paperwork_bonfire")]
+        candidate.state.scp_paperwork = 0
+        return [_site_event(EventType.SCP_FAST_TRACK, obj, reason="paperwork_bonfire")]
+    return []
+
+
+def _lure_into_box(obj: GameObject, state: GameState, game=None):
+    if game is None:
+        return []
+    active = [
+        state.objects[aid]
+        for aid in state.scp_anomalies.get(obj.controller, [])
+        if aid in state.objects and state.objects[aid].state.scp_status == "active"
+    ]
+    if not active:
+        return []
+    target = min(active, key=lambda a: int(getattr(a.card_def, "scp_containment", 0) or 0))
+    target.state.scp_status = "contained"
+    state.scp_anomalies[obj.controller].remove(target.id)
+    state.scp_contained[obj.controller].append(target.id)
+    return [
+        Event(type=EventType.SCP_CONTAINED, payload={"player": obj.controller, "anomaly_id": target.id, "reason": "procedure"}, source=obj.id, controller=obj.controller),
+    ]
+
+
+def _archive_sprint(obj: GameObject, state: GameState, game=None):
+    s = scp.site(state, obj.controller)
+    s["breach"] += 2
+    if game is not None:
+        return scp.gain_archives(game, obj.controller, 1, source=obj.id)
+    s["archives"] += 1
+    return [_site_event(EventType.SCP_ARCHIVE_GAINED, obj, amount=1, archives=s["archives"])]
+
+
+def _archive_and_cover(obj: GameObject, state: GameState, game=None):
+    s = scp.site(state, obj.controller)
+    s["secrecy"] += 1
+    s["breach"] = max(0, s["breach"] - 1)
+    if game is not None:
+        return scp.gain_archives(game, obj.controller, 1, source=obj.id)
+    s["archives"] += 1
+    return [_site_event(EventType.SCP_ARCHIVE_GAINED, obj, amount=1, archives=s["archives"])]
+
+
+def _ethics_audit_record(obj: GameObject, state: GameState, game=None):
+    s = scp.site(state, obj.controller)
+    s["breach"] = max(0, s["breach"] - 2)
+    s["ethics_debt"] = max(0, s["ethics_debt"] + 1)
+    if game is not None:
+        return scp.gain_archives(game, obj.controller, 1, source=obj.id)
+    s["archives"] += 1
+    return [_site_event(EventType.SCP_ARCHIVE_GAINED, obj, amount=1, archives=s["archives"])]
+
+
+def _opponent(state: GameState, player_id: str):
+    return next((pid for pid, player in state.players.items() if pid != player_id and not player.has_lost), None)
+
+
+def _whistleblower_leak(obj: GameObject, state: GameState, game=None):
+    opponent = _opponent(state, obj.controller)
+    if game is None or not opponent:
+        return []
+    return scp.force_audit(game, obj.controller, opponent, intensity=2, source=obj.id)
+
+
+def _misfile_audit(obj: GameObject, state: GameState, game=None):
+    opponent = _opponent(state, obj.controller)
+    if game is None or not opponent:
+        return []
+    pending = [
+        candidate
+        for candidate in state.objects.values()
+        if candidate.controller == opponent and candidate.state.scp_status == "pending"
+    ]
+    if not pending:
+        return scp.force_audit(game, obj.controller, opponent, intensity=1, source=obj.id)
+    _ok, _message, events = scp.misfile_dossier(game, obj.controller, pending[0].id, amount=2, source=obj.id)
+    return events
+
+
+def _weaponize_ethics(obj: GameObject, state: GameState, game=None):
+    if game is None:
+        return []
+    ok, _message, events = scp.spend_ethics(game, obj.controller, 2, mode="buy_clearance", source=obj.id)
+    if ok:
+        return events
+    scp.site(state, obj.controller)["ethics_debt"] += 2
+    return [_site_event(EventType.SCP_ETHICS_SPENT, obj, amount=0, mode="debt_seeded")]
+
+
+def _goi_tip_off(obj: GameObject, state: GameState, game=None):
+    opponent = _opponent(state, obj.controller)
+    if game is None or not opponent:
+        return []
+    return scp.goi_raid(game, opponent, faction="Serpent's Hand", source=obj.id)
+
+
+def _hostile_reveal(amount):
+    def reveal(obj: GameObject, state: GameState):
+        s = scp.site(state, obj.controller)
+        s["breach"] += amount
+        return [Event(type=EventType.SCP_BREACH_TICK, payload={"player": obj.controller, "amount": amount, "reason": "reveal"}, source=obj.id, controller=obj.controller)]
+    return reveal
+
+
+PERSONNEL = [
+    _personnel("Junior Researcher", {"research": 1}, 0, {"Scientist"}, "Cheap research body. Low nerve, no containment value."),
+    _personnel("Containment Specialist", {"contain": 2, "suppress": 1}, 1, {"Security"}, "Reliable containment staff for mid-risk anomalies."),
+    _personnel("MTF Doorbreaker", {"contain": 3, "suppress": 1}, 2, {"MTF", "Security"}, "Heavy response team. Excellent at forced containment."),
+    _personnel("Memetics Analyst", {"research": 2, "suppress": 1}, 1, {"Scientist", "Memetics"}, "Researches hostile information without immediately collapsing."),
+    _personnel("Ethics Liaison", {"research": 1, "suppress": 2}, 1, {"Ethics"}, "Keeps procedures from becoming the real anomaly."),
+    _personnel("D-Class Volunteer", {"contain": 1, "research": 1, "suppress": 1}, 0, {"D-Class"}, "Flexible disposable labor with no paperwork."),
+    _personnel("O5 Auditor", {"research": 3, "contain": 1}, 3, {"O5"}, "High-clearance archive engine.", clearance=2),
+    _personnel("Field Agent", {"contain": 1, "research": 1, "suppress": 2}, 1, {"Agent"}, "Best at keeping the public story coherent."),
+    _personnel("Thaumic Consultant", {"research": 2, "contain": 2}, 2, {"Occult"}, "Answers problems that should not have equations."),
+    _personnel("Night Shift Archivist", {"research": 3}, 2, {"Archivist"}, "Turns messy incident notes into Archives."),
+    _personnel("Sleep-Deprived Intern", {"research": 1, "suppress": 1}, 0, {"Scientist"}, "Somehow always available."),
+    _personnel("Janitor Who Knows Too Much", {"contain": 1, "suppress": 3}, 1, {"Staff"}, "Oddly good at stopping alarms before anyone notices."),
+]
+
+
+FACILITIES = [
+    _facility("Site-19 Intake Wing", {"contain": 1}, 1, {"Site"}, "Containment attempts get +1."),
+    _facility("Memetics Lab", {"research": 1}, 1, {"Lab"}, "Research tests get +1."),
+    _facility("Reality Anchor Array", {"suppress": 2}, 2, {"Array"}, "Suppression actions get +2."),
+    _facility("Amnestic Pharmacy", {"suppress": 1}, 1, {"Medical"}, "Suppression actions get +1."),
+    _facility("Deepwell Archive", {"research": 2}, 3, {"Archive"}, "Research tests get +2.", clearance=1),
+    _facility("Scranton Lattice", {"contain": 1, "suppress": 1}, 2, {"Array"}, "Containment and suppression get +1."),
+    _facility("Redaction Office", {"research": 1, "suppress": 1}, 1, {"Office"}, "Research and suppression get +1."),
+    _facility("Ethics Committee Desk", {"suppress": 1}, 1, {"Ethics"}, "Suppression gets +1 and ethics decks get a stable anchor."),
+    _facility("Observation Theatre", {"research": 1, "contain": 1}, 2, {"Lab"}, "Research and containment get +1."),
+    _facility("Keter Annex", {"contain": 2}, 3, {"Site"}, "Containment gets +2.", clearance=1),
+    _facility("Black Vault", {"research": 1}, 2, {"Archive"}, "Research gets +1. Its presence justifies higher-clearance cards."),
+    _facility("Cafeteria at 3 AM", {"suppress": 1, "contain": 1}, 0, {"Staff"}, "A low-paperwork morale engine."),
+]
+
+
+ANOMALIES = [
+    _anomaly("The Concrete Saint", 4, 2, 2, 2, {"Statue"}, "Easy to study, dangerous to ignore."),
+    _anomaly("Recursive Hallway", 3, 3, 1, 1, {"Space"}, "Loops paperwork as well as people."),
+    _anomaly("Singing Vending Machine", 2, 4, 1, 1, {"Object"}, "High research payoff, low containment difficulty."),
+    _anomaly("Door That Opens Sideways", 3, 2, 2, 1, {"Door", "Space"}, "Containment is mostly deciding where the room is."),
+    _anomaly("Oracle Mold", 5, 3, 3, 2, {"Biological"}, "Predicts which staff member will make the mistake."),
+    _anomaly("Rain Inside the Elevator", 2, 2, 1, 0, {"Weather"}, "A gentle anomaly unless ignored."),
+    _anomaly("Hostile Nursery Rhyme", 3, 5, 2, 2, {"Memetic"}, "Excellent archives, bad dreams."),
+    _anomaly("Borrowed Moon", 6, 4, 3, 3, {"Celestial"}, "A large containment ask with a rich research profile.", clearance=1),
+    _anomaly("Basement Ocean", 5, 4, 2, 2, {"Space", "Aquatic"}, "The tide table is classified."),
+    _anomaly("Polite Apocalypse", 7, 5, 4, 4, {"Keter"}, "On reveal, breach +2.", clearance=2, reveal=_hostile_reveal(2)),
+    _anomaly("Paperclip Colony", 2, 3, 1, 0, {"Swarm", "Object"}, "Cheap to contain but multiplies in reports."),
+    _anomaly("Red Room Static", 4, 4, 2, 2, {"Signal", "Memetic"}, "Every recording edits itself."),
+    _anomaly("Patient Zero of Yesterday", 4, 5, 3, 3, {"Temporal", "Biological"}, "Research asks why the outbreak already happened."),
+    _anomaly("Clockwork Saint", 6, 3, 2, 2, {"Machine"}, "Hard shell, clean containment reward."),
+    _anomaly("The Mirror That Interviews You", 3, 4, 2, 1, {"Cognitive"}, "It knows which questions to ask."),
+    _anomaly("Antimemetic Orchard", 5, 5, 2, 3, {"Antimemetic"}, "Hard to remember, very worth archiving."),
+    _anomaly("Containment Door Zero", 3, 3, 3, 1, {"Door"}, "Nobody agrees which side is inside."),
+    _anomaly("The Helpful Knife", 2, 3, 2, 0, {"Object"}, "Always volunteers. That is the problem."),
+    _anomaly("Unlicensed Heaven", 7, 5, 4, 4, {"Divine"}, "High-risk alternate cosmology.", clearance=2),
+    _anomaly("Moth in the Camera", 1, 2, 1, 0, {"Tiny", "Signal"}, "Starter anomaly for research-focused decks."),
+]
+
+
+PROCEDURES = [
+    _procedure("Class-A Amnestic Broadcast", 1, {"Amnestic"}, "Secrecy +3, ethics debt +1.", _adjust_site(secrecy=3, ethics=1)),
+    _procedure("Emergency Lockdown", 1, {"Security"}, "Breach -3.", _adjust_site(breach=-3)),
+    _procedure("Black Budget Requisition", 1, {"Funding"}, "Clearance +1, ethics debt +1.", _adjust_site(clearance=1, ethics=1)),
+    _procedure("Cross-Test Proposal", 2, {"Research"}, "Archive +1, breach +2.", _archive_sprint, clearance=1),
+    _procedure("Controlled Breach Drill", 0, {"Training"}, "Breach +1, clearance +1.", _adjust_site(breach=1, clearance=1)),
+    _procedure("False Flag Cover Story", 1, {"Cover"}, "Secrecy +2, breach -1.", _adjust_site(secrecy=2, breach=-1)),
+    _procedure("Ethics Waiver", 0, {"Ethics"}, "Clearance +2, ethics debt +2.", _adjust_site(clearance=2, ethics=2)),
+    _procedure("Mnestic Wake-Up", 1, {"Memetics"}, "Secrecy -1, clearance +1.", _adjust_site(secrecy=-1, clearance=1)),
+    _procedure("Paperwork Bonfire", 0, {"Bureaucracy"}, "Fast-track one pending dossier, secrecy -1.", _paperwork_bonfire),
+    _procedure("O5 Midnight Directive", 3, {"O5"}, "Clearance +2, secrecy -2.", _adjust_site(clearance=2, secrecy=-2), clearance=2),
+    _procedure("Witness Relocation", 1, {"Cover"}, "Secrecy +2.", _adjust_site(secrecy=2)),
+    _procedure("Null Room Calibration", 1, {"Array"}, "Breach -2.", _adjust_site(breach=-2)),
+    _procedure("Archive Sprint", 1, {"Research"}, "Archive +1, breach +2.", _archive_sprint),
+    _procedure("Incident Report Rewrite", 0, {"Bureaucracy"}, "Secrecy +1.", _adjust_site(secrecy=1)),
+    _procedure("Lure It Into a Box", 2, {"Containment"}, "Contain your lowest-containment active anomaly.", _lure_into_box),
+    _procedure("Red-Team the Veil", 1, {"Training"}, "Secrecy -1, breach -2.", _adjust_site(secrecy=-1, breach=-2)),
+    _procedure("Last Door Protocol", 2, {"Security"}, "Breach -4, secrecy -2.", _adjust_site(breach=-4, secrecy=-2), clearance=1),
+    _procedure("Friendly Fire Evacuation", 1, {"Security"}, "Breach -1, ethics debt +1.", _adjust_site(breach=-1, ethics=1)),
+    _procedure("Whistleblower Leak", 1, {"Audit"}, "Audit the opposing Site for exposure pressure.", _whistleblower_leak),
+    _procedure("Bureaucratic Labyrinth", 1, {"Bureaucracy"}, "Add paperwork to an opposing pending dossier; audit if none exist.", _misfile_audit),
+    _procedure("Weaponize Ethics Debt", 0, {"Ethics"}, "Spend 2 ethics debt for clearance, or seed 2 debt if you have none.", _weaponize_ethics),
+    _procedure("GOI Raid Tip-Off", 1, {"GOI", "Raid"}, "Trigger a GOI raid against the opposing Site.", _goi_tip_off),
+]
+
+
+MANDATES = [
+    _mandate("Secure Mandate", 1, {"Mandate"}, "Containment-focused Site directive. Alternate win: hold four contained anomalies at zero breach.", bonus={"contain": 1}, alt_win="thaumiel"),
+    _mandate("Contain Mandate", 1, {"Mandate"}, "Research-focused Site directive.", bonus={"research": 1}),
+    _mandate(
+        "Protect Mandate",
+        1,
+        {"Mandate"},
+        "Suppression-focused Site directive. Fully suppressed anomalies become contained Archives. Alternate win: three Archives and zero breach.",
+        bonus={"suppress": 1},
+        alt_win="veil_lockdown",
+    ),
+    _mandate("There Is No Antimemetics Division", 2, {"Mandate", "Antimemetic"}, "Alternate win: reach three Archives and secrecy 12+.", clearance=2, bonus={"research": 2}, alt_win="redaction"),
+]
+
+
+SCP_EXPANSIONS = [
+    {
+        "name": "Antimemetic Cold War",
+        "code": "ACW",
+        "archetype": "redaction",
+        "task": "research",
+        "secondary": "suppress",
+        "alt_win": "redaction",
+        "subtype": "Antimemetic",
+        "motifs": [
+            "Blind Library", "Forgotten Embassy", "Null Choir", "Paperless Witness", "Vanishing Orchard", "Mnemonic Siege",
+            "Unwritten Treaty", "Static Pilgrim", "Backmask City", "Cipher Hospital", "Redacted Noon", "Ghost Ledger",
+            "Negative Portrait", "White Noise Saint", "Absent Jury", "Hollow Survey", "Memory Quarantine", "Dead Language",
+        ],
+        "heroes": [
+            "Director Ana Vale", "Dr. Kovacs of the Blank Wing", "Agent No-Name", "Archivist Lumen Rye",
+            "Professor Hester Quill", "O5-Null", "Mara Voss, Mnestic Surgeon", "Captain Erasure Bell",
+        ],
+    },
+    {
+        "name": "Keter Blackout",
+        "code": "KBO",
+        "archetype": "blackout",
+        "task": "contain",
+        "secondary": "suppress",
+        "alt_win": "thaumiel",
+        "subtype": "Keter",
+        "motifs": [
+            "Sunless Reactor", "Ashen Giant", "Mercy Guillotine", "Broken Halo", "Red Siren", "Iron Nursery",
+            "Twelve-Minute God", "Containment Furnace", "Wild Crown", "Nightquake Engine", "Coffin Star", "Burning Elevator",
+            "Last Shepherd", "Cathedral Breach", "Blackout Leviathan", "Crisis Glass", "Dead Switch", "Stormward Gate",
+        ],
+        "heroes": [
+            "Commander Slate Rook", "Dr. Mira Lock", "O5-Blackout", "Captain Ferro Kane",
+            "Warden Vela Cross", "Chief Sato Lastdoor", "Ada Pike, Breach Marshal", "Rook Team Helix",
+        ],
+    },
+    {
+        "name": "GOI Frontline",
+        "code": "GOI",
+        "archetype": "raid",
+        "task": "suppress",
+        "secondary": "research",
+        "alt_win": "public_panic",
+        "subtype": "GOI",
+        "motifs": [
+            "Serpent Consulate", "Broken Auction", "Black Market Reliquary", "Glass Insurgency", "Parahuman Picket",
+            "Smuggled Eden", "Counterfeit Oracle", "Public Leak Cell", "Warehouse Gospel", "Static Broadcast",
+            "Crowded Safehouse", "Anomalous Embassy", "Hostile Benefactor", "Litigation Cult", "Witness Riot",
+            "Borderless Site", "Raid Calendar", "Quiet Defector",
+        ],
+        "heroes": [
+            "Agent Felicity Graves", "Marshal Rane Cross", "Serpent Speaker Ilya", "The Defector in Blue",
+            "Quartermaster Hex", "Dr. Sel Orison", "O5-Interdiction", "Captain Crowbar Venn",
+        ],
+    },
+    {
+        "name": "Ethics Reckoning",
+        "code": "ETH",
+        "archetype": "ethics",
+        "task": "research",
+        "secondary": "contain",
+        "alt_win": "ethics_audit",
+        "subtype": "Ethics",
+        "motifs": [
+            "Mercy Ledger", "Confession Engine", "Borrowed Body", "Clean-Room Tribunal", "Kind Knife", "Witness Garden",
+            "Aftercare Ward", "Debt Chapel", "Humane Blacksite", "Consent Simulator", "Red Line Codex", "Volunteer Bell",
+            "Burden Archive", "Patient Sun", "Audit Cathedral", "Moral Injury", "White Budget", "Merciful Lock",
+        ],
+        "heroes": [
+            "Chairwoman Inez Salt", "Dr. Gideon Vale", "O5-Conscience", "Nurse Patel of Ward Zero",
+            "Mediator June Frost", "D-0001, Volunteer King", "Auditor Sol Mercer", "Sister Redline",
+        ],
+    },
+    {
+        "name": "Oneiric Archives",
+        "code": "OAR",
+        "archetype": "oneiric",
+        "task": "research",
+        "secondary": "suppress",
+        "alt_win": "veil_lockdown",
+        "subtype": "Dream",
+        "motifs": [
+            "Sleeping Observatory", "Lucid Whale", "Moonlit Ward", "Somnambulist Court", "Dream Cartographer",
+            "Nightmare Orchard", "Velvet Alarm", "Glass Pillow", "Hypnagogic Door", "Waking Labyrinth",
+            "REM Cathedral", "Drowsing Archive", "Murmur Lake", "Imaginary Elevator", "Somatic Star",
+            "Nap Protocol", "Dream-Static Choir", "Unremembered Morning",
+        ],
+        "heroes": [
+            "Dr. Somna Reed", "Agent Lucid Marr", "O5-Dreaming", "The Sleepless Child",
+            "Archivist Yarrow Night", "Captain Nora REM", "Professor Glass Pillow", "Warden Hypnos Vale",
+        ],
+    },
+]
+
+
+def _expansion_art_prompt(expansion: dict, kind: str, name: str, motif: str) -> str:
+    return (
+        f"Original SCP-inspired TCG illustration for {name}, {kind} from {expansion['name']}. "
+        f"Subject: {motif.lower()} inside a classified containment facility. "
+        f"High-contrast cinematic lighting, practical horror, readable foreground silhouette, no text, no watermark."
+    )
+
+
+def _procedure_profile(archetype: str, index: int):
+    if archetype == "redaction":
+        profiles = [
+            ("Archive +1, secrecy +1, breach -1.", _archive_and_cover, {"Research", "Cover"}),
+            ("Secrecy +2, breach -1.", _adjust_site(secrecy=2, breach=-1), {"Cover"}),
+            ("Clearance +1.", _adjust_site(clearance=1), {"Mnestic"}),
+            ("Audit the opposing Site for exposure pressure.", _whistleblower_leak, {"Audit"}),
+        ]
+    elif archetype == "blackout":
+        profiles = [
+            ("Breach -4, secrecy -2.", _adjust_site(breach=-4, secrecy=-2), {"Security"}),
+            ("Fast-track one pending dossier, secrecy -1.", _paperwork_bonfire, {"Bureaucracy"}),
+            ("Contain your lowest-containment active anomaly.", _lure_into_box, {"Containment"}),
+            ("Breach +1, clearance +1.", _adjust_site(breach=1, clearance=1), {"Training"}),
+        ]
+    elif archetype == "raid":
+        profiles = [
+            ("Trigger a GOI raid against the opposing Site.", _goi_tip_off, {"GOI", "Raid"}),
+            ("Add paperwork to an opposing pending dossier; audit if none exist.", _misfile_audit, {"Bureaucracy"}),
+            ("Audit the opposing Site for exposure pressure.", _whistleblower_leak, {"Audit"}),
+            ("Secrecy +1, breach -1.", _adjust_site(secrecy=1, breach=-1), {"Cover"}),
+        ]
+    elif archetype == "ethics":
+        profiles = [
+            ("Breach -3, ethics debt +1.", _adjust_site(breach=-3, ethics=1), {"Ethics"}),
+            ("Spend 2 ethics debt for clearance, or seed 2 debt if you have none.", _weaponize_ethics, {"Ethics"}),
+            ("Secrecy +3, ethics debt +1.", _adjust_site(secrecy=3, ethics=1), {"Amnestic"}),
+            ("Archive +1, breach -2, ethics debt +1.", _ethics_audit_record, {"Research", "Ethics"}),
+        ]
+    elif archetype == "oneiric":
+        profiles = [
+            ("Secrecy +3, breach -1.", _adjust_site(secrecy=3, breach=-1), {"Dream", "Cover"}),
+            ("Archive +1, secrecy +1, breach -1.", _archive_and_cover, {"Dream", "Research"}),
+            ("Breach -3.", _adjust_site(breach=-3), {"Dream", "Array"}),
+            ("Secrecy +2.", _adjust_site(secrecy=2), {"Dream", "Cover"}),
+        ]
+    else:
+        profiles = [
+            ("Secrecy -1, breach -2.", _adjust_site(secrecy=-1, breach=-2), {"Training"}),
+            ("Secrecy +2.", _adjust_site(secrecy=2), {"Cover"}),
+            ("Breach -2.", _adjust_site(breach=-2), {"Array"}),
+            ("Archive +1, breach +2.", _archive_sprint, {"Research"}),
+        ]
+    return profiles[index % len(profiles)]
+
+
+def _rarity(index: int, *, hero: bool = False) -> str:
+    if hero:
+        return "mythic"
+    if index % 17 == 0:
+        return "mythic"
+    if index % 7 == 0:
+        return "rare"
+    if index % 3 == 0:
+        return "uncommon"
+    return "common"
+
+
+def _build_expansion_cards() -> list[CardDefinition]:
+    cards: list[CardDefinition] = []
+    for expansion in SCP_EXPANSIONS:
+        code = expansion["code"]
+        task = expansion["task"]
+        secondary = expansion["secondary"]
+        archetype = expansion["archetype"]
+        subtype = expansion["subtype"]
+        for index, motif in enumerate(expansion["motifs"]):
+            rarity = _rarity(index)
+            clearance = 1 if index % 6 == 0 else 0
+            reveal = _hostile_reveal(1) if index % 9 == 0 else None
+            hazard = 1 + ((index + 1) % 4)
+            if archetype in {"redaction", "raid", "oneiric"}:
+                hazard = 1 + (index % 3)
+            cards.append(_anomaly(
+                f"{code} {motif} Anomaly",
+                2 + (index % 5) + (1 if task == "contain" else 0),
+                2 + ((index + 2) % 5) + (1 if task == "research" else 0),
+                hazard,
+                min(2, index % 3),
+                {subtype, "Anomaly"},
+                f"{motif} rewards {task} plans but punishes Sites that ignore its {secondary} pressure.",
+                clearance=clearance,
+                reveal=reveal,
+                rarity=rarity,
+                expansion=expansion["name"],
+                expansion_code=code,
+                archetype=archetype,
+                art_prompt=_expansion_art_prompt(expansion, "anomaly", f"{code} {motif} Anomaly", motif),
+            ))
+            skill_total = 2 + (1 if index % 4 == 0 else 0)
+            cards.append(_personnel(
+                f"{code} {motif} Specialist",
+                {task: skill_total, secondary: 1},
+                index % 2,
+                {subtype, "Specialist"},
+                f"Build-around support for {archetype} decks: {task} {skill_total}, {secondary} 1.",
+                clearance=clearance if index % 8 == 0 else 0,
+                rarity=rarity,
+                expansion=expansion["name"],
+                expansion_code=code,
+                archetype=archetype,
+                art_prompt=_expansion_art_prompt(expansion, "personnel", f"{code} {motif} Specialist", motif),
+            ))
+            facility_bonus = {task: 1 + (1 if index % 6 == 0 else 0)}
+            if index % 4 == 0:
+                facility_bonus[secondary] = 1
+            cards.append(_facility(
+                f"{code} {motif} Wing",
+                facility_bonus,
+                index % 2,
+                {subtype, "Facility"},
+                f"{motif} anchors {archetype} decks with {facility_bonus} site bonuses.",
+                clearance=clearance,
+                rarity=rarity,
+                expansion=expansion["name"],
+                expansion_code=code,
+                archetype=archetype,
+                art_prompt=_expansion_art_prompt(expansion, "facility", f"{code} {motif} Wing", motif),
+            ))
+            text, effect, proc_subtypes = _procedure_profile(archetype, index)
+            cards.append(_procedure(
+                f"{code} {motif} Protocol",
+                index % 2,
+                {subtype, *proc_subtypes},
+                text,
+                effect,
+                clearance=clearance if index % 5 == 0 else 0,
+                rarity=rarity,
+                expansion=expansion["name"],
+                expansion_code=code,
+                archetype=archetype,
+                art_prompt=_expansion_art_prompt(expansion, "procedure", f"{code} {motif} Protocol", motif),
+            ))
+        for index in range(6):
+            focus = task if index % 2 == 0 else secondary
+            alt = expansion["alt_win"] if index == 0 else None
+            text = f"{expansion['name']} directive for {archetype} decks. {focus.capitalize()} checks get +1."
+            if alt == "redaction":
+                text += " Alternate win: reach three Archives and secrecy 12+, or three Archives while secrecy is high and breach is controlled."
+            elif alt == "thaumiel":
+                text += " Alternate win: hold four contained anomalies at zero breach."
+            elif alt == "veil_lockdown":
+                text += " Alternate win: three Archives and zero breach."
+            elif alt == "ethics_audit":
+                text += " Alternate win: four Archives and secrecy 8+."
+            elif alt == "public_panic":
+                text += " Alternate win: four Archives while an opposing Site has secrecy 6 or less."
+            cards.append(_mandate(
+                f"{code} Mandate {index + 1}: {expansion['motifs'][index]}",
+                1 + (index % 2),
+                {subtype, "Mandate"},
+                text,
+                bonus={focus: 1},
+                alt_win=alt,
+                rarity="rare" if index else "mythic",
+                expansion=expansion["name"],
+                expansion_code=code,
+                archetype=archetype,
+                art_prompt=_expansion_art_prompt(expansion, "mandate", f"{code} Mandate {index + 1}", expansion["motifs"][index]),
+            ))
+        for index, hero in enumerate(expansion["heroes"]):
+            primary = 3 + (1 if index % 4 == 0 else 0)
+            skills = {task: primary, secondary: 2}
+            if index % 3 == 0:
+                skills["research" if task != "research" else "contain"] = 1
+            cards.append(_personnel(
+                f"{code} Hero - {hero}",
+                skills,
+                1 + (index % 2),
+                {subtype, "Hero", "Legend"},
+                f"Rare hero combo piece for {archetype}: compressed {skills} on one high-clearance body.",
+                clearance=1 + (1 if index % 4 == 0 else 0),
+                rarity=_rarity(index, hero=True),
+                expansion=expansion["name"],
+                expansion_code=code,
+                archetype=archetype,
+                art_prompt=_expansion_art_prompt(expansion, "hero card", f"{code} Hero - {hero}", hero),
+            ))
+    return cards
+
+
+EXPANSION_CARDS = _build_expansion_cards()
+
+from .site_zero_broken_masquerade import (  # noqa: E402
+    SITE_ZERO_BROKEN_MASQUERADE_CARDS,
+    SITE_ZERO_DECK_FACTORIES,
+    SITE_ZERO_SYNERGY_PACKAGES,
+    make_site_zero_blackfile_deck,
+    make_site_zero_clean_hands_deck,
+    make_site_zero_masquerade_deck,
+    make_site_zero_quarantine_deck,
+    make_site_zero_thaumiel_deck,
+    make_site_zero_veil_rotation_deck,
+)
+
+
+SCP_CARDS: dict[str, CardDefinition] = {
+    card.name: card
+    for card in [
+        *PERSONNEL,
+        *FACILITIES,
+        *ANOMALIES,
+        *PROCEDURES,
+        *MANDATES,
+        *EXPANSION_CARDS,
+        *SITE_ZERO_BROKEN_MASQUERADE_CARDS,
+    ]
+}
+
+
+SECURE_CONTAIN_RESEARCH_NAMES = [
+    "Junior Researcher", "Junior Researcher", "Containment Specialist", "D-Class Volunteer",
+    "Field Agent", "Ethics Liaison", "Sleep-Deprived Intern", "D-Class Volunteer",
+    "Site-19 Intake Wing", "Memetics Lab", "Observation Theatre", "Redaction Office",
+    "Moth in the Camera", "Red Room Static", "Patient Zero of Yesterday", "Recursive Hallway",
+    "The Mirror That Interviews You", "Hostile Nursery Rhyme", "Oracle Mold",
+    "Class-A Amnestic Broadcast", "Emergency Lockdown", "False Flag Cover Story",
+    "Friendly Fire Evacuation", "Incident Report Rewrite", "Secure Mandate",
+]
+
+
+KETER_RISK_NAMES = [
+    "MTF Doorbreaker", "MTF Doorbreaker", "Containment Specialist", "Field Agent",
+    "Thaumic Consultant", "Janitor Who Knows Too Much", "O5 Auditor", "D-Class Volunteer",
+    "Reality Anchor Array", "Keter Annex", "Scranton Lattice", "Black Vault",
+    "The Concrete Saint", "Oracle Mold", "Borrowed Moon", "Clockwork Saint",
+    "Containment Door Zero", "Paperclip Colony", "Basement Ocean",
+    "Black Budget Requisition", "Archive Sprint", "Last Door Protocol",
+    "Lure It Into a Box", "Paperwork Bonfire", "Contain Mandate",
+]
+
+
+VEIL_CONTROL_NAMES = [
+    "Field Agent", "Field Agent", "Ethics Liaison", "Memetics Analyst",
+    "Janitor Who Knows Too Much", "Sleep-Deprived Intern", "Junior Researcher", "D-Class Volunteer",
+    "Redaction Office", "Amnestic Pharmacy", "Reality Anchor Array", "Cafeteria at 3 AM",
+    "Red Room Static", "Door That Opens Sideways", "Patient Zero of Yesterday",
+    "Hostile Nursery Rhyme", "Antimemetic Orchard", "The Helpful Knife",
+    "Class-A Amnestic Broadcast", "Witness Relocation", "Null Room Calibration",
+    "Red-Team the Veil", "GOI Raid Tip-Off", "Incident Report Rewrite", "Protect Mandate",
+]
+
+
+SITE_ZERO_REDACTION_LOCK_NAMES = [
+    "There Is No Antimemetics Division", "There Is No Antimemetics Division",
+    "SZB Directive 1: White Pill Ward", "SZB Directive 1: White Pill Ward",
+    "D-Class Volunteer", "D-Class Volunteer",
+    "Sleep-Deprived Intern", "Sleep-Deprived Intern",
+    "Memetics Analyst", "Memetics Analyst",
+    "SZB White Pill Ward Handler", "SZB White Pill Ward Handler",
+    "SZB Memory Triage Handler", "SZB Memory Triage Handler",
+    "Memetics Lab", "Memetics Lab",
+    "Redaction Office", "Redaction Office",
+    "Moth in the Camera", "Moth in the Camera",
+    "SZB White Pill Ward Anomaly", "SZB White Pill Ward Anomaly",
+    "SZB Quiet Recital Protocol", "SZB Quiet Recital Protocol",
+    "Emergency Lockdown",
+]
+
+
+def _names_by(
+    *,
+    expansion_code: str | None = None,
+    archetype: str | None = None,
+    card_type: CardType | None = None,
+    subtype: str | None = None,
+    exclude_subtype: str | None = None,
+) -> list[str]:
+    names: list[str] = []
+    for name, card in SCP_CARDS.items():
+        if expansion_code and getattr(card, "scp_expansion_code", None) != expansion_code:
+            continue
+        if archetype and getattr(card, "scp_archetype", None) != archetype:
+            continue
+        if card_type and card_type not in card.characteristics.types:
+            continue
+        subtypes = set(card.characteristics.subtypes or set())
+        if subtype and subtype not in subtypes:
+            continue
+        if exclude_subtype and exclude_subtype in subtypes:
+            continue
+        names.append(name)
+    return sorted(names)
+
+
+def _expanded_deck(expansion_code: str, archetype: str) -> list[CardDefinition]:
+    names: list[str] = []
+    if archetype == "raid":
+        counts = {"mandates": 2, "heroes": 2, "personnel": 6, "facilities": 4, "anomalies": 4, "procedures": 7}
+    elif archetype == "redaction":
+        counts = {"mandates": 2, "heroes": 2, "personnel": 7, "facilities": 6, "anomalies": 4, "procedures": 4}
+    else:
+        counts = {"mandates": 2, "heroes": 2, "personnel": 6, "facilities": 5, "anomalies": 7, "procedures": 5}
+    names.extend(_names_by(expansion_code=expansion_code, archetype=archetype, card_type=CardType.SCP_MANDATE)[:counts["mandates"]])
+    names.extend(_names_by(expansion_code=expansion_code, archetype=archetype, card_type=CardType.SCP_PERSONNEL, subtype="Hero")[:counts["heroes"]])
+    names.extend(_names_by(expansion_code=expansion_code, archetype=archetype, card_type=CardType.SCP_PERSONNEL, exclude_subtype="Hero")[:counts["personnel"]])
+    names.extend(_names_by(expansion_code=expansion_code, archetype=archetype, card_type=CardType.SCP_FACILITY)[:counts["facilities"]])
+    names.extend(_names_by(expansion_code=expansion_code, archetype=archetype, card_type=CardType.SCP_ANOMALY)[:counts["anomalies"]])
+    names.extend(_names_by(expansion_code=expansion_code, archetype=archetype, card_type=CardType.SCP_PROCEDURE)[:counts["procedures"]])
+    if len(names) < 25:
+        raise ValueError(f"Expanded SCP deck {expansion_code}/{archetype} only has {len(names)} cards")
+    return [SCP_CARDS[name] for name in names[:25]]
+
+
+def make_secure_contain_research_deck():
+    return [SCP_CARDS[name] for name in SECURE_CONTAIN_RESEARCH_NAMES]
+
+
+def make_keter_risk_deck():
+    return [SCP_CARDS[name] for name in KETER_RISK_NAMES]
+
+
+def make_veil_control_deck():
+    return [SCP_CARDS[name] for name in VEIL_CONTROL_NAMES]
+
+
+def make_site_zero_redaction_lock_deck():
+    return [SCP_CARDS[name] for name in SITE_ZERO_REDACTION_LOCK_NAMES]
+
+
+def make_antimemetic_cold_war_deck():
+    return _expanded_deck("ACW", "redaction")
+
+
+def make_keter_blackout_deck():
+    return _expanded_deck("KBO", "blackout")
+
+
+def make_goi_frontline_deck():
+    return _expanded_deck("GOI", "raid")
+
+
+def make_ethics_reckoning_deck():
+    return _expanded_deck("ETH", "ethics")
+
+
+def make_oneiric_archives_deck():
+    return _expanded_deck("OAR", "oneiric")
+
+
+SCP_STARTER_DECKS = {
+    "secure_contain_research": make_secure_contain_research_deck,
+    "keter_risk": make_keter_risk_deck,
+    "veil_control": make_veil_control_deck,
+    "site_zero_redaction_lock": make_site_zero_redaction_lock_deck,
+    "antimemetic_cold_war": make_antimemetic_cold_war_deck,
+    "keter_blackout": make_keter_blackout_deck,
+    "goi_frontline": make_goi_frontline_deck,
+    "ethics_reckoning": make_ethics_reckoning_deck,
+    "oneiric_archives": make_oneiric_archives_deck,
+    **SITE_ZERO_DECK_FACTORIES,
+}
+
+
+__all__ = [
+    "SCP_CARDS",
+    "SCP_STARTER_DECKS",
+    "make_secure_contain_research_deck",
+    "make_keter_risk_deck",
+    "make_veil_control_deck",
+    "make_site_zero_redaction_lock_deck",
+    "make_antimemetic_cold_war_deck",
+    "make_keter_blackout_deck",
+    "make_goi_frontline_deck",
+    "make_ethics_reckoning_deck",
+    "make_oneiric_archives_deck",
+    "SITE_ZERO_SYNERGY_PACKAGES",
+    "make_site_zero_masquerade_deck",
+    "make_site_zero_quarantine_deck",
+    "make_site_zero_thaumiel_deck",
+    "make_site_zero_blackfile_deck",
+    "make_site_zero_clean_hands_deck",
+    "make_site_zero_veil_rotation_deck",
+]

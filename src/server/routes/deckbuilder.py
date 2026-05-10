@@ -16,6 +16,7 @@ from src.cards.set_registry import (
 from src.decks.deck import validate_deck, Deck, DeckEntry
 from src.engine.types import CardType, Color
 from ..services.deck_storage import deck_storage
+from ..services import game_registry as gr
 from ..models import CardDefinitionData
 
 
@@ -28,11 +29,12 @@ router = APIRouter(prefix="/deckbuilder", tags=["deckbuilder"])
 
 class CardSearchRequest(BaseModel):
     """Advanced card search request."""
+    game: str = Field(default="mtg", description="Game: mtg, minecraft, pokemon, yugioh, hearthstone")
     query: Optional[str] = Field(None, description="Search in card name or text")
     types: list[str] = Field(default_factory=list, description="Filter by card types")
-    colors: list[str] = Field(default_factory=list, description="Filter by colors (W, U, B, R, G)")
-    cmc_min: Optional[int] = Field(None, ge=0, description="Minimum mana value")
-    cmc_max: Optional[int] = Field(None, ge=0, description="Maximum mana value")
+    colors: list[str] = Field(default_factory=list, description="Filter by colors (MTG only; ignored for other games)")
+    cmc_min: Optional[int] = Field(None, ge=0, description="Minimum cost (uses game-specific cost — material count for Minecraft, mana for HS, level for YGO)")
+    cmc_max: Optional[int] = Field(None, ge=0, description="Maximum cost")
     text_search: Optional[str] = Field(None, description="Search in card text only")
     rarity: Optional[str] = Field(None, description="Filter by rarity")
     limit: int = Field(50, ge=1, le=200)
@@ -55,6 +57,7 @@ class DeckEntryData(BaseModel):
 class SaveDeckRequest(BaseModel):
     """Request to save a deck."""
     deck_id: Optional[str] = None
+    game: str = Field(default="mtg")
     name: str = Field(..., min_length=1, max_length=100)
     archetype: str = Field(default="Aggro")
     colors: list[str] = Field(default_factory=list)
@@ -68,6 +71,7 @@ class DeckResponse(BaseModel):
     """Full deck data response."""
     id: str
     name: str
+    game: str = "mtg"
     archetype: str
     colors: list[str]
     description: str
@@ -88,27 +92,33 @@ class DeckListResponse(BaseModel):
 
 class DeckStatsRequest(BaseModel):
     """Request for deck statistics."""
+    game: str = Field(default="mtg")
     mainboard: list[DeckEntryData]
     sideboard: list[DeckEntryData] = Field(default_factory=list)
 
 
 class DeckStatsResponse(BaseModel):
-    """Deck statistics response."""
+    """Deck statistics response (game-agnostic shape; legacy MTG fields kept
+    on top-level for back-compat, with full per-game breakdown in `extras`)."""
     card_count: int
-    land_count: int
-    creature_count: int
-    spell_count: int
-    average_cmc: float
-    color_distribution: dict[str, int]
-    mana_curve: dict[str, int]  # CMC -> count
-    type_breakdown: dict[str, int]
+    cost_curve: dict[str, int] = Field(default_factory=dict)
+    type_breakdown: dict[str, int] = Field(default_factory=dict)
+    extras: dict = Field(default_factory=dict)
     validation: dict
+    # Legacy MTG fields (populated only for game=mtg, otherwise zeroed)
+    land_count: int = 0
+    creature_count: int = 0
+    spell_count: int = 0
+    average_cmc: float = 0.0
+    color_distribution: dict[str, int] = Field(default_factory=dict)
+    mana_curve: dict[str, int] = Field(default_factory=dict)
 
 
 class ImportDeckRequest(BaseModel):
     """Request to import a deck from text."""
     text: str = Field(..., description="Deck list in text format")
     format: str = Field(default="Standard")
+    game: str = Field(default="mtg")
 
 
 class ExportDeckResponse(BaseModel):
@@ -286,13 +296,14 @@ def is_creature(card_def) -> bool:
 @router.post("/cards/search", response_model=CardSearchResponse)
 async def search_cards(request: CardSearchRequest) -> CardSearchResponse:
     """
-    Advanced card search with multiple filters.
-
-    Searches the full card database (7,850+ cards).
+    Advanced card search with multiple filters. Per-game pool is selected
+    via `request.game` (default: mtg).
     """
-    results = []
+    game = gr.normalize_game(request.game)
+    pool = gr.get_card_pool(game)
+    results: list[CardDefinitionData] = []
 
-    for name, card_def in ALL_CARDS.items():
+    for name, card_def in pool.items():
         chars = card_def.characteristics
 
         # Query filter (name or text)
@@ -309,38 +320,29 @@ async def search_cards(request: CardSearchRequest) -> CardSearchResponse:
             if not any(t.upper() in card_types for t in request.types):
                 continue
 
-        # Color filter (inclusive - matches if card's mana cost contains any requested color)
-        if request.colors:
-            # Get colors from mana cost (includes hybrid mana)
+        # Color filter (MTG-only — silently ignored for other games)
+        if request.colors and game == "mtg":
             mana_colors = get_colors_from_mana_cost(chars.mana_cost)
-            # Also include card's color identity for colorless cards with color indicators
             card_colors = mana_colors | {c.name for c in chars.colors}
-            # Normalize requested colors (accept both "W" and "WHITE")
             requested_colors = {normalize_color(c) for c in request.colors}
-            # Match if card has any of the requested colors
             if not any(c in card_colors for c in requested_colors):
                 continue
 
-        # CMC filter
-        cmc = parse_mana_cost(chars.mana_cost)
-        if request.cmc_min is not None and cmc < request.cmc_min:
+        # Cost filter — game-aware (MTG mana value, MC material count, etc.)
+        cost = gr.get_card_cost(game, card_def)
+        if request.cmc_min is not None and cost < request.cmc_min:
             continue
-        if request.cmc_max is not None and cmc > request.cmc_max:
+        if request.cmc_max is not None and cost > request.cmc_max:
             continue
 
-        # Text search filter
         if request.text_search:
             if request.text_search.lower() not in (card_def.text or '').lower():
                 continue
 
-        results.append(card_def_to_data(name, card_def))
+        results.append(CardDefinitionData(**gr.card_to_data(game, name, card_def)))
 
     total = len(results)
-
-    # Sort by name
     results.sort(key=lambda c: c.name)
-
-    # Apply pagination
     paginated = results[request.offset:request.offset + request.limit]
 
     return CardSearchResponse(
@@ -352,17 +354,16 @@ async def search_cards(request: CardSearchRequest) -> CardSearchResponse:
 
 @router.get("/cards/all", response_model=CardSearchResponse)
 async def get_all_cards(
+    game: str = Query("mtg", description="Game id"),
     limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0)
+    offset: int = Query(0, ge=0),
 ) -> CardSearchResponse:
-    """
-    Get all cards with pagination.
-
-    Use search endpoint for filtered queries.
-    """
+    """Get all cards in a game with pagination."""
+    g = gr.normalize_game(game)
+    pool = gr.get_card_pool(g)
     all_cards = [
-        card_def_to_data(name, card_def)
-        for name, card_def in ALL_CARDS.items()
+        CardDefinitionData(**gr.card_to_data(g, name, card_def))
+        for name, card_def in pool.items()
     ]
     all_cards.sort(key=lambda c: c.name)
 
@@ -377,14 +378,17 @@ async def get_all_cards(
 
 
 @router.get("/cards/{card_name}", response_model=CardDefinitionData)
-async def get_card(card_name: str) -> CardDefinitionData:
-    """Get a specific card by name."""
-    # Case-insensitive lookup
-    for name, card_def in ALL_CARDS.items():
+async def get_card(
+    card_name: str,
+    game: str = Query("mtg", description="Game id"),
+) -> CardDefinitionData:
+    """Get a specific card by name within a game's pool (case-insensitive)."""
+    g = gr.normalize_game(game)
+    pool = gr.get_card_pool(g)
+    for name, card_def in pool.items():
         if name.lower() == card_name.lower():
-            return card_def_to_data(name, card_def)
-
-    raise HTTPException(status_code=404, detail=f"Card '{card_name}' not found")
+            return CardDefinitionData(**gr.card_to_data(g, name, card_def))
+    raise HTTPException(status_code=404, detail=f"Card '{card_name}' not found in {g}")
 
 
 # =============================================================================
@@ -392,9 +396,11 @@ async def get_card(card_name: str) -> CardDefinitionData:
 # =============================================================================
 
 @router.get("/decks", response_model=DeckListResponse)
-async def list_decks() -> DeckListResponse:
-    """List all saved decks."""
-    decks = deck_storage.list_decks()
+async def list_decks(
+    game: Optional[str] = Query(None, description="Filter by game id; omit for all"),
+) -> DeckListResponse:
+    """List saved decks, optionally filtered by game."""
+    decks = deck_storage.list_decks(game=gr.normalize_game(game) if game else None)
     return DeckListResponse(decks=decks, total=len(decks))
 
 
@@ -413,6 +419,7 @@ async def save_deck(request: SaveDeckRequest) -> DeckResponse:
     """Save a new deck or update an existing one."""
     deck_data = deck_storage.save_deck(
         deck_id=request.deck_id,
+        game=gr.normalize_game(request.game),
         name=request.name,
         archetype=request.archetype,
         colors=request.colors,
@@ -434,6 +441,7 @@ async def update_deck(deck_id: str, request: SaveDeckRequest) -> DeckResponse:
 
     deck_data = deck_storage.save_deck(
         deck_id=deck_id,
+        game=gr.normalize_game(request.game),
         name=request.name,
         archetype=request.archetype,
         colors=request.colors,
@@ -461,97 +469,50 @@ async def delete_deck(deck_id: str) -> dict:
 
 @router.post("/decks/stats", response_model=DeckStatsResponse)
 async def calculate_deck_stats(request: DeckStatsRequest) -> DeckStatsResponse:
-    """Calculate statistics for a deck."""
-    card_count = 0
-    land_count = 0
-    creature_count = 0
-    spell_count = 0
-    total_cmc = 0
-    nonland_count = 0
+    """Calculate statistics for a deck. Game-aware via request.game."""
+    game = gr.normalize_game(request.game)
+    main = [{"card": e.card, "qty": e.qty} for e in request.mainboard]
+    side = [{"card": e.card, "qty": e.qty} for e in request.sideboard]
+    stats = gr.compute_stats(game, main, side)
+    extras = stats["extras"]
 
-    color_dist: dict[str, int] = {}
-    mana_curve: dict[int, int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}  # 6+ bucket
-    type_breakdown: dict[str, int] = {}
-
-    for entry in request.mainboard:
-        card_def = ALL_CARDS.get(entry.card)
-        if not card_def:
-            continue
-
-        qty = entry.qty
-        card_count += qty
-        chars = card_def.characteristics
-
-        # Type counting
-        if is_land(card_def):
-            land_count += qty
-        else:
-            nonland_count += qty
-            cmc = parse_mana_cost(chars.mana_cost)
-            total_cmc += cmc * qty
-
-            # Mana curve
-            bucket = min(cmc, 6)
-            mana_curve[bucket] = mana_curve.get(bucket, 0) + qty
-
-        if is_creature(card_def):
-            creature_count += qty
-        elif not is_land(card_def):
-            spell_count += qty
-
-        # Color distribution
-        for color in chars.colors:
-            color_dist[color.name] = color_dist.get(color.name, 0) + qty
-
-        # Type breakdown
-        for card_type in chars.types:
-            type_breakdown[card_type.name] = type_breakdown.get(card_type.name, 0) + qty
-
-    # Calculate average CMC (excluding lands)
-    avg_cmc = total_cmc / nonland_count if nonland_count > 0 else 0.0
-
-    # Validate the deck
-    deck = Deck(
-        name="",
-        archetype="",
-        colors=[],
-        description="",
-        mainboard=[DeckEntry(e.card, e.qty) for e in request.mainboard],
-        sideboard=[DeckEntry(e.card, e.qty) for e in request.sideboard],
-    )
-    is_valid, errors = validate_deck(deck)
+    # Legacy MTG fields populated only for game=mtg.
+    legacy = {
+        "land_count": 0,
+        "creature_count": 0,
+        "spell_count": 0,
+        "average_cmc": 0.0,
+        "color_distribution": {},
+        "mana_curve": {},
+    }
+    if game == "mtg":
+        legacy["land_count"] = extras.get("land_count", 0)
+        legacy["creature_count"] = extras.get("creature_count", 0)
+        legacy["spell_count"] = extras.get("spell_count", 0)
+        legacy["average_cmc"] = extras.get("average_cost", 0.0)
+        legacy["color_distribution"] = extras.get("color_distribution", {})
+        legacy["mana_curve"] = stats["cost_curve"]  # alias
 
     return DeckStatsResponse(
-        card_count=card_count,
-        land_count=land_count,
-        creature_count=creature_count,
-        spell_count=spell_count,
-        average_cmc=round(avg_cmc, 2),
-        color_distribution=color_dist,
-        mana_curve={str(k): v for k, v in mana_curve.items()},
-        type_breakdown=type_breakdown,
-        validation={"is_valid": is_valid, "errors": errors}
+        card_count=stats["card_count"],
+        cost_curve=stats["cost_curve"],
+        type_breakdown=stats["type_breakdown"],
+        extras=extras,
+        validation=stats["validation"],
+        **legacy,
     )
 
 
 @router.post("/decks/validate")
 async def validate_deck_endpoint(request: DeckStatsRequest) -> dict:
-    """Validate a deck for format legality."""
-    deck = Deck(
-        name="",
-        archetype="",
-        colors=[],
-        description="",
-        mainboard=[DeckEntry(e.card, e.qty) for e in request.mainboard],
-        sideboard=[DeckEntry(e.card, e.qty) for e in request.sideboard],
-    )
-    is_valid, errors = validate_deck(deck)
+    """Validate a deck for format legality (game-aware)."""
+    game = gr.normalize_game(request.game)
+    main = [{"card": e.card, "qty": e.qty} for e in request.mainboard]
+    side = [{"card": e.card, "qty": e.qty} for e in request.sideboard]
+    is_valid, errors = gr.validate(game, main, side)
+    pool = gr.get_card_pool(game)
 
-    # Check for missing cards
-    missing_cards = []
-    for entry in request.mainboard:
-        if entry.card not in ALL_CARDS:
-            missing_cards.append(entry.card)
+    missing_cards = [e.card for e in request.mainboard if e.card not in pool]
 
     return {
         "is_valid": is_valid and len(missing_cards) == 0,
@@ -620,9 +581,11 @@ async def import_deck(request: ImportDeckRequest) -> DeckResponse:
         # Clean up card name
         card_name = card_name.strip()
 
-        # Find card in registry (case-insensitive)
+        # Find card in the requested game's registry (case-insensitive)
+        game = gr.normalize_game(request.game)
+        pool = gr.get_card_pool(game)
         found_name = None
-        for name in ALL_CARDS.keys():
+        for name in pool.keys():
             if name.lower() == card_name.lower():
                 found_name = name
                 break
@@ -634,17 +597,18 @@ async def import_deck(request: ImportDeckRequest) -> DeckResponse:
             else:
                 mainboard.append(entry)
 
-            # Track colors
-            card_def = ALL_CARDS[found_name]
-            for color in card_def.characteristics.colors:
-                colors.add(color.name[0])  # W, U, B, R, G
+            # Track colors (MTG only)
+            if game == "mtg":
+                card_def = pool[found_name]
+                for color in card_def.characteristics.colors:
+                    colors.add(color.name[0])
 
     if not mainboard:
         raise HTTPException(status_code=400, detail="No valid cards found in import text")
 
-    # Save the imported deck
     deck_data = deck_storage.save_deck(
         name=deck_name,
+        game=gr.normalize_game(request.game),
         archetype="Imported",
         colors=list(colors),
         description="Imported deck",

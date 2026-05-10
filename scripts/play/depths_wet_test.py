@@ -9,6 +9,8 @@ Pattern mirrors scripts/play/mc_wet_test.py:
 Usage:
     PYTHONPATH=. python scripts/play/depths_wet_test.py start \\
         --my-deck wolfpack --ai-deck silent_hunter --difficulty medium
+    PYTHONPATH=. python scripts/play/depths_wet_test.py start \\
+        --my-deck DEPTHS_research_midrange --ai-deck ABYS_research
 
     PYTHONPATH=. python scripts/play/depths_wet_test.py state
 
@@ -28,7 +30,7 @@ Usage:
     # Game over:
     python scripts/play/depths_wet_test.py result
 
-Available decks: wolfpack, silent_hunter, carrier, deep_strike
+Run with --help or start --help for the live deck-label list.
 Difficulty: easy, medium, hard
 """
 
@@ -44,6 +46,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 import dill as pickle  # noqa: E402
+from src.cards.depths.decks import (  # noqa: E402
+    DEPTHS_STARTER_DECKS,
+    format_depths_deck_labels,
+    normalize_depths_deck_label,
+)
 
 STATE_PATH = "/tmp/depths_wet_test_state.pkl"
 
@@ -401,19 +408,18 @@ def cmd_start(args) -> None:
     from src.engine.game import Game
     from src.engine.depths_turn import DepthsTurnManager
     from src.ai.depths_adapter import DepthsAIAdapter
-    from src.cards.depths.submarine_fleet.decks import (
-        SUBS_STARTER_DECKS, make_subs_flagship,
-    )
+    from src.cards.depths.submarine_fleet.decks import make_subs_flagship
+    from src.cards.depths.abyssal_expanse.decks import make_abys_flagship
 
-    deck1_key = f"SUBS_{args.my_deck}"
-    deck2_key = f"SUBS_{args.ai_deck}"
-    if deck1_key not in SUBS_STARTER_DECKS or deck2_key not in SUBS_STARTER_DECKS:
-        avail = sorted(k.replace("SUBS_", "") for k in SUBS_STARTER_DECKS)
-        sys.exit(f"Unknown deck. Available: {', '.join(avail)}")
+    deck1_key = normalize_depths_deck_label(args.my_deck)
+    deck2_key = normalize_depths_deck_label(args.ai_deck)
+    if deck1_key not in DEPTHS_STARTER_DECKS or deck2_key not in DEPTHS_STARTER_DECKS:
+        sys.exit(f"Unknown deck. Available: {format_depths_deck_labels()}")
 
-    deck1 = SUBS_STARTER_DECKS[deck1_key]()
-    deck2 = SUBS_STARTER_DECKS[deck2_key]()
-    flag = make_subs_flagship()
+    deck1 = DEPTHS_STARTER_DECKS[deck1_key]()
+    deck2 = DEPTHS_STARTER_DECKS[deck2_key]()
+    p1_flag = make_abys_flagship() if deck1_key.startswith("ABYS_") else make_subs_flagship()
+    p2_flag = make_abys_flagship() if deck2_key.startswith("ABYS_") else make_subs_flagship()
 
     game = Game(mode="depths")
     p1 = game.add_player("ME")
@@ -440,7 +446,7 @@ def cmd_start(args) -> None:
     tm.set_ai_player(p1.id)
     tm.set_ai_player(p2.id)
 
-    asyncio.run(tm.setup_game(game, deck1, deck2, flag, flag))
+    asyncio.run(tm.setup_game(game, deck1, deck2, p1_flag, p2_flag))
 
     # Seed P2's opening hand with a specific card (for test repeatability).
     seed_p2 = getattr(args, "seed_hand_p2", None)
@@ -1040,11 +1046,17 @@ def cmd_legal(args) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    deck_help = f"Available deck labels: {format_depths_deck_labels()}"
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog=deck_help,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("start"); p.add_argument("--my-deck", default="wolfpack")
-    p.add_argument("--ai-deck", default="silent_hunter")
+    p = sub.add_parser("start", epilog=deck_help)
+    p.add_argument("--my-deck", default="wolfpack", help=f"My deck label. {deck_help}")
+    p.add_argument("--ai-deck", default="silent_hunter", help=f"AI deck label. {deck_help}")
     p.add_argument("--difficulty", default="medium", choices=["easy", "medium", "hard"])
     p.add_argument("--two-pilot", action="store_true",
                    help="Both seats are LLM-controlled. Use plan-* --seat p2 for opponent's actions, "

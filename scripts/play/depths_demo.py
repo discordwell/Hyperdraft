@@ -4,6 +4,7 @@ depths_demo — run one AI-vs-AI Depths game with turn-by-turn narration.
 Usage:
     python scripts/play/depths_demo.py
     python scripts/play/depths_demo.py --p1 wolfpack --p2 deep_strike
+    python scripts/play/depths_demo.py --p1 DEPTHS_research_midrange --p2 ABYS_research
     python scripts/play/depths_demo.py --max-turns 30 --quiet
 """
 
@@ -25,12 +26,20 @@ from src.engine.depths import (                                       # noqa: E4
 )
 from src.engine.depths_turn import DepthsTurnManager                  # noqa: E402
 from src.ai.depths_adapter import DepthsAIAdapter                     # noqa: E402
-from src.cards.depths.submarine_fleet.decks import (                  # noqa: E402
-    SUBS_STARTER_DECKS, make_subs_flagship,
+from src.cards.depths.decks import (                                  # noqa: E402
+    DEPTHS_STARTER_DECKS,
+    format_depths_deck_labels,
+    normalize_depths_deck_label,
 )
+from src.cards.depths.submarine_fleet.decks import make_subs_flagship  # noqa: E402
+from src.cards.depths.abyssal_expanse.decks import make_abys_flagship  # noqa: E402
 
 # Reuse the action-dict converter from the smoke test.
 from tests.test_depths_smoke import _action_to_dict, _is_done          # noqa: E402
+
+
+def _flagship_for_key(key: str):
+    return make_abys_flagship() if key.startswith("ABYS_") else make_subs_flagship()
 
 
 # =============================================================================
@@ -208,15 +217,15 @@ async def run_demo(p1_label: str, p2_label: str, max_turns: int, quiet: bool) ->
     print(f"{C.BOLD}{C.CYAN}║  {C.BLUE}{p1_label:<12}{C.CYAN}  vs  {C.RED}{p2_label:<12}{C.CYAN}                  ║{C.RESET}")
     print(f"{C.BOLD}{C.CYAN}╚══════════════════════════════════════════════════════════╝{C.RESET}\n")
 
-    p1_deck_key = f"SUBS_{p1_label}"
-    p2_deck_key = f"SUBS_{p2_label}"
-    if p1_deck_key not in SUBS_STARTER_DECKS or p2_deck_key not in SUBS_STARTER_DECKS:
-        avail = sorted(k.replace("SUBS_", "") for k in SUBS_STARTER_DECKS)
-        raise SystemExit(f"unknown deck. Available: {', '.join(avail)}")
+    p1_deck_key = normalize_depths_deck_label(p1_label)
+    p2_deck_key = normalize_depths_deck_label(p2_label)
+    if p1_deck_key not in DEPTHS_STARTER_DECKS or p2_deck_key not in DEPTHS_STARTER_DECKS:
+        raise SystemExit(f"unknown deck. Available: {format_depths_deck_labels()}")
 
-    deck1 = SUBS_STARTER_DECKS[p1_deck_key]()
-    deck2 = SUBS_STARTER_DECKS[p2_deck_key]()
-    flagship_def = make_subs_flagship()
+    deck1 = DEPTHS_STARTER_DECKS[p1_deck_key]()
+    deck2 = DEPTHS_STARTER_DECKS[p2_deck_key]()
+    p1_flagship = _flagship_for_key(p1_deck_key)
+    p2_flagship = _flagship_for_key(p2_deck_key)
 
     game = Game(mode="depths")
     p1 = game.add_player(p1_label.title())
@@ -236,7 +245,7 @@ async def run_demo(p1_label: str, p2_label: str, max_turns: int, quiet: bool) ->
         tm.set_ai_player(p1.id)
         tm.set_ai_player(p2.id)
 
-    await tm.setup_game(game, deck1, deck2, flagship_def, flagship_def)
+    await tm.setup_game(game, deck1, deck2, p1_flagship, p2_flagship)
 
     print(f"{C.DIM}initial:{C.RESET} {_board_snapshot(p1, p2, game.state)}")
     print()
@@ -280,11 +289,16 @@ async def run_demo(p1_label: str, p2_label: str, max_turns: int, quiet: bool) ->
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
+    deck_help = f"Available deck labels: {format_depths_deck_labels()}"
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        epilog=deck_help,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     ap.add_argument("--p1", default="wolfpack",
-                    help="P1 archetype: wolfpack / silent_hunter / carrier / deep_strike")
+                    help=f"P1 deck label. {deck_help}")
     ap.add_argument("--p2", default="silent_hunter",
-                    help="P2 archetype")
+                    help=f"P2 deck label. {deck_help}")
     ap.add_argument("--max-turns", type=int, default=40)
     ap.add_argument("--quiet", action="store_true",
                     help="Skip per-turn board snapshots (just actions)")

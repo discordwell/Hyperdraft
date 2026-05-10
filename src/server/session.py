@@ -42,7 +42,7 @@ def generate_id() -> str:
 
 
 # Action type prefixes handled by specific mode adapters.
-_MODE_ACTION_PREFIXES = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO", "minecraft": "MC", "finance": "FIN", "depths": "DEPTHS"}
+_MODE_ACTION_PREFIXES = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO", "minecraft": "MC", "finance": "FIN", "depths": "DEPTHS", "scp": "SCP"}
 
 _HS_ACTION_TYPES = frozenset({
     "HS_PLAY_CARD", "HS_ATTUNE_CARD", "HS_ATTACK", "HS_HERO_POWER", "HS_END_TURN",
@@ -77,6 +77,13 @@ _DEPTHS_ACTION_TYPES = frozenset({
     "DEPTHS_ATTACH", "DEPTHS_CAST_SPELL", "DEPTHS_LAY_MINE",
     "DEPTHS_ACTIVATE_ABILITY", "DEPTHS_DECLARE_ATTACKERS", "DEPTHS_DETECT",
     "DEPTHS_DECLARE_INTERCEPTORS", "DEPTHS_END_TURN",
+})
+
+_SCP_ACTION_TYPES = frozenset({
+    "SCP_OPEN_DOSSIER", "SCP_REVEAL_DOSSIER", "SCP_RESEARCH",
+    "SCP_CONTAIN", "SCP_SUPPRESS", "SCP_SPEND_ETHICS",
+    "SCP_SHIFT_MOOD", "SCP_CROSS_CONTAIN", "SCP_MEMORY_HOLE",
+    "SCP_APPLY_PROTOCOL", "SCP_RESOLVE_INCIDENT", "SCP_END_TURN",
 })
 
 
@@ -219,7 +226,7 @@ class GameSession:
 
     # --- Ultra-AI helpers -------------------------------------------------
     # An "ultra" AI seat is server-aware but plays via the REST /action endpoint
-    # (an external Claude Code agent submits actions for it). For these seats:
+    # (an external Claude Code or Codex agent submits actions for it). For these seats:
     #   - we DON'T register a heuristic adapter handler with the turn manager
     #   - we DON'T mark the player as AI in the engine's priority/turn AI sets
     #     (so the engine treats them as human-controlled and routes via
@@ -240,6 +247,12 @@ class GameSession:
         if player_id not in self.player_ids:
             return False
         return self._player_difficulty(player_id) == "ultra"
+
+    def external_agent_runner(self, player_id: str) -> str:
+        """Resolve the local CLI runner for an externally-driven Ultra seat."""
+        profile = self.ai_profiles_by_player.get(player_id) or {}
+        runner = str(profile.get("agent_runner") or "claude").strip().lower()
+        return runner if runner in {"claude", "codex"} else "claude"
 
     @property
     def ultra_ai_player_ids(self) -> list[str]:
@@ -600,6 +613,14 @@ class GameSession:
         minecraft_grid: dict = {}
         minecraft_biomes: dict = {}
         minecraft_exposed_targets: dict = {}
+        scp_sites: dict = {}
+        scp_anomalies: dict = {}
+        scp_contained: dict = {}
+        scp_personnel: dict = {}
+        scp_facilities: dict = {}
+        scp_mandates: dict = {}
+        scp_incidents: dict = {}
+        scp_assignment_slots: dict = {}
 
         if game_state.game_mode == "yugioh":
             def _resolve_obj(obj_or_id):
@@ -701,6 +722,29 @@ class GameSession:
                     serialized_rows.append(serialized_row)
                 minecraft_grid[pid] = serialized_rows
                 minecraft_exposed_targets[pid] = mc.exposed_grid_targets(game_state, pid)
+
+        if game_state.game_mode == "scp":
+            def _serialize_scp_ids(ids):
+                out = []
+                for oid in ids:
+                    obj = game_state.objects.get(oid)
+                    if obj:
+                        out.append(self._serialize_permanent(obj))
+                return out
+
+            scp_sites = {pid: dict(game_state.scp_sites.get(pid, {})) for pid in game_state.players}
+            scp_incidents = {pid: list(game_state.scp_incidents.get(pid, [])) for pid in game_state.players}
+            scp_assignment_slots = {
+                pid: max(0, int((game_state.scp_sites.get(pid, {}) or {}).get("assignment_slots", 0)) -
+                         int((game_state.scp_sites.get(pid, {}) or {}).get("assignments_used", 0)))
+                for pid in game_state.players
+            }
+            for pid in game_state.players:
+                scp_anomalies[pid] = _serialize_scp_ids(game_state.scp_anomalies.get(pid, []))
+                scp_contained[pid] = _serialize_scp_ids(game_state.scp_contained.get(pid, []))
+                scp_personnel[pid] = _serialize_scp_ids(game_state.scp_personnel.get(pid, []))
+                scp_facilities[pid] = _serialize_scp_ids(game_state.scp_facilities.get(pid, []))
+                scp_mandates[pid] = _serialize_scp_ids(game_state.scp_mandates.get(pid, []))
 
         # Finance-specific state
         finance_phase = None
@@ -806,6 +850,14 @@ class GameSession:
             finance_pending_response=finance_pending_response_dto,
             depths_phase=depths_phase_val,
             depths_combat=depths_combat_val,
+            scp_sites=scp_sites,
+            scp_anomalies=scp_anomalies,
+            scp_contained=scp_contained,
+            scp_personnel=scp_personnel,
+            scp_facilities=scp_facilities,
+            scp_mandates=scp_mandates,
+            scp_incidents=scp_incidents,
+            scp_assignment_slots=scp_assignment_slots,
         )
 
     async def handle_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
@@ -838,6 +890,8 @@ class GameSession:
             return await get_server_mode_adapter("finance").handle_action(self, request)
         if request.action_type in _DEPTHS_ACTION_TYPES:
             return await get_server_mode_adapter("depths").handle_action(self, request)
+        if request.action_type in _SCP_ACTION_TYPES:
+            return await get_server_mode_adapter("scp").handle_action(self, request)
 
         # Combat declarations are not wired through the priority action loop yet.
         if request.action_type in ("DECLARE_ATTACKERS", "DECLARE_BLOCKERS"):
@@ -2036,6 +2090,11 @@ class GameSession:
         """Serialize a permanent for the client."""
         from src.engine.queries import get_power, get_toughness, is_creature
 
+        sealed_scp = (
+            self.game.state.game_mode == "scp"
+            and getattr(obj.state, "scp_status", None) == "sealed"
+        )
+
         has_pt = (
             is_creature(obj, self.game.state)
             or CardType.MC_STRUCTURE in obj.characteristics.types
@@ -2059,14 +2118,14 @@ class GameSession:
 
         return CardData(
             id=obj.id,
-            name=obj.name,
+            name="Sealed Dossier" if sealed_scp else obj.name,
             domain=getattr(obj.card_def, "domain", None) if getattr(obj, "card_def", None) else "TOKEN",
-            mana_cost=obj.characteristics.mana_cost,
-            types=[t.name for t in obj.characteristics.types],
-            subtypes=list(obj.characteristics.subtypes),
-            power=get_power(obj, self.game.state) if has_pt else None,
-            toughness=toughness,
-            text=obj.card_def.text if obj.card_def else "",
+            mana_cost=None if sealed_scp else obj.characteristics.mana_cost,
+            types=["SCP_ANOMALY"] if sealed_scp else [t.name for t in obj.characteristics.types],
+            subtypes=list(obj.characteristics.subtypes) if not sealed_scp else ["Sealed"],
+            power=None if sealed_scp else (get_power(obj, self.game.state) if has_pt else None),
+            toughness=None if sealed_scp else toughness,
+            text="Sealed anomaly dossier. Reveal to activate its full file." if sealed_scp else (obj.card_def.text if obj.card_def else ""),
             tapped=obj.state.tapped,
             counters=dict(obj.state.counters),
             damage=obj.state.damage,
@@ -2093,6 +2152,22 @@ class GameSession:
                 or "Flagship" in list(obj.characteristics.subtypes)
             ),
             depths_cost=_depths_cost,
+            scp_red_tape=int(getattr(obj.card_def, "scp_red_tape", 0) or 0) if obj.card_def else 0,
+            scp_clearance=int(getattr(obj.card_def, "scp_clearance", 0) or 0) if obj.card_def else 0,
+            scp_containment=0 if sealed_scp else (int(getattr(obj.card_def, "scp_containment", 0) or 0) if obj.card_def else 0),
+            scp_curiosity=0 if sealed_scp else (int(getattr(obj.card_def, "scp_curiosity", 0) or 0) if obj.card_def else 0),
+            scp_hazard=0 if sealed_scp else (int(getattr(obj.card_def, "scp_hazard", 0) or 0) if obj.card_def else 0),
+            scp_skills={} if sealed_scp else (dict(getattr(obj.card_def, "scp_skills", {}) or {}) if obj.card_def else {}),
+            scp_bonus={} if sealed_scp else (dict(getattr(obj.card_def, "scp_bonus", {}) or {}) if obj.card_def else {}),
+            scp_status=obj.state.scp_status,
+            scp_paperwork=obj.state.scp_paperwork,
+            scp_exhausted=obj.state.scp_exhausted,
+            scp_researched=0 if sealed_scp else obj.state.scp_researched,
+            scp_suppressed=0 if sealed_scp else obj.state.scp_suppressed,
+            scp_mood=None if sealed_scp else obj.state.scp_mood,
+            scp_bound_to=None if sealed_scp else obj.state.scp_bound_to,
+            scp_protocols=[] if sealed_scp else list(obj.state.scp_protocols),
+            scp_public_tags=sorted(obj.characteristics.subtypes)[:2] if sealed_scp else [],
         )
 
     def _serialize_card(self, obj) -> CardData:
@@ -2125,6 +2200,21 @@ class GameSession:
             mc_exhausted=obj.state.mc_exhausted,
             mc_keywords=sorted(getattr(obj.card_def, "mc_keywords", None) or ()) if obj.card_def else [],
             depths_cost=_depths_cost_hand,
+            scp_red_tape=int(getattr(obj.card_def, "scp_red_tape", 0) or 0) if obj.card_def else 0,
+            scp_clearance=int(getattr(obj.card_def, "scp_clearance", 0) or 0) if obj.card_def else 0,
+            scp_containment=int(getattr(obj.card_def, "scp_containment", 0) or 0) if obj.card_def else 0,
+            scp_curiosity=int(getattr(obj.card_def, "scp_curiosity", 0) or 0) if obj.card_def else 0,
+            scp_hazard=int(getattr(obj.card_def, "scp_hazard", 0) or 0) if obj.card_def else 0,
+            scp_skills=dict(getattr(obj.card_def, "scp_skills", {}) or {}) if obj.card_def else {},
+            scp_bonus=dict(getattr(obj.card_def, "scp_bonus", {}) or {}) if obj.card_def else {},
+            scp_status=obj.state.scp_status,
+            scp_paperwork=obj.state.scp_paperwork,
+            scp_exhausted=obj.state.scp_exhausted,
+            scp_researched=obj.state.scp_researched,
+            scp_suppressed=obj.state.scp_suppressed,
+            scp_mood=obj.state.scp_mood,
+            scp_bound_to=obj.state.scp_bound_to,
+            scp_protocols=list(obj.state.scp_protocols),
         )
 
     def _serialize_stack_item(self, item) -> StackItemData:

@@ -6,12 +6,14 @@ to a builder in `src.cards.depths.submarine_fleet.decks.SUBS_STARTER_DECKS`)
 and emits the canonical
 `{set_summary, matchup, card_scores}` shape that
 `scripts/new_set/balance_loop.py` and `scripts/new_set/coverage.py`
-consume.
+consume. Deck labels are resolved through
+`src.cards.depths.decks.DEPTHS_STARTER_DECKS`, which includes SUBS,
+ABYS, and mixed optimized DEPTHS lists.
 
-Card-ref keys are `<DECK_LABEL>::<Card Name>` (no engine-side domain
-lookup; the deck label IS the domain — `domain_matches_set("SUBS",
-"SUBS_wolfpack")` already returns True via the prefix match in
-`coverage.domain_matches_set`).
+Card-ref keys are normally `<DECK_LABEL>::<Card Name>`, so
+`domain_matches_set("SUBS_wolfpack", "SUBS")` works via prefix matching.
+Mixed optimized `DEPTHS_` deck card refs use the card's source domain
+(`ABYS::...` or `SUBS::...`) so per-set coverage still attributes them.
 
 CLI:
     python -m scripts.new_set._adapters.depths_tournament_adapter \\
@@ -26,6 +28,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import sys
 import time
 import traceback
@@ -39,7 +42,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.engine.types import (                                  # noqa: E402
-    CardDefinition, Event, EventType, ZoneType,
+    CardDefinition, CardType, Event, EventType, ZoneType,
 )
 from src.engine.game import Game                                # noqa: E402
 from src.engine.depths import (                                 # noqa: E402
@@ -48,9 +51,18 @@ from src.engine.depths import (                                 # noqa: E402
 from src.engine.depths_turn import DepthsTurnManager            # noqa: E402
 from src.ai.depths_adapter import DepthsAIAdapter               # noqa: E402
 
-from src.cards.depths.submarine_fleet.decks import (            # noqa: E402
-    SUBS_STARTER_DECKS, make_subs_flagship,
+from src.cards.depths.decks import DEPTHS_STARTER_DECKS          # noqa: E402
+from src.cards.depths.submarine_fleet.decks import make_subs_flagship  # noqa: E402
+from src.cards.depths.abyssal_expanse.decks import (            # noqa: E402
+    make_abys_flagship,
 )
+from src.cards.depths.submarine_fleet.wolfpack import WOLFPACK_CARDS  # noqa: E402
+
+
+def _flagship_for_label(label: str) -> CardDefinition:
+    if label.startswith("ABYS_"):
+        return make_abys_flagship()
+    return make_subs_flagship()
 
 
 # =============================================================================
@@ -116,26 +128,42 @@ class DecisionTracker:
         self.attacks_declared = 0
         self.detections_made = 0
         self.intercepts_made = 0
+        # Per-action-type counter for capability_audit's ai_omission detector.
+        self.action_counts: dict[str, int] = defaultdict(int)
 
     def __getattr__(self, name):
         return getattr(self.inner, name)
+
+    def _count_action(self, dict_action: dict | None) -> None:
+        if not isinstance(dict_action, dict):
+            return
+        at = dict_action.get("action_type")
+        if at:
+            self.action_counts[at] += 1
 
     async def choose_maneuver_action(self, state, player_id):
         action = self.inner.choose_maneuver_action(state, player_id)
         if action is not None and not _is_done(action):
             self.actions_taken += 1
-        return _action_to_dict(action, "DEPTHS_END_MANEUVER")
+        d = _action_to_dict(action, "DEPTHS_END_MANEUVER")
+        if d and d.get("action_type") not in ("DEPTHS_END_MANEUVER", "DEPTHS_END_REGROUP"):
+            self._count_action(d)
+        return d
 
     async def choose_regroup_action(self, state, player_id):
         action = self.inner.choose_maneuver_action(state, player_id)
         if action is not None and not _is_done(action):
             self.actions_taken += 1
-        return _action_to_dict(action, "DEPTHS_END_REGROUP")
+        d = _action_to_dict(action, "DEPTHS_END_REGROUP")
+        if d and d.get("action_type") not in ("DEPTHS_END_MANEUVER", "DEPTHS_END_REGROUP"):
+            self._count_action(d)
+        return d
 
     def choose_attackers(self, state, player_id):
         attackers = self.inner.choose_attackers(state, player_id)
         if attackers:
             self.attacks_declared += len(attackers)
+            self.action_counts["DEPTHS_DECLARE_ATTACKER"] += len(attackers)
         return attackers
 
     def choose_detections(self, state, defender_id, attackers):
@@ -147,12 +175,14 @@ class DecisionTracker:
             )
             if spent > 0:
                 self.detections_made += 1
+                self.action_counts["DEPTHS_DETECT"] += spent
         return detections
 
     def choose_interceptors(self, state, defender_id, detected_attackers):
         ints = self.inner.choose_interceptors(state, defender_id, detected_attackers)
         if ints:
             self.intercepts_made += len(ints)
+            self.action_counts["DEPTHS_DECLARE_INTERCEPTOR"] += len(ints)
         return ints
 
     async def choose_discards(self, state, player_id, count):
@@ -185,7 +215,55 @@ class DecisionTracker:
 
 def _card_ref(label: str, card_def: CardDefinition) -> str:
     """Canonical key the balance loop / coverage tools consume."""
-    return f"{label}::{card_def.name}"
+    domain = getattr(card_def, "domain", None)
+    ref_domain = domain if label.startswith("DEPTHS_") and domain in {"ABYS", "SUBS"} else label
+    return f"{ref_domain}::{card_def.name}"
+
+
+def _source_object_for_event(state, ev: Event):
+    source_id = getattr(ev, "source", None) or (getattr(ev, "payload", {}) or {}).get("source")
+    if not source_id:
+        source_id = (getattr(ev, "payload", {}) or {}).get("attacker_id")
+    return state.objects.get(source_id) if source_id else None
+
+
+def _is_wolfpack_attack_event(state, ev: Event) -> bool:
+    if ev.type != EventType.ATTACK_DECLARED:
+        return False
+    source = _source_object_for_event(state, ev)
+    card_def = getattr(source, "card_def", None) if source is not None else None
+    return bool(card_def and card_def.name in WOLFPACK_CARDS)
+
+
+def _is_card_driven_resupply_event(state, ev: Event) -> bool:
+    if ev.type != EventType.DEPTHS_RESUPPLY:
+        return False
+    payload = getattr(ev, "payload", {}) or {}
+    reason = str(payload.get("reason") or "")
+    if reason in {"system_resupply", "turn_resupply"}:
+        return False
+    source = _source_object_for_event(state, ev)
+    if source is not None and getattr(source, "card_def", None) is not None:
+        return True
+    return reason in {"card_effect", "abys_card_effect", "deep_charge", "kretschmer_drain"}
+
+
+def _collect_mechanic_triggers_from_log(state) -> dict[str, int]:
+    mechanic_triggers: dict[str, int] = defaultdict(int)
+    for ev in list(getattr(state, "event_log", []) or []):
+        et = getattr(ev, "type", None)
+        name = getattr(et, "name", "") if et else ""
+        if name == "DEPTHS_DIVE":
+            mechanic_triggers["CRUSH-DIVE"] += 1
+        elif name == "DEPTHS_DETECT":
+            mechanic_triggers["DETECT (sub-system)"] += 1
+        elif name == "DEPTHS_MINE_TRIGGER":
+            mechanic_triggers["MINE TRIGGER"] += 1
+        elif _is_card_driven_resupply_event(state, ev):
+            mechanic_triggers["CHARGE-SWAP"] += 1
+        elif _is_wolfpack_attack_event(state, ev):
+            mechanic_triggers["WOLFPACK N (attack-trigger)"] += 1
+    return dict(mechanic_triggers)
 
 
 def _zone_type(state, value: Any) -> ZoneType | None:
@@ -371,7 +449,8 @@ async def _run_one_game(
     p1 = game.add_player("Alice")
     p2 = game.add_player("Bob")
 
-    flagship_def = make_subs_flagship()
+    p1_flagship_def = _flagship_for_label(label_a)
+    p2_flagship_def = _flagship_for_label(label_b)
 
     tm = DepthsTurnManager(game.state)
     game.turn_manager = tm
@@ -388,7 +467,7 @@ async def _run_one_game(
     error: str | None = None
     turns_run = 0
     try:
-        await tm.setup_game(game, deck_a, deck_b, flagship_def, flagship_def)
+        await tm.setup_game(game, deck_a, deck_b, p1_flagship_def, p2_flagship_def)
         # Smoke test asserts both flagships exist. Do the same — if not, the
         # game is unrunnable.
         if get_flagship(p1.id, game.state) is None:
@@ -432,6 +511,20 @@ async def _run_one_game(
                 f"; card_stats failed: {type(exc).__name__}: {exc}"
             )
 
+    # Capability-audit signals: count engine events that map to named
+    # mechanics. The audit's mechanic_dead_end detector reads this map.
+    mechanic_triggers: dict[str, int] = {}
+    if error is None:
+        mechanic_triggers = _collect_mechanic_triggers_from_log(game.state)
+
+    # Combine per-player action counts into one map (the audit only cares
+    # about totals across the tournament, not per-side).
+    action_counts: dict[str, int] = defaultdict(int)
+    for k, v in p1_ai.action_counts.items():
+        action_counts[k] += v
+    for k, v in p2_ai.action_counts.items():
+        action_counts[k] += v
+
     return {
         "p1_label": label_a,
         "p2_label": label_b,
@@ -448,6 +541,9 @@ async def _run_one_game(
         "duration_s": round(time.perf_counter() - started, 3),
         "error": error,
         "card_stats": card_stats,
+        # Capability-audit signals
+        "action_counts": dict(action_counts),
+        "mechanic_triggers": dict(mechanic_triggers),
     }
 
 
@@ -455,9 +551,51 @@ async def _run_one_game(
 # Tournament aggregation → canonical {set_summary, matchup, card_scores}
 # =============================================================================
 
+def _any_deck_contains(
+    deck_specs: dict[str, list[CardDefinition]] | None,
+    card_type,
+) -> bool:
+    """Used to filter `available_actions` so the audit doesn't misreport
+    deck-composition gaps as AI omissions."""
+    if not deck_specs:
+        return False
+    for deck in deck_specs.values():
+        for cd in deck:
+            if cd is None:
+                continue
+            chars = getattr(cd, "characteristics", None)
+            if chars and card_type in (chars.types or set()):
+                return True
+    return False
+
+
+_DEPTHS_ACTIVATED_TEXT_RE = re.compile(r"\{[^}]*[TS][^}]*\}\s*:")
+
+
+def _card_can_activate(card_def: CardDefinition) -> bool:
+    if getattr(card_def, "depths_has_activated_ability", False):
+        return True
+    if getattr(card_def, "depths_grants_activated_ability", False):
+        return True
+    setup = getattr(card_def, "setup_interceptors", None)
+    if setup is not None and getattr(setup, "depths_grants_activated_ability", False):
+        return True
+    text = getattr(card_def, "text", "") or ""
+    return bool(_DEPTHS_ACTIVATED_TEXT_RE.search(text))
+
+
+def _any_deck_has_activated_capability(
+    deck_specs: dict[str, list[CardDefinition]] | None,
+) -> bool:
+    if not deck_specs:
+        return False
+    return any(_card_can_activate(cd) for deck in deck_specs.values() for cd in deck if cd is not None)
+
+
 def _aggregate(
     deck_labels: list[str],
     raw_results: list[dict[str, Any]],
+    deck_specs: dict[str, list[CardDefinition]] | None = None,
 ) -> dict[str, Any]:
     """Mirror `scripts/play/custom_set_tournament.py::aggregate` shape."""
     set_record: dict[str, dict[str, int]] = {
@@ -467,6 +605,9 @@ def _aggregate(
     matchup: dict[tuple[str, str], dict[str, int]] = defaultdict(
         lambda: {"wins_a": 0, "wins_b": 0, "draws": 0}
     )
+    # Capability-audit signals: tournament-level rollups.
+    ai_action_counts_agg: dict[str, int] = {}
+    mechanic_triggers_agg: dict[str, int] = {}
     card_agg: dict[str, dict[str, float]] = defaultdict(lambda: {
         "games": 0,
         "deck_copies": 0,
@@ -527,6 +668,12 @@ def _aggregate(
                 if k in agg:
                     agg[k] += v
 
+        # Capability-audit signals: roll up per-game action / trigger counts.
+        for k, v in (r.get("action_counts") or {}).items():
+            ai_action_counts_agg[k] = ai_action_counts_agg.get(k, 0) + int(v)
+        for k, v in (r.get("mechanic_triggers") or {}).items():
+            mechanic_triggers_agg[k] = mechanic_triggers_agg.get(k, 0) + int(v)
+
     # Per-deck winrate.
     set_summary: dict[str, dict[str, Any]] = {}
     for d in deck_labels:
@@ -556,10 +703,37 @@ def _aggregate(
             "win_rate_in_play": round(win_rate_in_play, 3),
         }
 
+    # Universe of available action types — lets the audit's ai_omission
+    # detector flag legal actions that NEVER got used. We filter actions
+    # whose enabling card types DON'T EXIST in any deck pool, so the
+    # audit doesn't misreport deck-composition gaps as AI bugs (e.g.
+    # "AI never lays mines" when there are zero Mine cards in any deck).
+    base_actions = {
+        "DEPTHS_DEPLOY_VESSEL", "DEPTHS_DIVE", "DEPTHS_SURFACE_VESSEL",
+        "DEPTHS_DECLARE_ATTACKER", "DEPTHS_DETECT",
+        "DEPTHS_DECLARE_INTERCEPTOR",
+    }
+    if _any_deck_contains(deck_specs, CardType.DEPTHS_MINE):
+        base_actions.add("DEPTHS_LAY_MINE")
+    if (_any_deck_contains(deck_specs, CardType.DEPTHS_CREW)
+            or _any_deck_contains(deck_specs, CardType.DEPTHS_WEAPON)):
+        base_actions.add("DEPTHS_ATTACH")
+    if (_any_deck_contains(deck_specs, CardType.INSTANT)
+            or _any_deck_contains(deck_specs, CardType.SORCERY)
+            or _any_deck_contains(deck_specs, CardType.ENCHANTMENT)):
+        base_actions.add("DEPTHS_CAST_SPELL")
+    if _any_deck_has_activated_capability(deck_specs):
+        base_actions.add("DEPTHS_ACTIVATE_ABILITY")
+    available_actions = sorted(base_actions | set(ai_action_counts_agg.keys()))
+
     return {
         "set_summary": set_summary,
         "matchup": {f"{a} vs {b}": v for (a, b), v in matchup.items()},
         "card_scores": card_scores,
+        # Capability-audit signals
+        "ai_action_counts": ai_action_counts_agg,
+        "mechanic_triggers": mechanic_triggers_agg,
+        "available_actions": available_actions,
     }
 
 
@@ -586,11 +760,11 @@ async def run_depths_tournament(
     # Validate deck builders up front so a typo doesn't waste a partial round.
     builders: dict[str, Any] = {}
     for label in deck_labels:
-        builder = SUBS_STARTER_DECKS.get(label)
+        builder = DEPTHS_STARTER_DECKS.get(label)
         if builder is None:
             raise KeyError(
                 f"unknown deck label {label!r}; "
-                f"known labels: {sorted(SUBS_STARTER_DECKS)}"
+                f"known labels: {sorted(DEPTHS_STARTER_DECKS)}"
             )
         builders[label] = builder
 
@@ -628,7 +802,10 @@ async def run_depths_tournament(
               f"a={wins_a} b={wins_b} draw={draws} err={errors}  "
               f"({pair_elapsed:.1f}s)")
 
-    aggregated = _aggregate(deck_labels, raw_results)
+    # Sample one deck instance per label so _aggregate can introspect the
+    # card-type composition (used to filter `available_actions`).
+    deck_specs_sample = {label: builders[label]() for label in deck_labels}
+    aggregated = _aggregate(deck_labels, raw_results, deck_specs=deck_specs_sample)
 
     # Top-level metadata for traceability.
     aggregated["meta"] = {

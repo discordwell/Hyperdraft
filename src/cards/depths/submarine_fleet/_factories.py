@@ -201,7 +201,11 @@ def make_weapon(
         ),
         setup_interceptors=setup_interceptors,
     )
-    return _attach(card, depths_weapon_charges=charges if charges else None)
+    return _attach(
+        card,
+        depths_weapon_charges=charges if charges else None,
+        depths_has_activated_ability=bool(granted_activated_abilities) or None,
+    )
 
 
 # ---------------------------------------------------------------------------

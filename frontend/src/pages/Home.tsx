@@ -13,13 +13,28 @@ import { useGameStore } from '../stores/gameStore';
 // Legacy alias — DeckSummary is the canonical type from the API
 type DeckInfo = DeckSummary;
 
+export const MINECRAFT_STARTER_DECK_OPTIONS = [
+  { value: 'builder', label: 'Builder Control' },
+  { value: 'miner', label: 'Miner Ramp' },
+  { value: 'raider', label: 'Raider Aggro' },
+  { value: 'compleated_dominion', label: 'Compleated Dominion' },
+  { value: 'box_of_horrors', label: 'Box of Horrors' },
+  { value: 'trial_chambers', label: 'Trial Chambers' },
+  { value: 'tamed_trails', label: 'Tamed Trails' },
+  { value: 'copper_pulse', label: 'Copper Pulse' },
+  { value: 'deep_dark_echo', label: 'Deep Dark Echo' },
+  { value: 'bastion_raid', label: 'Bastion Raid' },
+  { value: 'end_voyage', label: 'End Voyage' },
+  { value: 'ender_warboss_midrange', label: 'Ender Warboss Midrange' },
+] as const;
+
 export function Home() {
   const navigate = useNavigate();
   const setConnection = useGameStore((state) => state.setConnection);
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [gameMode, setGameMode] = useState<'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'finance' | 'depths'>('hearthstone');
+  const [gameMode, setGameMode] = useState<'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'finance' | 'depths' | 'scp'>('hearthstone');
   const [hsVariant, setHsVariant] = useState<string | null>('riftclash');
   const [heroClass, setHeroClass] = useState<string>('Pyromancer');
   const [playerName, setPlayerName] = useState('Player');
@@ -34,6 +49,10 @@ export function Home() {
   const [aiMinecraftDeck, setAiMinecraftDeck] = useState<string>('raider');
   const [playerDepthsDeck, setPlayerDepthsDeck] = useState<string>('SUBS_wolfpack');
   const [aiDepthsDeck, setAiDepthsDeck] = useState<string>('SUBS_silent_hunter');
+  const [playerSCPDeck, setPlayerSCPDeck] = useState<string>('secure_contain_research');
+  const [aiSCPDeck, setAiSCPDeck] = useState<string>('keter_risk');
+  const [ultraAgent, setUltraAgent] = useState<'claude' | 'codex'>('claude');
+  const [ultraCodexModel, setUltraCodexModel] = useState('gpt-5.3');
   const [claudexModel, setClaudexModel] = useState('claude-opus-4.6');
   const [gptModel, setGptModel] = useState('gpt-5.3');
   const [recordPrompts, setRecordPrompts] = useState(false);
@@ -73,6 +92,7 @@ export function Home() {
       const isMinecraft = gameMode === 'minecraft';
       const isFinance = gameMode === 'finance';
       const isDepths = gameMode === 'depths';
+      const isSCP = gameMode === 'scp';
       const skipDeckSelection = isHearthstone || isPokemon || isFinance || isDepths;
 
       // Create match
@@ -83,9 +103,13 @@ export function Home() {
         hero_class: isHearthstone && hsVariant !== null ? heroClass : undefined,
         player_name: playerName,
         ai_difficulty: difficulty,
-        player_deck_id: isDepths ? playerDepthsDeck
+        ultra_agent: difficulty === 'ultra' ? ultraAgent : undefined,
+        ultra_model: difficulty === 'ultra' ? (ultraAgent === 'codex' ? ultraCodexModel : claudexModel) : undefined,
+        player_deck_id: isSCP ? playerSCPDeck
+          : isDepths ? playerDepthsDeck
           : (skipDeckSelection ? undefined : (isYugioh ? (playerYgoDeck || undefined) : (isMinecraft ? playerMinecraftDeck : (playerDeck || undefined)))),
-        ai_deck_id: isDepths ? aiDepthsDeck
+        ai_deck_id: isSCP ? aiSCPDeck
+          : isDepths ? aiDepthsDeck
           : (skipDeckSelection ? undefined : (isYugioh ? (aiYgoDeck || undefined) : (isMinecraft ? aiMinecraftDeck : (aiDeck || undefined)))),
       });
 
@@ -99,6 +123,7 @@ export function Home() {
       const gamePath = isMinecraft ? `/game/${response.match_id}/mc`
         : isFinance ? `/game/${response.match_id}/fin`
         : isDepths ? `/game/${response.match_id}/depths`
+        : isSCP ? `/game/${response.match_id}/scp`
         : `/game/${response.match_id}`;
       navigate(gamePath);
     } catch (err) {
@@ -307,7 +332,7 @@ export function Home() {
               </button>
               <button
                 onClick={() => setGameMode('depths')}
-                className={`px-4 py-2 rounded transition-colors font-mono col-span-2 ${
+                className={`px-4 py-2 rounded transition-colors font-mono ${
                   gameMode === 'depths'
                     ? 'text-white'
                     : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -315,6 +340,16 @@ export function Home() {
                 style={gameMode === 'depths' ? { background: '#0a1f2f', color: '#22d3ee', border: '1px solid #22d3ee' } : {}}
               >
                 Depths: Submarine Fleet
+              </button>
+              <button
+                onClick={() => setGameMode('scp')}
+                className={`px-4 py-2 rounded transition-colors font-mono ${
+                  gameMode === 'scp'
+                    ? 'bg-slate-200 text-slate-950'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                SCP Containment
               </button>
             </div>
           </div>
@@ -491,7 +526,36 @@ export function Home() {
               ))}
             </div>
             {difficulty === 'ultra' && (
-              <p className="text-xs text-purple-400 mt-1">Full Ultra heuristics enabled.</p>
+              <div className="mt-3 border border-gray-700 rounded p-3 bg-gray-800/50">
+                <label className="block text-xs text-gray-400 mb-2">Ultra Agent</label>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  {(['claude', 'codex'] as const).map((agent) => (
+                    <button
+                      key={agent}
+                      onClick={() => setUltraAgent(agent)}
+                      className={`px-3 py-2 rounded text-sm font-semibold transition-all ${
+                        ultraAgent === agent
+                          ? agent === 'codex' ? 'bg-emerald-700 text-white' : 'bg-purple-700 text-white'
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                    >
+                      {agent === 'codex' ? 'Codex' : 'Claude'}
+                    </button>
+                  ))}
+                </div>
+                <label className="block text-xs text-gray-400 mb-1">
+                  {ultraAgent === 'codex' ? 'Codex model' : 'Claude model'}
+                </label>
+                <input
+                  type="text"
+                  value={ultraAgent === 'codex' ? ultraCodexModel : claudexModel}
+                  onChange={(e) => {
+                    if (ultraAgent === 'codex') setUltraCodexModel(e.target.value);
+                    else setClaudexModel(e.target.value);
+                  }}
+                  className="w-full px-2 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm focus:outline-none focus:border-game-accent"
+                />
+              </div>
             )}
           </div>
 
@@ -580,9 +644,9 @@ export function Home() {
                   onChange={(e) => setPlayerMinecraftDeck(e.target.value)}
                   className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:border-emerald-500"
                 >
-                  <option value="builder">Builder Control</option>
-                  <option value="miner">Miner Ramp</option>
-                  <option value="raider">Raider Aggro</option>
+                  {MINECRAFT_STARTER_DECK_OPTIONS.map(deck => (
+                    <option key={deck.value} value={deck.value}>{deck.label}</option>
+                  ))}
                 </select>
               </div>
               <div className="mb-6">
@@ -592,9 +656,9 @@ export function Home() {
                   onChange={(e) => setAiMinecraftDeck(e.target.value)}
                   className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:border-emerald-500"
                 >
-                  <option value="builder">Builder Control</option>
-                  <option value="miner">Miner Ramp</option>
-                  <option value="raider">Raider Aggro</option>
+                  {MINECRAFT_STARTER_DECK_OPTIONS.map(deck => (
+                    <option key={deck.value} value={deck.value}>{deck.label}</option>
+                  ))}
                 </select>
               </div>
             </>
@@ -633,6 +697,35 @@ export function Home() {
             </>
           )}
 
+          {gameMode === 'scp' && (
+            <>
+              <div className="mb-4">
+                <label className="block text-sm text-gray-400 mb-1">Your Site Brief</label>
+                <select
+                  value={playerSCPDeck}
+                  onChange={(e) => setPlayerSCPDeck(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:border-cyan-500"
+                >
+                  <option value="secure_contain_research">Secure / Contain / Research</option>
+                  <option value="keter_risk">Keter Risk Office</option>
+                  <option value="veil_control">Veil Control</option>
+                </select>
+              </div>
+              <div className="mb-6">
+                <label className="block text-sm text-gray-400 mb-1">Opposing Site Brief</label>
+                <select
+                  value={aiSCPDeck}
+                  onChange={(e) => setAiSCPDeck(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:border-cyan-500"
+                >
+                  <option value="keter_risk">Keter Risk Office</option>
+                  <option value="secure_contain_research">Secure / Contain / Research</option>
+                  <option value="veil_control">Veil Control</option>
+                </select>
+              </div>
+            </>
+          )}
+
           {/* Play vs Bot Button */}
           <button
             onClick={handleStartGame}
@@ -642,13 +735,15 @@ export function Home() {
             {isLoading
               ? 'Creating Game...'
               : (gameMode === 'hearthstone' && hsVariant === 'riftclash' && difficulty === 'ultra'
-                ? 'Play Riftclash vs Codex Ultra'
+                ? `Play Riftclash vs ${ultraAgent === 'codex' ? 'Codex' : 'Claude'} Ultra`
                 : (gameMode === 'hearthstone' && hsVariant === 'frierenrift' && difficulty === 'ultra'
-                  ? 'Play Frierenrift vs Codex Ultra'
-                  : 'Play vs AI'))}
+                  ? `Play Frierenrift vs ${ultraAgent === 'codex' ? 'Codex' : 'Claude'} Ultra`
+                  : (gameMode === 'scp' && difficulty === 'ultra'
+                    ? `Play SCP vs ${ultraAgent === 'codex' ? 'Codex' : 'Claude'} Ultra`
+                    : 'Play vs AI')))}
           </button>
 
-          {/* Bot game options (MTG + YGO) */}
+          {/* Bot game options (MTG + YGO + Minecraft) */}
           {(gameMode === 'mtg' || gameMode === 'yugioh' || gameMode === 'minecraft') && (
             <>
               {/* Spectate Bot Game Button */}
@@ -660,73 +755,77 @@ export function Home() {
                 Watch Bot vs Bot
               </button>
 
-              <div className="mt-3">
-                <div className="text-xs text-gray-400 mb-2">Battle Presets</div>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={handleStartUltraMirror}
-                    disabled={isLoading}
-                    className="px-3 py-2 bg-indigo-700 text-white rounded-lg text-sm font-semibold hover:bg-indigo-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Ultra vs Ultra
-                  </button>
-                  <button
-                    onClick={handleStartClaudexVsUltra}
-                    disabled={isLoading}
-                    className="px-3 py-2 bg-teal-700 text-white rounded-lg text-sm font-semibold hover:bg-teal-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Claudex vs Ultra
-                  </button>
-                </div>
-              </div>
-
-              {/* LLM Duel */}
-              <div className="mt-3 p-4 bg-gray-800/60 border border-gray-700 rounded-lg">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <div className="text-sm font-bold text-white">Custom LLM Duel</div>
-                    <div className="text-xs text-gray-400">Anthropic vs OpenAI (requires API keys)</div>
+              {gameMode !== 'minecraft' && (
+                <>
+                  <div className="mt-3">
+                    <div className="text-xs text-gray-400 mb-2">Battle Presets</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={handleStartUltraMirror}
+                        disabled={isLoading}
+                        className="px-3 py-2 bg-indigo-700 text-white rounded-lg text-sm font-semibold hover:bg-indigo-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Ultra vs Ultra
+                      </button>
+                      <button
+                        onClick={handleStartClaudexVsUltra}
+                        disabled={isLoading}
+                        className="px-3 py-2 bg-teal-700 text-white rounded-lg text-sm font-semibold hover:bg-teal-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Claudex vs Ultra
+                      </button>
+                    </div>
                   </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">Claudex model</label>
-                    <input
-                      type="text"
-                      value={claudexModel}
-                      onChange={(e) => setClaudexModel(e.target.value)}
-                      className="w-full px-2 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm focus:outline-none focus:border-game-accent"
-                    />
+                  {/* LLM Duel */}
+                  <div className="mt-3 p-4 bg-gray-800/60 border border-gray-700 rounded-lg">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <div className="text-sm font-bold text-white">Custom LLM Duel</div>
+                        <div className="text-xs text-gray-400">Anthropic vs OpenAI (requires API keys)</div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Claudex model</label>
+                        <input
+                          type="text"
+                          value={claudexModel}
+                          onChange={(e) => setClaudexModel(e.target.value)}
+                          className="w-full px-2 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm focus:outline-none focus:border-game-accent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">GPT model</label>
+                        <input
+                          type="text"
+                          value={gptModel}
+                          onChange={(e) => setGptModel(e.target.value)}
+                          className="w-full px-2 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm focus:outline-none focus:border-game-accent"
+                        />
+                      </div>
+                    </div>
+
+                    <label className="flex items-center gap-2 text-xs text-gray-400 mb-3 select-none">
+                      <input
+                        type="checkbox"
+                        checked={recordPrompts}
+                        onChange={(e) => setRecordPrompts(e.target.checked)}
+                      />
+                      Record prompts in replay
+                    </label>
+
+                    <button
+                      onClick={handleStartLlmDuel}
+                      disabled={isLoading}
+                      className="w-full px-4 py-3 bg-purple-700 text-white rounded-lg font-semibold hover:bg-purple-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Watch Claudex vs GPT
+                    </button>
                   </div>
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">GPT model</label>
-                    <input
-                      type="text"
-                      value={gptModel}
-                      onChange={(e) => setGptModel(e.target.value)}
-                      className="w-full px-2 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm focus:outline-none focus:border-game-accent"
-                    />
-                  </div>
-                </div>
-
-                <label className="flex items-center gap-2 text-xs text-gray-400 mb-3 select-none">
-                  <input
-                    type="checkbox"
-                    checked={recordPrompts}
-                    onChange={(e) => setRecordPrompts(e.target.checked)}
-                  />
-                  Record prompts in replay
-                </label>
-
-                <button
-                  onClick={handleStartLlmDuel}
-                  disabled={isLoading}
-                  className="w-full px-4 py-3 bg-purple-700 text-white rounded-lg font-semibold hover:bg-purple-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Watch Claudex vs GPT
-                </button>
-              </div>
+                </>
+              )}
             </>
           )}
 

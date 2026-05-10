@@ -7,10 +7,12 @@ frontend can build decks for any supported game with a single API surface.
 
 Supported games (canonical IDs match GameState.game_mode):
   - "mtg"        — Magic: The Gathering (default)
+  - "finance"    — Finance TCG
   - "minecraft"  — Minecraft TCG
   - "pokemon"    — Pokemon TCG
   - "yugioh"     — Yu-Gi-Oh!
   - "hearthstone" — Hearthstone
+  - "scp"        — SCP Containment TCG
 """
 
 from __future__ import annotations
@@ -19,8 +21,10 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from src.cards import ALL_CARDS as MTG_CARDS
+from src.cards.finance import FINANCE_CARDS
 from src.cards.hearthstone import ALL_CARDS as HS_CARDS_LIST
 from src.cards.minecraft import MINECRAFT_CARDS
+from src.cards.scp import SCP_CARDS
 from src.cards.pokemon.sv_starter import SV_STARTER_CARDS as POKEMON_CARDS
 from src.cards.yugioh import ALL_YGO_CARDS as YGO_CARDS
 
@@ -31,7 +35,7 @@ from src.engine.types import CardDefinition, CardType
 # Game IDs — canonical names matching GameState.game_mode
 # ---------------------------------------------------------------------------
 
-GAMES = ("mtg", "minecraft", "pokemon", "yugioh", "hearthstone")
+GAMES = ("mtg", "finance", "minecraft", "pokemon", "yugioh", "hearthstone", "scp")
 DEFAULT_GAME = "mtg"
 
 
@@ -47,12 +51,17 @@ def normalize_game(game: Optional[str]) -> str:
     aliases = {
         "magic": "mtg",
         "magic_the_gathering": "mtg",
+        "fin": "finance",
+        "fina": "finance",
+        "finm": "finance",
         "ygo": "yugioh",
         "yu-gi-oh": "yugioh",
         "yu-gi-oh!": "yugioh",
         "hs": "hearthstone",
         "pkm": "pokemon",
         "mc": "minecraft",
+        "scp-foundation": "scp",
+        "containment": "scp",
     }
     g = aliases.get(g, g)
     return g if g in GAMES else DEFAULT_GAME
@@ -70,10 +79,12 @@ def _hs_pool_dict() -> dict[str, CardDefinition]:
 
 _POOLS: dict[str, Callable[[], dict[str, CardDefinition]]] = {
     "mtg": lambda: MTG_CARDS,
+    "finance": lambda: FINANCE_CARDS,
     "minecraft": lambda: MINECRAFT_CARDS,
     "pokemon": lambda: POKEMON_CARDS,
     "yugioh": lambda: YGO_CARDS,
     "hearthstone": _hs_pool_dict,
+    "scp": lambda: SCP_CARDS,
 }
 
 
@@ -99,6 +110,8 @@ class DeckRules:
 _RULES: dict[str, DeckRules] = {
     "mtg": DeckRules(min_main=60, max_main=None, max_copies=4,
                      sideboard_max=15, basic_lands_unlimited=True),
+    "finance": DeckRules(min_main=40, max_main=40, max_copies=4,
+                         sideboard_max=0, basic_lands_unlimited=False),
     "minecraft": DeckRules(min_main=50, max_main=50, max_copies=2,
                            sideboard_max=0, basic_lands_unlimited=False),
     "pokemon": DeckRules(min_main=60, max_main=60, max_copies=4,
@@ -107,6 +120,8 @@ _RULES: dict[str, DeckRules] = {
                         sideboard_max=15, basic_lands_unlimited=False),
     "hearthstone": DeckRules(min_main=30, max_main=30, max_copies=2,
                              sideboard_max=0, basic_lands_unlimited=False),
+    "scp": DeckRules(min_main=25, max_main=40, max_copies=2,
+                     sideboard_max=0, basic_lands_unlimited=False),
 }
 
 
@@ -134,6 +149,13 @@ def _minecraft_extras(card_def: CardDefinition) -> dict[str, Any]:
         "mc_armor": getattr(card_def, "mc_armor", None),
         "mc_mining_bonus": getattr(card_def, "mc_mining_bonus", None),
         "mc_tool_slot": getattr(card_def, "mc_tool_slot", None),
+    }
+
+
+def _finance_extras(card_def: CardDefinition) -> dict[str, Any]:
+    return {
+        "liquidity_cost": _mtg_cost(card_def),
+        "domain": getattr(card_def, "domain", None),
     }
 
 
@@ -171,12 +193,32 @@ def _hearthstone_extras(card_def: CardDefinition) -> dict[str, Any]:
     }
 
 
+def _scp_extras(card_def: CardDefinition) -> dict[str, Any]:
+    return {
+        "scp_red_tape": int(getattr(card_def, "scp_red_tape", 0) or 0),
+        "scp_clearance": int(getattr(card_def, "scp_clearance", 0) or 0),
+        "scp_containment": int(getattr(card_def, "scp_containment", 0) or 0),
+        "scp_curiosity": int(getattr(card_def, "scp_curiosity", 0) or 0),
+        "scp_hazard": int(getattr(card_def, "scp_hazard", 0) or 0),
+        "scp_skills": dict(getattr(card_def, "scp_skills", {}) or {}),
+        "scp_bonus": dict(getattr(card_def, "scp_bonus", {}) or {}),
+        "scp_keywords": list(getattr(card_def, "scp_keywords", []) or []),
+        "scp_alt_win": getattr(card_def, "scp_alt_win", None),
+        "scp_expansion": getattr(card_def, "scp_expansion", None),
+        "scp_expansion_code": getattr(card_def, "scp_expansion_code", None),
+        "scp_archetype": getattr(card_def, "scp_archetype", None),
+        "scp_art_prompt": getattr(card_def, "scp_art_prompt", None),
+    }
+
+
 _EXTRAS: dict[str, Callable[[CardDefinition], dict[str, Any]]] = {
     "mtg": _mtg_extras,
+    "finance": _finance_extras,
     "minecraft": _minecraft_extras,
     "pokemon": _pokemon_extras,
     "yugioh": _yugioh_extras,
     "hearthstone": _hearthstone_extras,
+    "scp": _scp_extras,
 }
 
 
@@ -239,6 +281,10 @@ def _mc_cost(card_def: CardDefinition) -> int:
     return sum(int(v or 0) for v in raw.values())
 
 
+def _finance_cost(card_def: CardDefinition) -> int:
+    return _mtg_cost(card_def)
+
+
 def _hs_cost(card_def: CardDefinition) -> int:
     return int(getattr(card_def, "hs_cost", 0) or 0)
 
@@ -257,12 +303,18 @@ def _pkm_cost(card_def: CardDefinition) -> int:
     return 0
 
 
+def _scp_cost(card_def: CardDefinition) -> int:
+    return int(getattr(card_def, "scp_red_tape", 0) or 0)
+
+
 _COSTS: dict[str, Callable[[CardDefinition], int]] = {
     "mtg": _mtg_cost,
+    "finance": _finance_cost,
     "minecraft": _mc_cost,
     "hearthstone": _hs_cost,
     "yugioh": _ygo_level,
     "pokemon": _pkm_cost,
+    "scp": _scp_cost,
 }
 
 
@@ -305,6 +357,15 @@ def compute_stats(game: str, mainboard: list[dict], sideboard: list[dict]) -> di
         extras["nonland_total_cost"] = 0
         extras["nonland_count"] = 0
 
+    if g == "finance":
+        extras["domain_distribution"] = {}
+        extras["trader_count"] = 0
+        extras["order_count"] = 0
+        extras["strategy_count"] = 0
+        extras["asset_count"] = 0
+        extras["structure_count"] = 0
+        extras["derivative_count"] = 0
+
     if g == "minecraft":
         extras["material_distribution"] = {"wood": 0, "stone": 0, "iron": 0, "redstone": 0, "diamond": 0}
 
@@ -325,6 +386,13 @@ def compute_stats(game: str, mainboard: list[dict], sideboard: list[dict]) -> di
         extras["minion_count"] = 0
         extras["spell_count"] = 0
         extras["weapon_count"] = 0
+
+    if g == "scp":
+        extras["red_tape_total"] = 0
+        extras["anomaly_count"] = 0
+        extras["personnel_count"] = 0
+        extras["procedure_count"] = 0
+        extras["facility_count"] = 0
 
     for entry in mainboard:
         name = entry.get("card") if isinstance(entry, dict) else getattr(entry, "card_name", None)
@@ -363,6 +431,24 @@ def compute_stats(game: str, mainboard: list[dict], sideboard: list[dict]) -> di
                 if mat in extras["material_distribution"]:
                     extras["material_distribution"][mat] += int(amount or 0) * qty
 
+        if g == "finance":
+            domain = getattr(card_def, "domain", None)
+            if domain:
+                extras["domain_distribution"][domain] = extras["domain_distribution"].get(domain, 0) + qty
+            type_names = {t.name for t in chars.types}
+            if "FIN_TRADER" in type_names:
+                extras["trader_count"] += qty
+            if "FIN_ORDER" in type_names:
+                extras["order_count"] += qty
+            if "FIN_STRATEGY" in type_names:
+                extras["strategy_count"] += qty
+            if "FIN_ASSET" in type_names:
+                extras["asset_count"] += qty
+            if "FIN_STRUCTURE" in type_names:
+                extras["structure_count"] += qty
+            if "FIN_DERIVATIVE" in type_names:
+                extras["derivative_count"] += qty
+
         if g == "pokemon":
             etype = getattr(card_def, "pkm_type", None)
             if etype:
@@ -398,6 +484,18 @@ def compute_stats(game: str, mainboard: list[dict], sideboard: list[dict]) -> di
                 extras["spell_count"] += qty
             elif "HS_WEAPON" in type_names:
                 extras["weapon_count"] += qty
+
+        if g == "scp":
+            type_names = {t.name for t in chars.types}
+            extras["red_tape_total"] += int(getattr(card_def, "scp_red_tape", 0) or 0) * qty
+            if "SCP_ANOMALY" in type_names:
+                extras["anomaly_count"] += qty
+            elif "SCP_PERSONNEL" in type_names:
+                extras["personnel_count"] += qty
+            elif "SCP_PROCEDURE" in type_names:
+                extras["procedure_count"] += qty
+            elif "SCP_FACILITY" in type_names:
+                extras["facility_count"] += qty
 
     if g == "mtg" and extras["nonland_count"] > 0:
         extras["average_cost"] = round(extras["nonland_total_cost"] / extras["nonland_count"], 2)

@@ -7,6 +7,7 @@ Endpoints for creating and managing game matches.
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Optional
 import asyncio
+import os
 
 from ..session import session_manager, GameSession
 from ..models import (
@@ -153,9 +154,19 @@ async def list_ultra_pending() -> dict:
       - the match is still active (not finished)
       - the session is registered with the active session manager
 
-    No auth — this is a local-only signal consumed by the orchestrator that
-    spawns Claude Code agents to play the AI seat.
+    No auth — this is a local-only signal consumed by external-agent
+    orchestrators that spawn Claude Code or Codex agents to play the AI seat.
     """
+    return _list_external_ultra_pending()
+
+
+@router.get("/codex-pending")
+async def list_codex_pending() -> dict:
+    """List pending Ultra matches whose configured external runner is Codex."""
+    return _list_external_ultra_pending(agent_runner="codex")
+
+
+def _list_external_ultra_pending(agent_runner: Optional[str] = None) -> dict:
     pending: list[dict] = []
     for match_id, session in session_manager.sessions.items():
         try:
@@ -179,6 +190,9 @@ async def list_ultra_pending() -> dict:
             if active_player not in ultra_ids:
                 continue
             ai_player_id = active_player
+            resolved_runner = session.external_agent_runner(ai_player_id)
+            if agent_runner and resolved_runner != agent_runner:
+                continue
 
             human_player_id = next(
                 (pid for pid in session.player_ids if pid in session.human_players),
@@ -208,6 +222,7 @@ async def list_ultra_pending() -> dict:
                 "game_mode": game_mode,
                 "ai_player_id": ai_player_id,
                 "human_player_id": human_player_id or "",
+                "agent_runner": resolved_runner,
                 "turn_number": turn_number,
                 "phase": phase_name or "",
             })
@@ -216,6 +231,15 @@ async def list_ultra_pending() -> dict:
             continue
 
     return {"pending": pending}
+
+
+def _resolve_ultra_agent(request: CreateMatchRequest) -> tuple[str, Optional[str]]:
+    configured = request.ultra_agent or os.environ.get("HYPERDRAFT_ULTRA_AGENT") or "claude"
+    runner = str(configured).strip().lower()
+    if runner not in {"claude", "codex"}:
+        runner = "claude"
+    model = request.ultra_model or os.environ.get("HYPERDRAFT_ULTRA_MODEL")
+    return runner, model
 
 
 @router.post("/create", response_model=CreateMatchResponse)
@@ -246,11 +270,18 @@ async def create_match(
     # Add AI player for human vs bot mode
     if request.mode == "human_vs_bot":
         ai_difficulty = request.ai_difficulty.value
+        ultra_agent, ultra_model = _resolve_ultra_agent(request)
         if ai_difficulty == "ultra":
-            ai_name = "Codex Ultra"
+            ai_name = "Codex Ultra" if ultra_agent == "codex" else "Claude Ultra"
         else:
             ai_name = "AI Opponent"
         ai_id = session.add_player(ai_name, is_ai=True)
+        session.ai_profiles_by_player[ai_id] = {
+            "brain": "external" if ai_difficulty == "ultra" else "heuristic",
+            "difficulty": ai_difficulty,
+            "agent_runner": ultra_agent,
+            "model": ultra_model,
+        }
     elif request.mode == "bot_vs_bot":
         ai_id = session.add_player("AI 1", is_ai=True)
         ai2_id = session.add_player("AI 2", is_ai=True)
@@ -314,7 +345,7 @@ async def create_match(
         from src.cards.minecraft import MINECRAFT_STARTER_DECKS
         import random
 
-        deck_keys = ["builder", "miner", "raider"]
+        deck_keys = list(MINECRAFT_STARTER_DECKS.keys())
         human_deck_id = request.player_deck_id if request.player_deck_id in MINECRAFT_STARTER_DECKS else "builder"
         ai_deck_id = request.ai_deck_id if request.ai_deck_id in MINECRAFT_STARTER_DECKS else "raider"
         if request.mode == "bot_vs_bot":
@@ -333,6 +364,30 @@ async def create_match(
             session.add_cards_to_deck(ai_id, MINECRAFT_STARTER_DECKS[human_deck_id]())
             if ai2_id:
                 session.add_cards_to_deck(ai2_id, MINECRAFT_STARTER_DECKS[ai_deck_id]())
+
+    elif request.game_mode == "scp":
+        from src.cards.scp import SCP_STARTER_DECKS
+        import random
+
+        deck_keys = ["secure_contain_research", "keter_risk", "veil_control"]
+        human_deck_id = request.player_deck_id if request.player_deck_id in SCP_STARTER_DECKS else "secure_contain_research"
+        ai_deck_id = request.ai_deck_id if request.ai_deck_id in SCP_STARTER_DECKS else "keter_risk"
+        if request.mode == "bot_vs_bot":
+            random.shuffle(deck_keys)
+            human_deck_id, ai_deck_id = deck_keys[0], deck_keys[1]
+
+        for pid in session.player_ids:
+            player = session.game.state.players.get(pid)
+            if player:
+                session.game.setup_scp_player(player, [])
+
+        session.add_cards_to_deck(human_id, SCP_STARTER_DECKS[human_deck_id]())
+        if request.mode == "human_vs_bot" and ai_id:
+            session.add_cards_to_deck(ai_id, SCP_STARTER_DECKS[ai_deck_id]())
+        elif request.mode == "bot_vs_bot":
+            session.add_cards_to_deck(ai_id, SCP_STARTER_DECKS[human_deck_id]())
+            if ai2_id:
+                session.add_cards_to_deck(ai2_id, SCP_STARTER_DECKS[ai_deck_id]())
 
     elif request.game_mode == "yugioh":
         # Yu-Gi-Oh! mode - support deck selection via deck IDs
@@ -498,16 +553,16 @@ async def create_match(
             if ai2_id:
                 session.add_cards_to_deck(ai2_id, ai2_deck)
     elif request.game_mode == "finance":
-        from src.cards.finance.fina import FINA_STARTER_DECKS
+        from src.cards.finance import FINANCE_DECKS
         import random
 
-        deck_keys = list(FINA_STARTER_DECKS.keys())
+        deck_keys = list(FINANCE_DECKS.keys())
         human_deck_key = (
-            request.player_deck_id if request.player_deck_id in FINA_STARTER_DECKS
+            request.player_deck_id if request.player_deck_id in FINANCE_DECKS
             else "FINA_high_frequency"
         )
         ai_deck_key = (
-            request.ai_deck_id if request.ai_deck_id in FINA_STARTER_DECKS
+            request.ai_deck_id if request.ai_deck_id in FINANCE_DECKS
             else "FINA_quant"
         )
         if request.mode == "bot_vs_bot":
@@ -519,13 +574,13 @@ async def create_match(
             if player:
                 session.game.setup_finance_player(player)
 
-        session.add_cards_to_deck(human_id, FINA_STARTER_DECKS[human_deck_key]())
+        session.add_cards_to_deck(human_id, FINANCE_DECKS[human_deck_key]())
         if request.mode == "human_vs_bot" and ai_id:
-            session.add_cards_to_deck(ai_id, FINA_STARTER_DECKS[ai_deck_key]())
+            session.add_cards_to_deck(ai_id, FINANCE_DECKS[ai_deck_key]())
         elif request.mode == "bot_vs_bot":
-            session.add_cards_to_deck(ai_id, FINA_STARTER_DECKS[human_deck_key]())
+            session.add_cards_to_deck(ai_id, FINANCE_DECKS[human_deck_key]())
             if ai2_id:
-                session.add_cards_to_deck(ai2_id, FINA_STARTER_DECKS[ai_deck_key]())
+                session.add_cards_to_deck(ai2_id, FINANCE_DECKS[ai_deck_key]())
 
     elif request.game_mode == "depths":
         from src.cards.depths.submarine_fleet.decks import SUBS_STARTER_DECKS, make_subs_flagship
@@ -584,18 +639,21 @@ async def create_match(
             session.add_cards_to_deck(ai_id, ai_deck)
             session.add_cards_to_deck(ai2_id, ai_deck)
 
-    # Ultra mode: spawn a Claude Code instance in a new Terminal window to
+    # Ultra mode: spawn a local external-agent CLI in a new Terminal window to
     # play the AI seat. The watcher script polls /state and takes turns.
     if (
         request.mode == "human_vs_bot"
         and ai_id
         and request.ai_difficulty.value == "ultra"
     ):
+        ultra_agent, ultra_model = _resolve_ultra_agent(request)
         _spawn_ultra_terminal(
             match_id=session.id,
             ai_player_id=ai_id,
             human_player_id=human_id,
             game_mode=request.game_mode,
+            agent_runner=ultra_agent,
+            agent_model=ultra_model,
         )
 
     return CreateMatchResponse(
@@ -607,9 +665,15 @@ async def create_match(
 
 
 def _spawn_ultra_terminal(
-    *, match_id: str, ai_player_id: str, human_player_id: str, game_mode: str
+    *,
+    match_id: str,
+    ai_player_id: str,
+    human_player_id: str,
+    game_mode: str,
+    agent_runner: str = "claude",
+    agent_model: Optional[str] = None,
 ) -> None:
-    """Open a terminal window running ``scripts/launch_ultra_agent.sh``.
+    """Open a terminal window running an external Ultra-agent launcher.
 
     Cross-platform: tries macOS (Terminal.app / iTerm2), Linux (respects
     ``$TERMINAL`` env var, falls through common terminal emulators), and
@@ -627,22 +691,29 @@ def _spawn_ultra_terminal(
     from pathlib import Path
 
     project_root = Path(__file__).resolve().parents[3]
-    launcher = project_root / "scripts" / "launch_ultra_agent.sh"
+    runner = str(agent_runner or "claude").strip().lower()
+    if runner not in {"claude", "codex"}:
+        runner = "claude"
+    launcher_name = "launch_codex_agent.sh" if runner == "codex" else "launch_ultra_agent.sh"
+    launcher = project_root / "scripts" / launcher_name
     if not launcher.exists():
-        print(f"[ultra] launcher not found: {launcher}", flush=True)
+        print(f"[ultra:{runner}] launcher not found: {launcher}", flush=True)
         return
 
     env_assignments = (
         f"MATCH_ID={shlex.quote(match_id)} "
         f"AI_PLAYER_ID={shlex.quote(ai_player_id)} "
         f"HUMAN_PLAYER_ID={shlex.quote(human_player_id)} "
-        f"GAME_MODE={shlex.quote(game_mode)}"
+        f"GAME_MODE={shlex.quote(game_mode)} "
+        f"ULTRA_AGENT={shlex.quote(runner)}"
     )
+    if agent_model:
+        env_assignments = f"{env_assignments} ULTRA_MODEL={shlex.quote(agent_model)}"
     inner = f"cd {shlex.quote(str(project_root))} && {env_assignments} {shlex.quote(str(launcher))}"
 
     def _print_manual(reason: str) -> None:
         print(
-            f"[ultra] {reason}; run this manually in a terminal:\n  {inner}",
+            f"[ultra:{runner}] {reason}; run this manually in a terminal:\n  {inner}",
             flush=True,
         )
 
@@ -662,7 +733,7 @@ def _spawn_ultra_terminal(
         return
 
     if spawned:
-        print(f"[ultra] spawned terminal for match {match_id} ({game_mode})", flush=True)
+        print(f"[ultra:{runner}] spawned terminal for match {match_id} ({game_mode})", flush=True)
     else:
         _print_manual("no usable terminal found")
 

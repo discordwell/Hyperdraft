@@ -38,6 +38,7 @@ class Deck:
     author: Optional[str] = None
     source: Optional[str] = None
     format: str = "Standard"
+    game: str = "mtg"  # mtg, minecraft, pokemon, yugioh, hearthstone
 
     @property
     def mainboard_count(self) -> int:
@@ -88,6 +89,7 @@ class Deck:
             'author': self.author,
             'source': self.source,
             'format': self.format,
+            'game': self.game,
             'mainboard_count': self.mainboard_count,
             'sideboard_count': self.sideboard_count,
             'land_count': self.land_count,
@@ -106,6 +108,7 @@ class Deck:
             author=data.get('author'),
             source=data.get('source'),
             format=data.get('format', 'Standard'),
+            game=data.get('game', 'mtg'),
         )
 
 

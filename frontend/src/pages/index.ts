@@ -2,6 +2,7 @@ export { Home } from './Home';
 export { GameView } from './GameView';
 export { PKMGameView } from './PKMGameView';
 export { MCGameView } from './MCGameView';
+export { SCPGameView } from './SCPGameView';
 export { SpectatorView } from './SpectatorView';
 export { ReplayView } from './ReplayView';
 export { Deckbuilder } from './Deckbuilder';

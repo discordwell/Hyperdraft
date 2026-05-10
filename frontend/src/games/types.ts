@@ -35,6 +35,6 @@ export interface GameModule {
 }
 
 export function defaultFormatType(t: string): string {
-  const stripped = t.replace(/^(MC|PKM|YGO|HS)_/, '');
+  const stripped = t.replace(/^(MC|PKM|YGO|HS|SCP)_/, '');
   return stripped.charAt(0) + stripped.slice(1).toLowerCase();
 }

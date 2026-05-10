@@ -8,7 +8,7 @@ Stores decks as JSON files in data/decks/ directory.
 import json
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -51,13 +51,21 @@ class DeckStorageService:
         """Get the path for a deck file."""
         return self.data_dir / f"{deck_id}.json"
 
-    def list_decks(self) -> list[dict]:
+    def list_decks(self, game: Optional[str] = None) -> list[dict]:
         """
         List all saved decks with metadata.
 
+        Args:
+            game: If set, only return decks tagged with this game id. Decks
+                  saved before the multi-game refactor have no `game` field
+                  and are treated as MTG.
+
         Returns list of deck summaries (id, name, archetype, colors, etc.)
         """
-        return self._read_index()
+        decks = self._read_index()
+        if game is None:
+            return decks
+        return [d for d in decks if (d.get("game") or "mtg") == game]
 
     def get_deck(self, deck_id: str) -> Optional[dict]:
         """
@@ -84,7 +92,8 @@ class DeckStorageService:
         mainboard: list[dict],
         sideboard: list[dict] = None,
         format: str = "Standard",
-        deck_id: str = None
+        deck_id: str = None,
+        game: str = "mtg",
     ) -> dict:
         """
         Save a new deck or update an existing one.
@@ -98,19 +107,25 @@ class DeckStorageService:
             sideboard: List of {card: str, qty: int}
             format: Format (Standard, Modern, etc.)
             deck_id: Optional ID for updates
+            game: Which game this deck is for (mtg, minecraft, pokemon, yugioh, hearthstone)
 
         Returns:
             The saved deck data including ID
         """
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         if deck_id is None:
             deck_id = str(uuid.uuid4())
             created_at = now
         else:
-            # Preserve original creation time
+            # Preserve original creation time + original game tag if set
             existing = self.get_deck(deck_id)
-            created_at = existing.get('created_at', now) if existing else now
+            if existing:
+                created_at = existing.get('created_at', now)
+                # Don't let an update silently move a deck to a different game.
+                game = existing.get('game') or game
+            else:
+                created_at = now
 
         deck_data = {
             'id': deck_id,
@@ -121,19 +136,24 @@ class DeckStorageService:
             'mainboard': mainboard,
             'sideboard': sideboard or [],
             'format': format,
+            'game': game,
             'created_at': created_at,
             'updated_at': now,
         }
 
         # Calculate summary stats
         mainboard_count = sum(e.get('qty', 0) for e in mainboard)
-        land_keywords = ['Island', 'Forest', 'Plains', 'Mountain', 'Swamp',
-                        'Verge', 'Passage', 'Tunnel', 'Pool', 'Foundry',
-                        'Canal', 'Falls', 'Archive', 'Temple', 'Sanctuary']
-        land_count = sum(
-            e.get('qty', 0) for e in mainboard
-            if any(kw in e.get('card', '') for kw in land_keywords)
-        )
+        # Land count is MTG-specific — only compute when the deck is MTG.
+        if game == "mtg":
+            land_keywords = ['Island', 'Forest', 'Plains', 'Mountain', 'Swamp',
+                            'Verge', 'Passage', 'Tunnel', 'Pool', 'Foundry',
+                            'Canal', 'Falls', 'Archive', 'Temple', 'Sanctuary']
+            land_count = sum(
+                e.get('qty', 0) for e in mainboard
+                if any(kw in e.get('card', '') for kw in land_keywords)
+            )
+        else:
+            land_count = 0
 
         deck_data['mainboard_count'] = mainboard_count
         deck_data['land_count'] = land_count
@@ -152,6 +172,7 @@ class DeckStorageService:
             'archetype': archetype,
             'colors': colors,
             'format': format,
+            'game': game,
             'mainboard_count': mainboard_count,
             'land_count': land_count,
             'updated_at': now,

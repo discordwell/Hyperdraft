@@ -793,7 +793,12 @@ class MinecraftAIAdapter:
                 score += 8
                 if name == "Explore Map" and any_biome_upgradable:
                     score += int(bias.get("explore_map_bonus", 0))
-                if name == "Strip Mine" and int(my_materials.get("redstone", 0) or 0) < 2:
+                redstone_bootstrap_actions = {
+                    "Strip Mine", "Smelt Copper", "Suspicious Gravel",
+                    "Echo Shards", "Nether Shortcut", "Locate Stronghold",
+                    "Vault Key", "Automate Mine",
+                }
+                if name in redstone_bootstrap_actions and int(my_materials.get("redstone", 0) or 0) < 2:
                     score += int(bias.get("strip_mine_bonus", 0))
                     # Pilot iter-1: when redstone-bottlenecked AND we have
                     # zero redstone, Strip Mine is the deck's only
@@ -801,9 +806,9 @@ class MinecraftAIAdapter:
                     # generic Workers / mid-cost mobs in that exact state.
                     if redstone_bottlenecked:
                         score += 25
-                if name == "Find Diamonds" and int(my_materials.get("diamond", 0) or 0) < 2:
+                if name in {"Find Diamonds", "Ancient Debris Map", "Locate Stronghold", "Ancient Loot"} and int(my_materials.get("diamond", 0) or 0) < 2:
                     score += int(bias.get("find_diamonds_bonus", 0))
-                if name == "Chop Trees" and (turn_number <= 4 or int(my_materials.get("wood", 0) or 0) < 2):
+                if name in {"Chop Trees", "Punch Trees", "Torchflower Seeds"} and (turn_number <= 4 or int(my_materials.get("wood", 0) or 0) < 2):
                     score += int(bias.get("chop_trees_bonus", 0))
                 if name in ("Bone Meal", "Redstone Contraption") and my_workers_count > 0:
                     score += int(bias.get("untap_worker_bonus", 0))
@@ -817,6 +822,13 @@ class MinecraftAIAdapter:
                     score += int(bias.get("draw_bonus", 0))
                     if not has_bed:
                         score += int(bias.get("bed_search_bonus", 0))
+                if name in {
+                    "Bundle Up", "Brush the Trail", "Friendship Feast",
+                    "Factory Reset", "Open the Vault", "Chamber Rewards",
+                    "Vault Jackpot", "Overclock", "Echo Recovery",
+                    "Barter for Blades", "Nether Shortcut", "Locate Stronghold",
+                }:
+                    score += int(bias.get("draw_bonus", 0))
 
             candidates.append((score, oid))
 

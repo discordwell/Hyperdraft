@@ -588,6 +588,33 @@ class EventType(Enum):
     FIN_CAPITAL_CALL = auto()    # Capital Reserve damage from a non-combat source
     FIN_BANKRUPTCY = auto()      # Player's Capital Reserve reached 0
 
+    # ------------------------------------------------------------------
+    # SCP Containment TCG events — see src/engine/scp.py.
+    # ------------------------------------------------------------------
+    SCP_OPEN_DOSSIER = auto()      # Card moved from hand into the paperwork queue / active site
+    SCP_FAST_TRACK = auto()        # Red tape bypassed by taking exposure
+    SCP_PAPERWORK_TICK = auto()    # Pending dossier lost paperwork counters
+    SCP_ACTIVATE_DOSSIER = auto()  # Pending dossier became active
+    SCP_ANOMALY_REVEALED = auto()  # Active anomaly began exerting hazard
+    SCP_SEAL_DOSSIER = auto()      # Anomaly opened face-down/sealed instead of active
+    SCP_REVEAL_DOSSIER = auto()    # Sealed anomaly was revealed and activated
+    SCP_ASSIGN_STAFF = auto()      # Personnel committed to a containment/research/suppression action
+    SCP_TEST_RUN = auto()          # Research test attempted against an anomaly
+    SCP_CONTAINMENT_ATTEMPT = auto() # Containment attempt attempted against an anomaly
+    SCP_CONTAINED = auto()         # Anomaly successfully contained
+    SCP_BREACH_TICK = auto()       # Active anomalies advanced breach/exposure clocks
+    SCP_INCIDENT = auto()          # Breach fallout incident changed the Site state
+    SCP_MOOD_SHIFT = auto()        # Anomaly mood changed its risk/research profile
+    SCP_CROSS_CONTAINMENT = auto() # Contained anomaly suppresses or reframes another
+    SCP_MEMORY_HOLE = auto()       # Card or dossier was redacted from normal records
+    SCP_PROTOCOL_APPLIED = auto()  # Special containment protocol rewrote anomaly math
+    SCP_GOI_RAID = auto()          # External group interfered with a Site
+    SCP_INCIDENT_RESOLVED = auto() # Persistent incident record cleared
+    SCP_AUDIT = auto()             # Cross-site audit / whistleblower interference
+    SCP_ETHICS_SPENT = auto()      # Ethics debt used as a strategic resource
+    SCP_ARCHIVE_GAINED = auto()    # Player gained archive progress
+    SCP_SITE_LOST = auto()         # Player lost to breach, exposure, or ethics collapse
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
@@ -737,6 +764,13 @@ class CardType(Enum):
     FIN_ASSET = auto()       # Permanent with passive income or activated ability; non-combatant
     FIN_DERIVATIVE = auto()  # Enchantment-on-a-Trader; stages to Derivatives Desk before attaching
     FIN_STRUCTURE = auto()   # Building; max 3 per player on Trading Floor; tap-to-activate
+
+    # SCP Containment TCG card types — see src/engine/scp.py.
+    SCP_ANOMALY = auto()      # Hazardous object/entity/event to study or contain
+    SCP_PERSONNEL = auto()    # Staff assigned to contain/research/suppress anomalies
+    SCP_FACILITY = auto()     # Site wing, machine, policy, or standing infrastructure
+    SCP_PROCEDURE = auto()    # One-shot protocol; usually modifies clocks or dossiers
+    SCP_MANDATE = auto()      # Alternate directive / win-condition modifier
 
 
 class Color(Enum):
@@ -908,6 +942,16 @@ class ObjectState:
     mc_last_attack_target: Optional[str] = None      # Last attack target id (mob/structure/avatar)
     mc_last_blocked_attacker: Optional[str] = None   # When blocking, the attacker id
     death_triggered: bool = False                    # Once-only deathrattle/on_death guard
+
+    # SCP-specific (optional, unused in other modes)
+    scp_status: Optional[str] = None       # pending | active | contained | expunged
+    scp_paperwork: int = 0                 # Turns/actions before a dossier becomes active
+    scp_exhausted: bool = False            # Personnel used this turn/action window
+    scp_researched: int = 0                # Successful research tests run on this anomaly
+    scp_suppressed: int = 0                # Temporary suppression total for next breach tick
+    scp_mood: Optional[str] = None         # docile | agitated | cryptic | cooperative
+    scp_bound_to: Optional[str] = None      # Cross-containment pairing source
+    scp_protocols: list[str] = field(default_factory=list) # Special containment protocol labels
 
     # Depths-specific (optional, unused in other modes). depth_band stores
     # an Enum from src/engine/depths.py (DepthBand). It's stored as a plain
@@ -1390,6 +1434,18 @@ class GameState:
     minecraft_biomes: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     minecraft_grid: dict[str, list[list[Optional[str]]]] = field(default_factory=dict)
     minecraft_combat: dict[str, Any] = field(default_factory=dict)
+
+    # SCP Containment TCG mode state.
+    # Each player is a Site racing to build classified Archives while avoiding
+    # breach, exposure, and ethics-collapse clocks. Card objects still live in
+    # normal zones; these indexes make the non-combat board fast to query.
+    scp_sites: dict[str, dict[str, Any]] = field(default_factory=dict)
+    scp_anomalies: dict[str, list[str]] = field(default_factory=dict)
+    scp_contained: dict[str, list[str]] = field(default_factory=dict)
+    scp_personnel: dict[str, list[str]] = field(default_factory=dict)
+    scp_facilities: dict[str, list[str]] = field(default_factory=dict)
+    scp_mandates: dict[str, list[str]] = field(default_factory=dict)
+    scp_incidents: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
     # Depths (submarine fleet) mode state. depths_combat tracks the
     # active engagement (analogous to minecraft_combat) — populated by

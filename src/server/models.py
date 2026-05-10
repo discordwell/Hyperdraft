@@ -105,6 +105,19 @@ class ActionType(str, Enum):
     DEPTHS_DETECT = "DEPTHS_DETECT"
     DEPTHS_DECLARE_INTERCEPTORS = "DEPTHS_DECLARE_INTERCEPTORS"
     DEPTHS_END_TURN = "DEPTHS_END_TURN"
+    # SCP Containment TCG action types
+    SCP_OPEN_DOSSIER = "SCP_OPEN_DOSSIER"
+    SCP_REVEAL_DOSSIER = "SCP_REVEAL_DOSSIER"
+    SCP_RESEARCH = "SCP_RESEARCH"
+    SCP_CONTAIN = "SCP_CONTAIN"
+    SCP_SUPPRESS = "SCP_SUPPRESS"
+    SCP_SPEND_ETHICS = "SCP_SPEND_ETHICS"
+    SCP_SHIFT_MOOD = "SCP_SHIFT_MOOD"
+    SCP_CROSS_CONTAIN = "SCP_CROSS_CONTAIN"
+    SCP_MEMORY_HOLE = "SCP_MEMORY_HOLE"
+    SCP_APPLY_PROTOCOL = "SCP_APPLY_PROTOCOL"
+    SCP_RESOLVE_INCIDENT = "SCP_RESOLVE_INCIDENT"
+    SCP_END_TURN = "SCP_END_TURN"
 
 
 class ChoiceType(str, Enum):
@@ -127,12 +140,17 @@ class ChoiceType(str, Enum):
 class CreateMatchRequest(BaseModel):
     """Request to create a new match."""
     mode: MatchMode = MatchMode.HUMAN_VS_BOT
-    game_mode: Literal["mtg", "hearthstone", "pokemon", "yugioh", "minecraft", "finance", "depths"] = Field(
+    game_mode: Literal["mtg", "hearthstone", "pokemon", "yugioh", "minecraft", "finance", "depths", "scp"] = Field(
         default="mtg",
-        description="Rules engine: 'mtg', 'hearthstone', 'pokemon', 'yugioh', 'minecraft', 'finance', or 'depths'"
+        description="Rules engine: 'mtg', 'hearthstone', 'pokemon', 'yugioh', 'minecraft', 'finance', 'depths', or 'scp'"
     )
     variant: Optional[str] = Field(default=None, description="Game variant (e.g. 'stormrift') — installs heroes/decks/modifiers")
     hero_class: Optional[str] = Field(default=None, description="Hero class for variant (e.g. 'Pyromancer', 'Cryomancer')")
+    ultra_agent: Optional[Literal["claude", "codex"]] = Field(
+        default=None,
+        description="External agent runner for human-vs-bot Ultra matches"
+    )
+    ultra_model: Optional[str] = Field(default=None, description="Optional model passed to the external Ultra agent")
     player_deck: list[str] = Field(default_factory=list, description="List of card names (custom deck)")
     player_deck_id: Optional[str] = Field(default=None, description="Standard deck ID (e.g., 'mono_red_aggro')")
     player_name: str = Field(default="Player", description="Human player name")
@@ -162,6 +180,17 @@ class PlayerActionRequest(BaseModel):
     vessel_id: Optional[str] = Field(default=None, description="Vessel object ID for dive/surface actions")
     interceptors: list[dict] = Field(default_factory=list, description="Interceptor pairings {attacker_id, interceptor_id}")
     detect_targets: list[str] = Field(default_factory=list, description="Vessel IDs to detect via sonar")
+    # SCP action fields
+    fast_track: bool = Field(default=False, description="SCP: bypass dossier paperwork by spending secrecy")
+    sealed: bool = Field(default=False, description="SCP: open anomaly as a sealed dossier")
+    anomaly_id: Optional[str] = Field(default=None, description="SCP anomaly object ID")
+    staff_ids: list[str] = Field(default_factory=list, description="SCP personnel IDs assigned to an action")
+    contained_id: Optional[str] = Field(default=None, description="SCP contained anomaly ID for cross-containment")
+    active_id: Optional[str] = Field(default=None, description="SCP active anomaly ID for cross-containment")
+    mood: Optional[str] = Field(default=None, description="SCP anomaly mood")
+    protocol: Optional[str] = Field(default=None, description="SCP special containment protocol")
+    index: Optional[int] = Field(default=None, description="SCP incident index")
+    amount: Optional[int] = Field(default=None, description="SCP numeric action amount")
 
 
 class StartBotGameRequest(BaseModel):
@@ -272,6 +301,23 @@ class CardData(BaseModel):
     detected: bool = False
     is_flagship: bool = False
     depths_cost: dict = Field(default_factory=dict)
+    # SCP Containment TCG state/metadata
+    scp_red_tape: int = 0
+    scp_clearance: int = 0
+    scp_containment: int = 0
+    scp_curiosity: int = 0
+    scp_hazard: int = 0
+    scp_skills: dict[str, int] = Field(default_factory=dict)
+    scp_bonus: dict[str, int] = Field(default_factory=dict)
+    scp_status: Optional[str] = None
+    scp_paperwork: int = 0
+    scp_exhausted: bool = False
+    scp_researched: int = 0
+    scp_suppressed: int = 0
+    scp_mood: Optional[str] = None
+    scp_bound_to: Optional[str] = None
+    scp_protocols: list[str] = Field(default_factory=list)
+    scp_public_tags: list[str] = Field(default_factory=list)
 
 
 class StackItemData(BaseModel):
@@ -451,6 +497,15 @@ class GameStateResponse(BaseModel):
     # Depths: Submarine Fleet state
     depths_phase: Optional[str] = None
     depths_combat: dict = Field(default_factory=dict)
+    # SCP Containment TCG state
+    scp_sites: dict[str, dict] = Field(default_factory=dict)
+    scp_anomalies: dict[str, list[CardData]] = Field(default_factory=dict)
+    scp_contained: dict[str, list[CardData]] = Field(default_factory=dict)
+    scp_personnel: dict[str, list[CardData]] = Field(default_factory=dict)
+    scp_facilities: dict[str, list[CardData]] = Field(default_factory=dict)
+    scp_mandates: dict[str, list[CardData]] = Field(default_factory=dict)
+    scp_incidents: dict[str, list[dict]] = Field(default_factory=dict)
+    scp_assignment_slots: dict[str, int] = Field(default_factory=dict)
     # Game log
     game_log: list[GameLogEntry] = Field(default_factory=list)
 

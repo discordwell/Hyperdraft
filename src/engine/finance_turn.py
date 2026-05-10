@@ -262,14 +262,19 @@ class FinanceTurnManager(TurnManager):
     async def _run_pre_market(self, player_id: str) -> list[Event]:
         """
         PRE_MARKET:
+        - Reset Liquidity pool for the turn
         - Emit PHASE_START  (fires 'Monopoly Position' alternate-win check,
           leverage-income interceptors, etc.)
         - Untap all Traders belonging to player_id
-        - Reset Liquidity pool for the turn
         - Clear summoning sickness on player's Traders
         - Emit PHASE_END
         """
         events: list[Event] = []
+
+        # Refill before start-of-Pre-Market triggers so passive income granted
+        # by Assets/Structures is not overwritten by the turn refill.
+        reset_liquidity_for_turn(self.state, player_id)
+
         events.extend(self._emit_phase("pre_market", "start", player_id))
 
         # Handle Short Sell returns: derivatives.py stores
@@ -333,9 +338,6 @@ class FinanceTurnManager(TurnManager):
                 if (pl := self._emit_pipeline):
                     pl.emit(untap)
                 events.append(untap)
-
-        # Reset Liquidity pool (grow by 1, refill to new max, cap 10).
-        reset_liquidity_for_turn(self.state, player_id)
 
         # Clear summoning sickness so Traders that survived from last turn
         # can now attack. Newly played Traders receive summoning_sickness=True
@@ -638,6 +640,9 @@ class FinanceTurnManager(TurnManager):
 
         player = self.state.players.get(player_id)
         if player is None:
+            return events
+
+        if not self._card_is_in_player_hand(player_id, card_id):
             return events
 
         # Compute mana cost (simple numeric extraction — finance uses {N}).
@@ -1007,6 +1012,9 @@ class FinanceTurnManager(TurnManager):
             return events
         player = self.state.players.get(player_id)
         if player is None:
+            return events
+
+        if not self._card_is_in_player_hand(player_id, card_id):
             return events
 
         # Only Orders can be played as responses.
@@ -1524,6 +1532,17 @@ class FinanceTurnManager(TurnManager):
             return []
         return list(zone.objects)
 
+    def _card_is_in_player_hand(self, player_id: str, card_id: str) -> bool:
+        """Return True only for cards owned/controlled by player_id in their hand."""
+        obj = self.state.objects.get(card_id)
+        if obj is None:
+            return False
+        if obj.owner != player_id or obj.controller != player_id:
+            return False
+        if obj.zone != ZoneType.HAND:
+            return False
+        return card_id in self._get_hand(player_id)
+
     def _get_opponent(self, player_id: str) -> Optional[str]:
         """Return the other player's ID."""
         for pid in self.turn_order:
@@ -1684,6 +1703,9 @@ class FinanceTurnManager(TurnManager):
                 # Without preservation, the counter resets every turn and
                 # Liquidity Event always saw 0 (or just THIS turn's plays).
                 or k.startswith("fin_dp_played_")
+                # FINM Buyback text is cumulative: "Each Nth Order or Strategy
+                # you cast..." The per-card count must not reset at turn end.
+                or k.startswith("finm_buyback_count_")
             }
             self.state.turn_data.clear()
             self.state.turn_data.update(persistent)
