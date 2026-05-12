@@ -27,6 +27,7 @@ from .deck_builder import (
     build_ravnica_guild_deck,
     list_ravnica_guild_decks,
 )
+from .synergies import BRV_SYNERGY_PACKAGES, brv_synergy_package_errors
 
 
 GUILD_REGISTRIES = {
@@ -67,6 +68,8 @@ __all__ = [
     "GUILD_DECK_BUILDERS",
     "ravnica_balance_flags",
     "ravnica_balance_summary",
+    "BRV_SYNERGY_PACKAGES",
+    "brv_synergy_package_errors",
     "build_ravnica_guild_deck",
     "build_all_ravnica_guild_decks",
     "list_ravnica_guild_decks",

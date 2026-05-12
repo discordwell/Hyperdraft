@@ -101,7 +101,7 @@ RAKDOMORE = make_pokemon(
     attacks=[
         {"name": "Chain Juggle",
          "cost": [{"type": "D", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 50, "text": ""},
+         "damage": 70, "text": ""},
     ],
     weakness_type=PokemonType.GRASS.value,
     retreat_cost=2,
@@ -122,7 +122,7 @@ RAKDOS_LORD_OF_RIOTS_EX = make_pokemon(
          "damage": 80,
          "text": ""},
         {"name": "Carnival of Souls",
-         "cost": [{"type": "D", "count": 2}, {"type": "R", "count": 2}],
+         "cost": [{"type": "D", "count": 2}, {"type": "R", "count": 1}],
          "damage": 200,
          "text": ("If your opponent's Active Pokemon has any damage counters "
                   "on it, this attack does 30 more damage."),
@@ -228,7 +228,7 @@ CARNIVAL_HELLSTEED = make_pokemon(
 # =============================================================================
 
 def _rix_maadi_dungeon_palace_effect(event, state):
-    """When played, each player discards 1 card (the first) from their hand."""
+    """Each player discards; Trainer cards punish that player's Active."""
     events = []
     for pid in state.players:
         hand = state.zones.get(f"hand_{pid}")
@@ -241,48 +241,105 @@ def _rix_maadi_dungeon_palace_effect(event, state):
         obj = state.objects.get(discard_id)
         if obj:
             obj.zone = ZoneType.GRAVEYARD
+        is_trainer = (
+            obj
+            and obj.characteristics
+            and CardType.TRAINER in obj.characteristics.types
+        )
         events.append(Event(
             type=EventType.PKM_DISCARD_ENERGY,  # generic discard signal
             payload={'player': pid, 'card_id': discard_id,
                      'source': 'Rix Maadi, Dungeon Palace'},
         ))
+        if not is_trainer:
+            continue
+        active_zone = state.zones.get(f"active_spot_{pid}")
+        if not active_zone or not active_zone.objects:
+            continue
+        target_id = active_zone.objects[0]
+        target = state.objects.get(target_id)
+        if target:
+            target.state.damage_counters += 1
+            events.append(Event(
+                type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+                payload={'pokemon_id': target_id, 'counters': 1,
+                         'source': 'Rix Maadi, Dungeon Palace'},
+            ))
     return events
 
 
 RIX_MAADI_DUNGEON_PALACE = make_trainer_stadium(
     name="Rix Maadi, Dungeon Palace",
     text=("When you play Rix Maadi, Dungeon Palace, each player discards "
-          "a card from their hand."),
+          "a card from their hand. If a player discarded a Trainer card this "
+          "way, place 1 damage counter on that player's Active Pokemon."),
     rarity="uncommon",
     resolve=_rix_maadi_dungeon_palace_effect,
 )
 
 
 def _tibalt_rakish_instigator_effect(event, state):
-    """Opponent mills 1; you draw 2."""
+    """Opponent mills 2; Trainer hits become pain, then you rummage."""
     player_id = event.payload.get('player')
     if not player_id:
         return []
     opp_id = next((p for p in state.players if p != player_id), None)
     events = []
+    trainer_hits = 0
     if opp_id:
         opp_lib = state.zones.get(f"library_{opp_id}")
         opp_grave = state.zones.get(f"graveyard_{opp_id}")
-        if opp_lib and opp_lib.objects:
+        for _ in range(2):
+            if not opp_lib or not opp_lib.objects:
+                break
             top_id = opp_lib.objects.pop(0)
             if opp_grave:
                 opp_grave.objects.append(top_id)
             top_obj = state.objects.get(top_id)
             if top_obj:
                 top_obj.zone = ZoneType.GRAVEYARD
+                if top_obj.characteristics and CardType.TRAINER in top_obj.characteristics.types:
+                    trainer_hits += 1
+            events.append(Event(
+                type=EventType.PKM_DISCARD_ENERGY,
+                payload={'player': opp_id, 'card_id': top_id,
+                         'source': 'Tibalt, Rakish Instigator'},
+            ))
+    if trainer_hits and opp_id:
+        active_zone = state.zones.get(f"active_spot_{opp_id}")
+        if active_zone and active_zone.objects:
+            target_id = active_zone.objects[0]
+            target = state.objects.get(target_id)
+            if target:
+                target.state.damage_counters += trainer_hits
+                events.append(Event(
+                    type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+                    payload={'pokemon_id': target_id, 'counters': trainer_hits,
+                             'source': 'Tibalt, Rakish Instigator'},
+                ))
+    hand = state.zones.get(f"hand_{player_id}")
+    grave = state.zones.get(f"graveyard_{player_id}")
+    if hand and hand.objects:
+        discard_id = hand.objects.pop(0)
+        if grave:
+            grave.objects.append(discard_id)
+        obj = state.objects.get(discard_id)
+        if obj:
+            obj.zone = ZoneType.GRAVEYARD
+        events.append(Event(
+            type=EventType.PKM_DISCARD_ENERGY,
+            payload={'player': player_id, 'card_id': discard_id,
+                     'source': 'Tibalt, Rakish Instigator'},
+        ))
     events.extend(_draw_cards(state, player_id, 2))
     return events
 
 
 TIBALT_RAKISH_INSTIGATOR = make_trainer_supporter(
     name="Tibalt, Rakish Instigator",
-    text=("Your opponent discards the top card of their deck. "
-          "Then, draw 2 cards."),
+    text=("Your opponent discards the top 2 cards of their deck. Place 1 "
+          "damage counter on their Active Pokemon for each Trainer discarded "
+          "this way. Discard a card from your hand if you can. Draw 2 cards."),
     rarity="rare",
     resolve=_tibalt_rakish_instigator_effect,
 )
@@ -338,6 +395,17 @@ RAKDOS_CLUESTONE = make_trainer_item(
 # Bloodlet evolution line — vampire bat
 # =============================================================================
 
+def _bloodlet_fang_nip_effect(attacker, state):
+    """Drain back a small bite from the attack."""
+    if attacker.state.damage_counters <= 0:
+        return []
+    attacker.state.damage_counters -= 1
+    return [Event(
+        type=EventType.PKM_HEAL,
+        payload={'pokemon_id': attacker.id, 'amount': 10,
+                 'source': 'Bloodlet'},
+    )]
+
 
 BLOODLET = make_pokemon(
     name="Bloodlet",
@@ -347,7 +415,9 @@ BLOODLET = make_pokemon(
     attacks=[
         {"name": "Fang Nip",
          "cost": [{"type": "D", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 30, "text": ""},
+         "damage": 30,
+         "text": "Heal 10 damage from this Pokemon.",
+         "effect_fn": _bloodlet_fang_nip_effect},
     ],
     weakness_type=PokemonType.GRASS.value,
     retreat_cost=1,
@@ -482,6 +552,42 @@ SPAWN_OF_MAYHEM = make_pokemon(
 )
 
 
+def _chain_slam_effect(attacker, state):
+    """Discard once for extra damage, matching Rakdos's spectacle texture."""
+    pid = attacker.controller
+    hand = state.zones.get(f"hand_{pid}")
+    grave = state.zones.get(f"graveyard_{pid}")
+    if not hand or not hand.objects:
+        return []
+    discard_id = hand.objects.pop(0)
+    if grave:
+        grave.objects.append(discard_id)
+    discarded = state.objects.get(discard_id)
+    if discarded:
+        discarded.zone = ZoneType.GRAVEYARD
+    events = [Event(
+        type=EventType.PKM_DISCARD_ENERGY,
+        payload={'player': pid, 'card_id': discard_id,
+                 'source': 'Gore-House Chainwalker'},
+    )]
+    opp_id = next((p for p in state.players if p != pid), None)
+    if not opp_id:
+        return events
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return events
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if target:
+        target.state.damage_counters += 2
+        events.append(Event(
+            type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+            payload={'pokemon_id': target_id, 'counters': 2,
+                     'source': 'Gore-House Chainwalker'},
+        ))
+    return events
+
+
 GORE_HOUSE_CHAINWALKER = make_pokemon(
     name="Gore-House Chainwalker",
     hp=70,
@@ -490,7 +596,10 @@ GORE_HOUSE_CHAINWALKER = make_pokemon(
     attacks=[
         {"name": "Chain Slam",
          "cost": [{"type": "R", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 50, "text": ""},
+         "damage": 50,
+         "text": ("Discard a card from your hand. If you do, this attack "
+                  "does 20 more damage."),
+         "effect_fn": _chain_slam_effect},
     ],
     weakness_type=PokemonType.WATER.value,
     retreat_cost=1,
@@ -645,7 +754,8 @@ def make_rakdos_deck() -> list:
     deck.extend([RAKDOS_LORD_OF_RIOTS_EX] * 2)
     deck.extend([BLOODLET] * 3)
     deck.extend([BLOODLETTER_OF_ACLAZOTZ] * 2)
-    deck.extend([RAKDOS_CACKLER] * 2)
+    deck.extend([CARNIVAL_HELLSTEED] * 1)
+    deck.extend([HELLHOLE_FLAILER] * 1)
     # Guild trainers (9)
     deck.extend([RIX_MAADI_DUNGEON_PALACE] * 2)
     deck.extend([TIBALT_RAKISH_INSTIGATOR] * 2)

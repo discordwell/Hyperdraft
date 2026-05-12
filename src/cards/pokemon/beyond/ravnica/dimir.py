@@ -83,6 +83,16 @@ def _shadowstrike_effect(attacker, state):
     return _mill_opponent(state, attacker.controller, 4)
 
 
+def _disguise_drip_effect(attacker, state):
+    return _mill_opponent(state, attacker.controller, 1)
+
+
+def _mimic_cape_effect(attacker, state):
+    events = _draw_cards(state, attacker.controller, 1)
+    events.extend(_mill_opponent(state, attacker.controller, 1))
+    return events
+
+
 LAZLET = make_pokemon(
     name="Lazlet",
     hp=60,
@@ -91,7 +101,9 @@ LAZLET = make_pokemon(
     attacks=[
         {"name": "Disguise Drip",
          "cost": [{"type": "P", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 20, "text": ""},
+         "damage": 20,
+         "text": "Discard the top card of your opponent's deck.",
+         "effect_fn": _disguise_drip_effect},
     ],
     weakness_type=PokemonType.DARKNESS.value,
     retreat_cost=1,
@@ -109,7 +121,9 @@ LAZANDER = make_pokemon(
     attacks=[
         {"name": "Mimic Cape",
          "cost": [{"type": "P", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 50, "text": ""},
+         "damage": 50,
+         "text": "Draw a card. Discard the top card of your opponent's deck.",
+         "effect_fn": _mimic_cape_effect},
     ],
     weakness_type=PokemonType.DARKNESS.value,
     retreat_cost=1,
@@ -333,15 +347,55 @@ HAND_OF_CRUELTY = make_pokemon(
 )
 
 
+def _spectral_cipher_effect(attacker, state):
+    """Mill a card; Trainer hits leave the opposing Active Confused."""
+    from src.engine.pokemon_status import apply_status
+
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    library = state.zones.get(f"library_{opp_id}")
+    grave = state.zones.get(f"graveyard_{opp_id}")
+    if not library or not library.objects:
+        return []
+
+    top_id = library.objects.pop(0)
+    top_obj = state.objects.get(top_id)
+    if grave:
+        grave.objects.append(top_id)
+    if top_obj:
+        top_obj.zone = ZoneType.GRAVEYARD
+
+    events = [Event(
+        type=EventType.PKM_DISCARD_ENERGY,
+        payload={'player': opp_id, 'card_id': top_id, 'source': 'Spectral Cipher'},
+    )]
+    is_trainer = (
+        top_obj
+        and top_obj.characteristics
+        and CardType.TRAINER in top_obj.characteristics.types
+    )
+    if not is_trainer:
+        return events
+
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if active_zone and active_zone.objects:
+        events.extend(apply_status(active_zone.objects[0], 'confused', state))
+    return events
+
+
 SOULSWORN_SPIRIT = make_pokemon(
     name="Soulsworn Spirit",
     hp=60,
     pokemon_type=PokemonType.PSYCHIC.value,
     evolution_stage="Basic",
     attacks=[
-        {"name": "Spectral Slash",
+        {"name": "Spectral Cipher",
          "cost": [{"type": "P", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 40, "text": ""},
+         "damage": 40,
+         "text": ("Discard the top card of your opponent's deck. If it is "
+                  "a Trainer card, your opponent's Active Pokemon is now Confused."),
+         "effect_fn": _spectral_cipher_effect},
     ],
     weakness_type=PokemonType.DARKNESS.value,
     retreat_cost=1,
@@ -356,7 +410,9 @@ SOULSWORN_SPIRIT = make_pokemon(
 # =============================================================================
 
 def _duskmantle_effect(event, state):
-    """Each player mills the top card of their own deck."""
+    """Each player mills; Trainer hits leave that player's Active confused."""
+    from src.engine.pokemon_status import apply_status
+
     events = []
     for pid in state.players:
         library = state.zones.get(f"library_{pid}")
@@ -373,20 +429,33 @@ def _duskmantle_effect(event, state):
             type=EventType.PKM_DISCARD_ENERGY,
             payload={'player': pid, 'card_id': top_id, 'source': 'Duskmantle'},
         ))
+        is_trainer = (
+            top_obj
+            and top_obj.characteristics
+            and CardType.TRAINER in top_obj.characteristics.types
+        )
+        if not is_trainer:
+            continue
+        active_zone = state.zones.get(f"active_spot_{pid}")
+        if active_zone and active_zone.objects:
+            events.extend(apply_status(active_zone.objects[0], 'confused', state))
     return events
 
 
 DUSKMANTLE_HOUSE_OF_SHADOW = make_trainer_stadium(
     name="Duskmantle, House of Shadow",
     text=("When you play Duskmantle, House of Shadow, each player "
-          "discards the top card of their deck."),
+          "discards the top card of their deck. If a player discarded a "
+          "Trainer card this way, that player's Active Pokemon is now Confused."),
     rarity="uncommon",
     resolve=_duskmantle_effect,
 )
 
 
 def _etrata_effect(event, state):
-    """Opponent puts the top 3 cards of their deck on the bottom."""
+    """Opponent bottoms 3; Pokemon and Trainer hits become pressure."""
+    from src.engine.pokemon_status import apply_status
+
     player_id = event.payload.get('player')
     if not player_id:
         return []
@@ -397,20 +466,42 @@ def _etrata_effect(event, state):
     if not library:
         return []
     moved = []
+    saw_pokemon = False
+    saw_trainer = False
     for _ in range(min(3, len(library.objects))):
         top_id = library.objects.pop(0)
         library.objects.append(top_id)
         moved.append(top_id)
-    return [Event(
+        top_obj = state.objects.get(top_id)
+        if top_obj and top_obj.characteristics:
+            saw_pokemon = saw_pokemon or CardType.POKEMON in top_obj.characteristics.types
+            saw_trainer = saw_trainer or CardType.TRAINER in top_obj.characteristics.types
+    events = [Event(
         type=EventType.PKM_DISCARD_ENERGY,
         payload={'player': opp_id, 'count': len(moved), 'source': 'Etrata, the Silencer'},
     )]
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if active_zone and active_zone.objects and saw_pokemon:
+        target_id = active_zone.objects[0]
+        target = state.objects.get(target_id)
+        if target:
+            target.state.damage_counters += 1
+            events.append(Event(
+                type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+                payload={'pokemon_id': target_id, 'counters': 1,
+                         'source': 'Etrata, the Silencer'},
+            ))
+    if active_zone and active_zone.objects and saw_trainer:
+        events.extend(apply_status(active_zone.objects[0], 'confused', state))
+    return events
 
 
 ETRATA_THE_SILENCER = make_trainer_supporter(
     name="Etrata, the Silencer",
     text=("Your opponent puts the top 3 cards of their deck on the "
-          "bottom of their deck in any order."),
+          "bottom of their deck in any order. If any were Pokemon, place "
+          "1 damage counter on their Active Pokemon. If any were Trainer "
+          "cards, their Active Pokemon is now Confused."),
     rarity="rare",
     resolve=_etrata_effect,
 )

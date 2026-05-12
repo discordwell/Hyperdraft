@@ -14,6 +14,7 @@ from .modified import BEYOND_KAMIGAWA_MODIFIED, make_modified_deck
 from .staples import BEYOND_KAMIGAWA_STAPLES
 from .balance import kamigawa_balance_flags, kamigawa_balance_summary
 from .deck_builder import build_kamigawa_deck, list_kamigawa_archetypes
+from .strategy import KAMIGAWA_STRATEGIES, kamigawa_strategy
 
 
 ARCHETYPE_REGISTRIES = {
@@ -108,6 +109,8 @@ __all__ = [
     "kamigawa_balance_summary",
     "build_kamigawa_deck",
     "list_kamigawa_archetypes",
+    "KAMIGAWA_STRATEGIES",
+    "kamigawa_strategy",
     "make_samurai_deck",
     "make_ninja_deck",
     "make_spirit_dragon_deck",

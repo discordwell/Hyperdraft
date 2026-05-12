@@ -26,7 +26,8 @@ Event → TRANSFORM → PREVENT → RESOLVE → REACT
 
 ## Implementing Cards
 
-See `.Codex/skills/implement-mtg-cards.md` for the complete guide.
+See `.codex/skills/implement-mtg-cards/SKILL.md` for the complete guide.
+For custom-set power/design passes, use `.codex/skills/spice-pass/SKILL.md`.
 
 ### Quick Reference
 

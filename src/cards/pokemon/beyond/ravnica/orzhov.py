@@ -57,8 +57,51 @@ def _discard_attached_energy(state, pokemon_id: str, count: int) -> list[Event]:
 # =============================================================================
 
 def _ghost_quill_effect(attacker, state):
-    """Tiny noble's tax — a basic 1-energy chip attack, no rider."""
-    return []
+    """Tiny noble's tax: chip the opponent's Active."""
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return []
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    target.state.damage_counters += 1
+    return [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={'pokemon_id': target_id, 'counters': 1,
+                 'source': 'Ghost Quill'},
+    )]
+
+
+def _ledger_lash_effect(attacker, state):
+    """Heal the attacker and chip the opponent's Active."""
+    events = []
+    if attacker.state.damage_counters > 0:
+        attacker.state.damage_counters -= 1
+        events.append(Event(
+            type=EventType.PKM_HEAL,
+            payload={'pokemon_id': attacker.id, 'amount': 10,
+                     'source': 'Ledger Lash'},
+        ))
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return events
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return events
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if target:
+        target.state.damage_counters += 1
+        events.append(Event(
+            type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+            payload={'pokemon_id': target_id, 'counters': 1,
+                     'source': 'Ledger Lash'},
+        ))
+    return events
 
 
 def _final_audit_effect(attacker, state):
@@ -92,7 +135,9 @@ TEYSLET = make_pokemon(
     attacks=[
         {"name": "Ghost Quill",
          "cost": [{"type": "F", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 20, "text": ""},
+         "damage": 20,
+         "text": "Place 1 damage counter on your opponent's Active Pokemon.",
+         "effect_fn": _ghost_quill_effect},
     ],
     weakness_type=PokemonType.PSYCHIC.value,
     retreat_cost=1,
@@ -110,7 +155,10 @@ TEYSERIN = make_pokemon(
     attacks=[
         {"name": "Ledger Lash",
          "cost": [{"type": "F", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 50, "text": ""},
+         "damage": 50,
+         "text": ("Heal 10 damage from this Pokemon. Then place 1 damage "
+                  "counter on your opponent's Active Pokemon."),
+         "effect_fn": _ledger_lash_effect},
     ],
     weakness_type=PokemonType.PSYCHIC.value,
     retreat_cost=1,
@@ -265,7 +313,7 @@ ORZHOVA_THE_CHURCH_OF_DEALS = make_trainer_stadium(
 
 
 def _kaya_effect(event, state):
-    """Opponent shuffles their hand into their deck and draws 4 cards."""
+    """Opponent shuffles hand into deck, draws, and pays for hidden cards."""
     player_id = event.payload.get('player')
     if not player_id:
         return []
@@ -277,20 +325,36 @@ def _kaya_effect(event, state):
     if not hand or not library:
         return []
     # Shuffle opponent's hand into their deck
+    moved = 0
     while hand.objects:
         card_id = hand.objects.pop(0)
         library.objects.append(card_id)
         obj = state.objects.get(card_id)
         if obj:
             obj.zone = ZoneType.LIBRARY
+        moved += 1
     random.shuffle(library.objects)
-    # Opponent draws 4
-    return _draw_cards(state, opp_id, 4)
+    events = _draw_cards(state, opp_id, 4)
+    if moved:
+        active_zone = state.zones.get(f"active_spot_{opp_id}")
+        if active_zone and active_zone.objects:
+            target_id = active_zone.objects[0]
+            target = state.objects.get(target_id)
+            if target:
+                target.state.damage_counters += 1
+                events.append(Event(
+                    type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+                    payload={'pokemon_id': target_id, 'counters': 1,
+                             'source': 'Kaya, Ghost Assassin'},
+                ))
+    return events
 
 
 KAYA_GHOST_ASSASSIN = make_trainer_supporter(
     name="Kaya, Ghost Assassin",
-    text=("Your opponent shuffles their hand into their deck and draws 4 cards."),
+    text=("Your opponent shuffles their hand into their deck and draws 4 cards. "
+          "If they shuffled any cards into their deck this way, place 1 "
+          "damage counter on their Active Pokemon."),
     rarity="rare",
     resolve=_kaya_effect,
 )
@@ -446,6 +510,59 @@ VIZKOPA_GUILDMAGE = make_pokemon(
 )
 
 
+def _cartel_contract_effect(pokemon, state):
+    """Convert a card in hand into drain tempo once per turn."""
+    if getattr(pokemon.state, 'ability_used_this_turn', False):
+        return []
+    player_id = pokemon.controller
+    hand = state.zones.get(f"hand_{player_id}")
+    library = state.zones.get(f"library_{player_id}")
+    if not hand or not library or not hand.objects:
+        return []
+
+    card_id = hand.objects.pop(0)
+    library.objects.append(card_id)
+    moved = state.objects.get(card_id)
+    if moved:
+        moved.zone = ZoneType.LIBRARY
+    pokemon.state.ability_used_this_turn = True
+
+    events = [Event(
+        type=EventType.PKM_DISCARD_ENERGY,
+        payload={'player': player_id, 'card_id': card_id,
+                 'source': 'Cartel Aristocrat'},
+    )]
+
+    active_zone = state.zones.get(f"active_spot_{player_id}")
+    if active_zone and active_zone.objects:
+        active = state.objects.get(active_zone.objects[0])
+        if active and active.state.damage_counters > 0:
+            healed = min(2, active.state.damage_counters)
+            active.state.damage_counters -= healed
+            events.append(Event(
+                type=EventType.PKM_HEAL,
+                payload={'pokemon_id': active.id, 'amount': healed * 10,
+                         'source': 'Cartel Aristocrat'},
+            ))
+
+    opp_id = next((p for p in state.players if p != player_id), None)
+    if not opp_id:
+        return events
+    opp_active = state.zones.get(f"active_spot_{opp_id}")
+    if not opp_active or not opp_active.objects:
+        return events
+    target_id = opp_active.objects[0]
+    target = state.objects.get(target_id)
+    if target:
+        target.state.damage_counters += 1
+        events.append(Event(
+            type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+            payload={'pokemon_id': target_id, 'counters': 1,
+                     'source': 'Cartel Aristocrat'},
+        ))
+    return events
+
+
 CARTEL_ARISTOCRAT = make_pokemon(
     name="Cartel Aristocrat",
     hp=70,
@@ -458,6 +575,15 @@ CARTEL_ARISTOCRAT = make_pokemon(
     ],
     weakness_type=PokemonType.PSYCHIC.value,
     retreat_cost=1,
+    ability={
+        "name": "Contractual Immunity",
+        "text": ("Once during your turn, you may put a card from your hand "
+                 "on the bottom of your deck. If you do, heal 20 damage "
+                 "from your Active Pokemon and place 1 damage counter on "
+                 "your opponent's Active Pokemon."),
+        "ability_type": "Ability",
+        "effect_fn": _cartel_contract_effect,
+    },
     text=("Born of old money and older promises. She trades servants "
           "for safety with a polite, untroubled smile."),
     rarity="uncommon",
@@ -507,6 +633,26 @@ TREASURY_THRULL = make_pokemon(
 )
 
 
+def _dutiful_strike_effect(attacker, state):
+    """Debt collection: stronger once the opposing Active is marked."""
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return []
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if not target or target.state.damage_counters <= 0:
+        return []
+    target.state.damage_counters += 1
+    return [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={'pokemon_id': target_id, 'counters': 1,
+                 'source': 'Knight of Obligation'},
+    )]
+
+
 KNIGHT_OF_OBLIGATION = make_pokemon(
     name="Knight of Obligation",
     hp=60,
@@ -515,7 +661,10 @@ KNIGHT_OF_OBLIGATION = make_pokemon(
     attacks=[
         {"name": "Dutiful Strike",
          "cost": [{"type": "F", "count": 1}],
-         "damage": 30, "text": ""},
+         "damage": 30,
+         "text": ("If your opponent's Active Pokemon already has any damage "
+                  "counters, this attack does 10 more damage."),
+         "effect_fn": _dutiful_strike_effect},
     ],
     weakness_type=PokemonType.PSYCHIC.value,
     retreat_cost=1,

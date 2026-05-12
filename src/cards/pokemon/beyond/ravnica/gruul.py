@@ -486,15 +486,81 @@ RURIC_THAR_THE_UNBOWED = make_pokemon(
 # Stand-alone Basic Pokemon (extended)
 # =============================================================================
 
+def _ferocious_meal_effect(attacker, state):
+    """Eat the top card: Energy ramps, Pokemon fuels extra damage."""
+    library = state.zones.get(f"library_{attacker.controller}")
+    grave = state.zones.get(f"graveyard_{attacker.controller}")
+    if not library or not library.objects:
+        return []
+
+    top_id = library.objects.pop(0)
+    top_obj = state.objects.get(top_id)
+    is_energy = (
+        top_obj
+        and top_obj.characteristics
+        and CardType.ENERGY in top_obj.characteristics.types
+    )
+    is_pokemon = (
+        top_obj
+        and top_obj.characteristics
+        and CardType.POKEMON in top_obj.characteristics.types
+    )
+
+    events = []
+    if is_energy:
+        attacker.state.attached_energy.append(top_id)
+        if top_obj:
+            top_obj.zone = ZoneType.BATTLEFIELD
+        events.append(Event(
+            type=EventType.PKM_ATTACH_ENERGY,
+            payload={'pokemon_id': attacker.id, 'energy_id': top_id,
+                     'source': 'Atarka Pup'},
+        ))
+        return events
+
+    if grave:
+        grave.objects.append(top_id)
+    if top_obj:
+        top_obj.zone = ZoneType.GRAVEYARD
+    events.append(Event(
+        type=EventType.PKM_DISCARD_ENERGY,
+        payload={'player': attacker.controller, 'card_id': top_id,
+                 'source': 'Atarka Pup'},
+    ))
+
+    if not is_pokemon:
+        return events
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return events
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return events
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if target:
+        target.state.damage_counters += 3
+        events.append(Event(
+            type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+            payload={'pokemon_id': target_id, 'counters': 3,
+                     'source': 'Atarka Pup'},
+        ))
+    return events
+
+
 ATARKA_PUP = make_pokemon(
     name="Atarka Pup",
     hp=80,
     pokemon_type=PokemonType.FIRE.value,
     evolution_stage="Basic",
     attacks=[
-        {"name": "Big Swing",
+        {"name": "Ferocious Meal",
          "cost": [{"type": "R", "count": 2}, {"type": "C", "count": 1}],
-         "damage": 80, "text": ""},
+         "damage": 80,
+         "text": ("Discard the top card of your deck. If it is an Energy, "
+                  "attach it to this Pokemon instead. If it is a Pokemon, "
+                  "place 3 damage counters on your opponent's Active Pokemon."),
+         "effect_fn": _ferocious_meal_effect},
     ],
     weakness_type=PokemonType.WATER.value,
     retreat_cost=2,

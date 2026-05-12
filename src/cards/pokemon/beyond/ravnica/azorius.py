@@ -288,16 +288,50 @@ PRAHV_SPIRES_OF_ORDER = make_trainer_stadium(
 
 
 def _teferi_draw_effect(event, state):
-    """Draw 3 cards."""
+    """Bottom a card first, then draw; Trainer tempo also heals the Active."""
     player_id = event.payload.get('player')
     if not player_id:
         return []
-    return _draw_cards(state, player_id, 3)
+    events = []
+    hand = state.zones.get(f"hand_{player_id}")
+    library = state.zones.get(f"library_{player_id}")
+    moved_trainer = False
+    if hand and library and hand.objects:
+        card_id = hand.objects.pop(0)
+        library.objects.append(card_id)
+        obj = state.objects.get(card_id)
+        if obj:
+            obj.zone = ZoneType.LIBRARY
+            moved_trainer = (
+                obj.characteristics
+                and CardType.TRAINER in obj.characteristics.types
+            )
+        events.append(Event(
+            type=EventType.PKM_DISCARD_ENERGY,
+            payload={'player': player_id, 'card_id': card_id,
+                     'source': 'Teferi, Hero of Dominaria'},
+        ))
+    if moved_trainer:
+        active_zone = state.zones.get(f"active_spot_{player_id}")
+        if active_zone and active_zone.objects:
+            active = state.objects.get(active_zone.objects[0])
+            if active and active.state.damage_counters > 0:
+                healed = min(2, active.state.damage_counters)
+                active.state.damage_counters -= healed
+                events.append(Event(
+                    type=EventType.PKM_HEAL,
+                    payload={'pokemon_id': active.id, 'amount': healed * 10,
+                             'source': 'Teferi, Hero of Dominaria'},
+                ))
+    events.extend(_draw_cards(state, player_id, 3))
+    return events
 
 
 TEFERI_HERO_OF_DOMINARIA = make_trainer_supporter(
     name="Teferi, Hero of Dominaria",
-    text="Draw 3 cards.",
+    text=("Put a card from your hand on the bottom of your deck. Draw 3 cards. "
+          "If you put a Trainer card on the bottom this way, heal 20 damage "
+          "from your Active Pokemon."),
     rarity="rare",
     resolve=_teferi_draw_effect,
 )
@@ -380,6 +414,10 @@ def _legal_injunction_effect(attacker, state):
     return []
 
 
+def _stamp_stamp_effect(attacker, state):
+    return _draw_cards(state, attacker.controller, 1)
+
+
 TOMLET = make_pokemon(
     name="Tomlet",
     hp=70,
@@ -388,7 +426,9 @@ TOMLET = make_pokemon(
     attacks=[
         {"name": "Stamp Stamp",
          "cost": [{"type": "W", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 30, "text": ""},
+         "damage": 30,
+         "text": "Draw a card.",
+         "effect_fn": _stamp_stamp_effect},
     ],
     weakness_type=PokemonType.LIGHTNING.value,
     retreat_cost=1,
@@ -511,15 +551,43 @@ SOULSWORN_JURY = make_pokemon(
 )
 
 
+def _gate_tax_effect(attacker, state):
+    """Chip the opposing Active and detain it if it has no Energy attached."""
+    from src.engine.pokemon_status import apply_status
+
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return []
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+
+    target.state.damage_counters += 1
+    events = [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={'pokemon_id': target_id, 'counters': 1, 'source': 'Gate Tax'},
+    )]
+    if not target.state.attached_energy:
+        events.extend(apply_status(target_id, 'paralyzed', state))
+    return events
+
+
 DOORKEEPER = make_pokemon(
     name="Doorkeeper",
     hp=60,
     pokemon_type=PokemonType.FIGHTING.value,
     evolution_stage="Basic",
     attacks=[
-        {"name": "Brick Wall",
+        {"name": "Gate Tax",
          "cost": [{"type": "F", "count": 1}],
-         "damage": 30, "text": ""},
+         "damage": 20,
+         "text": ("Place 1 damage counter on your opponent's Active Pokemon. "
+                  "If it has no Energy attached, it is now Paralyzed."),
+         "effect_fn": _gate_tax_effect},
     ],
     weakness_type=PokemonType.PSYCHIC.value,
     retreat_cost=2,

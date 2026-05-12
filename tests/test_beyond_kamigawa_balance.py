@@ -6,7 +6,9 @@ import sys
 
 from src.cards.yugioh.beyond.kamigawa import (
     ARCHETYPE_DECK_BUILDERS,
+    KAMIGAWA_STRATEGIES,
     build_kamigawa_deck,
+    kamigawa_strategy,
     kamigawa_balance_flags,
     kamigawa_balance_summary,
     list_kamigawa_archetypes,
@@ -47,6 +49,18 @@ def test_kamigawa_archetype_identities_stay_distinct():
         profile["control_score"] for profile in summary.values()
     )
     assert min(profile["curve_stability_score"] for profile in summary.values()) >= 15
+
+
+def test_kamigawa_strategy_priorities_exist_in_decks():
+    assert set(KAMIGAWA_STRATEGIES) == set(ARCHETYPE_DECK_BUILDERS)
+
+    for archetype in list_kamigawa_archetypes():
+        main, _extra = build_kamigawa_deck(archetype)
+        names = {card.name for card in main}
+        strategy = kamigawa_strategy(archetype)
+        priorities = strategy["summon_priority"] + strategy["set_priority"]
+        assert priorities, archetype
+        assert all(name in names for name in priorities), archetype
 
 
 def test_kamigawa_balance_flags_detect_off_role_profiles():
@@ -116,8 +130,9 @@ def test_kamigawa_balance_report_can_focus_one_archetype():
 
 def test_kamigawa_wet_test_requires_enough_mirror_games_for_imbalance():
     assert mirror_imbalance_anomaly("ninja", "ninja", 3, 1.0) is False
-    assert mirror_imbalance_anomaly("ninja", "ninja", 5, 1.0) is True
-    assert mirror_imbalance_anomaly("ninja", "samurai", 5, 1.0) is False
+    assert mirror_imbalance_anomaly("ninja", "ninja", 5, 1.0) is False
+    assert mirror_imbalance_anomaly("ninja", "ninja", 10, 1.0) is True
+    assert mirror_imbalance_anomaly("ninja", "samurai", 10, 1.0) is False
 
 
 def test_validated_kamigawa_deckbuilder_serves_all_archetypes():
@@ -155,7 +170,7 @@ def test_kamigawa_wet_test_can_write_json_summary(tmp_path):
 
     report = json.loads(out_path.read_text())
     assert report["games_per_pairing"] == 1
-    assert report["min_mirror_games_for_imbalance"] == 5
+    assert report["min_mirror_games_for_imbalance"] == 10
     assert report["elapsed_seconds"] >= 0
     assert len(report["results"]) == 5
     assert report["anomalies"] == []

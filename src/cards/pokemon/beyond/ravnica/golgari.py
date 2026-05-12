@@ -97,6 +97,69 @@ def _consuming_decay_effect(attacker, state):
     )]
 
 
+def _mossy_hum_effect(attacker, state):
+    """Self-mill one; Pokemon compost heals the hatchling."""
+    library = state.zones.get(f"library_{attacker.controller}")
+    grave = state.zones.get(f"graveyard_{attacker.controller}")
+    if not library or not library.objects:
+        return []
+    top_id = library.objects.pop(0)
+    top_obj = state.objects.get(top_id)
+    if grave:
+        grave.objects.append(top_id)
+    if top_obj:
+        top_obj.zone = ZoneType.GRAVEYARD
+    events = [Event(
+        type=EventType.PKM_DISCARD_ENERGY,
+        payload={'player': attacker.controller, 'card_id': top_id,
+                 'source': 'Jarlet'},
+    )]
+    is_pokemon = (
+        top_obj
+        and top_obj.characteristics
+        and CardType.POKEMON in top_obj.characteristics.types
+    )
+    if is_pokemon and attacker.state.damage_counters > 0:
+        attacker.state.damage_counters -= 1
+        events.append(Event(
+            type=EventType.PKM_HEAL,
+            payload={'pokemon_id': attacker.id, 'amount': 10,
+                     'source': 'Jarlet'},
+        ))
+    return events
+
+
+def _spore_bite_effect(attacker, state):
+    """+10 damage if your discard pile already has a Pokemon."""
+    grave = state.zones.get(f"graveyard_{attacker.controller}")
+    if not grave:
+        return []
+    has_pokemon = any(
+        (obj := state.objects.get(cid))
+        and obj.characteristics
+        and CardType.POKEMON in obj.characteristics.types
+        for cid in grave.objects
+    )
+    if not has_pokemon:
+        return []
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return []
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    target.state.damage_counters += 1
+    return [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={'pokemon_id': target_id, 'counters': 1,
+                 'source': 'Jaradite'},
+    )]
+
+
 JARLET = make_pokemon(
     name="Jarlet",
     hp=60,
@@ -105,7 +168,10 @@ JARLET = make_pokemon(
     attacks=[
         {"name": "Mossy Hum",
          "cost": [{"type": "G", "count": 1}],
-         "damage": 20, "text": ""},
+         "damage": 20,
+         "text": ("Discard the top card of your deck. If it is a Pokemon, "
+                  "heal 10 damage from this Pokemon."),
+         "effect_fn": _mossy_hum_effect},
     ],
     weakness_type=PokemonType.FIRE.value,
     retreat_cost=1,
@@ -123,7 +189,10 @@ JARADITE = make_pokemon(
     attacks=[
         {"name": "Spore Bite",
          "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 50, "text": ""},
+         "damage": 50,
+         "text": ("If you have any Pokemon in your discard pile, this attack "
+                  "does 10 more damage."),
+         "effect_fn": _spore_bite_effect},
     ],
     weakness_type=PokemonType.FIRE.value,
     retreat_cost=1,
@@ -309,7 +378,7 @@ KOROZDA_THE_TANGLE = make_trainer_stadium(
 
 
 def _vraska_golgari_queen_effect(event, state):
-    """Shuffle 3 cards from your discard pile back into your deck."""
+    """Recycle three cards; Pokemon heal and Trainers poison the board."""
     player_id = event.payload.get('player')
     if not player_id:
         return []
@@ -322,22 +391,56 @@ def _vraska_golgari_queen_effect(event, state):
     pool = list(grave.objects)
     random.shuffle(pool)
     moved = pool[:3]
+    saw_pokemon = False
+    saw_trainer = False
     for cid in moved:
         grave.objects.remove(cid)
         library.objects.append(cid)
         obj = state.objects.get(cid)
         if obj:
             obj.zone = ZoneType.LIBRARY
+            if obj.characteristics:
+                saw_pokemon = saw_pokemon or CardType.POKEMON in obj.characteristics.types
+                saw_trainer = saw_trainer or CardType.TRAINER in obj.characteristics.types
     random.shuffle(library.objects)
-    return [Event(
+    events = [Event(
         type=EventType.DRAW,
         payload={'player': player_id, 'count': 0},
     )]
+    if saw_pokemon:
+        active_zone = state.zones.get(f"active_spot_{player_id}")
+        if active_zone and active_zone.objects:
+            active = state.objects.get(active_zone.objects[0])
+            if active and active.state.damage_counters > 0:
+                healed = min(2, active.state.damage_counters)
+                active.state.damage_counters -= healed
+                events.append(Event(
+                    type=EventType.PKM_HEAL,
+                    payload={'pokemon_id': active.id, 'amount': healed * 10,
+                             'source': 'Vraska, Golgari Queen'},
+                ))
+    if saw_trainer:
+        opp_id = next((p for p in state.players if p != player_id), None)
+        opp_active = state.zones.get(f"active_spot_{opp_id}") if opp_id else None
+        if opp_active and opp_active.objects:
+            target_id = opp_active.objects[0]
+            target = state.objects.get(target_id)
+            if target:
+                target.state.damage_counters += 1
+                events.append(Event(
+                    type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+                    payload={'pokemon_id': target_id, 'counters': 1,
+                             'source': 'Vraska, Golgari Queen'},
+                ))
+    return events
 
 
 VRASKA_GOLGARI_QUEEN = make_trainer_supporter(
     name="Vraska, Golgari Queen",
-    text=("Shuffle 3 cards from your discard pile back into your deck."),
+    text=("Shuffle 3 cards from your discard pile back into your deck. "
+          "If you shuffled in a Pokemon this way, heal 20 damage from your "
+          "Active Pokemon. If you shuffled in a Trainer card this way, place "
+          "1 damage counter on your opponent's Active Pokemon."),
     rarity="rare",
     resolve=_vraska_golgari_queen_effect,
 )
@@ -506,15 +609,72 @@ SLUICEWAY_SCORPION = make_pokemon(
 )
 
 
+def _mandible_mulch_effect(attacker, state):
+    """Self-mill; Energy accelerates, Pokemon compost heals."""
+    library = state.zones.get(f"library_{attacker.controller}")
+    grave = state.zones.get(f"graveyard_{attacker.controller}")
+    if not library or not library.objects:
+        return []
+
+    top_id = library.objects.pop(0)
+    top_obj = state.objects.get(top_id)
+    events = []
+    is_energy = (
+        top_obj
+        and top_obj.characteristics
+        and CardType.ENERGY in top_obj.characteristics.types
+    )
+    is_pokemon = (
+        top_obj
+        and top_obj.characteristics
+        and CardType.POKEMON in top_obj.characteristics.types
+    )
+
+    if is_energy:
+        attacker.state.attached_energy.append(top_id)
+        if top_obj:
+            top_obj.zone = ZoneType.BATTLEFIELD
+        events.append(Event(
+            type=EventType.PKM_ATTACH_ENERGY,
+            payload={'pokemon_id': attacker.id, 'energy_id': top_id,
+                     'source': 'Mandible Mulch'},
+        ))
+        return events
+
+    if grave:
+        grave.objects.append(top_id)
+    if top_obj:
+        top_obj.zone = ZoneType.GRAVEYARD
+    events.append(Event(
+        type=EventType.PKM_DISCARD_ENERGY,
+        payload={'player': attacker.controller, 'card_id': top_id,
+                 'source': 'Mandible Mulch'},
+    ))
+
+    if is_pokemon and attacker.state.damage_counters > 0:
+        healed = min(2, attacker.state.damage_counters)
+        attacker.state.damage_counters -= healed
+        events.append(Event(
+            type=EventType.PKM_HEAL,
+            payload={'pokemon_id': attacker.id, 'amount': healed * 10,
+                     'source': 'Mandible Mulch'},
+        ))
+    return events
+
+
 DRUDGE_BEETLE = make_pokemon(
     name="Drudge Beetle",
     hp=70,
     pokemon_type=PokemonType.GRASS.value,
     evolution_stage="Basic",
     attacks=[
-        {"name": "Mandible Crunch",
+        {"name": "Mandible Mulch",
          "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 40, "text": ""},
+         "damage": 40,
+         "text": ("Discard the top card of your deck. If it is an Energy, "
+                  "attach it to this Pokemon instead. If it is a Pokemon, "
+                  "heal 20 damage from this Pokemon."),
+         "effect_fn": _mandible_mulch_effect},
     ],
     weakness_type=PokemonType.FIRE.value,
     retreat_cost=2,

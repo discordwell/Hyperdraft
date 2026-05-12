@@ -26,6 +26,7 @@ surviving them, exploiting them, or amplifying them.
 
 import random
 from src.engine.game import make_minion, make_spell, make_hero, make_hero_power
+from src.engine.turn_state import spells_cast_this_turn
 from src.engine.types import (
     Event, EventType, GameObject, GameState, CardType, ZoneType,
     Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult, new_id,
@@ -112,11 +113,61 @@ STORMRIFT_HERO_POWERS = {
 }
 
 
+def _friendly_hero_id(obj: GameObject, state: GameState) -> str | None:
+    player = state.players.get(obj.controller)
+    return player.hero_id if player else None
+
+
+def _remaining_health(object_id: str, state: GameState) -> int | None:
+    target = state.objects.get(object_id)
+    if not target or CardType.MINION not in target.characteristics.types:
+        return None
+    toughness = target.characteristics.toughness or 0
+    return int(toughness) - int(getattr(target.state, 'damage', 0) or 0)
+
+
+def _would_destroy_minion(object_id: str, state: GameState, amount: int) -> bool:
+    remaining = _remaining_health(object_id, state)
+    return remaining is not None and remaining <= amount
+
+
+def _rift_spark_token(name: str = "Rift Spark") -> dict:
+    return {
+        'name': name,
+        'power': 1,
+        'toughness': 1,
+        'types': {CardType.MINION},
+        'subtypes': {'Elemental'},
+    }
+
+
 # =============================================================================
 # PYROMANCER MINIONS
 # =============================================================================
 
 # --- 1-cost ---
+
+
+def rift_spark_elemental_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
+    """Deathrattle: storm death redirects the spark; otherwise it backfires."""
+    if getattr(obj.state, 'last_damage_source', None) == 'rift_storm':
+        targets = get_enemy_targets(obj, state)
+        if targets:
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'target': random.choice(targets), 'amount': 1, 'source': obj.id},
+                source=obj.id,
+            )]
+
+    hero = _friendly_hero_id(obj, state)
+    if not hero:
+        return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': hero, 'amount': 1, 'source': obj.id},
+        source=obj.id,
+    )]
+
 
 RIFT_SPARK_ELEMENTAL = make_minion(
     name="Rift Spark Elemental",
@@ -124,22 +175,38 @@ RIFT_SPARK_ELEMENTAL = make_minion(
     mana_cost="{1}",
     subtypes={"Elemental"},
     keywords={"charge"},
-    text="Charge",
+    text="Charge. Deathrattle: Deal 1 damage to your hero. If Rift Storm killed this, deal 1 damage to a random enemy instead.",
     rarity="common",
+    deathrattle=rift_spark_elemental_deathrattle,
 )
+
+
+def kindling_imp_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
+    events: list[Event] = []
+    enemy_hero = get_enemy_hero_id(obj, state)
+    if enemy_hero:
+        events.append(Event(
+            type=EventType.DAMAGE,
+            payload={'target': enemy_hero, 'amount': 1, 'source': obj.id},
+            source=obj.id,
+        ))
+    if spells_cast_this_turn(obj.controller, state) > 0:
+        events.append(Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': obj.controller, 'token': _rift_spark_token()},
+            source=obj.id,
+        ))
+    return events
+
 
 KINDLING_IMP = make_minion(
     name="Kindling Imp",
     attack=1, health=2,
     mana_cost="{1}",
     subtypes={"Demon", "Elemental"},
-    text="Deathrattle: Deal 1 damage to the enemy hero.",
+    text="Deathrattle: Deal 1 damage to the enemy hero. If you cast a spell this turn, summon a 1/1 Rift Spark.",
     rarity="common",
-    deathrattle=lambda obj, state: [Event(
-        type=EventType.DAMAGE,
-        payload={'target': get_enemy_hero_id(obj, state) or '', 'amount': 1, 'source': obj.id},
-        source=obj.id,
-    )] if get_enemy_hero_id(obj, state) else [],
+    deathrattle=kindling_imp_deathrattle,
 )
 
 # --- 2-cost ---
@@ -152,6 +219,8 @@ def ember_channeler_setup(obj: GameObject, state: GameState) -> list[Interceptor
     Why it alters: rewards casting spells with both offense AND survival, so
     the Rift Storm modifier turns into an upside rather than a wash.
     """
+    seen_turn = {'turn': None}
+
     def spell_filter(event, s):
         if event.type not in (EventType.CAST, EventType.SPELL_CAST):
             return False
@@ -163,13 +232,22 @@ def ember_channeler_setup(obj: GameObject, state: GameState) -> list[Interceptor
         me = s.objects.get(obj.id)
         if me and me.zone == ZoneType.BATTLEFIELD:
             me.state.storm_shielded_this_turn = True
+        new_events = [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'permanent'},
+            source=obj.id,
+        )]
+        turn_no = int(getattr(s, 'turn_number', 0) or 0)
+        if seen_turn['turn'] != turn_no:
+            seen_turn['turn'] = turn_no
+            new_events.append(Event(
+                type=EventType.ARMOR_GAIN,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+            ))
         return InterceptorResult(
             action=InterceptorAction.REACT,
-            new_events=[Event(
-                type=EventType.PT_MODIFICATION,
-                payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'permanent'},
-                source=obj.id,
-            )],
+            new_events=new_events,
         )
 
     return [Interceptor(
@@ -184,78 +262,175 @@ EMBER_CHANNELER = make_minion(
     attack=2, health=4,
     mana_cost="{2}",
     subtypes={"Elemental"},
-    text="After you cast a spell, gain +1 Attack and ignore the next Rift Storm this turn.",
+    text="After you cast a spell, gain +1 Attack and ignore the next Rift Storm this turn. The first time each turn, also gain 1 Armor.",
     rarity="rare",
     setup_interceptors=ember_channeler_setup,
 )
+
+def storm_acolyte_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors = [make_spell_damage_boost(obj, amount=1)]
+    seen_turn = {'turn': None}
+
+    def spell_filter(event: Event, s: GameState) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        src = s.objects.get(event.source)
+        caster = event.payload.get('caster') or event.payload.get('controller') or event.controller
+        return caster == obj.controller or bool(src and src.controller == obj.controller)
+
+    def spell_handler(event: Event, s: GameState) -> InterceptorResult:
+        turn_no = int(getattr(s, 'turn_number', 0) or 0)
+        if seen_turn['turn'] == turn_no:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        seen_turn['turn'] = turn_no
+        new_events = [Event(
+            type=EventType.ARMOR_GAIN,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        )]
+        if spells_cast_this_turn(obj.controller, s) >= 2:
+            enemy_hero = get_enemy_hero_id(obj, s)
+            if enemy_hero:
+                new_events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': enemy_hero, 'amount': 1, 'source': obj.id},
+                    source=obj.id,
+                ))
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=new_events)
+
+    interceptors.append(Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=spell_filter, handler=spell_handler,
+        duration='while_on_battlefield',
+    ))
+    return interceptors
+
 
 STORM_ACOLYTE = make_minion(
     name="Storm Acolyte",
     attack=1, health=3,
     mana_cost="{2}",
     subtypes={"Elemental"},
-    text="Spell Damage +1",
+    text="Spell Damage +1. After you cast your first spell each turn, gain 1 Armor. If it is already your second spell, ping the enemy hero for 1.",
     rarity="common",
-    setup_interceptors=lambda obj, state: [make_spell_damage_boost(obj, amount=1)],
+    setup_interceptors=storm_acolyte_setup,
 )
 
 # --- 3-cost ---
 
 def rift_firehound_battlecry(obj: GameObject, state: GameState) -> list[Event]:
-    """Deal 2 damage to a random enemy minion."""
+    """Deal 2 damage to a random enemy minion, growing if it finishes prey."""
     targets = get_enemy_minions(obj, state)
     if not targets:
-        return []
+        enemy_hero = get_enemy_hero_id(obj, state)
+        if not enemy_hero:
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': enemy_hero, 'amount': 2, 'source': obj.id},
+            source=obj.id,
+        )]
     target = random.choice(targets)
-    return [Event(
+    events = [Event(
         type=EventType.DAMAGE,
         payload={'target': target, 'amount': 2, 'source': obj.id, 'from_spell': False},
         source=obj.id,
     )]
+    if _would_destroy_minion(target, state, 2):
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'permanent'},
+            source=obj.id,
+        ))
+    return events
 
 RIFT_FIREHOUND = make_minion(
     name="Rift Firehound",
     attack=3, health=2,
     mana_cost="{3}",
     subtypes={"Beast", "Elemental"},
-    text="Battlecry: Deal 2 damage to a random enemy minion.",
+    text="Battlecry: Deal 2 damage to a random enemy minion. If this destroys it, gain +1/+1. If no enemy minions exist, hit the enemy hero instead.",
     rarity="common",
     battlecry=rift_firehound_battlecry,
 )
+
+
+def pyroclasm_adept_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: If you've cast a spell this turn, deal 2 damage to a random enemy."""
+    if spells_cast_this_turn(obj.controller, state) <= 0:
+        return [Event(
+            type=EventType.ARMOR_GAIN,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        )]
+    targets = get_enemy_targets(obj, state)
+    if not targets:
+        return []
+    target = random.choice(targets)
+    events = [Event(
+        type=EventType.DAMAGE,
+        payload={'target': target, 'amount': 2, 'source': obj.id},
+        source=obj.id,
+    )]
+    if _would_destroy_minion(target, state, 2):
+        events.append(Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': obj.controller, 'token': _rift_spark_token("Adept Spark")},
+            source=obj.id,
+        ))
+    return events
+
 
 PYROCLASM_ADEPT = make_minion(
     name="Pyroclasm Adept",
     attack=3, health=4,
     mana_cost="{3}",
     subtypes={"Elemental"},
-    text="",
+    text="Battlecry: If you've cast a spell this turn, deal 2 damage to a random enemy. If that destroys a minion, summon a 1/1 Spark. Otherwise gain 1 Armor.",
     rarity="common",
+    battlecry=pyroclasm_adept_battlecry,
 )
 
 # --- 4-cost ---
 
 def pyroclasm_drake_battlecry(obj: GameObject, state: GameState) -> list[Event]:
     """
-    Battlecry: Deal 1 damage to all enemy minions.
+    Battlecry: Deal 1 damage to enemy minions, or 2 if they are already damaged.
     The Rift Storm makes its sweep reliably lethal against 2-health minions -- this
     drake *synergises* with the global modifier.
     """
     targets = get_enemy_minions(obj, state)
-    return [
+    damaged_count = sum(
+        1 for target_id in targets
+        if getattr(state.objects[target_id].state, 'damage', 0) > 0
+    )
+    events = [
         Event(
             type=EventType.DAMAGE,
-            payload={'target': t, 'amount': 1, 'source': obj.id},
+            payload={
+                'target': t,
+                'amount': 2 if getattr(state.objects[t].state, 'damage', 0) > 0 else 1,
+                'source': obj.id,
+            },
             source=obj.id,
         )
         for t in targets
     ]
+    if damaged_count:
+        events.append(Event(
+            type=EventType.ARMOR_GAIN,
+            payload={'player': obj.controller, 'amount': damaged_count},
+            source=obj.id,
+        ))
+    return events
 
 PYROCLASM_DRAKE = make_minion(
     name="Pyroclasm Drake",
     attack=4, health=4,
     mana_cost="{4}",
     subtypes={"Dragon", "Elemental"},
-    text="Battlecry: Deal 1 damage to all enemy minions.",
+    text="Battlecry: Deal 1 damage to all enemy minions, or 2 damage to enemy minions already damaged. Gain 1 Armor for each enemy that was already damaged.",
     rarity="rare",
     battlecry=pyroclasm_drake_battlecry,
 )
@@ -274,14 +449,25 @@ def rift_berserker_setup(obj: GameObject, state: GameState) -> list[Interceptor]
             return False
         return event.payload.get('source') == 'arcane_feedback'
 
+    seen_turn = {'turn': None}
+
     def feedback_handler(event, s):
+        new_events = [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+            source=obj.id,
+        )]
+        turn_no = int(getattr(s, 'turn_number', 0) or 0)
+        if seen_turn['turn'] != turn_no:
+            seen_turn['turn'] = turn_no
+            new_events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': obj.id, 'power_mod': 0, 'toughness_mod': 1, 'duration': 'permanent'},
+                source=obj.id,
+            ))
         return InterceptorResult(
             action=InterceptorAction.REACT,
-            new_events=[Event(
-                type=EventType.PT_MODIFICATION,
-                payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'end_of_turn'},
-                source=obj.id,
-            )],
+            new_events=new_events,
         )
 
     return [Interceptor(
@@ -296,7 +482,7 @@ RIFT_BERSERKER = make_minion(
     attack=4, health=4,
     mana_cost="{4}",
     subtypes={"Elemental"},
-    text="Charge. Whenever Arcane Feedback damages a minion, gain +1 Attack this turn.",
+    text="Charge. Whenever Arcane Feedback damages a minion, gain +1 Attack this turn. The first time each turn, also gain +0/+1 permanently.",
     keywords={"charge"},
     rarity="rare",
     setup_interceptors=rift_berserker_setup,
@@ -304,14 +490,44 @@ RIFT_BERSERKER = make_minion(
 
 # --- 5-cost ---
 
+
+def inferno_golem_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever Rift Storm damages this, deal 1 damage to a random enemy."""
+    def storm_filter(event: Event, s: GameState) -> bool:
+        return (event.type == EventType.DAMAGE
+                and event.payload.get('source') == 'rift_storm'
+                and event.payload.get('target') == obj.id)
+
+    def storm_handler(event: Event, s: GameState) -> InterceptorResult:
+        targets = get_enemy_targets(obj, s)
+        if not targets:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.DAMAGE,
+                payload={'target': random.choice(targets), 'amount': 1, 'source': obj.id},
+                source=obj.id,
+            )],
+        )
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=storm_filter, handler=storm_handler,
+        duration='while_on_battlefield',
+    )]
+
+
 INFERNO_GOLEM = make_minion(
     name="Inferno Golem",
     attack=5, health=6,
     mana_cost="{5}",
     subtypes={"Elemental"},
-    text="Taunt",
+    text="Taunt. Whenever Rift Storm damages this, deal 1 damage to a random enemy.",
     keywords={"taunt"},
     rarity="common",
+    setup_interceptors=inferno_golem_setup,
 )
 
 def volatilerift_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -324,16 +540,35 @@ def volatilerift_mage_setup(obj: GameObject, state: GameState) -> list[Intercept
 
     def spell_handler(event, s):
         targets = get_enemy_minions(obj, s)
+        damaged_count = sum(
+            1 for target_id in targets
+            if getattr(s.objects[target_id].state, 'damage', 0) > 0
+        )
+        new_events = [
+            Event(
+                type=EventType.DAMAGE,
+                payload={'target': t, 'amount': 1, 'source': obj.id},
+                source=obj.id,
+            )
+            for t in targets
+        ]
+        if damaged_count:
+            new_events.append(Event(
+                type=EventType.ARMOR_GAIN,
+                payload={'player': obj.controller, 'amount': damaged_count},
+                source=obj.id,
+            ))
+        else:
+            enemy_hero = get_enemy_hero_id(obj, s)
+            if enemy_hero:
+                new_events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': enemy_hero, 'amount': 1, 'source': obj.id},
+                    source=obj.id,
+                ))
         return InterceptorResult(
             action=InterceptorAction.REACT,
-            new_events=[
-                Event(
-                    type=EventType.DAMAGE,
-                    payload={'target': t, 'amount': 1, 'source': obj.id},
-                    source=obj.id,
-                )
-                for t in targets
-            ],
+            new_events=new_events,
         )
 
     return [Interceptor(
@@ -348,7 +583,7 @@ VOLATILERIFT_MAGE = make_minion(
     attack=4, health=5,
     mana_cost="{5}",
     subtypes={"Elemental"},
-    text="After you cast a spell, deal 1 damage to all enemy minions.",
+    text="After you cast a spell, deal 1 damage to all enemy minions. Gain 1 Armor for each that was already damaged; if none were damaged, hit the enemy hero for 1.",
     rarity="epic",
     setup_interceptors=volatilerift_mage_setup,
 )
@@ -504,6 +739,36 @@ def ignis_ascendant_setup(obj: GameObject, state: GameState) -> list[Interceptor
     # Spell damage +1
     interceptors.append(make_spell_damage_boost(obj, amount=1))
 
+    seen_turn = {'turn': None}
+
+    def spark_filter(event: Event, s: GameState) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        src = s.objects.get(event.source)
+        caster = event.payload.get('caster') or event.payload.get('controller') or event.controller
+        return caster == obj.controller or bool(src and src.controller == obj.controller)
+
+    def spark_handler(_event: Event, s: GameState) -> InterceptorResult:
+        turn_no = int(getattr(s, 'turn_number', 0) or 0)
+        if seen_turn['turn'] == turn_no:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        seen_turn['turn'] = turn_no
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.CREATE_TOKEN,
+                payload={'controller': obj.controller, 'token': _rift_spark_token("Ascendant Spark")},
+                source=obj.id,
+            )],
+        )
+
+    interceptors.append(Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=spark_filter, handler=spark_handler,
+        duration='while_on_battlefield',
+    ))
+
     return interceptors
 
 
@@ -512,7 +777,7 @@ IGNIS_ASCENDANT = make_minion(
     attack=5, health=6,
     mana_cost="{6}",
     subtypes={"Elemental", "Pyromancer"},
-    text="Your spells deal +1 damage. Your hero power deals 3 damage instead of 1.",
+    text="Your spells deal +1 damage. Your hero power deals 3 damage instead of 1. After your first spell each turn, summon a 1/1 Ascendant Spark.",
     rarity="legendary",
     setup_interceptors=ignis_ascendant_setup,
 )
@@ -608,69 +873,97 @@ RIFTBORN_PHOENIX = make_minion(
 # =============================================================================
 
 def singe_effect(obj, state, targets=None):
-    """Deal 2 damage to a random enemy."""
+    """Deal 2 damage to a random enemy; spark if it burns out a minion."""
     enemy_targets = get_enemy_targets(obj, state)
     if not enemy_targets:
         return []
     target = random.choice(enemy_targets)
-    return [Event(
+    events = [Event(
         type=EventType.DAMAGE,
         payload={'target': target, 'amount': 2, 'source': obj.id, 'from_spell': True},
         source=obj.id,
     )]
+    if _would_destroy_minion(target, state, 2):
+        events.append(Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': obj.controller, 'token': _rift_spark_token()},
+            source=obj.id,
+        ))
+    return events
 
 SINGE = make_spell(
     name="Singe",
     mana_cost="{1}",
-    text="Deal 2 damage to a random enemy.",
+    text="Deal 2 damage to a random enemy. If this destroys a minion, summon a 1/1 Rift Spark.",
     spell_effect=singe_effect,
     rarity="common",
 )
 
 def rift_bolt_effect(obj, state, targets=None):
-    """Deal 3 damage to a random enemy."""
+    """Deal 3 damage to a random enemy, with a second-spell splash."""
     enemy_targets = get_enemy_targets(obj, state)
     if not enemy_targets:
         return []
     target = random.choice(enemy_targets)
-    return [Event(
+    events = [Event(
         type=EventType.DAMAGE,
         payload={'target': target, 'amount': 3, 'source': obj.id, 'from_spell': True},
         source=obj.id,
     )]
+    minions = get_enemy_minions(obj, state)
+    if spells_cast_this_turn(obj.controller, state) >= 2 and minions:
+        events.append(Event(
+            type=EventType.DAMAGE,
+            payload={'target': random.choice(minions), 'amount': 1, 'source': obj.id, 'from_spell': True},
+            source=obj.id,
+        ))
+    return events
 
 RIFT_BOLT = make_spell(
     name="Rift Bolt",
     mana_cost="{2}",
-    text="Deal 3 damage to a random enemy.",
+    text="Deal 3 damage to a random enemy. If this is your second spell this turn, deal 1 damage to a random enemy minion.",
     spell_effect=rift_bolt_effect,
     rarity="common",
 )
 
 def searing_rift_effect(obj, state, targets=None):
-    """Deal 4 damage to a random enemy."""
+    """Deal 4 damage to a random enemy; armor if it finishes a minion."""
     enemy_targets = get_enemy_targets(obj, state)
     if not enemy_targets:
         return []
     target = random.choice(enemy_targets)
-    return [Event(
+    events = [Event(
         type=EventType.DAMAGE,
         payload={'target': target, 'amount': 4, 'source': obj.id, 'from_spell': True},
         source=obj.id,
     )]
+    if _would_destroy_minion(target, state, 4):
+        events.append(Event(
+            type=EventType.ARMOR_GAIN,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id,
+        ))
+    elif target in state.objects and CardType.MINION in state.objects[target].characteristics.types:
+        events.append(Event(
+            type=EventType.FREEZE_TARGET,
+            payload={'target': target, 'source': obj.id},
+            source=obj.id,
+        ))
+    return events
 
 SEARING_RIFT = make_spell(
     name="Searing Rift",
     mana_cost="{4}",
-    text="Deal 4 damage to a random enemy.",
+    text="Deal 4 damage to a random enemy. If this destroys a minion, gain 2 Armor; if a minion survives, Freeze it.",
     spell_effect=searing_rift_effect,
     rarity="rare",
 )
 
 def inferno_wave_effect(obj, state, targets=None):
-    """Deal 3 damage to all enemy minions."""
+    """Deal 3 damage to all enemy minions and freeze survivors."""
     targets_list = get_enemy_minions(obj, state)
-    return [
+    events = [
         Event(
             type=EventType.DAMAGE,
             payload={'target': t, 'amount': 3, 'source': obj.id, 'from_spell': True},
@@ -678,19 +971,36 @@ def inferno_wave_effect(obj, state, targets=None):
         )
         for t in targets_list
     ]
+    survivors = 0
+    for target_id in targets_list:
+        remaining = _remaining_health(target_id, state)
+        if remaining is not None and remaining > 3:
+            survivors += 1
+            events.append(Event(
+                type=EventType.FREEZE_TARGET,
+                payload={'target': target_id, 'source': obj.id},
+                source=obj.id,
+            ))
+    if survivors:
+        events.append(Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id,
+        ))
+    return events
 
 INFERNO_WAVE = make_spell(
     name="Inferno Wave",
     mana_cost="{5}",
-    text="Deal 3 damage to all enemy minions.",
+    text="Deal 3 damage to all enemy minions. Freeze any minions damaged this way that survive. If any survive, draw a card.",
     spell_effect=inferno_wave_effect,
     rarity="rare",
 )
 
 def pyroclasm_effect(obj, state, targets=None):
-    """Deal 5 damage to all enemies."""
+    """Deal 5 damage to all enemies and armor up for likely kills."""
     enemy_targets = get_enemy_targets(obj, state)
-    return [
+    events = [
         Event(
             type=EventType.DAMAGE,
             payload={'target': t, 'amount': 5, 'source': obj.id, 'from_spell': True},
@@ -698,11 +1008,34 @@ def pyroclasm_effect(obj, state, targets=None):
         )
         for t in enemy_targets
     ]
+    destroyed = sum(1 for target_id in enemy_targets if _would_destroy_minion(target_id, state, 5))
+    if destroyed:
+        events.append(Event(
+            type=EventType.ARMOR_GAIN,
+            payload={'player': obj.controller, 'amount': destroyed},
+            source=obj.id,
+        ))
+    if destroyed >= 3:
+        events.append(Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'token': {
+                    'name': 'Pyroclasm Remnant',
+                    'power': 5,
+                    'toughness': 5,
+                    'types': {CardType.MINION},
+                    'subtypes': {'Elemental'},
+                },
+            },
+            source=obj.id,
+        ))
+    return events
 
 PYROCLASM = make_spell(
     name="Pyroclasm",
     mana_cost="{7}",
-    text="Deal 5 damage to all enemies.",
+    text="Deal 5 damage to all enemies. Gain 1 Armor for each minion this would destroy. If three or more minions would die, summon a 5/5 Remnant.",
     spell_effect=pyroclasm_effect,
     rarity="epic",
 )
@@ -729,12 +1062,29 @@ def chain_lightning_effect(obj, state, targets=None):
         payload={'target': t2, 'amount': 2, 'source': obj.id, 'from_spell': True},
         source=obj.id,
     ))
+    damaged_hits = 0
+    for target_id in {t1, t2}:
+        target = state.objects.get(target_id)
+        if target and CardType.MINION in target.characteristics.types and getattr(target.state, 'damage', 0) > 0:
+            damaged_hits += 1
+    if damaged_hits:
+        events.append(Event(
+            type=EventType.ARMOR_GAIN,
+            payload={'player': obj.controller, 'amount': damaged_hits},
+            source=obj.id,
+        ))
+    elif t1 != t2:
+        events.append(Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': obj.controller, 'token': _rift_spark_token("Lightning Spark")},
+            source=obj.id,
+        ))
     return events
 
 CHAIN_LIGHTNING = make_spell(
     name="Chain Lightning",
     mana_cost="{3}",
-    text="Deal 2 damage to a random enemy, then 2 damage to another random enemy.",
+    text="Deal 2 damage to a random enemy, then 2 damage to another random enemy. Gain Armor for damaged minions hit; if both hits split cleanly, summon a 1/1 Spark.",
     spell_effect=chain_lightning_effect,
     rarity="rare",
 )
@@ -830,40 +1180,101 @@ SPELL_ECHO = make_spell(
 
 # --- 1-cost ---
 
+def frost_wisp_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
+    events = [Event(
+        type=EventType.DRAW,
+        payload={'player': obj.controller, 'count': 1},
+        source=obj.id,
+    )]
+    player = state.players.get(obj.controller)
+    targets = get_enemy_minions(obj, state)
+    if player and player.armor > 0 and targets:
+        events.append(Event(
+            type=EventType.FREEZE_TARGET,
+            payload={'target': random.choice(targets), 'source': obj.id},
+            source=obj.id,
+        ))
+    return events
+
+
 FROST_WISP = make_minion(
     name="Frost Wisp",
     attack=1, health=2,
     mana_cost="{1}",
     subtypes={"Elemental"},
-    text="Deathrattle: Draw a card.",
+    text="Deathrattle: Draw a card. If you have Armor, Freeze a random enemy minion.",
     rarity="common",
-    deathrattle=lambda obj, state: [Event(
-        type=EventType.DRAW,
-        payload={'player': obj.controller, 'count': 1},
-        source=obj.id,
-    )],
+    deathrattle=frost_wisp_deathrattle,
 )
+
+
+def void_sprite_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
+    """Deathrattle: Gain 1 Armor. If an enemy minion is damaged, Freeze one."""
+    events = [Event(
+        type=EventType.ARMOR_GAIN,
+        payload={'player': obj.controller, 'amount': 1},
+        source=obj.id,
+    )]
+    damaged = []
+    for target_id in get_enemy_minions(obj, state):
+        target = state.objects.get(target_id)
+        if target and getattr(target.state, 'damage', 0) > 0:
+            damaged.append(target_id)
+    if damaged:
+        events.append(Event(
+            type=EventType.FREEZE_TARGET,
+            payload={'target': random.choice(damaged), 'source': obj.id},
+            source=obj.id,
+        ))
+    return events
+
 
 VOID_SPRITE = make_minion(
     name="Void Sprite",
     attack=1, health=3,
     mana_cost="{1}",
     subtypes={"Elemental"},
-    text="Taunt",
+    text="Taunt. Deathrattle: Gain 1 Armor. If an enemy minion is damaged, Freeze one.",
     keywords={"taunt"},
     rarity="common",
+    deathrattle=void_sprite_deathrattle,
 )
 
 # --- 2-cost ---
+
+
+def glacial_sentinel_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: If you have Armor, Freeze a random enemy minion."""
+    player = state.players.get(obj.controller)
+    if not player or player.armor <= 0:
+        return [Event(
+            type=EventType.ARMOR_GAIN,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        )]
+    targets = get_enemy_minions(obj, state)
+    if not targets:
+        return [Event(
+            type=EventType.ARMOR_GAIN,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        )]
+    return [Event(
+        type=EventType.FREEZE_TARGET,
+        payload={'target': random.choice(targets), 'source': obj.id},
+        source=obj.id,
+    )]
+
 
 GLACIAL_SENTINEL = make_minion(
     name="Glacial Sentinel",
     attack=2, health=3,
     mana_cost="{2}",
     subtypes={"Elemental"},
-    text="Taunt",
+    text="Taunt. Battlecry: If you have Armor, Freeze a random enemy minion; otherwise gain 1 Armor to prime your frost synergies.",
     keywords={"taunt"},
     rarity="common",
+    battlecry=glacial_sentinel_battlecry,
 )
 
 def rift_watcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -873,13 +1284,22 @@ def rift_watcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 event.payload.get('player') == obj.controller)
 
     def end_turn_handler(event, s):
+        new_events = [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id,
+        )]
+        player = s.players.get(obj.controller)
+        targets = get_enemy_minions(obj, s)
+        if player and player.armor > 0 and targets:
+            new_events.append(Event(
+                type=EventType.FREEZE_TARGET,
+                payload={'target': random.choice(targets), 'source': obj.id},
+                source=obj.id,
+            ))
         return InterceptorResult(
             action=InterceptorAction.REACT,
-            new_events=[Event(
-                type=EventType.DRAW,
-                payload={'player': obj.controller, 'count': 1},
-                source=obj.id,
-            )],
+            new_events=new_events,
         )
 
     return [Interceptor(
@@ -894,67 +1314,161 @@ RIFT_WATCHER = make_minion(
     attack=1, health=4,
     mana_cost="{2}",
     subtypes={"Elemental"},
-    text="At the end of your turn, draw a card.",
+    text="At the end of your turn, draw a card. If you have Armor, Freeze a random enemy minion before the Rift can widen.",
     rarity="epic",
     setup_interceptors=rift_watcher_setup,
 )
 
 # --- 3-cost ---
 
+def void_seer_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    events = [Event(
+        type=EventType.DRAW,
+        payload={'player': obj.controller, 'count': 1},
+        source=obj.id,
+    )]
+    player = state.players.get(obj.controller)
+    targets = get_enemy_minions(obj, state)
+    if player and player.armor > 0 and targets:
+        events.append(Event(
+            type=EventType.FREEZE_TARGET,
+            payload={'target': random.choice(targets), 'source': obj.id},
+            source=obj.id,
+        ))
+    return events
+
+
 VOID_SEER = make_minion(
     name="Void Seer",
     attack=2, health=4,
     mana_cost="{3}",
     subtypes={"Elemental"},
-    text="Battlecry: Draw a card.",
+    text="Battlecry: Draw a card. If you have Armor, Freeze a random enemy minion.",
     rarity="common",
-    battlecry=lambda obj, state: [Event(
-        type=EventType.DRAW,
-        payload={'player': obj.controller, 'count': 1},
-        source=obj.id,
-    )],
+    battlecry=void_seer_battlecry,
 )
+
+
+def frozen_revenant_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
+    """Deathrattle: Freeze all damaged enemy minions. Gain 1 Armor for each."""
+    damaged = []
+    for target_id in get_enemy_minions(obj, state):
+        target = state.objects.get(target_id)
+        if target and getattr(target.state, 'damage', 0) > 0:
+            damaged.append(target_id)
+    events = [
+        Event(
+            type=EventType.FREEZE_TARGET,
+            payload={'target': target_id, 'source': obj.id},
+            source=obj.id,
+        )
+        for target_id in damaged
+    ]
+    if damaged:
+        events.append(Event(
+            type=EventType.ARMOR_GAIN,
+            payload={'player': obj.controller, 'amount': len(damaged)},
+            source=obj.id,
+        ))
+    return events
+
 
 FROZEN_REVENANT = make_minion(
     name="Frozen Revenant",
     attack=3, health=4,
     mana_cost="{3}",
     subtypes={"Elemental"},
-    text="Taunt",
+    text="Taunt. Deathrattle: Freeze all damaged enemy minions. Gain 1 Armor for each.",
     keywords={"taunt"},
     rarity="common",
+    deathrattle=frozen_revenant_deathrattle,
 )
 
 # --- 4-cost ---
+
+def abyssal_lurker_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
+    events = [Event(
+        type=EventType.DRAW,
+        payload={'player': obj.controller, 'count': 2},
+        source=obj.id,
+    )]
+    player = state.players.get(obj.controller)
+    hand = state.zones.get(f'hand_{obj.controller}')
+    if (not player or player.armor <= 0) and hand and hand.objects:
+        events.append(Event(
+            type=EventType.DISCARD,
+            payload={'player': obj.controller, 'object_id': hand.objects[-1], 'source': obj.id},
+            source=obj.id,
+        ))
+    return events
+
 
 ABYSSAL_LURKER = make_minion(
     name="Abyssal Lurker",
     attack=3, health=5,
     mana_cost="{4}",
     subtypes={"Elemental"},
-    text="Deathrattle: Draw 2 cards.",
+    text="Deathrattle: Draw 2 cards. Then discard a card unless you have Armor.",
     rarity="rare",
-    deathrattle=lambda obj, state: [Event(
-        type=EventType.DRAW,
-        payload={'player': obj.controller, 'count': 2},
-        source=obj.id,
-    )],
+    deathrattle=abyssal_lurker_deathrattle,
 )
 
 def voidcrystal_golem_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Your other minions have +0/+1."""
-    return make_static_pt_boost(
+    interceptors = make_static_pt_boost(
         obj, power_mod=0, toughness_mod=1,
         affects_filter=other_friendly_minions(obj),
     )
+
+    def end_turn_filter(event: Event, s: GameState) -> bool:
+        return (
+            event.type in (EventType.TURN_END, EventType.PHASE_END)
+            and event.payload.get('player') == obj.controller
+        )
+
+    def end_turn_handler(_event: Event, s: GameState) -> InterceptorResult:
+        player = s.players.get(obj.controller)
+        allies = get_friendly_minions(obj, s, exclude_self=True)
+        if not player or player.armor <= 0 or not allies:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        target = allies[0]
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': target, 'power_mod': 0, 'toughness_mod': 1, 'duration': 'permanent'},
+                source=obj.id,
+            )],
+        )
+
+    interceptors.append(Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=end_turn_filter, handler=end_turn_handler,
+        duration='while_on_battlefield',
+    ))
+    return interceptors
+
+
+def voidcrystal_golem_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
+    count = len(get_friendly_minions(obj, state, exclude_self=True))
+    if count <= 0:
+        return []
+    return [Event(
+        type=EventType.ARMOR_GAIN,
+        payload={'player': obj.controller, 'amount': count},
+        source=obj.id,
+    )]
+
 
 VOIDCRYSTAL_GOLEM = make_minion(
     name="Voidcrystal Golem",
     attack=2, health=5,
     mana_cost="{4}",
     subtypes={"Elemental"},
-    text="Your other minions have +0/+1.",
+    text="Your other minions have +0/+1. At the end of your turn, if you have Armor, give another minion +0/+1. Deathrattle: Gain 1 Armor for each other friendly minion.",
     rarity="rare",
+    deathrattle=voidcrystal_golem_deathrattle,
     setup_interceptors=voidcrystal_golem_setup,
 )
 
@@ -1056,7 +1570,11 @@ def blizzard_golem_battlecry(obj: GameObject, state: GameState) -> list[Event]:
     Rift Storm next turn while unable to attack, creating an asymmetric wipe.
     """
     targets = get_enemy_minions(obj, state)
-    return [
+    already_frozen = sum(
+        1 for target_id in targets
+        if getattr(state.objects[target_id].state, 'frozen', False)
+    )
+    events = [
         Event(
             type=EventType.FREEZE_TARGET,
             payload={'target': t, 'source': obj.id},
@@ -1064,25 +1582,67 @@ def blizzard_golem_battlecry(obj: GameObject, state: GameState) -> list[Event]:
         )
         for t in targets
     ]
+    if already_frozen:
+        events.append(Event(
+            type=EventType.ARMOR_GAIN,
+            payload={'player': obj.controller, 'amount': already_frozen},
+            source=obj.id,
+        ))
+        if already_frozen >= 2:
+            events.append(Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'count': 1},
+                source=obj.id,
+            ))
+    return events
 
 BLIZZARD_GOLEM = make_minion(
     name="Blizzard Golem",
     attack=4, health=6,
     mana_cost="{5}",
     subtypes={"Elemental"},
-    text="Battlecry: Freeze all enemy minions.",
+    text="Battlecry: Freeze all enemy minions. Gain 1 Armor for each one that was already frozen. If two or more were already frozen, draw a card.",
     rarity="rare",
     battlecry=blizzard_golem_battlecry,
 )
+
+
+def rift_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At the end of your turn, if this is damaged, gain 3 Armor."""
+    def end_filter(event: Event, s: GameState) -> bool:
+        return (event.type in (EventType.TURN_END, EventType.PHASE_END)
+                and event.payload.get('player') == obj.controller)
+
+    def end_handler(event: Event, s: GameState) -> InterceptorResult:
+        me = s.objects.get(obj.id)
+        if not me or me.zone != ZoneType.BATTLEFIELD or getattr(me.state, 'damage', 0) <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.ARMOR_GAIN,
+                payload={'player': obj.controller, 'amount': 3},
+                source=obj.id,
+            )],
+        )
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=end_filter, handler=end_handler,
+        duration='while_on_battlefield',
+    )]
+
 
 RIFT_GUARDIAN = make_minion(
     name="Rift Guardian",
     attack=3, health=8,
     mana_cost="{5}",
     subtypes={"Elemental"},
-    text="Taunt",
+    text="Taunt. At the end of your turn, if this is damaged, gain 3 Armor.",
     keywords={"taunt"},
     rarity="common",
+    setup_interceptors=rift_guardian_setup,
 )
 
 # --- 6-cost: Void Anchor LEGENDARY (replaces vanilla slot) ---
@@ -1119,7 +1679,30 @@ def void_anchor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             p.cost_modifiers = [m for m in p.cost_modifiers if m.get('id') != modifier_id]
 
     _register_leave_cleanup(obj, cleanup, state)
-    return []
+
+    def storm_filter(event: Event, _s: GameState) -> bool:
+        return (
+            event.type == EventType.DAMAGE
+            and event.payload.get('target') == obj.id
+            and event.payload.get('source') == 'rift_storm'
+        )
+
+    def storm_handler(_event: Event, _s: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.ARMOR_GAIN,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+            )],
+        )
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=storm_filter, handler=storm_handler,
+        duration='while_on_battlefield',
+    )]
 
 
 VOID_ANCHOR = make_minion(
@@ -1127,7 +1710,7 @@ VOID_ANCHOR = make_minion(
     attack=4, health=8,
     mana_cost="{6}",
     subtypes={"Elemental", "Cryomancer"},
-    text="Taunt. Enemy minions cost (1) more.",
+    text="Taunt. Enemy minions cost (1) more. Whenever Rift Storm damages this, gain 1 Armor.",
     keywords={"taunt"},
     rarity="legendary",
     setup_interceptors=void_anchor_setup,
@@ -1164,6 +1747,12 @@ def voidfrost_dragon_battlecry(obj: GameObject, state: GameState) -> list[Event]
             payload={'player': obj.controller, 'count': len(minions)},
             source=obj.id,
         ))
+    if len(minions) >= 3:
+        events.append(Event(
+            type=EventType.ARMOR_GAIN,
+            payload={'player': obj.controller, 'amount': 3},
+            source=obj.id,
+        ))
     return events
 
 VOIDFROST_DRAGON = make_minion(
@@ -1171,7 +1760,7 @@ VOIDFROST_DRAGON = make_minion(
     attack=5, health=6,
     mana_cost="{6}",
     subtypes={"Dragon", "Elemental"},
-    text="Battlecry: Freeze all enemies. Draw a card for each frozen enemy minion.",
+    text="Battlecry: Freeze all enemies. Draw a card for each frozen enemy minion. If you freeze three or more minions, gain 3 Armor.",
     rarity="epic",
     battlecry=voidfrost_dragon_battlecry,
 )
@@ -1508,11 +2097,22 @@ def frost_spike_effect(obj, state, targets=None):
     events = []
     if enemy_targets:
         target = random.choice(enemy_targets)
+        was_damaged = bool(
+            target in state.objects
+            and CardType.MINION in state.objects[target].characteristics.types
+            and getattr(state.objects[target].state, 'damage', 0) > 0
+        )
         events.append(Event(
             type=EventType.DAMAGE,
             payload={'target': target, 'amount': 1, 'source': obj.id, 'from_spell': True},
             source=obj.id,
         ))
+        if was_damaged:
+            events.append(Event(
+                type=EventType.FREEZE_TARGET,
+                payload={'target': target, 'source': obj.id},
+                source=obj.id,
+            ))
     events.append(Event(
         type=EventType.DRAW,
         payload={'player': obj.controller, 'count': 1},
@@ -1523,31 +2123,51 @@ def frost_spike_effect(obj, state, targets=None):
 FROST_SPIKE = make_spell(
     name="Frost Spike",
     mana_cost="{1}",
-    text="Deal 1 damage to a random enemy. Draw a card.",
+    text="Deal 1 damage to a random enemy. If it was a damaged minion, Freeze it. Draw a card.",
     spell_effect=frost_spike_effect,
     rarity="common",
 )
 
 def rift_sight_effect(obj, state, targets=None):
-    """Draw 2 cards."""
-    return [Event(
+    """Draw 2 cards, with a small Armor payoff when already shielded."""
+    events = [Event(
         type=EventType.DRAW,
         payload={'player': obj.controller, 'count': 2},
         source=obj.id,
     )]
+    player = state.players.get(obj.controller)
+    if player and player.armor > 0:
+        events.append(Event(
+            type=EventType.ARMOR_GAIN,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id,
+        ))
+        if player.armor >= 5:
+            targets = get_enemy_minions(obj, state)
+            if targets:
+                events.append(Event(
+                    type=EventType.FREEZE_TARGET,
+                    payload={'target': random.choice(targets), 'source': obj.id},
+                    source=obj.id,
+                ))
+    return events
 
 RIFT_SIGHT = make_spell(
     name="Rift Sight",
     mana_cost="{3}",
-    text="Draw 2 cards.",
+    text="Draw 2 cards. If you have Armor, gain 2 more Armor. If you have 5 or more Armor, Freeze a random enemy minion.",
     spell_effect=rift_sight_effect,
     rarity="common",
 )
 
 def void_barrier_effect(obj, state, targets=None):
-    """Give all friendly minions +0/+2."""
+    """Give all friendly minions +0/+2; stabilize if repairing damage."""
     friendlies = get_friendly_minions(obj, state, exclude_self=False)
-    return [
+    damaged = sum(
+        1 for t in friendlies
+        if getattr(state.objects[t].state, 'damage', 0) > 0
+    )
+    events = [
         Event(
             type=EventType.PT_MODIFICATION,
             payload={'object_id': t, 'power_mod': 0, 'toughness_mod': 2, 'duration': 'permanent'},
@@ -1555,11 +2175,24 @@ def void_barrier_effect(obj, state, targets=None):
         )
         for t in friendlies
     ]
+    if damaged:
+        events.append(Event(
+            type=EventType.ARMOR_GAIN,
+            payload={'player': obj.controller, 'amount': 3},
+            source=obj.id,
+        ))
+    if len(friendlies) >= 3:
+        events.append(Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id,
+        ))
+    return events
 
 VOID_BARRIER = make_spell(
     name="Void Barrier",
     mana_cost="{4}",
-    text="Give all friendly minions +0/+2.",
+    text="Give all friendly minions +0/+2. If any were damaged, gain 3 Armor. If you buff three or more minions, draw a card.",
     spell_effect=void_barrier_effect,
     rarity="rare",
 )
@@ -1575,6 +2208,18 @@ def glacial_tomb_effect(obj, state, targets=None):
             payload={'target': target, 'amount': 4, 'source': obj.id, 'from_spell': True},
             source=obj.id,
         ))
+        if _would_destroy_minion(target, state, 4):
+            events.append(Event(
+                type=EventType.ARMOR_GAIN,
+                payload={'player': obj.controller, 'amount': 2},
+                source=obj.id,
+            ))
+        else:
+            events.append(Event(
+                type=EventType.FREEZE_TARGET,
+                payload={'target': target, 'source': obj.id},
+                source=obj.id,
+            ))
     events.append(Event(
         type=EventType.DRAW,
         payload={'player': obj.controller, 'count': 1},
@@ -1585,7 +2230,7 @@ def glacial_tomb_effect(obj, state, targets=None):
 GLACIAL_TOMB = make_spell(
     name="Glacial Tomb",
     mana_cost="{5}",
-    text="Deal 4 damage to a random enemy minion. Draw a card.",
+    text="Deal 4 damage to a random enemy minion. If it survives, Freeze it; if it would die, gain 2 Armor. Draw a card.",
     spell_effect=glacial_tomb_effect,
     rarity="rare",
 )
@@ -1635,7 +2280,7 @@ ABSOLUTE_ZERO = make_spell(
 )
 
 def void_drain_effect(obj, state, targets=None):
-    """Deal 2 damage to a random enemy minion. Gain 3 Armor."""
+    """Deal 2 damage to a random enemy minion; heavier shield with no target."""
     events = []
     enemies = get_enemy_minions(obj, state)
     if enemies:
@@ -1650,12 +2295,18 @@ def void_drain_effect(obj, state, targets=None):
         payload={'player': obj.controller, 'amount': 3},
         source=obj.id,
     ))
+    if not enemies:
+        events.append(Event(
+            type=EventType.ARMOR_GAIN,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id,
+        ))
     return events
 
 VOID_DRAIN = make_spell(
     name="Void Drain",
     mana_cost="{2}",
-    text="Deal 2 damage to a random enemy minion. Gain 3 Armor.",
+    text="Deal 2 damage to a random enemy minion. Gain 3 Armor. If there are no enemy minions, gain 2 more Armor.",
     spell_effect=void_drain_effect,
     rarity="common",
 )
@@ -1665,18 +2316,199 @@ VOID_DRAIN = make_spell(
 # NEUTRAL MINIONS (shared between both classes)
 # =============================================================================
 
+
+def storm_herald_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: The next time one of your spells deals damage this turn, it deals +1."""
+    controller = obj.controller
+    boost_id = f"storm_herald_boost_{new_id()}"
+    cleanup_id = f"storm_herald_cleanup_{new_id()}"
+    spent = {'used': False}
+
+    def boost_filter(event: Event, s: GameState) -> bool:
+        if spent['used'] or event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('from_spell'):
+            return False
+        src = s.objects.get(event.source)
+        return bool(src and src.controller == controller)
+
+    def boost_handler(event: Event, s: GameState) -> InterceptorResult:
+        spent['used'] = True
+        s.interceptors.pop(boost_id, None)
+        s.interceptors.pop(cleanup_id, None)
+        new_event = event.copy()
+        new_event.payload['amount'] = event.payload.get('amount', 0) + 1
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
+
+    def cleanup_filter(event: Event, s: GameState) -> bool:
+        return event.type == EventType.TURN_END and event.payload.get('player') == controller
+
+    def cleanup_handler(event: Event, s: GameState) -> InterceptorResult:
+        s.interceptors.pop(boost_id, None)
+        s.interceptors.pop(cleanup_id, None)
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    state.interceptors[boost_id] = Interceptor(
+        id=boost_id, source=obj.id, controller=controller,
+        priority=InterceptorPriority.TRANSFORM,
+        filter=boost_filter, handler=boost_handler,
+        duration='permanent',
+    )
+    state.interceptors[cleanup_id] = Interceptor(
+        id=cleanup_id, source=obj.id, controller=controller,
+        priority=InterceptorPriority.REACT,
+        filter=cleanup_filter, handler=cleanup_handler,
+        duration='permanent',
+    )
+    has_other_elemental = any(
+        'Elemental' in (state.objects[target_id].characteristics.subtypes or set())
+        for target_id in get_friendly_minions(obj, state, exclude_self=True)
+    )
+    if not has_other_elemental:
+        return []
+    return [Event(
+        type=EventType.ARMOR_GAIN,
+        payload={'player': obj.controller, 'amount': 1},
+        source=obj.id,
+    )]
+
+
+def rift_imp_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
+    """Deathrattle: Summon a 1/1 Spark, or two if a storm effect killed this."""
+    storm_killed = getattr(obj.state, 'last_damage_source', None) in {
+        'rift_storm',
+        'arcane_feedback',
+    }
+    return [Event(
+        type=EventType.CREATE_TOKEN,
+        payload={
+            'controller': obj.controller,
+            'count': 2 if storm_killed else 1,
+            'token': {
+                'name': 'Rift Spark',
+                'power': 1,
+                'toughness': 1,
+                'types': {CardType.MINION},
+                'subtypes': {'Elemental', 'Demon'},
+            },
+        },
+        source=obj.id,
+    )]
+
+
+def rift_champion_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Give your damaged minions +2/+1. If none, draw a card."""
+    damaged = [
+        target_id for target_id in get_friendly_minions(obj, state, exclude_self=False)
+        if getattr(state.objects.get(target_id).state, 'damage', 0) > 0
+    ]
+    if not damaged:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id,
+        )]
+    return [
+        Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': target_id,
+                'power_mod': 2,
+                'toughness_mod': 1,
+                'duration': 'permanent',
+            },
+            source=obj.id,
+        )
+        for target_id in damaged
+    ]
+
+
+def rift_behemoth_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
+    """Deathrattle: Fortify your other Elementals and Freeze damaged enemy minions."""
+    events: list[Event] = []
+    for target_id in get_friendly_minions(obj, state, exclude_self=True):
+        target = state.objects.get(target_id)
+        if not target or 'Elemental' not in target.characteristics.subtypes:
+            continue
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': target_id,
+                'power_mod': 0,
+                'toughness_mod': 2,
+                'duration': 'permanent',
+            },
+            source=obj.id,
+        ))
+    frozen_any = False
+    for target_id in get_enemy_minions(obj, state):
+        target = state.objects.get(target_id)
+        if target and getattr(target.state, 'damage', 0) > 0:
+            frozen_any = True
+            events.append(Event(
+                type=EventType.FREEZE_TARGET,
+                payload={'target': target_id, 'source': obj.id},
+                source=obj.id,
+            ))
+    if not frozen_any:
+        events.append(Event(
+            type=EventType.ARMOR_GAIN,
+            payload={'player': obj.controller, 'amount': 4},
+            source=obj.id,
+        ))
+    return events
+
+
+def rift_walker_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    events = [Event(
+        type=EventType.DRAW,
+        payload={'player': obj.controller, 'count': 1},
+        source=obj.id,
+    )]
+    has_other_elemental = any(
+        'Elemental' in (state.objects[target_id].characteristics.subtypes or set())
+        for target_id in get_friendly_minions(obj, state, exclude_self=True)
+    )
+    if has_other_elemental:
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 0, 'toughness_mod': 1, 'duration': 'permanent'},
+            source=obj.id,
+        ))
+    else:
+        events.append(Event(
+            type=EventType.ARMOR_GAIN,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        ))
+    return events
+
+
+def nexus_guardian_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    has_other_elemental = any(
+        'Elemental' in (state.objects[target_id].characteristics.subtypes or set())
+        for target_id in get_friendly_minions(obj, state, exclude_self=True)
+    )
+    if not has_other_elemental:
+        return []
+    return [Event(
+        type=EventType.ARMOR_GAIN,
+        payload={'player': obj.controller, 'amount': 2},
+        source=obj.id,
+    )]
+
+
 RIFT_WALKER = make_minion(
     name="Rift Walker",
     attack=1, health=1,
     mana_cost="{1}",
     subtypes={"Elemental"},
-    text="Battlecry: Draw a card.",
+    text="Battlecry: Draw a card. If you control another Elemental, gain +0/+1; otherwise gain 1 Armor.",
     rarity="common",
-    battlecry=lambda obj, state: [Event(
-        type=EventType.DRAW,
-        payload={'player': obj.controller, 'count': 1},
-        source=obj.id,
-    )],
+    battlecry=rift_walker_battlecry,
 )
 
 STORM_HERALD = make_minion(
@@ -1684,8 +2516,9 @@ STORM_HERALD = make_minion(
     attack=2, health=2,
     mana_cost="{2}",
     subtypes={"Elemental"},
-    text="",
+    text="Battlecry: The next time one of your spells deals damage this turn, it deals +1. If you control another Elemental, gain 1 Armor.",
     rarity="common",
+    battlecry=storm_herald_battlecry,
 )
 
 RIFT_IMP = make_minion(
@@ -1693,18 +2526,20 @@ RIFT_IMP = make_minion(
     attack=3, health=3,
     mana_cost="{3}",
     subtypes={"Demon", "Elemental"},
-    text="",
+    text="Deathrattle: Summon a 1/1 Rift Spark, or two if Rift Storm or Arcane Feedback killed this.",
     rarity="common",
+    deathrattle=rift_imp_deathrattle,
 )
 
 NEXUS_GUARDIAN = make_minion(
     name="Nexus Guardian",
-    attack=4, health=5,
+    attack=3, health=5,
     mana_cost="{4}",
     subtypes={"Elemental"},
-    text="Taunt",
+    text="Taunt. Battlecry: If you control another Elemental, gain 2 Armor.",
     keywords={"taunt"},
     rarity="common",
+    battlecry=nexus_guardian_battlecry,
 )
 
 RIFT_CHAMPION = make_minion(
@@ -1712,8 +2547,9 @@ RIFT_CHAMPION = make_minion(
     attack=5, health=5,
     mana_cost="{5}",
     subtypes={"Elemental"},
-    text="",
+    text="Battlecry: Give your damaged minions +2/+1. If none are damaged, draw a card.",
     rarity="common",
+    battlecry=rift_champion_battlecry,
 )
 
 RIFT_BEHEMOTH = make_minion(
@@ -1721,9 +2557,10 @@ RIFT_BEHEMOTH = make_minion(
     attack=6, health=7,
     mana_cost="{6}",
     subtypes={"Elemental"},
-    text="Taunt",
+    text="Taunt. Deathrattle: Give your other Elementals +0/+2 and Freeze damaged enemy minions. If no enemy was damaged, gain 4 Armor.",
     keywords={"taunt"},
     rarity="common",
+    deathrattle=rift_behemoth_deathrattle,
 )
 
 
@@ -1748,7 +2585,7 @@ PYROMANCER_DECK = [
     PYROCLASM_DRAKE, PYROCLASM_DRAKE,
     RIFT_BERSERKER, SEARING_RIFT,
     # 5-cost (3)
-    INFERNO_GOLEM, VOLATILERIFT_MAGE,
+    STORM_HERALD, VOLATILERIFT_MAGE,
     INFERNO_WAVE,
     # 6-cost (2)
     IGNIS_ASCENDANT,       # LEGENDARY

@@ -17,6 +17,7 @@ from src.engine.types import (
     ZoneType,
 )
 from src.cards.hearthstone.frierenrift import (
+    AUREOLE_WAYFINDER,
     AURA_EXECUTION_SAINT,
     AURELIA_DEMON_LORD,
     EISEN_ANCIENT_SHIELD,
@@ -26,6 +27,7 @@ from src.cards.hearthstone.frierenrift import (
     FRIEREN_LAST_GREAT_MAGE,
     HEITER_PRIEST_OF_THE_GODDESS,
     HIMMELS_LEGACY,
+    KRAFT_ROADSIDE_MONK,
     MACHT_GOLDEN_GENERAL,
     MACHT_HERO,
     SEIN_CLERIC_COMPANION,
@@ -35,6 +37,7 @@ from src.cards.hearthstone.frierenrift import (
     _ensure_variant_resources,
     install_frierenrift_modifiers,
 )
+from src.cards.hearthstone.decks import validate_deck
 from src.cards.hearthstone.basic import WISP, CHILLWIND_YETI, BOULDERFIST_OGRE
 from src.cards.hearthstone.classic import FIREBALL
 
@@ -592,6 +595,40 @@ def test_eternal_flame_destroys_all_minions_and_grants_shards():
 def test_deck_sizes_intact():
     assert len(FRIERENRIFT_DECKS["Frieren"]) == 30
     assert len(FRIERENRIFT_DECKS["Macht"]) == 30
+
+
+def test_frierenrift_decks_obey_hearthstone_copy_limits():
+    for faction, deck in FRIERENRIFT_DECKS.items():
+        valid, error = validate_deck(deck)
+        assert valid, f"{faction}: {error}"
+
+
+def test_aureole_wayfinder_smooths_lowest_affinity_color():
+    game, p1, _p2 = new_frierenrift_game()
+    resources = _ensure_variant_resources(p1)
+    resources["azure"] = 3
+    resources["ember"] = 2
+    resources["verdant"] = 0
+    obj = make_hand_minion(game, AUREOLE_WAYFINDER, p1)
+
+    events = AUREOLE_WAYFINDER.battlecry(obj, game.state)
+
+    assert events == []
+    assert _ensure_variant_resources(p1)["verdant"] == 1
+
+
+def test_kraft_roadside_monk_stabilizes_midgame():
+    game, p1, _p2 = new_frierenrift_game()
+    obj = make_hand_minion(game, KRAFT_ROADSIDE_MONK, p1)
+
+    events = KRAFT_ROADSIDE_MONK.battlecry(obj, game.state)
+
+    assert KRAFT_ROADSIDE_MONK.characteristics.toughness == 5
+    assert "taunt" in KRAFT_ROADSIDE_MONK.characteristics.keywords
+    assert any(
+        event.type == EventType.ARMOR_GAIN and event.payload["amount"] == 2
+        for event in events
+    )
 
 
 if __name__ == "__main__":

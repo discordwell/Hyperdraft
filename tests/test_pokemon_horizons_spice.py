@@ -412,10 +412,11 @@ def test_hyper_beam_resolve_deals_4_damage():
         object_id = foe.id
 
     events = cd.resolve([_Tgt()], game.state)
+    damage_events = [event for event in events if event.type == EventType.DAMAGE]
+    assert len(damage_events) == 1
+    assert damage_events[0].payload.get('amount') == 4
+    assert damage_events[0].payload.get('target') == foe.id
     assert len(events) == 1
-    assert events[0].type == EventType.DAMAGE
-    assert events[0].payload.get('amount') == 4
-    assert events[0].payload.get('target') == foe.id
     print("  Hyper Beam resolves to 4 damage at the chosen target")
 
 

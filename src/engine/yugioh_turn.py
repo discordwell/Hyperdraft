@@ -382,10 +382,18 @@ class YugiohTurnManager(TurnManager):
             events.extend(self._do_change_position(player_id, action))
         elif action_type == 'activate_spell':
             events.extend(self._do_activate_spell(player_id, action))
+        elif action_type == 'activate_trap':
+            events.extend(self._do_activate_trap(player_id, action))
         elif action_type == 'set_spell_trap':
             events.extend(self._do_set_spell_trap(player_id, action))
         elif action_type == 'special_summon':
             events.extend(self._do_special_summon(player_id, action))
+
+        if self.pipeline:
+            processed = []
+            for event in events:
+                processed.extend(self.pipeline.emit(event))
+            events = processed
 
         # Log AI actions via callback
         if events and self.action_log_callback and player_id in self.ai_players:
@@ -417,6 +425,8 @@ class YugiohTurnManager(TurnManager):
             cb(f"{name} Flip Summoned {card_name or 'a monster'}!", "summon", player_id)
         elif action_type == 'activate_spell':
             cb(f"{name} activated {card_name or 'a card'}!", "activate", player_id)
+        elif action_type == 'activate_trap':
+            cb(f"{name} activated {card_name or 'a trap'}!", "activate", player_id)
         elif action_type == 'set_spell_trap':
             cb(f"{name} set a card.", "set", player_id)
         elif action_type == 'change_position':
@@ -592,6 +602,7 @@ class YugiohTurnManager(TurnManager):
                 source=card_id,
                 controller=player_id,
             ))
+            events.extend(obj.card_def.flip_effect(obj, self.state) or [])
 
         return events
 
@@ -638,6 +649,7 @@ class YugiohTurnManager(TurnManager):
         """Activate a Spell card from hand or field."""
         events = []
         card_id = action.get('card_id')
+        targets = action.get('targets') or []
 
         obj = self.state.objects.get(card_id)
         if not obj or obj.controller != player_id:
@@ -647,22 +659,33 @@ class YugiohTurnManager(TurnManager):
         if not card_def:
             return events
 
+        spell_type = getattr(card_def, 'ygo_spell_type', None)
+        if spell_type in ('Continuous', 'Equip') and obj.zone == ZoneType.HAND:
+            if self._find_empty_spell_trap_slot(player_id) is None:
+                return events
+
         # Resolve spell effect
         if card_def.resolve:
             result_events = card_def.resolve(
                 Event(type=EventType.YGO_ACTIVATE_SPELL,
-                      payload={'card_id': card_id, 'player': player_id},
+                      payload={'card_id': card_id, 'player': player_id, 'targets': targets},
                       source=card_id, controller=player_id),
                 self.state
             )
             events.extend(result_events or [])
 
-        # Normal spells go to GY after resolution
-        spell_type = getattr(card_def, 'ygo_spell_type', None)
-        if spell_type in (None, 'Normal'):
+        if spell_type in (None, 'Normal', 'Quick-Play', 'Ritual'):
+            self._send_to_graveyard(card_id, obj.owner)
+        elif spell_type == 'Field':
+            self._move_to_field_spell_zone(card_id, player_id)
+        elif spell_type in ('Continuous', 'Equip'):
             if obj.zone == ZoneType.HAND:
-                self._remove_from_current_zone(card_id)
-            self._send_to_graveyard(card_id, player_id)
+                slot = self._find_empty_spell_trap_slot(player_id)
+                if slot is not None:
+                    self._move_to_spell_trap_zone(card_id, player_id, slot)
+            obj.state.face_down = False
+            if spell_type == 'Equip':
+                obj.state.equipped_to = targets[0] if targets else None
 
         events.append(Event(
             type=EventType.YGO_ACTIVATE_SPELL,
@@ -670,6 +693,55 @@ class YugiohTurnManager(TurnManager):
                 'player': player_id,
                 'card_id': card_id,
                 'card_name': obj.name,
+                'targets': targets,
+            },
+            source=card_id,
+            controller=player_id,
+        ))
+
+        return events
+
+    # === Activate Trap ===
+
+    def _do_activate_trap(self, player_id: str, action: dict) -> list[Event]:
+        """Activate a set Trap card."""
+        events = []
+        card_id = action.get('card_id')
+        targets = action.get('targets') or []
+
+        obj = self.state.objects.get(card_id)
+        if not obj or obj.controller != player_id:
+            return events
+        if obj.zone != ZoneType.SPELL_TRAP_ZONE:
+            return events
+        if obj.state.face_down and getattr(obj.state, 'turns_set', 0) < 1:
+            return events
+
+        card_def = obj.card_def
+        if not card_def or CardType.YGO_TRAP not in obj.characteristics.types:
+            return events
+
+        obj.state.face_down = False
+        if card_def.resolve:
+            result_events = card_def.resolve(
+                Event(type=EventType.YGO_ACTIVATE_TRAP,
+                      payload={'card_id': card_id, 'player': player_id, 'targets': targets},
+                      source=card_id, controller=player_id),
+                self.state
+            )
+            events.extend(result_events or [])
+
+        trap_type = getattr(card_def, 'ygo_trap_type', None)
+        if trap_type in (None, 'Normal', 'Counter'):
+            self._send_to_graveyard(card_id, obj.owner)
+
+        events.append(Event(
+            type=EventType.YGO_ACTIVATE_TRAP,
+            payload={
+                'player': player_id,
+                'card_id': card_id,
+                'card_name': obj.name,
+                'targets': targets,
             },
             source=card_id,
             controller=player_id,
@@ -924,6 +996,26 @@ class YugiohTurnManager(TurnManager):
         obj = self.state.objects.get(card_id)
         if obj:
             obj.zone = ZoneType.SPELL_TRAP_ZONE
+
+    def _move_to_field_spell_zone(self, card_id: str, player_id: str):
+        """Move a card into the player's Field Spell Zone, replacing the old field."""
+        zone_key = f"field_spell_zone_{player_id}"
+        zone = self.state.zones.get(zone_key)
+        if not zone:
+            return
+
+        for old_id in list(zone.objects):
+            if old_id:
+                old_obj = self.state.objects.get(old_id)
+                self._send_to_graveyard(old_id, old_obj.owner if old_obj else player_id)
+        zone.objects.clear()
+
+        self._remove_from_current_zone(card_id)
+        zone.objects.append(card_id)
+        obj = self.state.objects.get(card_id)
+        if obj:
+            obj.zone = ZoneType.FIELD_SPELL_ZONE
+            obj.state.face_down = False
 
     def _remove_from_current_zone(self, card_id: str):
         """Remove a card from whatever zone it's currently in."""

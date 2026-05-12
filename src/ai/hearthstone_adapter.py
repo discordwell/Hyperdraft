@@ -31,6 +31,18 @@ class HearthstoneAIAdapter:
 
     # Hearthstone-specific difficulty settings
     HS_DIFFICULTY_SETTINGS = {
+        'random': {
+            'random_factor': 1.0,
+            'mistake_chance': 0.65,
+            'use_board_eval': False,
+            'use_lethal_calc': False,
+            'use_smart_targeting': False,
+            'use_synergy_scoring': False,
+            'use_smart_hero_power': False,
+            'use_archetype_detect': False,
+            'use_lethal_prevention': False,
+            'use_lethal_first_plays': False,
+        },
         'easy': {
             'random_factor': 0.4,
             'mistake_chance': 0.25,
@@ -82,10 +94,14 @@ class HearthstoneAIAdapter:
     }
 
     def __init__(self, ai_engine: Optional[AIEngine] = None, difficulty: str = "medium"):
-        self.ai_engine = ai_engine or AIEngine(difficulty=difficulty)
+        engine_difficulty = difficulty if difficulty in AIEngine.DIFFICULTY_SETTINGS else "medium"
+        self.ai_engine = ai_engine or AIEngine(difficulty=engine_difficulty)
         self.difficulty = difficulty
         # Per-player difficulty overrides (for bot-vs-bot with different difficulties)
         self.player_difficulties: dict[str, str] = {}
+        # Optional per-player pilot styles for tournament harnesses. These are
+        # strategic hints, not deck labels.
+        self.player_archetypes: dict[str, str] = {}
         # Cache for deck archetype detection (computed once per player per game)
         self._cached_archetype: dict[str, str] = {}
         # Per-turn survival mode cache: {player_id: (turn_number, is_survival)}
@@ -105,6 +121,19 @@ class HearthstoneAIAdapter:
     def _is_ultra(self, player_id: str = None) -> bool:
         """True when this player is running Ultra difficulty."""
         return self._get_difficulty(player_id) == 'ultra'
+
+    def set_player_archetype(self, player_id: str, archetype: str) -> None:
+        """Force a named pilot style for one player."""
+        normalized = (archetype or "").lower()
+        if normalized not in {"aggro", "control", "midrange"}:
+            raise ValueError(f"Unknown Hearthstone pilot archetype: {archetype!r}")
+        self.player_archetypes[player_id] = normalized
+        self._cached_archetype.pop(player_id, None)
+
+    def _get_forced_archetype(self, player_id: str = None) -> Optional[str]:
+        if not player_id:
+            return None
+        return self.player_archetypes.get(player_id)
 
     # ─── Turn Execution ─────────────────────────────────────────
 
@@ -447,6 +476,8 @@ class HearthstoneAIAdapter:
         if card.card_def and card.card_def.name:
             card_name = card.card_def.name.lower()
 
+        forced_archetype = self._get_forced_archetype(player_id)
+
         # Minions are generally good
         if CardType.MINION in card.characteristics.types:
             power = card.characteristics.power or 0
@@ -480,6 +511,23 @@ class HearthstoneAIAdapter:
                 if self._board_has_card(state, player_id, 'Knife Juggler'):
                     score += 10
 
+            if forced_archetype == 'aggro':
+                if cost <= 3:
+                    score += (4 - cost) * 4
+                score += (power or 0) * 2
+                if 'taunt' in card.characteristics.keywords:
+                    score -= 4
+            elif forced_archetype == 'control':
+                if 'taunt' in card.characteristics.keywords:
+                    score += 18 + (toughness or 0) * 2
+                if cost <= 2:
+                    score += 4
+            elif forced_archetype == 'midrange':
+                if 3 <= cost <= 5:
+                    score += 10
+                if power and toughness and power + toughness >= cost * 2:
+                    score += 5
+
         # Spells are situational
         if CardType.SPELL in card.characteristics.types:
             enemy_minions = self._count_enemy_minions(state, player_id)
@@ -510,6 +558,32 @@ class HearthstoneAIAdapter:
                                     break
                         if not has_on_curve:
                             score -= 30  # Don't waste The Coin
+
+            if forced_archetype == 'aggro':
+                if (
+                    'deal' in card_text and 'damage' in card_text
+                    and self._damage_spell_has_reliable_enemy_hero_damage(card_text, state, player_id)
+                ):
+                    score += 25
+                if 'draw' in card_text and 'deal' not in card_text:
+                    score -= 8
+                if cost <= 2:
+                    score += 4
+            elif forced_archetype == 'control':
+                if 'draw' in card_text:
+                    score += 14
+                if 'armor' in card_text or 'restore' in card_text or 'heal' in card_text:
+                    score += 18
+                if (
+                    'destroy' in card_text
+                    or 'all enemy' in card_text
+                    or 'all minions' in card_text
+                    or re.search(r'deal\s+\d+\s+damage\s+to\s+(?:an?\s+)?(?:enemy\s+)?minion', card_text)
+                ):
+                    score += 18
+            elif forced_archetype == 'midrange':
+                if 3 <= cost <= 5:
+                    score += 6
 
         # Weapons provide repeated value (attack over multiple turns)
         if CardType.WEAPON in card.characteristics.types:
@@ -1764,16 +1838,37 @@ class HearthstoneAIAdapter:
                     return threats[0][0]
 
         # Determine face-vs-trade ratio based on archetype
-        if settings['use_archetype_detect']:
+        forced_archetype = self._get_forced_archetype(player_id)
+        if forced_archetype:
+            archetype = forced_archetype
+        elif settings['use_archetype_detect']:
             archetype = self._detect_deck_archetype(player_id, state)
         else:
             archetype = self.ai_engine.strategy.name if hasattr(self.ai_engine.strategy, 'name') else 'midrange'
+            archetype = archetype.lower()
 
         face_ratio = {'aggro': 0.8, 'control': 0.2, 'midrange': 0.5}.get(archetype, 0.5)
 
         # Easy AI is more face-oriented
         if self._get_difficulty(player_id) == 'easy':
             face_ratio = 0.8
+
+        # Tournament aggro pilots should behave like pressure pilots, not
+        # default midrange bots with a slightly higher face-roll chance.
+        if forced_archetype == 'aggro' and enemy_player.hero_id:
+            board_score = self._evaluate_board_state(player_id, state)
+            high_threat_trade = any(
+                m in state.objects
+                and self._is_favorable_trade(attacker_id, m, state, player_id)
+                and self._score_threat(state.objects[m], state) >= 12
+                for m in enemy_minions
+            )
+            if (
+                effective_hp <= 15
+                or attacker_power >= 3
+                or (board_score >= -0.15 and not high_threat_trade)
+            ):
+                return enemy_player.hero_id
 
         # Apply mistake: occasionally just go face regardless
         if random.random() < settings['mistake_chance'] and enemy_player.hero_id:
@@ -1989,6 +2084,10 @@ class HearthstoneAIAdapter:
 
         Cached per player per game.
         """
+        forced_archetype = self._get_forced_archetype(player_id)
+        if forced_archetype:
+            return forced_archetype
+
         if player_id in self._cached_archetype:
             return self._cached_archetype[player_id]
 

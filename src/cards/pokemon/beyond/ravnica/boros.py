@@ -62,7 +62,7 @@ def _legions_charge_effect(attacker, state):
 
 
 def _battalion_strike_effect(attacker, state):
-    """+30 damage per benched Pokemon you control (battalion flavor).
+    """+20 damage per benched Pokemon you control (battalion flavor).
 
     Damage adjustment is folded into the attack's base by emitting an extra
     PKM_PLACE_DAMAGE_COUNTERS targeting the opponent's Active.
@@ -83,12 +83,43 @@ def _battalion_strike_effect(attacker, state):
     target = state.objects.get(target_id)
     if not target:
         return []
-    bonus_counters = 3 * bench_count  # +30 dmg per bench = 3 counters per
+    bonus_counters = 2 * bench_count  # +20 dmg per bench = 2 counters per
     target.state.damage_counters += bonus_counters
     return [Event(
         type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
         payload={'pokemon_id': target_id, 'counters': bonus_counters,
                  'source': 'Battalion Strike'},
+    )]
+
+
+def _halo_bash_effect(attacker, state):
+    """Small battalion cantrip when the bench has formed up."""
+    bench = state.zones.get(f"bench_{attacker.controller}")
+    if not bench or not bench.objects:
+        return []
+    return _draw_cards(state, attacker.controller, 1)
+
+
+def _practice_lance_effect(attacker, state):
+    """+10 damage if any ally is already on the bench."""
+    bench = state.zones.get(f"bench_{attacker.controller}")
+    if not bench or not bench.objects:
+        return []
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return []
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    target.state.damage_counters += 1
+    return [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={'pokemon_id': target_id, 'counters': 1,
+                 'source': 'Aurelin'},
     )]
 
 
@@ -100,7 +131,9 @@ AURELET = make_pokemon(
     attacks=[
         {"name": "Tiny Smite",
          "cost": [{"type": "R", "count": 1}],
-         "damage": 20, "text": ""},
+         "damage": 20,
+         "text": "If you have any Benched Pokemon, draw a card.",
+         "effect_fn": _halo_bash_effect},
     ],
     weakness_type=PokemonType.WATER.value,
     retreat_cost=1,
@@ -118,7 +151,9 @@ AURELIN = make_pokemon(
     attacks=[
         {"name": "Practice Lance",
          "cost": [{"type": "R", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 50, "text": ""},
+         "damage": 50,
+         "text": "If you have any Benched Pokemon, this attack does 10 more damage.",
+         "effect_fn": _practice_lance_effect},
     ],
     weakness_type=PokemonType.WATER.value,
     retreat_cost=1,
@@ -141,8 +176,8 @@ AURELIA_THE_WARLEADER_EX = make_pokemon(
          "effect_fn": _legions_charge_effect},
         {"name": "Battalion Strike",
          "cost": [{"type": "R", "count": 2}, {"type": "F", "count": 2}],
-         "damage": 200,
-         "text": "This attack does 30 more damage for each Benched Pokemon you control.",
+         "damage": 180,
+         "text": "This attack does 20 more damage for each Benched Pokemon you control.",
          "effect_fn": _battalion_strike_effect},
     ],
     weakness_type=PokemonType.WATER.value,
@@ -229,7 +264,7 @@ TAJIC_LEGIONS_EDGE = make_pokemon(
 # =============================================================================
 
 def _sunhome_fortress_effect(event, state):
-    """When played, heal 10 damage (1 counter) from each player's Active."""
+    """Heal both Actives, then reward wide boards with a small rally ping."""
     events = []
     for pid in state.players:
         active_zone = state.zones.get(f"active_spot_{pid}")
@@ -246,23 +281,43 @@ def _sunhome_fortress_effect(event, state):
                 payload={'pokemon_id': target_id, 'counters': -1,
                          'source': 'Sunhome, Fortress of the Legion'},
             ))
+        bench = state.zones.get(f"bench_{pid}")
+        if not bench or len(bench.objects) < 2:
+            continue
+        opp_id = next((p for p in state.players if p != pid), None)
+        opp_active = state.zones.get(f"active_spot_{opp_id}") if opp_id else None
+        if not opp_active or not opp_active.objects:
+            continue
+        opp_target_id = opp_active.objects[0]
+        opp_target = state.objects.get(opp_target_id)
+        if not opp_target:
+            continue
+        opp_target.state.damage_counters += 1
+        events.append(Event(
+            type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+            payload={'pokemon_id': opp_target_id, 'counters': 1,
+                     'source': 'Sunhome, Fortress of the Legion'},
+        ))
     return events
 
 
 SUNHOME_FORTRESS_OF_THE_LEGION = make_trainer_stadium(
     name="Sunhome, Fortress of the Legion",
     text=("When you play Sunhome, Fortress of the Legion, "
-          "heal 10 damage from each player's Active Pokemon."),
+          "heal 10 damage from each player's Active Pokemon. Then each player "
+          "with 2 or more Benched Pokemon places 1 damage counter on their "
+          "opponent's Active Pokemon."),
     rarity="uncommon",
     resolve=_sunhome_fortress_effect,
 )
 
 
 def _gideon_blackblade_effect(event, state):
-    """Place 3 damage counters (30 dmg) on opponent's Active."""
+    """Place 2 damage counters on opponent's Active and heal your Active."""
     player_id = event.payload.get('player')
     if not player_id:
         return []
+    events = []
     opp_id = next((p for p in state.players if p != player_id), None)
     if not opp_id:
         return []
@@ -273,17 +328,30 @@ def _gideon_blackblade_effect(event, state):
     target = state.objects.get(target_id)
     if not target:
         return []
-    target.state.damage_counters += 3  # 10 dmg per counter
-    return [Event(
+    target.state.damage_counters += 2  # 10 dmg per counter
+    events.append(Event(
         type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
-        payload={'pokemon_id': target_id, 'counters': 3,
+        payload={'pokemon_id': target_id, 'counters': 2,
                  'source': 'Gideon Blackblade'},
-    )]
+    ))
+    own_active = state.zones.get(f"active_spot_{player_id}")
+    if own_active and own_active.objects:
+        own = state.objects.get(own_active.objects[0])
+        if own and own.state.damage_counters > 0:
+            healed = min(2, own.state.damage_counters)
+            own.state.damage_counters -= healed
+            events.append(Event(
+                type=EventType.PKM_HEAL,
+                payload={'pokemon_id': own.id, 'amount': healed * 10,
+                         'source': 'Gideon Blackblade'},
+            ))
+    return events
 
 
 GIDEON_BLACKBLADE = make_trainer_supporter(
     name="Gideon Blackblade",
-    text="Place 3 damage counters on your opponent's Active Pokemon.",
+    text=("Place 2 damage counters on your opponent's Active Pokemon. "
+          "Then heal 20 damage from your Active Pokemon."),
     rarity="rare",
     resolve=_gideon_blackblade_effect,
 )
@@ -454,7 +522,9 @@ WOJEK_HALBERDIERS = make_pokemon(
     attacks=[
         {"name": "Halberd Strike",
          "cost": [{"type": "F", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 50, "text": ""},
+         "damage": 50,
+         "text": "This attack does 10 more damage for each Benched Pokemon you control.",
+         "effect_fn": _battalion_flavor_effect},
     ],
     weakness_type=PokemonType.PSYCHIC.value,
     retreat_cost=1,
@@ -505,6 +575,42 @@ FENCING_ACE = make_pokemon(
 )
 
 
+def _skyknight_vanguard_effect(attacker, state):
+    """Battalion pressure: ping the weakest opposing benched Pokemon."""
+    bench = state.zones.get(f"bench_{attacker.controller}")
+    if not bench or len(bench.objects) < 2:
+        return []
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    opp_bench = state.zones.get(f"bench_{opp_id}")
+    if not opp_bench or not opp_bench.objects:
+        return []
+
+    target_id = None
+    lowest_hp = 10 ** 9
+    for bid in opp_bench.objects:
+        target = state.objects.get(bid)
+        if not target or not target.card_def:
+            continue
+        remaining_hp = (target.card_def.hp or 0) - target.state.damage_counters * 10
+        if remaining_hp < lowest_hp:
+            lowest_hp = remaining_hp
+            target_id = bid
+    if not target_id:
+        return []
+
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    target.state.damage_counters += 2
+    return [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={'pokemon_id': target_id, 'counters': 2,
+                 'source': 'Skyknight Vanguard'},
+    )]
+
+
 SKYKNIGHT_VANGUARD = make_pokemon(
     name="Skyknight Vanguard",
     hp=60,
@@ -513,7 +619,10 @@ SKYKNIGHT_VANGUARD = make_pokemon(
     attacks=[
         {"name": "Diving Lance",
          "cost": [{"type": "R", "count": 1}],
-         "damage": 30, "text": ""},
+         "damage": 30,
+         "text": ("If you have 2 or more Benched Pokemon, place 2 damage "
+                  "counters on 1 of your opponent's Benched Pokemon."),
+         "effect_fn": _skyknight_vanguard_effect},
     ],
     weakness_type=PokemonType.WATER.value,
     retreat_cost=1,

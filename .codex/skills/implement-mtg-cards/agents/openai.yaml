@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement MTG Cards"
+  short_description: "Wire and test Hyperdraft MTG cards"
+  default_prompt: "Use $implement-mtg-cards to wire and test this Hyperdraft card."

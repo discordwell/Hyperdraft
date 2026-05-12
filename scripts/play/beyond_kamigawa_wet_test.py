@@ -25,11 +25,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 
 from src.engine.game import Game
-from src.cards.yugioh.beyond.kamigawa import ARCHETYPE_DECK_BUILDERS, build_kamigawa_deck
+from src.cards.yugioh.beyond.kamigawa import (
+    ARCHETYPE_DECK_BUILDERS,
+    build_kamigawa_deck,
+    kamigawa_strategy,
+)
 
 
 MAX_TURNS_PER_GAME = 40
-DEFAULT_MIN_MIRROR_GAMES_FOR_IMBALANCE = 5
+DEFAULT_MIN_MIRROR_GAMES_FOR_IMBALANCE = 10
 
 
 def run(coro):
@@ -40,8 +44,25 @@ def run(coro):
         loop.close()
 
 
+class _DispatchYugiohAI:
+    """Route YGO AI calls to a per-player adapter."""
+
+    def __init__(self, adapters: dict):
+        self.adapters = adapters
+
+    def get_main_phase_action(self, player_id, state, turn_state):
+        return self.adapters[player_id].get_main_phase_action(player_id, state, turn_state)
+
+    def get_battle_action(self, player_id, state, turn_state):
+        return self.adapters[player_id].get_battle_action(player_id, state, turn_state)
+
+    def should_enter_battle(self, player_id, state):
+        return self.adapters[player_id].should_enter_battle(player_id, state)
+
+
 async def play_one_match(deck_a_name: str, deck_a_builder,
-                         deck_b_name: str, deck_b_builder) -> dict:
+                         deck_b_name: str, deck_b_builder,
+                         difficulty: str = "hard") -> dict:
     """Play one AI-vs-AI match. Returns {'winner_id', 'turns', 'crashed', 'reason'}."""
     from src.ai.yugioh_adapter import YugiohAIAdapter
 
@@ -52,8 +73,11 @@ async def play_one_match(deck_a_name: str, deck_a_builder,
     main_b, extra_b = build_kamigawa_deck(deck_b_name)
     g.setup_yugioh_player(p1, main_a, extra_a)
     g.setup_yugioh_player(p2, main_b, extra_b)
-    ai = YugiohAIAdapter(difficulty="medium")
-    g.turn_manager.set_ai_handler(ai)
+    ai_a = YugiohAIAdapter(difficulty=difficulty)
+    ai_b = YugiohAIAdapter(difficulty=difficulty)
+    ai_a.strategy = kamigawa_strategy(deck_a_name)
+    ai_b.strategy = kamigawa_strategy(deck_b_name)
+    g.turn_manager.set_ai_handler(_DispatchYugiohAI({p1.id: ai_a, p2.id: ai_b}))
     g.turn_manager.ai_players.add(p1.id)
     g.turn_manager.ai_players.add(p2.id)
     await g.turn_manager.setup_game()
@@ -100,6 +124,9 @@ def main():
                         help='minimum completed mirror games before flagging win-rate imbalance')
     parser.add_argument('--json-out', default=None,
                         help='optional path for a machine-readable JSON summary')
+    parser.add_argument('--difficulty', default='hard',
+                        choices=['easy', 'medium', 'hard', 'ultra'],
+                        help='YGO AI difficulty for both seats (default: hard)')
     args = parser.parse_args()
     if args.quick:
         args.games = 1
@@ -132,7 +159,8 @@ def main():
             try:
                 outcome = run(play_one_match(
                     a, ARCHETYPE_DECK_BUILDERS[a],
-                    b, ARCHETYPE_DECK_BUILDERS[b]
+                    b, ARCHETYPE_DECK_BUILDERS[b],
+                    difficulty=args.difficulty,
                 ))
                 key = (a, b)
                 results[key]['turns'].append(outcome['turns'])
@@ -206,6 +234,7 @@ def main():
         with open(args.json_out, "w", encoding="utf-8") as fh:
             json.dump({
                 "games_per_pairing": args.games,
+                "difficulty": args.difficulty,
                 "min_mirror_games_for_imbalance": args.min_mirror_games_for_imbalance,
                 "max_turns_per_game": MAX_TURNS_PER_GAME,
                 "elapsed_seconds": round(elapsed, 3),

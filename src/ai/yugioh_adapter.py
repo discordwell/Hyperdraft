@@ -80,12 +80,19 @@ class YugiohAIAdapter:
         if spell:
             return spell
 
-        # 5. Set traps from hand
+        # 5. Activate already-set proactive traps
+        trap_activation = self._pick_trap_activation(
+            self._get_spell_traps(player_id, state), player_id, state, opp_monsters
+        )
+        if trap_activation:
+            return trap_activation
+
+        # 6. Set traps from hand
         trap = self._pick_set_trap(hand, player_id, state)
         if trap:
             return trap
 
-        # 6. Change position if beneficial
+        # 7. Change position if beneficial
         pos_change = self._pick_position_change(monsters, player_id, state, turn_state, opp_monsters)
         if pos_change:
             return pos_change
@@ -141,6 +148,11 @@ class YugiohAIAdapter:
 
         best = summonable[0]
         obj, _, level = best
+        tributes_needed = 0
+        if level >= 5:
+            tributes_needed = 1
+        if level >= 7:
+            tributes_needed = 2
 
         # Check for empty slot
         zone = state.zones.get(f"monster_zone_{player_id}")
@@ -151,10 +163,16 @@ class YugiohAIAdapter:
         if not has_slot and level < 5:
             return None  # No room and can't tribute
 
-        return {
+        action = {
             'action_type': 'normal_summon',
             'card_id': obj.id,
         }
+        if tributes_needed:
+            tribute_ids = self._pick_tribute_ids(monsters, tributes_needed)
+            if len(tribute_ids) < tributes_needed:
+                return None
+            action['tribute_ids'] = tribute_ids
+        return action
 
     def _pick_set_monster(self, hand: list, monsters: list, player_id: str,
                           state: GameState) -> Optional[dict]:
@@ -243,7 +261,9 @@ class YugiohAIAdapter:
         "Monster Reborn", "Premature Burial", "Mystical Space Typhoon",
         "Stamping Destruction", "Nobleman of Crossout", "Book of Moon", "Ookazi",
         "Swords of Revealing Light", "Messenger of Peace", "Level Limit - Area B",
-        "Mountain", "Lightning Bolt",
+        "Mountain", "Lightning Bolt", "Ponder", "Preordain", "Demonic Tutor",
+        "Fact or Fiction", "Wheel of Fortune", "Wrath of God", "Day of Judgment",
+        "Path to Exile", "Swords to Plowshares", "Doom Blade",
     })
 
     def _pick_spell_activation(self, hand: list, player_id: str, state: GameState,
@@ -263,6 +283,16 @@ class YugiohAIAdapter:
 
             if name == "Graceful Charity":
                 return {'action_type': 'activate_spell', 'card_id': obj.id}
+
+            if name in ("Ponder", "Preordain", "Demonic Tutor", "Fact or Fiction"):
+                return {'action_type': 'activate_spell', 'card_id': obj.id}
+
+            if name == "Wheel of Fortune":
+                own_hand = len(self._get_hand(player_id, state))
+                opp_hand = len(self._get_hand(opp_id, state))
+                if own_hand <= 2 or opp_hand <= own_hand:
+                    return {'action_type': 'activate_spell', 'card_id': obj.id}
+                continue
 
             # === Board wipes ===
             if name == "Raigeki":
@@ -286,6 +316,13 @@ class YugiohAIAdapter:
                 ):
                     return {'action_type': 'activate_spell', 'card_id': obj.id}
                 if self.difficulty in ("easy", "medium") and opp_monsters:
+                    return {'action_type': 'activate_spell', 'card_id': obj.id}
+                continue
+
+            if name in ("Wrath of God", "Day of Judgment"):
+                if len(opp_monsters) > len(my_monsters) or (
+                    len(opp_monsters) >= 2 and len(my_monsters) <= 1
+                ):
                     return {'action_type': 'activate_spell', 'card_id': obj.id}
                 continue
 
@@ -329,6 +366,12 @@ class YugiohAIAdapter:
                     return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [atk_monsters[0].id]}
                 continue
 
+            if name in ("Path to Exile", "Swords to Plowshares", "Doom Blade"):
+                target = self._find_best_visible_monster(opp_monsters)
+                if target:
+                    return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [target.id]}
+                continue
+
             # === Burn spells ===
             if name == "Ookazi":
                 return {'action_type': 'activate_spell', 'card_id': obj.id}
@@ -336,6 +379,18 @@ class YugiohAIAdapter:
             if name == "Lightning Bolt":
                 opponent = state.players.get(opp_id)
                 if opponent and getattr(opponent, 'lp', 0) <= 1500:
+                    return {'action_type': 'activate_spell', 'card_id': obj.id}
+                small_target = self._find_best_visible_monster(
+                    [m for m in opp_monsters if (getattr(m.card_def, 'atk', 0) or 0) <= 1500]
+                )
+                if small_target:
+                    return {
+                        'action_type': 'activate_spell',
+                        'card_id': obj.id,
+                        'targets': [small_target.id],
+                    }
+                role = ((self.strategy or {}).get('archetype') or '').lower()
+                if opponent and ("burn" in role or "aggro" in role or not opp_monsters):
                     return {'action_type': 'activate_spell', 'card_id': obj.id}
                 continue
 
@@ -371,9 +426,19 @@ class YugiohAIAdapter:
                     return {'action_type': 'activate_spell', 'card_id': obj.id}
                 continue
 
+            if spell_type == "Equip":
+                target = self._find_best_visible_monster(my_monsters)
+                if target:
+                    return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [target.id]}
+                continue
+
             # === Generic fallback for unknown spells ===
-            if name not in self._KNOWN_SPELLS and spell_type == "Normal" and self.difficulty in ("easy", "medium"):
-                return {'action_type': 'activate_spell', 'card_id': obj.id}
+            if name not in self._KNOWN_SPELLS:
+                generic = self._pick_generic_spell_activation(
+                    obj, player_id, state, opp_monsters, my_monsters
+                )
+                if generic:
+                    return generic
 
         return None
 
@@ -412,6 +477,38 @@ class YugiohAIAdapter:
                 'action_type': 'set_spell_trap',
                 'card_id': obj.id,
             }
+        return None
+
+    def _pick_trap_activation(self, spell_traps: list, player_id: str,
+                              state: GameState, opp_monsters: list) -> Optional[dict]:
+        """Activate proactive set traps with effects the local engine models."""
+        for obj in spell_traps:
+            if CardType.YGO_TRAP not in obj.characteristics.types:
+                continue
+            if obj.state.face_down and getattr(obj.state, 'turns_set', 0) < 1:
+                continue
+            card_def = obj.card_def
+            if not card_def or not card_def.resolve:
+                continue
+
+            blob = f"{obj.name} {card_def.text or ''}".lower()
+            if "negate" in blob and not any(
+                term in blob for term in ("destroy", "return", "draw", "damage", "inflict")
+            ):
+                continue
+
+            target = self._find_best_visible_monster(opp_monsters)
+            if any(term in blob for term in ("destroy", "banish", "return", "bounce")):
+                if not opp_monsters:
+                    continue
+                action = {'action_type': 'activate_trap', 'card_id': obj.id}
+                if target:
+                    action['targets'] = [target.id]
+                return action
+
+            if any(term in blob for term in ("draw", "damage", "inflict")):
+                return {'action_type': 'activate_trap', 'card_id': obj.id}
+
         return None
 
     def _pick_position_change(self, monsters: list, player_id: str,
@@ -712,6 +809,82 @@ class YugiohAIAdapter:
                     best = oid
 
         return best
+
+    def _find_best_visible_monster(self, monsters: list) -> Optional['GameObject']:
+        """Return the highest-ATK visible monster from a list."""
+        visible = [m for m in monsters if m and not m.state.face_down]
+        if not visible:
+            return None
+        visible.sort(key=lambda m: getattr(m.card_def, 'atk', 0) or 0, reverse=True)
+        return visible[0]
+
+    def _pick_generic_spell_activation(self, obj: 'GameObject', player_id: str,
+                                       state: GameState, opp_monsters: list,
+                                       my_monsters: list) -> Optional[dict]:
+        """Use text heuristics for custom-set YGO spells not in the named table."""
+        card_def = obj.card_def
+        if not card_def:
+            return None
+        spell_type = getattr(card_def, 'ygo_spell_type', 'Normal')
+        blob = f"{obj.name} {card_def.text or ''}".lower()
+
+        if "you control" in blob and not my_monsters:
+            return None
+
+        if spell_type == "Equip":
+            target = self._find_best_visible_monster(my_monsters)
+            if target:
+                return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [target.id]}
+            return None
+
+        if spell_type in ("Continuous", "Field"):
+            setup_terms = (
+                "draw", "add 1", "search", "gain", "cannot attack",
+                "piercing", "special summon",
+            )
+            if any(term in blob for term in setup_terms):
+                return {'action_type': 'activate_spell', 'card_id': obj.id}
+            return None
+
+        if spell_type not in ("Normal", "Quick-Play"):
+            return None
+
+        removal_terms = (
+            "destroy", "banish", "return 1 monster", "return the first",
+            "return 1 face-up", "bounce", "to its owner's hand",
+        )
+        if any(term in blob for term in removal_terms) and opp_monsters:
+            target = self._find_best_visible_monster(opp_monsters)
+            if target:
+                return {'action_type': 'activate_spell', 'card_id': obj.id, 'targets': [target.id]}
+            return {'action_type': 'activate_spell', 'card_id': obj.id}
+
+        value_terms = ("draw", "add 1", "search", "from your deck", "reveal top")
+        if any(term in blob for term in value_terms):
+            return {'action_type': 'activate_spell', 'card_id': obj.id}
+
+        if "special summon" in blob and self._has_empty_monster_slot(player_id, state):
+            return {'action_type': 'activate_spell', 'card_id': obj.id}
+
+        burn_terms = ("inflict", "damage to your opponent", "deal")
+        if any(term in blob for term in burn_terms):
+            return {'action_type': 'activate_spell', 'card_id': obj.id}
+
+        if spell_type == "Normal" and self.difficulty in ("easy", "medium"):
+            return {'action_type': 'activate_spell', 'card_id': obj.id}
+        return None
+
+    def _pick_tribute_ids(self, monsters: list, count: int) -> list[str]:
+        """Pick low-value monsters to tribute for a high-level summon."""
+        candidates = []
+        for monster in monsters:
+            if not monster or not monster.card_def:
+                continue
+            atk = getattr(monster.card_def, 'atk', 0) or 0
+            defense = getattr(monster.card_def, 'def_val', 0) or 0
+            candidates.append((max(atk, defense), monster.id))
+        candidates.sort(key=lambda item: item[0])
+        return [mid for _score, mid in candidates[:count]]
 
     def _find_mst_target(self, opp_id: str, state: GameState) -> Optional[str]:
         """Find an opponent's set spell/trap to destroy."""

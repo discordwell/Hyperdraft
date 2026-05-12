@@ -106,6 +106,52 @@ def make_archetype_lord(obj: GameObject, atk_bonus: int = 300,
     return make_ygo_continuous_effect(obj, modifier_fn)
 
 
+def make_archetype_team_lord(obj: GameObject, atk_bonus: int = 300,
+                             def_bonus: int = 0, archetype: str = "Samurai",
+                             *, affect_self: bool = False):
+    """
+    "<archetype> monsters you control gain +atk_bonus / +def_bonus."
+
+    Unlike ``make_archetype_lord``, this modifies the queried teammate rather
+    than the source object. It is used by banner-style glue cards whose text
+    says "other" or "all" archetype monsters.
+    """
+    active_zones = {
+        ZoneType.MONSTER_ZONE,
+        ZoneType.SPELL_TRAP_ZONE,
+        ZoneType.FIELD_SPELL_ZONE,
+    }
+
+    def _is_active_source(state: GameState) -> bool:
+        source = state.objects.get(obj.id)
+        return source is not None and source.zone in active_zones
+
+    def modifier_fn(event: Event, state: GameState) -> InterceptorResult:
+        if not _is_active_source(state):
+            return InterceptorResult(action=InterceptorAction.PASS)
+        target = state.objects.get(event.payload.get('object_id'))
+        if target is None or target.controller != obj.controller:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        if not affect_self and target.id == obj.id:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        if not has_subtype(target, archetype):
+            return InterceptorResult(action=InterceptorAction.PASS)
+        if event.type == EventType.QUERY_POWER and atk_bonus:
+            event.payload['value'] = event.payload.get('value', 0) + atk_bonus
+        elif event.type == EventType.QUERY_TOUGHNESS and def_bonus:
+            event.payload['value'] = event.payload.get('value', 0) + def_bonus
+        else:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=event)
+
+    return Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=lambda e, s: e.type in (EventType.QUERY_POWER, EventType.QUERY_TOUGHNESS),
+        handler=modifier_fn, duration='until_leaves',
+    )
+
+
 # =============================================================================
 # Soulshift (Kamigawa-block recursion)
 # =============================================================================
@@ -223,5 +269,6 @@ def make_bushido(obj: GameObject, atk_bonus: int = 300, archetype: str = "Samura
 
 __all__ = [
     "has_subtype", "count_on_field", "find_in_graveyard", "is_modified",
-    "make_archetype_lord", "make_soulshift", "make_ninjutsu", "make_bushido",
+    "make_archetype_lord", "make_archetype_team_lord", "make_soulshift",
+    "make_ninjutsu", "make_bushido",
 ]

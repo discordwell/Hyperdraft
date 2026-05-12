@@ -27,7 +27,7 @@ from src.engine.yugioh_helpers import (
 )
 from ._archetype_helpers import (
     has_subtype, count_on_field, find_in_graveyard,
-    make_archetype_lord,
+    make_archetype_lord, make_archetype_team_lord,
 )
 
 
@@ -570,9 +570,10 @@ REFLECT_LORD = make_ygo_monster(
     "Reflect Lord of the Soratami", atk=1700, def_val=1500, level=4,
     attribute="WATER", ygo_monster_type="Effect",
     subtypes={"Spellcaster", "Moonfolk"},
-    text="All other 'Moonfolk' you control gain 200 ATK.",
+    text="All other 'Moonfolk' monsters you control gain 200 ATK. "
+         "The boost applies through the stat layer while this card stays face-up.",
     setup_interceptors=lambda obj, state: [
-        make_archetype_lord(obj, atk_bonus=200, archetype="Moonfolk")
+        make_archetype_team_lord(obj, atk_bonus=200, archetype="Moonfolk")
     ],
 )
 
@@ -621,7 +622,9 @@ def _hinder_resolve(event, state):
 
 HINDER = make_ygo_spell(
     "Hinder", ygo_spell_type="Quick-Play",
-    text="Return 1 monster opponent controls to its owner's hand.",
+    text="When activated: return 1 monster opponent controls to its owner's "
+         "hand. Targeting simplification: auto-pick the first face-up opposing "
+         "monster.",
     resolve=_hinder_resolve,
 )
 
@@ -748,15 +751,57 @@ def _reality_stutter_resolve(event, state):
 
 REALITY_STUTTER = make_ygo_spell(
     "Reality Stutter", ygo_spell_type="Normal",
-    text="Opponent shuffles 2 cards from their hand into their Deck.",
+    text="When activated: opponent shuffles 2 cards from their hand into "
+         "their Deck. Hand choice simplification: pick the first cards in hand "
+         "order.",
     resolve=_reality_stutter_resolve,
 )
+
+
+def _mirror_realm_setup(obj, state):
+    """Field Spell: Moonfolk boost plus once-per-turn bounce cantrip."""
+    def _active() -> bool:
+        return obj.zone == ZoneType.FIELD_SPELL_ZONE
+
+    def boost_filter(event, state):
+        if not _active() or event.type != EventType.QUERY_POWER:
+            return False
+        target = state.objects.get(event.payload.get('object_id'))
+        return target is not None and target.controller == obj.controller and _is_moonfolk(target)
+
+    def boost_handler(event, state):
+        event.payload['value'] = event.payload.get('value', 0) + 200
+        return InterceptorResult(action=InterceptorAction.TRANSFORM,
+                                 transformed_event=event)
+
+    def bounce_filter(event, state):
+        if not _active() or event.type != EventType.YGO_CHAIN_LINK:
+            return False
+        if event.payload.get('effect') not in {'bounce_to_hand', 'bounce_spell_trap'}:
+            return False
+        return getattr(obj.state, 'mirror_realm_draw_turn', None) != state.turn_number
+
+    def bounce_handler(event, state):
+        obj.state.mirror_realm_draw_turn = state.turn_number
+        return InterceptorResult(action=InterceptorAction.REACT,
+                                 new_events=_draw(state, obj.controller, 1))
+
+    return [
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY, filter=boost_filter,
+                    handler=boost_handler, duration='until_leaves'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.REACT, filter=bounce_filter,
+                    handler=bounce_handler, duration='until_leaves'),
+    ]
 
 
 MIRROR_REALM = make_ygo_spell(
     "Mirror Realm", ygo_spell_type="Field",
     text="All 'Moonfolk' you control gain 200 ATK. While this card is on the "
-         "field: bouncing a monster does not trigger ETB-style effects.",
+         "field, the first time each turn a card is returned to hand by an "
+         "effect: draw 1 card.",
+    setup_interceptors=_mirror_realm_setup,
 )
 
 
@@ -802,7 +847,8 @@ def _counterspell_lite_resolve(event, state):
 
 COUNTERSPELL_LITE = make_ygo_spell(
     "Counterspell, Lite Edition", ygo_spell_type="Normal",
-    text="Negate the activation of 1 Normal Spell.",
+    text="When activated in a chain: negate the activation of 1 Normal Spell. "
+         "Chain timing simplification: emit a restricted negate_spell marker.",
     resolve=_counterspell_lite_resolve,
 )
 
@@ -841,7 +887,9 @@ def _wandering_negation_resolve(event, state):
 
 WANDERING_NEGATION = make_ygo_trap(
     "Wandering Negation", ygo_trap_type="Counter",
-    text="Negate the activation of 1 Spell/Trap and destroy it.",
+    text="When activated in a chain: negate the activation of 1 Spell/Trap "
+         "and destroy it. Chain timing simplification: emit a "
+         "negate_spell_trap_and_destroy marker.",
     resolve=_wandering_negation_resolve,
 )
 
@@ -911,7 +959,8 @@ def _cancel_resolve(event, state):
 
 CANCEL = make_ygo_trap(
     "Cancel", ygo_trap_type="Counter",
-    text="Negate the activation of 1 Spell or Trap.",
+    text="When activated in a chain: negate the activation of 1 Spell or Trap. "
+         "Chain timing simplification: emit a negate_spell_trap marker.",
     resolve=_cancel_resolve,
 )
 
@@ -1128,6 +1177,24 @@ HIGURE_MIRROR_REFLECTION = make_ygo_monster(
 )
 
 
+_PASS3_TEXT_APPENDIX = {
+    "Reverberate": "Chain timing simplification: when activated after a Spell or Trap resolves, emit a copy_effect chain marker using this card as the controller.",
+    "Eye of Nowhere": "Resolution simplification: target the first face-up opponent Spell or Trap if possible; otherwise return your first face-up Spell or Trap to its owner's hand.",
+    "Mana Leak": "Counter rule: the opponent automatically banishes two cards from their GY if able; if they cannot pay, emit a negate_spell marker.",
+    "Vapor Snag": "Resolution simplification: return the first face-up opponent monster to its owner's hand, then that opponent loses 200 LP.",
+    "Tide of Knowledge": "Resolution simplification: return up to two face-up opponent monsters to their owners' hands, then your opponent draws one card.",
+    "Saheeli, the Gifted": "Link layer: while this card is face-up, the monster it points to gains 500 ATK through the stat query layer.",
+    "Brainstorm": "Resolution simplification: draw three cards from the top of your Deck, then place the last two cards from your hand back on top.",
+    "Reality Chip Bearer": "Summon trigger: when Normal Summoned, draw one card and keep this card tagged as both Moonfolk and Modified for cross-archetype support.",
+    "Soratami Savant": "Summon trigger: when Normal Summoned, search your Deck for the first Moonfolk card other than itself and add it to your hand.",
+}
+
+for _pass3_card in list(globals().values()):
+    _pass3_note = _PASS3_TEXT_APPENDIX.get(getattr(_pass3_card, "name", None))
+    if _pass3_note and _pass3_note not in (_pass3_card.text or ""):
+        _pass3_card.text = f"{_pass3_card.text} {_pass3_note}"
+
+
 # =============================================================================
 # Set registry
 # =============================================================================
@@ -1165,10 +1232,16 @@ def make_moonfolk_deck() -> tuple[list, list]:
     most of the broken-Counter-Trap suite with real removal/draw staples
     plus a second board wipe and Demonic Tutor for the Patron of the Moon
     finisher. Keeps two Counter Traps for archetype flavor.
+
+    Tuned 2026-05-10: after strategy-aware YGO wet tests, trimmed the
+    remaining mostly-unmodeled Counter Trap package and moved that space into
+    Ponder plus Doom Blade. The deck still plays as control, but more of its
+    slots now convert into engine-visible draw/removal.
     """
     from src.cards.yugioh.beyond.kamigawa.staples import (
         WRATH_OF_GOD, DAY_OF_JUDGMENT, LIGHTNING_BOLT,
         EMPYRIAL_PLATE, DEMONIC_TUTOR, FACT_OR_FICTION,
+        PONDER, DOOM_BLADE,
     )
     main = (
         # Monsters (15) — trimmed weakest, kept ace + finisher
@@ -1189,17 +1262,16 @@ def make_moonfolk_deck() -> tuple[list, list]:
         [EMPYRIAL_PLATE] * 1 +
         [DEMONIC_TUTOR] * 1 +                # +1 — find Patron / Meloku
         [FACT_OR_FICTION] * 1 +              # +1 — drawback engine
+        [PONDER] * 2 +                       # +2 — early smoothing
+        [DOOM_BLADE] * 1 +                   # +1 — reliable spot removal
         [HINDER] * 2 +
         [EYE_OF_NOWHERE] * 2 +
         [VAPOR_SNAG] * 2 +
         [PATH_OF_SHADOWS] * 2 +
         [BRAINSTORM] * 2 +
         [COUNTERSPELL_LITE] * 1 +            # was 2 — half flavor, half function
-        # Traps (5) — broken Counter Traps trimmed
-        [MANA_LEAK] * 1 +
-        [CANCEL] * 1 +
-        [TIDE_OF_KNOWLEDGE] * 2 +
-        [WANDERING_NEGATION] * 1
+        # Traps (2) — only the engine-visible bounce trap remains
+        [TIDE_OF_KNOWLEDGE] * 2
     )
     extra = [
         TAMIYO_COMPLEATED_SAGE,

@@ -19,6 +19,24 @@ Usage:
         --variants aggro,control,midrange,ultra \
         --decks MONO_RED_AGGRO,MONO_BLUE_CONTROL,MONO_GREEN_RAMP \
         --games 6 --out logs/mtg_variants.json
+
+    # Pokemon TCG (local two-pilot substitute for LLM-vs-LLM)
+    python scripts/play/variant_tournament.py --engine pokemon \
+        --variants medium,hard,ultra \
+        --decks izzet,rakdos,gruul,orzhov \
+        --games 4 --out logs/pokemon_variants.json
+
+    # Hearthstone custom-set pilots
+    python scripts/play/variant_tournament.py --engine hearthstone \
+        --variants aggro,control,midrange,ultra,random \
+        --decks stormrift_pyromancer,stormrift_cryomancer \
+        --games 2 --max-turns 30 --out logs/hs_variants.json
+
+    # Yu-Gi-Oh! local two-pilot substitute for LLM-vs-LLM
+    python scripts/play/variant_tournament.py --engine yugioh \
+        --variants balanced,deck_strategy,aggro,control,burn,random \
+        --decks goat_control,chain_burn,kamigawa:samurai,kamigawa:ninja \
+        --games 2 --max-turns 40 --out logs/ygo_variants.json
 """
 
 from __future__ import annotations
@@ -26,10 +44,18 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import random
+import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Optional
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +73,9 @@ class GameOutcome:
     turns: int
     duration_s: float
     error: Optional[str] = None
+    winner_reason: Optional[str] = None
+    p1_prizes_remaining: Optional[int] = None
+    p2_prizes_remaining: Optional[int] = None
 
 
 # Engine adapters: (deck_resolver, variant_runner, default_decks, default_variants)
@@ -138,6 +167,608 @@ async def _mtg_run_one(
     )
 
 
+def _pkm_decks(deck_names: list[str]) -> dict[str, list]:
+    from src.cards.pokemon.deck_builder import (
+        build_sv_starter_deck,
+        list_sv_starter_decks,
+    )
+    from src.cards.pokemon.beyond.ravnica.deck_builder import (
+        build_ravnica_guild_deck,
+        list_ravnica_guild_decks,
+    )
+
+    svs = set(list_sv_starter_decks())
+    guilds = set(list_ravnica_guild_decks())
+    out = {}
+    for raw_name in deck_names:
+        name = raw_name.strip().lower()
+        if name.startswith("svs:"):
+            starter = name.split(":", 1)[1]
+            if starter not in svs:
+                raise ValueError(f"Unknown Pokemon SVS deck: {raw_name!r}. Available: {sorted(svs)}")
+            deck, _strategy = build_sv_starter_deck(starter, enforce_quality=False)
+            out[raw_name] = deck
+        elif name.startswith("brv:"):
+            guild = name.split(":", 1)[1]
+            if guild not in guilds:
+                raise ValueError(f"Unknown Pokemon BRV guild: {raw_name!r}. Available: {sorted(guilds)}")
+            deck, _strategy = build_ravnica_guild_deck(guild, enforce_balance=False)
+            out[raw_name] = deck
+        elif name in svs:
+            deck, _strategy = build_sv_starter_deck(name, enforce_quality=False)
+            out[raw_name] = deck
+        elif name in guilds:
+            deck, _strategy = build_ravnica_guild_deck(name, enforce_balance=False)
+            out[raw_name] = deck
+        else:
+            available = sorted([f"svs:{n}" for n in svs] + [f"brv:{g}" for g in guilds])
+            raise ValueError(f"Unknown Pokemon deck: {raw_name!r}. Available: {available}")
+    return out
+
+
+_PKM_VARIANT_TO_DIFFICULTY = {
+    "easy": "easy",
+    "random": "easy",
+    "medium": "medium",
+    "balanced": "medium",
+    "hard": "hard",
+    "ultra": "ultra",
+    "optimized": "ultra",
+}
+
+
+def _pkm_difficulty(variant: str) -> str:
+    try:
+        return _PKM_VARIANT_TO_DIFFICULTY[variant]
+    except KeyError as exc:
+        available = ", ".join(sorted(_PKM_VARIANT_TO_DIFFICULTY))
+        raise ValueError(f"Unknown Pokemon variant {variant!r}. Available: {available}") from exc
+
+
+def _pkm_loss_reason(game, player) -> str:
+    if getattr(player, "prizes_remaining", 6) == 0:
+        return "prizes"
+    if not getattr(player, "has_lost", False):
+        return "not_lost"
+    lib_key = f"library_{player.id}"
+    active_key = f"active_spot_{player.id}"
+    bench_key = f"bench_{player.id}"
+    library = game.state.zones.get(lib_key)
+    active = game.state.zones.get(active_key)
+    bench = game.state.zones.get(bench_key)
+    if library is not None and not library.objects:
+        return "deck_out"
+    if (active is None or not active.objects) and (bench is None or not bench.objects):
+        return "no_pokemon"
+    return "unknown_loss"
+
+
+async def _pkm_run_one(
+    deck1: list, deck2: list,
+    p1_variant: str, p2_variant: str,
+    p1_label: str, p2_label: str,
+    max_turns: int,
+) -> GameOutcome:
+    from src.ai.pokemon_adapter import PokemonAIAdapter
+    from src.engine.game import Game
+
+    start = time.perf_counter()
+    game = Game(mode="pokemon")
+    p1 = game.add_player(f"{p1_label}:{p1_variant}")
+    p2 = game.add_player(f"{p2_label}:{p2_variant}")
+    game.setup_pokemon_player(p1, deck1)
+    game.setup_pokemon_player(p2, deck2)
+
+    ai = PokemonAIAdapter(difficulty="medium")
+    ai.player_difficulties[p1.id] = _pkm_difficulty(p1_variant)
+    ai.player_difficulties[p2.id] = _pkm_difficulty(p2_variant)
+    game.turn_manager.set_ai_handler(ai)
+    game.turn_manager.set_ai_player(p1.id)
+    game.turn_manager.set_ai_player(p2.id)
+
+    await game.turn_manager.setup_game()
+    turns = 0
+    for _ in range(max_turns):
+        if game.is_game_over():
+            break
+        await game.turn_manager.run_turn()
+        turns += 1
+
+    # Calling is_game_over refreshes Pokemon win-condition side effects.
+    game_over = game.is_game_over()
+    winner_variant: Optional[str] = None
+    winner_reason: Optional[str] = None
+    if game_over:
+        if getattr(p1, "has_lost", False) and not getattr(p2, "has_lost", False):
+            winner_variant = p2_variant
+            winner_reason = "prizes" if p2.prizes_remaining == 0 else _pkm_loss_reason(game, p1)
+        elif getattr(p2, "has_lost", False) and not getattr(p1, "has_lost", False):
+            winner_variant = p1_variant
+            winner_reason = "prizes" if p1.prizes_remaining == 0 else _pkm_loss_reason(game, p2)
+        elif p1.prizes_remaining == 0 and p2.prizes_remaining != 0:
+            winner_variant = p1_variant
+            winner_reason = "prizes"
+        elif p2.prizes_remaining == 0 and p1.prizes_remaining != 0:
+            winner_variant = p2_variant
+            winner_reason = "prizes"
+        else:
+            winner_reason = "draw"
+    else:
+        winner_reason = "max_turns"
+
+    return GameOutcome(
+        p1_variant=p1_variant,
+        p2_variant=p2_variant,
+        p1_deck_label=p1_label,
+        p2_deck_label=p2_label,
+        winner_variant=winner_variant,
+        turns=turns,
+        duration_s=time.perf_counter() - start,
+        winner_reason=winner_reason,
+        p1_prizes_remaining=p1.prizes_remaining,
+        p2_prizes_remaining=p2.prizes_remaining,
+    )
+
+
+def _hs_deck_specs() -> dict[str, dict]:
+    from src.cards.hearthstone.decks import HEARTHSTONE_DECKS
+    from src.cards.hearthstone.heroes import HEROES
+    from src.cards.hearthstone.hero_powers import HERO_POWERS
+    from src.cards.hearthstone.stormrift import (
+        STORMRIFT_DECKS,
+        STORMRIFT_HEROES,
+        STORMRIFT_HERO_POWERS,
+        install_stormrift_modifiers,
+    )
+    from src.cards.hearthstone.frierenrift import (
+        FRIERENRIFT_DECKS,
+        FRIERENRIFT_HEROES,
+        FRIERENRIFT_HERO_POWERS,
+        install_frierenrift_modifiers,
+    )
+    from src.cards.hearthstone.riftclash import (
+        RIFTCLASH_DECKS,
+        RIFTCLASH_HEROES,
+        RIFTCLASH_HERO_POWERS,
+        install_riftclash_modifiers,
+    )
+
+    specs: dict[str, dict] = {}
+    for hero_class, deck in HEARTHSTONE_DECKS.items():
+        specs[hero_class.lower()] = {
+            "label": hero_class,
+            "deck": deck,
+            "hero": HEROES[hero_class],
+            "hero_power": HERO_POWERS[hero_class],
+            "modifier": None,
+        }
+
+    specs.update({
+        "stormrift_pyromancer": {
+            "label": "Stormrift Pyromancer",
+            "deck": STORMRIFT_DECKS["Pyromancer"],
+            "hero": STORMRIFT_HEROES["Pyromancer"],
+            "hero_power": STORMRIFT_HERO_POWERS["Pyromancer"],
+            "modifier": install_stormrift_modifiers,
+        },
+        "stormrift_cryomancer": {
+            "label": "Stormrift Cryomancer",
+            "deck": STORMRIFT_DECKS["Cryomancer"],
+            "hero": STORMRIFT_HEROES["Cryomancer"],
+            "hero_power": STORMRIFT_HERO_POWERS["Cryomancer"],
+            "modifier": install_stormrift_modifiers,
+        },
+        "frieren": {
+            "label": "Frierenrift Frieren",
+            "deck": FRIERENRIFT_DECKS["Frieren"],
+            "hero": FRIERENRIFT_HEROES["Frieren"],
+            "hero_power": FRIERENRIFT_HERO_POWERS["Frieren"],
+            "modifier": install_frierenrift_modifiers,
+        },
+        "macht": {
+            "label": "Frierenrift Macht",
+            "deck": FRIERENRIFT_DECKS["Macht"],
+            "hero": FRIERENRIFT_HEROES["Macht"],
+            "hero_power": FRIERENRIFT_HERO_POWERS["Macht"],
+            "modifier": install_frierenrift_modifiers,
+        },
+        "riftclash_pyromancer": {
+            "label": "Riftclash Pyromancer",
+            "deck": RIFTCLASH_DECKS["Pyromancer"],
+            "hero": RIFTCLASH_HEROES["Pyromancer"],
+            "hero_power": RIFTCLASH_HERO_POWERS["Pyromancer"],
+            "modifier": install_riftclash_modifiers,
+        },
+        "riftclash_cryomancer": {
+            "label": "Riftclash Cryomancer",
+            "deck": RIFTCLASH_DECKS["Cryomancer"],
+            "hero": RIFTCLASH_HEROES["Cryomancer"],
+            "hero_power": RIFTCLASH_HERO_POWERS["Cryomancer"],
+            "modifier": install_riftclash_modifiers,
+        },
+    })
+    return specs
+
+
+def _hs_decks(deck_names: list[str]) -> dict[str, dict]:
+    specs = _hs_deck_specs()
+    aliases = {
+        "stormrift_pyro": "stormrift_pyromancer",
+        "stormrift_cryo": "stormrift_cryomancer",
+        "frierenrift_frieren": "frieren",
+        "frierenrift_macht": "macht",
+        "riftclash_pyro": "riftclash_pyromancer",
+        "riftclash_cryo": "riftclash_cryomancer",
+    }
+    out = {}
+    for raw_name in deck_names:
+        name = raw_name.strip().lower()
+        key = aliases.get(name, name)
+        spec = specs.get(key)
+        if not spec:
+            available = ", ".join(sorted(specs))
+            raise ValueError(f"Unknown Hearthstone deck: {raw_name!r}. Available: {available}")
+        out[raw_name] = spec
+    return out
+
+
+def _hs_variant_config(variant: str) -> tuple[str, Optional[str]]:
+    name = variant.lower()
+    if name in {"aggro", "control", "midrange"}:
+        return "hard", name
+    if name in {"ultra", "llm_guided", "llm-guided"}:
+        return "ultra", None
+    if name == "random":
+        return "random", None
+    if name == "easy":
+        return "easy", None
+    if name in {"medium", "hard"}:
+        return name, None
+    raise ValueError(
+        f"Unknown Hearthstone variant {variant!r}. "
+        "Use aggro, control, midrange, ultra, random, medium, or hard."
+    )
+
+
+async def _hs_run_one(
+    deck1: dict, deck2: dict,
+    p1_variant: str, p2_variant: str,
+    p1_label: str, p2_label: str,
+    max_turns: int,
+) -> GameOutcome:
+    from src.ai.hearthstone_adapter import HearthstoneAIAdapter
+    from src.engine.game import Game
+    from src.engine.types import CardType
+
+    started = time.perf_counter()
+    try:
+        game = Game(mode="hearthstone")
+        p1 = game.add_player(f"P1_{p1_label}_{p1_variant}", life=30)
+        p2 = game.add_player(f"P2_{p2_label}_{p2_variant}", life=30)
+
+        game.setup_hearthstone_player(p1, deck1["hero"], deck1["hero_power"])
+        game.setup_hearthstone_player(p2, deck2["hero"], deck2["hero_power"])
+
+        modifiers = []
+        for modifier in (deck1.get("modifier"), deck2.get("modifier")):
+            if modifier and modifier not in modifiers:
+                modifiers.append(modifier)
+        for modifier in modifiers:
+            modifier(game)
+
+        for card_def in deck1["deck"]:
+            game.add_card_to_library(p1.id, card_def)
+        for card_def in deck2["deck"]:
+            game.add_card_to_library(p2.id, card_def)
+
+        game.shuffle_library(p1.id)
+        game.shuffle_library(p2.id)
+
+        p1_difficulty, p1_archetype = _hs_variant_config(p1_variant)
+        p2_difficulty, p2_archetype = _hs_variant_config(p2_variant)
+        adapter = HearthstoneAIAdapter(difficulty="hard")
+        adapter.player_difficulties[p1.id] = p1_difficulty
+        adapter.player_difficulties[p2.id] = p2_difficulty
+        if p1_archetype:
+            adapter.set_player_archetype(p1.id, p1_archetype)
+        if p2_archetype:
+            adapter.set_player_archetype(p2.id, p2_archetype)
+
+        game.turn_manager.hearthstone_ai_handler = adapter
+        game.turn_manager.ai_players = {p1.id, p2.id}
+        game.get_mulligan_decision = lambda pid, hand, count: True
+
+        await game.start_game()
+        if not game.state.active_player:
+            game.state.active_player = p1.id
+
+        turns = 0
+        while turns < max_turns:
+            turns += 1
+            if game.is_game_over() or p1.life <= 0 or p2.life <= 0:
+                break
+            await game.turn_manager.run_turn()
+
+            battlefield = game.state.zones.get("battlefield")
+            if battlefield:
+                for pid in (p1.id, p2.id):
+                    minions = sum(
+                        1 for oid in battlefield.objects
+                        if oid in game.state.objects
+                        and game.state.objects[oid].controller == pid
+                        and CardType.MINION in game.state.objects[oid].characteristics.types
+                    )
+                    if minions > 7:
+                        raise RuntimeError(f"player {pid} has {minions} minions")
+
+        winner_variant = None
+        winner_reason = "max_turns"
+        if (p1.has_lost or p1.life <= 0) and not (p2.has_lost or p2.life <= 0):
+            winner_variant = p2_variant
+            winner_reason = "lethal"
+        elif (p2.has_lost or p2.life <= 0) and not (p1.has_lost or p1.life <= 0):
+            winner_variant = p1_variant
+            winner_reason = "lethal"
+        elif turns >= max_turns:
+            p1_effective = p1.life + p1.armor
+            p2_effective = p2.life + p2.armor
+            if p1_effective > p2_effective:
+                winner_variant = p1_variant
+                winner_reason = "life_total_timeout"
+            elif p2_effective > p1_effective:
+                winner_variant = p2_variant
+                winner_reason = "life_total_timeout"
+            else:
+                winner_reason = "draw"
+
+        return GameOutcome(
+            p1_variant=p1_variant,
+            p2_variant=p2_variant,
+            p1_deck_label=p1_label,
+            p2_deck_label=p2_label,
+            winner_variant=winner_variant,
+            turns=turns,
+            duration_s=time.perf_counter() - started,
+            winner_reason=winner_reason,
+        )
+    except Exception as exc:
+        return GameOutcome(
+            p1_variant=p1_variant,
+            p2_variant=p2_variant,
+            p1_deck_label=p1_label,
+            p2_deck_label=p2_label,
+            winner_variant=None,
+            turns=0,
+            duration_s=time.perf_counter() - started,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+
+
+def _ygo_copy_strategy(strategy: Optional[dict]) -> Optional[dict]:
+    if not strategy:
+        return None
+    out = dict(strategy)
+    for key in ("priorities", "summon_priority", "set_priority"):
+        if key in out:
+            out[key] = list(out[key])
+    return out
+
+
+def _ygo_decks(deck_names: list[str]) -> dict[str, dict]:
+    from src.cards.yugioh.ygo_starter import (
+        WARRIOR_DECK, WARRIOR_EXTRA_DECK,
+        SPELLCASTER_DECK, SPELLCASTER_EXTRA_DECK,
+    )
+    from src.cards.yugioh.ygo_classic import (
+        YUGI_DECK, YUGI_EXTRA_DECK,
+        KAIBA_DECK, KAIBA_EXTRA_DECK,
+    )
+    from src.cards.yugioh.deck_builder import build_ygo_optimized_deck, list_ygo_optimized_decks
+    from src.cards.yugioh.beyond.kamigawa import (
+        build_kamigawa_deck,
+        kamigawa_strategy,
+        list_kamigawa_archetypes,
+    )
+
+    fixed = {
+        "starter:warrior": (WARRIOR_DECK, WARRIOR_EXTRA_DECK, None),
+        "starter:spellcaster": (SPELLCASTER_DECK, SPELLCASTER_EXTRA_DECK, None),
+        "classic:yugi": (YUGI_DECK, YUGI_EXTRA_DECK, None),
+        "classic:kaiba": (KAIBA_DECK, KAIBA_EXTRA_DECK, None),
+    }
+    optimized = set(list_ygo_optimized_decks())
+    kamigawa = set(list_kamigawa_archetypes())
+
+    out = {}
+    for raw_name in deck_names:
+        name = raw_name.strip()
+        key = name.lower()
+        if key in fixed:
+            main, extra, strategy = fixed[key]
+            out[name] = {
+                "main": list(main),
+                "extra": list(extra),
+                "strategy": _ygo_copy_strategy(strategy),
+            }
+            continue
+
+        if name in optimized:
+            main, extra, strategy = build_ygo_optimized_deck(name)
+            out[name] = {"main": main, "extra": extra, "strategy": _ygo_copy_strategy(strategy)}
+            continue
+
+        archetype = name.split(":", 1)[1] if name.startswith("kamigawa:") else name
+        if archetype in kamigawa:
+            main, extra = build_kamigawa_deck(archetype)
+            out[name] = {
+                "main": main,
+                "extra": extra,
+                "strategy": kamigawa_strategy(archetype),
+            }
+            continue
+
+        available = (
+            sorted(fixed)
+            + sorted(optimized)
+            + [f"kamigawa:{archetype}" for archetype in sorted(kamigawa)]
+        )
+        raise ValueError(f"Unknown Yu-Gi-Oh! deck: {raw_name!r}. Available: {', '.join(available)}")
+    return out
+
+
+YGO_GENERIC_STRATEGIES: dict[str, dict] = {
+    "aggro": {
+        "name": "YGO Aggro Pilot",
+        "archetype": "Beatdown / Aggro",
+        "summon_priority": [],
+        "set_priority": [],
+    },
+    "control": {
+        "name": "YGO Control Pilot",
+        "archetype": "Control",
+        "summon_priority": [],
+        "set_priority": [],
+    },
+    "burn": {
+        "name": "YGO Burn Pilot",
+        "archetype": "Burn / Stall",
+        "summon_priority": [],
+        "set_priority": ["Stealth Bird", "Des Koala", "Marshmallon", "Giant Germ"],
+    },
+}
+
+
+def _ygo_variant_adapter(variant: str, deck_strategy: Optional[dict]):
+    from src.ai.yugioh_adapter import YugiohAIAdapter
+
+    name = variant.strip().lower()
+    if name in {"random", "easy"}:
+        ai = YugiohAIAdapter(difficulty="easy")
+    elif name in {"balanced", "medium"}:
+        ai = YugiohAIAdapter(difficulty="medium")
+    elif name in {"hard"}:
+        ai = YugiohAIAdapter(difficulty="hard")
+    elif name in {"deck_strategy", "strategy", "llm_guided", "llm-guided"}:
+        ai = YugiohAIAdapter(difficulty="hard")
+        ai.strategy = _ygo_copy_strategy(deck_strategy)
+    elif name in {"ultra", "ultra_strategy"}:
+        ai = YugiohAIAdapter(difficulty="ultra")
+        ai.strategy = _ygo_copy_strategy(deck_strategy)
+    elif name in YGO_GENERIC_STRATEGIES:
+        ai = YugiohAIAdapter(difficulty="hard")
+        ai.strategy = _ygo_copy_strategy(YGO_GENERIC_STRATEGIES[name])
+    else:
+        raise ValueError(
+            f"Unknown Yu-Gi-Oh! variant {variant!r}. "
+            "Use balanced, deck_strategy, aggro, control, burn, ultra, random, easy, medium, or hard."
+        )
+    return ai
+
+
+class _YGODispatchAdapter:
+    def __init__(self, adapters: dict[str, Any]):
+        self.adapters = adapters
+
+    def _adapter(self, player_id: str):
+        return self.adapters[player_id]
+
+    def get_main_phase_action(self, player_id: str, state: Any, turn_state: Any) -> dict:
+        return self._adapter(player_id).get_main_phase_action(player_id, state, turn_state)
+
+    def get_battle_action(self, player_id: str, state: Any, turn_state: Any) -> dict:
+        return self._adapter(player_id).get_battle_action(player_id, state, turn_state)
+
+    def should_enter_battle(self, player_id: str, state: Any) -> bool:
+        return self._adapter(player_id).should_enter_battle(player_id, state)
+
+
+def _ygo_board_score(game: Any, player_id: str) -> int:
+    zone = game.state.zones.get(f"monster_zone_{player_id}")
+    if not zone:
+        return 0
+    score = 0
+    for oid in zone.objects:
+        obj = game.state.objects.get(oid) if oid else None
+        if not obj or not obj.card_def:
+            continue
+        atk = getattr(obj.card_def, "atk", 0) or 0
+        defense = getattr(obj.card_def, "def_val", 0) or 0
+        score += max(atk, defense) // 100
+    return score
+
+
+async def _ygo_run_one(
+    deck1: dict, deck2: dict,
+    p1_variant: str, p2_variant: str,
+    p1_label: str, p2_label: str,
+    max_turns: int,
+) -> GameOutcome:
+    from src.engine.game import Game
+
+    started = time.perf_counter()
+    try:
+        game = Game(mode="yugioh")
+        p1 = game.add_player(f"P1_{p1_label}_{p1_variant}")
+        p2 = game.add_player(f"P2_{p2_label}_{p2_variant}")
+        game.setup_yugioh_player(p1, deck1["main"], deck1.get("extra") or [])
+        game.setup_yugioh_player(p2, deck2["main"], deck2.get("extra") or [])
+
+        ai1 = _ygo_variant_adapter(p1_variant, deck1.get("strategy"))
+        ai2 = _ygo_variant_adapter(p2_variant, deck2.get("strategy"))
+        game.turn_manager.set_ai_handler(_YGODispatchAdapter({p1.id: ai1, p2.id: ai2}))
+        game.turn_manager.ai_players.add(p1.id)
+        game.turn_manager.ai_players.add(p2.id)
+
+        await game.turn_manager.setup_game()
+        turns = 0
+        while turns < max_turns:
+            if game.is_game_over():
+                break
+            await game.turn_manager.run_turn()
+            turns += 1
+
+        winner = game.get_winner()
+        winner_variant = None
+        winner_reason = "draw"
+        if winner == p1.id:
+            winner_variant = p1_variant
+            winner_reason = "lethal"
+        elif winner == p2.id:
+            winner_variant = p2_variant
+            winner_reason = "lethal"
+        elif turns >= max_turns:
+            p1_score = p1.lp + _ygo_board_score(game, p1.id)
+            p2_score = p2.lp + _ygo_board_score(game, p2.id)
+            if p1_score > p2_score:
+                winner_variant = p1_variant
+                winner_reason = "lp_board_timeout"
+            elif p2_score > p1_score:
+                winner_variant = p2_variant
+                winner_reason = "lp_board_timeout"
+
+        return GameOutcome(
+            p1_variant=p1_variant,
+            p2_variant=p2_variant,
+            p1_deck_label=p1_label,
+            p2_deck_label=p2_label,
+            winner_variant=winner_variant,
+            turns=turns,
+            duration_s=time.perf_counter() - started,
+            winner_reason=winner_reason,
+        )
+    except Exception as exc:
+        return GameOutcome(
+            p1_variant=p1_variant,
+            p2_variant=p2_variant,
+            p1_deck_label=p1_label,
+            p2_deck_label=p2_label,
+            winner_variant=None,
+            turns=0,
+            duration_s=time.perf_counter() - started,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+
+
 ENGINES: dict[str, dict] = {
     "minecraft": {
         "deck_resolver": _mc_decks,
@@ -158,6 +789,38 @@ ENGINES: dict[str, dict] = {
         "default_decks": ["MONO_RED_AGGRO", "DIMIR_CONTROL", "MONO_GREEN_RAMP", "BOROS_AGGRO"],
         "default_variants": ["aggro", "control", "midrange"],
         "default_max_turns": 20,
+    },
+    "pokemon": {
+        "deck_resolver": _pkm_decks,
+        "run_one": _pkm_run_one,
+        "default_decks": ["izzet", "rakdos", "gruul", "orzhov"],
+        "default_variants": ["medium", "hard", "ultra"],
+        "default_max_turns": 80,
+    },
+    "hearthstone": {
+        "deck_resolver": _hs_decks,
+        "run_one": _hs_run_one,
+        "default_decks": [
+            "stormrift_pyromancer", "stormrift_cryomancer",
+            "frieren", "macht",
+            "riftclash_pyromancer", "riftclash_cryomancer",
+        ],
+        "default_variants": ["aggro", "control", "midrange", "ultra", "random"],
+        "default_max_turns": 30,
+    },
+    "yugioh": {
+        "deck_resolver": _ygo_decks,
+        "run_one": _ygo_run_one,
+        "default_decks": [
+            "goat_control",
+            "chain_burn",
+            "dragon_beatdown",
+            "kamigawa:samurai",
+            "kamigawa:ninja",
+            "kamigawa:moonfolk",
+        ],
+        "default_variants": ["balanced", "deck_strategy", "aggro", "control", "burn", "random"],
+        "default_max_turns": 40,
     },
 }
 
@@ -256,6 +919,7 @@ def aggregate(outcomes: list[GameOutcome], variants: list[str]) -> dict[str, Any
     games = defaultdict(lambda: defaultdict(int))
     overall_wins = defaultdict(int)
     overall_games = defaultdict(int)
+    reason_counts = defaultdict(int)
     error_count = 0
     draw_count = 0
 
@@ -264,6 +928,8 @@ def aggregate(outcomes: list[GameOutcome], variants: list[str]) -> dict[str, Any
             error_count += 1
         if o.winner_variant is None:
             draw_count += 1
+        if o.winner_reason:
+            reason_counts[o.winner_reason] += 1
         a, b = o.p1_variant, o.p2_variant
         games[a][b] += 1
         games[b][a] += 1
@@ -308,6 +974,7 @@ def aggregate(outcomes: list[GameOutcome], variants: list[str]) -> dict[str, Any
             "games": len(outcomes),
             "draws": draw_count,
             "errors": error_count,
+            "winner_reasons": dict(sorted(reason_counts.items())),
         },
     }
 
@@ -375,6 +1042,12 @@ def render_report(aggregated: dict[str, Any]) -> str:
         f"\nTotal games: {totals['games']}   draws: {totals['draws']}   "
         f"errors: {totals['errors']}"
     )
+    if totals.get("winner_reasons"):
+        reason_text = ", ".join(
+            f"{reason}={count}"
+            for reason, count in totals["winner_reasons"].items()
+        )
+        lines.append(f"Winner reasons: {reason_text}")
 
     return "\n".join(lines)
 
@@ -395,10 +1068,15 @@ def _cli() -> None:
                         help="Games per variant pair per deck (default 4).")
     parser.add_argument("--max-turns", type=int, default=None)
     parser.add_argument("--out", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Optional random seed for reproducible tournament runs.")
     parser.add_argument("--variants-file", type=str, default=None,
                         help="JSON file with extra named variants. Shape: "
                              "{'variants': {'name': {'preset': {...}, 'rationale': '...'}}}")
     args = parser.parse_args()
+
+    if args.seed is not None:
+        random.seed(args.seed)
 
     cfg = ENGINES[args.engine]
     deck_names = (args.decks.split(",") if args.decks
@@ -450,6 +1128,7 @@ def _cli() -> None:
                 "variants": variants,
                 "decks": deck_names,
                 "games_per_pair_per_deck": args.games,
+                "seed": args.seed,
                 "outcomes": [o.__dict__ for o in outcomes],
                 "aggregated": aggregated,
             }, fh, indent=2)

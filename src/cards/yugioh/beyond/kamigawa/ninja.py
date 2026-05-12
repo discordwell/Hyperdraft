@@ -765,10 +765,36 @@ KAITO_SHIZUKI = make_ygo_monster(
 def _ninjitsu_decoy_setup(obj, state):
     """Continuous: 'Ninja' you control cannot be targeted by opponent's card effects.
 
-    Simplified: register a pseudo-immunity flag we cannot enforce engine-wide,
-    so this is essentially a flavor placeholder. Returns no interceptors yet.
+    Simplified: expose a query ability and set a pseudo-immunity flag for
+    effects that consult object state.
     """
-    return []
+    from src.engine.types import (Interceptor, InterceptorAction,
+                                  InterceptorPriority, InterceptorResult, new_id)
+
+    def _filter(event, state):
+        if obj.zone != ZoneType.SPELL_TRAP_ZONE:
+            return False
+        if event.type != EventType.QUERY_ABILITIES:
+            return False
+        target = state.objects.get(event.payload.get('object_id'))
+        return target is not None and target.controller == obj.controller and _is_ninja(target)
+
+    def _handler(event, state):
+        target = state.objects.get(event.payload.get('object_id'))
+        if not target:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        target.state.untargetable_by_opponent = True
+        abilities = event.payload.setdefault('abilities', set())
+        if isinstance(abilities, set):
+            abilities.add('untargetable_by_opponent')
+        granted = event.payload.setdefault('granted', [])
+        if isinstance(granted, list):
+            granted.append('untargetable_by_opponent')
+        return InterceptorResult(action=InterceptorAction.TRANSFORM,
+                                 transformed_event=event)
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.QUERY, filter=_filter,
+                        handler=_handler, duration='until_leaves')]
 
 
 NINJITSU_ART_OF_DECOY = make_ygo_spell(
@@ -848,10 +874,41 @@ def _path_of_the_shadow_resolve(event, state):
     return []
 
 
+def _path_of_the_shadow_setup(obj, state):
+    """Field Spell: grant piercing as a query ability to Ninjas."""
+    from src.engine.types import (Interceptor, InterceptorAction,
+                                  InterceptorPriority, InterceptorResult, new_id)
+
+    def _filter(event, state):
+        if obj.zone != ZoneType.FIELD_SPELL_ZONE:
+            return False
+        if event.type != EventType.QUERY_ABILITIES:
+            return False
+        target = state.objects.get(event.payload.get('object_id'))
+        return target is not None and target.controller == obj.controller and _is_ninja(target)
+
+    def _handler(event, state):
+        abilities = event.payload.setdefault('abilities', set())
+        if isinstance(abilities, set):
+            abilities.add('pierce')
+        granted = event.payload.setdefault('granted', [])
+        if isinstance(granted, list):
+            granted.append('pierce')
+        return InterceptorResult(action=InterceptorAction.TRANSFORM,
+                                 transformed_event=event)
+
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.QUERY, filter=_filter,
+                        handler=_handler, duration='until_leaves')]
+
+
 PATH_OF_THE_SHADOW = make_ygo_spell(
     "Path of the Shadow", ygo_spell_type="Field",
-    text="'Ninja' monsters you control inflict piercing battle damage.",
+    text="While face-up in the Field Zone: 'Ninja' monsters you control "
+         "inflict piercing battle damage. Combat simplification: grant a "
+         "pierce query ability.",
     resolve=_path_of_the_shadow_resolve,
+    setup_interceptors=_path_of_the_shadow_setup,
 )
 
 
@@ -895,7 +952,8 @@ def _ninjas_cunning_resolve(event, state):
 
 NINJAS_CUNNING = make_ygo_spell(
     "Ninja's Cunning", ygo_spell_type="Normal",
-    text="Add 1 'Ninja' from your Deck to your hand.",
+    text="When activated: search your Deck for 1 'Ninja' and add it to your "
+         "hand. Search simplification: take the first legal Ninja in Deck order.",
     resolve=_ninjas_cunning_resolve,
 )
 
@@ -959,7 +1017,9 @@ def _ninja_strike_force_resolve(event, state):
 
 NINJA_STRIKE_FORCE = make_ygo_spell(
     "Ninja Strike Force", ygo_spell_type="Normal",
-    text="SS up to 2 'Ninja' from your GY in face-up Defense Position.",
+    text="When activated: SS up to 2 'Ninja' from your GY in face-up Defense "
+         "Position. Targeting simplification: revive the first legal Ninja "
+         "cards.",
     resolve=_ninja_strike_force_resolve,
 )
 
@@ -1112,7 +1172,9 @@ def _cloak_and_dagger_resolve(event, state):
 
 CLOAK_AND_DAGGER = make_ygo_trap(
     "Cloak and Dagger", ygo_trap_type="Normal",
-    text="Change 1 'Ninja' you control to face-down Defense Position.",
+    text="When activated: change 1 'Ninja' you control to face-down Defense "
+         "Position. Targeting simplification: use the first legal Ninja if no "
+         "target is supplied.",
     resolve=_cloak_and_dagger_resolve,
 )
 
@@ -1124,10 +1186,45 @@ def _sealing_tag_resolve(event, state):
                            'controller': event.payload.get('player')})]
 
 
+def _sealing_tag_setup(obj, state):
+    """Continuous Trap: live Level 5+ opponent monsters gain effects_negated."""
+    from src.engine.types import (Interceptor, InterceptorAction,
+                                  InterceptorPriority, InterceptorResult, new_id)
+
+    def _filter(event, state):
+        if obj.zone != ZoneType.SPELL_TRAP_ZONE or obj.state.face_down:
+            return False
+        if event.type != EventType.QUERY_ABILITIES:
+            return False
+        target = state.objects.get(event.payload.get('object_id'))
+        if target is None or target.controller == obj.controller or not target.card_def:
+            return False
+        return (getattr(target.card_def, 'level', 0) or 0) >= 5
+
+    def _handler(event, state):
+        target = state.objects.get(event.payload.get('object_id'))
+        if target is not None:
+            target.state.effects_negated = True
+        granted = event.payload.setdefault('granted', [])
+        if isinstance(granted, list):
+            granted.append('effects_negated')
+        abilities = event.payload.setdefault('abilities', set())
+        if isinstance(abilities, set):
+            abilities.add('effects_negated')
+        return InterceptorResult(action=InterceptorAction.TRANSFORM,
+                                 transformed_event=event)
+
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.QUERY, filter=_filter,
+                        handler=_handler, duration='until_leaves')]
+
+
 SEALING_TAG = make_ygo_trap(
     "Sealing Tag", ygo_trap_type="Continuous",
-    text="Negate the effects of an opponent's Lv 5+ monster while it is on the field.",
+    text="While this card is face-up, negate the effects of opponent's Level 5+ "
+         "monsters on the field. Layer simplification: affected monsters gain an effects_negated marker.",
     resolve=_sealing_tag_resolve,
+    setup_interceptors=_sealing_tag_setup,
 )
 
 
@@ -1316,6 +1413,22 @@ MUKOTAI_SOULRIPPER = make_ygo_monster(
 )
 
 
+_PASS3_TEXT_APPENDIX = {
+    "Ninjitsu Art of Transformation": "Cost and resolution: tribute the first face-up Ninja you control, then Special Summon the first Level 5 or higher Ninja from your GY.",
+    "Ninjitsu Art of Decoy": "Continuous layer: while this card is face-up, Ninja monsters you control gain an untargetable_by_opponent marker during ability queries.",
+    "Ninjitsu Art of Duplication": "Battle trap simplification: when a Ninja you control is attacked, Special Summon the first Ninja in your GY to an open monster zone.",
+    "Final Smoke": "Chain timing simplification: when a destroy effect would remove your Ninja, emit a negate_destroy marker for the YGO chain layer.",
+    "Mistblade's Cunning": "Resolution simplification: target the first Ninja you control if none is supplied; it gains 1500 ATK until End Phase.",
+    "Smoke Bomb": "Cost and resolution: return the first Ninja you control to your hand, then draw two cards from the top of your Deck.",
+    "Ninja Grandmaster Sasuke": "Battle trigger: when this card attacks a face-down monster, banish that monster without flipping it or applying its battle effects.",
+}
+
+for _pass3_card in list(globals().values()):
+    _pass3_note = _PASS3_TEXT_APPENDIX.get(getattr(_pass3_card, "name", None))
+    if _pass3_note and _pass3_note not in (_pass3_card.text or ""):
+        _pass3_card.text = f"{_pass3_card.text} {_pass3_note}"
+
+
 # =============================================================================
 # Set registry
 # =============================================================================
@@ -1360,18 +1473,24 @@ def make_ninja_deck() -> tuple[list, list]:
     immunity). Replaced 5 of the weakest archetype cards with mechanically-
     reliable staples (Lightning Bolt, Doom Blade, Wrath of God, Demonic
     Tutor) that fire real YGO_DESTROY / LP_CHANGE / draw events.
+
+    Tuned 2026-05-10: after strategy-aware wet tests, cut the unmodeled
+    piercing Field Spell, one low-impact Equip, and the slow Inkblot engine
+    for a third Doom Blade and two Ponders. A follow-up pass moved two weak
+    search bodies into Ninja Grandmaster Sasuke so the deck can contest combat
+    before Ninjutsu value matters.
     """
     from src.cards.yugioh.beyond.kamigawa.staples import (
-        LIGHTNING_BOLT, DOOM_BLADE, WRATH_OF_GOD, DEMONIC_TUTOR,
+        LIGHTNING_BOLT, DOOM_BLADE, WRATH_OF_GOD, DEMONIC_TUTOR, PONDER,
     )
     main = (
         # Monsters (18) — vanillas and weak utility trimmed
         [WALKER_OF_SECRET_WAYS] * 2 +
         [IGA_STYLE_COOPER] * 2 +       # Tuner
-        [CLOAK_OF_MISTS] * 1 +
+        [NINJA_GRANDMASTER_SASUKE] * 2 +
         [NINJA_OF_THE_DEEP_HOURS] * 3 +
         [MISTBLADE_SHINOBI] * 2 +
-        [HIGURES_APPRENTICE] * 2 +
+        [HIGURES_APPRENTICE] * 1 +
         [SATORU_UMEZAWA] * 1 +
         [THROAT_SLITTER] * 1 +
         [HIGURE_THE_STILL_WIND] * 1 +
@@ -1380,15 +1499,13 @@ def make_ninja_deck() -> tuple[list, list]:
         [KAITO_SHIZUKI] * 1 +
         # Spells (16) — staples pulled in for real interaction
         [LIGHTNING_BOLT] * 3 +         # +3 — direct damage / removal (max copies)
-        [DOOM_BLADE] * 2 +             # +2 — destroy non-LIGHT (max useful)
+        [DOOM_BLADE] * 3 +             # +3 — destroy non-LIGHT (max copies)
         [WRATH_OF_GOD] * 1 +           # +1 — board wipe vs Samurai/Modified
         [DEMONIC_TUTOR] * 1 +          # +1 — find a high-impact Ninja or staple
+        [PONDER] * 2 +                 # +2 — smooth early hands
         [NINJAS_CUNNING] * 2 +
         [SMOKE_BOMB] * 2 +
         [MISTBLADES_CUNNING] * 2 +
-        [INKBLOT] * 1 +
-        [PATH_OF_THE_SHADOW] * 1 +
-        [BRILLIANT_HALBERD] * 1 +
         # Traps (6)
         [NINJITSU_ART_OF_DUPLICATION] * 1 +
         [NINJAS_ECHO] * 1 +

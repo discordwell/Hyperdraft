@@ -1485,6 +1485,29 @@ GORO_GORO_PENDULUM_ASCENDANT = make_ygo_monster(
 )
 
 
+_PASS3_TEXT_APPENDIX = {
+    "Refurbish": "Resolution simplification: add the first Equip Spell in your GY to your hand, preserving ownership and clearing its equipped_to pointer.",
+    "Workshop Assembly": "Resolution simplification: Special Summon up to two Level 4 or lower Machine monsters from your hand or GY into open monster zones.",
+    "Cyber Salvage": "Cost and resolution: tribute the first Modified Machine you control, then Special Summon a Level 6 or higher Machine from your hand or GY.",
+    "The Wandering Emperor, Modified Variant": "Protection layer: while this card is Modified by an Equip Spell, battle destruction against it is prevented.",
+    "The Reality Chip": "Field layer: while face-up in the Field Zone, Modified Machines you control gain 300 ATK through the stat query layer.",
+    "Auto-Repair Module": "Continuous layer: the first card-effect destruction against your Modified Machines each turn is prevented, then the turn marker is spent.",
+    "Kotori, the Pearl-Shell Dragon": "Modified check: while at least one Equip Spell is attached to this card, ability queries grant attack_twice for the Battle Phase.",
+    "Voltron Construct": "Lord layer: other Modified Machines you control gain 300 ATK while this card remains face-up in your monster zone.",
+    "Boseiju's Reach": "Cost and resolution: send your first Equip Spell to the GY, then destroy every face-up Spell and Trap on the field.",
+    "Tezzeret's Edict": "Cost and resolution: banish the first Equip Spell in your GY, then destroy the first face-up opponent monster.",
+    "Cogwork Ambush": "Battle trap simplification: when a Modified Machine declares an attack, target that attacker and give it 1500 ATK for the damage step.",
+    "Cranial Plating": "Equip layer: the equipped Machine gains 200 ATK for each face-up Equip Spell you control, recalculated whenever power is queried.",
+    "Heavy Boots": "Equip layer: the equipped Machine gains 1000 ATK, and its cannot_attack_turn_equipped marker blocks attacks on the equip turn.",
+    "Cyber-Spirit Conduit": "Modified bridge: while you control another Modified Machine, this Tuner changes into a Modified card for archetype checks.",
+}
+
+for _pass3_card in list(globals().values()):
+    _pass3_note = _PASS3_TEXT_APPENDIX.get(getattr(_pass3_card, "name", None))
+    if _pass3_note and _pass3_note not in (_pass3_card.text or ""):
+        _pass3_card.text = f"{_pass3_card.text} {_pass3_note}"
+
+
 # =============================================================================
 # Set registry
 # =============================================================================

@@ -538,6 +538,34 @@ def analyze_all_decks() -> dict[str, dict]:
     return summaries
 
 
+def analyze_custom_set_decks() -> dict[str, dict]:
+    """Return quality metrics for Hearthstone custom/expansion set decks."""
+    from src.cards.hearthstone.stormrift import STORMRIFT_DECKS
+    from src.cards.hearthstone.frierenrift import FRIERENRIFT_DECKS
+    from src.cards.hearthstone.riftclash import RIFTCLASH_DECKS
+
+    custom_decks = {
+        "Stormrift Pyromancer": ("aggro", STORMRIFT_DECKS["Pyromancer"]),
+        "Stormrift Cryomancer": ("control", STORMRIFT_DECKS["Cryomancer"]),
+        "Frierenrift Frieren": ("midrange", FRIERENRIFT_DECKS["Frieren"]),
+        "Frierenrift Macht": ("midrange", FRIERENRIFT_DECKS["Macht"]),
+        "Riftclash Pyromancer": ("midrange", RIFTCLASH_DECKS["Pyromancer"]),
+        "Riftclash Cryomancer": ("control", RIFTCLASH_DECKS["Cryomancer"]),
+    }
+    summaries = {}
+    for label, (role, deck) in custom_decks.items():
+        valid, validation_error = validate_deck(deck)
+        summary = {
+            **analyze_deck_quality(deck),
+            "role": role,
+            "valid": valid,
+            "validation_error": validation_error,
+        }
+        summary["role_quality_flags"] = deck_role_quality_flags(role, summary)
+        summaries[label] = summary
+    return summaries
+
+
 def deck_role_quality_flags(role: str, summary: dict) -> list[str]:
     """Return role-specific deckbuilding deficits for a deck summary."""
     flags = []

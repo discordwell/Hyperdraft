@@ -95,8 +95,10 @@ VANNET = make_pokemon(
     evolution_stage="Basic",
     attacks=[
         {"name": "Sticky Tongue",
-         "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 20, "text": ""},
+         "cost": [{"type": "G", "count": 1}],
+         "damage": 30,
+         "text": "Draw a card.",
+         "effect_fn": _splice_jab_effect},
     ],
     weakness_type=PokemonType.FIRE.value,
     retreat_cost=1,
@@ -114,7 +116,10 @@ VANNIFUSE = make_pokemon(
     attacks=[
         {"name": "Graft Splice",
          "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 50, "text": ""},
+         "damage": 70,
+         "text": ("Search your deck for a Stage 1 or Stage 2 Pokemon and "
+                  "put it on top of your deck. Then shuffle the rest."),
+         "effect_fn": _evolutionary_leap_effect},
     ],
     weakness_type=PokemonType.FIRE.value,
     retreat_cost=1,
@@ -135,7 +140,7 @@ VANNIFAR_EVOLVED_ENIGMA_EX = make_pokemon(
          "damage": 80,
          "text": ""},
         {"name": "Evolutionary Leap",
-         "cost": [{"type": "G", "count": 2}, {"type": "W", "count": 2}],
+         "cost": [{"type": "G", "count": 2}, {"type": "W", "count": 1}],
          "damage": 200,
          "text": "Search your deck for a Stage 1 or Stage 2 Pokemon and put it on top of your deck. Then shuffle.",
          "effect_fn": _evolutionary_leap_effect},
@@ -240,23 +245,50 @@ COILING_ORACLE = make_pokemon(
 # =============================================================================
 
 def _novijen_heart_of_progress_effect(event, state):
-    """Each player draws a card when this Stadium enters play."""
+    """Each player draws, then may attach one Energy from hand to Active."""
     events = []
     for pid in state.players:
         events.extend(_draw_cards(state, pid, 1))
+        hand = state.zones.get(f"hand_{pid}")
+        active_zone = state.zones.get(f"active_spot_{pid}")
+        if not hand or not active_zone or not active_zone.objects:
+            continue
+        active = state.objects.get(active_zone.objects[0])
+        if not active:
+            continue
+        energy_id = None
+        for card_id in hand.objects:
+            obj = state.objects.get(card_id)
+            if obj and obj.characteristics and CardType.ENERGY in obj.characteristics.types:
+                energy_id = card_id
+                break
+        if not energy_id:
+            continue
+        hand.objects.remove(energy_id)
+        active.state.attached_energy.append(energy_id)
+        energy = state.objects.get(energy_id)
+        if energy:
+            energy.zone = ZoneType.BATTLEFIELD
+        events.append(Event(
+            type=EventType.PKM_ATTACH_ENERGY,
+            payload={'pokemon_id': active.id, 'energy_id': energy_id,
+                     'source': 'Novijen, Heart of Progress'},
+        ))
     return events
 
 
 NOVIJEN_HEART_OF_PROGRESS = make_trainer_stadium(
     name="Novijen, Heart of Progress",
-    text="When you play Novijen, Heart of Progress, each player draws a card.",
+    text=("When you play Novijen, Heart of Progress, each player draws a card. "
+          "Then each player may attach an Energy from their hand to their "
+          "Active Pokemon."),
     rarity="uncommon",
     resolve=_novijen_heart_of_progress_effect,
 )
 
 
 def _prime_speaker_zegana_effect(event, state):
-    """Draw cards equal to the number of energies attached to your Active (max 4)."""
+    """Draw for Active energy, then stabilize a fully grown Active."""
     player_id = event.payload.get('player')
     if not player_id:
         return []
@@ -269,13 +301,23 @@ def _prime_speaker_zegana_effect(event, state):
     count = min(len(active.state.attached_energy), 4)
     if count <= 0:
         return []
-    return _draw_cards(state, player_id, count)
+    events = _draw_cards(state, player_id, count)
+    if count >= 3 and active.state.damage_counters > 0:
+        healed = min(2, active.state.damage_counters)
+        active.state.damage_counters -= healed
+        events.append(Event(
+            type=EventType.PKM_HEAL,
+            payload={'pokemon_id': active.id, 'amount': healed * 10,
+                     'source': 'Prime Speaker Zegana'},
+        ))
+    return events
 
 
 PRIME_SPEAKER_ZEGANA = make_trainer_supporter(
     name="Prime Speaker Zegana",
     text=("Draw a card for each Energy attached to your Active Pokemon "
-          "(maximum 4)."),
+          "(maximum 4). If that Pokemon has 3 or more Energy attached, "
+          "heal 20 damage from it."),
     rarity="rare",
     resolve=_prime_speaker_zegana_effect,
 )
@@ -482,15 +524,60 @@ PLAXCASTER_FROGLING = make_pokemon(
 )
 
 
+def _reef_sunder_effect(attacker, state):
+    """Move opposing Active Energy to the bench, or discard it if stranded."""
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return []
+    active = state.objects.get(active_zone.objects[0])
+    if not active or not active.state.attached_energy:
+        return []
+
+    energy_id = active.state.attached_energy.pop(0)
+    bench = state.zones.get(f"bench_{opp_id}")
+    if bench and bench.objects:
+        target_id = min(
+            bench.objects,
+            key=lambda bid: len(getattr(state.objects.get(bid).state, 'attached_energy', []))
+            if state.objects.get(bid) else 99,
+        )
+        target = state.objects.get(target_id)
+        if target:
+            target.state.attached_energy.append(energy_id)
+            return [Event(
+                type=EventType.PKM_ATTACH_ENERGY,
+                payload={'pokemon_id': target_id, 'energy_id': energy_id,
+                         'source': 'Trygon Predator'},
+            )]
+
+    grave = state.zones.get(f"graveyard_{opp_id}")
+    if grave:
+        grave.objects.append(energy_id)
+    energy = state.objects.get(energy_id)
+    if energy:
+        energy.zone = ZoneType.GRAVEYARD
+    return [Event(
+        type=EventType.PKM_DISCARD_ENERGY,
+        payload={'pokemon_id': active.id, 'energy_id': energy_id,
+                 'source': 'Trygon Predator'},
+    )]
+
+
 TRYGON_PREDATOR = make_pokemon(
     name="Trygon Predator",
     hp=60,
     pokemon_type=PokemonType.GRASS.value,
     evolution_stage="Basic",
     attacks=[
-        {"name": "Reef Strike",
+        {"name": "Reef Sunder",
          "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 40, "text": ""},
+         "damage": 40,
+         "text": ("Move 1 Energy from your opponent's Active Pokemon to "
+                  "1 of their Benched Pokemon. If they have no Bench, discard it."),
+         "effect_fn": _reef_sunder_effect},
     ],
     weakness_type=PokemonType.FIRE.value,
     retreat_cost=1,
@@ -616,7 +703,7 @@ def make_simic_deck() -> list:
     deck.extend([VANNIFAR_EVOLVED_ENIGMA_EX] * 2)
     deck.extend([MOMLET] * 3)
     deck.extend([MOMIR_VIG_SIMIC_VISIONARY] * 2)
-    deck.extend([MASTER_BIOMANCER] * 2)
+    deck.extend([COILING_ORACLE] * 2)
     # Guild trainers (9)
     deck.extend([NOVIJEN_HEART_OF_PROGRESS] * 2)
     deck.extend([PRIME_SPEAKER_ZEGANA] * 2)

@@ -2,7 +2,9 @@
 
 from src.ai.yugioh_adapter import YugiohAIAdapter
 from src.cards.yugioh.ygo_classic import BLUE_EYES_WHITE_DRAGON
-from src.cards.yugioh.beyond.kamigawa.staples import LIGHTNING_BOLT
+from src.cards.yugioh.beyond.kamigawa.staples import DOOM_BLADE, LIGHTNING_BOLT, PONDER
+from src.cards.yugioh.beyond.kamigawa.moonfolk import VAPOR_SNAG
+from src.cards.yugioh.beyond.kamigawa.ninja import NINJAS_CUNNING
 from src.cards.yugioh.ygo_optimized import (
     CHAIN_BURN_STRATEGY,
     DRAGON_BEATDOWN_STRATEGY,
@@ -13,6 +15,7 @@ from src.cards.yugioh.ygo_optimized import (
     MOUNTAIN,
     MYSTICAL_SPACE_TYPHOON,
     OOKAZI,
+    POT_OF_GREED,
     PREMATURE_BURIAL,
     SAKURETSU_ARMOR,
     STEALTH_BIRD,
@@ -183,6 +186,100 @@ def test_hard_ai_casts_custom_lethal_burn_before_summoning():
     }
 
 
+def test_hard_ai_uses_kamigawa_draw_and_removal_spells():
+    game, p1, p2 = _new_ygo_game()
+    ai = YugiohAIAdapter(difficulty="hard")
+    ponder = _card(game, PONDER, p1, ZoneType.HAND)
+
+    choice = ai._pick_spell_activation(
+        [ponder], p1.id, game.state, p2.id, [], []
+    )
+
+    assert choice == {"action_type": "activate_spell", "card_id": ponder.id}
+
+    doom_blade = _card(game, DOOM_BLADE, p1, ZoneType.HAND)
+    target = _field_monster(game, p2, "Non-Light Threat", 2300, 1200)
+    target.card_def.attribute = "DARK"
+
+    choice = ai._pick_spell_activation(
+        [doom_blade], p1.id, game.state, p2.id, [target], []
+    )
+
+    assert choice == {
+        "action_type": "activate_spell",
+        "card_id": doom_blade.id,
+        "targets": [target.id],
+    }
+
+
+def test_hard_ai_uses_generic_custom_spell_heuristics():
+    game, p1, p2 = _new_ygo_game()
+    ai = YugiohAIAdapter(difficulty="hard")
+    search = _card(game, NINJAS_CUNNING, p1, ZoneType.HAND)
+
+    choice = ai._pick_spell_activation(
+        [search], p1.id, game.state, p2.id, [], []
+    )
+
+    assert choice == {"action_type": "activate_spell", "card_id": search.id}
+
+    bounce = _card(game, VAPOR_SNAG, p1, ZoneType.HAND)
+    target = _field_monster(game, p2, "Bounce Target", 1800, 1200)
+
+    choice = ai._pick_spell_activation(
+        [bounce], p1.id, game.state, p2.id, [target], []
+    )
+
+    assert choice == {
+        "action_type": "activate_spell",
+        "card_id": bounce.id,
+        "targets": [target.id],
+    }
+
+
+def test_hard_ai_activates_set_proactive_traps():
+    game, p1, p2 = _new_ygo_game()
+    ai = YugiohAIAdapter(difficulty="hard")
+    trap = _card(game, SAKURETSU_ARMOR, p1, ZoneType.SPELL_TRAP_ZONE)
+    trap.state.face_down = True
+    trap.state.turns_set = 1
+    target = _field_monster(game, p2, "Trap Target", 2200, 1000)
+
+    choice = ai._pick_trap_activation(
+        [trap], p1.id, game.state, [target]
+    )
+
+    assert choice == {
+        "action_type": "activate_trap",
+        "card_id": trap.id,
+        "targets": [target.id],
+    }
+
+    game.turn_manager._execute_action(p1.id, choice)
+
+    assert target.zone == ZoneType.GRAVEYARD
+    assert trap.zone == ZoneType.GRAVEYARD
+
+
+def test_hard_ai_includes_tribute_ids_for_high_level_summons():
+    game, p1, _p2 = _new_ygo_game()
+    ai = YugiohAIAdapter(difficulty="hard")
+    boss = _card(game, BLUE_EYES_WHITE_DRAGON, p1, ZoneType.HAND)
+    fodder_a = _field_monster(game, p1, "Small Fodder", 500, 500)
+    fodder_b = _field_monster(game, p1, "Large Fodder", 1400, 1200)
+    keeper = _field_monster(game, p1, "Keep Me", 1900, 1000)
+
+    action = ai._pick_normal_summon(
+        [boss], [fodder_a, fodder_b, keeper], p1.id, game.state
+    )
+
+    assert action == {
+        "action_type": "normal_summon",
+        "card_id": boss.id,
+        "tribute_ids": [fodder_a.id, fodder_b.id],
+    }
+
+
 def test_hard_ai_does_not_reborn_when_monster_zones_are_full():
     game, p1, p2 = _new_ygo_game()
     ai = YugiohAIAdapter(difficulty="hard")
@@ -249,3 +346,70 @@ def test_hard_ai_targets_field_spells_with_mst_effects():
         "card_id": mst.id,
         "targets": [field_spell.id],
     }
+
+
+def test_ygo_draw_spells_use_library_zone():
+    game, p1, _p2 = _new_ygo_game()
+    pot = _card(game, POT_OF_GREED, p1, ZoneType.HAND)
+    drawn_a = _card(game, BLUE_EYES_WHITE_DRAGON, p1, ZoneType.LIBRARY)
+    drawn_b = _card(game, LIGHTNING_BOLT, p1, ZoneType.LIBRARY)
+
+    events = game.turn_manager._execute_action(
+        p1.id, {"action_type": "activate_spell", "card_id": pot.id}
+    )
+
+    hand = game.state.zones[f"hand_{p1.id}"].objects
+    graveyard = game.state.zones[f"graveyard_{p1.id}"].objects
+    assert drawn_a.id in hand
+    assert drawn_b.id in hand
+    assert pot.id in graveyard
+    assert len([event for event in events if event.type.name == "DRAW"]) == 2
+
+
+def test_ygo_spell_activation_preserves_targets():
+    game, p1, _p2 = _new_ygo_game()
+    reborn = _card(game, MONSTER_REBORN, p1, ZoneType.HAND)
+    target = _card(game, BLUE_EYES_WHITE_DRAGON, p1, ZoneType.GRAVEYARD)
+
+    game.turn_manager._execute_action(
+        p1.id,
+        {
+            "action_type": "activate_spell",
+            "card_id": reborn.id,
+            "targets": [target.id],
+        },
+    )
+
+    assert target.zone == ZoneType.MONSTER_ZONE
+    assert target.id in game.state.zones[f"monster_zone_{p1.id}"].objects
+    assert reborn.id in game.state.zones[f"graveyard_{p1.id}"].objects
+
+
+def test_ygo_continuous_spell_activation_leaves_hand():
+    game, p1, _p2 = _new_ygo_game()
+    messenger = _card(game, MESSENGER_OF_PEACE, p1, ZoneType.HAND)
+
+    game.turn_manager._execute_action(
+        p1.id, {"action_type": "activate_spell", "card_id": messenger.id}
+    )
+
+    assert messenger.id not in game.state.zones[f"hand_{p1.id}"].objects
+    assert messenger.id in game.state.zones[f"spell_trap_zone_{p1.id}"].objects
+    assert messenger.zone == ZoneType.SPELL_TRAP_ZONE
+    assert messenger.state.face_down is False
+
+
+def test_ygo_flip_summon_resolves_flip_effect():
+    game, p1, p2 = _new_ygo_game()
+    bird = _card(game, STEALTH_BIRD, p1, ZoneType.HAND)
+    game.turn_manager.ygo_turn_state.active_player_id = p1.id
+    game.turn_manager._execute_action(
+        p1.id, {"action_type": "set_monster", "card_id": bird.id}
+    )
+    bird.state.turns_set = 1
+
+    game.turn_manager._execute_action(
+        p1.id, {"action_type": "flip_summon", "card_id": bird.id}
+    )
+
+    assert p2.lp == 7000

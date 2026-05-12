@@ -62,7 +62,31 @@ def _synapse_spark_effect(attacker, state):
 
 def _firemind_research_effect(attacker, state):
     events = _draw_cards(state, attacker.controller, 2)
-    events.extend(_discard_attached_energy(state, attacker.id, 2))
+    events.extend(_discard_attached_energy(state, attacker.id, 1))
+    return events
+
+
+def _sparkbite_effect(attacker, state):
+    return _draw_cards(state, attacker.controller, 1)
+
+
+def _voltage_coil_effect(attacker, state):
+    events = _draw_cards(state, attacker.controller, 1)
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return events
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return events
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if target:
+        target.state.damage_counters += 1
+        events.append(Event(
+            type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+            payload={'pokemon_id': target_id, 'counters': 1,
+                     'source': 'Mizzling'},
+        ))
     return events
 
 
@@ -73,8 +97,10 @@ NIVLET = make_pokemon(
     evolution_stage="Basic",
     attacks=[
         {"name": "Sparkbite",
-         "cost": [{"type": "R", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 20, "text": ""},
+         "cost": [{"type": "R", "count": 1}],
+         "damage": 30,
+         "text": "Draw a card.",
+         "effect_fn": _sparkbite_effect},
     ],
     weakness_type=PokemonType.WATER.value,
     retreat_cost=1,
@@ -92,7 +118,9 @@ MIZZLING = make_pokemon(
     attacks=[
         {"name": "Voltage Coil",
          "cost": [{"type": "R", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 50, "text": ""},
+         "damage": 70,
+         "text": "Draw a card. Place 1 damage counter on your opponent's Active Pokemon.",
+         "effect_fn": _voltage_coil_effect},
     ],
     weakness_type=PokemonType.WATER.value,
     retreat_cost=1,
@@ -114,9 +142,9 @@ NIV_MIZZET_PARUN_EX = make_pokemon(
          "text": "Draw a card.",
          "effect_fn": _synapse_spark_effect},
         {"name": "Firemind's Research",
-         "cost": [{"type": "R", "count": 2}, {"type": "W", "count": 2}],
+         "cost": [{"type": "R", "count": 2}, {"type": "W", "count": 1}],
          "damage": 200,
-         "text": "Draw 2 cards. Discard 2 Energy from this Pokemon.",
+         "text": "Draw 2 cards. Discard 1 Energy from this Pokemon.",
          "effect_fn": _firemind_research_effect},
     ],
     weakness_type=PokemonType.WATER.value,
@@ -391,16 +419,46 @@ BEAMSPLITTER_MAGE = make_pokemon(
 # =============================================================================
 
 def _niv_mizzets_tower_effect(event, state):
-    """Each player draws a card when this Stadium enters play."""
+    """Each player draws; the caster's spent Trainers spark damage."""
     events = []
     for pid in state.players:
         events.extend(_draw_cards(state, pid, 1))
+    player_id = event.payload.get('player')
+    if not player_id:
+        return events
+    trainer_count = 0
+    grave = state.zones.get(f"graveyard_{player_id}")
+    if grave:
+        for cid in grave.objects:
+            obj = state.objects.get(cid)
+            if obj and obj.characteristics and CardType.TRAINER in obj.characteristics.types:
+                trainer_count += 1
+    counters = min(trainer_count, 2)
+    if counters <= 0:
+        return events
+    opp_id = next((p for p in state.players if p != player_id), None)
+    if not opp_id:
+        return events
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return events
+    target_id = active_zone.objects[0]
+    target = state.objects.get(target_id)
+    if target:
+        target.state.damage_counters += counters
+        events.append(Event(
+            type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+            payload={'pokemon_id': target_id, 'counters': counters,
+                     'source': "Niv-Mizzet's Tower"},
+        ))
     return events
 
 
 NIV_MIZZETS_TOWER = make_trainer_stadium(
     name="Niv-Mizzet's Tower",
-    text="When you play Niv-Mizzet's Tower, each player draws a card.",
+    text=("When you play Niv-Mizzet's Tower, each player draws a card. "
+          "Then place 1 damage counter on your opponent's Active Pokemon "
+          "for each Trainer card in your discard pile (max 2)."),
     rarity="uncommon",
     resolve=_niv_mizzets_tower_effect,
 )
@@ -588,9 +646,10 @@ def make_izzet_deck() -> list:
     deck.extend([NIVLET] * 4)
     deck.extend([MIZZLING] * 3)
     deck.extend([NIV_MIZZET_PARUN_EX] * 2)
-    deck.extend([MEKLET] * 3)
+    deck.extend([MEKLET] * 2)
     deck.extend([MELEK_IZZET_PARAGON] * 2)
-    deck.extend([GOBLIN_ELECTROMANCER] * 2)
+    deck.extend([GOBLIN_ELECTROMANCER] * 1)
+    deck.extend([MERCURIAL_MAGELING] * 2)
     # Guild trainers (9)
     deck.extend([NIV_MIZZETS_TOWER] * 2)
     deck.extend([RAL_STORM_CONDUIT] * 2)

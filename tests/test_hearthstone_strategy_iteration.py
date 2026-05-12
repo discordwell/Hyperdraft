@@ -213,3 +213,67 @@ def test_random_enemy_burn_is_not_guaranteed_lethal_through_minions():
 
     assert lethal["is_lethal"] is False
     assert lethal["burn_damage"] == 0
+
+
+def test_forced_pilot_archetypes_change_spell_priorities():
+    game, p1, _p2 = _new_hs_game("Mage", "Warrior")
+    ai = HearthstoneAIAdapter(difficulty="hard")
+    p1.mana_crystals_available = 2
+
+    burn_def = CardDefinition(
+        name="Face Spark",
+        mana_cost="{2}",
+        characteristics=Characteristics(types={CardType.SPELL}, mana_cost="{2}"),
+        text="Deal 3 damage.",
+    )
+    draw_def = CardDefinition(
+        name="Careful Study",
+        mana_cost="{2}",
+        characteristics=Characteristics(types={CardType.SPELL}, mana_cost="{2}"),
+        text="Draw 2 cards.",
+    )
+    burn = game.create_object(
+        name=burn_def.name,
+        owner_id=p1.id,
+        zone=ZoneType.HAND,
+        characteristics=burn_def.characteristics,
+        card_def=burn_def,
+    )
+    draw = game.create_object(
+        name=draw_def.name,
+        owner_id=p1.id,
+        zone=ZoneType.HAND,
+        characteristics=draw_def.characteristics,
+        card_def=draw_def,
+    )
+
+    ai.set_player_archetype(p1.id, "aggro")
+    assert ai._score_card_play(burn, game.state, p1.id) > ai._score_card_play(draw, game.state, p1.id)
+    assert ai._detect_deck_archetype(p1.id, game.state) == "aggro"
+
+    ai.set_player_archetype(p1.id, "control")
+    assert ai._score_card_play(draw, game.state, p1.id) > ai._score_card_play(burn, game.state, p1.id)
+    assert ai._detect_deck_archetype(p1.id, game.state) == "control"
+
+
+def test_forced_aggro_pilot_pushes_face_through_small_trades():
+    game, p1, p2 = _new_hs_game("Hunter", "Warrior")
+    ai = HearthstoneAIAdapter(difficulty="hard")
+    ai.set_player_archetype(p1.id, "aggro")
+    attacker = _summon_minion(game, p1, "Charging Raider", 3, 2)
+    attacker.state.summoning_sickness = False
+    _summon_minion(game, p2, "Small Utility Minion", 1, 1)
+    p2.life = 20
+
+    target_id = ai._choose_attack_target(attacker.id, game.state, p1.id)
+
+    assert target_id == p2.hero_id
+
+
+def test_random_difficulty_is_a_noisy_floor_not_easy_face_bot():
+    ai = HearthstoneAIAdapter(difficulty="random")
+    settings = ai._get_hs_settings()
+
+    assert settings["random_factor"] > HearthstoneAIAdapter.HS_DIFFICULTY_SETTINGS["easy"]["random_factor"]
+    assert settings["mistake_chance"] > HearthstoneAIAdapter.HS_DIFFICULTY_SETTINGS["easy"]["mistake_chance"]
+    assert settings["use_smart_targeting"] is False

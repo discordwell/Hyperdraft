@@ -149,6 +149,7 @@ class YugiohCombatManager:
                     type=EventType.YGO_FLIP,
                     payload={'card_id': target_id, 'card_name': defender.name, 'is_flip_effect': True}
                 ))
+                events.extend(defender.card_def.flip_effect(defender, self.state) or [])
 
         def_atk = getattr(defender.card_def, 'atk', 0) or 0
         def_def = getattr(defender.card_def, 'def_val', 0) or 0

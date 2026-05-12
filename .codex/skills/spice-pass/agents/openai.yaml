@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spice Pass"
+  short_description: "Design and validate custom-set spice"
+  default_prompt: "Use $spice-pass to design and validate a Hyperdraft spice pass."

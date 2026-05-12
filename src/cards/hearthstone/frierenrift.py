@@ -154,6 +154,29 @@ def _deal_enemy_hero(obj: GameObject, state: GameState, amount: int) -> list[Eve
     ]
 
 
+def _friendly_hero_id(obj: GameObject, state: GameState) -> str | None:
+    player = state.players.get(obj.controller)
+    return player.hero_id if player else None
+
+
+def _has_all_shards(state: GameState, player_id: str) -> bool:
+    resources = _resources_for_player_id(state, player_id)
+    return all(int(resources.get(color, 0)) > 0 for color in TRI_COLORS)
+
+
+def _remaining_health(object_id: str, state: GameState) -> int | None:
+    target = state.objects.get(object_id)
+    if not target or CardType.MINION not in target.characteristics.types:
+        return None
+    toughness = int(get_toughness(target, state) or 0)
+    return toughness - int(getattr(target.state, "damage", 0) or 0)
+
+
+def _would_destroy_minion(object_id: str, state: GameState, amount: int) -> bool:
+    remaining = _remaining_health(object_id, state)
+    return remaining is not None and remaining <= amount
+
+
 # =============================================================================
 # Heroes + Powers
 # =============================================================================
@@ -231,6 +254,25 @@ FRIERENRIFT_HERO_POWERS = {
 # Cards - Frieren Side
 # =============================================================================
 
+
+def apprentice_caster_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    player = state.players.get(obj.controller)
+    if not player:
+        return []
+    resources = _ensure_variant_resources(player)
+    if int(resources.get("azure", 0)) <= 0:
+        resources["azure"] = 1
+        player.variant_resources = resources
+        return []
+    return [
+        Event(
+            type=EventType.DRAW,
+            payload={"player": obj.controller, "count": 1},
+            source=obj.id,
+        )
+    ]
+
+
 APPRENTICE_CASTER = _assign_affinity(
     make_minion(
         name="Apprentice Caster",
@@ -238,11 +280,47 @@ APPRENTICE_CASTER = _assign_affinity(
         health=2,
         mana_cost="{1}",
         subtypes={"Human", "Mage"},
-        text="A disciplined novice of continental magic.",
+        text="Battlecry: If you have no Azure shards, gain 1 Azure shard. If you already have Azure, draw a card instead.",
         rarity="common",
+        battlecry=apprentice_caster_battlecry,
     ),
-    azure=1,
     attune_colors=["azure"],
+)
+
+
+def aureole_wayfinder_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: gain one shard of your least-developed affinity color."""
+    player = state.players.get(obj.controller)
+    if not player:
+        return []
+    resources = _ensure_variant_resources(player)
+    had_all_colors = all(int(resources.get(k, 0)) > 0 for k in TRI_COLORS)
+    color = min(TRI_COLORS, key=lambda key: (int(resources.get(key, 0)), key))
+    resources[color] = int(resources.get(color, 0)) + 1
+    player.variant_resources = resources
+    if had_all_colors:
+        return [
+            Event(
+                type=EventType.DRAW,
+                payload={"player": obj.controller, "count": 1},
+                source=obj.id,
+            )
+        ]
+    return []
+
+
+AUREOLE_WAYFINDER = _assign_affinity(
+    make_minion(
+        name="Aureole Wayfinder",
+        attack=2,
+        health=3,
+        mana_cost="{2}",
+        subtypes={"Human", "Mage"},
+        text="Battlecry: Gain one shard of your least-developed affinity color. If you already had Azure, Ember, and Verdant, draw a card instead.",
+        rarity="common",
+        battlecry=aureole_wayfinder_battlecry,
+    ),
+    attune_colors=["azure", "ember", "verdant"],
 )
 
 
@@ -250,13 +328,23 @@ def fern_battlecry(obj: GameObject, state: GameState) -> list[Event]:
     target = _highest_attack_enemy_minion_id(obj, state)
     if not target:
         return _deal_enemy_hero(obj, state, 1)
-    return [
+    events = [
         Event(
             type=EventType.DAMAGE,
             payload={"target": target, "amount": 1, "source": obj.id},
             source=obj.id,
         )
     ]
+    enemy = state.objects.get(target)
+    if enemy and getattr(enemy.state, "damage", 0) > 0:
+        events.append(
+            Event(
+                type=EventType.DRAW,
+                payload={"player": obj.controller, "count": 1},
+                source=obj.id,
+            )
+        )
+    return events
 
 
 FERN_PRECISE_DISCIPLE = _assign_affinity(
@@ -266,7 +354,7 @@ FERN_PRECISE_DISCIPLE = _assign_affinity(
         health=3,
         mana_cost="{2}",
         subtypes={"Human", "Mage"},
-        text="Battlecry: Deal 1 damage to the highest-Attack enemy minion.",
+        text="Battlecry: Deal 1 damage to the highest-Attack enemy minion. If it was already damaged, draw a card. If none, hit the enemy hero.",
         rarity="rare",
         battlecry=fern_battlecry,
     ),
@@ -275,24 +363,86 @@ FERN_PRECISE_DISCIPLE = _assign_affinity(
 )
 
 
+def stark_vanguard_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    allies = get_friendly_minions(obj, state)
+    if not allies:
+        return [
+            Event(
+                type=EventType.ARMOR_GAIN,
+                payload={"player": obj.controller, "amount": 1},
+                source=obj.id,
+            )
+        ]
+    return [
+        Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                "object_id": allies[0],
+                "power_mod": 0,
+                "toughness_mod": 1,
+                "duration": "permanent",
+            },
+            source=obj.id,
+        )
+    ]
+
+
 STARK_VANGUARD_GUARDIAN = _assign_affinity(
     make_minion(
         name="Stark, Vanguard Guardian",
-        attack=3,
+        attack=2,
         health=4,
         mana_cost="{3}",
         subtypes={"Human", "Warrior"},
         keywords={"taunt"},
-        text="Taunt",
+        text="Taunt. Battlecry: Give another friendly minion +0/+1. If you control no others, gain 1 Armor.",
         rarity="rare",
+        battlecry=stark_vanguard_battlecry,
     ),
     verdant=1,
     attune_colors=["verdant"],
 )
 
 
-def heiter_benediction_effect(obj: GameObject, _state: GameState, _targets=None) -> list[Event]:
-    return [
+def kraft_battlecry(obj: GameObject, _state: GameState) -> list[Event]:
+    events = [
+        Event(
+            type=EventType.ARMOR_GAIN,
+            payload={"player": obj.controller, "amount": 2},
+            source=obj.id,
+        )
+    ]
+    if _has_all_shards(_state, obj.controller):
+        events.append(
+            Event(
+                type=EventType.DRAW,
+                payload={"player": obj.controller, "count": 1},
+                source=obj.id,
+            )
+        )
+    return events
+
+
+KRAFT_ROADSIDE_MONK = _assign_affinity(
+    make_minion(
+        name="Kraft, Roadside Monk",
+        attack=3,
+        health=5,
+        mana_cost="{4}",
+        subtypes={"Elf", "Monk"},
+        keywords={"taunt"},
+        text="Taunt. Battlecry: Gain 2 Armor. If you have all three shard colors, draw a card and hold the road.",
+        rarity="rare",
+        battlecry=kraft_battlecry,
+    ),
+    azure=1,
+    verdant=1,
+    attune_colors=["azure", "verdant"],
+)
+
+
+def heiter_benediction_effect(obj: GameObject, state: GameState, _targets=None) -> list[Event]:
+    events = [
         Event(
             type=EventType.ARMOR_GAIN,
             payload={"player": obj.controller, "amount": 3},
@@ -304,13 +454,25 @@ def heiter_benediction_effect(obj: GameObject, _state: GameState, _targets=None)
             source=obj.id,
         ),
     ]
+    if _has_all_shards(state, obj.controller):
+        target = _highest_attack_enemy_minion_id(obj, state)
+        if target:
+            events.append(Event(type=EventType.FREEZE_TARGET, payload={"target": target}, source=obj.id))
+        events.append(
+            Event(
+                type=EventType.ARMOR_GAIN,
+                payload={"player": obj.controller, "amount": 1},
+                source=obj.id,
+            )
+        )
+    return events
 
 
 HEITER_BENEDICTION = _assign_affinity(
     make_spell(
         name="Heiter's Benediction",
         mana_cost="{2}",
-        text="Gain 3 Armor. Draw a card.",
+        text="Gain 3 Armor. Draw a card. If you have all three shards, Freeze the highest-Attack enemy minion and gain 1 Armor.",
         spell_effect=heiter_benediction_effect,
         rarity="common",
     ),
@@ -438,6 +600,9 @@ EISEN_ANCIENT_SHIELD = _assign_affinity(
 
 def flight_magic_circle_effect(obj: GameObject, _state: GameState, _targets=None) -> list[Event]:
     events = []
+    token_abilities = []
+    if _has_all_shards(_state, obj.controller):
+        token_abilities.append({"keyword": "taunt"})
     for _ in range(2):
         events.append(
             Event(
@@ -450,6 +615,7 @@ def flight_magic_circle_effect(obj: GameObject, _state: GameState, _targets=None
                         "toughness": 2,
                         "types": {CardType.MINION},
                         "subtypes": {"Spirit", "Mage"},
+                        "abilities": list(token_abilities),
                     },
                 },
                 source=obj.id,
@@ -462,7 +628,7 @@ FLIGHT_MAGIC_CIRCLE = _assign_affinity(
     make_spell(
         name="Flight Magic Circle",
         mana_cost="{4}",
-        text="Summon two 2/2 Mage Familiars.",
+        text="Summon two 2/2 Mage Familiars. If you have all three shard colors, they have Taunt.",
         spell_effect=flight_magic_circle_effect,
         rarity="rare",
     ),
@@ -473,16 +639,26 @@ FLIGHT_MAGIC_CIRCLE = _assign_affinity(
 
 
 def grimoire_archive_effect(obj: GameObject, _state: GameState, _targets=None) -> list[Event]:
-    return [
+    events = [
         Event(type=EventType.DRAW, payload={"player": obj.controller, "count": 2}, source=obj.id)
     ]
+    resources = _resources_for_player_id(_state, obj.controller)
+    if int(resources.get("azure", 0)) >= 3:
+        events.append(
+            Event(
+                type=EventType.ARMOR_GAIN,
+                payload={"player": obj.controller, "amount": 2},
+                source=obj.id,
+            )
+        )
+    return events
 
 
 GRIMOIRE_ARCHIVE = _assign_affinity(
     make_spell(
         name="Grimoire Archive",
         mana_cost="{3}",
-        text="Draw 2 cards.",
+        text="Draw 2 cards. If you have at least 3 Azure shards, gain 2 Armor.",
         spell_effect=grimoire_archive_effect,
         rarity="common",
     ),
@@ -492,21 +668,37 @@ GRIMOIRE_ARCHIVE = _assign_affinity(
 
 
 def fern_follow_up_effect(obj: GameObject, state: GameState, _targets=None) -> list[Event]:
-    return [
+    targets = _enemy_minion_ids(obj, state)
+    events = [
         Event(
             type=EventType.DAMAGE,
             payload={"target": oid, "amount": 1, "source": obj.id, "from_spell": True},
             source=obj.id,
         )
-        for oid in _enemy_minion_ids(obj, state)
+        for oid in targets
     ]
+    already_damaged = 0
+    for oid in targets:
+        enemy = state.objects.get(oid)
+        if enemy and getattr(enemy.state, "damage", 0) > 0:
+            already_damaged += 1
+            events.append(Event(type=EventType.FREEZE_TARGET, payload={"target": oid}, source=obj.id))
+    if already_damaged >= 2:
+        events.append(
+            Event(
+                type=EventType.DRAW,
+                payload={"player": obj.controller, "count": 1},
+                source=obj.id,
+            )
+        )
+    return events
 
 
 FERN_FOLLOW_UP = _assign_affinity(
     make_spell(
         name="Fern's Follow-Up",
         mana_cost="{1}",
-        text="Deal 1 damage to all enemy minions.",
+        text="Deal 1 damage to all enemy minions. Freeze enemy minions that were already damaged. If two or more were primed, draw a card.",
         spell_effect=fern_follow_up_effect,
         rarity="common",
     ),
@@ -617,11 +809,27 @@ FRIEREN_LAST_GREAT_MAGE = _assign_affinity(
 
 def journey_to_aureole_effect(obj: GameObject, state: GameState, _targets=None) -> list[Event]:
     events = _deal_enemy_hero(obj, state, 4)
-    for oid in _enemy_minion_ids(obj, state):
+    targets = _enemy_minion_ids(obj, state)
+    destroyed = sum(1 for oid in targets if _would_destroy_minion(oid, state, 4))
+    for oid in targets:
         events.append(
             Event(
                 type=EventType.DAMAGE,
                 payload={"target": oid, "amount": 4, "source": obj.id, "from_spell": True},
+                source=obj.id,
+            )
+        )
+    player = state.players.get(obj.controller)
+    if player:
+        resources = _ensure_variant_resources(player)
+        for color in TRI_COLORS:
+            resources[color] = int(resources.get(color, 0)) + 1
+        player.variant_resources = resources
+    if destroyed:
+        events.append(
+            Event(
+                type=EventType.ARMOR_GAIN,
+                payload={"player": obj.controller, "amount": min(3, destroyed)},
                 source=obj.id,
             )
         )
@@ -632,7 +840,7 @@ JOURNEY_TO_AUREOLE = _assign_affinity(
     make_spell(
         name="Journey to Aureole",
         mana_cost="{7}",
-        text="Deal 4 damage to all enemies.",
+        text="Deal 4 damage to all enemies. Then gain 1 shard of each color. Gain up to 3 Armor for enemy minions this would destroy.",
         spell_effect=journey_to_aureole_effect,
         rarity="epic",
     ),
@@ -647,7 +855,8 @@ def aura_severing_ray_effect(obj: GameObject, state: GameState, _targets=None) -
     target = _highest_attack_enemy_minion_id(obj, state)
     if not target:
         return []
-    return [
+    was_damaged = getattr(state.objects[target].state, "damage", 0) > 0
+    events = [
         Event(type=EventType.SILENCE_TARGET, payload={"target": target}, source=obj.id),
         Event(
             type=EventType.DAMAGE,
@@ -655,13 +864,30 @@ def aura_severing_ray_effect(obj: GameObject, state: GameState, _targets=None) -
             source=obj.id,
         ),
     ]
+    if was_damaged:
+        events.append(
+            Event(
+                type=EventType.DRAW,
+                payload={"player": obj.controller, "count": 1},
+                source=obj.id,
+            )
+        )
+    elif _would_destroy_minion(target, state, 2):
+        events.append(
+            Event(
+                type=EventType.ARMOR_GAIN,
+                payload={"player": obj.controller, "amount": 2},
+                source=obj.id,
+            )
+        )
+    return events
 
 
 AURA_SEVERING_RAY = _assign_affinity(
     make_spell(
         name="Aura Severing Ray",
         mana_cost="{2}",
-        text="Silence the highest-Attack enemy minion, then deal 2 damage to it.",
+        text="Silence the highest-Attack enemy minion, then deal 2 damage to it. If it was damaged, draw a card; if it would die, gain 2 Armor.",
         spell_effect=aura_severing_ray_effect,
         rarity="rare",
     ),
@@ -673,12 +899,33 @@ AURA_SEVERING_RAY = _assign_affinity(
 
 def canon_of_souls_effect(obj: GameObject, state: GameState, _targets=None) -> list[Event]:
     events: list[Event] = []
-    for oid in _enemy_minion_ids(obj, state):
+    already_frozen = 0
+    targets = _enemy_minion_ids(obj, state)
+    for oid in targets:
+        enemy = state.objects.get(oid)
+        if enemy and enemy.state.frozen:
+            already_frozen += 1
         events.append(Event(type=EventType.FREEZE_TARGET, payload={"target": oid}, source=obj.id))
         events.append(
             Event(
                 type=EventType.DAMAGE,
                 payload={"target": oid, "amount": 1, "source": obj.id, "from_spell": True},
+                source=obj.id,
+            )
+        )
+    if not targets:
+        events.append(
+            Event(
+                type=EventType.DRAW,
+                payload={"player": obj.controller, "count": 1},
+                source=obj.id,
+            )
+        )
+    if already_frozen:
+        events.append(
+            Event(
+                type=EventType.ARMOR_GAIN,
+                payload={"player": obj.controller, "amount": already_frozen},
                 source=obj.id,
             )
         )
@@ -689,7 +936,7 @@ CANON_OF_SOULS = _assign_affinity(
     make_spell(
         name="Canon of Souls",
         mana_cost="{5}",
-        text="Freeze all enemy minions. Deal 1 damage to them.",
+        text="Freeze all enemy minions. Deal 1 damage to them. Gain 1 Armor for each enemy that was already frozen. If there are no enemy minions, draw a card.",
         spell_effect=canon_of_souls_effect,
         rarity="rare",
     ),
@@ -818,6 +1065,20 @@ HIMMELS_LEGACY = _assign_affinity(
 # Cards - Macht Side
 # =============================================================================
 
+def supplicant_adept_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
+    events = [
+        Event(
+            type=EventType.ARMOR_GAIN,
+            payload={"player": obj.controller, "amount": 1},
+            source=obj.id,
+        )
+    ]
+    resources = _resources_for_player_id(state, obj.controller)
+    if int(resources.get("ember", 0)) > 0:
+        events.extend(_deal_enemy_hero(obj, state, 1))
+    return events
+
+
 SUPPLICANT_ADEPT = _assign_affinity(
     make_minion(
         name="Supplicant Adept",
@@ -825,15 +1086,9 @@ SUPPLICANT_ADEPT = _assign_affinity(
         health=3,
         mana_cost="{1}",
         subtypes={"Demon", "Mage"},
-        text="Deathrattle: Gain 1 Armor.",
+        text="Deathrattle: Gain 1 Armor. If you have an Ember shard, deal 1 damage to the enemy hero.",
         rarity="common",
-        deathrattle=lambda obj, _s: [
-            Event(
-                type=EventType.ARMOR_GAIN,
-                payload={"player": obj.controller, "amount": 1},
-                source=obj.id,
-            )
-        ],
+        deathrattle=supplicant_adept_deathrattle,
     ),
     ember=1,
     attune_colors=["ember"],
@@ -847,9 +1102,27 @@ LINIE_PERFECT_COPY = _assign_affinity(
         health=2,
         mana_cost="{2}",
         subtypes={"Demon"},
-        text="Battlecry: Deal 1 damage to the enemy hero.",
+        text="Battlecry: Deal 1 damage to the enemy hero. If you have 2+ Ember shards, also deal 1 damage to the highest-Attack enemy minion.",
         rarity="rare",
-        battlecry=lambda obj, s: _deal_enemy_hero(obj, s, 1),
+        battlecry=lambda obj, s: (
+            _deal_enemy_hero(obj, s, 1)
+            + (
+                [
+                    Event(
+                        type=EventType.DAMAGE,
+                        payload={
+                            "target": _highest_attack_enemy_minion_id(obj, s),
+                            "amount": 1,
+                            "source": obj.id,
+                        },
+                        source=obj.id,
+                    )
+                ]
+                if int(_resources_for_player_id(s, obj.controller).get("ember", 0)) >= 2
+                and _highest_attack_enemy_minion_id(obj, s)
+                else []
+            )
+        ),
     ),
     ember=1,
     attune_colors=["ember"],
@@ -859,8 +1132,17 @@ LINIE_PERFECT_COPY = _assign_affinity(
 def draht_battlecry(obj: GameObject, state: GameState) -> list[Event]:
     target = _highest_attack_enemy_minion_id(obj, state)
     if not target:
-        return []
-    return [Event(type=EventType.FREEZE_TARGET, payload={"target": target}, source=obj.id)]
+        return _deal_enemy_hero(obj, state, 1)
+    events = [Event(type=EventType.FREEZE_TARGET, payload={"target": target}, source=obj.id)]
+    if getattr(state.objects[target].state, "frozen", False):
+        events.append(
+            Event(
+                type=EventType.DRAW,
+                payload={"player": obj.controller, "count": 1},
+                source=obj.id,
+            )
+        )
+    return events
 
 
 DRAHT_BINDING_THREAD = _assign_affinity(
@@ -870,7 +1152,7 @@ DRAHT_BINDING_THREAD = _assign_affinity(
         health=4,
         mana_cost="{3}",
         subtypes={"Demon", "Mage"},
-        text="Battlecry: Freeze the highest-Attack enemy minion.",
+        text="Battlecry: Freeze the highest-Attack enemy minion. If it was already frozen, draw a card. If none, deal 1 to the enemy hero.",
         rarity="rare",
         battlecry=draht_battlecry,
     ),
@@ -880,16 +1162,43 @@ DRAHT_BINDING_THREAD = _assign_affinity(
 )
 
 
+def macht_gold_guard_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    resources = _resources_for_player_id(state, obj.controller)
+    amount = sum(1 for color in TRI_COLORS if int(resources.get(color, 0)) > 0)
+    if amount <= 0:
+        return []
+    events = [
+        Event(
+            type=EventType.ARMOR_GAIN,
+            payload={"player": obj.controller, "amount": amount},
+            source=obj.id,
+        )
+    ]
+    if amount >= 3:
+        events.append(
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={"object_id": obj.id, "power_mod": 0, "toughness_mod": 1, "duration": "permanent"},
+                source=obj.id,
+            )
+        )
+        target = _highest_attack_enemy_minion_id(obj, state)
+        if target:
+            events.append(Event(type=EventType.FREEZE_TARGET, payload={"target": target}, source=obj.id))
+    return events
+
+
 MACHT_GOLD_GUARD = _assign_affinity(
     make_minion(
         name="Macht's Gold Guard",
-        attack=4,
+        attack=3,
         health=5,
         mana_cost="{4}",
         subtypes={"Demon", "Construct"},
         keywords={"taunt"},
-        text="Taunt",
+        text="Taunt. Battlecry: Gain 1 Armor for each shard color you have. If all three colors are present, gain +0/+1 and Freeze the highest-Attack enemy minion.",
         rarity="common",
+        battlecry=macht_gold_guard_battlecry,
     ),
     ember=1,
     verdant=1,
@@ -906,6 +1215,17 @@ def gold_curse_effect(obj: GameObject, state: GameState, _targets=None) -> list[
             source=obj.id,
         )
     )
+    if _has_all_shards(state, obj.controller):
+        target = _highest_attack_enemy_minion_id(obj, state)
+        if target:
+            events.append(
+                Event(
+                    type=EventType.DAMAGE,
+                    payload={"target": target, "amount": 1, "source": obj.id, "from_spell": True},
+                    source=obj.id,
+                )
+            )
+        events.append(Event(type=EventType.DRAW, payload={"player": obj.controller, "count": 1}, source=obj.id))
     return events
 
 
@@ -913,7 +1233,7 @@ GOLD_CURSE = _assign_affinity(
     make_spell(
         name="Gold Curse",
         mana_cost="{2}",
-        text="Deal 2 damage to the enemy hero. Gain 2 Armor.",
+        text="Deal 2 damage to the enemy hero. Gain 2 Armor. If you have all three shards, deal 1 damage to the highest-Attack enemy minion and draw a card.",
         spell_effect=gold_curse_effect,
         rarity="common",
     ),
@@ -952,21 +1272,31 @@ BLOOD_SIGIL = _assign_affinity(
 
 
 def demon_suppression_effect(obj: GameObject, state: GameState, _targets=None) -> list[Event]:
-    return [
+    targets = _enemy_minion_ids(obj, state)
+    events = [
         Event(
             type=EventType.DAMAGE,
             payload={"target": oid, "amount": 2, "source": obj.id, "from_spell": True},
             source=obj.id,
         )
-        for oid in _enemy_minion_ids(obj, state)
+        for oid in targets
     ]
+    if any(_would_destroy_minion(oid, state, 2) for oid in targets):
+        events.append(
+            Event(
+                type=EventType.ARMOR_GAIN,
+                payload={"player": obj.controller, "amount": 2},
+                source=obj.id,
+            )
+        )
+    return events
 
 
 DEMON_SUPPRESSION = _assign_affinity(
     make_spell(
         name="Demon Suppression",
         mana_cost="{3}",
-        text="Deal 2 damage to all enemy minions.",
+        text="Deal 2 damage to all enemy minions. If this destroys any minion, gain 2 Armor.",
         spell_effect=demon_suppression_effect,
         rarity="rare",
     ),
@@ -1141,11 +1471,21 @@ AURA_EXECUTION_SAINT = _assign_affinity(
 
 def el_dorado_collapse_effect(obj: GameObject, state: GameState, _targets=None) -> list[Event]:
     events = _deal_enemy_hero(obj, state, 4)
-    for oid in _enemy_minion_ids(obj, state):
+    targets = _enemy_minion_ids(obj, state)
+    for oid in targets:
         events.append(
             Event(
                 type=EventType.DAMAGE,
                 payload={"target": oid, "amount": 4, "source": obj.id, "from_spell": True},
+                source=obj.id,
+            )
+        )
+    destroyed = sum(1 for oid in targets if _would_destroy_minion(oid, state, 4))
+    if destroyed:
+        events.append(
+            Event(
+                type=EventType.ARMOR_GAIN,
+                payload={"player": obj.controller, "amount": min(4, destroyed)},
                 source=obj.id,
             )
         )
@@ -1156,7 +1496,7 @@ EL_DORADO_COLLAPSE = _assign_affinity(
     make_spell(
         name="El Dorado Collapse",
         mana_cost="{7}",
-        text="Deal 4 damage to all enemies.",
+        text="Deal 4 damage to all enemies. Gain up to 4 Armor for enemy minions this would destroy.",
         spell_effect=el_dorado_collapse_effect,
         rarity="epic",
     ),
@@ -1167,12 +1507,29 @@ EL_DORADO_COLLAPSE = _assign_affinity(
 )
 
 
+def qual_venom_lance_effect(obj: GameObject, state: GameState, _targets=None) -> list[Event]:
+    target = _highest_attack_enemy_minion_id(obj, state)
+    if not target:
+        return _deal_enemy_hero(obj, state, 3)
+    events = [
+        Event(
+            type=EventType.DAMAGE,
+            payload={"target": target, "amount": 3, "source": obj.id, "from_spell": True},
+            source=obj.id,
+        )
+    ]
+    remaining = _remaining_health(target, state)
+    if remaining is not None and remaining > 3:
+        events.append(Event(type=EventType.FREEZE_TARGET, payload={"target": target}, source=obj.id))
+    return events
+
+
 QUAL_VENOM_LANCE = _assign_affinity(
     make_spell(
         name="Qual's Venom Lance",
         mana_cost="{2}",
-        text="Deal 3 damage to the highest-Attack enemy minion.",
-        spell_effect=zoltraak_bolt_effect,
+        text="Deal 3 damage to the highest-Attack enemy minion. If it survives, Freeze it. If none, hit the enemy hero.",
+        spell_effect=qual_venom_lance_effect,
         rarity="common",
     ),
     ember=1,
@@ -1221,12 +1578,18 @@ def severing_guillotine_effect(obj: GameObject, state: GameState, _targets=None)
     target = _highest_attack_enemy_minion_id(obj, state)
     if not target:
         return []
+    target_attack = int(get_power(state.objects[target], state) or 0)
     return [
         Event(
             type=EventType.OBJECT_DESTROYED,
             payload={"object_id": target, "reason": "severing_guillotine"},
             source=obj.id,
-        )
+        ),
+        Event(
+            type=EventType.ARMOR_GAIN,
+            payload={"player": obj.controller, "amount": min(3, max(1, target_attack))},
+            source=obj.id,
+        ),
     ]
 
 
@@ -1234,7 +1597,7 @@ SEVERING_GUILLOTINE = _assign_affinity(
     make_spell(
         name="Severing Guillotine",
         mana_cost="{5}",
-        text="Destroy the highest-Attack enemy minion.",
+        text="Destroy the highest-Attack enemy minion. Gain Armor equal to its Attack, up to 3.",
         spell_effect=severing_guillotine_effect,
         rarity="rare",
     ),
@@ -1243,15 +1606,37 @@ SEVERING_GUILLOTINE = _assign_affinity(
 )
 
 
+def fearsome_battalion_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    for oid in get_friendly_minions(obj, state):
+        ally = state.objects.get(oid)
+        if not ally:
+            continue
+        if ally.characteristics.subtypes & {"Demon", "Soldier"}:
+            return [
+                Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        "object_id": oid,
+                        "power_mod": 1,
+                        "toughness_mod": 0,
+                        "duration": "permanent",
+                    },
+                    source=obj.id,
+                )
+            ]
+    return _deal_enemy_hero(obj, state, 1)
+
+
 FEARSOME_BATTALION = _assign_affinity(
     make_minion(
         name="Fearsome Battalion",
-        attack=4,
+        attack=3,
         health=3,
         mana_cost="{3}",
         subtypes={"Demon", "Soldier"},
-        text="Relentless formation pressure.",
+        text="Battlecry: Give another friendly Demon or Soldier +1 Attack. If none, deal 1 damage to the enemy hero.",
         rarity="common",
+        battlecry=fearsome_battalion_battlecry,
     ),
     ember=1,
     verdant=1,
@@ -1883,7 +2268,7 @@ FRIERENRIFT_FRIEREN_DECK = [
     GRIMOIRE_ARCHIVE,
     GRIMOIRE_ARCHIVE,
     FERN_FOLLOW_UP,
-    FERN_FOLLOW_UP,
+    KRAFT_ROADSIDE_MONK,
     AURA_SEVERING_RAY,
     AURA_SEVERING_RAY,
     CANON_OF_SOULS,
@@ -1896,7 +2281,7 @@ FRIERENRIFT_FRIEREN_DECK = [
     STARK_BREAKTHROUGH,  # new legendary
     SEIN_CLERIC_COMPANION,  # new legendary
     ETERNAL_FLAME_OF_ETHOS,  # mythic sweeper
-    APPRENTICE_CASTER,
+    AUREOLE_WAYFINDER,
 ]
 
 FRIERENRIFT_MACHT_DECK = [

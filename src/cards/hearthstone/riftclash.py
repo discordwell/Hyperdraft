@@ -373,13 +373,32 @@ MOLTEN_OVERSEER = make_minion(
 def cinder_lance_effect(obj: GameObject, state: GameState, _targets=None) -> list[Event]:
     target = _highest_attack_enemy_minion_id(obj, state)
     if target:
-        return [
+        events = [
             Event(
                 type=EventType.DAMAGE,
                 payload={"target": target, "amount": 3, "source": obj.id, "from_spell": True},
                 source=obj.id,
             )
         ]
+        enemy = state.objects.get(target)
+        remaining = ((get_toughness(enemy, state) or 0) - enemy.state.damage) if enemy else 0
+        if remaining <= 3:
+            events.append(
+                Event(
+                    type=EventType.ADD_TO_HAND,
+                    payload={"player": obj.controller, "card_def": CINDER_CHARGE},
+                    source=obj.id,
+                )
+            )
+        else:
+            events.append(
+                Event(
+                    type=EventType.FREEZE_TARGET,
+                    payload={"target": target},
+                    source=obj.id,
+                )
+            )
+        return events
 
     hero = get_enemy_hero_id(obj, state)
     if hero:
@@ -388,7 +407,12 @@ def cinder_lance_effect(obj: GameObject, state: GameState, _targets=None) -> lis
                 type=EventType.DAMAGE,
                 payload={"target": hero, "amount": 3, "source": obj.id, "from_spell": True},
                 source=obj.id,
-            )
+            ),
+            Event(
+                type=EventType.ADD_TO_HAND,
+                payload={"player": obj.controller, "card_def": CINDER_CHARGE},
+                source=obj.id,
+            ),
         ]
     return []
 
@@ -396,7 +420,7 @@ def cinder_lance_effect(obj: GameObject, state: GameState, _targets=None) -> lis
 CINDER_LANCE = make_spell(
     name="Cinder Lance",
     mana_cost="{2}",
-    text="Deal 3 damage to the highest-Attack enemy minion. If none, deal 3 damage to the enemy hero.",
+    text="Deal 3 damage to the highest-Attack enemy minion. If it would die, add a Cinder Charge to your hand; otherwise Freeze it. If none, hit the enemy hero and bank a Cinder Charge.",
     spell_effect=cinder_lance_effect,
     rarity="common",
 )
@@ -482,6 +506,19 @@ def ember_volley_spell_effect(obj: GameObject, state: GameState, _targets=None) 
                 source=obj.id,
             )
         )
+        target_obj = state.objects.get(target)
+        if (
+            target_obj
+            and CardType.MINION in target_obj.characteristics.types
+            and (get_toughness(target_obj, state) or 0) - target_obj.state.damage <= 3
+        ):
+            events.append(
+                Event(
+                    type=EventType.ADD_TO_HAND,
+                    payload={"player": obj.controller, "card_def": CINDER_CHARGE},
+                    source=obj.id,
+                )
+            )
 
     # Persistent state: install a +1 damage TRANSFORM interceptor tied to this controller.
     controller_id = obj.controller
@@ -529,7 +566,7 @@ def ember_volley_spell_effect(obj: GameObject, state: GameState, _targets=None) 
 EMBER_VOLLEY_LEGENDARY = make_spell(
     name="Ember Volley, Unchained",
     mana_cost="{5}",
-    text="Deal 3 damage to a priority enemy. For the rest of the game, your first spell each turn deals +1 damage.",
+    text="Deal 3 damage to a priority enemy. If that destroys a minion, add a Cinder Charge to your hand. For the rest of the game, your first spell each turn deals +1 damage.",
     spell_effect=ember_volley_spell_effect,
     rarity="legendary",
 )
@@ -685,14 +722,30 @@ WHITEOUT_PROTOCOL = make_spell(
 def cryo_sentinel_deathrattle(obj: GameObject, state: GameState) -> list[Event]:
     target = _highest_attack_enemy_minion_id(obj, state)
     if not target:
-        return []
-    return [
+        return [
+            Event(
+                type=EventType.ARMOR_GAIN,
+                payload={"player": obj.controller, "amount": 1},
+                source=obj.id,
+            )
+        ]
+    already_frozen = bool(getattr(state.objects[target].state, "frozen", False))
+    events = [
         Event(
             type=EventType.FREEZE_TARGET,
             payload={"target": target},
             source=obj.id,
         )
     ]
+    if already_frozen:
+        events.append(
+            Event(
+                type=EventType.DRAW,
+                payload={"player": obj.controller, "count": 1},
+                source=obj.id,
+            )
+        )
+    return events
 
 
 CRYO_SENTINEL = make_minion(
@@ -702,7 +755,7 @@ CRYO_SENTINEL = make_minion(
     mana_cost="{4}",
     subtypes={"Elemental"},
     keywords={"taunt"},
-    text="Taunt. Deathrattle: Freeze the highest-Attack enemy minion.",
+    text="Taunt. Deathrattle: Freeze the highest-Attack enemy minion. If it was already frozen, draw a card; if there is no target, gain 1 Armor.",
     rarity="rare",
     deathrattle=cryo_sentinel_deathrattle,
 )
@@ -724,19 +777,26 @@ def absolute_archivist_setup(obj: GameObject, _state: GameState) -> list[Interce
 
     def _end_turn_handler(_event: Event, s: GameState) -> InterceptorResult:
         new_events: list[Event] = []
-        for oid in _enemy_minion_ids(obj, s):
-            enemy = s.objects.get(oid)
-            if not enemy:
-                continue
-            if enemy.state.frozen:
-                new_events.append(
-                    Event(
-                        type=EventType.DRAW,
-                        payload={"player": obj.controller, "count": 1},
-                        source=obj.id,
-                    )
+        frozen_count = sum(
+            1 for oid in _enemy_minion_ids(obj, s)
+            if s.objects.get(oid) and s.objects[oid].state.frozen
+        )
+        if frozen_count:
+            new_events.append(
+                Event(
+                    type=EventType.DRAW,
+                    payload={"player": obj.controller, "count": 1},
+                    source=obj.id,
                 )
-                break  # only one card per end step; prevents runaway draw
+            )
+        if frozen_count >= 2:
+            new_events.append(
+                Event(
+                    type=EventType.ARMOR_GAIN,
+                    payload={"player": obj.controller, "amount": 2},
+                    source=obj.id,
+                )
+            )
 
         return (
             InterceptorResult(action=InterceptorAction.REACT, new_events=new_events)
@@ -763,7 +823,7 @@ ABSOLUTE_ARCHIVIST = make_minion(
     health=7,
     mana_cost="{6}",
     subtypes={"Elemental"},
-    text="At the end of your turn, if an enemy minion is frozen, draw a card.",
+    text="At the end of your turn, if an enemy minion is frozen, draw a card. If two or more are frozen, also gain 2 Armor.",
     rarity="epic",
     setup_interceptors=absolute_archivist_setup,
 )
@@ -774,7 +834,8 @@ def ice_shackle_effect(obj: GameObject, state: GameState, _targets=None) -> list
     if not target:
         return []
 
-    return [
+    already_frozen = bool(getattr(state.objects[target].state, "frozen", False))
+    events = [
         Event(
             type=EventType.DAMAGE,
             payload={"target": target, "amount": 2, "source": obj.id, "from_spell": True},
@@ -786,19 +847,32 @@ def ice_shackle_effect(obj: GameObject, state: GameState, _targets=None) -> list
             source=obj.id,
         ),
     ]
+    if already_frozen:
+        events.append(
+            Event(
+                type=EventType.DRAW,
+                payload={"player": obj.controller, "count": 1},
+                source=obj.id,
+            )
+        )
+    return events
 
 
 ICE_SHACKLE = make_spell(
     name="Ice Shackle",
     mana_cost="{2}",
-    text="Deal 2 damage to the highest-Attack enemy minion and Freeze it.",
+    text="Deal 2 damage to the highest-Attack enemy minion and Freeze it. If it was already frozen, draw a card.",
     spell_effect=ice_shackle_effect,
     rarity="common",
 )
 
 
 def glacial_insight_effect(obj: GameObject, _state: GameState, _targets=None) -> list[Event]:
-    return [
+    frozen_enemies = sum(
+        1 for oid in _enemy_minion_ids(obj, _state)
+        if getattr(_state.objects[oid].state, "frozen", False)
+    )
+    events = [
         Event(
             type=EventType.DRAW,
             payload={"player": obj.controller, "count": 2},
@@ -806,16 +880,25 @@ def glacial_insight_effect(obj: GameObject, _state: GameState, _targets=None) ->
         ),
         Event(
             type=EventType.ARMOR_GAIN,
-            payload={"player": obj.controller, "amount": 1},
+            payload={"player": obj.controller, "amount": 3 if frozen_enemies else 1},
             source=obj.id,
         ),
     ]
+    if frozen_enemies >= 2:
+        events.append(
+            Event(
+                type=EventType.FREEZE_TARGET,
+                payload={"target": _enemy_minion_ids(obj, _state)[0]},
+                source=obj.id,
+            )
+        )
+    return events
 
 
 GLACIAL_INSIGHT = make_spell(
     name="Glacial Insight",
     mana_cost="{3}",
-    text="Draw 2 cards. Gain 1 Armor.",
+    text="Draw 2 cards. Gain 1 Armor, or 3 Armor if an enemy minion is frozen. If two or more are frozen, refreeze the first enemy minion.",
     spell_effect=glacial_insight_effect,
     rarity="common",
 )

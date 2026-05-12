@@ -6,6 +6,7 @@ from src.cards.hearthstone.decks import (
     HEARTHSTONE_DECK_ROLES,
     WARLOCK_DECK,
     analyze_all_decks,
+    analyze_custom_set_decks,
     analyze_deck_quality,
     validate_deck,
 )
@@ -105,3 +106,22 @@ def test_validate_deck_enforces_legendary_singleton_rule():
 
     assert valid is False
     assert "Legendary card" in error
+
+
+def test_custom_hearthstone_set_decks_report_valid_deckbuilding_metrics():
+    summaries = analyze_custom_set_decks()
+
+    assert set(summaries) == {
+        "Stormrift Pyromancer",
+        "Stormrift Cryomancer",
+        "Frierenrift Frieren",
+        "Frierenrift Macht",
+        "Riftclash Pyromancer",
+        "Riftclash Cryomancer",
+    }
+    for label, summary in summaries.items():
+        assert summary["valid"], label
+        assert summary["validation_error"] == "", label
+        assert summary["size"] == 30, label
+        assert summary["early_count"] >= 8, label
+        assert summary["quality_flags"] == [], label

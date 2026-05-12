@@ -5,6 +5,7 @@ from scripts.play.variant_tournament import (
     aggregate,
     render_report,
     ENGINES,
+    _hs_decks,
 )
 
 
@@ -73,13 +74,24 @@ def test_render_report_does_not_crash():
     assert "DISCOVERED META" in text
 
 
-def test_engines_registry_has_mc_and_mtg():
+def test_engines_registry_has_expected_engines():
     """Smoke check that the engine dispatch table is populated."""
     assert "minecraft" in ENGINES
     assert "mtg" in ENGINES
-    for name in ("minecraft", "mtg"):
+    assert "hearthstone" in ENGINES
+    for name in ("minecraft", "mtg", "hearthstone"):
         cfg = ENGINES[name]
         assert callable(cfg["deck_resolver"])
         assert callable(cfg["run_one"])
         assert isinstance(cfg["default_variants"], list)
         assert len(cfg["default_variants"]) >= 2
+
+
+def test_hearthstone_variant_resolver_loads_custom_sets():
+    decks = _hs_decks(["stormrift_pyro", "frieren", "riftclash_cryo"])
+
+    assert set(decks) == {"stormrift_pyro", "frieren", "riftclash_cryo"}
+    assert decks["stormrift_pyro"]["label"] == "Stormrift Pyromancer"
+    assert decks["frieren"]["label"] == "Frierenrift Frieren"
+    assert decks["riftclash_cryo"]["label"] == "Riftclash Cryomancer"
+    assert all(len(spec["deck"]) == 30 for spec in decks.values())

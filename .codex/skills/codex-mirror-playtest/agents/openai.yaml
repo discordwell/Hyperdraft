@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Mirror Playtest"
+  short_description: "Coordinate Codex mirror playtests"
+  default_prompt: "Use $codex-mirror-playtest to build a parent-orchestrated no-API GPT-5.5-vs-GPT-5.5 playtest harness for this Hyperdraft mode."

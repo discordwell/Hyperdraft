@@ -13,16 +13,16 @@ the archetype-membership helpers in ``_archetype_helpers.py`` can find them.
 """
 
 from src.engine.game import make_ygo_monster, make_ygo_spell, make_ygo_trap
-from src.engine.types import Event, EventType, ZoneType
+from src.engine.types import Event, EventType, ZoneType, InterceptorAction, InterceptorResult
 from src.engine.yugioh_helpers import (
     make_ygo_summon_trigger, make_ygo_destroy_trigger,
-    make_ygo_continuous_effect, make_ygo_ignition_effect,
+    make_ygo_continuous_effect, make_ygo_ignition_effect, make_ygo_flip_trigger,
     make_ygo_quick_effect,
     revive_from_graveyard,
 )
 from ._archetype_helpers import (
     has_subtype, count_on_field, find_in_graveyard,
-    make_archetype_lord, make_bushido,
+    make_archetype_lord, make_archetype_team_lord, make_bushido,
 )
 
 
@@ -163,6 +163,11 @@ def _kitsune_diviner_flip(obj, state):
                 events.extend(_move_to_hand(state, obj.controller, cid))
                 return events
     return events
+
+
+def _kitsune_diviner_setup(obj, state):
+    """Register the FLIP search through the interceptor scorer path."""
+    return [make_ygo_flip_trigger(obj, _kitsune_diviner_flip)]
 
 
 def _eiganjo_free_rider_setup(obj, state):
@@ -559,15 +564,121 @@ def _mothrider_samurai_setup(obj, state):
     return [make_ygo_continuous_effect(obj, modifier_fn)]
 
 
+def _make_flat_other_samurai_boost(obj, atk_bonus: int):
+    """Flat self boost while at least one other Samurai is face-up."""
+    def modifier_fn(event, state):
+        if event.type != EventType.QUERY_POWER:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        if event.payload.get('object_id') != obj.id:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        if count_on_field(state, obj.controller, "Samurai", exclude_id=obj.id) <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        event.payload['value'] = event.payload.get('value', 0) + atk_bonus
+        return InterceptorResult(action=InterceptorAction.TRANSFORM,
+                                 transformed_event=event)
+    return make_ygo_continuous_effect(obj, modifier_fn)
+
+
+def _isamaru_setup(obj, state):
+    """Small Samurai glue: bushido body plus one battle save each turn."""
+    interceptors = [_make_flat_other_samurai_boost(obj, 400)]
+
+    from src.engine.types import (Interceptor, InterceptorAction,
+                                  InterceptorPriority, InterceptorResult, new_id)
+
+    def _filter(event, state):
+        if event.type != EventType.YGO_DESTROY:
+            return False
+        if event.payload.get('card_id') != obj.id:
+            return False
+        if event.payload.get('reason') != 'battle':
+            return False
+        if count_on_field(state, obj.controller, "Samurai", exclude_id=obj.id) <= 0:
+            return False
+        return getattr(obj.state, 'isamaru_saved_turn', None) != state.turn_number
+
+    def _handler(event, state):
+        obj.state.isamaru_saved_turn = state.turn_number
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    interceptors.append(Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.PREVENT, filter=_filter,
+        handler=_handler, duration='until_leaves',
+    ))
+    return interceptors
+
+
+def _ronin_houndmaster_setup(obj, state):
+    """Normal Summon: find a small Samurai; also gets a light bushido pump."""
+    def effect_fn(o, state):
+        return _search_library(
+            state, o.controller,
+            lambda c: _is_samurai(c) and c.id != o.id
+                      and (getattr(c.card_def, 'level', 99) or 99) <= 2
+        )
+    return [
+        make_ygo_summon_trigger(obj, effect_fn),
+        _make_flat_other_samurai_boost(obj, 300),
+    ]
+
+
+def _sokenzan_renegade_setup(obj, state):
+    """Normal Summon: recover an Equip if alone; scales once Samurai arrive."""
+    def effect_fn(o, state):
+        if count_on_field(state, o.controller, "Samurai", exclude_id=o.id) > 0:
+            return []
+        return _search_library(state, o.controller, _is_equip_spell)
+    return [
+        make_ygo_summon_trigger(obj, effect_fn),
+        _make_flat_other_samurai_boost(obj, 200),
+    ]
+
+
+def _kitsune_tsuki_setup(obj, state):
+    """Continuous Trap: opponent's Level 5+ monsters have effects negated."""
+    from src.engine.types import (Interceptor, InterceptorAction,
+                                  InterceptorPriority, InterceptorResult, new_id)
+
+    def _filter(event, state):
+        if obj.zone != ZoneType.SPELL_TRAP_ZONE or obj.state.face_down:
+            return False
+        if event.type != EventType.QUERY_ABILITIES:
+            return False
+        target = state.objects.get(event.payload.get('object_id'))
+        if target is None or target.controller == obj.controller or not target.card_def:
+            return False
+        return (getattr(target.card_def, 'level', 0) or 0) >= 5
+
+    def _handler(event, state):
+        target = state.objects.get(event.payload.get('object_id'))
+        if target is not None:
+            target.state.effects_negated = True
+        granted = event.payload.setdefault('granted', [])
+        if isinstance(granted, list):
+            granted.append('effects_negated')
+        abilities = event.payload.setdefault('abilities', set())
+        if isinstance(abilities, set):
+            abilities.add('effects_negated')
+        return InterceptorResult(action=InterceptorAction.TRANSFORM,
+                                 transformed_event=event)
+
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.QUERY, filter=_filter,
+                        handler=_handler, duration='until_leaves')]
+
+
 # =============================================================================
 # Card definitions — Monsters
 # =============================================================================
 
 ISAMARU_HOUND_OF_KONDA = make_ygo_monster(
     "Isamaru, Hound of Konda", atk=800, def_val=600, level=1,
-    attribute="EARTH", ygo_monster_type="Normal",
+    attribute="EARTH", ygo_monster_type="Effect",
     subtypes={"Beast-Warrior", "Samurai"},
-    text="Konda's faithful hound, undeterred by armies tenfold its size.",
+    text="While you control another 'Samurai', this card gains 400 ATK. "
+         "Once each turn, if this card would be destroyed by battle, prevent that destruction.",
+    setup_interceptors=_isamaru_setup,
 )
 
 DEVOTED_RETAINER = make_ygo_monster(
@@ -582,8 +693,10 @@ KITSUNE_DIVINER = make_ygo_monster(
     "Kitsune Diviner", atk=700, def_val=1500, level=2,
     attribute="LIGHT", ygo_monster_type="Effect",
     subtypes={"Spellcaster", "Samurai"},
-    text="FLIP: Add 1 Equip Spell from your Deck or GY to your hand.",
+    text="FLIP: add 1 Equip Spell from your Deck or GY to your hand. "
+         "If the Deck has no Equip Spell, recover one from your GY instead.",
     flip_effect=_kitsune_diviner_flip,
+    setup_interceptors=_kitsune_diviner_setup,
 )
 
 EIGANJO_FREE_RIDER = make_ygo_monster(
@@ -614,8 +727,11 @@ KONDAS_BANNER_BEARER = make_ygo_monster(
     "Konda's Banner-Bearer", atk=1500, def_val=1000, level=4,
     attribute="LIGHT", ygo_monster_type="Effect",
     subtypes={"Warrior", "Samurai"},
-    text="All other 'Samurai' you control gain 200 ATK.",
-    setup_interceptors=lambda obj, state: [make_archetype_lord(obj, atk_bonus=200, archetype="Samurai")],
+    text="All other 'Samurai' monsters you control gain 200 ATK. "
+         "This banner does not pump itself, so it rewards a wider board.",
+    setup_interceptors=lambda obj, state: [
+        make_archetype_team_lord(obj, atk_bonus=200, archetype="Samurai")
+    ],
 )
 
 HAND_OF_HONOR = make_ygo_monster(
@@ -654,7 +770,9 @@ RONIN_HOUNDMASTER = make_ygo_monster(
     "Ronin Houndmaster", atk=1900, def_val=1500, level=4,
     attribute="EARTH", ygo_monster_type="Effect",
     subtypes={"Warrior", "Samurai"},
-    text="A wandering swordsman who keeps a pack of fearless Akki hounds.",
+    text="When Normal Summoned: add 1 Level 2 or lower 'Samurai' from your Deck "
+         "to your hand. While you control another 'Samurai', this card gains 300 ATK.",
+    setup_interceptors=_ronin_houndmaster_setup,
 )
 
 KONDAS_HATAMOTO = make_ygo_monster(
@@ -755,9 +873,11 @@ KONDA_LORD_OF_EIGANJO = make_ygo_monster(
 
 SOKENZAN_RENEGADE = make_ygo_monster(
     "Sokenzan Renegade", atk=1900, def_val=0, level=4,
-    attribute="FIRE", ygo_monster_type="Normal",
+    attribute="FIRE", ygo_monster_type="Effect",
     subtypes={"Warrior", "Samurai"},
-    text="A ronin who threw away his lord's name to fight on his own terms.",
+    text="When Normal Summoned, if you control no other 'Samurai': add 1 Equip "
+         "Spell from your Deck to your hand. While you control another 'Samurai', this gains 200 ATK.",
+    setup_interceptors=_sokenzan_renegade_setup,
 )
 
 
@@ -770,10 +890,67 @@ def _path_of_bravery_resolve(event, state):
     return []  # Simplified: continuous-spell stat boost would need an interceptor; placeholder
 
 
+def _path_of_bravery_setup(obj, state):
+    """Track Samurai Normal Summons and grant a query-time ATK bonus."""
+    from src.engine.types import (Interceptor, InterceptorAction,
+                                  InterceptorPriority, InterceptorResult, new_id)
+
+    def _active() -> bool:
+        return obj.zone == ZoneType.SPELL_TRAP_ZONE
+
+    def summon_filter(event, state):
+        if not _active() or event.type != EventType.YGO_NORMAL_SUMMON:
+            return False
+        if event.payload.get('player') != obj.controller:
+            return False
+        target = state.objects.get(event.payload.get('card_id'))
+        return target is not None and _is_samurai(target)
+
+    def summon_handler(event, state):
+        target = state.objects.get(event.payload.get('card_id'))
+        if not target:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        target.state.path_bravery_bonus = getattr(
+            target.state, 'path_bravery_bonus', 0
+        ) + 200
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[
+            Event(type=EventType.YGO_CHAIN_LINK,
+                  payload={'effect': 'path_bravery_bonus',
+                           'card_id': target.id, 'amount': 200})
+        ])
+
+    def boost_filter(event, state):
+        if not _active() or event.type != EventType.QUERY_POWER:
+            return False
+        target = state.objects.get(event.payload.get('object_id'))
+        return target is not None and target.controller == obj.controller
+
+    def boost_handler(event, state):
+        target = state.objects.get(event.payload.get('object_id'))
+        bonus = getattr(target.state, 'path_bravery_bonus', 0) if target else 0
+        if bonus <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        event.payload['value'] = event.payload.get('value', 0) + bonus
+        return InterceptorResult(action=InterceptorAction.TRANSFORM,
+                                 transformed_event=event)
+
+    return [
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.REACT, filter=summon_filter,
+                    handler=summon_handler, duration='until_leaves'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY, filter=boost_filter,
+                    handler=boost_handler, duration='until_leaves'),
+    ]
+
+
 PATH_OF_BRAVERY = make_ygo_spell(
     "Path of Bravery", ygo_spell_type="Continuous",
-    text="Each 'Samurai' you Normal Summon gains 200 ATK.",
+    text="While face-up: when you Normal Summon a 'Samurai', that monster "
+         "gains 200 ATK while this card remains on the field. Layer "
+         "simplification: store a query-time bonus on that monster.",
     resolve=_path_of_bravery_resolve,
+    setup_interceptors=_path_of_bravery_setup,
 )
 
 
@@ -844,9 +1021,54 @@ IMPERIAL_EDICT = make_ygo_spell(
 )
 
 
+def _eiganjo_castle_setup(obj, state):
+    """Field Spell: Samurai boost and once-per-turn battle protection."""
+    from src.engine.types import (Interceptor, InterceptorAction,
+                                  InterceptorPriority, InterceptorResult, new_id)
+
+    def _active() -> bool:
+        return obj.zone == ZoneType.FIELD_SPELL_ZONE
+
+    def boost_filter(event, state):
+        if not _active() or event.type != EventType.QUERY_POWER:
+            return False
+        target = state.objects.get(event.payload.get('object_id'))
+        return target is not None and target.controller == obj.controller and _is_samurai(target)
+
+    def boost_handler(event, state):
+        event.payload['value'] = event.payload.get('value', 0) + 200
+        return InterceptorResult(action=InterceptorAction.TRANSFORM,
+                                 transformed_event=event)
+
+    def prevent_filter(event, state):
+        if not _active() or event.type != EventType.YGO_DESTROY:
+            return False
+        if event.payload.get('reason') != 'battle':
+            return False
+        target = state.objects.get(event.payload.get('card_id'))
+        if target is None or target.controller != obj.controller or not _is_samurai(target):
+            return False
+        saved_turn = getattr(obj.state, 'eiganjo_saved_turn', None)
+        return saved_turn != state.turn_number
+
+    def prevent_handler(event, state):
+        obj.state.eiganjo_saved_turn = state.turn_number
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    return [
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY, filter=boost_filter,
+                    handler=boost_handler, duration='until_leaves'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.PREVENT, filter=prevent_filter,
+                    handler=prevent_handler, duration='until_leaves'),
+    ]
+
+
 EIGANJO_CASTLE = make_ygo_spell(
     "Eiganjo Castle", ygo_spell_type="Field",
     text="All 'Samurai' you control gain 200 ATK. The first 'Samurai' you control destroyed by battle each turn is not destroyed.",
+    setup_interceptors=_eiganjo_castle_setup,
 )
 
 
@@ -1179,7 +1401,9 @@ SHROUD_OF_THE_ETERNAL = make_ygo_trap(
 
 KITSUNE_TSUKI = make_ygo_trap(
     "Kitsune-Tsuki", ygo_trap_type="Continuous",
-    text="Negate the effects of an opponent's Lv 5+ monster while it is on the field.",
+    text="While this card is face-up, negate the effects of opponent's Level 5+ "
+         "monsters on the field. Layer simplification: affected monsters gain an effects_negated marker.",
+    setup_interceptors=_kitsune_tsuki_setup,
 )
 
 
@@ -1351,6 +1575,33 @@ STORM_OF_SAITO = make_ygo_monster(
     materials="1 Tuner + 1+ non-Tuner 'Samurai'",
     setup_interceptors=_storm_of_saito_setup,
 )
+
+
+_PASS3_TEXT_APPENDIX = {
+    "Hand of Cruelty": "Battle rule: the Bushido bonus is checked through the stat layer whenever another Samurai is face-up, so removal can turn it off mid-combat.",
+    "Hand of Honor": "Battle rule: the Bushido bonus is checked through the stat layer whenever another Samurai is face-up, so removal can turn it off mid-combat.",
+    "Konda's Hatamoto": "Protection rule: while Konda is face-up on your field, destruction effects and battle destruction that target this retainer are prevented by its interceptor.",
+    "Imperial Edict": "Resolution simplification: draw from the top of your Deck one card at a time, then discard the last card in hand to your GY.",
+    "Imperial Mobilization": "Resolution simplification: choose the first legal Level 3 or lower Samurai in your GY, Special Summon it in Defense Position, then repeat once if a slot remains.",
+    "The Wandering Decree": "Cost and resolution: send the first Samurai you control to the GY, then Special Summon the first Level 5 or higher Samurai available from your GY.",
+    "Stand Together": "Cost and resolution: tribute the first face-up monster you control, then return the first Samurai in your GY to the field in Attack Position.",
+    "Heroic Sacrifice": "Cost and resolution: tribute a Samurai you control, then destroy the first face-up opponent monster found by the simplified targeting pass.",
+    "Final Flourish": "Chain timing simplification: when a destroy effect would remove your Samurai, emit a negate_destroy marker for the YGO chain layer.",
+    "Splice Bushido": "Resolution simplification: target the first Samurai you control if none is supplied; it gains 1000 ATK until End Phase through temporary state.",
+    "Honor-Worn Shaku": "Equip layer: the equipped Samurai gains 300 ATK and is treated as a Tuner while this card remains attached and face-up.",
+    "Brothers Yamazaki": "Protection rule: if another Brothers Yamazaki is face-up on your field, battle destruction against this copy is prevented.",
+    "Cleaving Reach": "Cost and resolution: send your first Equip Spell to the GY, then destroy the first face-up opponent monster found by the targeting pass.",
+    "Reciprocate": "Resolution simplification: target a Samurai you control, give it 1000 ATK, and mark it battle_indestructible_eot for the rest of the turn.",
+    "Otherworldly Journey": "Recursion rule: when this card is destroyed, it returns itself to your hand instead of staying in the GY.",
+    "The Wandering Heir": "Summon trigger: when Normal Summoned, Special Summon the first Samurai in your GY in face-up Defense Position if you have an open monster zone.",
+    "Bushido Honor": "Battle trick: when a Samurai declares an attack, target that attacker and give it 1000 ATK and DEF until End Phase.",
+    "General Fumiko": "Summon trigger: when Normal Summoned, Special Summon the first Level 4 or lower Samurai from your hand into an open monster zone.",
+}
+
+for _pass3_card in list(globals().values()):
+    _pass3_note = _PASS3_TEXT_APPENDIX.get(getattr(_pass3_card, "name", None))
+    if _pass3_note and _pass3_note not in (_pass3_card.text or ""):
+        _pass3_card.text = f"{_pass3_card.text} {_pass3_note}"
 
 
 # =============================================================================

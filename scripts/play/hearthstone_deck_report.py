@@ -6,6 +6,12 @@ import argparse
 import contextlib
 import json
 import sys
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 
 def main() -> None:
@@ -21,6 +27,16 @@ def main() -> None:
         help="Print compact JSON instead of indented JSON.",
     )
     parser.add_argument(
+        "--include-custom",
+        action="store_true",
+        help="Include Stormrift, Frierenrift, and Riftclash deck metrics.",
+    )
+    parser.add_argument(
+        "--custom-only",
+        action="store_true",
+        help="Only print Stormrift, Frierenrift, and Riftclash deck metrics.",
+    )
+    parser.add_argument(
         "--fail-on-flags",
         action="store_true",
         help="Exit with status 1 if any deck reports quality or role flags.",
@@ -28,9 +44,14 @@ def main() -> None:
     args = parser.parse_args()
 
     with contextlib.redirect_stdout(sys.stderr):
-        from src.cards.hearthstone.decks import analyze_all_decks
+        from src.cards.hearthstone.decks import analyze_all_decks, analyze_custom_set_decks
 
-        report = analyze_all_decks()
+        if args.custom_only:
+            report = analyze_custom_set_decks()
+        else:
+            report = analyze_all_decks()
+            if args.include_custom:
+                report = {**report, **analyze_custom_set_decks()}
     if args.hero_class:
         if args.hero_class not in report:
             available = ", ".join(sorted(report))

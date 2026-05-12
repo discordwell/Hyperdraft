@@ -66,6 +66,44 @@ def _voice_of_growth_effect(attacker, state):
     return []
 
 
+def _sunny_sprout_effect(attacker, state):
+    """Early convoke texture: heal the Active if a bench exists."""
+    bench = state.zones.get(f"bench_{attacker.controller}")
+    if not bench or not bench.objects:
+        return []
+    active_zone = state.zones.get(f"active_spot_{attacker.controller}")
+    if not active_zone or not active_zone.objects:
+        return []
+    active = state.objects.get(active_zone.objects[0])
+    if not active or active.state.damage_counters <= 0:
+        return []
+    active.state.damage_counters -= 1
+    return [Event(
+        type=EventType.PKM_HEAL,
+        payload={'pokemon_id': active.id, 'amount': 10,
+                 'source': 'Trostling'},
+    )]
+
+
+def _twin_bloom_effect(attacker, state):
+    """Heal each of your Benched Pokemon by 10."""
+    bench = state.zones.get(f"bench_{attacker.controller}")
+    if not bench:
+        return []
+    events = []
+    for bid in bench.objects:
+        target = state.objects.get(bid)
+        if not target or target.state.damage_counters <= 0:
+            continue
+        target.state.damage_counters -= 1
+        events.append(Event(
+            type=EventType.PKM_HEAL,
+            payload={'pokemon_id': bid, 'amount': 10,
+                     'source': 'Trostavia'},
+        ))
+    return events
+
+
 TROSTLING = make_pokemon(
     name="Trostling",
     hp=60,
@@ -74,7 +112,9 @@ TROSTLING = make_pokemon(
     attacks=[
         {"name": "Sunny Sprout",
          "cost": [{"type": "G", "count": 1}],
-         "damage": 20, "text": ""},
+         "damage": 20,
+         "text": "If you have any Benched Pokemon, heal 10 damage from your Active Pokemon.",
+         "effect_fn": _sunny_sprout_effect},
     ],
     weakness_type=PokemonType.FIRE.value,
     retreat_cost=1,
@@ -92,7 +132,9 @@ TROSTAVIA = make_pokemon(
     attacks=[
         {"name": "Twin Bloom",
          "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 50, "text": ""},
+         "damage": 50,
+         "text": "Heal 10 damage from each of your Benched Pokemon.",
+         "effect_fn": _twin_bloom_effect},
     ],
     weakness_type=PokemonType.FIRE.value,
     retreat_cost=1,
@@ -216,7 +258,7 @@ CONCLAVE_CAVALIER = make_pokemon(
 # =============================================================================
 
 def _vitu_ghazi_effect(event, state):
-    """Each player heals 10 damage (1 counter) from their Active."""
+    """Heal both Actives; wide boards convert hand energy into growth."""
     events = []
     for pid in state.players:
         active_zone = state.zones.get(f"active_spot_{pid}")
@@ -224,12 +266,43 @@ def _vitu_ghazi_effect(event, state):
             continue
         target_id = active_zone.objects[0]
         target = state.objects.get(target_id)
-        if not target or target.state.damage_counters <= 0:
+        if not target:
             continue
-        target.state.damage_counters = max(0, target.state.damage_counters - 1)
+        if target.state.damage_counters > 0:
+            target.state.damage_counters = max(0, target.state.damage_counters - 1)
+            events.append(Event(
+                type=EventType.PKM_HEAL,
+                payload={'pokemon_id': target_id, 'amount': 10,
+                         'source': 'Vitu-Ghazi, the City-Tree'},
+            ))
+        bench = state.zones.get(f"bench_{pid}")
+        hand = state.zones.get(f"hand_{pid}")
+        if not bench or len(bench.objects) < 3 or not hand:
+            continue
+        energy_id = None
+        for card_id in hand.objects:
+            obj = state.objects.get(card_id)
+            if obj and obj.characteristics and CardType.ENERGY in obj.characteristics.types:
+                energy_id = card_id
+                break
+        if not energy_id:
+            continue
+        target_bench_id = min(
+            bench.objects,
+            key=lambda bid: len(getattr(state.objects.get(bid).state, 'attached_energy', []))
+            if state.objects.get(bid) else 99,
+        )
+        target_bench = state.objects.get(target_bench_id)
+        if not target_bench:
+            continue
+        hand.objects.remove(energy_id)
+        target_bench.state.attached_energy.append(energy_id)
+        energy = state.objects.get(energy_id)
+        if energy:
+            energy.zone = ZoneType.BATTLEFIELD
         events.append(Event(
-            type=EventType.PKM_HEAL,
-            payload={'pokemon_id': target_id, 'amount': 10,
+            type=EventType.PKM_ATTACH_ENERGY,
+            payload={'pokemon_id': target_bench_id, 'energy_id': energy_id,
                      'source': 'Vitu-Ghazi, the City-Tree'},
         ))
     return events
@@ -238,7 +311,9 @@ def _vitu_ghazi_effect(event, state):
 VITU_GHAZI_THE_CITY_TREE = make_trainer_stadium(
     name="Vitu-Ghazi, the City-Tree",
     text=("When you play Vitu-Ghazi, the City-Tree, each player heals 10 "
-          "damage from their Active Pokemon."),
+          "damage from their Active Pokemon. Then each player with 3 or more "
+          "Benched Pokemon may attach an Energy from their hand to 1 of their "
+          "Benched Pokemon."),
     rarity="uncommon",
     resolve=_vitu_ghazi_effect,
 )
@@ -297,7 +372,7 @@ CAPTAIN_SISAY = make_trainer_supporter(
 
 
 def _selesnya_cluestone_effect(event, state):
-    """Search deck for one Grass Energy and one Fighting Energy, put both in hand."""
+    """Search guild Energy; wide boards convert one into acceleration."""
     player_id = event.payload.get('player')
     if not player_id:
         return []
@@ -320,23 +395,45 @@ def _selesnya_cluestone_effect(event, state):
             found_fighting = card_id
         if found_grass and found_fighting:
             break
-    moved = []
+    bench = state.zones.get(f"bench_{player_id}")
+    should_attach = bool(bench and len(bench.objects) >= 3)
+    attached = False
+    events = []
     for cid in (found_grass, found_fighting):
         if cid:
             library.objects.remove(cid)
-            hand.objects.append(cid)
             obj = state.objects.get(cid)
+            if should_attach and not attached and bench and bench.objects:
+                target_id = min(
+                    bench.objects,
+                    key=lambda bid: len(getattr(state.objects.get(bid).state, 'attached_energy', []))
+                    if state.objects.get(bid) else 99,
+                )
+                target = state.objects.get(target_id)
+                if target:
+                    target.state.attached_energy.append(cid)
+                    if obj:
+                        obj.zone = ZoneType.BATTLEFIELD
+                    attached = True
+                    events.append(Event(
+                        type=EventType.PKM_ATTACH_ENERGY,
+                        payload={'pokemon_id': target_id, 'energy_id': cid,
+                                 'source': 'Selesnya Cluestone'},
+                    ))
+                    continue
+            hand.objects.append(cid)
             if obj:
                 obj.zone = ZoneType.HAND
-            moved.append(cid)
     random.shuffle(library.objects)
-    return []
+    return events
 
 
 SELESNYA_CLUESTONE = make_trainer_item(
     name="Selesnya Cluestone",
     text=("Search your deck for a Grass Energy and a Fighting Energy, "
-          "reveal them, and put them into your hand. Then, shuffle your deck."),
+          "reveal them, and put them into your hand. If you have 3 or more "
+          "Benched Pokemon, attach 1 of those Energy to a Benched Pokemon "
+          "instead. Then, shuffle your deck."),
     rarity="uncommon",
     resolve=_selesnya_cluestone_effect,
 )
@@ -466,6 +563,13 @@ LOXODON_HIERARCH = make_pokemon(
 )
 
 
+def _watchful_pounce_effect(attacker, state):
+    bench = state.zones.get(f"bench_{attacker.controller}")
+    if not bench or not bench.objects:
+        return []
+    return _draw_cards(state, attacker.controller, 1)
+
+
 WATCHWOLF = make_pokemon(
     name="Watchwolf",
     hp=70,
@@ -474,7 +578,9 @@ WATCHWOLF = make_pokemon(
     attacks=[
         {"name": "Pounce",
          "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 50, "text": ""},
+         "damage": 50,
+         "text": "If you have any Benched Pokemon, draw a card.",
+         "effect_fn": _watchful_pounce_effect},
     ],
     weakness_type=PokemonType.FIRE.value,
     retreat_cost=1,
@@ -662,7 +768,7 @@ def make_selesnya_deck() -> list:
     deck.extend([TROSTANI_SELESNYAS_VOICE_EX] * 2)
     deck.extend([EMMLET] * 3)
     deck.extend([EMMARA_SOUL_OF_THE_ACCORD] * 2)
-    deck.extend([CENTAUR_HEALER] * 2)
+    deck.extend([SELESNYA_EVANGEL] * 2)
     # Guild trainers (9)
     deck.extend([VITU_GHAZI_THE_CITY_TREE] * 2)
     deck.extend([CAPTAIN_SISAY] * 2)

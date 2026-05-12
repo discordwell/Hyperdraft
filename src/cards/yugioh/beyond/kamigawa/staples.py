@@ -13,7 +13,11 @@ are NOT redefined here — the archetype version is canonical.
 """
 
 from src.engine.game import make_ygo_monster, make_ygo_spell, make_ygo_trap
-from src.engine.types import Event, EventType, ZoneType
+from src.engine.types import (
+    Event, EventType, ZoneType, CardType,
+    Interceptor, InterceptorAction, InterceptorPriority, InterceptorResult,
+    new_id,
+)
 from src.engine.yugioh_helpers import (
     make_ygo_summon_trigger, make_ygo_destroy_trigger,
     make_ygo_continuous_effect, make_ygo_ignition_effect,
@@ -105,6 +109,168 @@ def _discard_random(state, player_id: str, n: int = 1) -> list[Event]:
     return events
 
 
+def _is_ygo_monster(obj) -> bool:
+    return (
+        obj is not None and obj.card_def is not None
+        and CardType.YGO_MONSTER in obj.card_def.characteristics.types
+    )
+
+
+def _is_equip_spell(obj) -> bool:
+    return (
+        obj is not None and obj.card_def is not None
+        and getattr(obj.card_def, 'ygo_spell_type', None) == "Equip"
+    )
+
+
+def _destroy_card(state, card_id: str, reason: str = "effect") -> list[Event]:
+    obj = state.objects.get(card_id)
+    if not obj:
+        return []
+    for zone in state.zones.values():
+        for i, oid in enumerate(zone.objects):
+            if oid == card_id:
+                zone.objects[i] = None
+        while card_id in zone.objects:
+            zone.objects.remove(card_id)
+    gy = state.zones.get(f"graveyard_{obj.owner}")
+    if gy is not None:
+        gy.objects.append(card_id)
+    obj.zone = ZoneType.GRAVEYARD
+    obj.state.face_down = False
+    obj.state.ygo_position = None
+    return [Event(type=EventType.YGO_DESTROY,
+                  payload={'card_id': card_id, 'card_name': obj.name,
+                           'reason': reason})]
+
+
+def _destroy_one_face_up_opponent_card(state, controller: str) -> list[Event]:
+    for pid in state.players:
+        if pid == controller:
+            continue
+        for zone_key in (f"monster_zone_{pid}", f"spell_trap_zone_{pid}",
+                         f"field_spell_zone_{pid}"):
+            zone = state.zones.get(zone_key)
+            if not zone:
+                continue
+            for oid in list(zone.objects):
+                if not oid:
+                    continue
+                obj = state.objects.get(oid)
+                if obj and not obj.state.face_down:
+                    return _destroy_card(state, oid, reason="effect")
+    return []
+
+
+def _search_library(state, controller: str, predicate) -> list[Event]:
+    library = state.zones.get(f"library_{controller}")
+    hand = state.zones.get(f"hand_{controller}")
+    if not library or not hand:
+        return []
+    for cid in list(library.objects):
+        obj = state.objects.get(cid)
+        if not obj or not obj.card_def:
+            continue
+        if not predicate(obj):
+            continue
+        library.objects.remove(cid)
+        hand.objects.append(cid)
+        obj.zone = ZoneType.HAND
+        return [Event(type=EventType.YGO_DRAW,
+                      payload={'player': controller, 'card_id': cid,
+                               'card_name': obj.name, 'source': 'search'})]
+    return []
+
+
+def _first_own_monster(state, controller: str) -> str | None:
+    zone = state.zones.get(f"monster_zone_{controller}")
+    if not zone:
+        return None
+    for oid in zone.objects:
+        if not oid:
+            continue
+        obj = state.objects.get(oid)
+        if _is_ygo_monster(obj):
+            return oid
+    return None
+
+
+def _make_counter_resolve(effect: str):
+    def _resolve(event, state):
+        controller = event.payload.get('player')
+        return [Event(type=EventType.YGO_CHAIN_LINK,
+                      payload={'effect': effect, 'controller': controller,
+                               'source': event.payload.get('card_id')})]
+    return _resolve
+
+
+def _make_honden_standby_setup(resolve_fn):
+    """Field Spell upkeep hook.
+
+    The YGO spell manager still calls ``resolve`` on activation, so these
+    Honden keep their immediate activation effect and also repeat during the
+    controller's Standby Phase while face-up in the Field Zone.
+    """
+    def _setup(obj, state):
+        def _filter(event, state):
+            return (
+                obj.zone == ZoneType.FIELD_SPELL_ZONE
+                and event.type == EventType.PHASE_CHANGE
+                and event.payload.get('phase') == 'standby'
+                and event.payload.get('player') == obj.controller
+                and getattr(obj.state, 'honden_standby_turn', None) != state.turn_number
+            )
+
+        def _handler(event, state):
+            obj.state.honden_standby_turn = state.turn_number
+            trigger = Event(
+                type=EventType.YGO_ACTIVATE_SPELL,
+                payload={'player': obj.controller, 'card_id': obj.id},
+                source=obj.id,
+                controller=obj.controller,
+            )
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=resolve_fn(trigger, state) or [],
+            )
+
+        return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                            priority=InterceptorPriority.REACT, filter=_filter,
+                            handler=_handler, duration='until_leaves')]
+    return _setup
+
+
+def _make_attribute_field_setup(atk_bonuses: dict[str, int],
+                                def_bonuses: dict[str, int] | None = None):
+    """Create a Field Spell stat layer for YGO attributes."""
+    def _setup(obj, state):
+        def _filter(event, state):
+            if obj.zone != ZoneType.FIELD_SPELL_ZONE:
+                return False
+            if event.type not in (EventType.QUERY_POWER, EventType.QUERY_TOUGHNESS):
+                return False
+            target = state.objects.get(event.payload.get('object_id'))
+            return _is_ygo_monster(target)
+
+        def _handler(event, state):
+            target = state.objects.get(event.payload.get('object_id'))
+            attr = getattr(target.card_def, 'attribute', None) if target and target.card_def else None
+            if event.type == EventType.QUERY_POWER:
+                bonus = atk_bonuses.get(attr, 0)
+            else:
+                bonus = (def_bonuses or {}).get(attr, 0)
+            if not bonus:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            event.payload['value'] = event.payload.get('value', 0) + bonus
+            return InterceptorResult(action=InterceptorAction.TRANSFORM,
+                                     transformed_event=event)
+
+        return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                            priority=InterceptorPriority.QUERY, filter=_filter,
+                            handler=_handler, duration='until_leaves')]
+    return _setup
+
+
 # =============================================================================
 # The 5-Honden Field-Spell cycle (Champions of Kamigawa enchantment cycle)
 # =============================================================================
@@ -118,8 +284,10 @@ def _honden_cleansing_fire_resolve(event, state):
 
 HONDEN_OF_CLEANSING_FIRE = make_ygo_spell(
     "Honden of Cleansing Fire", ygo_spell_type="Field",
-    text="During each of your Standby Phases: gain 500 LP.",
+    text="When activated and during each of your Standby Phases: gain 500 LP. "
+         "Standby timing simplification: this Field Spell repeats on PHASE_CHANGE.",
     resolve=_honden_cleansing_fire_resolve,
+    setup_interceptors=_make_honden_standby_setup(_honden_cleansing_fire_resolve),
 )
 
 
@@ -133,8 +301,11 @@ def _honden_nights_reach_resolve(event, state):
 
 HONDEN_OF_NIGHTS_REACH = make_ygo_spell(
     "Honden of Night's Reach", ygo_spell_type="Field",
-    text="During each of your Standby Phases: opponent discards 1 random card.",
+    text="When activated and during each of your Standby Phases: opponent "
+         "discards 1 random card. Standby timing simplification: discard the "
+         "first available hand card.",
     resolve=_honden_nights_reach_resolve,
+    setup_interceptors=_make_honden_standby_setup(_honden_nights_reach_resolve),
 )
 
 
@@ -148,8 +319,11 @@ def _honden_infinite_rage_resolve(event, state):
 
 HONDEN_OF_INFINITE_RAGE = make_ygo_spell(
     "Honden of Infinite Rage", ygo_spell_type="Field",
-    text="During each of your Standby Phases: deal 600 damage to opponent.",
+    text="When activated and during each of your Standby Phases: deal 600 "
+         "damage to opponent. Standby timing simplification: apply direct LP "
+         "loss on PHASE_CHANGE.",
     resolve=_honden_infinite_rage_resolve,
+    setup_interceptors=_make_honden_standby_setup(_honden_infinite_rage_resolve),
 )
 
 
@@ -175,8 +349,11 @@ def _honden_lifes_web_resolve(event, state):
 
 HONDEN_OF_LIFES_WEB = make_ygo_spell(
     "Honden of Life's Web", ygo_spell_type="Field",
-    text="During each of your Standby Phases: SS 1 Lv ≤2 monster from your GY.",
+    text="When activated and during each of your Standby Phases: SS 1 Lv 2 "
+         "or lower monster from your GY. Standby timing simplification: revive "
+         "the first legal monster.",
     resolve=_honden_lifes_web_resolve,
+    setup_interceptors=_make_honden_standby_setup(_honden_lifes_web_resolve),
 )
 
 
@@ -189,8 +366,10 @@ def _honden_seeing_winds_resolve(event, state):
 
 HONDEN_OF_SEEING_WINDS = make_ygo_spell(
     "Honden of Seeing Winds", ygo_spell_type="Field",
-    text="During each of your Standby Phases: draw 1 card.",
+    text="When activated and during each of your Standby Phases: draw 1 card. "
+         "Standby timing simplification: draw on your standby PHASE_CHANGE.",
     resolve=_honden_seeing_winds_resolve,
+    setup_interceptors=_make_honden_standby_setup(_honden_seeing_winds_resolve),
 )
 
 
@@ -225,7 +404,9 @@ def _path_to_exile_resolve(event, state):
 
 PATH_TO_EXILE = make_ygo_spell(
     "Path to Exile", ygo_spell_type="Quick-Play",
-    text="Banish 1 face-up monster opponent controls; that player may add 1 Field Spell from their Deck to hand.",
+    text="When activated: banish 1 face-up monster opponent controls; then "
+         "that player may add 1 Field Spell from their Deck to hand. Targeting "
+         "simplification: auto-pick the first face-up opposing monster.",
     resolve=_path_to_exile_resolve,
 )
 
@@ -246,7 +427,9 @@ def _swords_to_plowshares_resolve(event, state):
 
 SWORDS_TO_PLOWSHARES = make_ygo_spell(
     "Swords to Plowshares", ygo_spell_type="Quick-Play",
-    text="Banish 1 face-up monster opponent controls; opponent gains LP equal to its ATK.",
+    text="When activated: banish 1 face-up monster opponent controls; then "
+         "opponent gains LP equal to that monster's ATK. Targeting "
+         "simplification: auto-pick the first face-up opposing monster.",
     resolve=_swords_to_plowshares_resolve,
 )
 
@@ -283,7 +466,9 @@ def _doom_blade_resolve(event, state):
 
 DOOM_BLADE = make_ygo_spell(
     "Doom Blade", ygo_spell_type="Quick-Play",
-    text="Destroy 1 face-up non-LIGHT monster opponent controls.",
+    text="When activated: destroy 1 face-up non-LIGHT monster opponent "
+         "controls. Targeting simplification: auto-pick the first legal "
+         "opposing monster.",
     resolve=_doom_blade_resolve,
 )
 
@@ -359,7 +544,9 @@ def _lightning_bolt_resolve(event, state):
 
 LIGHTNING_BOLT = make_ygo_spell(
     "Lightning Bolt", ygo_spell_type="Normal",
-    text="Deal 1500 damage to opponent; or destroy 1 monster with ATK ≤ 1500.",
+    text="When activated: deal 1500 damage to opponent; or destroy 1 targeted "
+         "monster with ATK 1500 or less. Targeting simplification: no target "
+         "means direct LP damage.",
     resolve=_lightning_bolt_resolve,
 )
 
@@ -370,7 +557,9 @@ def _wrath_of_god_resolve(event, state):
 
 WRATH_OF_GOD = make_ygo_spell(
     "Wrath of God", ygo_spell_type="Normal",
-    text="Destroy all face-up monsters on the field.",
+    text="When activated: destroy all face-up monsters on the field. "
+         "Resolution simplification: emit one YGO_DESTROY event for each "
+         "monster destroyed.",
     resolve=_wrath_of_god_resolve,
 )
 
@@ -381,7 +570,8 @@ def _day_of_judgment_resolve(event, state):
 
 DAY_OF_JUDGMENT = make_ygo_spell(
     "Day of Judgment", ygo_spell_type="Normal",
-    text="Destroy all monsters on the field.",
+    text="When activated: destroy all monsters on the field. Resolution "
+         "simplification: emit one YGO_DESTROY event for each monster destroyed.",
     resolve=_day_of_judgment_resolve,
 )
 
@@ -411,34 +601,61 @@ def _demonic_tutor_resolve(event, state):
 
 DEMONIC_TUTOR = make_ygo_spell(
     "Demonic Tutor", ygo_spell_type="Normal",
-    text="Add 1 monster from your Deck to your hand.",
+    text="When activated: search your Deck for 1 monster and add it to your "
+         "hand. Search simplification: take the first legal monster in Deck order.",
     resolve=_demonic_tutor_resolve,
 )
 
 
+def _ss_level_four_from_hand_or_gy(state, controller: str) -> list[Event]:
+    zone = state.zones.get(f"monster_zone_{controller}")
+    if not zone:
+        return []
+    slot = None
+    for i in range(5):
+        if i >= len(zone.objects) or zone.objects[i] is None:
+            slot = i
+            break
+    if slot is None:
+        return []
+    for zone_key in (f"graveyard_{controller}", f"hand_{controller}"):
+        origin = state.zones.get(zone_key)
+        if not origin:
+            continue
+        for cid in list(origin.objects):
+            cobj = state.objects.get(cid)
+            if not _is_ygo_monster(cobj):
+                continue
+            level = getattr(cobj.card_def, 'level', 99) or 99
+            if level > 4:
+                continue
+            while len(zone.objects) <= slot:
+                zone.objects.append(None)
+            origin.objects.remove(cid)
+            zone.objects[slot] = cid
+            cobj.zone = ZoneType.MONSTER_ZONE
+            cobj.controller = controller
+            cobj.state.face_down = False
+            cobj.state.ygo_position = 'face_up_atk'
+            return [Event(type=EventType.YGO_SPECIAL_SUMMON,
+                          payload={'player': controller, 'card_id': cid,
+                                   'card_name': cobj.name,
+                                   'summon_type': 'dark_ritual'})]
+    return []
+
+
 def _dark_ritual_resolve(event, state):
-    """SS 1 Lv ≤4 monster from your hand or GY."""
+    """SS 1 Lv 4 or lower monster from your hand or GY."""
     controller = event.payload.get('player')
     if not controller:
         return []
-    # Try GY first
-    gy = state.zones.get(f"graveyard_{controller}")
-    if gy:
-        for cid in list(gy.objects):
-            obj = state.objects.get(cid)
-            if not obj or not obj.card_def:
-                continue
-            if not any(t.name == 'YGO_MONSTER' for t in obj.card_def.characteristics.types):
-                continue
-            lvl = getattr(obj.card_def, 'level', 99) or 99
-            if lvl <= 4:
-                return revive_from_graveyard(state, controller, cid)
-    return []
+    return _ss_level_four_from_hand_or_gy(state, controller)
 
 
 DARK_RITUAL = make_ygo_spell(
     "Dark Ritual", ygo_spell_type="Normal",
-    text="SS 1 Lv ≤4 monster from your GY.",
+    text="When activated: SS 1 Level 4 or lower monster from your GY or hand. "
+         "Summon simplification: choose the first legal monster, preferring GY.",
     resolve=_dark_ritual_resolve,
 )
 
@@ -448,10 +665,36 @@ def _howling_mine_resolve(event, state):
     return []
 
 
+def _howling_mine_setup(obj, state):
+    def _filter(event, state):
+        return (
+            obj.zone == ZoneType.SPELL_TRAP_ZONE
+            and event.type == EventType.PHASE_CHANGE
+            and event.payload.get('phase') == 'standby'
+            and event.payload.get('player') in state.players
+            and getattr(obj.state, 'mine_turn', None) != (
+                event.payload.get('player'), state.turn_number
+            )
+        )
+
+    def _handler(event, state):
+        player_id = event.payload.get('player')
+        obj.state.mine_turn = (player_id, state.turn_number)
+        return InterceptorResult(action=InterceptorAction.REACT,
+                                 new_events=_draw(state, player_id, 1))
+
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.REACT, filter=_filter,
+                        handler=_handler, duration='until_leaves')]
+
+
 HOWLING_MINE = make_ygo_spell(
     "Howling Mine", ygo_spell_type="Continuous",
-    text="During each player's Standby Phase: that player draws 1 additional card.",
+    text="During each player's Standby Phase: that player draws 1 additional "
+         "card. Standby timing simplification: draw once per player per turn "
+         "on PHASE_CHANGE.",
     resolve=_howling_mine_resolve,
+    setup_interceptors=_howling_mine_setup,
 )
 
 
@@ -482,7 +725,9 @@ def _fact_or_fiction_resolve(event, state):
 
 FACT_OR_FICTION = make_ygo_spell(
     "Fact or Fiction", ygo_spell_type="Normal",
-    text="Reveal top 5 of your Deck; opponent splits into 2 piles; you take 1.",
+    text="When activated: reveal the top 5 cards of your Deck; opponent splits "
+         "them into 2 piles; you take 1 pile. Choice simplification: draw 3 "
+         "from the top.",
     resolve=_fact_or_fiction_resolve,
 )
 
@@ -508,7 +753,9 @@ def _wheel_of_fortune_resolve(event, state):
 
 WHEEL_OF_FORTUNE = make_ygo_spell(
     "Wheel of Fortune", ygo_spell_type="Normal",
-    text="Both players discard their hands; both draw 7.",
+    text="When activated: both players discard their hands; then both players "
+         "draw 7 cards. Hand choice simplification: discard every card currently "
+         "in hand.",
     resolve=_wheel_of_fortune_resolve,
 )
 
@@ -519,25 +766,55 @@ WHEEL_OF_FORTUNE = make_ygo_spell(
 
 BOSEIJU_WHO_SHELTERS_ALL = make_ygo_trap(
     "Boseiju, Who Shelters All", ygo_trap_type="Counter",
-    text="Negate the activation of 1 Spell or Trap that targets a card in your hand or GY.",
+    text="When activated in a chain: negate the activation of 1 Spell or Trap "
+         "that targets a card in your hand or GY. Chain timing simplification: "
+         "emit a negate_hand_or_gy_target marker.",
+    resolve=_make_counter_resolve("negate_hand_or_gy_target"),
 )
 
 
 NEGATE = make_ygo_trap(
     "Negate", ygo_trap_type="Counter",
-    text="Negate the activation of 1 Spell.",
+    text="When activated in a chain: negate the activation of 1 Spell. Chain "
+         "timing simplification: emit a negate_spell marker instead of opening "
+         "a full response window.",
+    resolve=_make_counter_resolve("negate_spell"),
 )
+
+
+def _spell_pierce_resolve(event, state):
+    """Opponent pays 2000 LP if able; otherwise the activation is negated."""
+    controller = event.payload.get('player')
+    opp = _opponent_id(state, controller) if controller else None
+    if not opp:
+        return []
+    opp_player = state.players.get(opp)
+    if opp_player and opp_player.lp > 2000:
+        opp_player.lp -= 2000
+        return [Event(type=EventType.YGO_LP_CHANGE,
+                      payload={'player': opp, 'amount': -2000,
+                               'source': 'Spell Pierce tax'})]
+    return [Event(type=EventType.YGO_CHAIN_LINK,
+                  payload={'effect': 'negate_spell_unless_pay',
+                           'controller': controller,
+                           'source': event.payload.get('card_id')})]
 
 
 SPELL_PIERCE = make_ygo_trap(
     "Spell Pierce", ygo_trap_type="Counter",
-    text="Negate the activation of 1 Spell unless its controller pays 2000 LP.",
+    text="When activated in a chain: negate the activation of 1 Spell unless "
+         "its controller pays 2000 LP. Chain timing simplification: opponent "
+         "auto-pays when above 2000 LP.",
+    resolve=_spell_pierce_resolve,
 )
 
 
 FORCE_SPIKE = make_ygo_trap(
     "Force Spike", ygo_trap_type="Counter",
-    text="Negate the activation of 1 Spell that has been activated this turn.",
+    text="When activated in a chain: negate the activation of 1 Spell that has "
+         "been activated this turn. Chain timing simplification: emit a "
+         "negate_recent_spell marker.",
+    resolve=_make_counter_resolve("negate_recent_spell"),
 )
 
 
@@ -558,19 +835,42 @@ def _sword_and_shield_resolve(event, state):
 
 SWORD_AND_SHIELD = make_ygo_trap(
     "Sword and Shield", ygo_trap_type="Normal",
-    text="All face-up monsters: until End of Turn, swap their ATK and DEF.",
+    text="When activated: all face-up monsters swap their ATK and DEF until "
+         "End of Turn. Layer simplification: record temporary ATK/DEF deltas "
+         "on each current face-up monster.",
     resolve=_sword_and_shield_resolve,
 )
 
 
-def _karma_resolve(event, state):
-    return []
+def _karma_setup(obj, state):
+    """Continuous Trap: drain the opponent whenever a monster goes to the GY."""
+    def _filter(event, state):
+        if obj.zone != ZoneType.SPELL_TRAP_ZONE or obj.state.face_down:
+            return False
+        if event.type not in (EventType.YGO_DESTROY, EventType.YGO_SEND_TO_GY):
+            return False
+        cid = event.payload.get('card_id')
+        moved = state.objects.get(cid) if cid else None
+        return _is_ygo_monster(moved)
+
+    def _handler(event, state):
+        opp = _opponent_id(state, obj.controller)
+        if not opp:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=_change_lp(state, opp, -200, "Karma"),
+        )
+
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.REACT, filter=_filter,
+                        handler=_handler, duration='until_leaves')]
 
 
 KARMA = make_ygo_trap(
     "Karma", ygo_trap_type="Continuous",
     text="Each time a monster is sent to the GY: opponent loses 200 LP.",
-    resolve=_karma_resolve,
+    setup_interceptors=_karma_setup,
 )
 
 
@@ -634,7 +934,25 @@ LIGHTNING_GREAVES = make_ygo_spell(
 
 
 def _argentum_armor_setup(obj, state):
-    return [make_ygo_equip_boost(obj, atk_boost=500, def_boost=500)]
+    """Equip boost plus attack-triggered removal."""
+    def _filter(event, state):
+        if event.type != EventType.YGO_BATTLE_DECLARE:
+            return False
+        target_id = getattr(obj.state, 'equipped_to', None)
+        return bool(target_id and event.payload.get('attacker_id') == target_id)
+
+    def _handler(event, state):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=_destroy_one_face_up_opponent_card(state, obj.controller),
+        )
+
+    return [
+        make_ygo_equip_boost(obj, atk_boost=500, def_boost=500),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.REACT, filter=_filter,
+                    handler=_handler, duration='until_leaves'),
+    ]
 
 
 ARGENTUM_ARMOR = make_ygo_spell(
@@ -929,38 +1247,128 @@ GOBLIN_WELDER = make_ygo_monster(
 )
 
 
+def _ss_level_two_from_hand_or_gy(state, controller: str) -> list[Event]:
+    zone = state.zones.get(f"monster_zone_{controller}")
+    if not zone:
+        return []
+    slot = None
+    for i in range(5):
+        if i >= len(zone.objects) or zone.objects[i] is None:
+            slot = i
+            break
+    if slot is None:
+        return []
+
+    for zone_key in (f"hand_{controller}", f"graveyard_{controller}"):
+        origin = state.zones.get(zone_key)
+        if not origin:
+            continue
+        for cid in list(origin.objects):
+            cobj = state.objects.get(cid)
+            if not _is_ygo_monster(cobj):
+                continue
+            level = getattr(cobj.card_def, 'level', 99) or 99
+            if level > 2:
+                continue
+            while len(zone.objects) <= slot:
+                zone.objects.append(None)
+            origin.objects.remove(cid)
+            zone.objects[slot] = cid
+            cobj.zone = ZoneType.MONSTER_ZONE
+            cobj.controller = controller
+            cobj.state.face_down = False
+            cobj.state.ygo_position = 'face_up_def'
+            return [Event(type=EventType.YGO_SPECIAL_SUMMON,
+                          payload={'player': controller, 'card_id': cid,
+                                   'card_name': cobj.name,
+                                   'summon_type': 'solitary_confinement'})]
+    return []
+
+
+def _solitary_confinement_setup(obj, state):
+    """Battle shield plus a low-level recovery ignition effect."""
+    def _battle_filter(event, state):
+        if obj.zone != ZoneType.MONSTER_ZONE:
+            return False
+        return (event.type == EventType.YGO_DESTROY
+                and event.payload.get('card_id') == obj.id
+                and event.payload.get('reason') == 'battle')
+
+    def _battle_handler(event, state):
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    def effect_fn(o, state):
+        if o.zone != ZoneType.MONSTER_ZONE:
+            return []
+        events = _change_lp(state, o.controller, -500, "Solitary Confinement")
+        events.extend(_ss_level_two_from_hand_or_gy(state, o.controller))
+        return events
+
+    return [
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.PREVENT, filter=_battle_filter,
+                    handler=_battle_handler, duration='until_leaves'),
+        make_ygo_ignition_effect(obj, effect_fn),
+    ]
+
+
 SOLITARY_CONFINEMENT = make_ygo_monster(
     "Solitary Confinement", atk=500, def_val=2000, level=2,
     attribute="LIGHT", ygo_monster_type="Effect",
     subtypes={"Spellcaster"},
     text="Cannot be destroyed by battle. Once per turn: pay 500 LP; SS 1 Lv ≤2 monster from your hand or GY.",
+    setup_interceptors=_solitary_confinement_setup,
 )
 
 
 # Plain "land-flavored" Field Spells (5)
 PLAINS = make_ygo_spell(
     "Plains, Sanctified Ground", ygo_spell_type="Field",
-    text="LIGHT and EARTH monsters on the field gain 200 ATK and DEF.",
+    text="While face-up in the Field Zone: LIGHT and EARTH monsters on the "
+         "field gain 200 ATK and DEF. Layer simplification: a query hook "
+         "checks current Attribute.",
+    setup_interceptors=_make_attribute_field_setup(
+        {"LIGHT": 200, "EARTH": 200},
+        {"LIGHT": 200, "EARTH": 200},
+    ),
 )
 
 ISLAND = make_ygo_spell(
     "Island, Mirror's Edge", ygo_spell_type="Field",
-    text="WATER and WIND monsters on the field gain 200 ATK and DEF.",
+    text="While face-up in the Field Zone: WATER and WIND monsters on the "
+         "field gain 200 ATK and DEF. Layer simplification: a query hook "
+         "checks current Attribute.",
+    setup_interceptors=_make_attribute_field_setup(
+        {"WATER": 200, "WIND": 200},
+        {"WATER": 200, "WIND": 200},
+    ),
 )
 
 SWAMP = make_ygo_spell(
     "Swamp, Choking Mire", ygo_spell_type="Field",
-    text="DARK monsters on the field gain 300 ATK and 100 DEF.",
+    text="While face-up in the Field Zone: DARK monsters on the field gain "
+         "300 ATK and 100 DEF. Layer simplification: a query hook checks "
+         "current Attribute.",
+    setup_interceptors=_make_attribute_field_setup({"DARK": 300}, {"DARK": 100}),
 )
 
 MOUNTAIN = make_ygo_spell(
     "Mountain, Smoldering Crag", ygo_spell_type="Field",
-    text="FIRE and EARTH monsters on the field gain 300 ATK.",
+    text="While face-up in the Field Zone: FIRE and EARTH monsters on the "
+         "field gain 300 ATK. Layer simplification: a query hook checks "
+         "current Attribute.",
+    setup_interceptors=_make_attribute_field_setup({"FIRE": 300, "EARTH": 300}),
 )
 
 FOREST = make_ygo_spell(
     "Forest, Whispering Glade", ygo_spell_type="Field",
-    text="EARTH and WATER monsters on the field gain 200 ATK and 200 DEF.",
+    text="While face-up in the Field Zone: EARTH and WATER monsters on the "
+         "field gain 200 ATK and 200 DEF. Layer simplification: a query hook "
+         "checks current Attribute.",
+    setup_interceptors=_make_attribute_field_setup(
+        {"EARTH": 200, "WATER": 200},
+        {"EARTH": 200, "WATER": 200},
+    ),
 )
 
 
@@ -970,12 +1378,99 @@ GREAVES_BEARER = make_ygo_monster(
     attribute="EARTH", ygo_monster_type="Effect",
     subtypes={"Warrior"},
     text="When Normal Summoned: add 1 Equip Spell from your Deck to your hand.",
-    setup_interceptors=lambda obj, state: [make_ygo_summon_trigger(
-        obj,
-        lambda o, s: [Event(type=EventType.YGO_DRAW,
-                            payload={'player': o.controller, 'count': 0, 'source': 'greaves'})]
-    )],
+    setup_interceptors=lambda obj, state: [
+        make_ygo_summon_trigger(
+            obj,
+            lambda o, s: _search_library(s, o.controller, _is_equip_spell),
+        )
+    ],
 )
+
+
+def _solemn_wayfarer_setup(obj, state):
+    def effect_fn(o, state):
+        opp = _opponent_id(state, o.controller)
+        if not opp:
+            return []
+        hand = state.zones.get(f"hand_{opp}")
+        if not hand or not hand.objects:
+            return []
+        revealed = hand.objects[0]
+        cobj = state.objects.get(revealed)
+        return [Event(type=EventType.YGO_CHAIN_LINK,
+                      payload={'effect': 'reveal_hand_card',
+                               'controller': o.controller,
+                               'opponent': opp,
+                               'card_id': revealed,
+                               'card_name': cobj.name if cobj else None})]
+    return [make_ygo_summon_trigger(obj, effect_fn)]
+
+
+def _equip_from_hand_to_first_monster(state, controller: str) -> list[Event]:
+    target_id = _first_own_monster(state, controller)
+    if not target_id:
+        return []
+    hand = state.zones.get(f"hand_{controller}")
+    st_zone = state.zones.get(f"spell_trap_zone_{controller}")
+    if not hand or st_zone is None:
+        return []
+    for cid in list(hand.objects):
+        equip = state.objects.get(cid)
+        if not _is_equip_spell(equip):
+            continue
+        slot = None
+        for i in range(5):
+            if i >= len(st_zone.objects) or st_zone.objects[i] is None:
+                slot = i
+                break
+        if slot is None:
+            return []
+        while len(st_zone.objects) <= slot:
+            st_zone.objects.append(None)
+        hand.objects.remove(cid)
+        st_zone.objects[slot] = cid
+        equip.zone = ZoneType.SPELL_TRAP_ZONE
+        equip.state.face_down = False
+        equip.state.equipped_to = target_id
+        return [Event(type=EventType.YGO_EQUIP,
+                      payload={'player': controller, 'card_id': cid,
+                               'target_id': target_id})]
+    return []
+
+
+def _stoneforge_mystic_setup(obj, state):
+    """Normal Summon tutor plus an on-field equip cheat."""
+    def summon_fn(o, state):
+        return _search_library(state, o.controller, _is_equip_spell)
+
+    def ignition_fn(o, state):
+        if o.zone != ZoneType.MONSTER_ZONE:
+            return []
+        return _equip_from_hand_to_first_monster(state, o.controller)
+
+    return [
+        make_ygo_summon_trigger(obj, summon_fn),
+        make_ygo_ignition_effect(obj, ignition_fn),
+    ]
+
+
+def _coiled_tomb_setup(obj, state):
+    """When destroyed: revive a small EARTH monster from your GY."""
+    def effect_fn(o, state):
+        gy = state.zones.get(f"graveyard_{o.controller}")
+        if not gy:
+            return []
+        for cid in list(gy.objects):
+            cobj = state.objects.get(cid)
+            if not _is_ygo_monster(cobj) or cobj.id == o.id:
+                continue
+            if getattr(cobj.card_def, 'attribute', None) != "EARTH":
+                continue
+            if (getattr(cobj.card_def, 'level', 99) or 99) > 4:
+                continue
+            return revive_from_graveyard(state, o.controller, cid)
+        return []
+    return [make_ygo_destroy_trigger(obj, effect_fn)]
 
 
 STONEFORGE_MYSTIC = make_ygo_monster(
@@ -983,6 +1478,7 @@ STONEFORGE_MYSTIC = make_ygo_monster(
     attribute="LIGHT", ygo_monster_type="Effect",
     subtypes={"Spellcaster"},
     text="When Normal Summoned: search 1 Equip Spell from your Deck. Once per turn: equip 1 Equip Spell from your hand to a monster you control.",
+    setup_interceptors=_stoneforge_mystic_setup,
 )
 
 
@@ -990,7 +1486,9 @@ SOLEMN_WAYFARER = make_ygo_monster(
     "Solemn Wayfarer", atk=1500, def_val=1500, level=4,
     attribute="EARTH", ygo_monster_type="Effect",
     subtypes={"Warrior"},
-    text="When Normal Summoned: opponent reveals 1 random card from their hand.",
+    text="When Normal Summoned: opponent reveals 1 random card from their hand. "
+         "Reveal simplification: show the first card in opponent hand order.",
+    setup_interceptors=_solemn_wayfarer_setup,
 )
 
 
@@ -999,6 +1497,7 @@ COILED_TOMB = make_ygo_monster(
     attribute="EARTH", ygo_monster_type="Effect",
     subtypes={"Reptile"},
     text="When destroyed by battle: SS 1 'Snake Token' (1500/1500). [Simplified: SS 1 Lv ≤4 EARTH monster from your GY.]",
+    setup_interceptors=_coiled_tomb_setup,
 )
 
 
@@ -1009,6 +1508,22 @@ SAKURA_TRIBE_SCOUT = make_ygo_monster(
     text="When Normal Summoned: search 1 Field Spell from your Deck.",
     setup_interceptors=_mox_diamond_setup,  # Same effect — Field Spell search
 )
+
+
+_PASS3_TEXT_APPENDIX = {
+    "Whispersilk Cloak": "Equip layer: the equipped monster gains an untargetable_by_effects marker while this card remains attached and face-up.",
+    "Sangromancer": "Reaction trigger: each time an opponent's monster is destroyed and sent to the GY, you gain 500 LP.",
+    "Empyrial Plate": "Equip layer: the equipped monster gains 200 ATK and DEF for each card in your hand, recalculated whenever stats are queried.",
+    "Karma": "Continuous trigger: whenever any monster is sent to the GY, the opponent of this card's controller loses 200 LP.",
+    "Akki Coalflinger": "Attack trigger: when this card declares an attack, the opponent discards the last card in hand as the simplified random card.",
+    "Lightning Greaves": "Equip layer: the equipped monster gains 500 ATK and DEF and cannot be targeted by opponent card effects.",
+    "Squee, Goblin Nabob": "Standby trigger: during your Standby Phase, if this card is in your GY, add it to your hand once.",
+}
+
+for _pass3_card in list(globals().values()):
+    _pass3_note = _PASS3_TEXT_APPENDIX.get(getattr(_pass3_card, "name", None))
+    if _pass3_note and _pass3_note not in (_pass3_card.text or ""):
+        _pass3_card.text = f"{_pass3_card.text} {_pass3_note}"
 
 
 # =============================================================================

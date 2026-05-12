@@ -28,7 +28,7 @@ def _pot_of_greed_resolve(event, state):
     pid = event.payload.get('player')
     if not pid:
         return events
-    deck = state.zones.get(f"deck_{pid}")
+    deck = state.zones.get(f"library_{pid}")
     hand = state.zones.get(f"hand_{pid}")
     if not deck or not hand:
         return events
@@ -55,7 +55,7 @@ def _graceful_charity_resolve(event, state):
     pid = event.payload.get('player')
     if not pid:
         return events
-    deck = state.zones.get(f"deck_{pid}")
+    deck = state.zones.get(f"library_{pid}")
     hand = state.zones.get(f"hand_{pid}")
     if not deck or not hand:
         return events
@@ -113,7 +113,7 @@ def _heavy_storm_resolve(event, state):
                 events.append(Event(type=EventType.YGO_DESTROY,
                                     payload={'card_id': obj_id, 'card_name': obj.name}))
         # Also check field spell zone
-        field_zone = state.zones.get(f"field_spell_{pid}")
+        field_zone = state.zones.get(f"field_spell_zone_{pid}")
         if field_zone:
             for i, obj_id in enumerate(field_zone.objects):
                 if obj_id is None:
@@ -408,7 +408,7 @@ def _dekoichi_flip(obj, state):
     """FLIP: Draw 1 card."""
     events = []
     pid = obj.controller
-    deck = state.zones.get(f"deck_{pid}")
+    deck = state.zones.get(f"library_{pid}")
     hand = state.zones.get(f"hand_{pid}")
     if deck and hand and deck.objects:
         card_id = deck.objects.pop(0)

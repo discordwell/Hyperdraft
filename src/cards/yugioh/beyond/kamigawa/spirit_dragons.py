@@ -782,13 +782,68 @@ DAIMYOS_SPIRIT_STEED = make_ygo_monster(
     setup_interceptors=_daimyos_steed_setup,
 )
 
-# A pure-vanilla low-cost Spirit to round out the summoning pool.
+
+def _village_guide_spirit_setup(obj, state):
+    """Normal Summon: find a small Spirit; Soulshift keeps recursion online."""
+    def effect_fn(o, state):
+        return _search_library(
+            state, o.controller,
+            lambda c: _is_spirit(c) and c.id != o.id
+                      and (getattr(c.card_def, 'level', 99) or 99) <= 4
+        )
+    return [
+        make_ygo_summon_trigger(obj, effect_fn),
+        make_soulshift(obj, max_level=2, archetype="Spirit"),
+    ]
+
+
 VILLAGE_GUIDE_SPIRIT = make_ygo_monster(
     "Village Guide Spirit", atk=900, def_val=600, level=2,
-    attribute="LIGHT", ygo_monster_type="Normal",
+    attribute="LIGHT", ygo_monster_type="Effect",
     subtypes={"Beast", "Spirit"},
-    text="A small Akki spirit that lights the way for travellers in the foothills.",
+    text="When Normal Summoned: add 1 Level 4 or lower 'Spirit' from your Deck "
+         "to your hand. Soulshift 2: when destroyed, SS 1 Level 2 or lower 'Spirit' from your GY.",
+    setup_interceptors=_village_guide_spirit_setup,
 )
+
+
+def _tribute_one_spirit(state, controller: str, exclude_id: str = None) -> str | None:
+    zone = state.zones.get(f"monster_zone_{controller}")
+    if not zone:
+        return None
+    for i, oid in enumerate(zone.objects):
+        if not oid or oid == exclude_id:
+            continue
+        obj = state.objects.get(oid)
+        if not _is_spirit(obj):
+            continue
+        zone.objects[i] = None
+        gy = state.zones.get(f"graveyard_{obj.owner}")
+        if gy is not None:
+            gy.objects.append(oid)
+        obj.zone = ZoneType.GRAVEYARD
+        obj.state.face_down = False
+        obj.state.ygo_position = None
+        return oid
+    return None
+
+
+def _tideshepherd_koi_setup(obj, state):
+    """Hand ignition: tribute a Spirit to Special Summon this tuner."""
+    def effect_fn(o, state):
+        if o.zone != ZoneType.HAND:
+            return []
+        tributed = _tribute_one_spirit(state, o.controller, exclude_id=o.id)
+        if not tributed:
+            return []
+        events = [Event(type=EventType.YGO_SEND_TO_GY,
+                        payload={'card_id': tributed,
+                                 'reason': 'tideshepherd_tribute'})]
+        events.extend(_ss_from_hand(state, o.controller, o.id,
+                                    summon_type='tideshepherd'))
+        return events
+    return [make_ygo_ignition_effect(obj, effect_fn)]
+
 
 # A WATER tuner so the deck can reach Synchro 8 / 10 plays without leaning on
 # the boss dragons themselves.
@@ -798,6 +853,7 @@ TIDESHEPHERD_KOI_SPIRIT = make_ygo_monster(
     subtypes={"Fish", "Spirit"},
     text="A small WATER tuner. While you control another 'Spirit', this card "
          "can be Special Summoned from your hand by tributing 1 'Spirit'.",
+    setup_interceptors=_tideshepherd_koi_setup,
 )
 
 # A cheap WIND beater that doubles as a Soulshift target.
@@ -824,7 +880,9 @@ def _reach_through_mists_resolve(event, state):
 
 REACH_THROUGH_MISTS = make_ygo_spell(
     "Reach Through Mists", ygo_spell_type="Normal",
-    text="Add 1 'Spirit' monster from your Deck to your hand.",
+    text="When activated: search your Deck for 1 'Spirit' monster and add it "
+         "to your hand. Search simplification: take the first legal Spirit in "
+         "Deck order.",
     resolve=_reach_through_mists_resolve,
 )
 
@@ -1057,7 +1115,9 @@ def _awakening_hour_resolve(event, state):
 
 AWAKENING_HOUR = make_ygo_spell(
     "Awakening Hour", ygo_spell_type="Quick-Play",
-    text="'Spirit' monsters you control cannot be destroyed by battle this turn.",
+    text="When activated: 'Spirit' monsters you control cannot be destroyed by "
+         "battle this turn. Protection simplification: mark current face-up "
+         "Spirit monsters battle_indestructible_eot.",
     resolve=_awakening_hour_resolve,
 )
 
@@ -1296,7 +1356,9 @@ def _final_word_resolve(event, state):
 
 FINAL_WORD = make_ygo_trap(
     "Final Word", ygo_trap_type="Counter",
-    text="Negate 1 effect that targets 'O-Kagachi, Vengeful Kami' you control.",
+    text="When activated in a chain: negate 1 effect that targets "
+         "'O-Kagachi, Vengeful Kami' you control. Chain timing simplification: "
+         "emit a negate_target marker.",
     resolve=_final_word_resolve,
 )
 
@@ -1427,6 +1489,28 @@ SPIRIT_HATCH_TRILL = make_ygo_monster(
     materials="2 'Spirit' monsters",
     setup_interceptors=_spirit_hatch_trill_setup,
 )
+
+
+_PASS3_TEXT_APPENDIX = {
+    "Devouring Greed": "Cost and resolution: banish the first Spirit in your GY, then Special Summon a lower-Level Spirit from your GY if a legal target remains.",
+    "Trial of the Moonless Night": "Resolution check: if you control Spirits with five different Attributes, set end_turn_requested for the current turn.",
+    "Charge of the Five Stars": "Cost and resolution: banish five Spirits with different Attributes from your GY, then Special Summon O-Kagachi from your Extra Deck.",
+    "Yukora, the Prisoner": "Summon trigger: when Normal Summoned, the opponent discards the last card in hand to the GY as the simplified random choice.",
+    "Soulless Ringing": "Chain timing simplification: when a Spell would destroy your Spirit, emit a negate_destroy marker for the YGO chain layer.",
+    "Mirror Stone of Five Suns": "Continuous layer: each Spirit you control gains 100 ATK for each different Attribute among Spirit cards in your GY.",
+    "Daimyo's Spirit Steed": "Continuous layer: while another Spirit is face-up, each Spirit you control gains 200 ATK for every other Spirit you control.",
+    "Hana Kami": "Death trigger: when destroyed, add the first Spell card in your GY to your hand instead of leaving it buried.",
+    "Iname, Death Aspect": "Death trigger: when destroyed, send the first Spirit from your Deck to your GY to seed Soulshift lines.",
+    "Hikari, Twilight Guardian": "Protection layer: while another Spirit is face-up on your field, this card gains an untargetable_by_opponent marker.",
+    "Iname, Life Aspect": "Summon trigger: when Normal Summoned, Special Summon the first Spirit in your GY in face-up Defense Position.",
+    "Kami of Hopeful Strength": "Summon trigger: when Normal Summoned, Special Summon the first Level 3 or lower Spirit from your hand.",
+    "Spirit Bond": "Resolution simplification: send up to five differently attributed Spirits from hand or field to the GY, then Special Summon a Fusion Spirit.",
+}
+
+for _pass3_card in list(globals().values()):
+    _pass3_note = _PASS3_TEXT_APPENDIX.get(getattr(_pass3_card, "name", None))
+    if _pass3_note and _pass3_note not in (_pass3_card.text or ""):
+        _pass3_card.text = f"{_pass3_card.text} {_pass3_note}"
 
 
 # =============================================================================
