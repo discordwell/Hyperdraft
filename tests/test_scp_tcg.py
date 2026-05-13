@@ -553,17 +553,19 @@ def test_mood_shift_rewrites_anomaly_difficulty():
     game, p1, _p2 = _setup()
     anomaly = _hand_card(game, p1, "Moth in the Camera")
     junior = _hand_card(game, p1, "Junior Researcher")
-    intern = _hand_card(game, p1, "Sleep-Deprived Intern")
+    # Use Field Agent (Agent subtype) — outside the Scientist aura on Junior so
+    # the mood shift still flips the test outcome after personnel-synergy auras.
+    agent = _hand_card(game, p1, "Field Agent")
     assert scp.open_dossier(game, p1.id, anomaly.id)[0]
     assert scp.open_dossier(game, p1.id, junior.id)[0]
-    assert scp.open_dossier(game, p1.id, intern.id)[0]
+    assert scp.open_dossier(game, p1.id, agent.id)[0]
     ok, message, _events = scp.shift_mood(game, p1.id, anomaly.id, "cryptic")
     assert not ok
     assert message == "Mood shift requires a briefing token"
     scp.site(game.state, p1.id)["briefing"] = 1
     assert scp.shift_mood(game, p1.id, anomaly.id, "cryptic")[0]
 
-    ok, message, _events = scp.run_test(game, p1.id, anomaly.id, [junior.id, intern.id])
+    ok, message, _events = scp.run_test(game, p1.id, anomaly.id, [junior.id, agent.id])
 
     assert ok, message
     assert scp.site(game.state, p1.id)["archives"] == 0
@@ -1022,15 +1024,22 @@ def test_personnel_aura_buffs_same_subtype_friendly_staff():
     scp.open_dossier(game, p1.id, analyst.id, fast_track=True)
     scp.open_dossier(game, p1.id, junior.id, fast_track=True)
     # Wire a memetics-research aura on the Memetics Analyst's card_def.
+    # Stash and clear personnel-synergy auras so this helper-contract test
+    # observes only the aura under test. Card_defs are shared across copies,
+    # so we restore them on the way out.
+    saved_analyst = analyst.card_def.scp_aura
+    saved_junior = junior.card_def.scp_aura
     analyst.card_def.scp_aura = {"subtype:Memetics": {"research": 1}}
+    junior.card_def.scp_aura = {}
 
     total, used = scp._staff_total(game.state, p1.id, [analyst.id, junior.id], "research")
     # analyst: skills.research=2 + aura(+1, since it has Memetics) = 3
     # junior:  skills.research=1 + aura(0, no Memetics)         = 1
     assert total == 3 + 1
     assert set(used) == {analyst.id, junior.id}
-    # Reset aura so it does not pollute the shared card_def for other tests.
-    analyst.card_def.scp_aura = {}
+    # Restore so we don't pollute the shared card_def for other tests.
+    analyst.card_def.scp_aura = saved_analyst
+    junior.card_def.scp_aura = saved_junior
 
 
 def test_personnel_aura_any_selector_applies_to_all_friendly_staff():
@@ -1039,12 +1048,16 @@ def test_personnel_aura_any_selector_applies_to_all_friendly_staff():
     junior = _hand_card(game, p1, "Junior Researcher")
     scp.open_dossier(game, p1.id, analyst.id, fast_track=True)
     scp.open_dossier(game, p1.id, junior.id, fast_track=True)
+    saved_analyst = analyst.card_def.scp_aura
+    saved_junior = junior.card_def.scp_aura
     analyst.card_def.scp_aura = {"any": {"research": 1}}
+    junior.card_def.scp_aura = {}
 
     total, _used = scp._staff_total(game.state, p1.id, [analyst.id, junior.id], "research")
     # analyst: skills 2 + 1 = 3 ; junior: skills 1 + 1 = 2
     assert total == 3 + 2
-    analyst.card_def.scp_aura = {}
+    analyst.card_def.scp_aura = saved_analyst
+    junior.card_def.scp_aura = saved_junior
 
 
 def test_on_test_fail_hook_fires_on_failure():
@@ -1245,11 +1258,11 @@ def test_w2_contained_aura_feeds_staff_total_for_research():
     itself is what matters here.
     """
     game, p1, _p2 = _setup()
-    # Baseline: with only the Junior Researcher on board, research total is 1.
-    junior = _open_active(game, p1, "Junior Researcher")  # research skill 1
+    # Baseline: Junior Researcher (research 1) + W4 self-aura from his own
+    # "subtype:Scientist" aura = 2. Capture the baseline rather than hard-code
+    # it so this test stays robust if other auras land later.
+    junior = _open_active(game, p1, "Junior Researcher")
     baseline_total, _ = scp._staff_total(game.state, p1.id, [junior.id], "research")
-    assert baseline_total == 1
-    # Reset Junior's exhaustion so he can stand in for the second computation.
     junior.state.scp_exhausted = False
 
     # Now contain Oracle Mold; the +1 research aura should lift the total.
@@ -1400,3 +1413,130 @@ def test_test_dividends_applier_is_idempotent():
     # matters, and that is covered by the other tests.)
     assert moth.text == original_text
     assert callable(moth.scp_on_test)
+
+
+# ---------------------------------------------------------------------------
+# W4 personnel-synergy aura tests (lord effects on CORE staff + heroes).
+# ---------------------------------------------------------------------------
+
+
+def test_personnel_synergy_memetics_analyst_buffs_another_memetics():
+    """Memetics Analyst's aura should buff a teammate Memetics personnel's research."""
+    game, p1, _p2 = _setup()
+    # Two copies of Memetics Analyst so both are friendly Memetics personnel.
+    analyst = _hand_card(game, p1, "Memetics Analyst")
+    teammate = _hand_card(game, p1, "Memetics Analyst")
+    assert scp.open_dossier(game, p1.id, analyst.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, teammate.id, fast_track=True)[0]
+
+    # Aura on Memetics Analyst's card_def is wired by apply_personnel_synergy
+    # — confirm it exists and yields +1 research for Memetics targets.
+    assert SCP_CARDS["Memetics Analyst"].scp_aura.get("subtype:Memetics") == {"research": 1}
+
+    total, used = scp._staff_total(game.state, p1.id, [analyst.id, teammate.id], "research")
+    # Both analysts are aura sources AND both are aura targets. Each analyst
+    # contributes its own aura, both selectors of which match its target's
+    # subtypes (Memetics+Scientist). Per analyst the +1 fires twice (Memetics
+    # +1 and Scientist +1) and there are TWO sources, so each analyst nets
+    # base 2 + (1+1 from itself) + (1+1 from the teammate) = 6.
+    assert total == 12
+    assert set(used) == {analyst.id, teammate.id}
+
+
+def test_personnel_synergy_o5_auditor_any_buffs_all_friendly():
+    """O5 Auditor's "any" aura should buff every friendly personnel's research."""
+    game, p1, _p2 = _setup()
+    auditor = _hand_card(game, p1, "O5 Auditor")
+    junior = _hand_card(game, p1, "Junior Researcher")
+    # O5 Auditor has clearance 2, so we need 2 clearance to play it.
+    scp.site(game.state, p1.id)["clearance"] = 3
+    assert scp.open_dossier(game, p1.id, auditor.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, junior.id, fast_track=True)[0]
+
+    assert SCP_CARDS["O5 Auditor"].scp_aura.get("any") == {"research": 1}
+
+    total, used = scp._staff_total(game.state, p1.id, [auditor.id, junior.id], "research")
+    # auditor (O5): research 3 + auditor "any" +1 = 4 (junior's Scientist aura
+    #   does not apply — auditor is not a Scientist).
+    # junior (Scientist): research 1 + auditor "any" +1 + junior self Scientist +1 = 3.
+    assert total == 7
+    assert set(used) == {auditor.id, junior.id}
+
+
+def test_personnel_synergy_aura_does_not_buff_opponent_personnel():
+    """The aura is friendly-only — opponent personnel must not receive a friendly's buff."""
+    game, p1, p2 = _setup()
+    # p1 has two Memetics Analysts — they'd compound to (2+2)+(2+2) = 8 in a
+    # friendly call. p2 has one. We assert that p2's solo total is unaffected
+    # by p1's two analysts.
+    a1 = _hand_card(game, p1, "Memetics Analyst")
+    a2 = _hand_card(game, p1, "Memetics Analyst")
+    assert scp.open_dossier(game, p1.id, a1.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, a2.id, fast_track=True)[0]
+
+    opp_analyst = _hand_card(game, p2, "Memetics Analyst")
+    assert scp.open_dossier(game, p2.id, opp_analyst.id, fast_track=True)[0]
+
+    # p2's total is computed from p2's own analyst's aura ONLY: research 2 +
+    # self-Memetics +1 + self-Scientist +1 = 4. If p1's aura sources leaked
+    # across to p2, the total would be 4 + 2 + 2 = 8. We assert 4.
+    total_opp, used_opp = scp._staff_total(game.state, p2.id, [opp_analyst.id], "research")
+    assert total_opp == 4
+    assert used_opp == [opp_analyst.id]
+
+    # And p1's analysts must NOT be buffed by p2's analyst either.
+    total_friend, _used = scp._staff_total(game.state, p1.id, [a1.id, a2.id], "research")
+    # Two p1 analysts, two aura sources (both p1). Each analyst gets:
+    # base 2 + self-aura(+1 +1) + teammate-aura(+1 +1) = 6. Two of them = 12.
+    assert total_friend == 12
+
+
+def test_personnel_synergy_aura_source_buffs_itself_on_matching_subtype():
+    """When the aura source's own subtypes match its selector, it counts itself."""
+    game, p1, _p2 = _setup()
+    # Memetics Analyst has subtypes {Scientist, Memetics}; its aura selectors
+    # include subtype:Memetics, so it must self-buff +1 research.
+    analyst = _hand_card(game, p1, "Memetics Analyst")
+    assert scp.open_dossier(game, p1.id, analyst.id, fast_track=True)[0]
+
+    total, used = scp._staff_total(game.state, p1.id, [analyst.id], "research")
+    # base research 2 + memetics aura +1 + scientist aura +1 = 4
+    assert total == 4
+    assert used == [analyst.id]
+
+
+def test_personnel_synergy_text_describes_aura_for_assigned_cards():
+    """Card text should describe the lord effect, not just flavor."""
+    # CORE pick.
+    junior_text = SCP_CARDS["Junior Researcher"].text
+    assert "Scientist" in junior_text and "research" in junior_text.lower()
+
+    # CORE "any" pick.
+    auditor_text = SCP_CARDS["O5 Auditor"].text
+    assert "friendly" in auditor_text.lower() or "every" in auditor_text.lower()
+
+    # Expansion hero pick — should mention the archetype subtype.
+    director_text = SCP_CARDS["ACW Hero - Director Ana Vale"].text
+    assert "Antimemetic" in director_text
+
+
+def test_personnel_synergy_expansion_hero_auras_match_archetype_subtype():
+    """All 5 expansions: each hero's aura keys on the expansion's signature subtype."""
+    expected = {
+        "ACW": ("subtype:Antimemetic", {"research": 1}),
+        "KBO": ("subtype:Keter", {"contain": 1}),
+        "GOI": ("subtype:GOI", {"suppress": 1}),
+        "ETH": ("subtype:Ethics", {"research": 1}),
+        "OAR": ("subtype:Dream", {"research": 1}),
+    }
+    heroes_seen = 0
+    for code, (selector, delta) in expected.items():
+        for name, card in SCP_CARDS.items():
+            if not name.startswith(f"{code} Hero - "):
+                continue
+            aura = getattr(card, "scp_aura", None) or {}
+            assert aura.get(selector) == delta, (
+                f"{name}: expected aura[{selector}]={delta}, got {aura}"
+            )
+            heroes_seen += 1
+    assert heroes_seen >= 30  # 5 expansions x 6+ heroes

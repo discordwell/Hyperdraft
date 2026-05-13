@@ -451,4 +451,14 @@ def apply_test_dividends(cards: "dict[str, CardDefinition]") -> None:
         card.scp_on_test = success_factory()
         if fail_factory is not None:
             card.scp_on_test_fail = fail_factory()
-        card.text = text
+        existing = card.text or ""
+        # Idempotent: skip if our marker is already in the text.
+        if text in existing:
+            continue
+        # Compose rather than overwrite so sibling mechanics (e.g., W2's
+        # "While contained, ..." aura sentence) survive when both target
+        # the same card.
+        if existing.strip():
+            card.text = f"{existing.rstrip()} {text}"
+        else:
+            card.text = text

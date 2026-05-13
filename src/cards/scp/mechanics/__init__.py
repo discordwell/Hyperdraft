@@ -26,7 +26,9 @@ if TYPE_CHECKING:
 def apply_all_mechanics(cards: "dict[str, CardDefinition]") -> None:
     """Called once after ``SCP_CARDS`` is built. Mechanic modules register here."""
     from .contained_auras import apply_contained_auras
+    from .personnel_synergy import apply_personnel_synergy
     from .test_dividends import apply_test_dividends
 
     apply_contained_auras(cards)
     apply_test_dividends(cards)
+    apply_personnel_synergy(cards)
