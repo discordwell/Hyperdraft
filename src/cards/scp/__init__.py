@@ -45,6 +45,10 @@ def _anomaly(
     expansion_code="CORE",
     archetype="foundation",
     art_prompt=None,
+    contained_bonus=None,
+    aura=None,
+    on_test_fail=None,
+    seal_default=False,
 ):
     card = scp.make_scp_card(
         name,
@@ -58,7 +62,14 @@ def _anomaly(
         text=text,
         rarity=rarity,
         on_reveal=reveal,
+        contained_bonus=contained_bonus,
+        aura=aura,
+        on_test_fail=on_test_fail,
     )
+    # ``scp_seal_default`` is a non-engine hint indicating an anomaly is
+    # designed to be opened sealed (face-down) by default. AI / mechanic
+    # modules read it; the engine itself ignores it.
+    card.scp_seal_default = bool(seal_default)
     return _with_metadata(card, expansion=expansion, expansion_code=expansion_code, archetype=archetype, art_prompt=art_prompt)
 
 
@@ -75,6 +86,7 @@ def _personnel(
     expansion_code="CORE",
     archetype="foundation",
     art_prompt=None,
+    aura=None,
 ):
     card = scp.make_scp_card(
         name,
@@ -85,6 +97,7 @@ def _personnel(
         subtypes=set(subtypes),
         text=text,
         rarity=rarity,
+        aura=aura,
     )
     return _with_metadata(card, expansion=expansion, expansion_code=expansion_code, archetype=archetype, art_prompt=art_prompt)
 
@@ -299,6 +312,48 @@ def _hostile_reveal(amount):
         s["breach"] += amount
         return [Event(type=EventType.SCP_BREACH_TICK, payload={"player": obj.controller, "amount": amount, "reason": "reveal"}, source=obj.id, controller=obj.controller)]
     return reveal
+
+
+def _ethics_reveal(amount: int = 1):
+    """Return an ``on_reveal`` hook that seeds ethics debt by ``amount``.
+
+    Used for ETH archetype anomalies so revealing the dossier itself
+    starts the ethics clock. Mirrors ``_hostile_reveal`` shape.
+    """
+    def reveal(obj: GameObject, state: GameState):
+        s = scp.site(state, obj.controller)
+        s["ethics_debt"] = max(0, s["ethics_debt"] + amount)
+        return [Event(
+            type=EventType.SCP_BREACH_TICK,
+            payload={
+                "player": obj.controller,
+                "amount": 0,
+                "reason": "ethics_reveal",
+                "ethics_debt": s["ethics_debt"],
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return reveal
+
+
+def _format_bonus_dict(bonus: dict) -> str:
+    """Format a ``{task: amount}`` bonus dict as humans-readable card text.
+
+    Single key: ``"research +1"``. Multi-key: ``"research +1, contain +1"``.
+    Empty dict: ``"none"``. Keys are surfaced verbatim (lowercase task names).
+    """
+    if not bonus:
+        return "none"
+    parts = []
+    for key, value in sorted(bonus.items()):
+        try:
+            value_int = int(value or 0)
+        except (TypeError, ValueError):
+            value_int = 0
+        sign = "+" if value_int >= 0 else ""
+        parts.append(f"{key} {sign}{value_int}")
+    return ", ".join(parts)
 
 
 PERSONNEL = [
@@ -560,6 +615,78 @@ def _rarity(index: int, *, hero: bool = False) -> str:
     return "common"
 
 
+def _anomaly_defaults(archetype: str, index: int):
+    """Return ``(reveal_hook, seal_default, reveal_label)`` for a templated anomaly.
+
+    Per-archetype defaults baked here so every templated anomaly carries a
+    flavorful on-reveal hook instead of arriving inert. ``reveal_label`` is a
+    short, human-readable phrase appended to card text so the printed effect
+    matches the wired hook.
+
+    Behaviour by archetype (all anomalies, not just the sparse ``index % 9``
+    gate the previous generator used):
+      - ``redaction``  → ``_seeded_mood("cryptic", protocol="mirror_box")`` +
+                          ``seal_default=True`` (ACW thrives sealed).
+      - ``blackout``   → ``_hostile_reveal(1)`` every 2nd anomaly,
+                          ``_seeded_mood("agitated")`` for the rest.
+      - ``raid``       → ``_public_reveal(1)`` every 2nd anomaly,
+                          ``_hostile_reveal(1)`` for the rest.
+      - ``ethics``     → ``_ethics_reveal(1)`` for every anomaly.
+      - ``oneiric``    → ``_seeded_mood("cooperative",
+                          protocol="no_eye_contact")`` for every anomaly.
+    """
+    if archetype == "redaction":
+        return (
+            scp._seeded_mood("cryptic", protocol="mirror_box"),
+            True,
+            "On reveal: mood becomes cryptic, mirror_box protocol applied; opens sealed by default.",
+        )
+    if archetype == "blackout":
+        if index % 2 == 0:
+            return (
+                _hostile_reveal(1),
+                False,
+                "On reveal: breach +1.",
+            )
+        return (
+            scp._seeded_mood("agitated"),
+            False,
+            "On reveal: mood becomes agitated (+hazard, +containment).",
+        )
+    if archetype == "raid":
+        if index % 2 == 0:
+            return (
+                scp._public_reveal(1),
+                False,
+                "On reveal: secrecy -1 from public leak.",
+            )
+        return (
+            _hostile_reveal(1),
+            False,
+            "On reveal: breach +1.",
+        )
+    if archetype == "ethics":
+        return (
+            _ethics_reveal(1),
+            False,
+            "On reveal: ethics debt +1.",
+        )
+    if archetype == "oneiric":
+        return (
+            scp._seeded_mood("cooperative", protocol="no_eye_contact"),
+            False,
+            "On reveal: mood becomes cooperative, no_eye_contact protocol applied.",
+        )
+    # Fallback preserves the original sparse-gate behaviour.
+    if index % 9 == 0:
+        return (
+            _hostile_reveal(1),
+            False,
+            "On reveal: breach +1.",
+        )
+    return (None, False, None)
+
+
 def _build_expansion_cards() -> list[CardDefinition]:
     cards: list[CardDefinition] = []
     for expansion in SCP_EXPANSIONS:
@@ -571,10 +698,15 @@ def _build_expansion_cards() -> list[CardDefinition]:
         for index, motif in enumerate(expansion["motifs"]):
             rarity = _rarity(index)
             clearance = 1 if index % 6 == 0 else 0
-            reveal = _hostile_reveal(1) if index % 9 == 0 else None
+            reveal, seal_default, reveal_label = _anomaly_defaults(archetype, index)
             hazard = 1 + ((index + 1) % 4)
             if archetype in {"redaction", "raid", "oneiric"}:
                 hazard = 1 + (index % 3)
+            anomaly_text = (
+                f"{motif} rewards {task} plans but punishes Sites that ignore its {secondary} pressure."
+            )
+            if reveal_label:
+                anomaly_text = f"{anomaly_text} {reveal_label}"
             cards.append(_anomaly(
                 f"{code} {motif} Anomaly",
                 2 + (index % 5) + (1 if task == "contain" else 0),
@@ -582,7 +714,7 @@ def _build_expansion_cards() -> list[CardDefinition]:
                 hazard,
                 min(2, index % 3),
                 {subtype, "Anomaly"},
-                f"{motif} rewards {task} plans but punishes Sites that ignore its {secondary} pressure.",
+                anomaly_text,
                 clearance=clearance,
                 reveal=reveal,
                 rarity=rarity,
@@ -590,20 +722,29 @@ def _build_expansion_cards() -> list[CardDefinition]:
                 expansion_code=code,
                 archetype=archetype,
                 art_prompt=_expansion_art_prompt(expansion, "anomaly", f"{code} {motif} Anomaly", motif),
+                seal_default=seal_default,
             ))
             skill_total = 2 + (1 if index % 4 == 0 else 0)
+            # Specialists get a SECONDARY-task aura keyed on their archetype's
+            # signature subtype. Heroes keep the primary-task aura (set below)
+            # so specialist and hero auras stack rather than collide.
+            specialist_aura = {f"subtype:{subtype}": {secondary: 1}}
             cards.append(_personnel(
                 f"{code} {motif} Specialist",
                 {task: skill_total, secondary: 1},
                 index % 2,
                 {subtype, "Specialist"},
-                f"Build-around support for {archetype} decks: {task} {skill_total}, {secondary} 1.",
+                (
+                    f"Build-around support for {archetype} decks: {task} {skill_total}, {secondary} 1. "
+                    f"Aura: friendly {subtype} personnel get {secondary} +1."
+                ),
                 clearance=clearance if index % 8 == 0 else 0,
                 rarity=rarity,
                 expansion=expansion["name"],
                 expansion_code=code,
                 archetype=archetype,
                 art_prompt=_expansion_art_prompt(expansion, "personnel", f"{code} {motif} Specialist", motif),
+                aura=specialist_aura,
             ))
             facility_bonus = {task: 1 + (1 if index % 6 == 0 else 0)}
             if index % 4 == 0:
@@ -613,7 +754,7 @@ def _build_expansion_cards() -> list[CardDefinition]:
                 facility_bonus,
                 index % 2,
                 {subtype, "Facility"},
-                f"{motif} anchors {archetype} decks with {facility_bonus} site bonuses.",
+                f"{motif} anchors {archetype} decks. Site bonuses: {_format_bonus_dict(facility_bonus)}.",
                 clearance=clearance,
                 rarity=rarity,
                 expansion=expansion["name"],
@@ -662,6 +803,10 @@ def _build_expansion_cards() -> list[CardDefinition]:
                 archetype=archetype,
                 art_prompt=_expansion_art_prompt(expansion, "mandate", f"{code} Mandate {index + 1}", expansion["motifs"][index]),
             ))
+        # Heroes carry a primary-task aura matching their archetype subtype.
+        # W4 may override these with the same payload — assignment is
+        # idempotent so this is a safe future-proof default.
+        hero_aura = {f"subtype:{subtype}": {task: 1}}
         for index, hero in enumerate(expansion["heroes"]):
             primary = 3 + (1 if index % 4 == 0 else 0)
             skills = {task: primary, secondary: 2}
@@ -672,13 +817,18 @@ def _build_expansion_cards() -> list[CardDefinition]:
                 skills,
                 1 + (index % 2),
                 {subtype, "Hero", "Legend"},
-                f"Rare hero combo piece for {archetype}: compressed {skills} on one high-clearance body.",
+                (
+                    f"Rare hero combo piece for {archetype}: compressed skills "
+                    f"({_format_bonus_dict(skills)}) on one high-clearance body. "
+                    f"Aura: friendly {subtype} personnel get {task} +1."
+                ),
                 clearance=1 + (1 if index % 4 == 0 else 0),
                 rarity=_rarity(index, hero=True),
                 expansion=expansion["name"],
                 expansion_code=code,
                 archetype=archetype,
                 art_prompt=_expansion_art_prompt(expansion, "hero card", f"{code} Hero - {hero}", hero),
+                aura=hero_aura,
             ))
     return cards
 
