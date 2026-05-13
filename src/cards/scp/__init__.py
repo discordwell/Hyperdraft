@@ -987,8 +987,30 @@ def make_site_zero_redaction_lock_deck():
     return [SCP_CARDS[name] for name in SITE_ZERO_REDACTION_LOCK_NAMES]
 
 
+ANTIMEMETIC_COLD_WAR_NAMES = [
+    # Personnel (8): Memetics density + Antimemetic-aura heroes
+    "Memetics Analyst", "Memetics Analyst",
+    "Junior Researcher", "Junior Researcher",
+    "Night Shift Archivist", "O5 Auditor",
+    "ACW Hero - Director Ana Vale", "ACW Hero - Dr. Kovacs of the Blank Wing",
+    # Facilities (4): research engines + high-clearance enabler
+    "Memetics Lab", "Memetics Lab",
+    "Redaction Office", "Black Vault",
+    # Anomalies (4): ACW sealed-default thematic + CORE antimemetic anchor
+    "ACW Blind Library Anomaly", "ACW Forgotten Embassy Anomaly",
+    "ACW Unwritten Treaty Anomaly", "Antimemetic Orchard",
+    # Procedures (7): heavy secrecy + breach control + archive engine
+    "Class-A Amnestic Broadcast", "Class-A Amnestic Broadcast",
+    "Witness Relocation", "Witness Relocation",
+    "Null Room Calibration", "Red-Team the Veil",
+    "Cross-Test Proposal",
+    # Mandates (2): 2x There Is No Antimemetics Division for redaction alt-win
+    "There Is No Antimemetics Division", "There Is No Antimemetics Division",
+]
+
+
 def make_antimemetic_cold_war_deck():
-    return _expanded_deck("ACW", "redaction")
+    return [SCP_CARDS[name] for name in ANTIMEMETIC_COLD_WAR_NAMES]
 
 
 KETER_BLACKOUT_NAMES = [
@@ -1070,6 +1092,10 @@ def make_ethics_reckoning_deck():
 
 
 def make_oneiric_archives_deck():
+    # Reverted from CORE-staple rebuild — OAR's archetype identity is
+    # expansion-only (cooperative mood + Dream subtype auras), so the
+    # generated _expanded_deck variant outperforms a CORE-anchored hand-tune
+    # by ~19pts in 168-game tournament. Documented for future passes.
     return _expanded_deck("OAR", "oneiric")
 
 
