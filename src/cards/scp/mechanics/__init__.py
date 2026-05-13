@@ -23,8 +23,11 @@ if TYPE_CHECKING:
     from src.engine.types import CardDefinition
 
 
+from .reveal_identity import apply_reveal_identity
+
+
 def apply_all_mechanics(cards: "dict[str, CardDefinition]") -> None:
     """Called once after ``SCP_CARDS`` is built. Mechanic modules register here."""
     # Mechanic agents will add lines here, each importing apply_<mechanic>
     # from their sibling module and calling it on ``cards``.
-    pass
+    apply_reveal_identity(cards)

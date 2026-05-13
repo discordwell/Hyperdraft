@@ -1062,3 +1062,97 @@ def test_mechanics_package_imports_cleanly():
     assert callable(mechanics.apply_all_mechanics)
     # No-op default doesn't error.
     mechanics.apply_all_mechanics({})
+
+
+# ---------------------------------------------------------------------------
+# Reveal-identity wiring (W1) — assert one CORE and one expansion card fire
+# their reveal hooks end-to-end through open_dossier.
+# ---------------------------------------------------------------------------
+
+
+def test_reveal_identity_core_briefing_card_grants_token_on_reveal():
+    """The Concrete Saint: on reveal, +1 briefing token (no breach/secrecy delta)."""
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "The Concrete Saint")
+
+    briefing_before = scp.site(game.state, p1.id)["briefing"]
+    secrecy_before = scp.site(game.state, p1.id)["secrecy"]
+    breach_before = scp.site(game.state, p1.id)["breach"]
+
+    ok, message, _events = scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)
+
+    assert ok, message
+    assert anomaly.state.scp_status == "active"
+    assert scp.site(game.state, p1.id)["briefing"] == briefing_before + 1
+    # Reveal should be hazard- and secrecy-neutral (matters for baseline tests).
+    assert scp.site(game.state, p1.id)["breach"] == breach_before
+    # Fast-track costs red_tape=2 secrecy — that is the only secrecy delta.
+    assert scp.site(game.state, p1.id)["secrecy"] == secrecy_before - 2
+
+
+def test_reveal_identity_core_tax_card_only_taxes_other_pending():
+    """Recursive Hallway: on reveal, tax other pending dossiers (no-op if none)."""
+    game, p1, _p2 = _setup()
+    # Pre-stage a pending personnel so the tax has a target.
+    spec = _hand_card(game, p1, "Containment Specialist")  # red_tape=1
+    assert scp.open_dossier(game, p1.id, spec.id)[0]
+    assert spec.state.scp_status == "pending"
+    paperwork_before = spec.state.scp_paperwork
+
+    hallway = _hand_card(game, p1, "Recursive Hallway")
+    ok, message, events = scp.open_dossier(game, p1.id, hallway.id, fast_track=True)
+
+    assert ok, message
+    assert hallway.state.scp_status == "active"
+    # Specialist took +1 paperwork from the reveal-time tax.
+    assert spec.state.scp_paperwork == paperwork_before + 1
+    tax_events = [
+        e for e in events
+        if e.type == EventType.SCP_PAPERWORK_TICK
+        and e.payload.get("reason") == "tax_own_pending"
+    ]
+    assert tax_events, "expected SCP_PAPERWORK_TICK reason=tax_own_pending"
+
+
+def test_reveal_identity_kbo_anomaly_seeds_agitated_mood_and_breach():
+    """KBO Ashen Giant Anomaly: on reveal, set mood agitated + breach +2."""
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "KBO Ashen Giant Anomaly")
+    breach_before = scp.site(game.state, p1.id)["breach"]
+
+    ok, message, events = scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)
+
+    assert ok, message
+    assert anomaly.state.scp_status == "active"
+    assert anomaly.state.scp_mood == "agitated"
+    assert scp.site(game.state, p1.id)["breach"] == breach_before + 2
+    mood_events = [e for e in events if e.type == EventType.SCP_MOOD_SHIFT]
+    breach_events = [
+        e for e in events
+        if e.type == EventType.SCP_BREACH_TICK and e.payload.get("reason") == "reveal"
+    ]
+    assert mood_events, "expected SCP_MOOD_SHIFT from seeded mood"
+    assert breach_events, "expected SCP_BREACH_TICK reason=reveal"
+
+
+def test_reveal_identity_acw_anomaly_is_sealed_default_and_cryptic_on_reveal():
+    """ACW Null Choir Anomaly: scp_seal_default + cryptic mood + mirror_box on reveal."""
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "ACW Null Choir Anomaly")
+
+    # Card-def level: sealed default flagged for AI consumers.
+    assert getattr(anomaly.card_def, "scp_seal_default", False) is True
+
+    # Open sealed, then reveal — the reveal hook fires inside reveal_dossier.
+    ok, _msg, _events = scp.open_dossier(game, p1.id, anomaly.id, sealed=True)
+    assert ok
+    assert anomaly.state.scp_status == "sealed"
+    # Mood not yet applied (still sealed).
+    assert anomaly.state.scp_mood is None or anomaly.state.scp_mood == ""
+
+    ok, message, events = scp.reveal_dossier(game, p1.id, anomaly.id)
+    assert ok, message
+    assert anomaly.state.scp_status == "active"
+    assert anomaly.state.scp_mood == "cryptic"
+    assert "mirror_box" in anomaly.state.scp_protocols
+    assert any(e.type == EventType.SCP_MOOD_SHIFT for e in events)
