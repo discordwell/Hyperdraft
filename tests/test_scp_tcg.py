@@ -1083,8 +1083,10 @@ def test_mechanics_package_imports_cleanly():
 def test_expansion_acw_anomaly_arrives_cryptic_and_sealed_by_default():
     """W5 generator default: every ACW templated anomaly is cryptic + sealed.
 
-    Picks any ACW expansion anomaly. After reveal, mood is ``cryptic`` and the
-    ``mirror_box`` protocol is on the anomaly. ``scp_seal_default`` is True.
+    Picks any ACW expansion anomaly. After open, mood is ``cryptic`` and the
+    ``mirror_box`` protocol is on the anomaly. The engine now honors
+    ``scp_seal_default = True``: the reveal hook fires (mood + protocol seed)
+    but the final ``scp_status`` ends ``"sealed"`` rather than ``"active"``.
     """
     acw_anomaly_names = [
         name
@@ -1098,14 +1100,16 @@ def test_expansion_acw_anomaly_arrives_cryptic_and_sealed_by_default():
     sample = SCP_CARDS[sample_name]
     # Generator-baked seal hint.
     assert getattr(sample, "scp_seal_default", False) is True
-    # Reveal hook fires on activation.
+    # Reveal hook fires on activation, then engine reseals.
     game, p1, _p2 = _setup()
     obj = _hand_card(game, p1, sample_name)
     ok, _msg, _events = scp.open_dossier(game, p1.id, obj.id, fast_track=True)
     assert ok
-    assert obj.state.scp_status == "active"
+    assert obj.state.scp_status == "sealed"
     assert obj.state.scp_mood == "cryptic"
     assert "mirror_box" in obj.state.scp_protocols
+    # And the anomaly is NOT in the active-anomaly registry.
+    assert obj.id not in game.state.scp_anomalies.get(p1.id, [])
 
 
 def test_expansion_goi_anomaly_reveal_costs_secrecy_or_breach():
@@ -1311,15 +1315,25 @@ def test_test_dividends_success_payoff_changes_site_state():
     )
 
 
-def _strip_reveal_state(anomaly):
+def _strip_reveal_state(anomaly, game=None):
     """Clear mood + protocols on an anomaly so test-time math is base curiosity/hazard.
 
     W1's on_reveal hooks seed mood and protocols that shift curiosity/hazard
     via MOOD_MODS / PROTOCOL_MODS. These W3 tests assert raw-stat math; reset
     after reveal so the assertions still reflect the on_test mechanic itself.
+
+    If ``game`` is provided and the anomaly opened into a sealed state (because
+    its card_def has ``scp_seal_default = True``), this helper also forces the
+    anomaly back into the active registry so tests of OTHER mechanics
+    (research, contain, etc.) can keep operating on it.
     """
     anomaly.state.scp_mood = None
     anomaly.state.scp_protocols = []
+    if game is not None and anomaly.state.scp_status == "sealed":
+        anomaly.state.scp_status = "active"
+        anomalies = game.state.scp_anomalies.setdefault(anomaly.controller, [])
+        if anomaly.id not in anomalies:
+            anomalies.append(anomaly.id)
 
 
 def test_test_dividends_failure_penalty_fires():
@@ -1365,7 +1379,8 @@ def test_test_dividends_cognitive_load_exhausts_extra_researcher():
     bystander = _hand_card(game, p1, "Junior Researcher")  # research:1
 
     assert scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)[0]
-    _strip_reveal_state(anomaly)
+    # Mirror has scp_seal_default=True; helper passes game to also unseal.
+    _strip_reveal_state(anomaly, game)
     assert scp.open_dossier(game, p1.id, o5.id, fast_track=True)[0]
     assert scp.open_dossier(game, p1.id, intern.id, fast_track=True)[0]
     assert scp.open_dossier(game, p1.id, bystander.id, fast_track=True)[0]
@@ -1398,7 +1413,8 @@ def test_test_dividends_cognitive_load_safe_when_no_bystander_available():
     # No third bystander on the battlefield this time.
 
     assert scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)[0]
-    _strip_reveal_state(anomaly)
+    # Mirror has scp_seal_default=True; helper passes game to also unseal.
+    _strip_reveal_state(anomaly, game)
     assert scp.open_dossier(game, p1.id, o5.id, fast_track=True)[0]
     assert scp.open_dossier(game, p1.id, intern.id, fast_track=True)[0]
 
@@ -1648,3 +1664,133 @@ def test_reveal_identity_acw_anomaly_is_sealed_default_and_cryptic_on_reveal():
     assert anomaly.state.scp_mood == "cryptic"
     assert "mirror_box" in anomaly.state.scp_protocols
     assert any(e.type == EventType.SCP_MOOD_SHIFT for e in events)
+
+
+# ---------------------------------------------------------------------------
+# Engine-reads-scp_seal_default — open-time auto-seal of cryptic/antimemetic
+# anomalies. The flag was set by previous waves on 28 card_defs; this is the
+# engine wiring that finally honors it.
+# ---------------------------------------------------------------------------
+
+
+def test_seal_default_anomaly_opens_directly_into_sealed_state():
+    """A card with ``scp_seal_default=True`` opens into ``sealed`` status, not
+    ``active``. The reveal hook still fires (mood + protocol seeded), an
+    ``SCP_SEAL_DOSSIER`` event is emitted, and the dossier is NOT in the
+    active-anomaly registry.
+    """
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "The Mirror That Interviews You")
+    assert getattr(anomaly.card_def, "scp_seal_default", False) is True
+
+    # Open WITHOUT explicit sealed=True. The engine should auto-seal because
+    # the card_def carries the flag.
+    ok, _msg, events = scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)
+    assert ok
+    # Final state is sealed, not active.
+    assert anomaly.state.scp_status == "sealed"
+    # Reveal hook fired: cryptic mood + ritual_diagram protocol were seeded.
+    assert anomaly.state.scp_mood == "cryptic"
+    assert "ritual_diagram" in anomaly.state.scp_protocols
+    # Not exposed as an active anomaly (sealed dossiers don't tick hazard).
+    assert anomaly.id not in game.state.scp_anomalies.get(p1.id, [])
+    # The seal event is emitted with reason="seal_default" so audits can
+    # distinguish open-time auto-seal from explicit-sealed opens.
+    seal_events = [e for e in events if e.type == EventType.SCP_SEAL_DOSSIER]
+    assert seal_events, "expected SCP_SEAL_DOSSIER from auto-seal"
+    assert any(e.payload.get("reason") == "seal_default" for e in seal_events)
+    # And the SCP_ANOMALY_REVEALED event still fires (so consumers of the
+    # reveal stream — AI, scoring, UI — see the dossier expose itself).
+    assert any(e.type == EventType.SCP_ANOMALY_REVEALED for e in events)
+
+
+def test_seal_default_anomaly_can_be_revealed_after_open_to_become_active():
+    """After auto-seal at open, the standard ``reveal_dossier`` flow promotes
+    the dossier to ``active`` without re-running the on-reveal hook (because
+    mood/protocol were already seeded at open time).
+    """
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "The Mirror That Interviews You")
+    # Open auto-seals.
+    ok, _msg, _ = scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)
+    assert ok
+    assert anomaly.state.scp_status == "sealed"
+    pre_mood = anomaly.state.scp_mood
+    pre_protocols = list(anomaly.state.scp_protocols)
+
+    # Now an explicit reveal_dossier should flip status to active without
+    # double-seeding (the seeded-mood hook is idempotent on the mood field but
+    # would append a duplicate protocol if it fired twice; the test asserts
+    # protocols stay a single entry, proving the hook didn't re-fire here.
+    # Actually the hook IS implemented idempotently for protocols — see
+    # ``_seeded_mood`` — so the test must instead verify status change.)
+    ok, _msg, _ = scp.reveal_dossier(game, p1.id, anomaly.id)
+    assert ok
+    assert anomaly.state.scp_status == "active"
+    # The anomaly is now in the active registry.
+    assert anomaly.id in game.state.scp_anomalies.get(p1.id, [])
+    # Mood / protocols preserved (carried through reveal).
+    assert anomaly.state.scp_mood == pre_mood
+    assert anomaly.state.scp_protocols == pre_protocols
+
+
+def test_anomaly_without_seal_default_still_opens_into_active_state():
+    """Cards WITHOUT ``scp_seal_default`` open active as before. This is the
+    regression guard for the additive change.
+    """
+    game, p1, _p2 = _setup()
+    # The Concrete Saint has no seal_default — it just seeds a briefing token.
+    anomaly = _hand_card(game, p1, "The Concrete Saint")
+    assert getattr(anomaly.card_def, "scp_seal_default", False) is False
+
+    ok, _msg, events = scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)
+    assert ok
+    assert anomaly.state.scp_status == "active"
+    # And the anomaly IS in the active registry.
+    assert anomaly.id in game.state.scp_anomalies.get(p1.id, [])
+    # No SCP_SEAL_DOSSIER event when seal_default is absent.
+    seal_events = [e for e in events if e.type == EventType.SCP_SEAL_DOSSIER]
+    assert not seal_events
+
+
+def test_seal_default_anomaly_with_red_tape_seals_after_paperwork_clears():
+    """Pending → activate via paperwork also honors ``scp_seal_default``.
+
+    Open an anomaly with red_tape > 0 (no fast-track) so it lands pending.
+    Tick paperwork; the activation path goes through ``process_paperwork``
+    which now re-reads ``scp_seal_default`` and routes through the auto-seal
+    branch.
+    """
+    game, p1, _p2 = _setup()
+    # Find an ACW anomaly with red_tape > 0 (any pattern-applied ACW card
+    # carries scp_seal_default=True; pick the first with red_tape > 0).
+    candidates = [
+        (name, card)
+        for name, card in SCP_CARDS.items()
+        if getattr(card, "scp_expansion_code", None) == "ACW"
+        and CardType.SCP_ANOMALY in card.characteristics.types
+        and getattr(card, "scp_seal_default", False) is True
+        and int(getattr(card, "scp_red_tape", 0) or 0) > 0
+    ]
+    assert candidates, "expected at least one ACW seal-default anomaly with red_tape > 0"
+    name, card = candidates[0]
+    anomaly = _hand_card(game, p1, name)
+    # Bump clearance so any clearance check passes during open.
+    scp.site(game.state, p1.id)["clearance"] = 5
+
+    # Open without fast-track: lands pending, NOT yet auto-sealed.
+    ok, _msg, _ = scp.open_dossier(game, p1.id, anomaly.id, fast_track=False)
+    assert ok
+    assert anomaly.state.scp_status == "pending"
+    # Mood not seeded yet (reveal hook fires on activation, not on open).
+    assert anomaly.state.scp_mood is None
+
+    # Tick paperwork enough to drain the queue.
+    for _ in range(anomaly.state.scp_paperwork + 1):
+        scp.process_paperwork(game, p1.id, amount=1)
+
+    # Now the dossier should be sealed (auto-seal applied during activation).
+    assert anomaly.state.scp_status == "sealed"
+    # Reveal hook fired during the activation step: mood is set.
+    assert anomaly.state.scp_mood == "cryptic"
+    assert anomaly.id not in game.state.scp_anomalies.get(p1.id, [])
