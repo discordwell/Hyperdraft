@@ -887,7 +887,8 @@ SECURE_CONTAIN_RESEARCH_NAMES = [
 
 
 KETER_RISK_NAMES = [
-    "MTF Doorbreaker", "MTF Doorbreaker", "Containment Specialist", "Field Agent",
+    # Nerfed: 2x MTF Doorbreaker -> 1x, freed slot for Ethics Liaison (less Security density)
+    "MTF Doorbreaker", "Ethics Liaison", "Containment Specialist", "Field Agent",
     "Thaumic Consultant", "Janitor Who Knows Too Much", "O5 Auditor", "D-Class Volunteer",
     "Reality Anchor Array", "Keter Annex", "Scranton Lattice", "Black Vault",
     "The Concrete Saint", "Oracle Mold", "Borrowed Moon", "Clockwork Saint",
@@ -898,7 +899,8 @@ KETER_RISK_NAMES = [
 
 
 VEIL_CONTROL_NAMES = [
-    "Field Agent", "Field Agent", "Ethics Liaison", "Memetics Analyst",
+    # Nerfed: 2x Field Agent -> 1x, freed slot for second Junior Researcher (less Agent density)
+    "Field Agent", "Junior Researcher", "Ethics Liaison", "Memetics Analyst",
     "Janitor Who Knows Too Much", "Sleep-Deprived Intern", "Junior Researcher", "D-Class Volunteer",
     "Redaction Office", "Amnestic Pharmacy", "Reality Anchor Array", "Cafeteria at 3 AM",
     "Red Room Static", "Door That Opens Sideways", "Patient Zero of Yesterday",
@@ -989,12 +991,55 @@ def make_antimemetic_cold_war_deck():
     return _expanded_deck("ACW", "redaction")
 
 
+KETER_BLACKOUT_NAMES = [
+    # Personnel (9): heavy Security cluster + KBO Keter-aura heroes
+    "MTF Doorbreaker", "MTF Doorbreaker",
+    "Containment Specialist", "Containment Specialist",
+    "D-Class Volunteer", "Field Agent", "Janitor Who Knows Too Much", "O5 Auditor",
+    "KBO Hero - Captain Ferro Kane",
+    # Facilities (4): containment + suppression engines
+    "Reality Anchor Array", "Keter Annex",
+    "Scranton Lattice", "Site-19 Intake Wing",
+    # Anomalies (5): big Keter threats + W2 contained-bonus payoff
+    "Unlicensed Heaven", "Borrowed Moon",
+    "KBO Last Shepherd Anomaly", "KBO Dead Switch Anomaly",
+    "KBO Cathedral Breach Anomaly",
+    # Procedures (5): sweepers + archive engine
+    "Lure It Into a Box", "Last Door Protocol",
+    "Emergency Lockdown", "Cross-Test Proposal",
+    "Friendly Fire Evacuation",
+    # Mandates (2): contain bonus + KBO thaumiel alt-win
+    "Contain Mandate", "KBO Mandate 1: Sunless Reactor",
+]
+
+
 def make_keter_blackout_deck():
-    return _expanded_deck("KBO", "blackout")
+    return [SCP_CARDS[name] for name in KETER_BLACKOUT_NAMES]
+
+
+GOI_FRONTLINE_NAMES = [
+    # Personnel (9): CORE staples + 2 GOI heroes for the suppress aura
+    "D-Class Volunteer", "D-Class Volunteer",
+    "Field Agent", "Field Agent",
+    "Memetics Analyst", "O5 Auditor", "Sleep-Deprived Intern",
+    "GOI Hero - Agent Felicity Graves", "GOI Hero - Captain Crowbar Venn",
+    # Facilities (4): research + suppress engines
+    "Redaction Office", "Redaction Office",
+    "Amnestic Pharmacy", "GOI Broken Auction Wing",
+    # Anomalies (3): high-curio for archive payoff + GOI public-leak flavor
+    "GOI Anomalous Embassy Anomaly", "GOI Broken Auction Anomaly", "GOI Borderless Site Anomaly",
+    # Procedures (7): secrecy-attack + opponent-audit + raid
+    "GOI Raid Tip-Off", "GOI Raid Tip-Off",
+    "Class-A Amnestic Broadcast",
+    "Witness Relocation", "Whistleblower Leak",
+    "Bureaucratic Labyrinth", "Cross-Test Proposal",
+    # Mandates (2): GOI public_panic alt-win + research bonus
+    "GOI Mandate 1: Serpent Consulate", "Contain Mandate",
+]
 
 
 def make_goi_frontline_deck():
-    return _expanded_deck("GOI", "raid")
+    return [SCP_CARDS[name] for name in GOI_FRONTLINE_NAMES]
 
 
 ETHICS_RECKONING_NAMES = [
