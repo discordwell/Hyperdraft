@@ -997,8 +997,31 @@ def make_goi_frontline_deck():
     return _expanded_deck("GOI", "raid")
 
 
+ETHICS_RECKONING_NAMES = [
+    # Personnel (8): subtype-aura anchors + cheap bodies
+    "Ethics Liaison", "Ethics Liaison",
+    "D-Class Volunteer", "D-Class Volunteer",
+    "O5 Auditor", "Memetics Analyst",
+    "ETH Hero - Chairwoman Inez Salt", "ETH Hero - Dr. Gideon Vale",
+    # Facilities (4): ethics anchor + research engines
+    "Ethics Committee Desk", "Ethics Committee Desk",
+    "Memetics Lab", "Deepwell Archive",
+    # Anomalies (5): contained-bonus payoffs + on-test rewards
+    "ETH Audit Cathedral Anomaly", "ETH Patient Sun Anomaly",
+    "ETH Confession Engine Anomaly", "ETH Burden Archive Anomaly",
+    "ETH Mercy Ledger Anomaly",
+    # Procedures (6): conversion engine — Weaponize + Waiver feed Cross-Test
+    "Weaponize Ethics Debt", "Weaponize Ethics Debt",
+    "Ethics Waiver", "Ethics Waiver",
+    "Cross-Test Proposal", "Cross-Test Proposal",
+    # Mandates (2): alt-win + suppress aura
+    "There Is No Antimemetics Division",
+    "Protect Mandate",
+]
+
+
 def make_ethics_reckoning_deck():
-    return _expanded_deck("ETH", "ethics")
+    return [SCP_CARDS[name] for name in ETHICS_RECKONING_NAMES]
 
 
 def make_oneiric_archives_deck():
