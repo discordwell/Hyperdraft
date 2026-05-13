@@ -82,30 +82,16 @@ def _decree_stamp_effect(attacker, state):
     return []
 
 
-def _supreme_judgment_effect(attacker, state):
-    """Switch opponent's Active with the lowest-HP Pokemon on their bench."""
-    opp_id = next((p for p in state.players if p != attacker.controller), None)
-    if not opp_id:
-        return []
+def _supreme_judgment_swap(opp_id: str, target_id: str, state) -> list[Event]:
+    """Drag-out the chosen opponent bench Pokemon. Preserves the original
+    PKM_SWITCH payload shape so downstream tests/log readers don't drift.
+    """
     active_zone = state.zones.get(f"active_spot_{opp_id}")
     bench_zone = state.zones.get(f"bench_{opp_id}")
     if not active_zone or not active_zone.objects:
         return []
-    if not bench_zone or not bench_zone.objects:
+    if not bench_zone or target_id not in bench_zone.objects:
         return []
-    # Find the bench Pokemon with the LOWEST current HP (most-wounded in the
-    # dock, dragged before the bench).
-    target_id = None
-    target_hp = 10 ** 9
-    for pkm_id in bench_zone.objects:
-        pkm = state.objects.get(pkm_id)
-        if pkm and pkm.card_def:
-            current_hp = (pkm.card_def.hp or 0) - (pkm.state.damage_counters * 10)
-            if current_hp < target_hp:
-                target_hp = current_hp
-                target_id = pkm_id
-    if not target_id:
-        target_id = bench_zone.objects[0]
     old_active_id = active_zone.objects[0]
     active_zone.objects[0] = target_id
     bench_zone.objects.remove(target_id)
@@ -120,6 +106,72 @@ def _supreme_judgment_effect(attacker, state):
         type=EventType.PKM_SWITCH,
         payload={'player': opp_id, 'old_active': old_active_id, 'new_active': target_id},
     )]
+
+
+def _supreme_judgment_effect(attacker, state):
+    """Switch the opponent's Active with a chosen Pokemon on their bench.
+
+    Phase 4 migration: the attacker's controller now makes a real target
+    choice over the opponent's bench (the old code auto-picked the
+    lowest-current-HP Pokemon). For AI controllers, the heuristic is
+    preserved via ``heuristic_pick``, so existing AI behavior doesn't
+    change. Humans get a meaningful pick — sometimes the right call is to
+    drag out a fully-healthy attacker whose attack is mid-charged, not the
+    weakest body.
+    """
+    opp_id = next((p for p in state.players if p != attacker.controller), None)
+    if not opp_id:
+        return []
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    bench_zone = state.zones.get(f"bench_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return []
+    if not bench_zone or not bench_zone.objects:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    options: list[dict] = []
+    best_id: str | None = None
+    best_hp = 10 ** 9
+    for pkm_id in bench_zone.objects:
+        pkm = state.objects.get(pkm_id)
+        if not pkm or not pkm.card_def:
+            continue
+        max_hp = pkm.card_def.hp or 0
+        current_hp = max_hp - (pkm.state.damage_counters * 10)
+        ptype = pkm.card_def.pokemon_type or '?'
+        options.append({
+            "id": pkm_id,
+            "label": pkm.name or pkm.card_def.name or pkm_id,
+            "description": f"HP {current_hp}/{max_hp} · Type {ptype}",
+        })
+        if current_hp < best_hp:
+            best_hp = current_hp
+            best_id = pkm_id
+    if not options:
+        return []
+    if best_id is None:
+        best_id = options[0]["id"]
+
+    def _resolve_handler(choice, selected, st):
+        target_id = selected[0] if selected else best_id
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id", best_id)
+        return _supreme_judgment_swap(opp_id, target_id, st)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=attacker.controller,
+        prompt="Drag which of your opponent's benched Pokemon out to Active?",
+        options=options,
+        source_id=attacker.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best_id],
+    )
 
 
 ISPERILET = make_pokemon(

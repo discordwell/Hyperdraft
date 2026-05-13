@@ -421,6 +421,143 @@ check("Prizes remaining is 6", p1.prizes_remaining == 6)
 
 
 # =============================================================================
+# Test 9: Phase 4 PendingChoice migration — Isperia ex / Supreme Judgment
+# =============================================================================
+#
+# Verifies the bench-swap attack now emits a PendingChoice over the
+# opponent's bench instead of auto-picking the lowest-HP body. Three
+# scenarios: human path (choice stays pending), heuristic preservation
+# (callback_data['heuristic_pick'] still matches the old min-HP pick),
+# and empty short-circuit (no bench => no-op).
+
+print("\n=== Test 9: Phase 4 PendingChoice — Supreme Judgment bench-swap ===")
+
+from src.cards.pokemon.beyond.ravnica.azorius import (
+    ISPERIA_SUPREME_JUDGE_EX,
+    _supreme_judgment_effect,
+)
+
+
+def _make_judgment_scenario(*, bench_specs: list[tuple[str, int, int]]):
+    """Build a 2-player Pokemon game with Isperia ex Active for p1 and a
+    populated/empty bench for p2.
+
+    ``bench_specs`` = ``[(name, max_hp, damage_counters), ...]``. Empty
+    list means p2 has no bench Pokemon — the short-circuit scenario.
+    """
+    import copy as _copy
+    game = Game(mode="pokemon")
+    p1 = game.add_player("Judge")
+    p2 = game.add_player("Defendant")
+
+    isperia_obj = game.create_object(
+        ISPERIA_SUPREME_JUDGE_EX.name, p1.id, ZoneType.ACTIVE_SPOT,
+        _copy.deepcopy(ISPERIA_SUPREME_JUDGE_EX.characteristics),
+        ISPERIA_SUPREME_JUDGE_EX,
+    )
+
+    # Opponent active — must exist for the swap to be legal.
+    opp_active_def = make_pokemon(
+        name="Squirtle", hp=70, pokemon_type=PokemonType.WATER.value,
+        evolution_stage="Basic",
+        attacks=[{"name": "Water Gun", "cost": [{"type": "W", "count": 1}],
+                  "damage": 20, "text": ""}],
+        weakness_type=PokemonType.LIGHTNING.value, retreat_cost=1,
+    )
+    opp_active = game.create_object(
+        opp_active_def.name, p2.id, ZoneType.ACTIVE_SPOT,
+        _copy.deepcopy(opp_active_def.characteristics), opp_active_def,
+    )
+
+    bench_objs = []
+    for name, max_hp, damage in bench_specs:
+        cdef = make_pokemon(
+            name=name, hp=max_hp, pokemon_type=PokemonType.GRASS.value,
+            evolution_stage="Basic",
+            attacks=[{"name": "Stub", "cost": [{"type": "G", "count": 1}],
+                      "damage": 10, "text": ""}],
+            weakness_type=PokemonType.FIRE.value, retreat_cost=1,
+        )
+        bobj = game.create_object(
+            cdef.name, p2.id, ZoneType.BENCH,
+            _copy.deepcopy(cdef.characteristics), cdef,
+        )
+        bobj.state.damage_counters = damage
+        bench_objs.append(bobj)
+
+    return game, p1, p2, isperia_obj, opp_active, bench_objs
+
+
+# --- Scenario A: Human controller — choice stays pending ---------------------
+
+game, p1, p2, isperia, opp_active, bench_objs = _make_judgment_scenario(
+    bench_specs=[
+        ("Hurt Hopper", 60, 5),   # current HP = 60 - 50 = 10  (weakest)
+        ("Healthy Hopper", 90, 0),  # current HP = 90
+    ],
+)
+weakest = bench_objs[0]
+healthy = bench_objs[1]
+
+# No AI handler registered → resolver treats both players as humans.
+# pkm_force_switch / PKM_SWITCH must NOT happen yet.
+opp_active_before = game.state.zones[f"active_spot_{p2.id}"].objects[0]
+events = _supreme_judgment_effect(isperia, game.state)
+
+check("Supreme Judgment human path returns no events", events == [])
+pc = game.state.pending_choice
+check("Pending choice is set", pc is not None)
+check("Pending choice type is 'target'", pc is not None and pc.choice_type == "target")
+check("Choice belongs to the attacker's controller (p1)",
+      pc is not None and pc.player == p1.id)
+check("Choice source is the Isperia object",
+      pc is not None and pc.source_id == isperia.id)
+option_ids = {opt["id"] for opt in (pc.options if pc else [])}
+check("Both bench Pokemon are options",
+      weakest.id in option_ids and healthy.id in option_ids)
+check("Opponent's Active is NOT an option (it's the target of the swap)",
+      opp_active.id not in option_ids)
+check("Bench swap has not happened yet (human still choosing)",
+      game.state.zones[f"active_spot_{p2.id}"].objects[0] == opp_active_before)
+
+# --- Scenario B: Heuristic preservation --------------------------------------
+# The original code picked the LOWEST-current-HP bench Pokemon. The
+# heuristic_pick in callback_data must reproduce that exactly.
+
+hp_pick = (pc.callback_data or {}).get("heuristic_pick")
+check("heuristic_pick is set", hp_pick is not None)
+check("heuristic_pick matches the original min-HP pick (weakest body)",
+      hp_pick == [weakest.id])
+
+# Sanity-check: tearing down the choice and firing the handler with the
+# heuristic produces the swap (this proves the handler is wired right).
+handler = (pc.callback_data or {}).get("handler") if pc else None
+check("Handler is registered on the choice", handler is not None)
+if handler is not None:
+    handler_events = handler(pc, [weakest.id], game.state)
+    check("Handler swap emits a PKM_SWITCH event",
+          len(handler_events) == 1 and handler_events[0].type == EventType.PKM_SWITCH)
+    check("After handler runs, weakest bench Pokemon is now Active",
+          game.state.zones[f"active_spot_{p2.id}"].objects[0] == weakest.id)
+    check("After handler runs, previous Active is on the bench",
+          opp_active.id in game.state.zones[f"bench_{p2.id}"].objects)
+# Clear the choice after manual resolution so we don't leak state between
+# scenarios.
+game.state.pending_choice = None
+
+# --- Scenario C: Empty short-circuit ----------------------------------------
+# With an empty opponent bench, the effect is a no-op (no choice, no events).
+
+game2, _p1b, _p2b, isperia2, _opp_active2, _benches2 = _make_judgment_scenario(
+    bench_specs=[],
+)
+events2 = _supreme_judgment_effect(isperia2, game2.state)
+check("Empty bench short-circuit returns no events", events2 == [])
+check("Empty bench leaves pending_choice clear",
+      game2.state.pending_choice is None)
+
+
+# =============================================================================
 # Results
 # =============================================================================
 
