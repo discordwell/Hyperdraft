@@ -24,11 +24,19 @@ if TYPE_CHECKING:
 
 
 def apply_all_mechanics(cards: "dict[str, CardDefinition]") -> None:
-    """Called once after ``SCP_CARDS`` is built. Mechanic modules register here."""
+    """Called once after ``SCP_CARDS`` is built. Mechanic modules register here.
+
+    Order matters for text composition: reveal-identity sets baseline rules
+    text first, then test_dividends and contained_auras append their clauses.
+    Personnel synergy edits a disjoint family (personnel cards only) so its
+    order is independent.
+    """
     from .contained_auras import apply_contained_auras
     from .personnel_synergy import apply_personnel_synergy
+    from .reveal_identity import apply_reveal_identity
     from .test_dividends import apply_test_dividends
 
-    apply_contained_auras(cards)
+    apply_reveal_identity(cards)
     apply_test_dividends(cards)
+    apply_contained_auras(cards)
     apply_personnel_synergy(cards)
