@@ -17,6 +17,14 @@ from src.engine.game import (
 )
 from src.engine.types import PokemonType, Event, EventType, ZoneType, CardType
 
+# Spice-pack v1 — see docs/sets/pkm_brv_spice_designs.md
+from src.cards.pokemon._helpers import (
+    pkm_modal_choice,
+    pkm_target_card_in_hand_choice,
+    pkm_reveal_opp_hand,
+    _get_opp_id,
+)
+
 
 # =============================================================================
 # Shared helpers — shrink-to-fit versions of sv_starter patterns
@@ -615,6 +623,136 @@ IZZET_BLEND_ENERGY = make_trainer_item(
 
 
 # =============================================================================
+# Spice pack v1 — Decision Pressure
+# =============================================================================
+
+def _tezzys_test_mode_draw(state, player_id, source='Tezzy\'s Test'):
+    """Mode 1: draw 3 cards."""
+    library = state.zones.get(f"library_{player_id}")
+    hand = state.zones.get(f"hand_{player_id}")
+    if not library or not hand:
+        return []
+    events = []
+    drawn = 0
+    while drawn < 3 and library.objects:
+        top = library.objects.pop(0)
+        hand.objects.append(top)
+        top_obj = state.objects.get(top)
+        if top_obj:
+            top_obj.zone = ZoneType.HAND
+        drawn += 1
+    if drawn > 0:
+        events.append(Event(type=EventType.DRAW,
+                            payload={'player': player_id, 'count': drawn}))
+    return events
+
+
+def _tezzys_test_mode_tutor(state, player_id, source='Tezzy\'s Test'):
+    """Mode 2: search deck for an Item, put it in hand, shuffle."""
+    library = state.zones.get(f"library_{player_id}")
+    hand = state.zones.get(f"hand_{player_id}")
+    if not library or not hand:
+        return []
+    for cid in list(library.objects):
+        obj = state.objects.get(cid)
+        if not obj or not obj.characteristics:
+            continue
+        if CardType.ITEM in obj.characteristics.types:
+            library.objects.remove(cid)
+            hand.objects.append(cid)
+            obj.zone = ZoneType.HAND
+            random.shuffle(library.objects)
+            return [Event(
+                type=EventType.PKM_REVEAL,
+                payload={'card_id': cid, 'player': player_id,
+                         'destination': 'hand', 'source': source},
+            )]
+    random.shuffle(library.objects)
+    return []
+
+
+def _tezzys_test_mode_disrupt(state, player_id, source='Tezzy\'s Test'):
+    """Mode 3: opp reveals hand; pick a Trainer to shuffle back into their deck."""
+    opp_id = _get_opp_id(player_id, state)
+    if not opp_id:
+        return []
+    events = list(pkm_reveal_opp_hand(opp_id, state, source=source))
+    target = pkm_target_card_in_hand_choice(
+        state, target_controller=opp_id, card_type_filter=CardType.TRAINER,
+    )
+    if target is not None:
+        hand = state.zones[f"hand_{opp_id}"]
+        library = state.zones[f"library_{opp_id}"]
+        if target in hand.objects:
+            hand.objects.remove(target)
+            library.objects.append(target)
+            tobj = state.objects.get(target)
+            if tobj:
+                tobj.zone = ZoneType.LIBRARY
+            random.shuffle(library.objects)
+            events.append(Event(
+                type=EventType.PKM_REVEAL,
+                payload={'target_player': opp_id, 'card_id': target,
+                         'destination': 'library', 'source': source},
+            ))
+    return events
+
+
+def _tezzys_test_effect(event, state):
+    """Modal Supporter: choose one — draw 3 / tutor Item / disrupt opp Trainer.
+
+    Heuristic mode pick (v1): mode 3 (disrupt) if opp has Trainer cards in
+    hand, else mode 2 (tutor) if a deck has Items, else mode 1 (draw). This
+    is the simplest legal decision policy and ensures the card always does
+    SOMETHING.
+    """
+    player_id = event.payload.get('player')
+    if not player_id:
+        return []
+    opp_id = _get_opp_id(player_id, state)
+    # Heuristic pick.
+    pick = 0
+    if opp_id:
+        opp_hand = state.zones.get(f"hand_{opp_id}")
+        if opp_hand:
+            for cid in opp_hand.objects:
+                obj = state.objects.get(cid)
+                if obj and obj.characteristics and CardType.TRAINER in obj.characteristics.types:
+                    pick = 2
+                    break
+    if pick == 0:
+        lib = state.zones.get(f"library_{player_id}")
+        if lib:
+            for cid in lib.objects:
+                obj = state.objects.get(cid)
+                if obj and obj.characteristics and CardType.ITEM in obj.characteristics.types:
+                    pick = 1
+                    break
+    return pkm_modal_choice(
+        player_id, state,
+        source='Tezzy\'s Test',
+        mode_names=('Draw 3', 'Tutor Item', 'Disrupt Trainer'),
+        mode_effects=(
+            lambda s: _tezzys_test_mode_draw(s, player_id),
+            lambda s: _tezzys_test_mode_tutor(s, player_id),
+            lambda s: _tezzys_test_mode_disrupt(s, player_id),
+        ),
+        heuristic_pick=pick,
+    )
+
+
+TEZZYS_TEST = make_trainer_supporter(
+    name="Tezzy's Test",
+    text=("Choose one — Draw 3 cards; OR search your deck for an Item card "
+          "and put it into your hand, then shuffle; OR your opponent reveals "
+          "their hand and you choose 1 Trainer card in it; they shuffle that "
+          "card into their deck."),
+    rarity="rare",
+    resolve=_tezzys_test_effect,
+)
+
+
+# =============================================================================
 # Set registry
 # =============================================================================
 
@@ -634,6 +772,8 @@ BEYOND_RAVNICA_IZZET = {
     "Ral, Storm Conduit": RAL_STORM_CONDUIT,
     "Izzet Signet": IZZET_SIGNET,
     "Izzet Blend Energy": IZZET_BLEND_ENERGY,
+    # Spice pack v1
+    "Tezzy's Test": TEZZYS_TEST,
 }
 
 
@@ -650,13 +790,14 @@ def make_izzet_deck() -> list:
     deck.extend([MELEK_IZZET_PARAGON] * 2)
     deck.extend([GOBLIN_ELECTROMANCER] * 1)
     deck.extend([MERCURIAL_MAGELING] * 2)
-    # Guild trainers (9)
+    # Guild trainers (10: +2 Tezzy's Test, -1 Signet)
     deck.extend([NIV_MIZZETS_TOWER] * 2)
     deck.extend([RAL_STORM_CONDUIT] * 2)
-    deck.extend([IZZET_SIGNET] * 3)
+    deck.extend([IZZET_SIGNET] * 2)
     deck.extend([IZZET_BLEND_ENERGY] * 2)
-    # Standard sv_starter trainer suite (22)
-    deck.extend(standard_trainer_suite())
+    deck.extend([TEZZYS_TEST] * 2)
+    # Standard sv_starter trainer suite (21 — trimmed 1)
+    deck.extend(standard_trainer_suite()[:-1])
     # Energy (13)
     deck.extend([FIRE_ENERGY] * 8)
     deck.extend([WATER_ENERGY] * 5)

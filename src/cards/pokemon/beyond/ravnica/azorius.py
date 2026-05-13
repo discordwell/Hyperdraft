@@ -15,7 +15,22 @@ from src.engine.game import (
     make_pokemon, make_trainer_item, make_trainer_supporter,
     make_trainer_stadium,
 )
-from src.engine.types import PokemonType, Event, EventType, ZoneType, CardType
+from src.engine.types import (
+    PokemonType, Event, EventType, ZoneType, CardType, Interceptor,
+    InterceptorPriority, InterceptorAction, InterceptorResult, new_id,
+)
+
+# Spice-pack v1 imports — see docs/sets/pkm_brv_spice_designs.md
+from src.cards.pokemon._helpers import (
+    pkm_force_opp_choose_bench,
+    pkm_force_switch_opp,
+    pkm_move_energy,
+    pkm_reveal_opp_hand,
+    pkm_target_card_in_hand_choice,
+    discard_attached_energy_cross_ctrl,
+    _get_opp_id,
+    _get_opp_active,
+)
 
 
 # =============================================================================
@@ -656,6 +671,173 @@ AZORIUS_BLEND_ENERGY = make_trainer_item(
 
 
 # =============================================================================
+# Spice pack v1 — Decision Pressure (Niv-Mizzet's Quandary, Jace) + Tool
+# =============================================================================
+
+def _niv_mizzets_quandary_effect(event, state):
+    """Forced opp switch (opp chooses) → you redirect up to 2 of their energy.
+
+    Build-around spice — the first BRV card where the opponent is forced into
+    a real decision against their interest. Target fingerprint S=2 D=3 Z=2
+    A=3 Y=0 = 10 (spicy).
+    """
+    player_id = event.payload.get('player')
+    if not player_id:
+        return []
+    opp_id = _get_opp_id(player_id, state)
+    if not opp_id:
+        return []
+    # Opp picks the bench Pokemon to bring up — heuristic v1 picks their
+    # highest-investment one to maximize the "bad for opp" decision pressure.
+    new_active_id = pkm_force_opp_choose_bench(opp_id, state, source='Niv-Mizzet\'s Quandary')
+    if not new_active_id:
+        return []
+    events: list[Event] = list(pkm_force_switch_opp(
+        opp_id, state, new_active_id=new_active_id, source='Niv-Mizzet\'s Quandary',
+    ))
+    # Caster picks up to 2 of opp's energy and moves them to the new Active.
+    moved = 0
+    for obj in list(state.objects.values()):
+        if moved >= 2:
+            break
+        if obj.controller != opp_id:
+            continue
+        if obj.id == new_active_id:
+            continue
+        attached = getattr(getattr(obj, 'state', None), 'attached_energy', None)
+        if not attached:
+            continue
+        # Take one energy from this Pokemon, move to the new Active.
+        energy_id = attached[0]
+        events.extend(pkm_move_energy(
+            energy_id, new_pokemon_id=new_active_id, state=state,
+            source='Niv-Mizzet\'s Quandary',
+        ))
+        moved += 1
+    return events
+
+
+NIV_MIZZETS_QUANDARY = make_trainer_supporter(
+    name="Niv-Mizzet's Quandary",
+    text=("Your opponent chooses one of their Benched Pokemon and switches it "
+          "with their Active. After they switch, you may move up to 2 Energy "
+          "from any of their Pokemon to the new Active."),
+    rarity="rare",
+    resolve=_niv_mizzets_quandary_effect,
+)
+
+
+def _jace_mental_triage_effect(attacker, state):
+    """Look at opp hand; pick an Item to discard. Opp draws 1.
+
+    Target fingerprint S=2 D=2 Z=2 A=3 Y=0 = 9 (spicy).
+    """
+    opp_id = _get_opp_id(attacker.controller, state)
+    if not opp_id:
+        return []
+    events: list[Event] = list(pkm_reveal_opp_hand(opp_id, state, source=attacker.id))
+    target_id = pkm_target_card_in_hand_choice(
+        state, target_controller=opp_id, card_type_filter=CardType.TRAINER,
+    )
+    if target_id is not None:
+        hand = state.zones[f"hand_{opp_id}"]
+        grave = state.zones[f"graveyard_{opp_id}"]
+        if target_id in hand.objects:
+            hand.objects.remove(target_id)
+            grave.objects.append(target_id)
+            target = state.objects.get(target_id)
+            if target:
+                target.zone = ZoneType.GRAVEYARD
+            events.append(Event(
+                type=EventType.PKM_REVEAL,
+                payload={'target_player': opp_id, 'card_id': target_id,
+                         'destination': 'graveyard', 'source': attacker.id},
+                source=attacker.id,
+            ))
+    # Opp draws 1.
+    library = state.zones.get(f"library_{opp_id}")
+    hand = state.zones.get(f"hand_{opp_id}")
+    if library and library.objects and hand:
+        top = library.objects.pop(0)
+        hand.objects.append(top)
+        top_obj = state.objects.get(top)
+        if top_obj:
+            top_obj.zone = ZoneType.HAND
+        events.append(Event(type=EventType.DRAW,
+                            payload={'player': opp_id, 'count': 1}))
+    return events
+
+
+JACE_MEMORY_ADEPT = make_pokemon(
+    name="Jace, Memory Adept",
+    hp=80,
+    pokemon_type=PokemonType.PSYCHIC.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Mental Triage",
+         "cost": [{"type": "P", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 30,
+         "text": "Look at your opponent's hand. Choose 1 Item card and discard it. Your opponent draws 1 card.",
+         "effect_fn": _jace_mental_triage_effect},
+    ],
+    weakness_type=PokemonType.DARKNESS.value,
+    retreat_cost=1,
+    text=("An academy prodigy who reads minds like books. Has read every "
+          "book in Vryn and is mostly bored of them now."),
+    rarity="rare",
+)
+
+
+def _pithing_drone_setup(obj, state):
+    """Pithing Drone Tool setup: register a KO-listener that, when this
+    Pokemon's holder is KO'd by an attack, forces opp to discard all energy
+    from the attacking Pokemon.
+
+    Implementation v1: lightweight. We don't yet model attachment to a
+    specific Pokemon at the engine level; the interceptor listens for any
+    PKM_KNOCKOUT of `obj.controller`'s Pokemon and applies the discard.
+    """
+    def trigger_filter(event, st):
+        if event.type != EventType.PKM_KNOCKOUT:
+            return False
+        kod = event.payload.get('pokemon_id')
+        kod_obj = st.objects.get(kod) if kod else None
+        return bool(kod_obj and kod_obj.controller == obj.controller)
+
+    def trigger_handler(event, st):
+        attacker_id = (
+            event.payload.get('attacker_id')
+            or event.payload.get('source_pokemon_id')
+        )
+        if not attacker_id:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        extra = discard_attached_energy_cross_ctrl(
+            st, target_pokemon_id=attacker_id, count=999, source=obj.id,
+        )
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=extra)
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield',
+    )]
+
+
+PITHING_DRONE = make_trainer_item(
+    name="Pithing Drone",
+    text=("Attach to 1 of your Pokemon. When the attached Pokemon is "
+          "Knocked Out by an opponent's attack, your opponent must discard "
+          "all Energy attached to the Pokemon that did the KO damage."),
+    rarity="uncommon",
+    setup_interceptors=_pithing_drone_setup,
+)
+
+
+# =============================================================================
 # Set registry
 # =============================================================================
 
@@ -675,28 +857,35 @@ BEYOND_RAVNICA_AZORIUS = {
     "Soulsworn Jury": SOULSWORN_JURY,
     "Doorkeeper": DOORKEEPER,
     "Azorius Blend Energy": AZORIUS_BLEND_ENERGY,
+    # Spice pack v1
+    "Niv-Mizzet's Quandary": NIV_MIZZETS_QUANDARY,
+    "Jace, Memory Adept": JACE_MEMORY_ADEPT,
+    "Pithing Drone": PITHING_DRONE,
 }
 
 
 def make_azorius_deck() -> list:
-    """60-card Azorius deck. Fighting Energy stands in for white."""
+    """60-card Azorius deck (spice pack v1: Niv-Mizzet's Quandary, Jace, Pithing Drone)."""
     from src.cards.pokemon.sv_starter import WATER_ENERGY, FIGHTING_ENERGY
     from src.cards.pokemon.beyond.ravnica._deck_helpers import standard_trainer_suite
     deck = []
-    # Pokemon (16)
-    deck.extend([ISPERILET] * 4)
+    # Pokemon (16: +2 Jace, -2 from Isperilet/Tomlet)
+    deck.extend([ISPERILET] * 3)
     deck.extend([ISPERATRA] * 3)
     deck.extend([ISPERIA_SUPREME_JUDGE_EX] * 2)
-    deck.extend([TOMLET] * 3)
+    deck.extend([TOMLET] * 2)
     deck.extend([TOMIK_DISTINGUISHED_ADVOKIST] * 2)
     deck.extend([LAVINIA_OF_THE_TENTH] * 2)
-    # Guild trainers (9)
+    deck.extend([JACE_MEMORY_ADEPT] * 2)
+    # Guild trainers (11: +1 Quandary +2 Pithing Drone, -1 Cluestone)
     deck.extend([PRAHV_SPIRES_OF_ORDER] * 2)
     deck.extend([TEFERI_HERO_OF_DOMINARIA] * 2)
-    deck.extend([AZORIUS_CLUESTONE] * 3)
+    deck.extend([AZORIUS_CLUESTONE] * 2)
     deck.extend([AZORIUS_BLEND_ENERGY] * 2)
-    # Standard sv_starter trainer suite (22)
-    deck.extend(standard_trainer_suite())
+    deck.extend([NIV_MIZZETS_QUANDARY] * 1)
+    deck.extend([PITHING_DRONE] * 2)
+    # Standard sv_starter trainer suite (20 — trimmed 2)
+    deck.extend(standard_trainer_suite()[:-2])
     # Energy (13)
     deck.extend([WATER_ENERGY] * 8)
     deck.extend([FIGHTING_ENERGY] * 5)

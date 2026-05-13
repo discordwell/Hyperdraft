@@ -244,6 +244,13 @@ class EventType(Enum):
     PKM_SWITCH = auto()               # Switch effect (not retreat)
     PKM_MULLIGAN = auto()             # Opening hand mulligan
     PKM_SETUP = auto()                # Game setup phase
+    PKM_LOST_ZONE = auto()            # Card moved to the (shared) Lost Zone
+    PKM_REVEAL_HAND = auto()          # Opponent forced to reveal their hand
+    PKM_REVEAL = auto()               # Public reveal of card(s) from a hidden zone
+    PKM_FORCE_SWITCH = auto()         # Opponent forced to switch Active (Boss's Orders)
+    PKM_MOVE_ENERGY = auto()          # Energy moved between Pokemon (own or opp)
+    PKM_PRIZE_TAX = auto()            # Marker: future prize draws reduced
+    PKM_COST_REDUCTION = auto()       # Attack cost reduced (Tool / Stadium effect)
 
     # OTJ Plot mechanic
     PLOT_PAID = auto()                # Plot cost was paid; card goes to exile

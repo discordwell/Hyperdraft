@@ -85,13 +85,12 @@ def test_pokemon_draw_only_cards_collapse_to_one_fingerprint():
 
 
 def test_pokemon_bench_scaling_cards_collapse_to_one_fingerprint():
-    """Boros bench-scaling damage cluster — Aurelin, Aurelia ex, Razia, Wojek
-    all use the same bench-count → opp-active-damage pattern."""
+    """Boros bench-scaling damage cluster — Aurelin, Razia, Wojek use the same
+    bench-count → opp-active-damage pattern. Aurelia ex was rewritten in
+    spice pack v1 and no longer shares this fingerprint; the remaining 3
+    cards still cluster, which is the rewrite target for spice pack v2."""
     from src.cards.pokemon.beyond.ravnica.boros import BEYOND_RAVNICA_BOROS
-    bench_scaling = [
-        "Aurelin", "Aurelia, the Warleader ex", "Razia, Boros Archangel",
-        "Wojek Halberdiers",
-    ]
+    bench_scaling = ["Aurelin", "Razia, Boros Archangel", "Wojek Halberdiers"]
     pokemon = get_profile("pokemon")
     fingerprints = set()
     for name in bench_scaling:
@@ -171,21 +170,24 @@ def test_axes_zero_count():
 # ---------------------------------------------------------------------------
 
 
-def test_brv_set_health_fails_all_checks():
-    """The whole point of the audit: BRV must fail the depth health checks.
-    If this test ever passes, either the rubric was loosened or BRV got a
-    genuine depth pass."""
+def test_brv_set_health_partial_pass_post_spice_v1():
+    """Spice pack v1 lifted BRV from 0/4 → 1/4 health gates. Code diversity
+    now PASSES (the new cards each have a unique AST fingerprint). Axis
+    diversity, median depth, and thin ratio still FAIL — those need spice
+    pack v2 to lift further. This test pins the current post-v1 baseline."""
     from src.cards.pokemon.beyond.ravnica import BEYOND_RAVNICA_CARDS
     report = score_registry(BEYOND_RAVNICA_CARDS, engine="pokemon", set_code="BRV")
-    # Diversity must be below targets.
-    assert report.axis_diversity < 0.50
-    assert report.code_diversity < 0.50
-    # There must be at least one large reskin cluster.
-    assert report.top_reskin_clusters
-    assert report.top_reskin_clusters[0].size >= 5, (
-        f"Expected the top BRV reskin cluster to have >=5 members; "
-        f"got {report.top_reskin_clusters[0].size}"
+    # code_diversity must now PASS (≥0.5).
+    assert report.code_diversity >= 0.5, (
+        f"Spice pack v1 should keep code_diversity ≥0.5; got {report.code_diversity}"
     )
+    # axis_diversity still FAILS (improved but below 0.5 — v2 territory).
+    assert report.axis_diversity < 0.5
+    # At least 8 spicy + at least 4 build-around (user's success criterion).
+    spicy = report.tier_counts.get("spicy", 0)
+    build_around = report.tier_counts.get("build-around", 0)
+    assert spicy >= 8, f"Expected ≥8 spicy cards; got {spicy}"
+    assert build_around >= 4, f"Expected ≥4 build-around cards; got {build_around}"
 
 
 def test_set_report_per_axis_distribution_sums_to_total():
@@ -196,22 +198,33 @@ def test_set_report_per_axis_distribution_sums_to_total():
         assert sum(ax.counts.values()) == report.total_cards
 
 
-def test_brv_has_zero_decision_pressure_cards():
-    """The Pokemon engine has no modal helpers in current cards. Every BRV
-    card should score 0 on Decision Pressure — this is a fact about the
-    current card pool, and a future spice pass should break this assertion."""
+def test_brv_decision_pressure_axis_lit_post_spice_v1():
+    """Spice pack v1 added modal Trainers (Tezzy's Test), forced-opp-decision
+    cards (Niv-Mizzet's Quandary), and hand-targeted disruption (Jace, Dimir
+    Interrogation). At least 5 cards should score >0 on Decision Pressure."""
     from src.cards.pokemon.beyond.ravnica import BEYOND_RAVNICA_CARDS
     report = score_registry(BEYOND_RAVNICA_CARDS, engine="pokemon", set_code="BRV")
-    assert report.decision_dist.counts.get(0, 0) == report.total_cards
-    assert report.decision_dist.counts.get(1, 0) == 0
-    assert report.decision_dist.counts.get(2, 0) == 0
-    assert report.decision_dist.counts.get(3, 0) == 0
+    decision_lit = (
+        report.decision_dist.counts.get(1, 0)
+        + report.decision_dist.counts.get(2, 0)
+        + report.decision_dist.counts.get(3, 0)
+    )
+    assert decision_lit >= 5, (
+        f"Expected ≥5 cards with Decision Pressure >0; got {decision_lit}"
+    )
 
 
-def test_brv_has_zero_synergy_hook_cards():
-    """No card in BRV uses a recognized filter factory or novel-helper
-    mechanic. This is the second half of the user's "mid" diagnosis: the
-    cards don't pull other cards into the deck."""
+def test_brv_synergy_hook_axis_lit_post_spice_v1():
+    """Spice pack v1 added 14 cards calling novel helpers (LZ feeders, prize
+    tax, status-condition payoffs, etc). At least 10 cards should score >0
+    on Synergy Hook."""
     from src.cards.pokemon.beyond.ravnica import BEYOND_RAVNICA_CARDS
     report = score_registry(BEYOND_RAVNICA_CARDS, engine="pokemon", set_code="BRV")
-    assert report.synergy_dist.counts.get(0, 0) == report.total_cards
+    synergy_lit = (
+        report.synergy_dist.counts.get(1, 0)
+        + report.synergy_dist.counts.get(2, 0)
+        + report.synergy_dist.counts.get(3, 0)
+    )
+    assert synergy_lit >= 10, (
+        f"Expected ≥10 cards with Synergy Hook >0; got {synergy_lit}"
+    )

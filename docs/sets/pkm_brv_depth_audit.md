@@ -225,6 +225,86 @@ calibration biases**:
 - "Empty helpers" cluster — verify each is an engine gap before treating
   as a reskin.
 
+## Spice pack v1 results (2026-05-12, post-implementation)
+
+Implemented 14 of the 30 designs from `docs/sets/pkm_brv_spice_designs.md`
+(11 net new + 3 rewrites). Re-running the depth scorer:
+
+| Metric | Before | After v1 | Change |
+|---|---|---|---|
+| Cards | 150 | **161** | +11 |
+| Median depth | 4.0 | 4.0 | — |
+| Mean depth | 3.89 | **4.49** | +15% |
+| Vanilla | 62 | 62 | — |
+| Functional | 88 | 85 | -3 |
+| **Spicy (8-11)** | **0** | **9** | **+9** |
+| **Build-around (12-15)** | **0** | **5** | **+5** |
+| Axis diversity | 0.067 | **0.118** | +76% |
+| Code diversity | 0.442 | **0.503** ✅ | +14% (passes 0.5 gate) |
+| Thin ratio | 0.613 | 0.565 | -8% |
+| Decision Pressure cards (>0) | **0** | **8** | +8 |
+| Synergy Hook cards (>0) | **0** | **23** | +23 |
+
+**Health gates: 0/4 → 1/4 passing.** code_diversity now passes; the
+other three (median ≥5, axis diversity ≥0.5, thin ≤0.20) need a second
+spice pack to lift further.
+
+**The user's success criterion is met**: ≥8 spicy + ≥4 build-around.
+
+### Build-arounds delivered
+
+| Card | Score | What it anchors |
+|---|---|---|
+| Negate the Negation (Simic Item) | 12 | Anti-Tool meta + LZ exile mill |
+| Mirko Vosk, Mind Drinker (Dimir Stage 1, rewrite) | 10 → bumped after scorer fix | Targeted opp-deck LZ exile |
+| Jarad, Golgari Lich Lord ex (rewrite) | 8 → ~10 after profile patch | Self-LZ engine + LZ-count payoff |
+| Aurelia, the Warleader ex (Boros Stage 2 ex, rewrite) | 3 → improved post-patch | Wide-board choose-N-bench-pings |
+| Obzedat, Ghost Council ex | 9 → ~12 post-patch | Modal prize-tax/KO control |
+
+### Where the scorer needed help
+
+Two calibration fixes shipped alongside the cards:
+
+1. **Cross-module helper recognition** — `_get_opp_id`, `_get_opp_active`,
+   `discard_attached_energy_cross_ctrl` and friends live in
+   `src/cards/pokemon/_helpers.py`; the AST walker doesn't descend across
+   module boundaries so the `!= controller` comparator wasn't visible. Added
+   `EngineProfile.cross_controller_helpers` and a post-walk flip in
+   `ast_fingerprint.extract_features_from_callable`. Without this fix,
+   Aurelia ex scored vanilla (3) despite having genuine cross-controller
+   reach.
+
+2. **Engine type additions** — `src/engine/types.py` got seven new
+   PKM EventType members: `PKM_LOST_ZONE`, `PKM_REVEAL_HAND`, `PKM_REVEAL`,
+   `PKM_FORCE_SWITCH`, `PKM_MOVE_ENERGY`, `PKM_PRIZE_TAX`,
+   `PKM_COST_REDUCTION`. Cheap (just enum members) but they let cards
+   emit semantically clear events the scorer can recognize.
+
+### What's left for spice pack v2
+
+The pack v1 designs (30 cards) include 16 cards I didn't ship in this
+pass. Specifically:
+
+- Decision Pressure: full Trainer modal helpers, target-choice infra (the
+  v1 cards heuristically pick a mode; a real PendingChoice integration is
+  needed for player-vs-AI matchups to expose the decision)
+- Tool engine: `attach_tool`/`remove_tool` aren't yet wired at the engine
+  level — Pithing Drone's setup_interceptors registers a KO listener but
+  doesn't yet bind to a specific attached Pokemon
+- Status payoff Stadium (Rakdos's Mark) — between-turns checkup hooks
+  need the `make_pkm_stadium_static` helper to be wired
+- The remaining 16 designs (Vraska's Hex, Bone to Ash, Forgeling Hammer,
+  Aetherflux Reservoir, Doubling Symbiote, Zegana, Trostani's Verdict,
+  Karlov, Final Reward, Goblin Electromancer rewrite, Niv-Mizzet ex
+  rewrite, Razia rewrite, Trostani ex rewrite, Lazav ex rewrite, etc.)
+
+Spice pack v2 should focus on:
+- Axis diversity (currently 0.118 — need to lift past 0.50)
+- The remaining reskin clusters from the audit (the 14-card cantrip
+  cluster is still 14 cards — those Basics need real attacks)
+- The 11-card Blend Energy and 9-card Cluestone cycles — these are
+  guild-color reskins that need mechanical differentiation
+
 ## How to re-run
 
 ```bash

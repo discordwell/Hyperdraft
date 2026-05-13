@@ -17,6 +17,17 @@ from src.engine.game import (
 )
 from src.engine.types import PokemonType, Event, EventType, ZoneType, CardType
 
+# Spice-pack v1 imports — see docs/sets/pkm_brv_spice_designs.md
+from src.cards.pokemon._helpers import (
+    pkm_move_to_lost_zone,
+    pkm_apply_prize_tax,
+    pkm_modal_choice,
+    pkm_choose_pokemon_target,
+    pkm_reveal_opp_hand,
+    _get_opp_id,
+    _get_opp_active,
+)
+
 
 # =============================================================================
 # Shared helpers — shrink-to-fit versions of sv_starter patterns
@@ -737,6 +748,168 @@ ORZHOV_BLEND_ENERGY = make_trainer_item(
 # Set registry
 # =============================================================================
 
+# =============================================================================
+# Spice pack v1 — Prize manipulation + Lost Zone
+# =============================================================================
+
+def _obzedat_souls_tax_effect(attacker, state):
+    """Soul's Tax: opp reveals their hand. Information asymmetry."""
+    opp_id = _get_opp_id(attacker.controller, state)
+    if not opp_id:
+        return []
+    return list(pkm_reveal_opp_hand(opp_id, state, source=attacker.id))
+
+
+def _obzedat_spectral_decree_effect(attacker, state):
+    """Spectral Decree: modal — KO a low-HP opp bench Pokemon OR apply prize tax.
+
+    Heuristic v1: prefer mode A (KO bench) if a legal target exists with
+    HP ≤ 30 effective; else mode B (prize tax). Build-around target
+    fingerprint S=3 D=3 Z=2 A=3 Y=3 = 14 (build-around).
+    """
+    opp_id = _get_opp_id(attacker.controller, state)
+    if not opp_id:
+        return []
+    # Check for a KO-eligible bench Pokemon.
+    bench = state.zones.get(f"bench_{opp_id}")
+    ko_target = None
+    if bench:
+        for bid in bench.objects:
+            obj = state.objects.get(bid)
+            if not obj or not obj.card_def:
+                continue
+            remaining_hp = (
+                (obj.card_def.hp or 0)
+                - (getattr(obj.state, 'damage_counters', 0) * 10)
+            )
+            if remaining_hp <= 30 and remaining_hp > 0:
+                ko_target = bid
+                break
+    pick = 0 if ko_target else 1
+
+    def mode_a(st):
+        # KO the bench target outright.
+        if not ko_target:
+            return []
+        target = st.objects.get(ko_target)
+        if not target:
+            return []
+        # Mark as KO'd by ramping damage to lethal.
+        target.state.damage_counters = (
+            getattr(target.state, 'damage_counters', 0)
+            + (target.card_def.hp or 30) // 10
+        )
+        return [Event(
+            type=EventType.PKM_KNOCKOUT,
+            payload={'pokemon_id': ko_target, 'attacker_id': attacker.id,
+                     'source': attacker.id},
+            source=attacker.id,
+        )]
+
+    def mode_b(st):
+        return pkm_apply_prize_tax(opp_id, st, amount=1, source=attacker.id)
+
+    return pkm_modal_choice(
+        attacker.controller, state,
+        source=attacker.id,
+        mode_names=('KO Bench', 'Prize Tax'),
+        mode_effects=(mode_a, mode_b),
+        heuristic_pick=pick,
+    )
+
+
+OBZEDAT_GHOST_COUNCIL_EX = make_pokemon(
+    name="Obzedat, Ghost Council ex",
+    hp=280,
+    pokemon_type=PokemonType.PSYCHIC.value,
+    evolution_stage="Stage 2",
+    evolves_from="Karlov of the Ghost Council",
+    attacks=[
+        {"name": "Soul's Tax",
+         "cost": [{"type": "F", "count": 1}, {"type": "D", "count": 1}],
+         "damage": 60,
+         "text": "Your opponent reveals their hand.",
+         "effect_fn": _obzedat_souls_tax_effect},
+        {"name": "Spectral Decree",
+         "cost": [{"type": "F", "count": 1}, {"type": "D", "count": 1},
+                  {"type": "C", "count": 2}],
+         "damage": 150,
+         "text": "Choose one: KO an opp Benched Pokemon with 30 HP or less; OR your opponent takes 1 fewer Prize from their next KO against you.",
+         "effect_fn": _obzedat_spectral_decree_effect},
+    ],
+    weakness_type=PokemonType.PSYCHIC.value,
+    retreat_cost=2,
+    is_ex=True,
+    text=("The Ghost Council collects debts the living forgot. Three ghosts "
+          "in one robe, all of them in a hurry."),
+    rarity="rare",
+)
+
+
+def _sanguine_sacrament_effect(event, state):
+    """Sacrifice 1 of your Pokemon (+ attached) to LZ; heal 2 others fully.
+
+    Self-LZ feeder with stabilization payoff. Target fingerprint S=2 D=2 Z=3
+    A=0 Y=3 = 10 (spicy).
+    """
+    player_id = event.payload.get('player')
+    if not player_id:
+        return []
+    # Pick a sacrifice target — heuristic: a Bench Pokemon with no attached
+    # energy, lowest damage_counters (least invested).
+    sacrifice_id = pkm_choose_pokemon_target(
+        state, controller=player_id, prefer_active=False,
+        filter_fn=lambda obj, st: not getattr(obj.state, 'attached_energy', []),
+    )
+    if sacrifice_id is None:
+        # Fall back to any Pokemon in play.
+        sacrifice_id = pkm_choose_pokemon_target(
+            state, controller=player_id, prefer_active=False,
+        )
+    events: list[Event] = []
+    if sacrifice_id is not None:
+        sacrifice = state.objects.get(sacrifice_id)
+        if sacrifice:
+            # Move attached energy to LZ first.
+            for eid in list(getattr(sacrifice.state, 'attached_energy', []) or []):
+                events.extend(pkm_move_to_lost_zone(eid, state, source='Sanguine Sacrament'))
+            events.extend(pkm_move_to_lost_zone(
+                sacrifice_id, state, source='Sanguine Sacrament',
+            ))
+    # Heal up to 2 of remaining Pokemon (full heal each).
+    healed = 0
+    for zone_key in (f"active_spot_{player_id}", f"bench_{player_id}"):
+        zone = state.zones.get(zone_key)
+        if not zone:
+            continue
+        for oid in zone.objects:
+            if not oid or oid == sacrifice_id:
+                continue
+            obj = state.objects.get(oid)
+            if not obj:
+                continue
+            old_dmg = getattr(obj.state, 'damage_counters', 0) or 0
+            if old_dmg > 0 and healed < 2:
+                obj.state.damage_counters = 0
+                events.append(Event(
+                    type=EventType.PKM_HEAL,
+                    payload={'pokemon_id': oid, 'amount': old_dmg * 10,
+                             'source': 'Sanguine Sacrament'},
+                    source='Sanguine Sacrament',
+                ))
+                healed += 1
+    return events
+
+
+SANGUINE_SACRAMENT = make_trainer_supporter(
+    name="Sanguine Sacrament",
+    text=("Put 1 of your Pokemon and all cards attached to it into the Lost "
+          "Zone. Then, heal all damage from up to 2 of your remaining Pokemon."),
+    rarity="rare",
+    resolve=_sanguine_sacrament_effect,
+)
+
+
 BEYOND_RAVNICA_ORZHOV = {
     "Teyslet": TEYSLET,
     "Teyserin": TEYSERIN,
@@ -753,28 +926,33 @@ BEYOND_RAVNICA_ORZHOV = {
     "Treasury Thrull": TREASURY_THRULL,
     "Knight of Obligation": KNIGHT_OF_OBLIGATION,
     "Orzhov Blend Energy": ORZHOV_BLEND_ENERGY,
+    # Spice pack v1
+    "Obzedat, Ghost Council ex": OBZEDAT_GHOST_COUNCIL_EX,
+    "Sanguine Sacrament": SANGUINE_SACRAMENT,
 }
 
 
 def make_orzhov_deck() -> list:
-    """60-card Orzhov deck."""
+    """60-card Orzhov deck (spice pack v1: Obzedat ex, Sanguine Sacrament)."""
     from src.cards.pokemon.sv_starter import FIGHTING_ENERGY, DARKNESS_ENERGY
     from src.cards.pokemon.beyond.ravnica._deck_helpers import standard_trainer_suite
     deck = []
-    # Pokemon (16)
+    # Pokemon (16: +2 Obzedat ex, -2 from OBZLET/non-ex Obzedat)
     deck.extend([TEYSLET] * 4)
     deck.extend([TEYSERIN] * 3)
     deck.extend([TEYSA_KARLOV_EX] * 2)
-    deck.extend([OBZLET] * 3)
-    deck.extend([OBZEDAT_GHOST_COUNCIL] * 2)
+    deck.extend([OBZLET] * 2)
+    deck.extend([OBZEDAT_GHOST_COUNCIL] * 1)
+    deck.extend([OBZEDAT_GHOST_COUNCIL_EX] * 2)
     deck.extend([KARLOV_OF_THE_GHOST_COUNCIL] * 2)
-    # Guild trainers (9)
+    # Guild trainers (10: +2 Sanguine Sacrament, -1 Cluestone)
     deck.extend([ORZHOVA_THE_CHURCH_OF_DEALS] * 2)
     deck.extend([KAYA_GHOST_ASSASSIN] * 2)
-    deck.extend([ORZHOV_CLUESTONE] * 3)
+    deck.extend([ORZHOV_CLUESTONE] * 2)
     deck.extend([ORZHOV_BLEND_ENERGY] * 2)
-    # Standard sv_starter trainer suite (22)
-    deck.extend(standard_trainer_suite())
+    deck.extend([SANGUINE_SACRAMENT] * 2)
+    # Standard sv_starter trainer suite (21 — trimmed 1)
+    deck.extend(standard_trainer_suite()[:-1])
     # Energy (13)
     deck.extend([FIGHTING_ENERGY] * 8)
     deck.extend([DARKNESS_ENERGY] * 5)

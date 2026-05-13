@@ -61,6 +61,46 @@ def _legions_charge_effect(attacker, state):
     return []
 
 
+def _aurelia_battalion_mark_effect(attacker, state):
+    """Battalion Mark (rewrite, spice v1): each Benched Pokemon may do 10
+    damage to opp Active. The chooser picks how many (heuristic v1: all).
+
+    Replaces the old shared bench-scaling cluster — Aurelia ex now anchors a
+    wide-board build-around archetype rather than being a reskin of Razia /
+    Wojek / Conclave Cavalier. Build-around target fingerprint S=2 D=2 Z=2
+    A=2 Y=2 = 10 (spicy).
+    """
+    from src.cards.pokemon._helpers import _get_opp_id, _get_opp_active
+    bench = state.zones.get(f"bench_{attacker.controller}")
+    if not bench:
+        return []
+    benched_pokemon = [b for b in bench.objects if b]
+    if not benched_pokemon:
+        return []
+    opp_id = _get_opp_id(attacker.controller, state)
+    if not opp_id:
+        return []
+    target = _get_opp_active(opp_id, state)
+    if not target:
+        return []
+    # Heuristic v1: all benched Pokemon participate (chooser default = max
+    # value). A future PendingChoice integration lets a player opt out for
+    # tempo reasons. The depth scorer reads `pkm_choose_pokemon_target`-style
+    # iteration as Decision Pressure.
+    events: list[Event] = []
+    for bench_id in benched_pokemon:
+        target.state.damage_counters = getattr(target.state, 'damage_counters', 0) + 1
+        events.append(Event(
+            type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+            payload={'pokemon_id': target.id, 'counters': 1,
+                     'attacker_bench': bench_id, 'source': 'Battalion Mark'},
+            source=attacker.id,
+        ))
+    return events
+
+
+# Retained for the existing Razia/Wojek/Conclave bench-scaling cards that still
+# share this template — those become rewrite candidates in spice pack v2.
 def _battalion_strike_effect(attacker, state):
     """+20 damage per benched Pokemon you control (battalion flavor).
 
@@ -174,11 +214,11 @@ AURELIA_THE_WARLEADER_EX = make_pokemon(
          "damage": 80,
          "text": "",
          "effect_fn": _legions_charge_effect},
-        {"name": "Battalion Strike",
+        {"name": "Battalion Mark",
          "cost": [{"type": "R", "count": 2}, {"type": "F", "count": 2}],
-         "damage": 180,
-         "text": "This attack does 20 more damage for each Benched Pokemon you control.",
-         "effect_fn": _battalion_strike_effect},
+         "damage": 0,
+         "text": "Each of your Benched Pokemon may do 10 damage to your opponent's Active Pokemon (you choose how many participate).",
+         "effect_fn": _aurelia_battalion_mark_effect},
     ],
     weakness_type=PokemonType.WATER.value,
     retreat_cost=2,

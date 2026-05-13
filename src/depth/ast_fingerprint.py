@@ -331,11 +331,17 @@ def extract_features_from_callable(
     modal_helpers: frozenset[str] = frozenset(),
     filter_factories: frozenset[str] = frozenset(),
     novel_helpers: frozenset[str] = frozenset(),
+    cross_controller_helpers: frozenset[str] = frozenset(),
 ) -> FeatureBag:
     """Parse `fn`'s source module, walk its AST, return a FeatureBag.
 
     `modal_helpers`, `filter_factories`, `novel_helpers` come from the
-    engine profile and tag specific call sites for axis scoring."""
+    engine profile and tag specific call sites for axis scoring.
+
+    `cross_controller_helpers` is the set of helper names whose call
+    implies cross-controller interaction (the `!=` comparator lives in
+    a different module the walker doesn't descend into). Any call site
+    matching this set flips `bag.cross_controller=True` post-walk."""
     bag = FeatureBag()
     path, fdef, funcs = _func_source_for_callable(fn)
     if fdef is None:
@@ -346,4 +352,6 @@ def extract_features_from_callable(
         funcs, bag, visited, modal_helpers, filter_factories, novel_helpers
     )
     collector.generic_visit(fdef)
+    if cross_controller_helpers and bag.helpers_called & cross_controller_helpers:
+        bag.cross_controller = True
     return bag

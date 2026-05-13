@@ -17,6 +17,13 @@ from src.engine.game import (
 )
 from src.engine.types import PokemonType, Event, EventType, ZoneType, CardType
 
+# Spice-pack v1 imports — see docs/sets/pkm_brv_spice_designs.md
+from src.cards.pokemon._helpers import (
+    pkm_move_to_lost_zone,
+    pkm_choose_pokemon_target,
+    _get_opp_id,
+)
+
 
 # =============================================================================
 # Shared helpers — shrink-to-fit versions of sv_starter patterns
@@ -673,6 +680,67 @@ SIMIC_BLEND_ENERGY = make_trainer_item(
 # Set registry
 # =============================================================================
 
+# =============================================================================
+# Spice pack v1 — Tool → Lost Zone cascade build-around
+# =============================================================================
+
+def _negate_the_negation_effect(event, state):
+    """Pick opp Pokemon with Tool(s); discard tools; mill opp deck-top to LZ
+    once per discarded Tool. The build-around for an anti-Tool meta.
+
+    Target fingerprint S=2 D=2 Z=3 A=3 Y=3 = 13 (build-around).
+    """
+    player_id = event.payload.get('player')
+    if not player_id:
+        return []
+    opp_id = _get_opp_id(player_id, state)
+    if not opp_id:
+        return []
+
+    def has_tool(obj, st):
+        return bool(getattr(obj.state, 'attached_tools', None))
+
+    target_id = pkm_choose_pokemon_target(
+        state, controller=opp_id, filter_fn=has_tool, prefer_active=False,
+    )
+    if target_id is None:
+        return []
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    tools = list(getattr(target.state, 'attached_tools', []) or [])
+    events: list[Event] = []
+    library = state.zones.get(f"library_{opp_id}")
+    grave = state.zones.get(f"graveyard_{opp_id}")
+    for tool_id in tools:
+        target.state.attached_tools.remove(tool_id)
+        tool_obj = state.objects.get(tool_id)
+        if tool_obj and grave:
+            grave.objects.append(tool_id)
+            tool_obj.zone = ZoneType.GRAVEYARD
+        # Mill the top of opp's deck into the Lost Zone.
+        if library and library.objects:
+            top = library.objects.pop(0)
+            events.extend(pkm_move_to_lost_zone(top, state, source='Negate the Negation'))
+            events.append(Event(
+                type=EventType.PKM_REVEAL,
+                payload={'target_player': opp_id, 'card_id': top,
+                         'destination': 'lost_zone', 'source': 'Negate the Negation'},
+            ))
+    return events
+
+
+NEGATE_THE_NEGATION = make_trainer_item(
+    name="Negate the Negation",
+    text=("Choose 1 of your opponent's Pokemon that has a Tool attached. "
+          "Discard all Tools attached to it. For each Tool discarded this "
+          "way, your opponent reveals the top card of their deck; put that "
+          "card into the Lost Zone."),
+    rarity="rare",
+    resolve=_negate_the_negation_effect,
+)
+
+
 BEYOND_RAVNICA_SIMIC = {
     "Vannet": VANNET,
     "Vannifuse": VANNIFUSE,
@@ -689,6 +757,8 @@ BEYOND_RAVNICA_SIMIC = {
     "Trygon Predator": TRYGON_PREDATOR,
     "Edric, Spymaster of Trest": EDRIC_SPYMASTER_OF_TREST,
     "Simic Blend Energy": SIMIC_BLEND_ENERGY,
+    # Spice pack v1
+    "Negate the Negation": NEGATE_THE_NEGATION,
 }
 
 
@@ -704,13 +774,14 @@ def make_simic_deck() -> list:
     deck.extend([MOMLET] * 3)
     deck.extend([MOMIR_VIG_SIMIC_VISIONARY] * 2)
     deck.extend([COILING_ORACLE] * 2)
-    # Guild trainers (9)
+    # Guild trainers (10: +2 Negate the Negation, -1 Cluestone)
     deck.extend([NOVIJEN_HEART_OF_PROGRESS] * 2)
     deck.extend([PRIME_SPEAKER_ZEGANA] * 2)
-    deck.extend([SIMIC_CLUESTONE] * 3)
+    deck.extend([SIMIC_CLUESTONE] * 2)
     deck.extend([SIMIC_BLEND_ENERGY] * 2)
-    # Standard sv_starter trainer suite (22)
-    deck.extend(standard_trainer_suite())
+    deck.extend([NEGATE_THE_NEGATION] * 2)
+    # Standard sv_starter trainer suite (21 — trimmed 1)
+    deck.extend(standard_trainer_suite()[:-1])
     # Energy (13)
     deck.extend([GRASS_ENERGY] * 8)
     deck.extend([WATER_ENERGY] * 5)

@@ -59,6 +59,13 @@ class EngineProfile:
     # Pushes Asymmetry to 3.
     information_event_types: frozenset[str] = field(default_factory=frozenset)
 
+    # Cross-module helper names that *imply* cross-controller interaction even
+    # though their `!=` comparator lives in a different module the AST walker
+    # doesn't descend into. Calling any of these flags `bag.cross_controller=True`
+    # on behalf of the calling card. Without this, every card that delegates
+    # opp-lookup to a helper (instead of inlining the `!=`) under-scores on S/A.
+    cross_controller_helpers: frozenset[str] = field(default_factory=frozenset)
+
 
 # ---------------------------------------------------------------------------
 # MTG
@@ -186,12 +193,18 @@ _PKM_ASYMMETRIC_EVENTS = frozenset({
     "PKM_PLACE_DAMAGE_COUNTERS",  # cross-controller damage
     "PKM_DISCARD_ENERGY",  # energy denial when targeting opp
     "PKM_APPLY_STATUS",  # status condition
-    "PKM_SWITCH_ACTIVE",  # forced switch
-    "PKM_HEAL",  # only own — included for completeness, scorer combines with cross_controller
+    "PKM_SWITCH",  # switch effect (incl. forced)
+    "PKM_FORCE_SWITCH",  # Boss's-Orders-style
+    "PKM_MOVE_ENERGY",  # cross-controller energy redistribution
+    "PKM_PRIZE_TAX",  # asymmetric prize-take reduction
+    "PKM_LOST_ZONE",  # asymmetric exile (one-way removal)
+    "PKM_COST_REDUCTION",  # attack-cost change (Tool / Stadium)
+    "PKM_HEAL",
 })
 
 _PKM_INFORMATION_EVENTS = frozenset({
-    "PKM_REVEAL_HAND",  # hypothetical — engine supports lookahead, not yet wired
+    "PKM_REVEAL_HAND",
+    "PKM_REVEAL",  # top-of-deck reveal
 })
 
 PKM_PROFILE = EngineProfile(
@@ -203,22 +216,57 @@ PKM_PROFILE = EngineProfile(
         "is_asleep", "is_paralyzed", "is_poisoned", "is_burned", "is_confused",
         "prizes_remaining", "remaining_hp",
     }),
-    # Pokemon has no MTG-style modal helpers in the current code. Decision
-    # pressure on Pokemon comes from Trainer cards that emit a player choice,
-    # which the engine currently does NOT formalize — so Pokemon scores low
-    # on Decision Pressure by design. The user can update this set when
-    # `create_pkm_target_choice` etc. ship.
-    modal_helpers=frozenset(),
-    filter_factories=frozenset(),
-    # Pokemon's "novel mechanics" — present in the engine, not yet leveraged
-    # broadly in cards. Any card touching one gets a synergy-hook bump.
+    # Modal-choice helpers shipped in src/cards/pokemon/_helpers.py.
+    # Card effect_fns calling any of these are detected as Decision Pressure
+    # by the AST scorer.
+    modal_helpers=frozenset({
+        "pkm_modal_choice",
+        "pkm_force_opp_choose_bench",
+        "pkm_choose_pokemon_target",
+        "pkm_target_card_in_hand_choice",
+        "pkm_choose_from_hand_n",
+    }),
+    # Synergy filters — count_* helpers in _helpers.py. A card whose
+    # effect_fn calls any of these reads typed/archetype-specific state.
+    filter_factories=frozenset({
+        "count_pokemon_by_stage",
+        "count_pokemon_in_play",
+        "count_typed_energy_attached",
+        "count_typed_energy_in_hand",
+        "count_poisoned_pokemon",
+        "count_pokemon_in_lost_zone",
+    }),
+    # Mechanic-specific helpers — touching one signals build-around
+    # synergy. apply_status / remove_status come from pokemon_status.py;
+    # the rest are in _helpers.py.
     novel_helpers=frozenset({
+        "apply_status", "remove_status", "remove_all_status",
         "attach_tool", "remove_tool",
-        "apply_status_condition", "clear_status_condition",
-        "place_damage_counters",  # AOE bench damage
+        "place_damage_counters",
+        "pkm_move_to_lost_zone",
+        "pkm_apply_prize_tax",
+        "pkm_skip_evolution_stage",
+        "pkm_force_switch_opp",
+        "pkm_reveal_opp_hand",
+        "pkm_move_energy",
+        "discard_attached_energy_cross_ctrl",
     }),
     asymmetric_event_types=_PKM_ASYMMETRIC_EVENTS,
     information_event_types=_PKM_INFORMATION_EVENTS,
+    # These helpers live in src/cards/pokemon/_helpers.py and encapsulate the
+    # cross-controller `!= attacker.controller` comparison the AST walker
+    # can't see across module boundaries.
+    cross_controller_helpers=frozenset({
+        "_get_opp_id",
+        "_get_opp_active",
+        "pkm_force_opp_choose_bench",
+        "pkm_force_switch_opp",
+        "pkm_reveal_opp_hand",
+        "pkm_target_card_in_hand_choice",
+        "pkm_apply_prize_tax",
+        "discard_attached_energy_cross_ctrl",
+        "pkm_move_energy",
+    }),
 )
 
 

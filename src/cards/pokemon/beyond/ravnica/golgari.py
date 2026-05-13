@@ -16,6 +16,15 @@ from src.engine.game import (
 )
 from src.engine.types import PokemonType, Event, EventType, ZoneType, CardType
 
+# Spice-pack v1 imports — see docs/sets/pkm_brv_spice_designs.md
+from src.cards.pokemon._helpers import (
+    pkm_move_to_lost_zone,
+    pkm_choose_from_hand_n,
+    count_pokemon_in_lost_zone,
+    _get_opp_id,
+    _get_opp_active,
+)
+
 
 # =============================================================================
 # Shared helpers — shrink-to-fit versions of sv_starter patterns
@@ -201,6 +210,63 @@ JARADITE = make_pokemon(
     rarity="uncommon",
 )
 
+# Spice pack v1 rewrite — Jarad ex anchors the Lost Zone build-around archetype.
+def _jarad_lichs_bargain_effect(attacker, state):
+    """Lich's Bargain (replaces _rotted_grasp_effect): pick a Pokemon in own
+    discard pile, send it to the Lost Zone, draw a card. The LZ engine.
+    """
+    grave = state.zones.get(f"graveyard_{attacker.controller}")
+    if not grave or not grave.objects:
+        return []
+    # Find a Pokemon in the discard pile.
+    target_id = None
+    for cid in grave.objects:
+        obj = state.objects.get(cid)
+        if obj and obj.characteristics and CardType.POKEMON in obj.characteristics.types:
+            target_id = cid
+            break
+    if not target_id:
+        return []
+    events: list[Event] = list(pkm_move_to_lost_zone(target_id, state, source=attacker.id))
+    # Draw 1.
+    library = state.zones.get(f"library_{attacker.controller}")
+    hand = state.zones.get(f"hand_{attacker.controller}")
+    if library and library.objects and hand:
+        top = library.objects.pop(0)
+        hand.objects.append(top)
+        top_obj = state.objects.get(top)
+        if top_obj:
+            top_obj.zone = ZoneType.HAND
+        events.append(Event(type=EventType.DRAW,
+                            payload={'player': attacker.controller, 'count': 1}))
+    return events
+
+
+def _jarad_necrosurge_effect(attacker, state):
+    """Necrosurge (replaces _consuming_decay_effect): +20 damage per Pokemon
+    in your Lost Zone, placed as damage counters on opp Active. LZ-count payoff.
+    """
+    opp_id = _get_opp_id(attacker.controller, state)
+    if not opp_id:
+        return []
+    target = _get_opp_active(opp_id, state)
+    if not target:
+        return []
+    lz_count = count_pokemon_in_lost_zone(attacker.controller, state)
+    if lz_count <= 0:
+        return []
+    counters = lz_count * 2  # +20 dmg per LZ Pokemon = 2 counters each
+    target.state.damage_counters = (
+        getattr(target.state, 'damage_counters', 0) + counters
+    )
+    return [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={'pokemon_id': target.id, 'counters': counters,
+                 'source': 'Necrosurge', 'lz_count': lz_count},
+        source=attacker.id,
+    )]
+
+
 JARAD_GOLGARI_LICH_LORD_EX = make_pokemon(
     name="Jarad, Golgari Lich Lord ex",
     hp=280,
@@ -208,17 +274,16 @@ JARAD_GOLGARI_LICH_LORD_EX = make_pokemon(
     evolution_stage="Stage 2",
     evolves_from="Jaradite",
     attacks=[
-        {"name": "Rotted Grasp",
+        {"name": "Lich's Bargain",
          "cost": [{"type": "G", "count": 1}, {"type": "C", "count": 1}],
          "damage": 70,
-         "text": "",
-         "effect_fn": _rotted_grasp_effect},
-        {"name": "Consuming Decay",
+         "text": "Put 1 Pokemon from your discard pile into the Lost Zone. Then draw 1 card.",
+         "effect_fn": _jarad_lichs_bargain_effect},
+        {"name": "Necrosurge",
          "cost": [{"type": "G", "count": 2}, {"type": "D", "count": 2}],
-         "damage": 190,
-         "text": ("This attack does 10 more damage for each Pokemon in your "
-                  "discard pile (max 50)."),
-         "effect_fn": _consuming_decay_effect},
+         "damage": 80,
+         "text": "This attack places 2 damage counters on the Defending Pokemon for each Pokemon in your Lost Zone.",
+         "effect_fn": _jarad_necrosurge_effect},
     ],
     weakness_type=PokemonType.FIRE.value,
     retreat_cost=3,
@@ -827,6 +892,43 @@ GOLGARI_BLEND_ENERGY = make_trainer_item(
 # Set registry
 # =============================================================================
 
+# =============================================================================
+# Spice pack v1 — Lost Zone feeder
+# =============================================================================
+
+def _cremate_effect(event, state):
+    """Cremate (Item): pick up to 3 Pokemon/Energy from hand, move them to
+    the Lost Zone. LZ-feeder card; pairs with Jarad ex's Necrosurge."""
+    player_id = event.payload.get('player')
+    if not player_id:
+        return []
+
+    def is_pokemon_or_energy(obj, st):
+        if not obj or not obj.characteristics:
+            return False
+        return (
+            CardType.POKEMON in obj.characteristics.types
+            or CardType.ENERGY in obj.characteristics.types
+        )
+
+    targets = pkm_choose_from_hand_n(
+        state, controller=player_id, n=3, filter_fn=is_pokemon_or_energy,
+    )
+    events: list[Event] = []
+    for cid in targets:
+        events.extend(pkm_move_to_lost_zone(cid, state, source='Cremate'))
+    return events
+
+
+CREMATE = make_trainer_item(
+    name="Cremate",
+    text=("Choose up to 3 cards from your hand. Put each Pokemon and Energy "
+          "card chosen this way into the Lost Zone instead of the discard pile."),
+    rarity="uncommon",
+    resolve=_cremate_effect,
+)
+
+
 BEYOND_RAVNICA_GOLGARI = {
     "Jarlet": JARLET,
     "Jaradite": JARADITE,
@@ -843,6 +945,8 @@ BEYOND_RAVNICA_GOLGARI = {
     "Slum Reaper": SLUM_REAPER,
     "Erstwhile Trooper": ERSTWHILE_TROOPER,
     "Golgari Blend Energy": GOLGARI_BLEND_ENERGY,
+    # Spice pack v1
+    "Cremate": CREMATE,
 }
 
 
@@ -858,13 +962,14 @@ def make_golgari_deck() -> list:
     deck.extend([IZOLET] * 3)
     deck.extend([IZONI_THOUSAND_EYED] * 2)
     deck.extend([MAZIREK_KRAUL_DEATH_PRIEST] * 2)
-    # Guild trainers (9)
+    # Guild trainers (10: +2 Cremate — feeds Jarad ex's LZ engine, -1 Cluestone)
     deck.extend([KOROZDA_THE_TANGLE] * 2)
     deck.extend([VRASKA_GOLGARI_QUEEN] * 2)
-    deck.extend([GOLGARI_CLUESTONE] * 3)
+    deck.extend([GOLGARI_CLUESTONE] * 2)
     deck.extend([GOLGARI_BLEND_ENERGY] * 2)
-    # Standard sv_starter trainer suite (22)
-    deck.extend(standard_trainer_suite())
+    deck.extend([CREMATE] * 2)
+    # Standard sv_starter trainer suite (21 — trimmed 1)
+    deck.extend(standard_trainer_suite()[:-1])
     # Energy (13)
     deck.extend([GRASS_ENERGY] * 8)
     deck.extend([DARKNESS_ENERGY] * 5)

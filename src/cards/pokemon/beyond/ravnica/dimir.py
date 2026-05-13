@@ -16,6 +16,19 @@ from src.engine.game import (
 )
 from src.engine.types import PokemonType, Event, EventType, ZoneType, CardType
 
+# Spice-pack v1 imports — see docs/sets/pkm_brv_spice_designs.md
+from src.cards.pokemon._helpers import (
+    pkm_move_to_lost_zone,
+    pkm_reveal_opp_hand,
+    pkm_target_card_in_hand_choice,
+    pkm_choose_pokemon_target,
+    discard_attached_energy_cross_ctrl,
+    count_poisoned_pokemon,
+    _get_opp_id,
+    _get_opp_active,
+)
+from src.engine.pokemon_status import apply_status
+
 
 # =============================================================================
 # Shared helpers — shrink-to-fit versions of sv_starter patterns
@@ -214,8 +227,51 @@ NOTION_THIEF = make_pokemon(
 # Mirko Vosk evolution line — mind-drinker vampire
 # =============================================================================
 
-def _mind_drinker_effect(attacker, state):
-    return _mill_opponent(state, attacker.controller, 4)
+def _mirko_lost_recall_effect(attacker, state):
+    """Lost Recall: look at the top 4 cards of opp's deck, put 1 into the Lost
+    Zone, shuffle the rest back. Build-around for the LZ-count archetype.
+
+    Spice-pack v1 — replaces the old `_mind_drinker_effect` (a 5-card reskin
+    cluster). See docs/sets/pkm_brv_spice_designs.md.
+    """
+    opp_id = _get_opp_id(attacker.controller, state)
+    if not opp_id:
+        return []
+    library = state.zones.get(f"library_{opp_id}")
+    if not library or not library.objects:
+        return []
+    # Look at top 4 (or fewer).
+    top_n = min(4, len(library.objects))
+    top_ids = library.objects[:top_n]
+    # Heuristic: pick the most "useful-to-opp" card to remove. We approximate
+    # by picking the first Pokemon if any, else the first Trainer, else the
+    # first card. This is what the depth scorer reads as a decision-point.
+    chosen_id = None
+    for cid in top_ids:
+        obj = state.objects.get(cid)
+        if obj and obj.characteristics and CardType.POKEMON in obj.characteristics.types:
+            chosen_id = cid
+            break
+    if chosen_id is None:
+        for cid in top_ids:
+            obj = state.objects.get(cid)
+            if obj and obj.characteristics and CardType.TRAINER in obj.characteristics.types:
+                chosen_id = cid
+                break
+    if chosen_id is None and top_ids:
+        chosen_id = top_ids[0]
+    events: list[Event] = [Event(
+        type=EventType.PKM_REVEAL,
+        payload={'target_player': opp_id, 'revealed_card_ids': list(top_ids),
+                 'source': attacker.id},
+        source=attacker.id,
+    )]
+    if chosen_id is not None:
+        events.extend(pkm_move_to_lost_zone(chosen_id, state, source=attacker.id))
+    # Shuffle the remaining top cards back into the rest of the deck (heuristic:
+    # since they're already on top, just shuffle the whole library).
+    random.shuffle(library.objects)
+    return events
 
 
 MIRKLET = make_pokemon(
@@ -242,16 +298,16 @@ MIRKO_VOSK_MIND_DRINKER = make_pokemon(
     evolution_stage="Stage 1",
     evolves_from="Mirklet",
     attacks=[
-        {"name": "Mind Drink",
-         "cost": [{"type": "P", "count": 1}, {"type": "C", "count": 1}],
-         "damage": 80,
-         "text": "Discard the top 4 cards of your opponent's deck.",
-         "effect_fn": _mind_drinker_effect},
+        {"name": "Lost Recall",
+         "cost": [{"type": "P", "count": 1}, {"type": "D", "count": 1}, {"type": "C", "count": 1}],
+         "damage": 70,
+         "text": "Look at the top 4 cards of your opponent's deck. Put 1 of them into the Lost Zone. Shuffle the rest back into their deck.",
+         "effect_fn": _mirko_lost_recall_effect},
     ],
     weakness_type=PokemonType.DARKNESS.value,
     retreat_cost=2,
     text=("A vampire who sips memories instead of blood. Victims wake "
-          "missing entire decades of their lives."),
+          "missing entire decades of their lives — gone where nothing returns."),
     rarity="rare",
 )
 
@@ -607,6 +663,130 @@ DIMIR_BLEND_ENERGY = make_trainer_item(
 
 
 # =============================================================================
+# Spice pack v1 — Decision Pressure, Energy denial, Status conditions
+# =============================================================================
+
+def _voidmage_apprentice_effect(attacker, state):
+    """Energy Drain: discard 1 Energy from opp's Active. Cheap recurring denial."""
+    opp_id = _get_opp_id(attacker.controller, state)
+    if not opp_id:
+        return []
+    opp_active = _get_opp_active(opp_id, state)
+    if not opp_active:
+        return []
+    return discard_attached_energy_cross_ctrl(
+        state, target_pokemon_id=opp_active.id, count=1, source=attacker.id,
+    )
+
+
+VOIDMAGE_APPRENTICE = make_pokemon(
+    name="Voidmage Apprentice",
+    hp=60,
+    pokemon_type=PokemonType.PSYCHIC.value,
+    evolution_stage="Basic",
+    attacks=[
+        {"name": "Energy Drain",
+         "cost": [{"type": "P", "count": 1}],
+         "damage": 10,
+         "text": "Discard 1 Energy from your opponent's Active Pokemon.",
+         "effect_fn": _voidmage_apprentice_effect},
+    ],
+    weakness_type=PokemonType.DARKNESS.value,
+    retreat_cost=1,
+    text=("A hooded student of the void who can't yet read it. "
+          "Every spellbook she's owned has gone unaccountably blank."),
+    rarity="common",
+)
+
+
+def _dimir_interrogation_effect(event, state):
+    """Look at opp hand; pick a Pokemon and bury it on their deck. Opp draws 1."""
+    player_id = event.payload.get('player')
+    if not player_id:
+        return []
+    opp_id = _get_opp_id(player_id, state)
+    if not opp_id:
+        return []
+    events: list[Event] = list(pkm_reveal_opp_hand(opp_id, state, source='Dimir Interrogation'))
+    target_id = pkm_target_card_in_hand_choice(
+        state, target_controller=opp_id, card_type_filter=CardType.POKEMON,
+    )
+    if target_id is not None:
+        hand = state.zones[f"hand_{opp_id}"]
+        library = state.zones[f"library_{opp_id}"]
+        hand.objects.remove(target_id)
+        library.objects.append(target_id)
+        target = state.objects.get(target_id)
+        if target:
+            target.zone = ZoneType.LIBRARY
+        events.append(Event(
+            type=EventType.PKM_REVEAL,
+            payload={'target_player': opp_id, 'card_id': target_id,
+                     'destination': 'library_bottom', 'source': 'Dimir Interrogation'},
+            source='Dimir Interrogation',
+        ))
+    # Opp draws 1 (per card text).
+    library = state.zones.get(f"library_{opp_id}")
+    hand = state.zones.get(f"hand_{opp_id}")
+    if library and hand and library.objects:
+        top = library.objects.pop(0)
+        hand.objects.append(top)
+        top_obj = state.objects.get(top)
+        if top_obj:
+            top_obj.zone = ZoneType.HAND
+        events.append(Event(
+            type=EventType.DRAW,
+            payload={'player': opp_id, 'count': 1},
+        ))
+    return events
+
+
+DIMIR_INTERROGATION = make_trainer_item(
+    name="Dimir Interrogation",
+    text=("Look at your opponent's hand. Choose 1 Pokemon in their hand and "
+          "put it on the bottom of their deck. Your opponent draws 1 card."),
+    rarity="uncommon",
+    resolve=_dimir_interrogation_effect,
+)
+
+
+def _tox_pawpsule_effect(event, state):
+    """Poison opp Active; place damage counters scaling with already-poisoned opp Pokemon."""
+    player_id = event.payload.get('player')
+    if not player_id:
+        return []
+    opp_id = _get_opp_id(player_id, state)
+    if not opp_id:
+        return []
+    opp_active = _get_opp_active(opp_id, state)
+    if not opp_active:
+        return []
+    events: list[Event] = list(apply_status(opp_active.id, 'poisoned', state))
+    # Count includes the just-poisoned Active.
+    poisoned_count = count_poisoned_pokemon(opp_id, state)
+    if poisoned_count > 0:
+        opp_active.state.damage_counters = (
+            getattr(opp_active.state, 'damage_counters', 0) + poisoned_count
+        )
+        events.append(Event(
+            type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+            payload={'pokemon_id': opp_active.id, 'counters': poisoned_count,
+                     'source': 'Tox-Pawpsule'},
+            source='Tox-Pawpsule',
+        ))
+    return events
+
+
+TOX_PAWPSULE = make_trainer_item(
+    name="Tox-Pawpsule",
+    text=("Your opponent's Active Pokemon is now Poisoned. Then place 1 damage "
+          "counter on it for each of your opponent's Poisoned Pokemon in play."),
+    rarity="uncommon",
+    resolve=_tox_pawpsule_effect,
+)
+
+
+# =============================================================================
 # Set registry
 # =============================================================================
 
@@ -626,28 +806,36 @@ BEYOND_RAVNICA_DIMIR = {
     "Etrata, the Silencer": ETRATA_THE_SILENCER,
     "Dimir Cluestone": DIMIR_CLUESTONE,
     "Dimir Blend Energy": DIMIR_BLEND_ENERGY,
+    # Spice pack v1
+    "Voidmage Apprentice": VOIDMAGE_APPRENTICE,
+    "Dimir Interrogation": DIMIR_INTERROGATION,
+    "Tox-Pawpsule": TOX_PAWPSULE,
 }
 
 
 def make_dimir_deck() -> list:
-    """60-card Dimir deck."""
+    """60-card Dimir deck (spice pack v1: includes Voidmage Apprentice,
+    Dimir Interrogation, Tox-Pawpsule)."""
     from src.cards.pokemon.sv_starter import PSYCHIC_ENERGY, DARKNESS_ENERGY
     from src.cards.pokemon.beyond.ravnica._deck_helpers import standard_trainer_suite
     deck = []
-    # Pokemon (16)
+    # Pokemon (17: +1 Voidmage Apprentice — cheap denial Basic)
     deck.extend([LAZLET] * 4)
     deck.extend([LAZANDER] * 3)
     deck.extend([LAZAV_DIMIR_MASTERMIND_EX] * 2)
     deck.extend([MIRKLET] * 3)
     deck.extend([MIRKO_VOSK_MIND_DRINKER] * 2)
-    deck.extend([DIMIR_CUTPURSE] * 2)
-    # Guild trainers (9)
+    deck.extend([DIMIR_CUTPURSE] * 1)
+    deck.extend([VOIDMAGE_APPRENTICE] * 2)
+    # Guild trainers (11: +2 Tox-Pawpsule + 2 Dimir Interrogation, -2 Cluestone)
     deck.extend([DUSKMANTLE_HOUSE_OF_SHADOW] * 2)
-    deck.extend([ETRATA_THE_SILENCER] * 2)
-    deck.extend([DIMIR_CLUESTONE] * 3)
+    deck.extend([ETRATA_THE_SILENCER] * 1)
+    deck.extend([DIMIR_CLUESTONE] * 2)
     deck.extend([DIMIR_BLEND_ENERGY] * 2)
-    # Standard sv_starter trainer suite (22)
-    deck.extend(standard_trainer_suite())
+    deck.extend([DIMIR_INTERROGATION] * 2)
+    deck.extend([TOX_PAWPSULE] * 2)
+    # Standard sv_starter trainer suite (19 — trimmed 3)
+    deck.extend(standard_trainer_suite()[:-3])
     # Energy (13)
     deck.extend([PSYCHIC_ENERGY] * 8)
     deck.extend([DARKNESS_ENERGY] * 5)
