@@ -14,6 +14,8 @@ import { DragHintOverlay } from '../components/game/DragHintOverlay';
 import { HSGameLog } from '../components/game/HSGameLog';
 import { AnimationsToggle } from '../components/game/shared/AnimationsToggle';
 import { matchAPI } from '../services/api';
+import { ChoiceModal } from '../components/actions/ChoiceModal';
+import { usePendingChoice } from '../hooks/usePendingChoice';
 
 export function HSGameView() {
   const { matchId } = useParams<{ matchId: string }>();
@@ -43,6 +45,12 @@ export function HSGameView() {
   const storeMatchId = useGameStore((state) => state.matchId);
   const storePlayerId = useGameStore((state) => state.playerId);
   const setGameState = useGameStore((state) => state.setGameState);
+
+  const {
+    pendingChoice,
+    handleChoiceSubmit,
+    isLoading: isSubmittingChoice,
+  } = usePendingChoice();
 
   // Derived: game log + player name lookup (used by the sidebar log tab)
   const hsGameLog = useMemo(() => gameState?.game_log || [], [gameState?.game_log]);
@@ -241,6 +249,17 @@ export function HSGameView() {
           </button>
         </div>
       </div>
+      {pendingChoice && gameState && (
+        <ChoiceModal
+          pendingChoice={pendingChoice}
+          battlefield={[]}
+          hand={[]}
+          graveyard={{}}
+          players={gameState.players}
+          onSubmit={handleChoiceSubmit}
+          isLoading={isSubmittingChoice}
+        />
+      )}
     </div>
   );
 }

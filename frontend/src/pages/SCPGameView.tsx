@@ -4,6 +4,8 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useSCPGame } from '../hooks/useSCPGame';
 import { useGameStore } from '../stores/gameStore';
 import { matchAPI } from '../services/api';
+import { ChoiceModal } from '../components/actions/ChoiceModal';
+import { usePendingChoice } from '../hooks/usePendingChoice';
 import type { CardData, SCPIncident, SCPSiteState } from '../types';
 
 const PROTOCOLS = ['mirror_box', 'no_eye_contact', 'feed_it_lies', 'ritual_diagram'];
@@ -219,6 +221,12 @@ export function SCPGameView() {
   const [selectedAnomalyId, setSelectedAnomalyId] = useState<string | null>(null);
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
   const [selectedContainedId, setSelectedContainedId] = useState<string>('');
+
+  const {
+    pendingChoice,
+    handleChoiceSubmit,
+    isLoading: isSubmittingChoice,
+  } = usePendingChoice();
 
   const storeMatchId = useGameStore((state) => state.matchId);
   const storePlayerId = useGameStore((state) => state.playerId);
@@ -513,6 +521,17 @@ export function SCPGameView() {
           </Section>
         </aside>
       </main>
+      {pendingChoice && (
+        <ChoiceModal
+          pendingChoice={pendingChoice}
+          battlefield={[]}
+          hand={[]}
+          graveyard={{}}
+          players={gameState.players}
+          onSubmit={handleChoiceSubmit}
+          isLoading={isSubmittingChoice}
+        />
+      )}
     </div>
   );
 }

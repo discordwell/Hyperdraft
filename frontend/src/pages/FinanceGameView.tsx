@@ -12,6 +12,8 @@ import { useGameStore } from '../stores/gameStore';
 import { FinanceGameBoard } from '../games/finance';
 import { SettingsPopover } from '../games/finance/SettingsPopover';
 import { matchAPI } from '../services/api';
+import { ChoiceModal } from '../components/actions/ChoiceModal';
+import { usePendingChoice } from '../hooks/usePendingChoice';
 
 export function FinanceGameView() {
   const { matchId } = useParams<{ matchId: string }>();
@@ -55,6 +57,12 @@ export function FinanceGameView() {
   const storePlayerId = useGameStore((state) => state.playerId);
   const setGameState = useGameStore((state) => state.setGameState);
   const setConnection = useGameStore((state) => state.setConnection);
+
+  const {
+    pendingChoice,
+    handleChoiceSubmit,
+    isLoading: isSubmittingChoice,
+  } = usePendingChoice();
 
   useEffect(() => {
     if (!matchId) return;
@@ -186,6 +194,17 @@ export function FinanceGameView() {
           onPassResponse={passResponse}
         />
       </div>
+      {pendingChoice && gameState && (
+        <ChoiceModal
+          pendingChoice={pendingChoice}
+          battlefield={[]}
+          hand={[]}
+          graveyard={{}}
+          players={gameState.players}
+          onSubmit={handleChoiceSubmit}
+          isLoading={isSubmittingChoice}
+        />
+      )}
     </div>
   );
 }

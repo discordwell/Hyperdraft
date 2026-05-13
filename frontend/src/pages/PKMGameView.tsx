@@ -15,6 +15,8 @@ import { AnimationsToggle } from '../components/game/shared/AnimationsToggle';
 import { DragHintOverlay } from '../components/game/DragHintOverlay';
 import { matchAPI } from '../services/api';
 import { AnimatePresence, motion } from 'framer-motion';
+import { ChoiceModal } from '../components/actions/ChoiceModal';
+import { usePendingChoice } from '../hooks/usePendingChoice';
 
 export function PKMGameView() {
   const { matchId } = useParams<{ matchId: string }>();
@@ -56,6 +58,12 @@ export function PKMGameView() {
   const storeMatchId = useGameStore((state) => state.matchId);
   const storePlayerId = useGameStore((state) => state.playerId);
   const setGameState = useGameStore((state) => state.setGameState);
+
+  const {
+    pendingChoice,
+    handleChoiceSubmit,
+    isLoading: isSubmittingChoice,
+  } = usePendingChoice();
 
   // Error auto-dismiss
   useEffect(() => {
@@ -296,6 +304,17 @@ export function PKMGameView() {
           </button>
         </div>
       </div>
+      {pendingChoice && gameState && (
+        <ChoiceModal
+          pendingChoice={pendingChoice}
+          battlefield={[]}
+          hand={[]}
+          graveyard={{}}
+          players={gameState.players}
+          onSubmit={handleChoiceSubmit}
+          isLoading={isSubmittingChoice}
+        />
+      )}
     </div>
   );
 }

@@ -6,6 +6,8 @@ import { useMinecraftGame } from '../hooks/useMinecraftGame';
 import { useGameStore } from '../stores/gameStore';
 import { matchAPI } from '../services/api';
 import { GameLog } from '../components/game/GameLog';
+import { ChoiceModal } from '../components/actions/ChoiceModal';
+import { usePendingChoice } from '../hooks/usePendingChoice';
 
 export function MCGameView() {
   const { matchId } = useParams<{ matchId: string }>();
@@ -42,6 +44,12 @@ export function MCGameView() {
   const storePlayerId = useGameStore((s) => s.playerId);
   const setGameState = useGameStore((s) => s.setGameState);
   const setConnection = useGameStore((s) => s.setConnection);
+
+  const {
+    pendingChoice,
+    handleChoiceSubmit,
+    isLoading: isSubmittingChoice,
+  } = usePendingChoice();
 
   useEffect(() => {
     if (!matchId) return;
@@ -142,6 +150,17 @@ export function MCGameView() {
           )}
         </div>
       </aside>
+      {pendingChoice && (
+        <ChoiceModal
+          pendingChoice={pendingChoice}
+          battlefield={[]}
+          hand={[]}
+          graveyard={{}}
+          players={gameState.players}
+          onSubmit={handleChoiceSubmit}
+          isLoading={isSubmittingChoice}
+        />
+      )}
     </div>
   );
 }
