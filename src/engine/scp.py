@@ -349,6 +349,55 @@ def reset_staff(game, player_id: str) -> None:
         staff = state.objects.get(staff_id)
         if staff and staff.zone == ZoneType.BATTLEFIELD:
             staff.state.scp_exhausted = False
+            # Per-turn assignment counter used by scp_on_assign hooks (e.g.
+            # Sleep-Deprived Intern's "first assignment per turn is free"
+            # quirk). Stored as a dynamic attr because GameObjectState's
+            # SCP slot is otherwise full of anomaly-shaped fields.
+            setattr(staff.state, "scp_assigns_this_turn", 0)
+
+
+def _fire_on_assign(
+    state: GameState,
+    player_id: str,
+    staff_ids: list[str],
+    action: str,
+) -> tuple[int, list[Event]]:
+    """Fire ``scp_on_assign`` hooks for every staff actually used in an assignment.
+
+    Fired AFTER ``_staff_total`` (so the staff are marked exhausted and ``used``
+    is finalized) but BEFORE the test's success/fail resolution. Hooks may:
+
+      * Mutate site state (briefing, secrecy, breach, ethics_debt, etc.).
+      * Return events whose ``payload["task_bonus"]`` adds to THIS test's total.
+      * Toggle ``personnel.state.scp_exhausted = False`` to veto exhaustion
+        (used by Sleep-Deprived Intern's "always available" quirk).
+
+    Hook signature: ``(personnel_obj, state, action: str) -> list[Event]``.
+    The ``action`` arg is one of ``"research"``, ``"contain"``, ``"suppress"``.
+
+    Returns ``(task_bonus, events)`` where ``task_bonus`` is summed across all
+    hook-emitted events that carry a ``task_bonus`` payload key.
+    """
+    events: list[Event] = []
+    bonus = 0
+    for staff_id in staff_ids:
+        staff = state.objects.get(staff_id)
+        if not staff or staff.controller != player_id:
+            continue
+        hook = getattr(staff.card_def, "scp_on_assign", None) if staff.card_def else None
+        if not callable(hook):
+            continue
+        # Bump per-turn assignment counter BEFORE invoking the hook so the
+        # hook can read it (e.g. "first assignment per turn is free").
+        prior = int(getattr(staff.state, "scp_assigns_this_turn", 0) or 0)
+        setattr(staff.state, "scp_assigns_this_turn", prior + 1)
+        produced = hook(staff, state, action) or []
+        for event in produced:
+            payload = getattr(event, "payload", None) or {}
+            if isinstance(payload, dict):
+                bonus += int(payload.get("task_bonus", 0) or 0)
+            events.append(event)
+    return bonus, events
 
 
 def _staff_total(state: GameState, player_id: str, staff_ids: list[str], task: str) -> tuple[int, list[str]]:
@@ -481,6 +530,13 @@ def run_test(game, player_id: str, anomaly_id: str, staff_ids: list[str], *, eme
         source=anomaly.id,
         controller=player_id,
     ))
+    # AGENT C: scp_on_assign hook (personnel-side, fires per used staff,
+    # action="research"). Hooks fire AFTER _staff_total has marked staff
+    # exhausted so they can veto exhaustion or grant a task_bonus delta.
+    assign_bonus, assign_events = _fire_on_assign(state, player_id, used, "research")
+    for event in assign_events:
+        events.extend(game.emit(event))
+    total += assign_bonus
     success = total >= target
     events.extend(game.emit(Event(
         type=EventType.SCP_TEST_RUN,
@@ -524,13 +580,20 @@ def contain_anomaly(game, player_id: str, anomaly_id: str, staff_ids: list[str],
 
     total, used = _staff_total(state, player_id, staff_ids, "contain")
     target = _effective_containment(anomaly)
-    success = total >= target
     events = game.emit(Event(
         type=EventType.SCP_ASSIGN_STAFF,
         payload={"player": player_id, "task": "contain", "staff_ids": used, "anomaly_id": anomaly_id},
         source=anomaly.id,
         controller=player_id,
     ))
+    # AGENT C: scp_on_assign hook (personnel-side, fires per used staff,
+    # action="contain"). Same pattern as run_test — hooks fire BEFORE the
+    # contain/fail decision so they can grant a task_bonus.
+    assign_bonus, assign_events = _fire_on_assign(state, player_id, used, "contain")
+    for event in assign_events:
+        events.extend(game.emit(event))
+    total += assign_bonus
+    success = total >= target
     events.extend(game.emit(Event(
         type=EventType.SCP_CONTAINMENT_ATTEMPT,
         payload={"player": player_id, "anomaly_id": anomaly_id, "total": total, "target": target, "success": success},
@@ -574,6 +637,12 @@ def suppress_anomaly(game, player_id: str, anomaly_id: str, staff_ids: list[str]
         return False, slot_message, []
     hazard_before = _effective_hazard(anomaly)
     total, used = _staff_total(state, player_id, staff_ids, "suppress")
+    # AGENT C: scp_on_assign hook (personnel-side, fires per used staff,
+    # action="suppress"). Same pattern as run_test — hooks fire BEFORE the
+    # suppression total is applied so they can grant a task_bonus. The
+    # task_bonus contributes BEFORE anomaly.state.scp_suppressed is bumped.
+    assign_bonus, assign_events = _fire_on_assign(state, player_id, used, "suppress")
+    total += assign_bonus
     anomaly.state.scp_suppressed += total
     events = game.emit(Event(
         type=EventType.SCP_ASSIGN_STAFF,
@@ -581,6 +650,8 @@ def suppress_anomaly(game, player_id: str, anomaly_id: str, staff_ids: list[str]
         source=anomaly.id,
         controller=player_id,
     ))
+    for event in assign_events:
+        events.extend(game.emit(event))
     redaction_target = max(hazard_before, _effective_containment(anomaly))
     if used and hazard_before > 0 and total >= redaction_target and _has_active_mandate(state, player_id, alt_win="veil_lockdown"):
         anomaly.state.scp_status = "contained"
@@ -1120,6 +1191,11 @@ def make_scp_card(
         lord effects. See ``_staff_total``.
       - ``scp_on_test_fail`` — hook ``(obj, state) -> list[Event]`` invoked
         when a research test against this anomaly fails.
+      - ``scp_on_assign`` — hook
+        ``(personnel_obj, state, action: str) -> list[Event]`` invoked when
+        a personnel is committed to a research/contain/suppress assignment.
+        See ``_fire_on_assign``. Events whose ``payload["task_bonus"]`` is
+        set contribute to the assignment's total before the success check.
     """
     card = CardDefinition(
         name=name,
