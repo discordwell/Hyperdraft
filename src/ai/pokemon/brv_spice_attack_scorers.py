@@ -297,3 +297,25 @@ def _bias_evolve_aurelia(adapter, base, evolution, state, player_id) -> float:
     if bench_n >= 2:
         return 10.0
     return -10.0  # too few bench Pokemon for the payoff
+
+
+@evolution_scorer("Lazav, Dimir Mastermind ex")
+def _bias_evolve_lazav(adapter, base, evolution, state, player_id) -> float:
+    """Bias toward Lazav ex evolution. Iter 4 (item 4 from /ultra-loop
+    next-pass): when the cross-turn opp-deck observation shows opp has
+    NO Darkness-type attacker after turn 5+, Lazav ex's 280 HP becomes
+    an effectively unkillable wall (Boros's max DPS is 80 — needs 4 hits
+    + the wall heals 30 with one Potion). Bias up hard in that case.
+
+    Without observation data (early turns), default to a small bonus
+    since Lazav ex is the deck's primary win condition.
+    """
+    bonus = 5.0  # Lazav ex is always strong
+    ctx = adapter._current_context
+    if ctx is None:
+        return bonus
+    # Lazav ex's weakness type is Darkness ("D"). If opp hasn't shown
+    # any Darkness attackers by turn 5+, the wall is online.
+    if ctx.turn_number >= 5 and 'D' not in ctx.opp_observed_types:
+        bonus += 25.0  # opp can't easily KO Lazav ex
+    return bonus

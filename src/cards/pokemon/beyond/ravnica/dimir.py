@@ -814,28 +814,30 @@ BEYOND_RAVNICA_DIMIR = {
 
 
 def make_dimir_deck() -> list:
-    """60-card Dimir deck (spice pack v1: includes Voidmage Apprentice,
-    Dimir Interrogation, Tox-Pawpsule)."""
+    """60-card Dimir deck (spice pack v1 + ultra-loop iter-3 fix:
+    Lazlet 4→6 + Mirklet 3→4 to address the 4-copy-evolver-starvation
+    failure mode confirmed in 3/3 ultra-loop games — pilot drew 0
+    Lazlet in iter 2 across 22 turns).
+    """
     from src.cards.pokemon.sv_starter import PSYCHIC_ENERGY, DARKNESS_ENERGY
     from src.cards.pokemon.beyond.ravnica._deck_helpers import standard_trainer_suite
     deck = []
-    # Pokemon (17: +1 Voidmage Apprentice — cheap denial Basic)
-    deck.extend([LAZLET] * 4)
+    # Pokemon (19: Lazlet 4→6, Mirklet 3→4 — starvation fix; -1 Cutpurse)
+    deck.extend([LAZLET] * 6)
     deck.extend([LAZANDER] * 3)
     deck.extend([LAZAV_DIMIR_MASTERMIND_EX] * 2)
-    deck.extend([MIRKLET] * 3)
+    deck.extend([MIRKLET] * 4)
     deck.extend([MIRKO_VOSK_MIND_DRINKER] * 2)
-    deck.extend([DIMIR_CUTPURSE] * 1)
     deck.extend([VOIDMAGE_APPRENTICE] * 2)
-    # Guild trainers (11: +2 Tox-Pawpsule + 2 Dimir Interrogation, -2 Cluestone)
+    # Guild trainers (11)
     deck.extend([DUSKMANTLE_HOUSE_OF_SHADOW] * 2)
     deck.extend([ETRATA_THE_SILENCER] * 1)
     deck.extend([DIMIR_CLUESTONE] * 2)
     deck.extend([DIMIR_BLEND_ENERGY] * 2)
     deck.extend([DIMIR_INTERROGATION] * 2)
     deck.extend([TOX_PAWPSULE] * 2)
-    # Standard sv_starter trainer suite (19 — trimmed 3)
-    deck.extend(standard_trainer_suite()[:-3])
+    # Standard sv_starter trainer suite (17 — trimmed 5 for the 3 extra Pokemon)
+    deck.extend(standard_trainer_suite()[:-5])
     # Energy (13)
     deck.extend([PSYCHIC_ENERGY] * 8)
     deck.extend([DARKNESS_ENERGY] * 5)

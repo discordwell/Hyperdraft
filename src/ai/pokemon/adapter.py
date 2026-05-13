@@ -545,6 +545,25 @@ class PokemonAIAdapter:
             opp_hand = state.zones.get(f"hand_{ctx.opp_id}")
             ctx.opp_hand_size = len(opp_hand.objects) if opp_hand else 0
 
+            # Item 4: cross-turn opp deck observation. Accumulates the set
+            # of pokemon types we've seen opp play across the whole game,
+            # persisted on the adapter as `_opp_observation_state`. Used
+            # by Lazav-ex-wall detection (LZ_engine bias bumps Lazav ex
+            # promotion when opp has shown no Darkness type by turn 5+).
+            if not hasattr(self, '_opp_observation_state'):
+                self._opp_observation_state: dict[str, set[str]] = {}
+            obs = self._opp_observation_state.setdefault(ctx.opp_id, set())
+            for opp_obj_id in [ctx.opp_active] + list(ctx.opp_bench):
+                if not opp_obj_id:
+                    continue
+                obj = state.objects.get(opp_obj_id)
+                if obj and obj.card_def and obj.card_def.pokemon_type:
+                    obs.add(obj.card_def.pokemon_type)
+            ctx.opp_observed_types = set(obs)
+            # Also surface turn number for "have I had time to see opp's
+            # deck?" gating in scorers.
+            ctx.turn_number = getattr(state, 'turn_number', 1)
+
         # Can we KO their active?
         if ctx.my_active and ctx.opp_active:
             opp_obj = state.objects.get(ctx.opp_active)

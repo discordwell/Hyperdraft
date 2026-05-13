@@ -570,3 +570,236 @@ def test_set_player_bias_overrides_per_player():
     assert a._get_bias("p2") == "bench_swarm"
     # Player not set falls back to global bias.
     assert a._get_bias("p3") == "balanced"
+
+
+# ===========================================================================
+# Item 1 — Evolver starvation fix (Lazlet/Aurelet 4→6)
+# ===========================================================================
+
+
+def test_dimir_deck_lazlet_starvation_fix():
+    """Lazlet is the engine starter. Iter-2 ultra-loop pilot drew 0
+    Lazlet across 22 turns from 4 copies. Bumped to 6; lock that in."""
+    from src.cards.pokemon.beyond.ravnica.dimir import make_dimir_deck
+    from collections import Counter
+    deck = make_dimir_deck()
+    counts = Counter(c.name for c in deck)
+    assert len(deck) == 60, f"Dimir deck should be 60 cards; got {len(deck)}"
+    assert counts.get("Lazlet", 0) >= 6, (
+        f"Lazlet must be ≥6 copies (was 4 pre-fix); got {counts.get('Lazlet', 0)}"
+    )
+    assert counts.get("Mirklet", 0) >= 4, (
+        f"Mirklet must be ≥4 copies (was 3 pre-fix); got {counts.get('Mirklet', 0)}"
+    )
+
+
+def test_boros_deck_aurelet_starvation_fix():
+    """Aurelet is the bench-swarm engine starter. Pilot drew 0 across
+    iter 1+2+3 from 4 copies. Bumped to 6; lock that in."""
+    from src.cards.pokemon.beyond.ravnica.boros import make_boros_deck
+    from collections import Counter
+    deck = make_boros_deck()
+    counts = Counter(c.name for c in deck)
+    assert len(deck) == 60, f"Boros deck should be 60 cards; got {len(deck)}"
+    assert counts.get("Aurelet", 0) >= 6, (
+        f"Aurelet must be ≥6 copies (was 4 pre-fix); got {counts.get('Aurelet', 0)}"
+    )
+
+
+# ===========================================================================
+# Engine triage fixes — surface silent whiffs as PKM_REVEAL markers
+# ===========================================================================
+
+
+def _bump_turn_count(g, n=3):
+    """Push past the Rare Candy / first-turn engine guards (>2)."""
+    if g.turn_manager and getattr(g.turn_manager, "pkm_turn_state", None):
+        g.turn_manager.pkm_turn_state.game_turn_count = n
+
+
+def test_rare_candy_no_stage2_in_hand_emits_whiff_marker(pkm_game):
+    """Bug 1: Rare Candy with a Basic on the bench but no Stage 2 in hand
+    used to silently return []. Now it emits a PKM_REVEAL marker so the
+    pilot sees the whiff (the card is still consumed by _play_trainer)."""
+    g, p1, _p2 = pkm_game
+    from src.cards.pokemon.sv_starter import CHARMANDER, _rare_candy_effect
+    _bump_turn_count(g)
+
+    # Basic on bench, hand has no Stage 2.
+    _place_basic_pokemon(g, p1.id, CHARMANDER, slot="bench")
+    bench_basic = g.state.zones[f"bench_{p1.id}"].objects[0]
+    g.state.objects[bench_basic].state.turns_in_play = 1
+    # Hand intentionally empty of Stage 2 cards.
+    ev = Event(type=EventType.PKM_PLAY_ITEM, payload={"player": p1.id})
+
+    out = _rare_candy_effect(ev, g.state)
+
+    assert any(
+        e.type == EventType.PKM_REVEAL
+        and e.payload.get("result") == "rare_candy_no_target"
+        and e.payload.get("player") == p1.id
+        for e in out
+    ), f"Expected rare_candy_no_target marker; got {[(e.type, e.payload) for e in out]}"
+
+
+def test_energy_attach_label_disambiguates_same_name_active_and_bench(pkm_game):
+    """Bug 2: with two Pokemon of the same name (one Active, one Bench),
+    the energy-attach labels used to be identical. Now they're suffixed
+    with (Active) / (Bench)."""
+    g, p1, _p2 = pkm_game
+    from src.engine.pokemon_legal_actions import legal_pokemon_actions
+    from src.cards.pokemon.sv_starter import CHARMANDER, FIRE_ENERGY
+
+    _place_basic_pokemon(g, p1.id, CHARMANDER, slot="active")
+    _place_basic_pokemon(g, p1.id, CHARMANDER, slot="bench")
+    # Energy in hand to trigger the attach actions.
+    g.create_object(
+        name=FIRE_ENERGY.name, owner_id=p1.id, zone=ZoneType.HAND,
+        characteristics=FIRE_ENERGY.characteristics, card_def=FIRE_ENERGY,
+    )
+
+    actions = legal_pokemon_actions(g, p1.id)
+    attach_labels = [
+        a["label"] for a in actions if a["type"] == "PKM_ATTACH_ENERGY"
+    ]
+    # Both targets present, distinguishable.
+    assert any("(Active)" in label for label in attach_labels), (
+        f"Expected (Active) suffix; got {attach_labels}"
+    )
+    assert any("(Bench)" in label for label in attach_labels), (
+        f"Expected (Bench) suffix; got {attach_labels}"
+    )
+    # Sanity: no two labels are identical.
+    assert len(set(attach_labels)) == len(attach_labels), (
+        f"Attach labels should be unique; got duplicates in {attach_labels}"
+    )
+
+
+def test_professors_research_partial_draw_emits_marker(pkm_game):
+    """Bug 3: when library has < 7 cards, Pro Research draws what's there
+    but used to emit only the DRAW event. Now it ALSO emits a PKM_REVEAL
+    marker so pilots can distinguish 'card bug' from 'deck-out edge'."""
+    g, p1, _p2 = pkm_game
+    from src.cards.pokemon.sv_starter import CHARMANDER, _professors_research_effect
+
+    # Seed library with only 3 cards (well under 7).
+    for _ in range(3):
+        g.create_object(
+            name=CHARMANDER.name, owner_id=p1.id, zone=ZoneType.LIBRARY,
+            characteristics=CHARMANDER.characteristics, card_def=CHARMANDER,
+        )
+    ev = Event(type=EventType.PKM_PLAY_SUPPORTER, payload={"player": p1.id})
+
+    out = _professors_research_effect(ev, g.state)
+
+    # Original DRAW event still emitted.
+    assert any(e.type == EventType.DRAW for e in out), (
+        f"DRAW event should still be emitted; got {[(e.type, e.payload) for e in out]}"
+    )
+    # New marker present with the right payload.
+    markers = [
+        e for e in out
+        if e.type == EventType.PKM_REVEAL
+        and e.payload.get("result") == "professors_research_partial_draw"
+    ]
+    assert markers, f"Expected partial_draw marker; got {[(e.type, e.payload) for e in out]}"
+    assert markers[0].payload.get("requested") == 7
+    assert markers[0].payload.get("available") == 3
+    assert markers[0].payload.get("player") == p1.id
+
+
+def test_ultra_ball_no_basic_in_deck_emits_marker(pkm_game):
+    """Bug 4: Ultra Ball pays the 2-card discard cost, then if no Basic
+    Pokemon exists in the deck used to silently return []. Now emits a
+    PKM_REVEAL marker so pilot sees the whiff."""
+    g, p1, _p2 = pkm_game
+    from src.cards.pokemon.sv_starter import (
+        CHARMANDER, FIRE_ENERGY, _ultra_ball_effect,
+    )
+
+    # Hand needs >=2 cards (the discard cost).
+    for _ in range(2):
+        g.create_object(
+            name=FIRE_ENERGY.name, owner_id=p1.id, zone=ZoneType.HAND,
+            characteristics=FIRE_ENERGY.characteristics, card_def=FIRE_ENERGY,
+        )
+    # Library has only Energy — no Basic Pokemon to find.
+    for _ in range(5):
+        g.create_object(
+            name=FIRE_ENERGY.name, owner_id=p1.id, zone=ZoneType.LIBRARY,
+            characteristics=FIRE_ENERGY.characteristics, card_def=FIRE_ENERGY,
+        )
+    # Bench non-empty so the "need_basic_for_bench" hard filter doesn't kick in
+    # (the bug we're locking in is about no-Basic-in-deck, not the bench guard).
+    _place_basic_pokemon(g, p1.id, CHARMANDER, slot="bench")
+
+    ev = Event(type=EventType.PKM_PLAY_ITEM, payload={"player": p1.id})
+
+    out = _ultra_ball_effect(ev, g.state)
+
+    assert any(
+        e.type == EventType.PKM_REVEAL
+        and e.payload.get("result") == "ultra_ball_no_basic_in_deck"
+        and e.payload.get("player") == p1.id
+        for e in out
+    ), f"Expected ultra_ball_no_basic_in_deck marker; got {[(e.type, e.payload) for e in out]}"
+
+
+# ===========================================================================
+# Item 4 — Cross-turn opp deck observation
+# ===========================================================================
+
+
+def test_turn_context_carries_opp_observed_types(pkm_game):
+    """The TurnContext now exposes opp_observed_types (set of pokemon
+    types seen across the game) and turn_number. The adapter populates
+    both from its persistent _opp_observation_state."""
+    g, p1, p2 = pkm_game
+    from src.cards.pokemon.sv_starter import CHARMANDER, SQUIRTLE  # Fire R + Water W
+    from src.ai.pokemon.adapter import PokemonAIAdapter
+
+    # p2 is "opp" from p1's perspective. Place a Fire Pokemon (Charmander).
+    _place_basic_pokemon(g, p2.id, CHARMANDER, slot="active")
+
+    ai = PokemonAIAdapter()
+    ctx = ai._build_turn_context(p1.id, g.state)
+
+    assert hasattr(ctx, 'opp_observed_types')
+    assert hasattr(ctx, 'turn_number')
+    assert "R" in ctx.opp_observed_types, (
+        f"Should have observed Fire (R) on opp; saw {ctx.opp_observed_types}"
+    )
+
+    # Now opp evolves / changes — observation set should accumulate.
+    _place_basic_pokemon(g, p2.id, SQUIRTLE, slot="bench")
+    ctx2 = ai._build_turn_context(p1.id, g.state)
+    assert "R" in ctx2.opp_observed_types  # still remembers Fire
+    assert "W" in ctx2.opp_observed_types  # newly added Water
+
+
+def test_lazav_ex_wall_evolution_bonus_when_opp_lacks_darkness(pkm_game):
+    """The Lazav ex evolution scorer applies a +25 bonus when opp has
+    shown no Darkness attacker by turn 5+ (the 280 HP wall becomes
+    effectively unkillable vs Boros's 80 max DPS)."""
+    g, _p1, _p2 = pkm_game
+    from src.ai.pokemon.adapter import PokemonAIAdapter
+    from src.ai.pokemon.brv_spice_attack_scorers import _bias_evolve_lazav
+
+    ai = PokemonAIAdapter()
+    ai._current_context = type('Ctx', (), {})()
+    # Opp shown no Darkness yet, turn 5+ — bonus should fire.
+    ai._current_context.turn_number = 6
+    ai._current_context.opp_observed_types = {"R", "F"}  # Fire + Fighting (Boros)
+    bonus = _bias_evolve_lazav(ai, None, None, g.state, "p1")
+    assert bonus >= 25.0, f"Wall bonus should fire (opp has no D); got {bonus}"
+
+    # Opp HAS shown Darkness — bonus should NOT fire.
+    ai._current_context.opp_observed_types = {"R", "F", "D"}
+    bonus2 = _bias_evolve_lazav(ai, None, None, g.state, "p1")
+    assert bonus2 < 15.0, f"Wall bonus should NOT fire (opp has D); got {bonus2}"
+
+    # Early game — bonus should NOT fire (haven't had time to observe).
+    ai._current_context.turn_number = 2
+    ai._current_context.opp_observed_types = set()  # nothing seen yet
+    bonus3 = _bias_evolve_lazav(ai, None, None, g.state, "p1")
+    assert bonus3 < 15.0, f"Wall bonus should NOT fire pre-turn-5; got {bonus3}"

@@ -55,6 +55,20 @@ class TurnContext:
     retreat_urgency: float = 0.0
     has_switch_in_hand: bool = False
 
+    # Cross-turn opponent observation (item 4 from /ultra-loop next-pass).
+    # ``opp_observed_types`` accumulates the set of pokemon_type strings
+    # we've seen opp play across the game (Active + Bench in any past
+    # turn). It's a deduction signal: if opp hasn't shown a Darkness
+    # attacker by turn 5+, their deck almost certainly has none, which
+    # makes Lazav ex's 280 HP an effectively unkillable wall.
+    #
+    # Populated by ``_build_turn_context`` from the adapter's persistent
+    # ``_opp_observation_state`` dict (keyed by player_id). Carried into
+    # the context fresh each turn.
+    opp_observed_types: set = field(default_factory=set)
+    # Turn count for "have I had a chance to see opp's deck?" timing.
+    turn_number: int = 1
+
 
 @dataclass
 class EnergyPlan:

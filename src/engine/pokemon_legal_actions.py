@@ -216,12 +216,34 @@ def legal_pokemon_actions(game, player_id: str) -> list[dict[str, Any]]:
                 obj for obj in hand
                 if CardType.ENERGY in _card_types(obj)
             ]
+            # Disambiguate when multiple Pokemon share a name across zones.
+            # If only one Pokemon has a given name, label stays clean ("Attach X to Y").
+            name_counts: dict[str, int] = {}
+            for p in own_pokemon:
+                name_counts[p.name] = name_counts.get(p.name, 0) + 1
+            active_obj = _active_pokemon(game, player_id)
+            active_id = active_obj.id if active_obj else None
+            bench_objs = _bench_pokemon(game, player_id)
+            bench_ids_by_name: dict[str, list[str]] = {}
+            for b in bench_objs:
+                bench_ids_by_name.setdefault(b.name, []).append(b.id)
             for energy in energy_cards:
                 for target in own_pokemon:
+                    label = f"Attach {energy.name} to {target.name}"
+                    if name_counts.get(target.name, 0) > 1:
+                        if target.id == active_id:
+                            label += " (Active)"
+                        else:
+                            same_name_bench = bench_ids_by_name.get(target.name, [])
+                            if len(same_name_bench) > 1:
+                                idx = same_name_bench.index(target.id) + 1
+                                label += f" (Bench {idx})"
+                            else:
+                                label += " (Bench)"
                     add(
                         "PKM_ATTACH_ENERGY",
                         {"energy_id": energy.id, "target_id": target.id},
-                        f"Attach {energy.name} to {target.name}",
+                        label,
                         ["resource", "tempo"],
                     )
 

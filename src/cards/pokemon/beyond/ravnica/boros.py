@@ -755,12 +755,16 @@ BEYOND_RAVNICA_BOROS = {
 
 
 def make_boros_deck() -> list:
-    """60-card Boros deck."""
+    """60-card Boros deck (ultra-loop iter-3 fix: Aurelet 4→6 to address
+    the 4-copy-evolver-starvation failure mode confirmed in 3/3 games —
+    pilot drew 0 Aurelet across 10+22+22 turns).
+    """
     from src.cards.pokemon.sv_starter import FIRE_ENERGY, FIGHTING_ENERGY
     from src.cards.pokemon.beyond.ravnica._deck_helpers import standard_trainer_suite
     deck = []
-    # Pokemon (16)
-    deck.extend([AURELET] * 4)
+    # Pokemon (18: Aurelet 4→6 starvation fix; -1 Reckoner -1 Feather to
+    # compensate, since the win con is Aurelia ex via Aurelin)
+    deck.extend([AURELET] * 6)
     deck.extend([AURELIN] * 3)
     deck.extend([AURELIA_THE_WARLEADER_EX] * 2)
     deck.extend([FEATHLET] * 3)
@@ -771,8 +775,8 @@ def make_boros_deck() -> list:
     deck.extend([GIDEON_BLACKBLADE] * 2)
     deck.extend([BOROS_CLUESTONE] * 3)
     deck.extend([BOROS_BLEND_ENERGY] * 2)
-    # Standard sv_starter trainer suite (22)
-    deck.extend(standard_trainer_suite())
+    # Standard sv_starter trainer suite (20 — trimmed 2 to keep 60-card)
+    deck.extend(standard_trainer_suite()[:-2])
     # Energy (13) — Boros runs both Fire and Fighting
     deck.extend([FIRE_ENERGY] * 8)
     deck.extend([FIGHTING_ENERGY] * 5)

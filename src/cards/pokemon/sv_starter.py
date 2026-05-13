@@ -103,10 +103,26 @@ def _professors_research_effect(event, state):
             if graveyard:
                 graveyard.objects.append(card_id)
             obj.zone = ZoneType.GRAVEYARD
-    return [Event(
+    events = [Event(
         type=EventType.DRAW,
         payload={'player': player_id, 'count': 7},
     )]
+    # Make partial draws visible so pilots can distinguish "card bug" from
+    # "deck-out edge case" (Pro Research wants 7 but library may have <7).
+    library_key = f"library_{player_id}"
+    library = state.zones.get(library_key)
+    available = len(library.objects) if library else 0
+    if available < 7:
+        events.append(Event(
+            type=EventType.PKM_REVEAL,
+            payload={
+                'result': 'professors_research_partial_draw',
+                'requested': 7,
+                'available': available,
+                'player': player_id,
+            },
+        ))
+    return events
 
 
 def _nest_ball_effect(event, state):
@@ -286,7 +302,12 @@ def _ultra_ball_effect(event, state):
             best_score = score
             best_id = card_id
     if not best_id:
-        return []
+        # Discard cost is already paid; surface the whiff so pilots can tell
+        # "no Basic in deck" apart from "AI declined to pick".
+        return [Event(
+            type=EventType.PKM_REVEAL,
+            payload={'result': 'ultra_ball_no_basic_in_deck', 'player': player_id},
+        )]
     library.objects.remove(best_id)
     hand.objects.append(best_id)
     obj = state.objects.get(best_id)
@@ -329,8 +350,16 @@ def _rare_candy_effect(event, state):
                 continue
             basics.append(pokemon)
 
+    def _no_target_event():
+        # Card is still consumed (Pokemon TCG rule: playing commits it),
+        # but emit a public marker so pilots see the whiff.
+        return [Event(
+            type=EventType.PKM_REVEAL,
+            payload={'result': 'rare_candy_no_target', 'player': player_id},
+        )]
+
     if not basics:
-        return []
+        return _no_target_event()
 
     stage2_cards = []
     for card_id in list(hand.objects):
@@ -343,7 +372,7 @@ def _rare_candy_effect(event, state):
             stage2_cards.append(obj)
 
     if not stage2_cards:
-        return []
+        return _no_target_event()
 
     best_pair = None
     best_score = -1
@@ -372,7 +401,7 @@ def _rare_candy_effect(event, state):
                 best_pair = (basic, stage2)
 
     if not best_pair:
-        return []
+        return _no_target_event()
 
     basic, stage2 = best_pair
     if stage2.id in hand.objects:
