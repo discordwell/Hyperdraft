@@ -6,6 +6,92 @@ from src.engine.types import CardType, GameState, ZoneType
 from src.engine import scp
 
 
+# Coach note (2026-05-12, ultra-loop iter 1 ACW vs SCR):
+#
+# Pilot B's losing run was closest to "balanced" (breach_danger=4,
+# anomaly_staff_threshold=2). Pilot A's winning run was closest to
+# "archivist" but exploited two levers the heuristic does not express:
+#   1. Multi-dossier opens per turn (the take_turn body opens at most one
+#      dossier per call — see line ~138 onward).
+#   2. Opponent alt-win tracking (no signal exists in score() for an
+#      opposing mandate's alt-win proximity, so balanced cannot defend
+#      against redaction).
+# These are decision-logic gaps; weight tuning alone cannot close them.
+# The encoder pass should add a future "archive_speedrun" preset:
+#   - Bias: open ALL playable tape-≤1 dossiers per turn when assignment
+#     slots permit; bias anomaly_staff_threshold low (1) so own-anomaly
+#     research engines come online by T3.
+#   - Bias: when own Mandate alt_win == "redaction", weight memory_hole
+#     of any non-active pending dossier once archives ≥ 4 and secrecy
+#     in [10, 11].
+#   - Signals required: opp_alt_win_progress(), pending_dossier_ids(),
+#     memory_hole legal action — none exist yet in score().
+# Coach is leaving the weight dicts effectively untouched this iteration
+# because no clean single-digit weight change addresses the structural
+# gap. Re-evaluate after the encoder adds opp-alt-win and multi-open
+# support.
+#
+# Iter 2 addendum (2026-05-12, ultra-loop iter 2 ACW vs SCR):
+# Encoder pass landed multi-open + opp-alt-win + memory-hole-bridge in
+# take_turn() (see lines ~222-248, ~250-338). Weights remain untouched
+# this iteration too. Specifically resisted lowering "balanced"
+# anomaly_staff_threshold from 2 → 1: iter 2's SCR pilot self-destructed
+# on breach overflow precisely because it fast-tracked a haz-3 anomaly
+# without contain throughput. Lower threshold = MORE early anomaly opens
+# = MORE breach-overflow risk, not less. The "containment" preset (used
+# by SCR-style decks) doesn't yet model contain-skill availability, so
+# it cannot detect a 0-contain-skill draw and pivot to primary archive
+# race. That is the next structural encoder gap: a contain_skill_drawn
+# signal feeding a pivot from thaumiel alt-win to primary 7-archive
+# mode. Until that lands, the heuristic will keep opening anomalies on
+# hazard threshold alone even when contain is structurally unavailable.
+# Watch for opponent breach-overflow self-destruct: when the OPPONENT's
+# active haz_sum + breach ≥ 9 at their start-of-turn, they are likely 1
+# EOT tick from losing — defensive pilots benefit from running out the
+# clock rather than racing alt-win. No weight needed; this is a
+# decision-logic observation.
+#
+# Iter 3 addendum (2026-05-12, ultra-loop iter 3 GOI Frontline vs Veil):
+# Veil Control won T8 via veil_lockdown (3 archives + 0 breach). Engine
+# truth surfaced: reveal does NOT tick hazard (scp.py:172-214 emits
+# SCP_ANOMALY_REVEALED but never calls breach_tick — that runs once at
+# EOT via scp_turn.py:80), and suppress-to-contain via Protect Mandate
+# pays 2 archives per conversion (scp.py:531). The veil_lockdown
+# threshold is therefore 2 successful suppressions = win, the fastest
+# single-axis alt-win in the game.
+#
+# One single-digit weight change applied: _anomaly_staff_threshold["veil"]
+# raised 2 → 3. Justification: iter 3 Pilot B's optimal line was open
+# anomalies SEALED first, then reveal+suppress in the same turn once
+# Janitor (sup 3) and Field Agent (sup 2) were both active. Threshold 2
+# was too aggressive — biased toward opening anomalies as soon as 2 staff
+# existed, which can include zero suppress-skill staff. Threshold 3
+# delays anomaly opens until enough staff exist to actually clear
+# max(haz, cont) at suppress. The change is conservative and only
+# affects the "veil" preset; other presets retain their iter 1/2 values.
+#
+# No "raid" preset exists yet. Iter 3 evidence suggests a raid preset
+# would need: aggressive audit-procedure prioritization (drop opp
+# secrecy toward public_panic's ≤6 threshold), low-hazard anomalies as
+# the SOLE archive engine (raid card pool has NO +archive procedures),
+# and a hard mulligan policy that demands the alt-win Mandate in opener
+# (otherwise the deck has no win condition). The current "disruption"
+# preset is the closest match (breach_danger=4, threshold=1) but
+# disruption assumes the deck has a research engine — raid does not,
+# beyond the haz-1 Borderless Site Anomaly. Without a raid preset the
+# heuristic falls back to "balanced", which doesn't prioritize audits
+# correctly for the public_panic clock. Decision-logic gap; no clean
+# weight change closes it.
+#
+# Cross-iter generalization: an underperforming deck is rescuable by LLM
+# pilot skill ONLY when the deck has a self-consistent engine that
+# aligns with its alt-win threshold. ACW (iter 1/2) has a redaction
+# alt-win bridged by memory-hole + a research-anomaly engine + plenty
+# of archive scorers — rescuable. GOI Frontline (iter 3) has a 2-axis
+# public_panic alt-win + no +archive procedures + draw-dependent
+# anomaly engine — NOT rescuable, structural gap. The next loop pass
+# should triage decks by axis-count and engine-alignment before
+# spending pilot iterations on them.
 SUPPORTED_SCP_PILOTS = frozenset({
     "archivist",
     "balanced",
@@ -80,7 +166,7 @@ class SCPAIAdapter:
             "disruption": 1,
             "balanced": 2,
             "containment": 2,
-            "veil": 2,
+            "veil": 3,  # iter 3: raised 2→3 to bias toward sealed-then-suppress line
             "conservative": 3,
             "masquerade": 1,
             "quarantine": 2,
@@ -117,13 +203,164 @@ class SCPAIAdapter:
             for obj in staff
         )
 
+    # --- Helper queries used by take_turn() and future presets ---
+
+    def _own_alt_win_kind(self, state: GameState, player_id: str) -> str | None:
+        """Return the alt_win kind on this player's active mandate, or None."""
+        for mandate_id in list(state.scp_mandates.get(player_id, [])):
+            mandate = state.objects.get(mandate_id)
+            if (
+                mandate
+                and mandate.state.scp_status == "active"
+                and getattr(mandate.card_def, "scp_alt_win", None)
+            ):
+                return getattr(mandate.card_def, "scp_alt_win", None)
+        return None
+
+    def _pending_dossier_ids(self, state: GameState, player_id: str) -> list[str]:
+        """IDs of this player's pending (non-active) dossiers on battlefield."""
+        ids: list[str] = []
+        for obj in state.objects.values():
+            if (
+                obj.controller == player_id
+                and obj.zone == ZoneType.BATTLEFIELD
+                and obj.state.scp_status not in {"active", "contained", "sealed"}
+            ):
+                ids.append(obj.id)
+        return ids
+
+    def _opp_alt_win_proximity(
+        self, state: GameState, player_id: str, opponent_id: str
+    ) -> tuple[str | None, int]:
+        """Return (alt_win_kind, turns_to_win_estimate) for opponent, or (None, 99).
+
+        Rough estimate: smaller numbers = closer to win. Used for defensive bias.
+        """
+        opp_site = scp.site(state, opponent_id)
+        closest_kind: str | None = None
+        closest_distance = 99
+        for mandate_id in list(state.scp_mandates.get(opponent_id, [])):
+            mandate = state.objects.get(mandate_id)
+            if not mandate or mandate.state.scp_status != "active":
+                continue
+            kind = getattr(mandate.card_def, "scp_alt_win", None)
+            if not kind:
+                continue
+            if kind == "redaction":
+                gap = max(0, 3 - opp_site["archives"]) + max(0, 12 - opp_site["secrecy"])
+            elif kind == "thaumiel":
+                contained = len(state.scp_contained.get(opponent_id, [])) if hasattr(state, "scp_contained") else 0
+                gap = max(0, 4 - contained) + opp_site["breach"]
+            elif kind == "veil_lockdown":
+                gap = max(0, 3 - opp_site["archives"]) + opp_site["breach"]
+            elif kind == "ethics_audit":
+                gap = max(0, 4 - opp_site["archives"]) + max(0, 8 - opp_site["secrecy"]) + max(0, opp_site["ethics_debt"] - 2)
+            elif kind == "public_panic":
+                gap = max(0, 4 - opp_site["archives"])
+            else:
+                gap = 99
+            if gap < closest_distance:
+                closest_distance = gap
+                closest_kind = kind
+        return closest_kind, closest_distance
+
+    def _cheap_incident_resolves(self, state: GameState, player_id: str) -> list[int]:
+        """Indices of pending incidents that are free / near-free to resolve.
+
+        Engine `resolve_incident()` has no resource cost — always +1 briefing,
+        sometimes +secrecy / -breach. Returns all incident indices (strict upside).
+        """
+        incidents = list(state.scp_incidents.get(player_id, []))
+        return list(range(len(incidents)))
+
+    def _visible_contain_capacity(self, state: GameState, player_id: str) -> int:
+        """Sum of contain skill across active personnel + contain-bearing cards in hand."""
+        total = 0
+        for sid in list(state.scp_personnel.get(player_id, [])):
+            obj = state.objects.get(sid)
+            if obj and obj.state.scp_status == "active" and obj.card_def:
+                total += int(getattr(obj.card_def, "scp_skills", {}).get("contain", 0) or 0)
+        hand_zone = state.zones.get(f"hand_{player_id}")
+        if hand_zone:
+            for hid in list(hand_zone.objects):
+                obj = state.objects.get(hid)
+                if obj and obj.card_def:
+                    total += int(getattr(obj.card_def, "scp_skills", {}).get("contain", 0) or 0)
+        return total
+
+    def _opp_breach_overflow_imminent(self, state: GameState, opponent_id: str) -> bool:
+        """True when opponent is likely 1 EOT tick from breach-overflow loss."""
+        opp_site = scp.site(state, opponent_id)
+        if opp_site.get("breach", 0) < 8:
+            return False
+        haz_sum = 0
+        contain_skill = 0
+        for aid in list(state.scp_anomalies.get(opponent_id, [])):
+            obj = state.objects.get(aid)
+            if obj and obj.state.scp_status == "active":
+                haz_sum += scp.effective_hazard_for_ai(obj)
+        for sid in list(state.scp_personnel.get(opponent_id, [])):
+            obj = state.objects.get(sid)
+            if obj and obj.state.scp_status == "active" and obj.card_def:
+                contain_skill += int(getattr(obj.card_def, "scp_skills", {}).get("contain", 0) or 0)
+        # Imminent if next breach tick (≈ haz_sum) would push past 10 AND opp has no
+        # visible contain throughput to drain anomalies.
+        return (opp_site["breach"] + haz_sum >= 10) and contain_skill <= 1
+
+    def _total_suppress_capacity(self, state: GameState, player_id: str) -> int:
+        """Sum suppress skill across active personnel + facility/mandate bonus + hand."""
+        total = self._active_bonus(state, player_id, "suppress")
+        for sid in list(state.scp_personnel.get(player_id, [])):
+            obj = state.objects.get(sid)
+            if obj and obj.state.scp_status == "active" and obj.card_def:
+                total += int(getattr(obj.card_def, "scp_skills", {}).get("suppress", 0) or 0)
+        hand_zone = state.zones.get(f"hand_{player_id}")
+        if hand_zone:
+            for hid in list(hand_zone.objects):
+                obj = state.objects.get(hid)
+                if obj and obj.card_def:
+                    total += int(getattr(obj.card_def, "scp_skills", {}).get("suppress", 0) or 0)
+        return total
+
+    def _has_audit_cards(self, state: GameState, player_id: str) -> bool:
+        """True when player has any Audit/Raid/Bureaucracy procedures in hand/battlefield."""
+        keys = ("audit", "leak", "witness", "raid")
+        audit_subs = {"Audit", "Raid", "Bureaucracy", "GOI"}
+        for zone_name in (f"hand_{player_id}", "battlefield"):
+            zone = state.zones.get(zone_name)
+            if not zone:
+                continue
+            for oid in list(zone.objects):
+                obj = state.objects.get(oid)
+                if not obj or (zone_name == "battlefield" and obj.controller != player_id):
+                    continue
+                if audit_subs & set(obj.characteristics.subtypes or set()):
+                    return True
+                text = (obj.card_def.text or "").lower() if obj.card_def else ""
+                if any(k in text for k in keys):
+                    return True
+        return False
+
+    def _alt_win_feasible(self, state: GameState, player_id: str) -> bool | None:
+        """None if no alt-win mandate. Otherwise True/False per deck engine survey."""
+        kind = self._own_alt_win_kind(state, player_id)
+        if kind is None:
+            return None
+        if kind == "redaction":
+            return True  # archive+memory-hole bridge is broadly available
+        if kind == "thaumiel":
+            return self._visible_contain_capacity(state, player_id) >= 2
+        if kind == "veil_lockdown":
+            return self._total_suppress_capacity(state, player_id) >= 2
+        if kind in {"public_panic", "ethics_audit"}:
+            return self._has_audit_cards(state, player_id)
+        return None
+
     async def take_turn(self, player_id: str, state: GameState, game) -> list:
         events = []
         if not game:
             return events
 
-        # Open one dossier per turn. Fast-track only when the Site is calm.
-        hand = list(state.zones.get(f"hand_{player_id}", []).objects if state.zones.get(f"hand_{player_id}") else [])
         site = scp.site(state, player_id)
         active_anomalies = [
             state.objects[aid]
@@ -135,7 +372,91 @@ class SCPAIAdapter:
             for sid in state.scp_personnel.get(player_id, [])
             if sid in state.objects and state.objects[sid].state.scp_status == "active"
         )
-        if hand:
+
+        # Opponent alt-win tracking (defensive signal — encoded from ultra-loop iter 1).
+        opponent_id = next((pid for pid in state.players if pid != player_id), None)
+        disrupt_redaction = False
+        opp_breach_overflow = False
+        if opponent_id is not None:
+            opp_kind, opp_gap = self._opp_alt_win_proximity(state, player_id, opponent_id)
+            opp_site = scp.site(state, opponent_id)
+            if (
+                opp_kind == "redaction"
+                and opp_site.get("archives", 0) >= 2
+                and opp_site.get("secrecy", 0) >= 9
+            ):
+                disrupt_redaction = True
+            # Iter 2: opponent breach-overflow imminent — run out the clock instead
+            # of racing alt-win. Encoded from Pilot A's T13-14 winning observation.
+            if (
+                self._opp_breach_overflow_imminent(state, opponent_id)
+                and site.get("breach", 0) <= 4
+                and site.get("secrecy", 0) >= 6
+            ):
+                opp_breach_overflow = True
+
+        # Iter 2: pivot-from-contain-plan — thaumiel alt-win is unreachable without
+        # contain-skill draws. Iter 3: generalized via _alt_win_feasible so the
+        # same pivot applies to veil_lockdown (no suppress) and public_panic (no
+        # audit cards). After T4, if the alt-win engine is absent, race archives.
+        own_alt_win = self._own_alt_win_kind(state, player_id)
+        alt_win_feasible = self._alt_win_feasible(state, player_id)
+        pivot_from_contain_plan = (
+            own_alt_win == "thaumiel"
+            and state.turn_number >= 4
+            and self._visible_contain_capacity(state, player_id) <= 1
+        )
+        pivot_alt_win = (
+            alt_win_feasible is False
+            and state.turn_number >= 4
+        )
+        # Iter 3: veil_lockdown SEAL-then-REVEAL line. When opening anomalies and
+        # total suppress capacity is short of what's needed to clear hazard, prefer
+        # to seal them face-down (no breach tick) and reveal later once Janitor +
+        # Field Agent are both active. Pilot B's winning T4/T8 line.
+        veil_suppress_capacity = (
+            self._total_suppress_capacity(state, player_id)
+            if own_alt_win == "veil_lockdown" else 0
+        )
+
+        # Iter 2: proactively resolve any pending incidents — strict upside (engine
+        # resolve_incident has no resource cost; always +1 briefing, sometimes
+        # +secrecy / -breach). Pilot A flagged this as a hidden tempo gem.
+        for incident_index in self._cheap_incident_resolves(state, player_id):
+            ok, _msg, ri_events = scp.resolve_incident(game, player_id, index=0)
+            if ok:
+                events.extend(ri_events)
+            else:
+                break
+        site = scp.site(state, player_id)
+
+        # Memory-hole as a secrecy bridge: own redaction alt-win + surplus archives
+        # + near-cap secrecy → trade 1 archive for 1 secrecy on a pending dossier.
+        if (
+            own_alt_win == "redaction"
+            and site.get("archives", 0) >= 4
+            and 10 <= site.get("secrecy", 0) <= 11
+        ):
+            for pending_id in self._pending_dossier_ids(state, player_id):
+                ok, _msg, mh_events = scp.memory_hole(game, player_id, pending_id, source=pending_id)
+                if ok:
+                    events.extend(mh_events)
+                    site = scp.site(state, player_id)
+                    break
+
+        # Multi-dossier opens per turn — encoded from ultra-loop iter 1:
+        # heuristic opened 1/turn; LLM pilots open 4-6 on T1.
+        # Iter 2: when opp breach-overflow is imminent, cap opens to 1 (low-action,
+        # run-out-the-clock turn — don't fast-track, don't draw extra hazard).
+        MAX_OPENS_PER_TURN = 1 if opp_breach_overflow else 6
+        opens_this_turn = 0
+        while opens_this_turn < MAX_OPENS_PER_TURN:
+            hand_zone = state.zones.get(f"hand_{player_id}")
+            hand = list(hand_zone.objects) if hand_zone else []
+            if not hand:
+                break
+            site = scp.site(state, player_id)
+
             def score(card_id: str) -> tuple[int, int, str]:
                 obj = state.objects[card_id]
                 types = obj.characteristics.types
@@ -165,13 +486,30 @@ class SCPAIAdapter:
                 elif CardType.SCP_FACILITY in types:
                     rank = 2
                 elif CardType.SCP_PROCEDURE in types and archive_scorer and site["breach"] <= 3:
-                    rank = 1 if self.pilot == "archivist" else 2
+                    # Iter 2: when pivoting off contain plan, prio archive scorers.
+                    if pivot_from_contain_plan:
+                        rank = 0
+                    else:
+                        rank = 1 if self.pilot == "archivist" else 2
                 elif CardType.SCP_PROCEDURE in types and ({"GOI", "Audit"} & subtypes or blackfile) and site["breach"] <= 3:
                     rank = 1 if self.pilot in {"disruption", "masquerade", "blackfile"} else 2
+                elif CardType.SCP_PROCEDURE in types and (
+                    {"Audit", "Raid", "Bureaucracy"} & subtypes
+                ) and own_alt_win in {"public_panic", "ethics_audit"} and not pivot_alt_win:
+                    # Iter 3: when running a panic/audit alt-win and engine is
+                    # feasible, audit-style procedures are the primary clock.
+                    rank = 0
                 elif CardType.SCP_ANOMALY in types:
-                    if self.pilot == "thaumiel" and len(active_anomalies) < 2 and active_staff_count >= 1:
+                    # Iter 2/3: pivot — when alt-win engine is absent, deprioritize.
+                    if pivot_from_contain_plan or (pivot_alt_win and own_alt_win in {"thaumiel", "veil_lockdown"}):
+                        rank = 5
+                    elif self.pilot == "thaumiel" and len(active_anomalies) < 2 and active_staff_count >= 1:
                         rank = 1
                     elif self.pilot == "quarantine" and len(active_anomalies) < 2:
+                        rank = 1
+                    elif own_alt_win == "veil_lockdown" and len(active_anomalies) < 2:
+                        # Iter 3: veil_lockdown wants anomalies on field — they
+                        # are the archive engine. Open even without research staff.
                         rank = 1
                     else:
                         rank = 1 if not active_anomalies and active_staff_count >= self._anomaly_staff_threshold else 3
@@ -182,10 +520,84 @@ class SCPAIAdapter:
             chosen_id = sorted(hand, key=score)[0]
             chosen = state.objects[chosen_id]
             red_tape = int(getattr(chosen.card_def, "scp_red_tape", 0) or 0)
-            fast = site["secrecy"] >= 8 and red_tape <= 1
-            ok, _message, action_events = scp.open_dossier(game, player_id, chosen_id, fast_track=fast)
+            # Iter 2: seal-as-memory-hole-fodder. When own alt-win is redaction
+            # and archives ≥ 3 (already at threshold), seal anomalies face-down
+            # — never paperwork-ticks, never breach-hits, can be memory-holed for
+            # the +1 secrecy bridge later. Pilot A T11 line.
+            is_anomaly = CardType.SCP_ANOMALY in chosen.characteristics.types
+            anomaly_hazard = scp.effective_hazard_for_ai(chosen) if is_anomaly else 0
+            seal_for_fodder = (
+                is_anomaly
+                and own_alt_win == "redaction"
+                and site.get("archives", 0) >= 3
+            )
+            # Iter 3: veil_lockdown SEAL line. If suppress capacity is short of the
+            # anomaly's hazard, seal face-down (no breach tick). Reveal-and-suppress
+            # is handled after the open-loop once capacity is sufficient.
+            seal_for_suppress = (
+                is_anomaly
+                and own_alt_win == "veil_lockdown"
+                and veil_suppress_capacity < max(1, anomaly_hazard)
+            )
+            # Tape-0 cards always open free; tape-1+ only when secrecy buffer holds
+            # (or when racing a redaction opp who'd punish slow-rolling).
+            # When opp is about to overflow, never fast-track — preserve secrecy.
+            if opens_this_turn >= 1:
+                if red_tape == 0:
+                    fast = False
+                elif opp_breach_overflow:
+                    break
+                elif red_tape == 1 and site["secrecy"] - 1 >= 4:
+                    fast = True
+                elif disrupt_redaction and red_tape <= 2 and site["secrecy"] - red_tape >= 4:
+                    fast = True
+                else:
+                    break
+            else:
+                fast = (not opp_breach_overflow) and site["secrecy"] >= 8 and red_tape <= 1
+                if disrupt_redaction and not opp_breach_overflow and red_tape <= 2 and site["secrecy"] - red_tape >= 4:
+                    fast = True
+            if seal_for_fodder or seal_for_suppress:
+                ok, _message, action_events = scp.open_dossier(
+                    game, player_id, chosen_id, fast_track=False, sealed=True
+                )
+            else:
+                ok, _message, action_events = scp.open_dossier(
+                    game, player_id, chosen_id, fast_track=fast
+                )
             if ok:
                 events.extend(action_events)
+                opens_this_turn += 1
+                # refresh derived state for the next iteration
+                active_anomalies = [
+                    state.objects[aid]
+                    for aid in state.scp_anomalies.get(player_id, [])
+                    if aid in state.objects and state.objects[aid].state.scp_status == "active"
+                ]
+                active_staff_count = sum(
+                    1
+                    for sid in state.scp_personnel.get(player_id, [])
+                    if sid in state.objects and state.objects[sid].state.scp_status == "active"
+                )
+            else:
+                break
+
+        # Iter 3: veil_lockdown REVEAL-when-ready. After the open-loop, reveal a
+        # sealed anomaly whose max(haz, cont) ≤ current suppress capacity so the
+        # assignment block below can suppress-to-contain this same turn.
+        if own_alt_win == "veil_lockdown":
+            cur_suppress = self._total_suppress_capacity(state, player_id)
+            for obj in list(state.objects.values()):
+                if not (obj.controller == player_id and obj.zone == ZoneType.BATTLEFIELD
+                        and obj.state.scp_status == "sealed"
+                        and CardType.SCP_ANOMALY in obj.characteristics.types):
+                    continue
+                tgt = max(scp.effective_hazard_for_ai(obj), scp.effective_containment_for_ai(obj))
+                if cur_suppress >= tgt:
+                    ok, _msg, rv_events = scp.reveal_dossier(game, player_id, obj.id)
+                    if ok:
+                        events.extend(rv_events)
+                        break
 
         active = [
             state.objects[aid]

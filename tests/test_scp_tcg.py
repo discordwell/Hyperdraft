@@ -759,6 +759,39 @@ def test_memory_hole_rejects_unopened_cards():
     assert card.zone == ZoneType.HAND
 
 
+def test_memory_hole_triggers_redaction_alt_win():
+    game, p1, p2 = _setup()
+
+    # Active redaction mandate (3 archives + 12 secrecy alt-win).
+    mandate = _hand_card(game, p1, "There Is No Antimemetics Division")
+    scp.site(game.state, p1.id)["clearance"] = 3
+    assert scp.open_dossier(game, p1.id, mandate.id, fast_track=True)[0]
+
+    # Pending dossier that can be memory-holed.
+    dossier = _hand_card(game, p1, "Paperclip Colony")
+    assert scp.open_dossier(game, p1.id, dossier.id, fast_track=True)[0]
+    dossier.state.scp_status = "pending"
+
+    # One memory_hole will take us from (4, 11) to (3, 12) -> redaction win.
+    scp.site(game.state, p1.id)["archives"] = 4
+    scp.site(game.state, p1.id)["secrecy"] = 11
+    assert not p2.has_lost
+
+    ok, message, events = scp.memory_hole(game, p1.id, dossier.id)
+
+    assert ok, message
+    assert scp.site(game.state, p1.id)["archives"] == 3
+    assert scp.site(game.state, p1.id)["secrecy"] == 12
+    assert p2.has_lost
+    assert game.is_game_over()
+    assert any(
+        event.type == EventType.PLAYER_LOSES
+        and event.payload.get("reason") == "total_redaction"
+        and event.payload.get("winner") == p1.id
+        for event in events
+    )
+
+
 def test_assignment_slots_limit_actions_until_reset():
     game, p1, _p2 = _setup()
     anomaly1 = _hand_card(game, p1, "Moth in the Camera")

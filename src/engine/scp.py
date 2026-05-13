@@ -790,6 +790,7 @@ def memory_hole(game, player_id: str, object_id: str, *, source: Optional[str] =
         controller=player_id,
     ))
     events.extend(_move(game, obj, ZoneType.EXILE, source=source))
+    events.extend(check_scp_victory(game, source=source))
     return True, "Memory-holed", events
 
 
