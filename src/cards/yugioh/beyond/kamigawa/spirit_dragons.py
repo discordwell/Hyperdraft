@@ -925,7 +925,15 @@ SOULSHIFT_BRAND = make_ygo_spell(
 
 def _petals_of_insight_resolve(event, state):
     """Normal: look at the top 3 cards of your Deck; add 1 'Spirit' among them to
-    your hand, send the rest to GY."""
+    your hand, send the rest to GY.
+
+    Phase 4: after revealing the top 3, controller picks WHICH Spirit (if any
+    are present) to add to hand. The rest are milled. Humans get a
+    PendingChoice over the revealed Spirits; AI heuristic preserves the
+    "first Spirit in look order" behavior.
+    """
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
     controller = event.payload.get('player')
     if not controller:
         return []
@@ -934,36 +942,97 @@ def _petals_of_insight_resolve(event, state):
     gy = state.zones.get(f"graveyard_{controller}")
     if not library or not hand or not gy:
         return []
-    look = []
+
+    # Empty short-circuit: no cards to reveal.
+    if not library.objects:
+        return []
+
+    look: list[str] = []
     for _ in range(min(3, len(library.objects))):
         look.append(library.objects.pop(0))
     if not look:
         return []
-    chosen = None
+
+    spirit_options: list[dict] = []
     for cid in look:
         cobj = state.objects.get(cid)
         if cobj and _is_spirit(cobj):
-            chosen = cid
-            break
-    events: list[Event] = []
-    if chosen is not None:
-        hand.objects.append(chosen)
-        cobj = state.objects.get(chosen)
-        if cobj:
-            cobj.zone = ZoneType.HAND
-            events.append(Event(type=EventType.YGO_DRAW,
-                                payload={'player': controller, 'card_id': chosen,
-                                         'card_name': cobj.name, 'source': 'petals'}))
-    for cid in look:
-        if cid == chosen:
-            continue
-        gy.objects.append(cid)
-        cobj = state.objects.get(cid)
-        if cobj:
-            cobj.zone = ZoneType.GRAVEYARD
-        events.append(Event(type=EventType.YGO_SEND_TO_GY,
-                            payload={'card_id': cid, 'reason': 'petals_mill'}))
-    return events
+            cdef = cobj.card_def
+            atk = getattr(cdef, 'atk', None) if cdef else None
+            df = getattr(cdef, 'def_', None) if cdef and hasattr(cdef, 'def_') else None
+            if atk is not None and df is not None:
+                desc = f"Monster · {atk}/{df}"
+            else:
+                desc = "Spirit"
+            spirit_options.append({"id": cid, "label": cobj.name, "description": desc})
+
+    # If no Spirit was revealed: mill everything, no choice needed.
+    if not spirit_options:
+        events: list[Event] = []
+        for cid in look:
+            gy.objects.append(cid)
+            cobj = state.objects.get(cid)
+            if cobj:
+                cobj.zone = ZoneType.GRAVEYARD
+            events.append(Event(type=EventType.YGO_SEND_TO_GY,
+                                payload={'card_id': cid, 'reason': 'petals_mill'}))
+        return events
+
+    source_id = event.payload.get('card_id') or ''
+    # Heuristic: first Spirit in look order (old behavior).
+    top_id = spirit_options[0]["id"]
+
+    def _resolve_handler(choice, selected, st):
+        picked: list[str] = []
+        for entry in selected or []:
+            if isinstance(entry, dict):
+                eid = entry.get("id")
+                if eid is not None:
+                    picked.append(eid)
+            else:
+                picked.append(entry)
+        chosen = picked[0] if picked else top_id
+        # Defensive: chosen must be a Spirit among `look`.
+        spirit_ids = {opt["id"] for opt in spirit_options}
+        if chosen not in spirit_ids:
+            chosen = top_id
+
+        hd = st.zones.get(f"hand_{controller}")
+        graveyard = st.zones.get(f"graveyard_{controller}")
+        if hd is None or graveyard is None:
+            return []
+        out: list[Event] = []
+        if chosen is not None:
+            hd.objects.append(chosen)
+            cobj = st.objects.get(chosen)
+            if cobj is not None:
+                cobj.zone = ZoneType.HAND
+                out.append(Event(type=EventType.YGO_DRAW,
+                                 payload={'player': controller, 'card_id': chosen,
+                                          'card_name': cobj.name, 'source': 'petals'}))
+        for cid in look:
+            if cid == chosen:
+                continue
+            graveyard.objects.append(cid)
+            cobj = st.objects.get(cid)
+            if cobj is not None:
+                cobj.zone = ZoneType.GRAVEYARD
+            out.append(Event(type=EventType.YGO_SEND_TO_GY,
+                             payload={'card_id': cid, 'reason': 'petals_mill'}))
+        return out
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt="Choose 1 Spirit to add to your hand; the rest are milled.",
+        options=spirit_options,
+        source_id=source_id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[top_id],
+    )
 
 
 PETALS_OF_INSIGHT = make_ygo_spell(

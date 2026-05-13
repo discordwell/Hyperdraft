@@ -725,7 +725,15 @@ PATH_OF_SHADOWS = make_ygo_spell(
 
 
 def _reality_stutter_resolve(event, state):
-    """Normal: opponent shuffles 2 cards from their hand into Deck."""
+    """Normal: opponent shuffles 2 cards from their hand into Deck.
+
+    Phase 4: the choice of which 2 hand cards to shuffle belongs to the
+    *opponent* (they pay the cost). For humans, emit a PendingChoice over
+    their hand. For AI, ``heuristic_pick`` preserves the prior "first 2 in
+    hand order" behavior so existing AI play doesn't shift.
+    """
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
     controller = event.payload.get('player')
     if not controller:
         return []
@@ -736,24 +744,87 @@ def _reality_stutter_resolve(event, state):
     lib = state.zones.get(f"library_{opp}")
     if not opp_hand or not lib:
         return []
-    events = []
-    for _ in range(min(2, len(opp_hand.objects))):
-        cid = opp_hand.objects.pop(0)
-        lib.objects.append(cid)
+
+    # Empty short-circuit: opponent has nothing to shuffle.
+    if not opp_hand.objects:
+        return []
+
+    source_id = event.payload.get('card_id') or ''
+    want = min(2, len(opp_hand.objects))
+
+    options = []
+    for cid in opp_hand.objects:
         cobj = state.objects.get(cid)
-        if cobj:
-            cobj.zone = ZoneType.LIBRARY
-        events.append(Event(type=EventType.YGO_CHAIN_LINK,
-                            payload={'effect': 'shuffle_into_deck',
-                                     'card_id': cid, 'controller': opp}))
-    return events
+        if cobj is None or cobj.card_def is None:
+            continue
+        cdef = cobj.card_def
+        atk = getattr(cdef, 'atk', None)
+        df = getattr(cdef, 'def_', None) if hasattr(cdef, 'def_') else getattr(cdef, 'defense', None)
+        spell_type = getattr(cdef, 'ygo_spell_type', None)
+        trap_type = getattr(cdef, 'ygo_trap_type', None)
+        if atk is not None and df is not None:
+            desc = f"Monster · {atk}/{df}"
+        elif spell_type:
+            desc = f"Spell · {spell_type}"
+        elif trap_type:
+            desc = f"Trap · {trap_type}"
+        else:
+            desc = ""
+        options.append({"id": cid, "label": cobj.name, "description": desc})
+
+    if not options:
+        return []
+
+    # Preserve old "first 2 in hand order" pick.
+    top_ids = list(opp_hand.objects[:want])
+
+    def _resolve_handler(choice, selected, st):
+        picked: list[str] = []
+        for entry in selected or []:
+            if isinstance(entry, dict):
+                eid = entry.get("id")
+                if eid is not None:
+                    picked.append(eid)
+            else:
+                picked.append(entry)
+        picked = picked[:want]
+
+        hd = st.zones.get(f"hand_{opp}")
+        lb = st.zones.get(f"library_{opp}")
+        if hd is None or lb is None:
+            return []
+        out: list[Event] = []
+        for cid in picked:
+            if cid not in hd.objects:
+                continue
+            hd.objects.remove(cid)
+            lb.objects.append(cid)
+            cobj = st.objects.get(cid)
+            if cobj is not None:
+                cobj.zone = ZoneType.LIBRARY
+            out.append(Event(type=EventType.YGO_CHAIN_LINK,
+                             payload={'effect': 'shuffle_into_deck',
+                                      'card_id': cid, 'controller': opp}))
+        return out
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=opp,  # The OPPONENT picks which cards to shuffle.
+        prompt=f"Shuffle {want} card(s) from your hand into your Deck.",
+        options=options,
+        source_id=source_id,
+        min_choices=want,
+        max_choices=want,
+        handler=_resolve_handler,
+        heuristic_pick=top_ids,
+    )
 
 
 REALITY_STUTTER = make_ygo_spell(
     "Reality Stutter", ygo_spell_type="Normal",
     text="When activated: opponent shuffles 2 cards from their hand into "
-         "their Deck. Hand choice simplification: pick the first cards in hand "
-         "order.",
+         "their Deck. The opponent chooses which cards to shuffle.",
     resolve=_reality_stutter_resolve,
 )
 
@@ -808,9 +879,12 @@ MIRROR_REALM = make_ygo_spell(
 def _brainstorm_resolve(event, state):
     """Normal: draw 3, then put 2 cards from your hand on top of your Deck.
 
-    Simplification: draw 3, then send the last two cards in hand back to the
-    top of the Deck. Order is preserved (last drawn ends up on top).
+    Phase 4: after the draw 3, controller picks WHICH 2 cards to put back on
+    top of the deck. Humans get a PendingChoice; AI heuristic_pick preserves
+    the old "last 2 cards in hand" behavior (i.e. the 2 last drawn).
     """
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
     controller = event.payload.get('player')
     if not controller:
         return []
@@ -819,13 +893,78 @@ def _brainstorm_resolve(event, state):
     lib = state.zones.get(f"library_{controller}")
     if not hand or not lib:
         return events
-    # Push two cards back. Skip if the hand is now too small.
-    for _ in range(min(2, len(hand.objects))):
-        cid = hand.objects.pop()
-        lib.objects.insert(0, cid)
+
+    # Empty short-circuit: hand has nothing to push back.
+    if not hand.objects:
+        return events
+
+    source_id = event.payload.get('card_id') or ''
+    want = min(2, len(hand.objects))
+
+    options = []
+    for cid in hand.objects:
         cobj = state.objects.get(cid)
-        if cobj:
-            cobj.zone = ZoneType.LIBRARY
+        if cobj is None or cobj.card_def is None:
+            continue
+        cdef = cobj.card_def
+        atk = getattr(cdef, 'atk', None)
+        df = getattr(cdef, 'def_', None) if hasattr(cdef, 'def_') else getattr(cdef, 'defense', None)
+        spell_type = getattr(cdef, 'ygo_spell_type', None)
+        trap_type = getattr(cdef, 'ygo_trap_type', None)
+        if atk is not None and df is not None:
+            desc = f"Monster · {atk}/{df}"
+        elif spell_type:
+            desc = f"Spell · {spell_type}"
+        elif trap_type:
+            desc = f"Trap · {trap_type}"
+        else:
+            desc = ""
+        options.append({"id": cid, "label": cobj.name, "description": desc})
+
+    if not options:
+        return events
+
+    # Old behavior: pop the last `want` cards (i.e. the 2 last drawn). These
+    # are the tail of hand.objects post-draw, so the heuristic is the LAST N.
+    top_ids = list(hand.objects[-want:])
+
+    def _resolve_handler(choice, selected, st):
+        picked: list[str] = []
+        for entry in selected or []:
+            if isinstance(entry, dict):
+                eid = entry.get("id")
+                if eid is not None:
+                    picked.append(eid)
+            else:
+                picked.append(entry)
+        picked = picked[:want]
+
+        hd = st.zones.get(f"hand_{controller}")
+        lb = st.zones.get(f"library_{controller}")
+        if hd is None or lb is None:
+            return []
+        for cid in picked:
+            if cid not in hd.objects:
+                continue
+            hd.objects.remove(cid)
+            lb.objects.insert(0, cid)
+            cobj = st.objects.get(cid)
+            if cobj is not None:
+                cobj.zone = ZoneType.LIBRARY
+        return []  # Top-of-deck moves are silent (no DRAW event).
+
+    events.extend(create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt=f"Put {want} card(s) from your hand on top of your Deck.",
+        options=options,
+        source_id=source_id,
+        min_choices=want,
+        max_choices=want,
+        handler=_resolve_handler,
+        heuristic_pick=top_ids,
+    ))
     return events
 
 
@@ -966,20 +1105,87 @@ CANCEL = make_ygo_trap(
 
 
 def _tide_of_knowledge_resolve(event, state):
-    """Normal Trap: bounce 2 face-up monsters opponent controls; opponent draws 1."""
+    """Normal Trap: bounce 2 face-up monsters opponent controls; opponent draws 1.
+
+    Phase 4: the controller (trap activator) picks WHICH 2 monsters to bounce
+    from the opponent's board. Humans get a PendingChoice; AI heuristic
+    preserves the old "first 2 face-up in zone order" behavior.
+
+    Opponent's draw still fires unconditionally so the trap stays a net
+    +1 information-trade.
+    """
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
     controller = event.payload.get('player')
     if not controller:
         return []
-    events = []
-    for _ in range(2):
-        target = _first_opp_face_up_monster(state, controller)
-        if not target:
-            break
-        events.extend(_bounce_monster_to_hand(state, target))
     opp = _opp_id(state, controller)
-    if opp:
-        events.extend(_draw(state, opp, 1))
-    return events
+    if not opp:
+        return []
+
+    # Collect all face-up opponent monsters as targetable options.
+    targets: list[str] = _all_opp_face_up_monsters(state, controller)
+
+    # Empty short-circuit: nothing to bounce. Opponent still draws 1.
+    if not targets:
+        if opp:
+            return _draw(state, opp, 1)
+        return []
+
+    source_id = event.payload.get('card_id') or ''
+    want = min(2, len(targets))
+
+    options = []
+    for tid in targets:
+        cobj = state.objects.get(tid)
+        if cobj is None or cobj.card_def is None:
+            continue
+        cdef = cobj.card_def
+        atk = getattr(cdef, 'atk', None) or 0
+        df = getattr(cdef, 'def_', None) if hasattr(cdef, 'def_') else getattr(cdef, 'defense', None)
+        if df is None:
+            df = 0
+        options.append({"id": tid, "label": cobj.name,
+                        "description": f"Monster · ATK/DEF {atk}/{df}"})
+
+    if not options:
+        if opp:
+            return _draw(state, opp, 1)
+        return []
+
+    # Heuristic_pick: first N face-up opp monsters in zone order (old behavior).
+    top_ids = [t for t in targets[:want]]
+
+    def _resolve_handler(choice, selected, st):
+        picked: list[str] = []
+        for entry in selected or []:
+            if isinstance(entry, dict):
+                eid = entry.get("id")
+                if eid is not None:
+                    picked.append(eid)
+            else:
+                picked.append(entry)
+        picked = picked[:want]
+
+        out: list[Event] = []
+        for tid in picked:
+            out.extend(_bounce_monster_to_hand(st, tid))
+        # Opponent draws 1 after the bounce.
+        out.extend(_draw(st, opp, 1))
+        return out
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt=f"Return {want} face-up monster(s) opponent controls to their hand.",
+        options=options,
+        source_id=source_id,
+        min_choices=want,
+        max_choices=want,
+        handler=_resolve_handler,
+        heuristic_pick=top_ids,
+    )
 
 
 TIDE_OF_KNOWLEDGE = make_ygo_trap(

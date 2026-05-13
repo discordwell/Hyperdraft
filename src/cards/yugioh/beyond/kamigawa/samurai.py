@@ -1272,21 +1272,94 @@ GLISTENING_KATANA = make_ygo_spell(
 
 
 def _imperial_mobilization_resolve(event, state):
-    """SS up to 2 Lv 3 or lower Samurai from your GY in face-up DEF."""
+    """SS up to 2 Lv 3 or lower Samurai from your GY in face-up DEF.
+
+    Phase 4: controller picks WHICH Lv-3-or-lower Samurai (up to 2) to revive
+    from the graveyard. Humans get a PendingChoice over all eligible
+    candidates; AI heuristic preserves the prior "first 2 found in GY order"
+    behavior. "Up to 2" → ``min_choices=0, max_choices=min(2, eligible)``.
+    """
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
     controller = event.payload.get('player')
     if not controller:
         return []
-    events = []
-    for _ in range(2):
-        target = find_in_graveyard(state, controller, "Samurai", max_level=3)
-        if not target:
-            break
-        ev = revive_from_graveyard(state, controller, target)
-        tobj = state.objects.get(target)
-        if tobj:
-            tobj.state.ygo_position = 'face_up_def'
-        events.extend(ev)
-    return events
+    gy = state.zones.get(f"graveyard_{controller}")
+    if not gy:
+        return []
+
+    # Collect all eligible candidates from the GY (in GY order, so the
+    # heuristic_pick uses the same order as the old loop).
+    candidates: list[str] = []
+    for cid in gy.objects:
+        cobj = state.objects.get(cid)
+        if not cobj or not cobj.card_def:
+            continue
+        if "Samurai" not in (cobj.card_def.characteristics.subtypes or set()):
+            continue
+        lvl = getattr(cobj.card_def, 'level', None) or 0
+        if lvl > 3:
+            continue
+        candidates.append(cid)
+
+    if not candidates:
+        return []
+
+    source_id = event.payload.get('card_id') or ''
+    max_n = min(2, len(candidates))
+
+    options = []
+    for cid in candidates:
+        cobj = state.objects.get(cid)
+        if cobj is None or cobj.card_def is None:
+            continue
+        cdef = cobj.card_def
+        atk = getattr(cdef, 'atk', None) or 0
+        df = getattr(cdef, 'def_', None) if hasattr(cdef, 'def_') else getattr(cdef, 'defense', None)
+        if df is None:
+            df = 0
+        lvl = getattr(cdef, 'level', None) or 0
+        options.append({"id": cid, "label": cobj.name,
+                        "description": f"Lv{lvl} Samurai · ATK/DEF {atk}/{df}"})
+
+    if not options:
+        return []
+
+    # Heuristic: first ``max_n`` eligibles in GY order (preserves old behavior).
+    top_ids = candidates[:max_n]
+
+    def _resolve_handler(choice, selected, st):
+        picked: list[str] = []
+        for entry in selected or []:
+            if isinstance(entry, dict):
+                eid = entry.get("id")
+                if eid is not None:
+                    picked.append(eid)
+            else:
+                picked.append(entry)
+        picked = picked[:max_n]
+
+        out: list[Event] = []
+        for tid in picked:
+            ev = revive_from_graveyard(st, controller, tid)
+            tobj = st.objects.get(tid)
+            if tobj is not None:
+                tobj.state.ygo_position = 'face_up_def'
+            out.extend(ev)
+        return out
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt=f"Special Summon up to {max_n} Lv 3 or lower 'Samurai' from your GY.",
+        options=options,
+        source_id=source_id,
+        min_choices=0,  # "Up to" — controller may revive 0, 1, or 2.
+        max_choices=max_n,
+        handler=_resolve_handler,
+        heuristic_pick=top_ids,
+    )
 
 
 IMPERIAL_MOBILIZATION = make_ygo_spell(
@@ -1349,26 +1422,118 @@ BUSHIDO_DRILL = make_ygo_spell(
 
 
 def _wandering_decree_resolve(event, state):
-    """Send 1 Samurai from field to GY; SS 1 Lv 5+ 'Samurai' from your hand or GY."""
+    """Send 1 Samurai from field to GY; SS 1 Lv 5+ 'Samurai' from your hand or GY.
+
+    Phase 4: controller picks WHICH Samurai on the field to send to the GY as
+    the cost. After the tribute resolves, the revive target is auto-picked
+    (first Lv 5+ Samurai in GY order) since the revival is search-driven.
+    Humans get a PendingChoice over their Samurai on the field; AI heuristic
+    preserves the old "first Samurai in zone order" behavior.
+    """
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
     controller = event.payload.get('player')
     if not controller:
         return []
-    # Sacrifice a Samurai
-    sacrificed = _tribute_one(state, controller, _is_samurai)
-    if not sacrificed:
+
+    zone = state.zones.get(f"monster_zone_{controller}")
+    if not zone:
         return []
-    # SS Lv 5+ Samurai from GY
-    gy = state.zones.get(f"graveyard_{controller}")
-    if gy:
-        for cid in list(gy.objects):
-            if cid == sacrificed:
-                continue
-            cobj = state.objects.get(cid)
-            if cobj and _is_samurai(cobj):
-                lvl = getattr(cobj.card_def, 'level', 0) or 0
-                if lvl >= 5:
-                    return revive_from_graveyard(state, controller, cid)
-    return []
+
+    # Collect all Samurai you control as tribute candidates.
+    candidates: list[str] = []
+    for oid in zone.objects:
+        if not oid:
+            continue
+        cobj = state.objects.get(oid)
+        if cobj and _is_samurai(cobj):
+            candidates.append(oid)
+
+    if not candidates:
+        return []
+
+    source_id = event.payload.get('card_id') or ''
+
+    options = []
+    for cid in candidates:
+        cobj = state.objects.get(cid)
+        if cobj is None or cobj.card_def is None:
+            continue
+        cdef = cobj.card_def
+        atk = getattr(cdef, 'atk', None) or 0
+        df = getattr(cdef, 'def_', None) if hasattr(cdef, 'def_') else getattr(cdef, 'defense', None)
+        if df is None:
+            df = 0
+        lvl = getattr(cdef, 'level', None) or 0
+        options.append({"id": cid, "label": cobj.name,
+                        "description": f"Lv{lvl} Samurai · ATK/DEF {atk}/{df}"})
+
+    if not options:
+        return []
+
+    # Heuristic: first Samurai on the field (preserves old _tribute_one behavior).
+    top_id = candidates[0]
+
+    def _do_tribute_and_revive(tributed_id: str, st) -> list[Event]:
+        """Execute the tribute + revive given the picked tribute target."""
+        # Tribute the picked monster.
+        zone_now = st.zones.get(f"monster_zone_{controller}")
+        if not zone_now:
+            return []
+        tributed = None
+        for i, oid in enumerate(zone_now.objects):
+            if oid == tributed_id:
+                cobj = st.objects.get(oid)
+                if not cobj:
+                    return []
+                zone_now.objects[i] = None
+                graveyard = st.zones.get(f"graveyard_{cobj.owner}")
+                if graveyard is not None:
+                    graveyard.objects.append(oid)
+                cobj.zone = ZoneType.GRAVEYARD
+                cobj.state.face_down = False
+                cobj.state.ygo_position = None
+                tributed = oid
+                break
+        if not tributed:
+            return []
+        # Revive a Lv5+ Samurai from GY (search-pick, first match in GY order).
+        graveyard = st.zones.get(f"graveyard_{controller}")
+        if graveyard:
+            for cid in list(graveyard.objects):
+                if cid == tributed:
+                    continue
+                cobj = st.objects.get(cid)
+                if cobj and _is_samurai(cobj):
+                    lvl = getattr(cobj.card_def, 'level', 0) or 0
+                    if lvl >= 5:
+                        return revive_from_graveyard(st, controller, cid)
+        return []
+
+    def _resolve_handler(choice, selected, st):
+        picked: list[str] = []
+        for entry in selected or []:
+            if isinstance(entry, dict):
+                eid = entry.get("id")
+                if eid is not None:
+                    picked.append(eid)
+            else:
+                picked.append(entry)
+        tribute_id = picked[0] if picked else top_id
+        return _do_tribute_and_revive(tribute_id, st)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt="Tribute 1 'Samurai' you control to revive a Lv 5+ Samurai from your GY.",
+        options=options,
+        source_id=source_id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[top_id],
+    )
 
 
 THE_WANDERING_DECREE = make_ygo_spell(
