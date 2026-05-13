@@ -17,6 +17,7 @@ from src.engine.pokemon_energy import PokemonEnergySystem
 from src.engine.pokemon_combat import PokemonCombatManager
 from src.ai.pokemon.context import TurnContext, EnergyPlan
 from src.ai.pokemon.trainers import TRAINER_SCORERS
+from src.ai.pokemon.attacks import ATTACK_SCORERS, EVOLUTION_SCORERS
 
 if TYPE_CHECKING:
     from src.engine.types import GameObject
@@ -399,6 +400,19 @@ def _score_attack(adapter, attacker: 'GameObject', attack: dict,
         else:
             score -= 3.0  # No benefit if at full HP
 
+    # Card-name-aware bias (set-specific scorers in src/ai/pokemon/attacks.py).
+    # Additive — runs *after* the generic logic so it tunes rather than
+    # replacing. ATTACK_SCORERS key = (card_name, attack_name).
+    if attacker.card_def:
+        card_name = attacker.card_def.name
+        attack_name = attack.get('name', '')
+        scorer = ATTACK_SCORERS.get((card_name, attack_name))
+        if scorer:
+            try:
+                score += scorer(adapter, attacker, attack, state, player_id)
+            except Exception:
+                pass
+
     return score
 
 
@@ -447,6 +461,16 @@ def _score_evolution(adapter, base: 'GameObject', evolution: 'GameObject',
             if opp and opp.card_def and evolution.card_def.pokemon_type:
                 if opp.card_def.weakness_type == evolution.card_def.pokemon_type:
                     score += 15.0  # We hit weakness
+
+    # Card-name-aware evolution bias. Additive — runs after the generic
+    # evolution logic. EVOLUTION_SCORERS key = evolution card name.
+    name = evolution.card_def.name if evolution.card_def else ''
+    scorer = EVOLUTION_SCORERS.get(name)
+    if scorer:
+        try:
+            score += scorer(adapter, base, evolution, state, player_id)
+        except Exception:
+            pass
 
     return score
 

@@ -328,3 +328,11 @@ def _score_artazon(ctx: TurnContext, state: GameState, player_id: str) -> float:
     if ctx.game_phase == 'early':
         score += 10.0
     return score
+
+
+# ══════════════════════════════════════════════════════════════
+#  Side-effect imports — register set-specific scorers
+# ══════════════════════════════════════════════════════════════
+# Importing modules with @trainer_scorer decorators populates
+# TRAINER_SCORERS at module-load time. Add new sets here.
+from src.ai.pokemon import brv_spice_scorers  # noqa: F401, E402
