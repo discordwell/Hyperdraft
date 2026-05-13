@@ -1062,3 +1062,107 @@ def test_mechanics_package_imports_cleanly():
     assert callable(mechanics.apply_all_mechanics)
     # No-op default doesn't error.
     mechanics.apply_all_mechanics({})
+
+
+# ---------------------------------------------------------------------------
+# W2 — Contained-state auras
+# ---------------------------------------------------------------------------
+
+def _open_active(game, player, name):
+    """Open a dossier and bypass any paperwork via fast_track for test setup."""
+    obj = _hand_card(game, player, name)
+    scp.open_dossier(game, player.id, obj.id, fast_track=True)
+    return obj
+
+
+def _contain_anomaly_for_test(game, player, name):
+    """Helper: place an anomaly into the contained zone via a fresh staff body.
+
+    Uses an MTF Doorbreaker so the contain check is reliably big enough; the
+    anomaly's intrinsic containment difficulty may exceed Containment
+    Specialist's contribution, but Doorbreaker + bonuses should clear most
+    CORE anomalies. For anomalies whose containment is too high, we set
+    scp_status directly — these tests are about the bonus, not the check.
+    """
+    anomaly = _hand_card(game, player, name)
+    scp.open_dossier(game, player.id, anomaly.id, fast_track=True)
+    # Move into contained zone directly. This mirrors what the engine does
+    # on a successful contain_anomaly() call but skips the staff check so the
+    # test stays focused on the contained-bonus aura.
+    anomaly.state.scp_status = "contained"
+    if anomaly.id in game.state.scp_anomalies[player.id]:
+        game.state.scp_anomalies[player.id].remove(anomaly.id)
+    if anomaly.id not in game.state.scp_contained[player.id]:
+        game.state.scp_contained[player.id].append(anomaly.id)
+    return anomaly
+
+
+def test_w2_contained_auras_wired_on_assigned_cards():
+    """Every name in CONTAINED_BONUSES exists in SCP_CARDS and has the attr set."""
+    from src.cards.scp.mechanics.contained_auras import CONTAINED_BONUSES
+    for name, expected in CONTAINED_BONUSES.items():
+        assert name in SCP_CARDS, f"Missing card from pool: {name}"
+        card = SCP_CARDS[name]
+        actual = getattr(card, "scp_contained_bonus", None)
+        assert actual == expected, f"{name}: expected {expected}, got {actual}"
+        # Text edit should mention the aura.
+        assert "While contained," in (card.text or ""), (
+            f"{name} text was not updated with contained-state mention: {card.text!r}"
+        )
+
+
+def test_w2_oracle_mold_research_aura_applies_while_contained():
+    """Oracle Mold gives research +1 to the Site's totals while contained."""
+    game, p1, _p2 = _setup()
+    # Baseline: empty site, no bonus.
+    assert scp._active_bonus(game.state, p1.id, "research") == 0
+    _contain_anomaly_for_test(game, p1, "Oracle Mold")
+    # The aura is research +1.
+    assert scp._active_bonus(game.state, p1.id, "research") == 1
+    # Other tasks unaffected.
+    assert scp._active_bonus(game.state, p1.id, "contain") == 0
+    assert scp._active_bonus(game.state, p1.id, "suppress") == 0
+
+
+def test_w2_unlicensed_heaven_multi_task_aura_stacks_across_tasks():
+    """Unlicensed Heaven contributes research +2 AND contain +1 at the same time."""
+    game, p1, _p2 = _setup()
+    _contain_anomaly_for_test(game, p1, "Unlicensed Heaven")
+    assert scp._active_bonus(game.state, p1.id, "research") == 2
+    assert scp._active_bonus(game.state, p1.id, "contain") == 1
+    assert scp._active_bonus(game.state, p1.id, "suppress") == 0
+
+
+def test_w2_contained_aura_only_applies_in_contained_zone():
+    """An Oracle Mold that is merely active (not contained) gives no bonus."""
+    game, p1, _p2 = _setup()
+    # Open Oracle Mold as ACTIVE (default open path), do not contain it.
+    _open_active(game, p1, "Oracle Mold")
+    # Still active, still in the breach pool — contained-bonus must not fire.
+    assert scp._active_bonus(game.state, p1.id, "research") == 0
+
+
+def test_w2_contained_aura_feeds_staff_total_for_research():
+    """The contained aura adds into ``_staff_total``, which is what run_test/contain/suppress consume.
+
+    We assert on ``_staff_total`` directly rather than the full ``run_test``
+    pipeline because the Moth-in-the-Camera and Paperclip-Colony card_defs are
+    mutated by other tests in this file (they patch on_reveal / on_test_fail
+    / contained_bonus on shared card_def instances). The aura calculation
+    itself is what matters here.
+    """
+    game, p1, _p2 = _setup()
+    # Baseline: with only the Junior Researcher on board, research total is 1.
+    junior = _open_active(game, p1, "Junior Researcher")  # research skill 1
+    baseline_total, _ = scp._staff_total(game.state, p1.id, [junior.id], "research")
+    assert baseline_total == 1
+    # Reset Junior's exhaustion so he can stand in for the second computation.
+    junior.state.scp_exhausted = False
+
+    # Now contain Oracle Mold; the +1 research aura should lift the total.
+    _contain_anomaly_for_test(game, p1, "Oracle Mold")
+    boosted_total, _ = scp._staff_total(game.state, p1.id, [junior.id], "research")
+    assert boosted_total == baseline_total + 1, (
+        f"Oracle Mold contained-aura should add +1 to research staff total "
+        f"(baseline {baseline_total}, boosted {boosted_total})."
+    )
