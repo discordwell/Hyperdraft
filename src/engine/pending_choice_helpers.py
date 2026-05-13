@@ -121,6 +121,36 @@ def resolve_pending_choice_inline(state: GameState) -> tuple[list[Event], list]:
         state.pending_choice = None
 
 
+def drain_pending_choices_for_ai(state: GameState, max_iterations: int = 16) -> list[Event]:
+    """Drain any pending AI choices on ``state`` and return aggregated events.
+
+    Safety net for engine AI adapters: call after a sequence of actions to
+    ensure no AI-owned ``PendingChoice`` is left orphaned. A correctly
+    written card uses ``create_choice_and_resolve``, which resolves inline,
+    so this is usually a no-op. It exists for defense-in-depth.
+
+    For human-owned choices, this function is a no-op (the choice stays
+    pending so the session blocks on it).
+
+    ``max_iterations`` guards against pathological loops where a choice's
+    resolver immediately emits another choice. 16 is conservative; raise if
+    a legitimate engine starts chaining choices.
+    """
+    events: list[Event] = []
+    for _ in range(max_iterations):
+        choice = state.pending_choice
+        if choice is None:
+            break
+        game = getattr(state, "_game", None)
+        turn_mgr = getattr(game, "turn_manager", None) if game is not None else None
+        ai_players = getattr(turn_mgr, "ai_players", set()) or set()
+        if choice.player not in ai_players:
+            break
+        more_events, _ = resolve_pending_choice_inline(state)
+        events.extend(more_events)
+    return events
+
+
 def create_choice_and_resolve(
     state: GameState,
     *,
