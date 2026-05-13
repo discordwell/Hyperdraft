@@ -985,7 +985,18 @@ SPLICE_BUSHIDO = make_ygo_spell(
 
 
 def _imperial_edict_resolve(event, state):
-    """Draw 2, then discard 1."""
+    """Phase 4 demo: search your Deck for 2 cards (was blind top-2 grab).
+
+    The Emperor's edict reaches into the deck and pulls 2 named cards — a
+    real search, not a draw. For humans this emits a ``PendingChoice`` over
+    every card in their library; for AI the heuristic_pick preserves the
+    prior "top 2 library cards" behavior so existing AI play doesn't shift.
+
+    After both cards are added to hand, the controller still discards 1
+    (simplified to "last added to hand", matching the old behavior).
+    """
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
     controller = event.payload.get('player')
     if not controller:
         return []
@@ -993,30 +1004,107 @@ def _imperial_edict_resolve(event, state):
     hand = state.zones.get(f"hand_{controller}")
     if not library or not hand:
         return []
-    events = []
-    for _ in range(min(2, len(library.objects))):
-        cid = library.objects.pop(0)
-        hand.objects.append(cid)
+
+    # Empty short-circuit: no library cards → nothing to search, no choice.
+    if not library.objects:
+        return []
+
+    source_id = event.payload.get('card_id') or ''
+
+    # How many to search for: up to 2, but no more than library size.
+    want = min(2, len(library.objects))
+
+    # Build options over the full library visible to the searcher.
+    options = []
+    for cid in library.objects:
         cobj = state.objects.get(cid)
-        if cobj:
-            cobj.zone = ZoneType.HAND
-        events.append(Event(type=EventType.YGO_DRAW,
-                            payload={'player': controller, 'count': 1}))
-    # Auto-discard the worst card from hand (simplified: discard last drawn)
-    if hand.objects:
-        discard_id = hand.objects.pop()
-        gy = state.zones.get(f"graveyard_{controller}")
-        if gy is not None:
-            gy.objects.append(discard_id)
-        dobj = state.objects.get(discard_id)
-        if dobj:
-            dobj.zone = ZoneType.GRAVEYARD
-    return events
+        if cobj is None or cobj.card_def is None:
+            continue
+        cdef = cobj.card_def
+        # Description hints at type/atk/def for monsters, spell/trap for non-monsters.
+        atk = getattr(cdef, 'atk', None)
+        df = getattr(cdef, 'def_', None) if hasattr(cdef, 'def_') else getattr(cdef, 'defense', None)
+        spell_type = getattr(cdef, 'ygo_spell_type', None)
+        trap_type = getattr(cdef, 'ygo_trap_type', None)
+        if atk is not None and df is not None:
+            desc = f"Monster · {atk}/{df}"
+        elif spell_type:
+            desc = f"Spell · {spell_type}"
+        elif trap_type:
+            desc = f"Trap · {trap_type}"
+        else:
+            desc = ""
+        options.append({"id": cid, "label": cobj.name, "description": desc})
+
+    if not options:
+        return []
+
+    # Heuristic_pick = top N library cards (preserves old "blind grab top 2"
+    # behavior for AI). Take from the raw library order.
+    top_ids = [cid for cid in library.objects[:want]]
+
+    def _resolve_handler(choice, selected, st):
+        # Tolerate raw id list or list of {id: ...} dicts.
+        picked: list[str] = []
+        for entry in selected or []:
+            if isinstance(entry, dict):
+                eid = entry.get("id")
+                if eid is not None:
+                    picked.append(eid)
+            else:
+                picked.append(entry)
+        # Cap at the requested count.
+        picked = picked[:want]
+
+        # Pull picked cards from library to hand (preserves the old draw-event
+        # emission so downstream effects that listen for YGO_DRAW still fire).
+        lib = st.zones.get(f"library_{controller}")
+        hd = st.zones.get(f"hand_{controller}")
+        if lib is None or hd is None:
+            return []
+        out: list[Event] = []
+        for cid in picked:
+            if cid not in lib.objects:
+                continue
+            lib.objects.remove(cid)
+            hd.objects.append(cid)
+            cobj = st.objects.get(cid)
+            if cobj is not None:
+                cobj.zone = ZoneType.HAND
+            out.append(Event(type=EventType.YGO_DRAW,
+                             payload={'player': controller, 'count': 1,
+                                      'card_id': cid, 'source': 'imperial_edict'}))
+        # Auto-discard one card (simplified: last added to hand), as before.
+        if hd.objects:
+            discard_id = hd.objects.pop()
+            gy = st.zones.get(f"graveyard_{controller}")
+            if gy is not None:
+                gy.objects.append(discard_id)
+            dobj = st.objects.get(discard_id)
+            if dobj is not None:
+                dobj.zone = ZoneType.GRAVEYARD
+            out.append(Event(type=EventType.YGO_SEND_TO_GY,
+                             payload={'card_id': discard_id,
+                                      'reason': 'imperial_edict_discard'}))
+        return out
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt=f"Search your Deck for {want} card(s) to add to your hand.",
+        options=options,
+        source_id=source_id,
+        min_choices=want,
+        max_choices=want,
+        handler=_resolve_handler,
+        heuristic_pick=top_ids,
+    )
 
 
 IMPERIAL_EDICT = make_ygo_spell(
     "Imperial Edict", ygo_spell_type="Normal",
-    text="Draw 2 cards, then discard 1.",
+    text="Search your Deck for 2 cards and add them to your hand, then discard 1.",
     resolve=_imperial_edict_resolve,
 )
 
@@ -1581,7 +1669,7 @@ _PASS3_TEXT_APPENDIX = {
     "Hand of Cruelty": "Battle rule: the Bushido bonus is checked through the stat layer whenever another Samurai is face-up, so removal can turn it off mid-combat.",
     "Hand of Honor": "Battle rule: the Bushido bonus is checked through the stat layer whenever another Samurai is face-up, so removal can turn it off mid-combat.",
     "Konda's Hatamoto": "Protection rule: while Konda is face-up on your field, destruction effects and battle destruction that target this retainer are prevented by its interceptor.",
-    "Imperial Edict": "Resolution simplification: draw from the top of your Deck one card at a time, then discard the last card in hand to your GY.",
+    "Imperial Edict": "Resolution simplification: emit a target PendingChoice over your Deck (min/max = 2); AI keeps the historical top-2 heuristic. After the chosen cards enter your hand, the last card is auto-discarded to GY.",
     "Imperial Mobilization": "Resolution simplification: choose the first legal Level 3 or lower Samurai in your GY, Special Summon it in Defense Position, then repeat once if a slot remains.",
     "The Wandering Decree": "Cost and resolution: send the first Samurai you control to the GY, then Special Summon the first Level 5 or higher Samurai available from your GY.",
     "Stand Together": "Cost and resolution: tribute the first face-up monster you control, then return the first Samurai in your GY to the field in Attack Position.",
