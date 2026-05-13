@@ -949,3 +949,116 @@ def test_scp_end_turn_action_returns_without_waiting_for_processing_event():
     finally:
         loop.close()
         asyncio.set_event_loop(None)
+
+
+# ---------------------------------------------------------------------------
+# Helper-contract tests for the post-construction mechanic plumbing.
+# These lock in the engine API the parallel mechanic agents will rely on.
+# ---------------------------------------------------------------------------
+
+
+def test_public_reveal_helper_drops_secrecy_and_emits_audit():
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "Moth in the Camera")
+    # Patch the card_def's reveal hook in place — mechanic modules do this too.
+    anomaly.card_def.scp_on_reveal = scp._public_reveal(2)
+
+    ok, _msg, events = scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)
+    assert ok
+    assert scp.site(game.state, p1.id)["secrecy"] == 10 - 2  # fast_track on red_tape=0 anomaly is free
+    audit_events = [e for e in events if e.type == EventType.SCP_AUDIT and e.payload.get("reason") == "public_reveal"]
+    assert audit_events, "expected SCP_AUDIT reason=public_reveal"
+
+
+def test_seeded_mood_helper_sets_mood_and_protocol():
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "Moth in the Camera")
+    anomaly.card_def.scp_on_reveal = scp._seeded_mood("cryptic", protocol="ritual_diagram", briefing=1)
+
+    ok, _msg, events = scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)
+    assert ok
+    assert anomaly.state.scp_mood == "cryptic"
+    assert "ritual_diagram" in anomaly.state.scp_protocols
+    assert scp.site(game.state, p1.id)["briefing"] == 1
+    assert any(e.type == EventType.SCP_MOOD_SHIFT for e in events)
+
+
+def test_tax_own_pending_taxes_only_callers_pending_dossiers():
+    game, p1, _p2 = _setup()
+    # One pending personnel for p1 with red_tape so it stays pending.
+    spec = _hand_card(game, p1, "Containment Specialist")  # red_tape=1
+    scp.open_dossier(game, p1.id, spec.id)
+    assert spec.state.scp_status == "pending"
+    paperwork_before = spec.state.scp_paperwork
+
+    events = scp.tax_own_pending(game.state, p1.id, 2, source=spec.id)
+    assert spec.state.scp_paperwork == paperwork_before + 2
+    assert events and all(e.type == EventType.SCP_PAPERWORK_TICK for e in events)
+
+
+def test_contained_bonus_extends_active_bonus_for_tests():
+    game, p1, _p2 = _setup()
+    # Contain something cheap, then tag its card_def with a contained_bonus.
+    anomaly = _hand_card(game, p1, "Paperclip Colony")
+    specialist = _hand_card(game, p1, "Containment Specialist")
+    scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)
+    scp.open_dossier(game, p1.id, specialist.id, fast_track=True)
+    assert scp.contain_anomaly(game, p1.id, anomaly.id, [specialist.id])[0]
+    anomaly.card_def.scp_contained_bonus = {"research": 1}
+
+    # Now pretend a second test runs on a different anomaly — the contained
+    # bonus should add into _active_bonus.
+    assert scp._active_bonus(game.state, p1.id, "research") == 1
+
+
+def test_personnel_aura_buffs_same_subtype_friendly_staff():
+    game, p1, _p2 = _setup()
+    # One Memetics personnel (aura source) plus one Scientist (not Memetics).
+    analyst = _hand_card(game, p1, "Memetics Analyst")  # subtypes {Scientist, Memetics}
+    junior = _hand_card(game, p1, "Junior Researcher")  # subtypes {Scientist}
+    scp.open_dossier(game, p1.id, analyst.id, fast_track=True)
+    scp.open_dossier(game, p1.id, junior.id, fast_track=True)
+    # Wire a memetics-research aura on the Memetics Analyst's card_def.
+    analyst.card_def.scp_aura = {"subtype:Memetics": {"research": 1}}
+
+    total, used = scp._staff_total(game.state, p1.id, [analyst.id, junior.id], "research")
+    # analyst: skills.research=2 + aura(+1, since it has Memetics) = 3
+    # junior:  skills.research=1 + aura(0, no Memetics)         = 1
+    assert total == 3 + 1
+    assert set(used) == {analyst.id, junior.id}
+    # Reset aura so it does not pollute the shared card_def for other tests.
+    analyst.card_def.scp_aura = {}
+
+
+def test_personnel_aura_any_selector_applies_to_all_friendly_staff():
+    game, p1, _p2 = _setup()
+    analyst = _hand_card(game, p1, "Memetics Analyst")
+    junior = _hand_card(game, p1, "Junior Researcher")
+    scp.open_dossier(game, p1.id, analyst.id, fast_track=True)
+    scp.open_dossier(game, p1.id, junior.id, fast_track=True)
+    analyst.card_def.scp_aura = {"any": {"research": 1}}
+
+    total, _used = scp._staff_total(game.state, p1.id, [analyst.id, junior.id], "research")
+    # analyst: skills 2 + 1 = 3 ; junior: skills 1 + 1 = 2
+    assert total == 3 + 2
+    analyst.card_def.scp_aura = {}
+
+
+def test_on_test_fail_hook_fires_on_failure():
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "Moth in the Camera")  # curiosity 2
+    scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)
+    fired = []
+    anomaly.card_def.scp_on_test_fail = lambda obj, state: (fired.append(obj.id) or [])
+
+    # Run a test with NO staff so it fails (total 0 < curiosity 2).
+    ok, _msg, _events = scp.run_test(game, p1.id, anomaly.id, [])
+    assert ok
+    assert fired == [anomaly.id]
+
+
+def test_mechanics_package_imports_cleanly():
+    from src.cards.scp import mechanics
+    assert callable(mechanics.apply_all_mechanics)
+    # No-op default doesn't error.
+    mechanics.apply_all_mechanics({})

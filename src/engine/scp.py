@@ -106,6 +106,15 @@ def _move(game, obj: GameObject, to_zone: ZoneType, *, source: Optional[str] = N
 
 
 def _active_bonus(state: GameState, player_id: str, task: str) -> int:
+    """Sum static task bonuses contributed by facilities, mandates, and contained anomalies.
+
+    Reads three attribute conventions:
+      - ``scp_bonus`` on active facilities / mandates (existing).
+      - ``scp_contained_bonus`` on contained anomalies — a dict shaped the same
+        as ``scp_bonus`` (e.g. ``{"research": 1, "contain": 1}``). This lets a
+        contained anomaly act as an "aura" reward for keeping it locked away.
+        Cards that omit the attribute are no-ops via ``getattr`` default.
+    """
     ensure_scp_state(state, player_id)
     total = 0
     for facility_id in list(state.scp_facilities.get(player_id, [])):
@@ -120,6 +129,12 @@ def _active_bonus(state: GameState, player_id: str, task: str) -> int:
             continue
         bonuses = getattr(mandate.card_def, "scp_bonus", {}) if mandate.card_def else {}
         total += int(bonuses.get(task, 0) or 0)
+    for contained_id in list(state.scp_contained.get(player_id, [])):
+        contained = state.objects.get(contained_id)
+        if not contained or contained.zone != ZoneType.BATTLEFIELD or contained.state.scp_status != "contained":
+            continue
+        bonuses = getattr(contained.card_def, "scp_contained_bonus", {}) if contained.card_def else {}
+        total += int((bonuses or {}).get(task, 0) or 0)
     return total
 
 
@@ -337,8 +352,40 @@ def reset_staff(game, player_id: str) -> None:
 
 
 def _staff_total(state: GameState, player_id: str, staff_ids: list[str], task: str) -> tuple[int, list[str]]:
+    """Sum personnel skill contributions plus static / aura bonuses for ``task``.
+
+    Two attribute conventions on personnel cards augment the base ``scp_skills``:
+      - ``scp_aura`` on a personnel's ``card_def``. Dict keyed by selector,
+        whose value is a per-task delta dict::
+
+            {"subtype:Memetics": {"research": 1}, "any": {"contain": 1}}
+
+        Selectors supported:
+          * ``"subtype:X"`` — applies when the target personnel's subtypes
+            include ``X``.
+          * ``"any"`` — applies to every friendly personnel on the battlefield.
+
+        The aura source IS counted (a "Memetics +1" lord buffs itself when its
+        own subtypes match — flatly disallowing self would mean the aura's
+        Memetics tag doesn't apply to itself, which the design treats as a bug
+        not a feature). Auras only apply when the target personnel is active
+        and assigned (i.e. while building this task's total).
+      - The existing ``scp_skills`` per-task base.
+    """
     ensure_scp_state(state, player_id)
     total = _active_bonus(state, player_id, task)
+
+    # Pre-compute friendly personnel auras once.
+    aura_sources: list[tuple[GameObject, dict]] = []
+    for source_id in list(state.scp_personnel.get(player_id, [])):
+        source = state.objects.get(source_id)
+        if not source or source.zone != ZoneType.BATTLEFIELD or source.state.scp_status != "active":
+            continue
+        aura = getattr(source.card_def, "scp_aura", None) if source.card_def else None
+        if not aura:
+            continue
+        aura_sources.append((source, aura))
+
     used: list[str] = []
     for staff_id in staff_ids:
         staff = state.objects.get(staff_id)
@@ -351,7 +398,19 @@ def _staff_total(state: GameState, player_id: str, staff_ids: list[str], task: s
         if CardType.SCP_PERSONNEL not in _card_types(staff):
             continue
         skills = getattr(staff.card_def, "scp_skills", {}) if staff.card_def else {}
-        total += int(skills.get(task, 0) or 0)
+        contribution = int(skills.get(task, 0) or 0)
+        staff_subtypes = set(staff.characteristics.subtypes or set()) if staff.characteristics else set()
+        for _source, aura in aura_sources:
+            for selector, deltas in aura.items():
+                if not deltas:
+                    continue
+                if selector == "any":
+                    contribution += int((deltas or {}).get(task, 0) or 0)
+                elif isinstance(selector, str) and selector.startswith("subtype:"):
+                    needed = selector.split(":", 1)[1]
+                    if needed in staff_subtypes:
+                        contribution += int((deltas or {}).get(task, 0) or 0)
+        total += contribution
         staff.state.scp_exhausted = True
         used.append(staff.id)
     return total, used
@@ -440,6 +499,13 @@ def run_test(game, player_id: str, anomaly_id: str, staff_ids: list[str], *, eme
         leak = max(1, _effective_hazard(anomaly) - total)
         site(state, player_id)["secrecy"] -= 1
         site(state, player_id)["breach"] += leak
+        # scp_on_test_fail mirrors scp_on_test for the failure branch. Hook
+        # signature: (obj, state) -> list[Event]. Mechanic agents may use this
+        # for "test-time exhaustion" effects that fire on miss.
+        fail_hook = getattr(anomaly.card_def, "scp_on_test_fail", None)
+        if callable(fail_hook):
+            for event in fail_hook(anomaly, state) or []:
+                events.extend(game.emit(event))
     events.extend(check_scp_loss(game))
     return True, "Test complete", events
 
@@ -1036,13 +1102,25 @@ def make_scp_card(
     hazard: int = 0,
     skills: dict[str, int] | None = None,
     bonus: dict[str, int] | None = None,
+    contained_bonus: dict[str, int] | None = None,
+    aura: dict[str, dict[str, int]] | None = None,
     rarity: str | None = None,
     on_reveal=None,
     on_contain=None,
     on_test=None,
+    on_test_fail=None,
     effect=None,
 ) -> CardDefinition:
-    """Factory shared by the SCP card pool."""
+    """Factory shared by the SCP card pool.
+
+    Extension attributes (read by engine helpers):
+      - ``scp_contained_bonus`` — dict ``{task: int}`` applied while this
+        anomaly is contained. See ``_active_bonus``.
+      - ``scp_aura`` — dict ``{selector: {task: int}}`` for personnel-side
+        lord effects. See ``_staff_total``.
+      - ``scp_on_test_fail`` — hook ``(obj, state) -> list[Event]`` invoked
+        when a research test against this anomaly fails.
+    """
     card = CardDefinition(
         name=name,
         mana_cost=None,
@@ -1063,9 +1141,115 @@ def make_scp_card(
     card.scp_hazard = hazard
     card.scp_skills = dict(skills or {})
     card.scp_bonus = dict(bonus or {})
+    card.scp_contained_bonus = dict(contained_bonus or {})
+    card.scp_aura = dict(aura or {})
     card.scp_on_reveal = on_reveal
     card.scp_on_contain = on_contain
     card.scp_on_test = on_test
+    card.scp_on_test_fail = on_test_fail
     card.scp_effect = effect
     card.scp_alt_win = None
     return card
+
+
+# ---------------------------------------------------------------------------
+# Reveal / mood / paperwork helpers exposed to card-side mechanic modules.
+# ---------------------------------------------------------------------------
+
+
+def _public_reveal(amount: int):
+    """Return an ``on_reveal`` hook that drops the controller's secrecy by ``amount``.
+
+    Mirror of ``_hostile_reveal`` (which bumps breach). Emits an ``SCP_AUDIT``
+    event tagged with ``reason="public_reveal"`` so audit consumers can react
+    without inventing a new event type.
+    """
+
+    def reveal(obj: GameObject, state: GameState) -> list[Event]:
+        s = site(state, obj.controller)
+        s["secrecy"] -= amount
+        return [Event(
+            type=EventType.SCP_AUDIT,
+            payload={
+                "actor": obj.id,
+                "target": obj.controller,
+                "exposure": amount,
+                "reason": "public_reveal",
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return reveal
+
+
+def _seeded_mood(mood: str, *, protocol: Optional[str] = None, briefing: int = 0):
+    """Return an ``on_reveal`` hook that seeds mood/protocol/briefing for an anomaly.
+
+    Lifted from the SZB ``_quarantine`` pattern. ``mood`` must appear in
+    ``MOOD_MODS`` (caller's responsibility to pick from
+    {"docile", "agitated", "cryptic", "cooperative"}). ``protocol``, when set,
+    must appear in ``PROTOCOL_MODS`` and is appended to the anomaly's protocol
+    list (idempotent). ``briefing`` is added to the controller's site briefing
+    pool. Emits ``SCP_MOOD_SHIFT``.
+    """
+    if mood not in MOOD_MODS:
+        raise ValueError(f"_seeded_mood: unknown mood {mood!r}")
+    if protocol is not None and protocol not in PROTOCOL_MODS:
+        raise ValueError(f"_seeded_mood: unknown protocol {protocol!r}")
+
+    def hook(obj: GameObject, state: GameState) -> list[Event]:
+        obj.state.scp_mood = mood
+        if protocol and protocol not in obj.state.scp_protocols:
+            obj.state.scp_protocols.append(protocol)
+        s = site(state, obj.controller)
+        s["briefing"] += briefing
+        return [Event(
+            type=EventType.SCP_MOOD_SHIFT,
+            payload={
+                "object_id": obj.id,
+                "to": mood,
+                "protocol": protocol,
+                "briefing": s["briefing"],
+                "seeded": True,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    return hook
+
+
+def tax_own_pending(state: GameState, player_id: str, amount: int, source: Optional[str] = None) -> list[Event]:
+    """Add paperwork to ALL of ``player_id``'s pending dossiers.
+
+    Inward-pointing mirror of ``misfile_dossier`` (which targets opposing
+    cards). Returns the list of ``SCP_PAPERWORK_TICK`` events emitted (note:
+    these are constructed here, not pushed through ``game.emit`` — callers
+    that need pipeline emission should iterate the list and re-emit, but the
+    common use is a card hook that returns them directly).
+    """
+    ensure_scp_state(state, player_id)
+    events: list[Event] = []
+    amount = max(1, int(amount or 0))
+    for obj in list(state.objects.values()):
+        if obj.controller != player_id:
+            continue
+        if obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        if obj.state.scp_status != "pending":
+            continue
+        before = obj.state.scp_paperwork
+        obj.state.scp_paperwork = before + amount
+        events.append(Event(
+            type=EventType.SCP_PAPERWORK_TICK,
+            payload={
+                "object_id": obj.id,
+                "from": before,
+                "to": obj.state.scp_paperwork,
+                "reason": "tax_own_pending",
+            },
+            source=source,
+            controller=player_id,
+        ))
+    return events

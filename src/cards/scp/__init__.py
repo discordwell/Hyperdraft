@@ -711,6 +711,13 @@ SCP_CARDS: dict[str, CardDefinition] = {
     ]
 }
 
+# Post-construction mechanic appliers mutate SCP_CARDS in place to wire up
+# attributes like scp_on_reveal / scp_contained_bonus / scp_aura. Each module
+# under src/cards/scp/mechanics/ owns one attribute family — see the package
+# docstring for the per-worktree split.
+from .mechanics import apply_all_mechanics  # noqa: E402
+apply_all_mechanics(SCP_CARDS)
+
 
 SECURE_CONTAIN_RESEARCH_NAMES = [
     "Junior Researcher", "Junior Researcher", "Containment Specialist", "D-Class Volunteer",
