@@ -24,6 +24,8 @@ from src.cards.yugioh.beyond.kamigawa.samurai import (
     make_samurai_deck,
     KONDA_LORD_OF_EIGANJO, HAND_OF_HONOR, HAND_OF_CRUELTY,
     KONDAS_BANNER_BEARER, IMPERIAL_RECOVERY_UNIT,
+    IMPERIAL_EDICT,
+    _imperial_edict_resolve,
 )
 
 
@@ -125,6 +127,151 @@ check("Hand of Honor object exists", m1 is not None)
 check("Hand of Honor has interceptors registered",
       len(m1.interceptor_ids) > 0,
       f"got {len(m1.interceptor_ids)} interceptors")
+
+
+# =============================================================================
+# Test 4b: Imperial Edict — PendingChoice deck-search (Phase 4 demo)
+# =============================================================================
+
+print("\n=== Test 4b: Imperial Edict PendingChoice ===")
+
+from src.engine.types import Event, EventType
+from src.cards.yugioh.ygo_classic import KURIBOH, BLUE_EYES_WHITE_DRAGON, DARK_HOLE
+
+
+def _make_edict_state():
+    g = Game(mode="yugioh")
+    a = g.add_player("Edict-A")
+    b = g.add_player("Edict-B")
+    g.setup_yugioh_player(a, [])
+    g.setup_yugioh_player(b, [])
+    return g, a, b
+
+
+def _stock_library(g, player_id, card_defs):
+    """Replace player's library with the given card defs (front of list = top)."""
+    lib = g.state.zones.get(f"library_{player_id}")
+    assert lib is not None, f"no library zone for {player_id}"
+    # Clear any starter objects we may have created.
+    for cid in list(lib.objects):
+        lib.objects.remove(cid)
+    ids = []
+    for cdef in card_defs:
+        obj = g.create_object(
+            name=cdef.name,
+            owner_id=player_id,
+            zone=ZoneType.LIBRARY,
+            characteristics=copy.deepcopy(cdef.characteristics),
+            card_def=cdef,
+        )
+        # create_object placed it in LIBRARY but the existing setup_yugioh_player
+        # path may have also appended; this guards correctness.
+        if obj.id not in lib.objects:
+            lib.objects.append(obj.id)
+        ids.append(obj.id)
+    return ids
+
+
+def test_imperial_edict_human_emits_pending_choice_over_library():
+    """Human path: Imperial Edict emits a target PendingChoice over the library,
+    no library cards have moved to hand yet, and min/max_choices == 2."""
+    g, a, _b = _make_edict_state()
+    lib_ids = _stock_library(g, a.id, [KURIBOH, BLUE_EYES_WHITE_DRAGON, DARK_HOLE])
+    # Spell card id is just a placeholder for source_id.
+    spell_id = "imperial-edict-test"
+    event = Event(
+        type=EventType.YGO_ACTIVATE_SPELL,
+        payload={'player': a.id, 'card_id': spell_id},
+        source=spell_id, controller=a.id,
+    )
+    out = _imperial_edict_resolve(event, g.state)
+    # No AI registered for `a` → human path; resolve returns [] and choice is pending.
+    check("Imperial Edict human path emits no events yet",
+          out == [], f"got {len(out)} events")
+    pc = g.state.pending_choice
+    check("PendingChoice is set on state", pc is not None)
+    if pc is not None:
+        check("PendingChoice type is 'target'", pc.choice_type == "target")
+        check("PendingChoice player == controller", pc.player == a.id)
+        check("PendingChoice min_choices == 2", pc.min_choices == 2)
+        check("PendingChoice max_choices == 2", pc.max_choices == 2)
+        opt_ids = {opt["id"] for opt in pc.options}
+        check("PendingChoice options cover full library",
+              opt_ids == set(lib_ids),
+              f"opts={opt_ids} lib={set(lib_ids)}")
+        check("Library still has 3 cards (nothing moved yet)",
+              len(g.state.zones[f"library_{a.id}"].objects) == 3,
+              f"got {len(g.state.zones[f'library_{a.id}'].objects)}")
+        hp = pc.callback_data.get("heuristic_pick")
+        check("Heuristic_pick preserves top-N library order",
+              hp == lib_ids[:2], f"hp={hp} expected={lib_ids[:2]}")
+
+
+def test_imperial_edict_empty_library_short_circuits():
+    """Empty library → no-op (no events, no PendingChoice)."""
+    g, a, _b = _make_edict_state()
+    # Ensure library is empty.
+    lib = g.state.zones.get(f"library_{a.id}")
+    for cid in list(lib.objects):
+        lib.objects.remove(cid)
+    g.state.pending_choice = None  # clear prior fixture state
+    spell_id = "imperial-edict-empty-test"
+    event = Event(
+        type=EventType.YGO_ACTIVATE_SPELL,
+        payload={'player': a.id, 'card_id': spell_id},
+        source=spell_id, controller=a.id,
+    )
+    out = _imperial_edict_resolve(event, g.state)
+    check("Empty library: no events", out == [], f"got {len(out)} events")
+    check("Empty library: no PendingChoice", g.state.pending_choice is None)
+
+
+def test_imperial_edict_ai_path_uses_heuristic_top_2():
+    """AI path: the YGO AI adapter has no `make_choice`, so the helper falls
+    back to ``heuristic_pick`` (top-2 of library). Verify the chosen cards
+    actually move to hand and the auto-discard fires."""
+    from src.ai.yugioh_adapter import YugiohAIAdapter
+    g, a, _b = _make_edict_state()
+    lib_ids = _stock_library(g, a.id, [KURIBOH, BLUE_EYES_WHITE_DRAGON, DARK_HOLE])
+    # Register `a` as AI so the inline resolver takes the AI path.
+    ai = YugiohAIAdapter(difficulty="medium")
+    g.turn_manager.set_ai_handler(ai)
+    g.turn_manager.ai_players.add(a.id)
+
+    spell_id = "imperial-edict-ai-test"
+    event = Event(
+        type=EventType.YGO_ACTIVATE_SPELL,
+        payload={'player': a.id, 'card_id': spell_id},
+        source=spell_id, controller=a.id,
+    )
+    out = _imperial_edict_resolve(event, g.state)
+    check("AI path emits events (search + discard)",
+          len(out) >= 2, f"got {len(out)} events")
+    check("AI path clears PendingChoice", g.state.pending_choice is None)
+
+    # Top-2 (KURIBOH, BLUE_EYES) should have left the library.
+    lib_now = g.state.zones[f"library_{a.id}"].objects
+    check("Library lost the top-2 picks",
+          lib_ids[0] not in lib_now and lib_ids[1] not in lib_now,
+          f"lib_now={lib_now}")
+    check("DARK_HOLE (3rd card) still in library", lib_ids[2] in lib_now)
+
+    # Hand received the first pick (the second was auto-discarded).
+    hand_now = g.state.zones[f"hand_{a.id}"].objects
+    check("Hand has exactly one of the top-2 picks (other discarded)",
+          sum(1 for cid in lib_ids[:2] if cid in hand_now) == 1,
+          f"hand_now={hand_now}")
+
+    # The other one is in the graveyard.
+    gy_now = g.state.zones[f"graveyard_{a.id}"].objects
+    check("Graveyard received exactly one of the top-2 picks",
+          sum(1 for cid in lib_ids[:2] if cid in gy_now) == 1,
+          f"gy_now={gy_now}")
+
+
+test_imperial_edict_human_emits_pending_choice_over_library()
+test_imperial_edict_empty_library_short_circuits()
+test_imperial_edict_ai_path_uses_heuristic_top_2()
 
 
 # =============================================================================
