@@ -113,3 +113,6 @@ assets/card_art/beyond/ravnica/composed/
 assets/card_art/beyond/kamigawa/refs/
 artifacts/
 
+# Card art generation runs (regeneratable via art-director skill)
+art-runs/
+

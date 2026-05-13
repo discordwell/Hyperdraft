@@ -1,5 +1,12 @@
 # PKH MTG Spice Loop
 
+> **Metric note (May 2026)**: the depth numbers below (`avg_score`,
+> `benchmark_ratio`, `thin_pct`) come from the legacy typography metric. The
+> primary metric is now the v2 five-axis rubric (`src/depth/`); see
+> `.claude/skills/spice-pass.md` for the new rubric and `docs/sets/pkm_brv_depth_audit.md`
+> for a reference audit. Legacy fields stay in `custom_set_depth_report.py`
+> output as `legacy_*` for one cycle to allow diffing.
+
 Pilot set: Pokemon Horizons (`PKH`).
 
 The loop runner is `scripts/play/mtg_spice_loop.py`. It follows the

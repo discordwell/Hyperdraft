@@ -1,12 +1,20 @@
 import asyncio
 
+import pytest
 from fastapi import BackgroundTasks
 
 from src.server.models import CreateMatchRequest
+from src.server.routes import match as match_routes
 from src.server.routes.match import create_match
 from src.server.session import session_manager
 from src.server.models import PlayerActionRequest
 from src.engine.types import CardType
+
+
+@pytest.fixture(autouse=True)
+def _suppress_ultra_terminal_spawn(monkeypatch):
+    """Unit tests should not open local agent terminals."""
+    monkeypatch.setattr(match_routes, "_spawn_ultra_terminal", lambda **_kwargs: None)
 
 
 def test_create_match_hearthstone_sets_up_heroes_and_decks():
@@ -203,6 +211,42 @@ def test_hearthstone_match_uses_requested_ai_difficulty_for_adapter():
         adapter = getattr(session.game.turn_manager, "hearthstone_ai_handler", None)
         assert adapter is not None
         assert getattr(adapter, "difficulty", None) == "ultra"
+
+        await session_manager.remove_session(response.match_id)
+
+    asyncio.run(_run())
+
+
+def test_ultra_match_can_spawn_codex_runner(monkeypatch):
+    """Human-vs-bot Ultra can launch Codex instead of the Claude default."""
+
+    spawned: dict = {}
+    monkeypatch.setattr(match_routes, "_spawn_ultra_terminal", lambda **kwargs: spawned.update(kwargs))
+
+    async def _run():
+        response = await match_routes.create_match(
+            request=CreateMatchRequest(
+                mode="human_vs_bot",
+                game_mode="hearthstone",
+                variant="riftclash",
+                ai_difficulty="ultra",
+                ultra_agent="codex",
+                ultra_model="gpt-5.3",
+                player_name="Tester",
+            ),
+            background_tasks=BackgroundTasks(),
+        )
+
+        session = session_manager.get_session(response.match_id)
+        assert session is not None
+        assert response.opponent_id
+        profile = session.ai_profiles_by_player[response.opponent_id]
+        assert profile["agent_runner"] == "codex"
+        assert profile["model"] == "gpt-5.3"
+        assert session.external_agent_runner(response.opponent_id) == "codex"
+        assert spawned["agent_runner"] == "codex"
+        assert spawned["agent_model"] == "gpt-5.3"
+        assert spawned["ai_player_id"] == response.opponent_id
 
         await session_manager.remove_session(response.match_id)
 

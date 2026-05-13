@@ -5,6 +5,7 @@
 #
 # Required env vars: MATCH_ID, AI_PLAYER_ID, GAME_MODE
 # Optional env vars: HUMAN_PLAYER_ID, SERVER_BASE (default http://localhost:8030)
+# Optional model env vars: CLAUDE_MODEL or ULTRA_MODEL
 
 set -e
 cd "$(dirname "$0")/.."
@@ -14,6 +15,7 @@ cd "$(dirname "$0")/.."
 : "${GAME_MODE:?GAME_MODE env var required}"
 HUMAN_PLAYER_ID="${HUMAN_PLAYER_ID:-unknown}"
 SERVER_BASE="${SERVER_BASE:-http://localhost:8030}"
+CLAUDE_MODEL="${CLAUDE_MODEL:-${ULTRA_MODEL:-}}"
 
 BRIEF="prompts/ultra_ai/${GAME_MODE}.md"
 if [ ! -f "$BRIEF" ]; then
@@ -33,6 +35,7 @@ AI:     $AI_PLAYER_ID
 Human:  $HUMAN_PLAYER_ID
 Server: $SERVER_BASE
 Brief:  $BRIEF
+Model:  ${CLAUDE_MODEL:-default}
 
 Launching Claude Code... it will play the entire game in this session.
 ========================================================================
@@ -82,7 +85,12 @@ TTY_NAME=$(tty)
 # Run claude in the background so a watchdog can stop it when the match
 # ends or stalls. Once claude exits (naturally or killed), the window-close
 # logic below fires.
-claude "$INITIAL_PROMPT" &
+CLAUDE_ARGS=()
+if [ -n "$CLAUDE_MODEL" ]; then
+    CLAUDE_ARGS+=(--model "$CLAUDE_MODEL")
+fi
+
+claude "${CLAUDE_ARGS[@]}" "$INITIAL_PROMPT" &
 CLAUDE_PID=$!
 
 # --- Watchdog ---
@@ -198,4 +206,3 @@ APPLESCRIPT
         echo "(close this window when ready)"
         ;;
 esac
-

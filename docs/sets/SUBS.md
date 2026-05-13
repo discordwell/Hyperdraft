@@ -270,3 +270,83 @@ Deck labels MUST start with `SUBS_` (load-bearing for balance loop).
 3. No bidding modal choices.
 4. No multi-turn delayed abilities.
 5. No copy/clone effects.
+
+---
+
+## Archetype changelog
+
+### Cycle 1 — Carrier deck rebuild (audit-driven, 2026-05-06)
+
+Pre-cycle Carrier winrate: **0.0% (15 losses / 15 games)**. Audit routed
+to `archetype_redesign` because card-tweaking can't lift a deck losing
+every game. Diagnosis showed three independent engine gaps were
+silently breaking the loop:
+
+1. `make_end_step_trigger` filters on `payload['phase'] == 'end_step'`
+   but the depths turn manager emits `phase == 'surface'` (and `'dive'`
+   for upkeep). **Every Carrier's drone-spawn trigger was a no-op** —
+   Escort Carrier / Hiryu / Yamamoto produced exactly zero Drones across
+   all 15 games (`triggers_fired: 0` for every Carrier in the per-card
+   stats).
+2. The Medium AI's `MEDIUM_MIN_ATTACK_DAMAGE = 2` threshold means a 1/1
+   Drone refuses to swing at the Flagship (1 damage < threshold). Even
+   if (1) had been working, the spawned Drones would have stood inert.
+3. `cast_effect_fn` set on Action `CardDefinition`s is never invoked by
+   the engine — Drone Swarm / Kamikaze Run / Dive Bomber Squadron all
+   resolved to no-ops on cast.
+
+Redesign category: **Light + a touch of Moderate.** No new mechanics,
+no rewriting strategic identity. Specific changes:
+
+* **`carrier.py`** — added `make_depths_end_phase_trigger` and
+  `make_depths_dive_phase_trigger` helpers that watch for
+  `phase == 'surface'` / `phase == 'dive'` (the depths turn manager's
+  actual phase names). Re-pointed all Carriers' end-step triggers and
+  Repair Crew's upkeep trigger at these.
+* **`carrier.py`** — bumped the `DRONE_TOKEN` template and Pilot
+  Cadet / Recon Drone from 1/1 to **2/1** so they clear the AI's
+  attack threshold.
+* **`carrier.py`** — every Carrier now also fires an **ETB drone-spawn
+  trigger** (so even the turn it lands, the Carrier produces value)
+  and grants its own static **+0/+1 anthem** to your Drones (2/1 → 2/2,
+  surviving most aggro trades). This bakes the Carrier Air Wing
+  Doctrine into the Vessel itself, since the AI doesn't deploy
+  Doctrines.
+* **Light Carrier "Shoho"** — bumped from 1/4 to **2/4** (so it can
+  attack), added an ETB drone-spawn alongside its existing on-attack
+  spawn, plus the same static anthem.
+* **`decks.py`** — rebuilt `CARRIER_DECK_SPEC`: dropped Doctrines
+  (Carrier Air Wing Doctrine, Hangar Bay Doctrine — never deploy) and
+  the Action cards whose `cast_effect_fn` doesn't run (Drone Swarm,
+  Kamikaze Run, Dive Bomber Squadron). Replaced with more cheap Drone
+  bodies (Patrol Bomber, Skipjack Drone), Crew anchors that exist as
+  on-board permanents (Veteran Squadron Lead +1/+1 Drones, Drone Pen
+  Mate, Air-Sea Coordinator), and one Crash-Boat Pilot for a sacrifice
+  payoff that uses an attack-trigger (ATTACK_DECLARED — fires
+  reliably). Deck size unchanged at 30.
+
+Cards in `CARRIER_CARDS` registry are unchanged — the original 30
+remain importable so `coverage.py` and tests still see the full set.
+Doctrines + Action cards just aren't in the deck anymore.
+
+Post-fix smoke tournament (8 games per pairing, 24 games per archetype):
+
+| Archetype        | Wins | Games | Winrate    |
+|------------------|------|-------|------------|
+| SUBS_carrier     | 14   | 24    | **58.3%**  |
+| SUBS_silent_hunter | 11 | 24    | **45.8%**  |
+| SUBS_deep_strike | 11   | 24    | **45.8%**  |
+| SUBS_wolfpack    | 12   | 24    | **50.0%**  |
+
+All four archetypes now sit in the 40–60% target band — Carrier
+recovered from 0% baseline, and the previously dominant Wolfpack
+naturally settled at 50% as Carrier's defensive trades cooled the
+race-aggro plan. Far above the 5% success criterion the audit
+required.
+
+The underlying engine gaps (broken phase-name helpers, dead
+`cast_effect_fn`, AI Doctrine deployment, OBJECT_CREATED handler
+ignoring `depth_band` payload key, depths_combat checking
+`characteristics.toughness` instead of `get_toughness`) are real
+problems for cycles 2+ to address at the engine level. The cycle 1
+fix routes around them entirely from the card-side.

@@ -18,6 +18,36 @@ moved it from "untested" to a 60% win rate in the Wave-22 tournament — the
 Modern-staple tier the plan targeted. Dragon Ball followed at 217 → 225
 (8 spice picks).
 
+## Depth rubric (v2)
+
+The depth metric used by `custom_set_depth_report.py` was replaced in
+May 2026. The previous version was pure typography (word count + clause
+separators + keyword set-membership) and could not distinguish between
+mechanically distinct cards and reskins. A Beyond Ravnica Pokemon audit
+found 14 cards with identical effect_fns (all `_draw_cards(state, ctrl, 1)`)
+all scoring "high depth" on the old metric.
+
+The v2 rubric scores each card on **five axes, 0–3 each, 0–15 total**:
+
+- **State Coupling** — what state does the effect READ? (stateless → cross-zone multi-state)
+- **Decision Pressure** — what does the player CHOOSE at resolution? (none → sequential/nested)
+- **Zone/Resource Movement** — where do things move? (pure stat → novel zone like exile-face-down)
+- **Asymmetry** — does it create info/resource imbalance the opponent must respond to?
+- **Synergy Hook** — does it pull other cards into the deck? (self-contained → mechanic-specific)
+
+Tiers: **0–3 vanilla · 4–7 functional · 8–11 spicy · 12–15 build-around**.
+
+Set-level diversity gates: a healthy set needs `axis_diversity ≥ 0.5` (distinct
+5-tuple fingerprints per card) AND `code_diversity ≥ 0.5` (distinct AST
+fingerprints of helpers/state-reads/events/zones). Reskin clusters surface
+through the code-fingerprint hash directly.
+
+Implementation: `src/depth/` (rubric in `axis_scorer.py`, AST fingerprint in
+`ast_fingerprint.py`, per-engine vocabulary in `engine_profiles.py`).
+Reference audit: `docs/sets/pkm_brv_depth_audit.md`. The capability test gate
+below (`capability_score ≥ 0.30`) is **unchanged** — depth and capability
+are independent and both must pass.
+
 ## The 11 broken-card patterns
 
 Cards that warp formats almost always exhibit one or more of these. Mark
