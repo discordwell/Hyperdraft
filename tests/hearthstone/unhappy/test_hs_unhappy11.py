@@ -312,8 +312,15 @@ def test_corruption_delayed_destroy():
 
 
 def test_shadowflame_sacrifices_and_aoes():
-    """Shadowflame: destroy a friendly minion, deal its attack to all enemies."""
+    """Shadowflame: destroy a friendly minion, deal its attack to all enemies.
+
+    Phase 4: Shadowflame now emits a PendingChoice. Registering p1 as an AI
+    player makes the helper resolve inline via the heuristic_pick fallback
+    (highest-attack friendly minion), preserving the prior auto-pick behavior.
+    """
     game, p1, p2 = new_hs_game()
+    # Register p1 as AI so the PendingChoice resolves inline via heuristic_pick.
+    game.turn_manager.ai_players.add(p1.id)
 
     # Use a 4/5 yeti as sacrifice
     sacrifice = make_obj(game, CHILLWIND_YETI, p1)

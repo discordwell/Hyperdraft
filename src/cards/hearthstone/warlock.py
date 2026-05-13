@@ -217,28 +217,17 @@ def demonfire_effect(obj, state, targets):
     return events
 
 
-def shadowflame_effect(obj, state, targets):
-    """Destroy a friendly minion and deal its Attack damage to all enemy minions."""
-    events = []
-    # Find a friendly minion to sacrifice
-    battlefield = state.zones.get('battlefield')
-    friendly_minions = []
-    if battlefield:
-        for mid in battlefield.objects:
-            m = state.objects.get(mid)
-            if m and CardType.MINION in m.characteristics.types and m.controller == obj.controller:
-                friendly_minions.append(mid)
-    if not friendly_minions:
+def _shadowflame_resolve(obj, state, sacrifice_id):
+    """Sacrifice the chosen friendly minion and fan its attack to all enemy minions."""
+    sac_obj = state.objects.get(sacrifice_id)
+    if sac_obj is None:
         return []
-    # Pick the highest-attack friendly minion for AI
-    sacrifice = max(friendly_minions, key=lambda mid: state.objects[mid].characteristics.power)
-    sacrifice_attack = state.objects[sacrifice].characteristics.power
-    # Destroy the sacrificed minion
-    events.append(Event(
+    sacrifice_attack = sac_obj.characteristics.power
+    events = [Event(
         type=EventType.OBJECT_DESTROYED,
-        payload={'object_id': sacrifice, 'reason': 'shadowflame'},
+        payload={'object_id': sacrifice_id, 'reason': 'shadowflame'},
         source=obj.id
-    ))
+    )]
     # Deal its attack damage to all enemy minions
     enemy_minions = get_enemy_minions(obj, state)
     for mid in enemy_minions:
@@ -248,6 +237,67 @@ def shadowflame_effect(obj, state, targets):
             source=obj.id
         ))
     return events
+
+
+def shadowflame_effect(obj, state, targets):
+    """Destroy a friendly minion and deal its Attack damage to all enemy minions.
+
+    Phase 4 PendingChoice demo (Hearthstone): the controlling player chooses
+    which friendly minion to sacrifice. AI behavior is preserved via
+    ``heuristic_pick`` (still the highest-attack friendly minion). Humans now
+    get a real decision — sometimes sacrificing a weak minion to save a big
+    one from a board clear is the right call.
+    """
+    # Find friendly minions
+    battlefield = state.zones.get('battlefield')
+    friendly_minions = []
+    if battlefield:
+        for mid in battlefield.objects:
+            m = state.objects.get(mid)
+            if m and CardType.MINION in m.characteristics.types and m.controller == obj.controller:
+                friendly_minions.append(m)
+    if not friendly_minions:
+        return []
+
+    # Direct target override (e.g. legacy explicit targeting path).
+    if targets:
+        explicit = targets[0]
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        if explicit in {m.id for m in friendly_minions}:
+            return _shadowflame_resolve(obj, state, explicit)
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in friendly_minions
+    ]
+    best = max(friendly_minions, key=lambda m: m.characteristics.power)
+
+    def _resolve_handler(choice, selected, st):
+        target_id = selected[0] if selected else best.id
+        # Tolerate raw-id or {id: ...} selection shapes.
+        if isinstance(target_id, dict):
+            target_id = target_id.get('id', best.id)
+        return _shadowflame_resolve(obj, st, target_id)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose a friendly minion to sacrifice to Shadowflame.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 def bane_of_doom_effect(obj, state, targets):
