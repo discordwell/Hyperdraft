@@ -360,11 +360,23 @@ def test_pkm_modal_choice_creates_and_resolves_pending_choice(pkm_game):
     assert any(e.payload.get("mode") == "B" for e in heal_events)
 
 
-def test_pkm_modal_choice_no_ai_falls_back_to_heuristic_pick(pkm_game):
-    """Without an AI handler registered, pkm_modal_choice still resolves
-    using the heuristic_pick — backwards compat for direct-resolver tests."""
+def test_pkm_modal_choice_no_ai_leaves_choice_pending_for_human(pkm_game):
+    """When the choosing player is NOT registered as AI, the shared
+    ``resolve_pending_choice_inline`` (engine/pending_choice_helpers.py)
+    correctly LEAVES the choice on state.pending_choice for the session
+    layer to surface to a human — it does NOT silently auto-resolve.
+
+    This locks down the post-iter-1 refactor that moved the helper out
+    of ``_helpers.py`` and into the engine. Old behavior was a silent
+    [0] auto-pick on the human path; now humans block on the choice via
+    the API as intended.
+    """
     g, p1, _p2 = pkm_game
     from src.cards.pokemon._helpers import pkm_modal_choice
+
+    # Disable AI for this test: pop p1 out of ai_players so the helper
+    # treats this as a human choice.
+    g.turn_manager.ai_players.discard(p1.id)
 
     log = []
     def mode_a(_s):
@@ -373,19 +385,21 @@ def test_pkm_modal_choice_no_ai_falls_back_to_heuristic_pick(pkm_game):
     def mode_b(_s):
         log.append("B")
         return []
-    def mode_c(_s):
-        log.append("C")
-        return []
 
-    pkm_modal_choice(
+    events = pkm_modal_choice(
         p1.id, g.state, source="t",
-        mode_names=("A", "B", "C"),
-        mode_effects=(mode_a, mode_b, mode_c),
-        heuristic_pick=2,  # mode C
+        mode_names=("A", "B"),
+        mode_effects=(mode_a, mode_b),
+        heuristic_pick=1,
     )
 
-    assert log == ["C"]
-    assert g.state.pending_choice is None
+    # Neither mode ran; choice is pending for the human.
+    assert log == [], f"No mode should run on the human path; got {log}"
+    assert events == [], f"No events on the human path; got {events}"
+    assert g.state.pending_choice is not None, (
+        "Choice should remain pending for the session layer to surface"
+    )
+    assert g.state.pending_choice.choice_type == "pkm_modal_with_callback"
 
 
 def test_pkm_modal_choice_ai_make_choice_overrides_heuristic(pkm_game):

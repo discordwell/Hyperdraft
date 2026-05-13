@@ -160,6 +160,14 @@ def _score_tox_pawpsule(ctx: TurnContext, state: GameState, player_id: str) -> f
     # Defending mode bonus — passive damage chip while we stabilize.
     if ctx.defensive_mode:
         score += 8.0
+    # iter3 fix (Pilot A "Tox-Pawpsule decisive on T10 — poisoned Reckoner
+    # died to between-turn ticks without me attacking, exploiting Boros's
+    # no-Switch retreat lock"). When opp Active can't easily switch out
+    # (paralyzed OR no bench to retreat into), poison ticks are nearly free.
+    opp_status = getattr(opp_active.state, 'status_conditions', None) or set()
+    opp_locked = ('paralyzed' in opp_status) or (len([b for b in ctx.opp_bench if b]) == 0)
+    if opp_locked:
+        score += 15.0
     return score
 
 

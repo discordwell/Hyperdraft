@@ -282,4 +282,120 @@ This section is appended by LLM coaches after each iteration of
 `/ultra-loop`. Each entry: date, matchup, key finding, preset patch
 applied.
 
-(no entries yet — Phase 4 will populate this)
+### 2026-05-13 — iter 1 (double mode): Dimir LZ (p2, won) vs Boros Bench (p1, lost) — 10 turns, `no_pokemon`
+
+**Matchup summary**: Dimir LZ took 2 prizes and finished Boros via the empty-bench KO rule on T10. Boros bricked: drew 0 Aurelet in 10 turns despite running 4 copies, leaving the Aurelia ex line completely dead. Both pilots converged on Ultra Ball being harmful in early-game energy-thin hands.
+
+**Confirmed findings**:
+
+- **Ultra Ball energy-discard pitfall (engine-wide)**: Both pilots saw Ultra Ball discard 2 Energy from a hand that had no other discard-eligible "junk". The auto-discard heuristic scores Energy near zero (cheapest to ditch), so when hand = (UltraBall + 2 Energy + targets), it wipes the energy curve. Costs ~2-3 turns of attacker setup. **Recommendation**: pilots should hold Ultra Ball until ≥1 Pokemon is benched AND ≥2 Energy are attached or in-hand-non-discardable.
+- **Empty-bench loss is real**: Lazav ex 280 HP feels invulnerable, but if it is your only Pokemon and goes down, you lose by `no_pokemon`. This applies symmetrically — Boros lost via the same path (Feathlet was its only remaining Pokemon on T10). **Maintain ≥1 bench Basic at ALL times.**
+- **Dimir Blend Energy is load-bearing on T2**: free P+D attach effectively skips an attach turn, enabling Disguise Drip on T2 going-second. Combined with Lazlet's chip+mill, this is a faster clock than its sticker price suggests.
+- **Shadowstrike + Mimic Cape mill stacks into a real secondary clock**: 2x Shadowstrike (mill 4 each) + 3x Mimic Cape (mill 1 each) = 11 cards. Against slow decks, deckout is a backup win condition.
+
+**Disagreements / contested**:
+
+- **Sunhome Stadium evaluation**: Pilot B wants it down-weighted (mutual heal favors a tanky opp Active); the doc currently treats it as neutral. Confirmed contested — apply mild down-weight pending iter 2 evidence in a non-Dimir-tank matchup.
+
+### Counterplay vs Boros bench swarm (Dimir perspective)
+
+Boros bench-snipes hit Dimir's smallest Basics first (Mirklet, Voidmage). Defend by:
+
+1. Keep Lazav ex on Active to absorb chip — its 280 HP is essentially un-KO-able by Boros 1-shot.
+2. Keep replaceable benchers (Mirklet, Voidmage) as the bench-snipe absorbers; don't put your only spare evolution piece there.
+3. If Aurelia ex hits the field, **prioritize Shadowstrike to KO before her Battalion Mark scales** (each bench Pokemon = +10 dmg/turn; at bench 4-5 she does 40-50/turn passively while Boros builds).
+4. Dimir Interrogation is a +EV play vs Boros only when their hand ≥ 4 (Boros runs lots of Pokemon density). At hand ≤ 3 it often whiffs and just cycles a card for them.
+
+### Counterplay vs Dimir LZ (Boros perspective)
+
+Dimir's win condition is Stage 2 Lazav ex with {P}{P}{D}{D}. Counter by:
+
+1. **Race the energy curve, not the HP wall**: Lazav ex needs 4 energy attached. Boros's Battalion Mark only needs 2R+2F and scales by bench (every turn ≥30 chip when bench ≥3). If bench ≥3 by T3, you out-pace Dimir's setup.
+2. **Boss's Orders is the surgical counter** to Dimir's tanky Active strategy: pull a 1-prize bench Pokemon (Mirklet, Voidmage, Cutpurse) to Active and KO it. Bypasses Lazav ex entirely and bleeds the prize race.
+3. **Don't waste Ultra Ball T1** — see pitfall section. Boros NEEDS its 2-color energy curve intact for T2 Practice Lance / T4 Battalion Mark.
+
+### Aurelet starvation (Boros deck construction note)
+
+Boros currently runs 4 Aurelet for a line with 3 Aurelin + 2 Aurelia ex. Drawing 0 Aurelet in 10 turns happened in iter 1 — variance, but the deck is more fragile than the Aurelin count implies. **Deck construction fix recommended**: bump Aurelet to 5-6, or add a second non-discard Pokemon tutor (Nest Ball variant). This is a deck-list fix, not a bias preset fix.
+
+### Spice-card decision points (additions)
+
+- **Ultra Ball when hand has ≤2 non-Pokemon non-Energy discard targets**: SKIP. Auto-discard will hit Energy first and crater the curve. Hold until you have junk to feed it.
+- **Dimir Interrogation when opp hand has no Pokemon**: net effect is +1 to opp hand (you reveal, they draw 1, you remove nothing). Skip unless their hand is ≥ 4 AND their archetype is Pokemon-heavy.
+
+### 2026-05-13 — iter 2 (double mode): Dimir LZ (p1, lost) vs Boros Bench (p2, won) — 22 turns, `no_pokemon`
+
+**Matchup summary**: Boros took the empty-bench win on T22, mirror of iter 1 (where Dimir won via the same path). Dimir bricked: drew 0 Lazlet across 22 turns despite running 4 copies, leaving the Lazav ex Stage 2 line completely dead. Boros's Aurelet starvation persisted (only 1 Aurelet hit field by T18 via panic-Pro Research) — `_choose_ai_nest_ball_target` HP-based fallback grabbed Reckoner/Feathlet 3 of 3 times. Game ended Boros 2 prizes / Dimir 3 prizes; series now **1-1**.
+
+**Confirmed STRUCTURAL findings** (now reproduced 2-of-2 games):
+
+- **Symmetric `no_pokemon` empty-bench loss is a FORMAT-LEVEL issue, not archetype-specific**. Iter 1: Boros lost this way. Iter 2: Dimir lost this way. Both decks attrition down to 1 Active + 0 bench, then a single attack (or even a 20-dmg Supporter — see Gideon below) closes. This is a real, repeating endgame pattern in BRV. **Defensive policy: maintain ≥1 bench Pokemon at all costs**. **Offensive policy: drive opp to 0 bench AND keep opp Active sub-30 HP — even a Supporter can finish.** Engine team should evaluate whether a 1-turn grace / mulligan-on-no_pokemon would soften the binary.
+- **Symmetric 4-copy starvation is a guild-builder bug**. Boros's 4 Aurelet (iter 1: 0 drawn) and Dimir's 4 Lazlet (iter 2: 0 drawn) are the SAME structural deck-construction problem in BRV's two flagship guilds. Both Stage 2 lines (Aurelia ex / Lazav ex) require the corresponding S0 Basic to be on field before Rare Candy or normal evolution can fire. With ~5-6 Basics in a 60-card deck and ~4 of those being the key evolver, drawing 0 in 20+ turns happens. **Guild-builder fix recommended**: bump key evolver Basic to 5-6 in BOTH `make_dimir_deck` (Lazlet 4→5/6) AND `make_boros_deck` (Aurelet 4→5/6).
+
+**New cards seen this iter**:
+
+- **Gideon Blackblade as a finisher**: "20 dmg + 20 heal, doesn't end turn" Supporter. Confirmed kill line on T22 (KO'd Mirklet at 10 HP from outside attack flow). This is a 2-for-1: kill opp + heal own, AND it's a Supporter so the rest of the turn remains usable. **Save for opp Active ≤ 20 HP** — strictly better than attacking when the attack is overkill. Bench-swarm decks should prioritize when sub-30 finishing damage is needed.
+- **Reckoner Counter-Punch + Confusion = self-KO gambling**: when Reckoner is confused, attacking is a coin-flip self-KO (tails: 30 self-damage, attack fails). At low HP, retreat instead. **Don't gamble Reckoner on a Confused turn**.
+- **Duskmantle Stadium clutch tech**: when opp's top discard from the mill effect is a Trainer, opp Active gets Confused. Iter 2 used this as a hail-mary — opp's Reckoner hit confusion-tails and self-KO'd. ~30-40% expected value (probability of Trainer on top), but in clutch situations vs aggro it's a free attack-cancel. Risk: if MY top is a Trainer, I get Confused. Time it when own next-turn attack isn't critical.
+
+**Disagreements / contested**:
+
+- **Empty-bench rule binarity**: the `no_pokemon` instant-loss has now decided 2-of-2 BRV games. Either the engine team softens it (1-turn grace / forced mulligan on empty bench), or the BRV decks need a structural Basic-density floor. Coach scope is the deck-density side; engine scope is the rule.
+- **Iono down-weight in Dimir**: Pilot A flagged Iono as a coin-flip in low-Basic decks (iter 2 played it, drew 0 Basics from 4 cards). Coach skipped this bias edit because (a) iter 1 didn't see Iono play, single data point, and (b) Iono valuation depends heavily on hand state — a static bias is a poor instrument. Watch in iter 3.
+- **Pro Research valuation in Boros**: iter 1 said over-cautious; iter 2 said it saved the game at T18. Coach skipped re-bumping (was 0.8× from earlier? — actually not in current preset). Watch in iter 3.
+
+### Counterplay vs symmetric empty-bench (BRV-format)
+
+When opp has 1 Active + 0 bench, ALL of these become viable finishers (in addition to direct attacks):
+
+1. **Gideon Blackblade** (Boros): 20 dmg Supporter. KOs any Active ≤ 20 HP without ending turn. Guaranteed 2-prize swing (1 prize + game).
+2. **Tox-Pawpsule** poison stack: scaling damage counters at end-of-turn cycle KO low-HP Actives without you swinging.
+3. **Duskmantle Stadium mill** (Dimir): random Confusion gambit; ~30-40% chance opp self-KOs via Counter-Punch tails or whiffs an attack you can answer.
+4. **Bench-snipe Tools** (Boros Aurelia ex Battalion Mark): scaling chip ignores HP wall, lands counters on the lone Active each turn.
+
+### Counterplay against being driven to empty bench
+
+When you reach 1 Active + 0 bench (as the defender), priority order:
+
+1. **Tutor a Basic this turn**: Nest Ball → any Basic; Pro Research → hand reset (high-variance but sometimes game-saving — see iter 2 Boros T18 save).
+2. **Don't attack if it leaves Active KO-able next turn**: even a 1-prize trade is fine; an empty-bench follow-up is not.
+3. **Status-stall**: Tox-Pawpsule poisons opp Active for chip while you stall. Voidmage Energy Drain delays opp's KO swing.
+4. **NEVER play a Stadium that triggers your own discard / mill while at 1 Active**: Duskmantle on yourself is a self-Confusion risk.
+5. **Don't play Rare Candy speculatively** (iter 3): if the Stage 2 is in discard but hand has only Stage 1 + Basic, Rare Candy is a no-op. Engine still lists it legal but consumes for zero effect. Use Super Rod first to recover the Stage 2.
+
+### 2026-05-13 — iter 3 (double mode): Dimir LZ (p2, won) vs Boros Bench (p1, lost) — 22 turns, prize race 6-0
+
+**Matchup summary**: Dimir took all 6 prizes via repeated Lazav ex Veiled Whisper KOs by T22. Boros drew both Aurelia ex but lost both to repeated Pro Research churn, leaving the Aurelia line dead for the entire game. Series final: **Dimir 2-1**.
+
+**Series verdict**: Dimir 2-1, but the matchup is closer than the score suggests. Iter 2 Boros won by 22T when Dimir's Stage 2 line bricked; iter 3 Dimir won by 22T when Boros's Stage 2 line bricked. Whoever resolves the 4-copy starvation problem first dominates that game. The 1 outlier in 3 games (iter 1's 10-turn no_pokemon exploit) has been heuristic-patched, leaving 2 long-form attrition games where deck construction dictates the outcome.
+
+**Confirmed STRUCTURAL findings (now 3-of-3 games)**:
+
+- **4-copy evolver starvation is the format's central problem**. Iter 1 Boros 0 Aurelet (10T); iter 2 Dimir 0 Lazlet (22T); iter 3 Boros drew both Aurelia ex but both Pro-Research-discarded → Aurelia line dead anyway. Three games, three independent failure modes of the same structural issue: ~4-6 Basics + 4-copy key evolver + Pro Research churn = Stage 2 line dies ~33-50% of games. Bias tuning is a stop-gap; deck construction is the actual fix.
+- **Heuristic Nest Ball mis-targets evolution-line basics**. Iter 2 + iter 3 both saw Nest Ball fetch Reckoner/Feathlet over Aurelet despite Aurelin in hand. The `_choose_ai_nest_ball_target` scorer ranks by HP, not evolution-line awareness. Encoder task — pre-check hand for matching Stage 1/2 before HP scoring.
+
+**New STRATEGIC findings (iter 3 only)**:
+
+- **Veiled Whisper > Shadowstrike for most BRV KOs**. Lazav ex's 2-energy {P}{D} attack (80 dmg) one-shots BRV's typical 60-90 HP basics and Stage 1s. Shadowstrike's 4-energy {P}{P}{D}{D} (200 dmg + mill 4) is overkill against Boros's 120 HP max Stage 1 (Feather Redeemed) and only matters vs 280 HP Stage 2 ex. The 2-energy tempo gap is huge. **Strategic rule for Dimir piloting**: default to Veiled Whisper; only build to Shadowstrike for the Stage 2 ex KO or mill-out finish.
+- **Tox-Pawpsule between-turn poison is decisive**. T10 poisoned Reckoner died to poison ticks (50→20→0) over 2 turns without Dimir attacking. Forced Boros into a no-Switch retreat-or-die position. Passive damage on opp blocker while you press tempo elsewhere. **Bias-bump from 1.2× to 1.4×** (post-iter-2 evidence + iter 3 game-winning play).
+- **Lazav ex 280 HP + no Boros Darkness type = un-KO-able with one Potion**. Boros's max single-attack damage (Feather Redeemed 80) needs 3+ unanswered turns to KO Lazav ex; Potion 30-heal once stretches the wall to effectively infinite. **Open question: is this an archetype-balance problem (Boros lacks a Darkness-weakness exploiter) or is it intended that Stage 2 ex are durable walls?** Worth raising with engine team if the matchup is a designed counter.
+
+**Open question (variance vs structural)**:
+
+Is Boros bench swarm structurally weaker than Dimir LZ, or are 3 games not enough to call it? Score is Dimir 2-1, but both Boros wins+losses were driven by the SAME 4-copy starvation variance source. If the starvation is fixed (deck-list bump Aurelet/Lazlet 4→5/6 + Nest Ball heuristic patch), the matchup may settle to closer-to-even. **Recommend: do not buff/nerf either bias preset based on the 2-1 series alone; fix deck construction first, then re-measure.**
+
+**Engine bugs surfaced this iter (for a future fix pass)**:
+
+1. **Rare Candy no-Stage-2 gate**: legal even when no matching Stage 2 in hand; consumes the card for zero effect. Should be gated out of legal actions.
+2. **Duplicate-name action labels**: 2 Feathlets in play → "Attach Fire to Feathlet" appears twice with no disambiguation. T15 iter 3 misrouted energy from Active to Bench. Engine should suffix or label by position.
+3. **Pro Research DRAW count=7 inconsistent**: iter 3 T21 first Pro Research drew only 1 card; second drew 7. Possible event-resolution bug in DRAW handler with count > 1.
+4. **Ultra Ball silent fail**: T21 discarded 2 cards but added no Pokemon to hand (search either failed or unreported). Should auto-cancel or report failure.
+5. **Gideon Blackblade end-turn contradiction**: iter 2 finding ("doesn't end turn") contradicts iter 3 evidence (next packet showed opponent's turn). Card text should be clarified and one of the iter findings retracted.
+
+**Did NOT change decision logic**: per task spec — encoder owns that pass.
+
+**Recommended next-pass work (NOT applied this iter)**:
+
+- **Deck construction**: bump Aurelet 4→5/6 in `make_boros_deck` and Lazlet 4→5/6 in `make_dimir_deck` (`src/cards/pokemon/beyond/ravnica/`). The variance source is the deck-list, not the AI.
+- **Engine fixes (5 bugs)**: Rare Candy gate, duplicate-name disambiguation, Pro Research DRAW resolution, Ultra Ball search-failure feedback, Gideon Blackblade turn-end clarification.
+- **Heuristic encoder pass**: Nest Ball evolution-line awareness, Ultra Ball Basic-priority when bench=0, Aurelia ex attack-mode selection by bench count.

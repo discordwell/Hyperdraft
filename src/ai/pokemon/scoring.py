@@ -323,6 +323,36 @@ def _score_attack(adapter, attacker: 'GameObject', attack: dict,
                 player = state.players.get(player_id)
                 winning_ko = bool(player and player.prizes_remaining <= prize_value)
 
+            # iter3 fix (Pilot A "Veiled Whisper > Shadowstrike for almost every
+            # BRV KO"): when this attack KOs AND a more expensive same-Pokemon
+            # attack would also KO, prefer the cheaper one to save energy/tempo.
+            if final_damage >= opp_remaining and attacker.card_def:
+                this_cost = sum(c.get('count', 0) for c in (attack.get('cost', []) or []))
+                attack_name_self = attack.get('name', '')
+                cheaper_alt_kos = False
+                for alt in (attacker.card_def.attacks or []):
+                    if alt.get('name', '') == attack_name_self:
+                        continue
+                    alt_cost = sum(c.get('count', 0) for c in (alt.get('cost', []) or []))
+                    if alt_cost <= this_cost:
+                        # A non-strictly-cheaper alt that also KOs cancels the bonus.
+                        alt_dmg = _estimate_damage(attacker, opp, alt.get('damage', 0), state)
+                        if alt_dmg >= opp_remaining:
+                            cheaper_alt_kos = True
+                            break
+                if not cheaper_alt_kos:
+                    # Check whether a STRICTLY MORE EXPENSIVE alt would also KO —
+                    # if yes, this cheaper attack earns the efficiency bonus.
+                    for alt in (attacker.card_def.attacks or []):
+                        if alt.get('name', '') == attack_name_self:
+                            continue
+                        alt_cost = sum(c.get('count', 0) for c in (alt.get('cost', []) or []))
+                        if alt_cost > this_cost:
+                            alt_dmg = _estimate_damage(attacker, opp, alt.get('damage', 0), state)
+                            if alt_dmg >= opp_remaining:
+                                score += 20.0  # Efficient-KO: cheaper attack KOs
+                                break
+
         text_discard_penalty = 0.0
         if 'discard all energy' in attack_text:
             text_discard_penalty = 18.0
@@ -421,6 +451,12 @@ def _score_attack(adapter, attacker: 'GameObject', attack: dict,
             score = apply_attack_bias(preset, card_name, attack_name, score)
         except Exception:
             pass
+
+    # iter2 fix (pilot B "Reckoner Counter-Punch self-KO via confusion-tails"):
+    # confused attacks have ~50% fail + 30 self-damage, so down-weight the
+    # whole attack rather than just the attacker. 0.6× = 50% fail + recoil cost.
+    if 'confused' in attacker.state.status_conditions:
+        score *= 0.6
 
     return score
 
@@ -559,6 +595,18 @@ def _score_basic_play(adapter, card: 'GameObject', state: GameState,
             score += 18.0
         elif bench_count <= 2:
             score += 8.0
+
+        # iter1 fix (pilots A+B both lost/won via no_pokemon): if bench is
+        # EMPTY and Active is in lethal range, benching ANY Basic is
+        # existential — bench-empty + Active KO = lose-the-game.
+        if bench_count == 0 and adapter._current_context:
+            ctx = adapter._current_context
+            if ctx.opp_can_ko_me or (
+                    ctx.my_active and ctx.opp_estimated_max_damage > 0):
+                my_active_obj = state.objects.get(ctx.my_active) if ctx.my_active else None
+                if my_active_obj and adapter._remaining_hp(my_active_obj) <= max(
+                        ctx.opp_estimated_max_damage, 30):
+                    score += 60.0  # Existential bench-the-Basic bonus
 
         if 'draw' in card_text:
             score += 14.0
@@ -876,6 +924,25 @@ def _adjust_trainer_for_attack_pressure(adapter, card: 'GameObject',
             score += 10.0
         if 'search your deck' in text:
             score += 6.0
+
+    # iter1 fix (pilot B "Aurelet starvation"): if we have evolutions in hand
+    # but no matching base in play, bump tutors/draw — we're dead-card-starved.
+    if ctx.my_hand_evolutions:
+        on_board_names = set()
+        for pid in ([ctx.my_active] if ctx.my_active else []) + ctx.my_bench:
+            p = state.objects.get(pid) if pid else None
+            if p:
+                on_board_names.add(p.name)
+        starved = any(
+            (state.objects.get(eid) and state.objects[eid].card_def
+             and state.objects[eid].card_def.evolves_from not in on_board_names)
+            for eid in ctx.my_hand_evolutions
+        )
+        if starved:
+            if name in {"Nest Ball", "Ultra Ball"}:
+                score += 15.0
+            elif name in {"Professor's Research", "Iono", "Judge"}:
+                score += 10.0
 
     if active_gap <= 1 and active_gap > 0:
         if 'energy' in text and ('attach' in text or 'hand' in text):

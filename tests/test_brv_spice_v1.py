@@ -31,12 +31,25 @@ from src.engine.types import (
 
 @pytest.fixture
 def pkm_game():
-    """Two-player Pokemon Game with empty boards but all zones present."""
+    """Two-player Pokemon Game with empty boards but all zones present.
+
+    Both players are registered as AI so the shared
+    ``resolve_pending_choice_inline`` (in ``pending_choice_helpers.py``)
+    will synchronously resolve any modal/target ``PendingChoice`` a card
+    creates. Without AI registration, the helper would correctly leave
+    the choice pending for a human to resolve via the session API —
+    which would block these unit tests indefinitely.
+    """
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         from src.engine.game import Game
+        from src.ai.pokemon.adapter import PokemonAIAdapter
     g = Game(mode="pokemon")
     p1 = g.add_player("Alice")
     p2 = g.add_player("Bob")
+    ai = PokemonAIAdapter()
+    g.turn_manager.set_ai_handler(ai)
+    g.turn_manager.set_ai_player(p1.id)
+    g.turn_manager.set_ai_player(p2.id)
     return g, p1, p2
 
 

@@ -102,22 +102,73 @@ POKEMON_BIAS_PRESETS: dict[str, dict] = {
     ),
 
     # ──────────────────────────────────────────────────────────
-    # Lost Zone Engine — Cremate, Mirko Vosk, Jarad ex archetype.
+    # Lost Zone Engine — name retained for legacy Jarad/Cremate variant,
+    # but the actual brv:dimir deck (iter 1) ships Lazav ex / Mirko Vosk
+    # as the win line. Weights cover both lines so the preset works for
+    # either deck composition.
     # ──────────────────────────────────────────────────────────
     'lz_engine': _preset(
         trainer_multipliers={
             'Cremate': 1.8,
             'Negate the Negation': 1.3,
             'Sanguine Sacrament': 1.5,  # also feeds LZ
+            # iter 1: Dimir Blend Energy is the T2 tempo card —
+            # free P+D attach skips a turn of manual attaching.
+            'Dimir Blend Energy': 1.6,
+            # iter 1: Nest Ball solves the empty-bench failure mode
+            # (Lazav ex's 280 HP doesn't save you from `no_pokemon`).
+            'Nest Ball': 1.5,
+            # iter 1: Ultra Ball auto-discards Energy first — harmful
+            # to Dimir's P/D curve when hand is energy-thin. Cap at 0.7.
+            'Ultra Ball': 0.7,
+            # iter 1: Dimir Interrogation whiffs when opp hand <4.
+            # Slight down-weight; preset doesn't have state-aware logic.
+            'Dimir Interrogation': 0.9,
+            # iter 2: Duskmantle is a clutch tech card (Confused via
+            # Trainer mill) — saved a 2-turn window when opp Reckoner
+            # confusion-tails self-KO'd. Best vs Trainer-heavy decks.
+            'Duskmantle, House of Shadow': 1.3,
+            # iter 2: Rare Candy is frequently dead — requires Lazlet
+            # in play AND Lazav ex in hand. With 4-copy Lazlet
+            # starvation (0 drawn in 22 turns), Rare Candy bricks.
+            'Rare Candy': 0.8,
+            # iter 3: Tox-Pawpsule was decisive vs Boros — between-turn
+            # poison ticks killed opp Reckoner (50→20→0) without Dimir
+            # spending an attack. Forces opp into retreat-or-die when
+            # they lack Switch. Add at 1.4× (matching control_disrupt's
+            # 1.5×); cap at 2.0×.
+            'Tox-Pawpsule': 1.4,
         },
         attack_multipliers={
             ('Mirko Vosk, Mind Drinker', 'Lost Recall'): 2.0,
             ('Jarad, Golgari Lich Lord ex', 'Necrosurge'): 1.8,
             ('Jarad, Golgari Lich Lord ex', "Lich's Bargain"): 1.6,
+            # iter 1: Lazav ex is the actual win-condition attack in
+            # brv:dimir. Shadowstrike {P}{P}{D}{D} for 200 + mill 4.
+            ('Lazav, Dimir Mastermind ex', 'Shadowstrike'): 2.0,
+            # iter 3: Veiled Whisper is the workhorse — not just the
+            # setup attack. 2-energy {P}{D} for 80 dmg one-shots BRV's
+            # typical 60-90 HP basics + Stage 1s; only Stage 2 ex (280
+            # HP) need Shadowstrike's 4-energy overkill. KO'd 5 of 6
+            # Boros Pokemon in iter 3 prize race. Bump 1.3→1.6, cap at
+            # the 2.0× ceiling shared with Shadowstrike.
+            ('Lazav, Dimir Mastermind ex', 'Veiled Whisper'): 1.6,
+            # iter 2: Mirklet Tiny Bite is the Plan-C chip attack when
+            # both Stage 2 lines are stalled. 1-cost backup pressure.
+            ('Mirklet', 'Tiny Bite'): 1.2,
         },
         evolution_multipliers={
             'Mirko Vosk, Mind Drinker': 2.0,
             'Jarad, Golgari Lich Lord ex': 2.0,
+            # iter 1: Lazav line is the actual win path. Stage 2.
+            'Lazav, Dimir Mastermind ex': 2.0,
+            # iter 1: Lazander is the intermediate Stage 1; prioritize
+            # over Mirko Vosk when both are options and energy is tight.
+            'Lazander': 1.5,
+            # iter 2: Lazlet is the Stage 0 evolver gating the Lazav ex
+            # line. 4-copy starvation in iter 2 (0 drawn in 22 turns).
+            # Bias-bump prioritizes hitting it via tutors. Cap at 1.6.
+            'Lazlet': 1.6,
         },
     ),
 
@@ -127,13 +178,42 @@ POKEMON_BIAS_PRESETS: dict[str, dict] = {
     'bench_swarm': _preset(
         attack_multipliers={
             ('Aurelia, the Warleader ex', 'Battalion Mark'): 2.0,
+            # iter 1: Feather, the Redeemed is a confirmed secondary
+            # win condition (120 HP, R+C 80 + Trainer recursion).
+            ('Feather, the Redeemed', 'Redeemed Recursion'): 1.4,
         },
         evolution_multipliers={
             'Aurelia, the Warleader ex': 1.8,
+            # iter 1: Aurelin (Stage 1) is the first scaling step and
+            # was under-prioritized in pilot's decision logs.
+            'Aurelin': 1.5,
         },
         trainer_multipliers={
             'Sanguine Sacrament': 1.5,  # sac to save key bench
             'Tox-Pawpsule': 1.3,
+            # iter 1: Boss's Orders + cheap-attacker line confirmed as
+            # the surgical kill vs tanky-Active opponents. Pull a
+            # 1-prize bench Pokemon to Active, KO for prize, bypass
+            # the 280 HP wall. Already at 1.6×; iter 2 confirms — don't
+            # bump further (over-tuning risks Boss's Orders being played
+            # when no high-value bench target exists).
+            "Boss's Orders": 1.6,
+            # iter 1: Sunhome heals BOTH actives. Against a tank that
+            # we can't KO, the mutual heal favors opp. Down-weight.
+            'Sunhome, Fortress of the Legion': 0.7,
+            # iter 1: Ultra Ball auto-discards Energy first — Boros
+            # is 2-color and energy-thin, so this discards Fire/Fighting
+            # before utility cards. Engine-wide pitfall.
+            'Ultra Ball': 0.7,
+            # iter 2: Boros Blend Energy + retreat is a 1-turn ramp
+            # combo (saved game T18 — wrong-typed Active swapped for
+            # fresh Basic, Blend gives R+F immediately).
+            'Boros Blend Energy': 1.4,
+            # iter 2: Gideon Blackblade is a confirmed kill-spell
+            # finisher (Supporter, 20 dmg + 20 heal, doesn't end
+            # turn). Won iter 2 by KO'ing opp's lone Mirklet at 10 HP
+            # → empty bench → no_pokemon. Save for opp Active ≤ 20 HP.
+            'Gideon Blackblade': 1.8,
         },
     ),
 

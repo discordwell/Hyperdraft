@@ -133,16 +133,30 @@ def _nest_ball_effect(event, state):
             basic_candidates.append(card_id)
 
     ai_target = _choose_ai_nest_ball_target(state, player_id, basic_candidates)
-    # Non-AI fallback: find highest-HP Basic Pokemon in deck.
+    # iter2 fix (pilot B "3-of-3 Nest Balls fetched non-Aurelet"):
+    # check hand for any Stage 1/2 evolution and bias toward its Basic base.
+    # Pure HP scoring over-prefers high-HP Basics (Reckoner 80 > Aurelet 60)
+    # when the deck's S2 win condition needs the lower-HP evolution starter.
+    hand_key = f"hand_{player_id}"
+    hand_zone = state.zones.get(hand_key)
+    evolution_bases_in_hand = set()
+    if hand_zone:
+        for hid in hand_zone.objects:
+            h = state.objects.get(hid)
+            if h and h.card_def and getattr(h.card_def, 'evolves_from', None):
+                evolution_bases_in_hand.add(h.card_def.evolves_from)
+    # Non-AI fallback: find highest-scoring Basic Pokemon in deck (HP + evo bonus).
     best_id = ai_target
-    best_hp = 0
+    best_score = -1
     for card_id in basic_candidates:
         if ai_target:
             break
         obj = state.objects.get(card_id)
-        hp = obj.card_def.hp or 0
-        if hp > best_hp:
-            best_hp = hp
+        score = obj.card_def.hp or 0
+        if obj.name in evolution_bases_in_hand:
+            score += 50  # iter2: evolution-chain starter beats raw HP
+        if score > best_score:
+            best_score = score
             best_id = card_id
     if not best_id:
         return []
@@ -188,17 +202,38 @@ def _ultra_ball_effect(event, state):
             break
 
     # Discard 2 cards, preserving assembled Rare Candy + Stage 2 lines.
+    # iter1 fix (pilots A+B): rank Energy as LEAST discardable, not most.
+    # Energy is curve-critical and getting it back is expensive; prefer to
+    # discard duplicate trainers / spent supporters first.
     discard_candidates = []
+    bench_key = f"bench_{player_id}"
+    bench_zone = state.zones.get(bench_key)
+    bench_count = len(bench_zone.objects) if bench_zone else 0
+    pokemon_names_on_board = set()
+    for zone_key in (f"active_spot_{player_id}", bench_key):
+        z = state.zones.get(zone_key)
+        if not z:
+            continue
+        for pid in z.objects:
+            p = state.objects.get(pid)
+            if p:
+                pokemon_names_on_board.add(p.name)
     for card_id in hand.objects:
         obj = state.objects.get(card_id)
         if not obj:
             continue
         # Score: lower = more discardable
-        score = 50
-        if CardType.ENERGY in (obj.characteristics.types if obj.characteristics else set()):
-            score = 10  # Energy is cheap to discard
-        elif obj.card_def and obj.card_def.hp:
-            score = obj.card_def.hp  # Higher HP = less discardable
+        types = obj.characteristics.types if obj.characteristics else set()
+        if CardType.ENERGY in types:
+            score = 95  # Energy = LAST resort (was 10 — iter1 regression)
+        elif CardType.POKEMON in types:
+            # Duplicate of a Pokemon already on board → safe to discard
+            if obj.name in pokemon_names_on_board:
+                score = 20
+            else:
+                score = (obj.card_def.hp or 0) if obj.card_def else 50
+        else:
+            score = 40  # Trainers in general — discard before energy
         if has_rare_candy_stage2 and obj.name == "Rare Candy":
             score += 90
         if (has_rare_candy_stage2 and obj.card_def
@@ -225,6 +260,12 @@ def _ultra_ball_effect(event, state):
     library = state.zones.get(library_key)
     if not library:
         return []
+    # iter1 fix (pilot A): when bench is empty, prefer a Basic — fetching
+    # a Stage 2 ex with nothing to bench leaves the win condition stranded.
+    # iter2 fix (pilot B): -200 was insufficient (Aurelia ex 280 + ex 100 +
+    # S2 50 = 230 > Aurelet 60). Promote to HARD FILTER: skip non-Basics
+    # entirely when bench is empty.
+    need_basic_for_bench = bench_count == 0
     best_id = None
     best_score = -1
     for card_id in library.objects:
@@ -233,6 +274,9 @@ def _ultra_ball_effect(event, state):
             continue
         if CardType.POKEMON not in (obj.characteristics.types if obj.characteristics else set()):
             continue
+        is_basic = obj.card_def.evolution_stage == 'Basic'
+        if need_basic_for_bench and not is_basic:
+            continue  # iter2 hard filter: don't even consider non-Basics
         score = obj.card_def.hp or 0
         if obj.card_def.is_ex:
             score += 100  # Prioritize ex Pokemon
