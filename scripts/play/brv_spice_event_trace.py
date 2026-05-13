@@ -69,8 +69,13 @@ def _resolve_deck(name: str):
 
 async def _run_one_traced_game(
     p1_deck_name: str, p2_deck_name: str, max_turns: int,
+    p1_bias: str = "balanced", p2_bias: str = "balanced",
 ) -> tuple[list[dict], dict]:
-    """Run one game, capture all PKM_* events, return (event_log, summary)."""
+    """Run one game, capture all PKM_* events, return (event_log, summary).
+
+    ``p1_bias`` / ``p2_bias`` select a ``POKEMON_BIAS_PRESETS`` archetype
+    per player (Phase 3 addition). Both default to ``balanced``.
+    """
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         from src.engine.game import Game
         from src.ai.pokemon_adapter import PokemonAIAdapter
@@ -81,9 +86,11 @@ async def _run_one_traced_game(
     p2 = game.add_player(f"P2-{p2_deck_name}")
     game.setup_pokemon_player(p1, deck1)
     game.setup_pokemon_player(p2, deck2)
-    ai = PokemonAIAdapter(difficulty="medium")
+    ai = PokemonAIAdapter(difficulty="medium", bias=p1_bias)
     ai.player_difficulties[p1.id] = "medium"
     ai.player_difficulties[p2.id] = "medium"
+    ai.set_player_bias(p1.id, p1_bias)
+    ai.set_player_bias(p2.id, p2_bias)
     game.turn_manager.set_ai_handler(ai)
     game.turn_manager.set_ai_player(p1.id)
     game.turn_manager.set_ai_player(p2.id)
@@ -158,6 +165,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--p1", default="dimir")
     parser.add_argument("--p2", default="golgari")
+    parser.add_argument("--p1-bias", default="balanced",
+                        help="POKEMON_BIAS_PRESETS key for p1 (Phase 3 addition)")
+    parser.add_argument("--p2-bias", default="balanced",
+                        help="POKEMON_BIAS_PRESETS key for p2")
     parser.add_argument("--games", type=int, default=5)
     parser.add_argument("--max-turns", type=int, default=40)
     parser.add_argument("--out-dir", default="logs/brv_spice_trace")
@@ -172,6 +183,7 @@ def main() -> int:
     for i in range(args.games):
         events, summary = asyncio.run(_run_one_traced_game(
             args.p1, args.p2, max_turns=args.max_turns,
+            p1_bias=args.p1_bias, p2_bias=args.p2_bias,
         ))
         summaries.append(summary)
         all_events.extend(events)
