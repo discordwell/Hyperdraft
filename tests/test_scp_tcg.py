@@ -185,7 +185,11 @@ def test_research_test_uses_assigned_personnel_and_gains_archive():
     # of the engine's base +1), so a successful test yields 2 archives.
     assert scp.site(game.state, p1.id)["archives"] == 2
     assert junior.state.scp_exhausted is True
-    assert intern.state.scp_exhausted is True
+    # Sleep-Deprived Intern has a scp_on_assign quirk: on the FIRST assignment
+    # per turn the intern is NOT marked exhausted (the engine exhausts them
+    # via _staff_total, and the on-assign hook toggles the flag back). The
+    # quirk is wired by src/cards/scp/mechanics/personnel_quirks.py.
+    assert intern.state.scp_exhausted is False
     assert any(event.type == EventType.SCP_TEST_RUN and event.payload["success"] for event in events)
 
 
@@ -1390,12 +1394,14 @@ def test_test_dividends_cognitive_load_exhausts_extra_researcher():
     ok, _msg, events = scp.run_test(game, p1.id, anomaly.id, [o5.id, intern.id])
     assert ok
 
-    # The bystander (lowest research between bystander and analyst-tier cards)
-    # should now be exhausted by the cognitive-load hook.
-    assert bystander.state.scp_exhausted is True
-    # The assigned staff are also exhausted (standard engine behavior).
+    # The cognitive-load hook drains exactly ONE active researcher. With
+    # the Sleep-Deprived Intern's first-assignment-free quirk, the intern
+    # is un-exhausted after _staff_total and remains a candidate (lowest
+    # research, tied with the bystander). Iteration order makes the intern
+    # the cognitive-load victim; the bystander stays unexhausted.
     assert o5.state.scp_exhausted is True
-    assert intern.state.scp_exhausted is True
+    assert intern.state.scp_exhausted is True  # re-exhausted by cognitive_load
+    assert bystander.state.scp_exhausted is False
     assert any(
         event.type == EventType.SCP_ASSIGN_STAFF
         and event.payload.get("reason") == "cognitive_load"
@@ -1794,3 +1800,192 @@ def test_seal_default_anomaly_with_red_tape_seals_after_paperwork_clears():
     # Reveal hook fired during the activation step: mood is set.
     assert anomaly.state.scp_mood == "cryptic"
     assert anomaly.id not in game.state.scp_anomalies.get(p1.id, [])
+
+
+# Agent (c): scp_on_assign hook + personnel quirks
+# ---------------------------------------------------------------------------
+
+
+def test_personnel_quirks_janitor_reduces_breach_on_suppress_assignment():
+    """Janitor Who Knows Too Much shaves a point of breach when assigned to suppress."""
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "The Concrete Saint")
+    janitor = _hand_card(game, p1, "Janitor Who Knows Too Much")
+
+    assert scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, janitor.id, fast_track=True)[0]
+
+    # Seed breach so the Janitor has something to reduce.
+    scp.site(game.state, p1.id)["breach"] = 3
+    breach_before = scp.site(game.state, p1.id)["breach"]
+
+    ok, message, events = scp.suppress_anomaly(game, p1.id, anomaly.id, [janitor.id])
+    assert ok, message
+    assert scp.site(game.state, p1.id)["breach"] == breach_before - 1
+    assert any(
+        event.type == EventType.SCP_INCIDENT_RESOLVED
+        and event.payload.get("reason") == "janitor_hushed_alarm"
+        for event in events
+    )
+
+
+def test_personnel_quirks_janitor_breach_floor_is_zero():
+    """Janitor's on-assign payoff cannot drive breach below zero."""
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "The Concrete Saint")
+    janitor = _hand_card(game, p1, "Janitor Who Knows Too Much")
+
+    assert scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, janitor.id, fast_track=True)[0]
+    scp.site(game.state, p1.id)["breach"] = 0
+
+    ok, _msg, _events = scp.suppress_anomaly(game, p1.id, anomaly.id, [janitor.id])
+    assert ok
+    assert scp.site(game.state, p1.id)["breach"] == 0
+
+
+def test_personnel_quirks_memory_triage_handler_grants_task_bonus_with_memetics_co_assignment():
+    """SZB Memory Triage Handler adds +1 research when a co-Memetics teammate is assigned."""
+    game, p1, _p2 = _setup()
+    # SZB Memory Triage Anomaly: curiosity for testing. Use a high-curiosity
+    # anomaly so the task_bonus matters (research total = handler + memetics
+    # analyst + co_assignment_bonus). We test the bonus shows up in the
+    # SCP_TEST_RUN payload as "total".
+    anomaly = _hand_card(game, p1, "SZB Memory Triage Anomaly")
+    handler = _hand_card(game, p1, "SZB Memory Triage Handler")
+    analyst = _hand_card(game, p1, "Memetics Analyst")
+
+    assert scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, handler.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, analyst.id, fast_track=True)[0]
+
+    ok, _msg, events = scp.run_test(game, p1.id, anomaly.id, [handler.id, analyst.id])
+    assert ok
+    # The hook emits an SCP_INCIDENT_RESOLVED event with task_bonus=1 and
+    # reason=memory_triage_handoff.
+    assert any(
+        event.type == EventType.SCP_INCIDENT_RESOLVED
+        and event.payload.get("reason") == "memory_triage_handoff"
+        and event.payload.get("task_bonus") == 1
+        for event in events
+    )
+
+
+def test_personnel_quirks_press_conference_handler_trades_secrecy_for_suppression():
+    """SZB Press Conference Handler grants +2 suppress at the cost of -1 secrecy."""
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "The Concrete Saint")
+    handler = _hand_card(game, p1, "SZB Press Conference Handler")
+
+    assert scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, handler.id, fast_track=True)[0]
+
+    secrecy_before = scp.site(game.state, p1.id)["secrecy"]
+    ok, _msg, events = scp.suppress_anomaly(game, p1.id, anomaly.id, [handler.id])
+    assert ok
+    assert scp.site(game.state, p1.id)["secrecy"] == secrecy_before - 1
+    # The SCP_ASSIGN_STAFF event records the post-bonus suppression total.
+    # Handler's suppress skill is 1 (per generator), +2 from task_bonus = 3.
+    assign_events = [
+        e for e in events if e.type == EventType.SCP_ASSIGN_STAFF
+        and e.payload.get("task") == "suppress"
+    ]
+    assert assign_events
+    assert assign_events[0].payload["total"] >= 3
+
+
+def test_personnel_quirks_on_assign_does_not_fire_when_not_assigned():
+    """A handler with scp_on_assign should NOT trigger when it's on the
+    battlefield but not in the assigned staff list."""
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "The Concrete Saint")
+    janitor = _hand_card(game, p1, "Janitor Who Knows Too Much")
+    other = _hand_card(game, p1, "Junior Researcher")
+
+    assert scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, janitor.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, other.id, fast_track=True)[0]
+    scp.site(game.state, p1.id)["breach"] = 4
+    breach_before = scp.site(game.state, p1.id)["breach"]
+
+    # Suppress using ONLY the junior researcher — Janitor is present but not used.
+    ok, _msg, events = scp.suppress_anomaly(game, p1.id, anomaly.id, [other.id])
+    assert ok
+    # Breach unchanged — the Janitor's on-assign quirk did not fire.
+    assert scp.site(game.state, p1.id)["breach"] == breach_before
+    assert not any(
+        event.payload.get("reason") == "janitor_hushed_alarm"
+        for event in events
+    )
+
+
+def test_personnel_quirks_intern_first_assignment_per_turn_is_free():
+    """Sleep-Deprived Intern is NOT exhausted on the first assignment per turn,
+    but IS exhausted on the second."""
+    game, p1, _p2 = _setup()
+    anomaly1 = _hand_card(game, p1, "Moth in the Camera")
+    anomaly2 = _hand_card(game, p1, "Rain Inside the Elevator")
+    intern = _hand_card(game, p1, "Sleep-Deprived Intern")
+
+    assert scp.open_dossier(game, p1.id, anomaly1.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, anomaly2.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, intern.id, fast_track=True)[0]
+
+    # First assignment: intern stays unexhausted.
+    ok, _msg, _events = scp.run_test(game, p1.id, anomaly1.id, [intern.id])
+    assert ok
+    assert intern.state.scp_exhausted is False
+    assert getattr(intern.state, "scp_assigns_this_turn", 0) == 1
+
+    # Second assignment in the same turn: intern is exhausted normally.
+    ok, _msg, _events = scp.run_test(game, p1.id, anomaly2.id, [intern.id])
+    assert ok
+    assert intern.state.scp_exhausted is True
+    assert getattr(intern.state, "scp_assigns_this_turn", 0) == 2
+
+
+def test_personnel_quirks_applier_is_idempotent():
+    """Running apply_personnel_quirks repeatedly is safe — hooks and text stable."""
+    from src.cards.scp import SCP_CARDS
+    from src.cards.scp.mechanics.personnel_quirks import apply_personnel_quirks
+
+    janitor = SCP_CARDS["Janitor Who Knows Too Much"]
+    handler = SCP_CARDS["SZB Memory Triage Handler"]
+    janitor_text_before = janitor.text
+    handler_text_before = handler.text
+    janitor_hook_before = janitor.scp_on_assign
+    handler_hook_before = handler.scp_on_assign
+
+    # Re-apply twice.
+    apply_personnel_quirks(SCP_CARDS)
+    apply_personnel_quirks(SCP_CARDS)
+
+    # Text should be unchanged across applications.
+    assert janitor.text == janitor_text_before
+    assert handler.text == handler_text_before
+    # Hooks are still callable.
+    assert callable(janitor.scp_on_assign)
+    assert callable(handler.scp_on_assign)
+    # Text contains our marker clauses.
+    assert "alarms hushed" in janitor.text
+    assert "co-assigned Memetics" in handler.text
+
+
+def test_personnel_quirks_white_pill_ward_drops_one_ethics_debt():
+    """SZB White Pill Ward Handler on research: ethics debt -1."""
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "Moth in the Camera")
+    handler = _hand_card(game, p1, "SZB White Pill Ward Handler")
+
+    assert scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, handler.id, fast_track=True)[0]
+    scp.site(game.state, p1.id)["ethics_debt"] = 3
+
+    ok, _msg, events = scp.run_test(game, p1.id, anomaly.id, [handler.id])
+    assert ok
+    assert scp.site(game.state, p1.id)["ethics_debt"] == 2
+    assert any(
+        e.type == EventType.SCP_ETHICS_SPENT
+        and e.payload.get("reason") == "white_pill_triage"
+        for e in events
+    )

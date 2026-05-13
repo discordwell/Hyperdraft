@@ -32,6 +32,7 @@ def apply_all_mechanics(cards: "dict[str, CardDefinition]") -> None:
     order is independent.
     """
     from .contained_auras import apply_contained_auras
+    from .personnel_quirks import apply_personnel_quirks
     from .personnel_synergy import apply_personnel_synergy
     from .reveal_identity import apply_reveal_identity
     from .test_dividends import apply_test_dividends
@@ -40,3 +41,6 @@ def apply_all_mechanics(cards: "dict[str, CardDefinition]") -> None:
     apply_test_dividends(cards)
     apply_contained_auras(cards)
     apply_personnel_synergy(cards)
+    # personnel_quirks runs AFTER personnel_synergy so its text-append clauses
+    # land on top of synergy's aura sentences (Janitor / Memory Triage share).
+    apply_personnel_quirks(cards)
