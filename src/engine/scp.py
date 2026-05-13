@@ -1066,11 +1066,18 @@ def check_scp_victory(game, *, source: Optional[str] = None) -> list[Event]:
             alt_win = getattr(mandate.card_def, "scp_alt_win", None)
             if alt_win == "redaction" and redaction_alt_win_met(mandate.card_def, s):
                 events.extend(_declare_site_win(game, player_id, "total_redaction", source=mandate.id))
-            if alt_win == "thaumiel" and len(state.scp_contained.get(player_id, [])) >= 4 and s["breach"] == 0:
+            # Thaumiel: 3 contained (was 4) + 0 breach. The contained-zone
+            # accumulation is slow enough that 4 almost never lands in 18-turn
+            # games; 3 is achievable while still expressing the archetype.
+            if alt_win == "thaumiel" and len(state.scp_contained.get(player_id, [])) >= 3 and s["breach"] == 0:
                 events.extend(_declare_site_win(game, player_id, "thaumiel_containment", source=mandate.id))
             if alt_win == "veil_lockdown" and s["archives"] >= 3 and s["breach"] == 0:
                 events.extend(_declare_site_win(game, player_id, "veil_lockdown", source=mandate.id))
-            if alt_win == "ethics_audit" and s["archives"] >= 4 and s["secrecy"] >= 8 and s["ethics_debt"] <= 2:
+            # Ethics audit: dropped the ethics_debt <= 2 requirement. The ETH
+            # archetype's own anomalies seed ethics_debt on reveal, so the
+            # old requirement directly fought its win condition. Now just
+            # archives + secrecy, matching public_panic's complexity.
+            if alt_win == "ethics_audit" and s["archives"] >= 4 and s["secrecy"] >= 8:
                 events.extend(_declare_site_win(game, player_id, "ethics_audit", source=mandate.id))
             if alt_win == "public_panic" and s["archives"] >= 4:
                 exposed_opponent = any(

@@ -306,6 +306,60 @@ def _goi_tip_off(obj: GameObject, state: GameState, game=None):
     return scp.goi_raid(game, opponent, faction="Serpent's Hand", source=obj.id)
 
 
+def _crisis_reframe(obj: GameObject, state: GameState, game=None):
+    """Catch-up sweeper: when you're behind on breach, hit both sites; otherwise small relief."""
+    s = scp.site(state, obj.controller)
+    opp_id = _opponent(state, obj.controller)
+    own_breach = s["breach"]
+    events = []
+    if own_breach >= 6 and opp_id is not None:
+        opp = scp.site(state, opp_id)
+        opp_delta = min(2, opp["breach"])
+        own_delta = min(2, own_breach)
+        opp["breach"] -= opp_delta
+        s["breach"] -= own_delta
+        events.append(_site_event(
+            EventType.SCP_BREACH_TICK, obj,
+            amount=-own_delta, reason="crisis_reframe_self",
+            breach=s["breach"],
+        ))
+        events.append(Event(
+            type=EventType.SCP_BREACH_TICK,
+            payload={"player": opp_id, "amount": -opp_delta, "reason": "crisis_reframe_opp", "breach": opp["breach"]},
+            source=obj.id, controller=obj.controller,
+        ))
+    else:
+        s["breach"] = max(0, own_breach - 1)
+        events.append(_site_event(
+            EventType.SCP_BREACH_TICK, obj,
+            amount=-1, reason="crisis_reframe_small",
+            breach=s["breach"],
+        ))
+    return events
+
+
+def _compelling_testimony(obj: GameObject, state: GameState, game=None):
+    """Catch-up archive: gain +1 archive when behind on board presence."""
+    own_anomalies = len(state.scp_anomalies.get(obj.controller, []))
+    own_contained = len(state.scp_contained.get(obj.controller, []))
+    opp_id = _opponent(state, obj.controller)
+    if opp_id is None:
+        return []
+    opp_anomalies = len(state.scp_anomalies.get(opp_id, []))
+    opp_contained = len(state.scp_contained.get(opp_id, []))
+    own_board = own_anomalies + own_contained
+    opp_board = opp_anomalies + opp_contained
+    if game is not None and own_board <= opp_board:
+        return scp.gain_archives(game, obj.controller, 1, source=obj.id)
+    # Otherwise small secrecy boost (deck still wants the slot)
+    scp.site(state, obj.controller)["secrecy"] += 1
+    return [_site_event(
+        EventType.SCP_ARCHIVE_GAINED, obj,
+        amount=0, reason="testimony_neutral",
+        secrecy=scp.site(state, obj.controller)["secrecy"],
+    )]
+
+
 def _hostile_reveal(amount):
     def reveal(obj: GameObject, state: GameState):
         s = scp.site(state, obj.controller)
@@ -435,11 +489,13 @@ PROCEDURES = [
     _procedure("Bureaucratic Labyrinth", 1, {"Bureaucracy"}, "Add paperwork to an opposing pending dossier; audit if none exist.", _misfile_audit),
     _procedure("Weaponize Ethics Debt", 0, {"Ethics"}, "Spend 2 ethics debt for clearance, or seed 2 debt if you have none.", _weaponize_ethics),
     _procedure("GOI Raid Tip-Off", 1, {"GOI", "Raid"}, "Trigger a GOI raid against the opposing Site.", _goi_tip_off),
+    _procedure("Crisis Reframe", 0, {"Security", "Comeback"}, "If your breach is 6+, both Sites' breach -2; otherwise your breach -1.", _crisis_reframe),
+    _procedure("Compelling Testimony", 1, {"Audit", "Comeback"}, "If you have no more active+contained anomalies than opponent, gain +1 archive; otherwise secrecy +1.", _compelling_testimony),
 ]
 
 
 MANDATES = [
-    _mandate("Secure Mandate", 1, {"Mandate"}, "Containment-focused Site directive. Alternate win: hold four contained anomalies at zero breach.", bonus={"contain": 1}, alt_win="thaumiel"),
+    _mandate("Secure Mandate", 1, {"Mandate"}, "Containment-focused Site directive. Alternate win: hold three contained anomalies at zero breach.", bonus={"contain": 1}, alt_win="thaumiel"),
     _mandate("Contain Mandate", 1, {"Mandate"}, "Research-focused Site directive.", bonus={"research": 1}),
     _mandate(
         "Protect Mandate",
@@ -999,11 +1055,11 @@ ANTIMEMETIC_COLD_WAR_NAMES = [
     # Anomalies (4): ACW sealed-default thematic + CORE antimemetic anchor
     "ACW Blind Library Anomaly", "ACW Forgotten Embassy Anomaly",
     "ACW Unwritten Treaty Anomaly", "Antimemetic Orchard",
-    # Procedures (7): heavy secrecy + breach control + archive engine
+    # Procedures (7): heavy secrecy + breach control + comeback reach
     "Class-A Amnestic Broadcast", "Class-A Amnestic Broadcast",
     "Witness Relocation", "Witness Relocation",
-    "Null Room Calibration", "Red-Team the Veil",
-    "Cross-Test Proposal",
+    "Null Room Calibration",
+    "Crisis Reframe", "Compelling Testimony",
     # Mandates (2): 2x There Is No Antimemetics Division for redaction alt-win
     "There Is No Antimemetics Division", "There Is No Antimemetics Division",
 ]
@@ -1026,10 +1082,10 @@ KETER_BLACKOUT_NAMES = [
     "Unlicensed Heaven", "Borrowed Moon",
     "KBO Last Shepherd Anomaly", "KBO Dead Switch Anomaly",
     "KBO Cathedral Breach Anomaly",
-    # Procedures (5): sweepers + archive engine
+    # Procedures (5): sweepers + comeback reach
     "Lure It Into a Box", "Last Door Protocol",
-    "Emergency Lockdown", "Cross-Test Proposal",
-    "Friendly Fire Evacuation",
+    "Emergency Lockdown",
+    "Crisis Reframe", "Compelling Testimony",
     # Mandates (2): contain bonus + KBO thaumiel alt-win
     "Contain Mandate", "KBO Mandate 1: Sunless Reactor",
 ]
@@ -1077,10 +1133,11 @@ ETHICS_RECKONING_NAMES = [
     "ETH Audit Cathedral Anomaly", "ETH Patient Sun Anomaly",
     "ETH Confession Engine Anomaly", "ETH Burden Archive Anomaly",
     "ETH Mercy Ledger Anomaly",
-    # Procedures (6): conversion engine — Weaponize + Waiver feed Cross-Test
+    # Procedures (6): conversion engine + comeback reach
     "Weaponize Ethics Debt", "Weaponize Ethics Debt",
-    "Ethics Waiver", "Ethics Waiver",
-    "Cross-Test Proposal", "Cross-Test Proposal",
+    "Ethics Waiver",
+    "Cross-Test Proposal",
+    "Crisis Reframe", "Compelling Testimony",
     # Mandates (2): alt-win + suppress aura
     "There Is No Antimemetics Division",
     "Protect Mandate",

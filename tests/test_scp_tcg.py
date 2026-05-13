@@ -533,22 +533,22 @@ def test_scp_native_alternate_veil_lockdown_win():
 
 
 def test_scp_native_alternate_ethics_audit_win():
+    """ethics_audit: 4 archives + secrecy 8+. Ethics-debt gate dropped 2026-05."""
     game, p1, p2 = _setup()
     mandate = _hand_card(game, p1, "ETH Mandate 1: Mercy Ledger")
 
     assert scp.open_dossier(game, p1.id, mandate.id, fast_track=True)[0]
-    scp.site(game.state, p1.id)["archives"] = 4
+    # Below archive threshold: no win.
+    scp.site(game.state, p1.id)["archives"] = 3
     scp.site(game.state, p1.id)["secrecy"] = 8
-    scp.site(game.state, p1.id)["ethics_debt"] = 3
-
     events = scp.check_scp_victory(game)
     assert not p2.has_lost
-    assert not any(event.type == EventType.PLAYER_LOSES and event.payload["reason"] == "ethics_audit" for event in events)
 
-    scp.site(game.state, p1.id)["ethics_debt"] = 2
-
+    # At threshold: wins regardless of ethics_debt (used to gate at <=2).
+    scp.site(game.state, p1.id)["archives"] = 4
+    scp.site(game.state, p1.id)["secrecy"] = 8
+    scp.site(game.state, p1.id)["ethics_debt"] = 5
     events = scp.check_scp_victory(game)
-
     assert p2.has_lost
     assert any(event.type == EventType.PLAYER_LOSES and event.payload["reason"] == "ethics_audit" for event in events)
 
