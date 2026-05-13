@@ -7,11 +7,20 @@ Tests for Hearthstone game mode functionality.
 import pytest
 import asyncio
 from src.engine.game import Game
-from src.engine.types import GameState, ZoneType, CardType, EventType
+from src.engine.types import GameState, ZoneType, CardType, EventType, Event
 from src.cards.hearthstone.heroes import HEROES
 from src.cards.hearthstone.hero_powers import HERO_POWERS
-from src.cards.hearthstone.basic import WISP, STONETUSK_BOAR, CHILLWIND_YETI, BLOODFEN_RAPTOR
+from src.cards.hearthstone.basic import (
+    WISP, STONETUSK_BOAR, CHILLWIND_YETI, BLOODFEN_RAPTOR, BOULDERFIST_OGRE,
+    SEN_JIN_SHIELDMASTA,
+)
 from src.cards.hearthstone.warlock import SHADOWFLAME
+from src.cards.hearthstone.rogue import SAP, ASSASSINATE
+from src.cards.hearthstone.warrior import EXECUTE
+from src.cards.hearthstone.priest import (
+    SHADOW_WORD_PAIN, SHADOW_WORD_DEATH, SHADOW_MADNESS, CABAL_SHADOW_PRIEST,
+)
+from src.cards.hearthstone import riftclash, frierenrift
 
 
 def test_game_mode_initialization():
@@ -345,6 +354,399 @@ def test_shadowflame_no_friendly_minions_short_circuits():
     )
     events = SHADOWFLAME.spell_effect(shadowflame_obj, game.state, [])
 
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+# ============================================================
+# PendingChoice migrations — deterministic-pick cards (Phase 5)
+# ============================================================
+#
+# Each card here used to auto-pick via random.choice over a deterministic
+# bucket. The new path emits a PendingChoice over the bucket so humans
+# can deviate from the heuristic. AI behavior is preserved by registering
+# the caster as AI; the helper resolves inline via heuristic_pick.
+
+
+def _hs_scene(p1_class="Mage", p2_class="Warrior"):
+    """Build a Hearthstone game with both heroes set up."""
+    game = Game(mode="hearthstone")
+    p1 = game.add_player("Player1", life=30)
+    p2 = game.add_player("Player2", life=30)
+    game.setup_hearthstone_player(p1, HEROES[p1_class], HERO_POWERS[p1_class])
+    game.setup_hearthstone_player(p2, HEROES[p2_class], HERO_POWERS[p2_class])
+    return game, p1, p2
+
+
+def _cast(game, card_def, owner, targets=None):
+    """Cast helper that returns (caster_obj, returned_events). Emits events
+    so AI-path callers can assert against the engine's event_log.
+    """
+    obj = game.create_object(
+        name=card_def.name,
+        owner_id=owner.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    events = card_def.spell_effect(obj, game.state, targets) if card_def.spell_effect else []
+    for e in events:
+        game.emit(e)
+    return obj, events
+
+
+# ---- Sap (rogue): bounce an enemy minion ----
+
+def test_sap_emits_pending_choice_for_human_caster():
+    """Sap on a human caster leaves a PendingChoice over enemy minions."""
+    game, p1, p2 = _hs_scene()
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    yeti = _make_obj(game, CHILLWIND_YETI, p2)
+    boar = _make_obj(game, STONETUSK_BOAR, p2)
+
+    sap_obj, events = _cast(game, SAP, p1)
+
+    # Human path: choice stashed, no bounce yet.
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.choice_type == "target"
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert ogre.id in option_ids
+    assert yeti.id in option_ids
+    assert boar.id in option_ids
+
+    # Heuristic should target the 6-attack Ogre.
+    hp = (pc.callback_data or {}).get("heuristic_pick")
+    assert hp == [ogre.id]
+
+    # No RETURN_TO_HAND event yet.
+    bounce = [e for e in game.state.event_log if e.type == EventType.RETURN_TO_HAND]
+    assert bounce == []
+
+
+def test_sap_heuristic_resolves_for_ai_caster():
+    """When the caster is AI, Sap resolves inline against the heuristic pick."""
+    game, p1, p2 = _hs_scene()
+    game.turn_manager.ai_players.add(p1.id)
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    _make_obj(game, WISP, p2)
+
+    _sap, _events = _cast(game, SAP, p1)
+
+    assert game.state.pending_choice is None
+    bounce = [e for e in game.state.event_log
+              if e.type == EventType.RETURN_TO_HAND
+              and e.payload.get("object_id") == ogre.id]
+    assert len(bounce) == 1
+
+
+def test_sap_no_enemy_minions_short_circuits():
+    """No enemies = no choice, no events."""
+    game, p1, _p2 = _hs_scene()
+    _sap, events = _cast(game, SAP, p1)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+def test_sap_legacy_explicit_target_bypasses_choice():
+    """A test that passes targets=[explicit] uses the legacy path."""
+    game, p1, p2 = _hs_scene()
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    wisp = _make_obj(game, WISP, p2)
+
+    # Explicitly pick the Wisp; legacy path should bounce it without a choice.
+    _sap, events = _cast(game, SAP, p1, targets=[wisp.id])
+    assert game.state.pending_choice is None
+    assert any(
+        e.type == EventType.RETURN_TO_HAND and e.payload.get("object_id") == wisp.id
+        for e in events
+    ), f"Expected wisp to be returned to hand, got {events}"
+
+
+# ---- Assassinate (rogue): destroy an enemy minion ----
+
+def test_assassinate_emits_pending_choice_for_human():
+    game, p1, p2 = _hs_scene()
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    yeti = _make_obj(game, CHILLWIND_YETI, p2)
+
+    _ass, events = _cast(game, ASSASSINATE, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.choice_type == "target"
+    assert {opt["id"] for opt in pc.options} == {ogre.id, yeti.id}
+    assert (pc.callback_data or {}).get("heuristic_pick") == [ogre.id]
+
+
+def test_assassinate_heuristic_kills_for_ai():
+    game, p1, p2 = _hs_scene()
+    game.turn_manager.ai_players.add(p1.id)
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+
+    _ass, _events = _cast(game, ASSASSINATE, p1)
+    destroyed = [e for e in game.state.event_log
+                 if e.type == EventType.OBJECT_DESTROYED
+                 and e.payload.get("reason") == "assassinate"
+                 and e.payload.get("object_id") == ogre.id]
+    assert len(destroyed) == 1
+
+
+def test_assassinate_no_enemies_short_circuits():
+    game, p1, _p2 = _hs_scene()
+    _ass, events = _cast(game, ASSASSINATE, p1)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+# ---- Execute (warrior): destroy a damaged enemy minion ----
+
+def test_execute_emits_pending_choice_for_human_over_damaged_only():
+    game, p1, p2 = _hs_scene()
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)  # damaged
+    yeti = _make_obj(game, CHILLWIND_YETI, p2)    # undamaged
+    ogre.state.damage = 1
+
+    _exec, events = _cast(game, EXECUTE, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    # Only the damaged ogre is a legal option.
+    assert {opt["id"] for opt in pc.options} == {ogre.id}
+    assert (pc.callback_data or {}).get("heuristic_pick") == [ogre.id]
+
+
+def test_execute_no_damaged_targets_short_circuits():
+    game, p1, p2 = _hs_scene()
+    _make_obj(game, CHILLWIND_YETI, p2)  # undamaged
+
+    _exec, events = _cast(game, EXECUTE, p1)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+def test_execute_legacy_explicit_target_path():
+    game, p1, p2 = _hs_scene()
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    ogre.state.damage = 1
+
+    _exec, events = _cast(game, EXECUTE, p1, targets=[ogre.id])
+    assert game.state.pending_choice is None
+    assert any(
+        e.type == EventType.OBJECT_DESTROYED and e.payload.get("object_id") == ogre.id
+        for e in events
+    )
+
+
+# ---- Shadow Word: Pain (priest): destroy ATK<=3 ----
+
+def test_shadow_word_pain_choice_filtered_to_low_attack():
+    game, p1, p2 = _hs_scene()
+    senjin = _make_obj(game, SEN_JIN_SHIELDMASTA, p2)  # 3/5 — legal
+    boar = _make_obj(game, STONETUSK_BOAR, p2)         # 1/1 — legal
+    yeti = _make_obj(game, CHILLWIND_YETI, p2)         # 4/5 — illegal
+
+    _swp, events = _cast(game, SHADOW_WORD_PAIN, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    opts = {opt["id"] for opt in pc.options}
+    assert senjin.id in opts
+    assert boar.id in opts
+    assert yeti.id not in opts
+    # Heuristic should be the 3-attack Sen'jin.
+    assert (pc.callback_data or {}).get("heuristic_pick") == [senjin.id]
+
+
+def test_shadow_word_pain_no_valid_targets():
+    game, p1, p2 = _hs_scene()
+    _make_obj(game, CHILLWIND_YETI, p2)  # 4/5 — too high
+
+    _swp, events = _cast(game, SHADOW_WORD_PAIN, p1)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+# ---- Shadow Word: Death (priest): destroy ATK>=5 ----
+
+def test_shadow_word_death_choice_filtered_to_high_attack():
+    game, p1, p2 = _hs_scene()
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)  # 6/7 — legal
+    yeti = _make_obj(game, CHILLWIND_YETI, p2)    # 4/5 — illegal
+
+    _swd, events = _cast(game, SHADOW_WORD_DEATH, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert {opt["id"] for opt in pc.options} == {ogre.id}
+    assert (pc.callback_data or {}).get("heuristic_pick") == [ogre.id]
+
+
+def test_shadow_word_death_no_valid_targets():
+    game, p1, p2 = _hs_scene()
+    _make_obj(game, CHILLWIND_YETI, p2)  # 4/5 — too low
+
+    _swd, events = _cast(game, SHADOW_WORD_DEATH, p1)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+# ---- Shadow Madness (priest): steal ATK<=3 until end of turn ----
+
+def test_shadow_madness_choice_filtered_to_low_attack():
+    game, p1, p2 = _hs_scene()
+    senjin = _make_obj(game, SEN_JIN_SHIELDMASTA, p2)
+    yeti = _make_obj(game, CHILLWIND_YETI, p2)
+
+    _sm, events = _cast(game, SHADOW_MADNESS, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert senjin.id in {opt["id"] for opt in pc.options}
+    assert yeti.id not in {opt["id"] for opt in pc.options}
+
+
+def test_shadow_madness_heuristic_resolves_for_ai():
+    game, p1, p2 = _hs_scene()
+    game.turn_manager.ai_players.add(p1.id)
+    senjin = _make_obj(game, SEN_JIN_SHIELDMASTA, p2)
+
+    _sm, _events = _cast(game, SHADOW_MADNESS, p1)
+    gain = [e for e in game.state.event_log
+            if e.type == EventType.GAIN_CONTROL
+            and e.payload.get("object_id") == senjin.id]
+    assert len(gain) == 1
+
+
+# ---- Cabal Shadow Priest (priest): steal ATK<=2 permanently via battlecry ----
+
+def test_cabal_shadow_priest_battlecry_emits_choice():
+    game, p1, p2 = _hs_scene()
+    boar = _make_obj(game, STONETUSK_BOAR, p2)   # 1/1 — legal
+    yeti = _make_obj(game, CHILLWIND_YETI, p2)   # 4/5 — illegal
+
+    cabal_obj = _make_obj(game, CABAL_SHADOW_PRIEST, p1)
+    events = CABAL_SHADOW_PRIEST.battlecry(cabal_obj, game.state)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert boar.id in {opt["id"] for opt in pc.options}
+    assert yeti.id not in {opt["id"] for opt in pc.options}
+
+
+def test_cabal_shadow_priest_battlecry_no_valid_targets():
+    game, p1, p2 = _hs_scene()
+    _make_obj(game, CHILLWIND_YETI, p2)
+
+    cabal_obj = _make_obj(game, CABAL_SHADOW_PRIEST, p1)
+    events = CABAL_SHADOW_PRIEST.battlecry(cabal_obj, game.state)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+# ---- Cinder Lance (riftclash): branched single-target burn ----
+
+def test_cinder_lance_emits_pending_choice_for_human():
+    game = Game(mode="hearthstone")
+    p1 = game.add_player("Pyro", life=30)
+    p2 = game.add_player("Cryo", life=30)
+    game.setup_hearthstone_player(p1, riftclash.IGNIS_REFORGED, riftclash.EMBER_VOLLEY)
+    game.setup_hearthstone_player(p2, riftclash.GLACIEL_REFORGED, riftclash.CRYO_WARD)
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    wisp = _make_obj(game, WISP, p2)
+
+    lance_obj, events = _cast(game, riftclash.CINDER_LANCE, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert {opt["id"] for opt in pc.options} == {ogre.id, wisp.id}
+    assert (pc.callback_data or {}).get("heuristic_pick") == [ogre.id]
+
+
+def test_cinder_lance_no_enemy_minions_falls_through_to_hero():
+    """When no minions exist, Cinder Lance burns the hero directly (no choice)."""
+    game = Game(mode="hearthstone")
+    p1 = game.add_player("Pyro", life=30)
+    p2 = game.add_player("Cryo", life=30)
+    game.setup_hearthstone_player(p1, riftclash.IGNIS_REFORGED, riftclash.EMBER_VOLLEY)
+    game.setup_hearthstone_player(p2, riftclash.GLACIEL_REFORGED, riftclash.CRYO_WARD)
+
+    _lance, events = _cast(game, riftclash.CINDER_LANCE, p1)
+    assert game.state.pending_choice is None
+    # Hero takes 3 + a Cinder Charge added to hand.
+    assert any(
+        e.type == EventType.DAMAGE
+        and e.payload.get("target") == p2.hero_id
+        and e.payload.get("amount") == 3
+        for e in events
+    )
+
+
+# ---- Zoltraak Bolt (frierenrift): 3 damage with choice ----
+
+def test_zoltraak_bolt_emits_pending_choice_for_human():
+    game = Game(mode="hearthstone")
+    p1 = game.add_player("Frieren", life=30)
+    p2 = game.add_player("Macht", life=30)
+    game.setup_hearthstone_player(p1, frierenrift.FRIEREN_HERO, frierenrift.ANALYZE_FORMULA)
+    game.setup_hearthstone_player(p2, frierenrift.MACHT_HERO, frierenrift.GOLD_HEX)
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    wisp = _make_obj(game, WISP, p2)
+
+    _bolt, events = _cast(game, frierenrift.ZOLTRAAK_BOLT, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert {opt["id"] for opt in pc.options} == {ogre.id, wisp.id}
+    assert (pc.callback_data or {}).get("heuristic_pick") == [ogre.id]
+
+
+def test_zoltraak_bolt_no_minions_burns_hero():
+    game = Game(mode="hearthstone")
+    p1 = game.add_player("Frieren", life=30)
+    p2 = game.add_player("Macht", life=30)
+    game.setup_hearthstone_player(p1, frierenrift.FRIEREN_HERO, frierenrift.ANALYZE_FORMULA)
+    game.setup_hearthstone_player(p2, frierenrift.MACHT_HERO, frierenrift.GOLD_HEX)
+
+    _bolt, events = _cast(game, frierenrift.ZOLTRAAK_BOLT, p1)
+    assert game.state.pending_choice is None
+    assert any(
+        e.type == EventType.DAMAGE
+        and e.payload.get("target") == p2.hero_id
+        and e.payload.get("amount") == 3
+        for e in events
+    )
+
+
+# ---- Ice Shackle (riftclash): damage + freeze with choice ----
+
+def test_ice_shackle_emits_pending_choice_for_human():
+    game = Game(mode="hearthstone")
+    p1 = game.add_player("Pyro", life=30)
+    p2 = game.add_player("Cryo", life=30)
+    game.setup_hearthstone_player(p1, riftclash.IGNIS_REFORGED, riftclash.EMBER_VOLLEY)
+    game.setup_hearthstone_player(p2, riftclash.GLACIEL_REFORGED, riftclash.CRYO_WARD)
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    wisp = _make_obj(game, WISP, p2)
+
+    _shackle, events = _cast(game, riftclash.ICE_SHACKLE, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert {opt["id"] for opt in pc.options} == {ogre.id, wisp.id}
+    assert (pc.callback_data or {}).get("heuristic_pick") == [ogre.id]
+
+
+def test_ice_shackle_no_enemy_minions_short_circuits():
+    game = Game(mode="hearthstone")
+    p1 = game.add_player("Pyro", life=30)
+    p2 = game.add_player("Cryo", life=30)
+    game.setup_hearthstone_player(p1, riftclash.IGNIS_REFORGED, riftclash.EMBER_VOLLEY)
+    game.setup_hearthstone_player(p2, riftclash.GLACIEL_REFORGED, riftclash.CRYO_WARD)
+
+    _shackle, events = _cast(game, riftclash.ICE_SHACKLE, p1)
     assert events == []
     assert game.state.pending_choice is None
 

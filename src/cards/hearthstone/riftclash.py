@@ -370,35 +370,87 @@ MOLTEN_OVERSEER = make_minion(
 )
 
 
-def cinder_lance_effect(obj: GameObject, state: GameState, _targets=None) -> list[Event]:
-    target = _highest_attack_enemy_minion_id(obj, state)
-    if target:
-        events = [
+def _cinder_lance_resolve(obj: GameObject, state: GameState, target_id: str) -> list[Event]:
+    """Resolve Cinder Lance against the chosen enemy minion."""
+    if not target_id or target_id not in state.objects:
+        return []
+    events = [
+        Event(
+            type=EventType.DAMAGE,
+            payload={"target": target_id, "amount": 3, "source": obj.id, "from_spell": True},
+            source=obj.id,
+        )
+    ]
+    enemy = state.objects.get(target_id)
+    remaining = ((get_toughness(enemy, state) or 0) - enemy.state.damage) if enemy else 0
+    if remaining <= 3:
+        events.append(
             Event(
-                type=EventType.DAMAGE,
-                payload={"target": target, "amount": 3, "source": obj.id, "from_spell": True},
+                type=EventType.ADD_TO_HAND,
+                payload={"player": obj.controller, "card_def": CINDER_CHARGE},
                 source=obj.id,
             )
+        )
+    else:
+        events.append(
+            Event(
+                type=EventType.FREEZE_TARGET,
+                payload={"target": target_id},
+                source=obj.id,
+            )
+        )
+    return events
+
+
+def cinder_lance_effect(obj: GameObject, state: GameState, _targets=None) -> list[Event]:
+    """Deal 3 damage to the chosen enemy minion; on-kill / on-survive branches.
+
+    PendingChoice: caster picks the target. AI preserves the
+    highest-attack pick via ``heuristic_pick``. Humans can pick a 3-HP
+    survivor to bank a Charge, or freeze a heavy threat.
+    """
+    enemies = _enemy_minion_ids(obj, state)
+    if enemies:
+        enemy_objs = [state.objects[mid] for mid in enemies if mid in state.objects]
+
+        # Legacy explicit-target path.
+        if _targets:
+            explicit = _targets[0]
+            if isinstance(explicit, dict):
+                explicit = explicit.get('id')
+            if explicit in {m.id for m in enemy_objs}:
+                return _cinder_lance_resolve(obj, state, explicit)
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        best_id = _highest_attack_enemy_minion_id(obj, state)
+        options = [
+            {
+                'id': m.id,
+                'label': getattr(m.card_def, 'name', None) or m.name,
+                'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+            }
+            for m in enemy_objs
         ]
-        enemy = state.objects.get(target)
-        remaining = ((get_toughness(enemy, state) or 0) - enemy.state.damage) if enemy else 0
-        if remaining <= 3:
-            events.append(
-                Event(
-                    type=EventType.ADD_TO_HAND,
-                    payload={"player": obj.controller, "card_def": CINDER_CHARGE},
-                    source=obj.id,
-                )
-            )
-        else:
-            events.append(
-                Event(
-                    type=EventType.FREEZE_TARGET,
-                    payload={"target": target},
-                    source=obj.id,
-                )
-            )
-        return events
+
+        def _resolve_handler(choice, selected, st):
+            tid = selected[0] if selected else best_id
+            if isinstance(tid, dict):
+                tid = tid.get('id', best_id)
+            return _cinder_lance_resolve(obj, st, tid)
+
+        return create_choice_and_resolve(
+            state,
+            choice_type='target',
+            player_id=obj.controller,
+            prompt='Choose an enemy minion to scorch with Cinder Lance.',
+            options=options,
+            source_id=obj.id,
+            min_choices=1,
+            max_choices=1,
+            handler=_resolve_handler,
+            heuristic_pick=[best_id],
+        )
 
     hero = get_enemy_hero_id(obj, state)
     if hero:
@@ -829,21 +881,20 @@ ABSOLUTE_ARCHIVIST = make_minion(
 )
 
 
-def ice_shackle_effect(obj: GameObject, state: GameState, _targets=None) -> list[Event]:
-    target = _highest_attack_enemy_minion_id(obj, state)
-    if not target:
+def _ice_shackle_resolve(obj: GameObject, state: GameState, target_id: str) -> list[Event]:
+    """Damage 2 + Freeze + bonus draw if already frozen."""
+    if not target_id or target_id not in state.objects:
         return []
-
-    already_frozen = bool(getattr(state.objects[target].state, "frozen", False))
+    already_frozen = bool(getattr(state.objects[target_id].state, "frozen", False))
     events = [
         Event(
             type=EventType.DAMAGE,
-            payload={"target": target, "amount": 2, "source": obj.id, "from_spell": True},
+            payload={"target": target_id, "amount": 2, "source": obj.id, "from_spell": True},
             source=obj.id,
         ),
         Event(
             type=EventType.FREEZE_TARGET,
-            payload={"target": target},
+            payload={"target": target_id},
             source=obj.id,
         ),
     ]
@@ -856,6 +907,59 @@ def ice_shackle_effect(obj: GameObject, state: GameState, _targets=None) -> list
             )
         )
     return events
+
+
+def ice_shackle_effect(obj: GameObject, state: GameState, _targets=None) -> list[Event]:
+    """Damage and freeze the chosen enemy minion; draw on refreeze.
+
+    PendingChoice: caster picks the target. AI preserves the
+    highest-attack pick. Humans can prioritise an already-frozen minion
+    to bank the draw, or refreeze the minion most likely to swing.
+    """
+    enemies = _enemy_minion_ids(obj, state)
+    if not enemies:
+        return []
+    enemy_objs = [state.objects[mid] for mid in enemies if mid in state.objects]
+    if not enemy_objs:
+        return []
+
+    if _targets:
+        explicit = _targets[0]
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        if explicit in {m.id for m in enemy_objs}:
+            return _ice_shackle_resolve(obj, state, explicit)
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best_id = _highest_attack_enemy_minion_id(obj, state)
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in enemy_objs
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best_id
+        if isinstance(tid, dict):
+            tid = tid.get('id', best_id)
+        return _ice_shackle_resolve(obj, st, tid)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose an enemy minion to shackle with ice.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best_id],
+    )
 
 
 ICE_SHACKLE = make_spell(

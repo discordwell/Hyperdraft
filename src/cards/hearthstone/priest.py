@@ -124,18 +124,68 @@ DIVINE_SPIRIT = make_spell(
 )
 
 
+def _shadow_word_pain_resolve(obj: GameObject, state: GameState, target_id: str) -> list[Event]:
+    """Destroy the chosen low-attack enemy minion."""
+    if not target_id or target_id not in state.objects:
+        return []
+    return [Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': target_id, 'reason': 'shadow_word_pain'},
+        source=obj.id
+    )]
+
+
 def shadow_word_pain_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
-    """Destroy a minion with 3 or less Attack."""
+    """Destroy a minion with 3 or less Attack.
+
+    PendingChoice: caster picks within the legal ATK<=3 enemy minions.
+    AI preserves random.choice via ``heuristic_pick`` (highest attack
+    among the bucket, which matches what AI removal would pick).
+    """
     enemies = get_enemy_minions(obj, state)
-    valid = [mid for mid in enemies if state.objects.get(mid) and state.objects[mid].characteristics.power <= 3]
-    if valid:
-        target = random.choice(valid)
-        return [Event(
-            type=EventType.OBJECT_DESTROYED,
-            payload={'object_id': target, 'reason': 'shadow_word_pain'},
-            source=obj.id
-        )]
-    return []
+    valid = [state.objects[mid] for mid in enemies
+             if state.objects.get(mid) and state.objects[mid].characteristics.power <= 3]
+    if not valid:
+        return []
+
+    if targets:
+        explicit = targets[0]
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        if explicit in {m.id for m in valid}:
+            return _shadow_word_pain_resolve(obj, state, explicit)
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = max(valid, key=lambda m: m.characteristics.power or 0)
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in valid
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get('id', best.id)
+        return _shadow_word_pain_resolve(obj, st, tid)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose an enemy minion with 3 or less Attack to destroy.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
+
 
 SHADOW_WORD_PAIN = make_spell(
     name="Shadow Word: Pain",
@@ -164,18 +214,68 @@ MIND_BLAST = make_spell(
 )
 
 
+def _shadow_word_death_resolve(obj: GameObject, state: GameState, target_id: str) -> list[Event]:
+    """Destroy the chosen high-attack enemy minion."""
+    if not target_id or target_id not in state.objects:
+        return []
+    return [Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': target_id, 'reason': 'shadow_word_death'},
+        source=obj.id
+    )]
+
+
 def shadow_word_death_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
-    """Destroy a minion with 5 or more Attack."""
+    """Destroy a minion with 5 or more Attack.
+
+    PendingChoice: caster picks within ATK>=5 enemy minions. AI keeps
+    the highest-attack pick (matches old random.choice expectation when
+    only one valid target exists; gives optimal answer otherwise).
+    """
     enemies = get_enemy_minions(obj, state)
-    valid = [mid for mid in enemies if state.objects.get(mid) and state.objects[mid].characteristics.power >= 5]
-    if valid:
-        target = random.choice(valid)
-        return [Event(
-            type=EventType.OBJECT_DESTROYED,
-            payload={'object_id': target, 'reason': 'shadow_word_death'},
-            source=obj.id
-        )]
-    return []
+    valid = [state.objects[mid] for mid in enemies
+             if state.objects.get(mid) and state.objects[mid].characteristics.power >= 5]
+    if not valid:
+        return []
+
+    if targets:
+        explicit = targets[0]
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        if explicit in {m.id for m in valid}:
+            return _shadow_word_death_resolve(obj, state, explicit)
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = max(valid, key=lambda m: m.characteristics.power or 0)
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in valid
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get('id', best.id)
+        return _shadow_word_death_resolve(obj, st, tid)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose an enemy minion with 5 or more Attack to destroy.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
+
 
 SHADOW_WORD_DEATH = make_spell(
     name="Shadow Word: Death",
@@ -388,13 +488,10 @@ LIGHTWELL = make_minion(
 )
 
 
-def shadow_madness_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
-    """Gain control of an enemy minion with 3 or less Attack until end of turn."""
-    enemy_minions = get_enemy_minions(obj, state)
-    valid = [m for m in enemy_minions if state.objects.get(m) and state.objects[m].characteristics.power <= 3]
-    if not valid:
+def _shadow_madness_resolve(obj: GameObject, state: GameState, target_id: str) -> list[Event]:
+    """Steal the chosen low-attack enemy minion until end of turn."""
+    if not target_id or target_id not in state.objects:
         return []
-    target_id = random.choice(valid)
     target_obj = state.objects[target_id]
     return [Event(
         type=EventType.GAIN_CONTROL,
@@ -406,6 +503,59 @@ def shadow_madness_effect(obj: GameObject, state: GameState, targets: list) -> l
         },
         source=obj.id
     )]
+
+
+def shadow_madness_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
+    """Gain control of an enemy minion with 3 or less Attack until end of turn.
+
+    PendingChoice: caster picks within ATK<=3 enemy minions. Humans can
+    grab the minion that swings the largest tempo. AI preserves the
+    highest-attack pick within the bucket.
+    """
+    enemy_minions = get_enemy_minions(obj, state)
+    valid = [state.objects[m] for m in enemy_minions
+             if state.objects.get(m) and state.objects[m].characteristics.power <= 3]
+    if not valid:
+        return []
+
+    if targets:
+        explicit = targets[0]
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        if explicit in {m.id for m in valid}:
+            return _shadow_madness_resolve(obj, state, explicit)
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = max(valid, key=lambda m: m.characteristics.power or 0)
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in valid
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get('id', best.id)
+        return _shadow_madness_resolve(obj, st, tid)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose an enemy minion with 3 or less Attack to steal until end of turn.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
+
 
 SHADOW_MADNESS = make_spell(
     name="Shadow Madness",
@@ -463,13 +613,10 @@ TEMPLE_ENFORCER = make_minion(
 )
 
 
-def cabal_shadow_priest_battlecry(obj: GameObject, state: GameState) -> list[Event]:
-    """Battlecry: Take control of an enemy minion that has 2 or less Attack (permanently)."""
-    enemy_minions = get_enemy_minions(obj, state)
-    valid = [m for m in enemy_minions if state.objects.get(m) and state.objects[m].characteristics.power <= 2]
-    if not valid:
+def _cabal_shadow_priest_resolve(obj: GameObject, state: GameState, target_id: str) -> list[Event]:
+    """Permanently steal the chosen <=2 attack enemy minion."""
+    if not target_id or target_id not in state.objects:
         return []
-    target_id = random.choice(valid)
     return [Event(
         type=EventType.GAIN_CONTROL,
         payload={
@@ -478,6 +625,51 @@ def cabal_shadow_priest_battlecry(obj: GameObject, state: GameState) -> list[Eve
         },
         source=obj.id
     )]
+
+
+def cabal_shadow_priest_battlecry(obj: GameObject, state: GameState) -> list[Event]:
+    """Battlecry: Take control of an enemy minion that has 2 or less Attack.
+
+    PendingChoice: caster picks among ATK<=2 enemies. AI preserves the
+    highest-attack pick within the bucket.
+    """
+    enemy_minions = get_enemy_minions(obj, state)
+    valid = [state.objects[m] for m in enemy_minions
+             if state.objects.get(m) and state.objects[m].characteristics.power <= 2]
+    if not valid:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = max(valid, key=lambda m: m.characteristics.power or 0)
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in valid
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get('id', best.id)
+        return _cabal_shadow_priest_resolve(obj, st, tid)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose an enemy minion with 2 or less Attack to steal permanently.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
+
 
 CABAL_SHADOW_PRIEST = make_minion(
     name="Cabal Shadow Priest",

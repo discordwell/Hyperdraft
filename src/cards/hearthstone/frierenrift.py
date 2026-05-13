@@ -481,16 +481,66 @@ HEITER_BENEDICTION = _assign_affinity(
 )
 
 
+def _zoltraak_bolt_resolve(obj: GameObject, state: GameState, target_id: str) -> list[Event]:
+    """Deal 3 damage to the chosen enemy minion."""
+    if not target_id or target_id not in state.objects:
+        return []
+    return [
+        Event(
+            type=EventType.DAMAGE,
+            payload={"target": target_id, "amount": 3, "source": obj.id, "from_spell": True},
+            source=obj.id,
+        )
+    ]
+
+
 def zoltraak_bolt_effect(obj: GameObject, state: GameState, _targets=None) -> list[Event]:
-    target = _highest_attack_enemy_minion_id(obj, state)
-    if target:
-        return [
-            Event(
-                type=EventType.DAMAGE,
-                payload={"target": target, "amount": 3, "source": obj.id, "from_spell": True},
-                source=obj.id,
-            )
+    """Deal 3 damage to the chosen enemy minion, or the hero if none.
+
+    PendingChoice: caster picks the minion. AI preserves the
+    highest-attack pick. Humans can chip a creature at 3 HP to clear it.
+    """
+    enemies = _enemy_minion_ids(obj, state)
+    if enemies:
+        enemy_objs = [state.objects[mid] for mid in enemies if mid in state.objects]
+
+        if _targets:
+            explicit = _targets[0]
+            if isinstance(explicit, dict):
+                explicit = explicit.get('id')
+            if explicit in {m.id for m in enemy_objs}:
+                return _zoltraak_bolt_resolve(obj, state, explicit)
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        best_id = _highest_attack_enemy_minion_id(obj, state)
+        options = [
+            {
+                'id': m.id,
+                'label': getattr(m.card_def, 'name', None) or m.name,
+                'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+            }
+            for m in enemy_objs
         ]
+
+        def _resolve_handler(choice, selected, st):
+            tid = selected[0] if selected else best_id
+            if isinstance(tid, dict):
+                tid = tid.get('id', best_id)
+            return _zoltraak_bolt_resolve(obj, st, tid)
+
+        return create_choice_and_resolve(
+            state,
+            choice_type='target',
+            player_id=obj.controller,
+            prompt='Choose an enemy minion to scorch with Zoltraak Bolt.',
+            options=options,
+            source_id=obj.id,
+            min_choices=1,
+            max_choices=1,
+            handler=_resolve_handler,
+            heuristic_pick=[best_id],
+        )
     return _deal_enemy_hero(obj, state, 3)
 
 

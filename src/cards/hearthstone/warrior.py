@@ -13,14 +13,63 @@ from src.cards.hearthstone.basic import FIERY_WAR_AXE, ARCANITE_REAPER
 # BASIC WARRIOR CARDS
 # ============================================================================
 
+def _execute_resolve(obj, state, target_id):
+    """Kill the chosen damaged enemy minion."""
+    if not target_id or target_id not in state.objects:
+        return []
+    return [Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': target_id, 'reason': 'execute'}, source=obj.id)]
+
+
 def execute_effect(obj, state, targets):
-    """Destroy a damaged enemy minion."""
+    """Destroy a damaged enemy minion.
+
+    PendingChoice: caster picks which damaged enemy minion to remove.
+    AI keeps the highest-attack damaged pick via ``heuristic_pick``.
+    """
     enemies = get_enemy_minions(obj, state)
-    damaged = [mid for mid in enemies if state.objects.get(mid) and state.objects[mid].state.damage > 0]
-    if damaged:
-        target = random.choice(damaged)
-        return [Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': target, 'reason': 'execute'}, source=obj.id)]
-    return []
+    damaged = [state.objects[mid] for mid in enemies
+               if state.objects.get(mid) and state.objects[mid].state.damage > 0]
+    if not damaged:
+        return []
+
+    if targets:
+        explicit = targets[0]
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        if explicit in {m.id for m in damaged}:
+            return _execute_resolve(obj, state, explicit)
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = max(damaged, key=lambda m: m.characteristics.power or 0)
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in damaged
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get('id', best.id)
+        return _execute_resolve(obj, st, tid)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose a damaged enemy minion to destroy.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
+
 
 EXECUTE = make_spell(
     name="Execute",

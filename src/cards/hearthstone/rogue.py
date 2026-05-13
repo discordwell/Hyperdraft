@@ -50,17 +50,68 @@ SINISTER_STRIKE = make_spell(
 )
 
 # SAP - 2 mana spell, Return an enemy minion to hand
+def _sap_resolve(obj, state, target_id):
+    """Bounce the chosen enemy minion back to its owner's hand."""
+    if not target_id or target_id not in state.objects:
+        return []
+    return [Event(
+        type=EventType.RETURN_TO_HAND,
+        payload={'object_id': target_id},
+        source=obj.id
+    )]
+
+
 def sap_effect(obj, state, targets):
-    """Return enemy minion to hand"""
+    """Return an enemy minion to hand.
+
+    PendingChoice: the controlling player chooses which enemy minion to
+    bounce. AI preserves the highest-attack auto-pick via ``heuristic_pick``.
+    Humans get a real call (e.g. bounce the buffed minion vs the threat).
+    """
     enemies = get_enemy_minions(obj, state)
-    if enemies:
-        target = random.choice(enemies)
-        return [Event(
-            type=EventType.RETURN_TO_HAND,
-            payload={'object_id': target},
-            source=obj.id
-        )]
-    return []
+    enemy_objs = [state.objects[mid] for mid in enemies if mid in state.objects]
+    if not enemy_objs:
+        return []
+
+    # Legacy explicit-target path (e.g. battlecry click targeting in tests).
+    if targets:
+        explicit = targets[0]
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        if explicit in {m.id for m in enemy_objs}:
+            return _sap_resolve(obj, state, explicit)
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = max(enemy_objs, key=lambda m: m.characteristics.power or 0)
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in enemy_objs
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get('id', best.id)
+        return _sap_resolve(obj, st, tid)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose an enemy minion to return to its owner\'s hand.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
+
 
 SAP = make_spell(
     name="Sap",
@@ -121,17 +172,67 @@ FAN_OF_KNIVES = make_spell(
 )
 
 # ASSASSINATE - 5 mana spell, Destroy an enemy minion
+def _assassinate_resolve(obj, state, target_id):
+    """Kill the chosen enemy minion outright."""
+    if not target_id or target_id not in state.objects:
+        return []
+    return [Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': target_id, 'reason': 'assassinate'},
+        source=obj.id
+    )]
+
+
 def assassinate_effect(obj, state, targets):
-    """Destroy an enemy minion"""
+    """Destroy an enemy minion.
+
+    PendingChoice: the caster picks the kill target. AI preserves the
+    highest-attack auto-pick via ``heuristic_pick``. Humans can sequence
+    around taunts, deathrattles, and untargetable threats.
+    """
     enemies = get_enemy_minions(obj, state)
-    if enemies:
-        target = random.choice(enemies)
-        return [Event(
-            type=EventType.OBJECT_DESTROYED,
-            payload={'object_id': target, 'reason': 'assassinate'},
-            source=obj.id
-        )]
-    return []
+    enemy_objs = [state.objects[mid] for mid in enemies if mid in state.objects]
+    if not enemy_objs:
+        return []
+
+    if targets:
+        explicit = targets[0]
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        if explicit in {m.id for m in enemy_objs}:
+            return _assassinate_resolve(obj, state, explicit)
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = max(enemy_objs, key=lambda m: m.characteristics.power or 0)
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in enemy_objs
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get('id', best.id)
+        return _assassinate_resolve(obj, st, tid)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose an enemy minion to destroy.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
+
 
 ASSASSINATE = make_spell(
     name="Assassinate",
