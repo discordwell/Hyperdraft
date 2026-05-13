@@ -13,7 +13,7 @@ import random
 
 from src.engine.game import (
     make_pokemon, make_trainer_item, make_trainer_supporter,
-    make_trainer_stadium,
+    make_trainer_stadium, make_pokemon_tool,
 )
 from src.engine.types import (
     PokemonType, Event, EventType, ZoneType, CardType, Interceptor,
@@ -31,6 +31,7 @@ from src.cards.pokemon._helpers import (
     _get_opp_id,
     _get_opp_active,
 )
+from src.cards.pokemon._tool_helpers import make_tool_setup
 
 
 # =============================================================================
@@ -788,50 +789,44 @@ JACE_MEMORY_ADEPT = make_pokemon(
 )
 
 
-def _pithing_drone_setup(obj, state):
-    """Pithing Drone Tool setup: register a KO-listener that, when this
-    Pokemon's holder is KO'd by an attack, forces opp to discard all energy
-    from the attacking Pokemon.
-
-    Implementation v1: lightweight. We don't yet model attachment to a
-    specific Pokemon at the engine level; the interceptor listens for any
-    PKM_KNOCKOUT of `obj.controller`'s Pokemon and applies the discard.
-    """
-    def trigger_filter(event, st):
-        if event.type != EventType.PKM_KNOCKOUT:
-            return False
-        kod = event.payload.get('pokemon_id')
-        kod_obj = st.objects.get(kod) if kod else None
-        return bool(kod_obj and kod_obj.controller == obj.controller)
-
-    def trigger_handler(event, st):
-        attacker_id = (
-            event.payload.get('attacker_id')
-            or event.payload.get('source_pokemon_id')
-        )
-        if not attacker_id:
-            return InterceptorResult(action=InterceptorAction.PASS)
-        extra = discard_attached_energy_cross_ctrl(
-            st, target_pokemon_id=attacker_id, count=999, source=obj.id,
-        )
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=extra)
-
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=trigger_filter,
-        handler=trigger_handler,
-        duration='while_on_battlefield',
-    )]
+def _pithing_drone_trigger_filter(event, state, tool_obj, holder_id):
+    """Fire when the holder Pokemon is KO'd (the attacker is identified
+    in the event payload)."""
+    kod = event.payload.get('pokemon_id')
+    if kod != holder_id:
+        return False
+    attacker_id = (
+        event.payload.get('attacker_id')
+        or event.payload.get('source_pokemon_id')
+    )
+    return bool(attacker_id)
 
 
-PITHING_DRONE = make_trainer_item(
+def _pithing_drone_trigger_handler(event, state, tool_obj, holder_id):
+    """Discard all energy from the attacker that KO'd the holder."""
+    attacker_id = (
+        event.payload.get('attacker_id')
+        or event.payload.get('source_pokemon_id')
+    )
+    if not attacker_id:
+        return []
+    return discard_attached_energy_cross_ctrl(
+        state, target_pokemon_id=attacker_id, count=999, source=tool_obj.id,
+    )
+
+
+_pithing_drone_setup = make_tool_setup(
+    event_type=EventType.PKM_KNOCKOUT,
+    trigger_filter=_pithing_drone_trigger_filter,
+    trigger_handler=_pithing_drone_trigger_handler,
+)
+
+
+PITHING_DRONE = make_pokemon_tool(
     name="Pithing Drone",
     text=("Attach to 1 of your Pokemon. When the attached Pokemon is "
-          "Knocked Out by an opponent's attack, your opponent must discard "
-          "all Energy attached to the Pokemon that did the KO damage."),
+          "Knocked Out by an opponent's attack, your opponent discards "
+          "all Energy from the attacking Pokemon."),
     rarity="uncommon",
     setup_interceptors=_pithing_drone_setup,
 )

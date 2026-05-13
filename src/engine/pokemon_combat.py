@@ -326,16 +326,33 @@ class PokemonCombatManager:
                 energy_obj.entered_zone_at = self.state.timestamp
         pokemon.state.attached_energy.clear()
 
-        # Discard attached tool
-        if pokemon.state.attached_tool:
-            tool_obj = self.state.objects.get(pokemon.state.attached_tool)
+        # Detach attached tool — clears both back-pointers, sends Tool to
+        # its owner's discard, and emits PKM_DETACH_TOOL for AI / interceptor
+        # consumption. Mirrors src/cards/pokemon/_tool_helpers.py:detach_tool
+        # (kept inlined to avoid an engine-level import of card helpers).
+        attached_tool_id = pokemon.state.attached_tool
+        if attached_tool_id:
+            tool_obj = self.state.objects.get(attached_tool_id)
             if tool_obj:
                 graveyard_key = f"graveyard_{tool_obj.owner}"
                 if graveyard_key in self.state.zones:
                     self.state.zones[graveyard_key].objects.append(tool_obj.id)
                 tool_obj.zone = ZoneType.GRAVEYARD
                 tool_obj.entered_zone_at = self.state.timestamp
+                tool_obj.state.attached_to = None
             pokemon.state.attached_tool = None
+            detach_event = Event(
+                type=EventType.PKM_DETACH_TOOL,
+                payload={
+                    'tool_id': attached_tool_id,
+                    'former_holder_id': pokemon_id,
+                    'reason': 'knockout',
+                },
+                source=pokemon_id,
+            )
+            if self.pipeline:
+                self.pipeline.emit(detach_event)
+            events.append(detach_event)
 
         # Move Pokemon to discard pile
         self._remove_from_zone(pokemon_id)
@@ -415,10 +432,34 @@ class PokemonCombatManager:
         return best_id
 
     def _take_prizes(self, player_id: str, count: int) -> list[Event]:
-        """Player takes prize cards and puts them in hand."""
+        """Player takes prize cards and puts them in hand.
+
+        Honors `player.prize_tax`: each pending tax point absorbs one prize
+        that *would* have been taken this KO. The tax is decremented by the
+        absorbed amount (clamped at 0) so a +2 tax stays around for two KOs
+        worth of full-prize absorption, or partially absorbs across a
+        single multi-prize KO.
+        """
         events = []
         player = self.state.players.get(player_id)
         if not player:
+            return events
+
+        tax = max(0, getattr(player, 'prize_tax', 0) or 0)
+        if tax > 0:
+            absorbed = min(tax, count)
+            count -= absorbed
+            player.prize_tax = tax - absorbed
+            events.append(Event(
+                type=EventType.PKM_PRIZE_TAX,
+                payload={
+                    'player': player_id,
+                    'absorbed': absorbed,
+                    'remaining_tax': player.prize_tax,
+                },
+            ))
+
+        if count <= 0:
             return events
 
         prize_key = f"prize_cards_{player_id}"

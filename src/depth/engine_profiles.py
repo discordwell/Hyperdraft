@@ -238,10 +238,11 @@ PKM_PROFILE = EngineProfile(
     }),
     # Mechanic-specific helpers — touching one signals build-around
     # synergy. apply_status / remove_status come from pokemon_status.py;
-    # the rest are in _helpers.py.
+    # the rest are in _helpers.py / _tool_helpers.py.
     novel_helpers=frozenset({
         "apply_status", "remove_status", "remove_all_status",
-        "attach_tool", "remove_tool",
+        "attach_tool", "detach_tool", "remove_tool",
+        "make_tool_setup",  # Pokemon Tool attachment factory
         "place_damage_counters",
         "pkm_move_to_lost_zone",
         "pkm_apply_prize_tax",

@@ -153,6 +153,22 @@ class PokemonAIAdapter:
         self._energy_plans: dict[str, EnergyPlan] = {}
         self._current_context: Optional[TurnContext] = None
 
+    # ── PendingChoice integration (Phase 1a) ─────────────────────
+
+    def make_choice(self, player_id: str, choice, state) -> list:
+        """Resolve a PendingChoice for an AI-controlled player.
+
+        Returns the selected option indices / target IDs, matching MTG's
+        ``ai.make_choice`` contract (see ``src/server/session.py`` and
+        ``src/engine/game.py::_process_choice``).
+
+        Real dispatch lives in ``src/ai/pokemon/choices.py``; this method
+        is the integration point for the engine. Phase 2's bias-aware
+        TRAINER_SCORERS will plug into the same dispatch path.
+        """
+        from .choices import dispatch_choice
+        return dispatch_choice(player_id, choice, state)
+
     # ── Helpers ──────────────────────────────────────────────────
 
     def _get_difficulty(self, player_id: str = None) -> str:

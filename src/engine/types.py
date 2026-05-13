@@ -251,6 +251,7 @@ class EventType(Enum):
     PKM_MOVE_ENERGY = auto()          # Energy moved between Pokemon (own or opp)
     PKM_PRIZE_TAX = auto()            # Marker: future prize draws reduced
     PKM_COST_REDUCTION = auto()       # Attack cost reduced (Tool / Stadium effect)
+    PKM_DETACH_TOOL = auto()          # Tool detached (KO or replaced by another Tool)
 
     # OTJ Plot mechanic
     PLOT_PAID = auto()                # Plot cost was paid; card goes to exile
@@ -1114,6 +1115,7 @@ class Player:
     supporter_played_this_turn: bool = False  # Once per turn limit
     stadium_played_this_turn: bool = False    # Once per turn limit
     retreated_this_turn: bool = False         # Once per turn limit
+    prize_tax: int = 0                        # Reduce next prize-take by this much (clamped >=0)
 
     # Minecraft-specific (optional, unused in other modes)
     mc_materials: dict[str, int] = field(default_factory=dict)

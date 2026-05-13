@@ -24,7 +24,7 @@ from typing import Callable, Optional
 
 from src.engine.pokemon_status import apply_status, remove_status
 from src.engine.types import (
-    CardType, Event, EventType, GameObject, GameState, ZoneType,
+    CardType, Event, EventType, GameObject, GameState, PendingChoice, ZoneType,
 )
 
 
@@ -35,6 +35,149 @@ from src.engine.types import (
 # helpers are deterministic in v1 (heuristic picks); future PR adds a
 # PendingChoice path for UI/AI integration.
 # ===========================================================================
+
+
+def _resolve_pending_choice_inline(state: GameState) -> tuple[list[Event], list]:
+    """Synchronously resolve ``state.pending_choice`` for an AI-controlled
+    player.
+
+    Returns ``(events_emitted, selected)`` so callers can read both the
+    dispatcher's resulting events (for modal cards) and the raw selection
+    (for target helpers that just want the picked ID back).
+
+    Phase 1a contract: looks up the AI handler from
+    ``state._game.turn_manager`` and calls ``ai.make_choice(...)``; the
+    selection is then routed through ``Game._process_choice`` so the
+    callback_data handler runs (mirroring MTG's session.py flow).
+
+    For non-AI players we fall back to ``[0]`` for now; a future PR wires
+    the server-side suspend/resume path so human players see the choice
+    in the API response and submit it back.
+
+    Guarantees ``state.pending_choice`` is cleared on return, even on
+    handler errors, so the engine doesn't deadlock.
+    """
+    choice = state.pending_choice
+    if choice is None:
+        return [], []
+    try:
+        game = getattr(state, '_game', None)
+        selected: list = []
+        if game is not None:
+            turn_mgr = getattr(game, 'turn_manager', None)
+            ai_handler = getattr(turn_mgr, 'pokemon_ai_handler', None)
+            ai_players = getattr(turn_mgr, 'ai_players', set()) or set()
+            if ai_handler and choice.player in ai_players:
+                try:
+                    selected = ai_handler.make_choice(choice.player, choice, state) or []
+                except Exception:
+                    selected = []
+        if not selected:
+            # Default fallback: prefer the precomputed heuristic_pick the
+            # helper stored, else first option.
+            preset = (choice.callback_data or {}).get('heuristic_pick')
+            if preset is None:
+                selected = [0]
+            elif isinstance(preset, list):
+                selected = preset
+            else:
+                selected = [preset]
+        events: list[Event] = []
+        if game is not None:
+            try:
+                events = game._process_choice(choice, selected) or []
+            except Exception:
+                events = []
+        else:
+            # No game wiring (rare; mostly direct-resolver tests). Honor
+            # the handler manually so the mode effect still runs.
+            handler = (choice.callback_data or {}).get('handler')
+            if handler:
+                try:
+                    events = handler(choice, selected, state) or []
+                except Exception:
+                    events = []
+        return events, selected
+    finally:
+        state.pending_choice = None
+
+
+def _pkm_modal_resolve_handler(choice: PendingChoice, selected: list, state: GameState) -> list[Event]:
+    """``Game._process_choice`` dispatcher hook for ``pkm_modal_with_callback``.
+
+    Reads the chosen mode_effects callable from ``choice.callback_data``
+    and executes it. Emits one ``PKM_USE_ABILITY`` log event followed by
+    the events the chosen mode produced.
+    """
+    if not selected:
+        return []
+    idx = selected[0]
+    mode_effects = (choice.callback_data or {}).get('mode_effects') or ()
+    if not isinstance(idx, int) or not (0 <= idx < len(mode_effects)):
+        return []
+    mode_name = ""
+    if idx < len(choice.options):
+        opt = choice.options[idx]
+        if isinstance(opt, dict):
+            mode_name = str(opt.get('text', f"mode_{idx}"))
+    events: list[Event] = [Event(
+        type=EventType.PKM_USE_ABILITY,
+        payload={
+            'player': choice.player,
+            'mode_idx': idx,
+            'mode_name': mode_name,
+            'source': choice.source_id,
+        },
+        source=choice.source_id or None,
+    )]
+    try:
+        extras = mode_effects[idx](state) or []
+        events.extend(extras)
+    except Exception:
+        pass
+    return events
+
+
+def create_pkm_modal_choice(
+    player_id: str,
+    state: GameState,
+    *,
+    source: Optional[str],
+    modes: list[dict],
+    mode_effects: tuple,
+    heuristic_pick: Optional[int] = None,
+    prompt: str = "Choose a mode:",
+) -> PendingChoice:
+    """Create a Pokemon modal PendingChoice and stash it on ``state``.
+
+    ``modes`` is a parallel list to ``mode_effects`` — each entry is a dict
+    like ``{"index": 0, "text": "Draw 3"}`` for display. The choice's
+    ``callback_data`` carries:
+
+    - ``handler``: ``_pkm_modal_resolve_handler`` (the dispatcher hook)
+    - ``mode_effects``: the parallel tuple of callables
+    - ``heuristic_pick`` (optional): the AI's default pick if no policy
+      runs
+
+    Does NOT immediately resolve — callers either invoke
+    ``_resolve_pending_choice_inline(state)`` themselves or rely on the
+    enclosing turn-manager site (``_play_trainer``) to resolve.
+    """
+    choice = PendingChoice(
+        choice_type="pkm_modal_with_callback",
+        player=player_id,
+        prompt=prompt,
+        options=list(modes),
+        source_id=source or "",
+        min_choices=1,
+        max_choices=1,
+    )
+    choice.callback_data['mode_effects'] = mode_effects
+    choice.callback_data['handler'] = _pkm_modal_resolve_handler
+    if heuristic_pick is not None:
+        choice.callback_data['heuristic_pick'] = heuristic_pick
+    state.pending_choice = choice
+    return choice
 
 
 def pkm_modal_choice(
@@ -48,26 +191,76 @@ def pkm_modal_choice(
 ) -> list[Event]:
     """Resolve a modal "choose one" effect for `player_id`.
 
-    `mode_names` and `mode_effects` are parallel tuples — name for emit/log,
-    callable that takes state and emits the chosen mode's events.
+    Phase 1a (post-PendingChoice): now creates a real PendingChoice via
+    ``create_pkm_modal_choice`` and synchronously resolves it through
+    ``Game._process_choice``. AI players consult ``ai.make_choice`` to
+    pick the mode; if no AI handler is wired (tests, direct calls), we
+    fall back to ``heuristic_pick`` (if provided) or mode 0.
 
-    v1 picks the mode heuristically: `heuristic_pick` if provided, else
-    longest mode_effects index that would emit non-empty events. The
-    depth scorer recognizes calls to this function as a modal_helper.
+    Returns the events emitted by the chosen mode. The signature is
+    unchanged from v1 so all 14 spice-card callers keep working.
     """
     if not mode_effects:
         return []
-    idx = heuristic_pick if heuristic_pick is not None else 0
-    if not (0 <= idx < len(mode_effects)):
-        idx = 0
-    chosen_name = mode_names[idx] if idx < len(mode_names) else f"mode_{idx}"
-    events: list[Event] = [Event(
-        type=EventType.PKM_USE_ABILITY,
-        payload={'player': player_id, 'mode': chosen_name, 'source': source},
+    modes: list[dict] = []
+    for i, name in enumerate(mode_names or ()):
+        modes.append({"index": i, "text": str(name)})
+    while len(modes) < len(mode_effects):
+        modes.append({"index": len(modes), "text": f"mode_{len(modes)}"})
+    create_pkm_modal_choice(
+        player_id, state,
         source=source,
-    )]
-    events.extend(mode_effects[idx](state))
+        modes=modes,
+        mode_effects=mode_effects,
+        heuristic_pick=heuristic_pick,
+    )
+    events, _selected = _resolve_pending_choice_inline(state)
     return events
+
+
+def _resolve_target_choice_now(
+    state: GameState,
+    *,
+    chooser_id: str,
+    options: list,
+    heuristic_pick,
+    source: Optional[str] = None,
+    prompt: str = "Choose a target:",
+    min_choices: int = 1,
+    max_choices: int = 1,
+):
+    """Build a ``pkm_target_choice`` PendingChoice from ``options`` and
+    immediately resolve it. Returns the AI/heuristic-selected value(s).
+
+    The selection format matches the input shape:
+    - ``options`` is a list of target IDs / option strings.
+    - ``heuristic_pick`` is the helper's default pick (single value or
+      list). It's stored in callback_data so the dispatcher can honor it
+      when the AI doesn't override.
+    - Returns the first selected option (single-pick) or the list of
+      selections (multi-pick) depending on ``max_choices``.
+
+    Single-pick callers should pass ``max_choices=1`` and read the
+    return as the single selected value. Multi-pick callers should pass
+    ``max_choices=n`` and read the full list.
+    """
+    if not options:
+        return None if max_choices == 1 else []
+    choice = PendingChoice(
+        choice_type="pkm_target_choice",
+        player=chooser_id,
+        prompt=prompt,
+        options=list(options),
+        source_id=source or "",
+        min_choices=min_choices,
+        max_choices=max_choices,
+    )
+    choice.callback_data['heuristic_pick'] = heuristic_pick
+    state.pending_choice = choice
+    _events, selected = _resolve_pending_choice_inline(state)
+    if max_choices == 1:
+        return selected[0] if selected else None
+    return list(selected)
 
 
 def pkm_force_opp_choose_bench(
@@ -78,11 +271,12 @@ def pkm_force_opp_choose_bench(
 ) -> Optional[str]:
     """Opponent picks one of their Benched Pokemon (against their interest).
 
-    Returns the chosen Pokemon's id, or None if opp has no Bench. v1
-    heuristic: pick the bench Pokemon with the HIGHEST attached-energy +
-    HP investment, because the opponent would naturally NOT want to lose
-    that one to the disruption. Depth scorer treats this as a forced-
-    opp-decision modal helper.
+    Phase 1a: creates a ``pkm_target_choice`` PendingChoice. The chooser
+    is ``opp_id`` (per real rules — the opponent picks), but the
+    heuristic_pick is "the bench Pokemon with the highest investment"
+    (the one opp would naturally NOT want to lose). AI's make_choice can
+    override this — useful for opp-pilot strategies that want to
+    sandbag here.
     """
     bench = state.zones.get(f"bench_{opp_id}")
     if not bench or not bench.objects:
@@ -102,7 +296,11 @@ def pkm_force_opp_choose_bench(
     if not candidates:
         return None
     candidates.sort(reverse=True)
-    return candidates[0][1]
+    return _resolve_target_choice_now(
+        state, chooser_id=opp_id, options=[bid for _, bid in candidates],
+        heuristic_pick=candidates[0][1], source=source,
+        prompt="Choose a Benched Pokemon to bring up:",
+    )
 
 
 def pkm_choose_pokemon_target(
@@ -111,21 +309,27 @@ def pkm_choose_pokemon_target(
     controller: str,
     filter_fn: Optional[Callable[[GameObject, GameState], bool]] = None,
     prefer_active: bool = True,
+    chooser_id: Optional[str] = None,
 ) -> Optional[str]:
-    """Pick a Pokemon owned by `controller` that matches `filter_fn`.
+    """Pick a Pokemon owned by ``controller`` matching ``filter_fn``.
 
-    v1 heuristic: prefer Active if it matches, else first matching Bench
-    Pokemon. The depth scorer treats this as a modal_helper.
+    Phase 1a: creates a ``pkm_target_choice`` PendingChoice. ``chooser_id``
+    defaults to ``controller`` (the controller of the candidate Pokemon
+    is also the player choosing — own-Pokemon target). For
+    cross-controller targets (opp Pokemon), pass ``chooser_id`` explicitly.
+
+    v1 heuristic preserved: prefer Active if it matches, else first
+    matching Bench Pokemon.
     """
     candidates: list[str] = []
+    active_id = None
     active = state.zones.get(f"active_spot_{controller}")
     if active and active.objects:
-        active_id = active.objects[0]
-        obj = state.objects.get(active_id)
+        cand = active.objects[0]
+        obj = state.objects.get(cand)
         if obj and (filter_fn is None or filter_fn(obj, state)):
-            if prefer_active:
-                return active_id
-            candidates.append(active_id)
+            active_id = cand
+            candidates.append(cand)
     bench = state.zones.get(f"bench_{controller}")
     if bench:
         for bid in bench.objects:
@@ -133,8 +337,16 @@ def pkm_choose_pokemon_target(
                 continue
             obj = state.objects.get(bid)
             if obj and (filter_fn is None or filter_fn(obj, state)):
-                candidates.append(bid)
-    return candidates[0] if candidates else None
+                if bid not in candidates:
+                    candidates.append(bid)
+    if not candidates:
+        return None
+    heuristic = active_id if (prefer_active and active_id) else candidates[0]
+    return _resolve_target_choice_now(
+        state, chooser_id=chooser_id or controller, options=candidates,
+        heuristic_pick=heuristic,
+        prompt="Choose a Pokemon target:",
+    )
 
 
 def pkm_target_card_in_hand_choice(
@@ -142,26 +354,39 @@ def pkm_target_card_in_hand_choice(
     *,
     target_controller: str,
     card_type_filter: Optional[CardType] = None,
+    chooser_id: Optional[str] = None,
 ) -> Optional[str]:
-    """Pick a card in `target_controller`'s hand matching `card_type_filter`.
+    """Pick a card in ``target_controller``'s hand matching ``card_type_filter``.
 
-    Used by hand-disruption effects (Jace, Dimir Interrogation, Tezzy's
-    Test mode 3). v1 heuristic: pick the highest-mana-cost / most-impactful
-    card. Depth scorer treats this as a modal_helper with hand-reveal info
-    asymmetry. Also emits PKM_REVEAL_HAND so the opp knows their hand was
-    seen.
+    Phase 1a: creates a ``pkm_target_choice`` PendingChoice. ``chooser_id``
+    is the player making the decision — for hand-disruption (Jace, Dimir
+    Interrogation, Tezzy's Test mode 3) the chooser is the source's
+    controller, NOT ``target_controller``. Falls back to
+    ``state.active_player`` if not given (the active turn's player), and
+    finally to ``target_controller`` if active_player is also missing.
+
+    v1 heuristic preserved: pick the first matching card (which by hand
+    order tends to be the most-recently-drawn).
     """
     hand = state.zones.get(f"hand_{target_controller}")
     if not hand or not hand.objects:
         return None
+    candidates: list[str] = []
     for cid in hand.objects:
         obj = state.objects.get(cid)
         if not obj or not obj.characteristics:
             continue
         if card_type_filter is not None and card_type_filter not in obj.characteristics.types:
             continue
-        return cid
-    return None
+        candidates.append(cid)
+    if not candidates:
+        return None
+    chooser = chooser_id or getattr(state, 'active_player', None) or target_controller
+    return _resolve_target_choice_now(
+        state, chooser_id=chooser, options=candidates,
+        heuristic_pick=candidates[0],
+        prompt=f"Choose a card from {target_controller}'s hand:",
+    )
 
 
 def pkm_choose_from_hand_n(
@@ -171,22 +396,33 @@ def pkm_choose_from_hand_n(
     n: int,
     filter_fn: Optional[Callable[[GameObject, GameState], bool]] = None,
 ) -> list[str]:
-    """Pick up to `n` cards from `controller`'s hand. v1 heuristic: pick
-    matching cards in hand order. Depth scorer treats as modal_helper."""
+    """Pick up to ``n`` cards from ``controller``'s hand.
+
+    Phase 1a: creates a ``pkm_target_choice`` PendingChoice with
+    ``max_choices=n``. v1 heuristic preserved: pick matching cards in
+    hand order (used by Cremate to feed the Lost Zone). AI's
+    make_choice can override per Phase 2 / pilot policy.
+    """
     hand = state.zones.get(f"hand_{controller}")
     if not hand:
         return []
-    picks: list[str] = []
+    candidates: list[str] = []
     for cid in hand.objects:
-        if len(picks) >= n:
-            break
         obj = state.objects.get(cid)
         if not obj:
             continue
         if filter_fn is not None and not filter_fn(obj, state):
             continue
-        picks.append(cid)
-    return picks
+        candidates.append(cid)
+    if not candidates:
+        return []
+    heuristic = candidates[:n]
+    result = _resolve_target_choice_now(
+        state, chooser_id=controller, options=candidates,
+        heuristic_pick=heuristic, prompt=f"Choose up to {n} cards from your hand:",
+        min_choices=0, max_choices=n,
+    )
+    return list(result) if result else []
 
 
 def pkm_move_to_lost_zone(card_id: str, state: GameState, *, source: Optional[str] = None) -> list[Event]:

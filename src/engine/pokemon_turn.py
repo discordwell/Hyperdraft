@@ -542,8 +542,41 @@ class PokemonTurnManager(TurnManager):
                     self.pipeline.emit(ev)
                 events.append(ev)
 
-        # Stadium goes to stadium zone; others go to discard
-        if trainer_type == 'stadium':
+        # Tools attach to a chosen Pokemon and stay in play. Stadiums go to
+        # the stadium zone. Everything else (Items, Supporters) discards.
+        is_tool = (
+            obj.characteristics
+            and CardType.POKEMON_TOOL in obj.characteristics.types
+        )
+
+        if is_tool:
+            from src.cards.pokemon._tool_helpers import attach_tool, choose_tool_holder
+            # Holder choice: AI handler may override; otherwise heuristic.
+            holder_id: Optional[str] = None
+            ai_handler = self.pokemon_ai_handler
+            if ai_handler and player_id in self.ai_players:
+                chooser = getattr(ai_handler, 'choose_tool_target', None)
+                if chooser:
+                    holder_id = chooser(player_id, card_id, self.state)
+            if not holder_id:
+                holder_id = choose_tool_holder(player_id, self.state)
+            if not holder_id:
+                # No legal holder — Tool fizzles back to graveyard so the
+                # game doesn't deadlock.
+                graveyard_key = f"graveyard_{player_id}"
+                if graveyard_key in self.state.zones:
+                    graveyard = self.state.zones[graveyard_key]
+                    if card_id not in graveyard.objects:
+                        graveyard.objects.append(card_id)
+                obj.zone = ZoneType.GRAVEYARD
+                obj.entered_zone_at = self.state.timestamp
+                return events
+            attach_events = attach_tool(card_id, holder_id, self.state, source=card_id)
+            for ev in attach_events:
+                if self.pipeline:
+                    self.pipeline.emit(ev)
+                events.append(ev)
+        elif trainer_type == 'stadium':
             # Replace existing stadium
             stadium_key = "stadium_zone"
             stadium_zone = self.state.zones.get(stadium_key)
