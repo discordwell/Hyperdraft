@@ -168,16 +168,67 @@ def _archive_on_contain(obj: GameObject, state: GameState) -> list[Event]:
     return [_site_event(EventType.SCP_CONTAINED, obj, reason="clean_containment", breach=site["breach"])]
 
 
+def _anchor_resolve(anchor_id: str, target_id: str, controller: str, state: GameState) -> list[Event]:
+    """Bind the chosen active anomaly to the anchoring contained one + bleed off 1 breach."""
+    target = state.objects.get(target_id)
+    anchor = state.objects.get(anchor_id)
+    if target is None or anchor is None:
+        return []
+    target.state.scp_bound_to = anchor_id
+    site = scp.site(state, controller)
+    site["breach"] = max(0, site["breach"] - 1)
+    return [Event(
+        type=EventType.SCP_CROSS_CONTAINMENT,
+        payload={"player": controller, "contained_id": anchor_id, "active_id": target_id},
+        source=anchor_id,
+        controller=controller,
+    )]
+
+
 def _anchor_on_contain(obj: GameObject, state: GameState) -> list[Event]:
+    """First demo of the cross-engine PendingChoice primitive in SCP.
+
+    When the Anchor procedure contains an anomaly, the controlling player
+    chooses which active anomaly to bind it to (was: auto-pick the
+    highest-hazard active anomaly). For AI players, the heuristic is
+    preserved via ``heuristic_pick``, so existing AI behavior doesn't
+    change. Humans now get a real choice.
+    """
     active = [candidate for candidate in _active_anomalies(state, obj.controller) if candidate.id != obj.id]
     if not active:
         return _archive_on_contain(obj, state)
-    # Targetless approximation: bind the highest-hazard active anomaly because
-    # that is the containment decision the current AI would make.
-    target = max(active, key=lambda a: int(getattr(a.card_def, "scp_hazard", 0) or 0))
-    target.state.scp_bound_to = obj.id
-    scp.site(state, obj.controller)["breach"] = max(0, scp.site(state, obj.controller)["breach"] - 1)
-    return [_site_event(EventType.SCP_CROSS_CONTAINMENT, obj, contained_id=obj.id, active_id=target.id)]
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    options = [
+        {
+            "id": a.id,
+            "label": getattr(a.card_def, "name", a.id),
+            "description": f"Hazard {getattr(a.card_def, 'scp_hazard', 0)} · Mood {a.state.scp_mood or 'neutral'}",
+        }
+        for a in active
+    ]
+    best = max(active, key=lambda a: int(getattr(a.card_def, "scp_hazard", 0) or 0))
+
+    def _resolve_handler(choice, selected, st):
+        target_id = selected[0] if selected else best.id
+        # Tolerate raw or {id: ...} selection shapes.
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id", best.id)
+        return _anchor_resolve(obj.id, target_id, obj.controller, st)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=obj.controller,
+        prompt="Bind which active anomaly to this containment?",
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 def _blackfile_procedure(amount: int = 2, *, archive: bool = False):

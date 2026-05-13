@@ -369,6 +369,46 @@ def test_site_zero_quarantine_reveal_sets_mood_protocol_and_briefing():
     assert any(event.type == EventType.SCP_MOOD_SHIFT for event in events)
 
 
+def test_anchor_on_contain_emits_pending_choice_for_target_selection():
+    """Phase 4 demo: _anchor_on_contain (Thaumiel grid on-contain hook) now
+    emits a PendingChoice instead of auto-picking max-hazard. Verifies:
+    (1) Choice options cover all active anomalies other than the anchor.
+    (2) For human controllers, the choice stays pending (returns []).
+    (3) The heuristic_pick preserves the old AI behavior (highest hazard).
+    """
+    from src.cards.scp.site_zero_broken_masquerade import _anchor_on_contain
+    game, p1, _p2 = _setup()
+    # Two active anomalies on p1's side, with different hazards.
+    low_hazard = _hand_card(game, p1, "SZB Counter-God Anomaly")
+    high_hazard = _hand_card(game, p1, "SZB Paired Vault Anomaly")
+    assert scp.open_dossier(game, p1.id, low_hazard.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, high_hazard.id, fast_track=True)[0]
+    # The anchoring anomaly (just contained).
+    anchor = _hand_card(game, p1, "SZB Silver Lattice Anomaly")
+    assert scp.open_dossier(game, p1.id, anchor.id, fast_track=True)[0]
+
+    # Trigger the hook directly (no AI player registered → human path).
+    events = _anchor_on_contain(anchor, game.state)
+    # Human path: choice pending, no events yet.
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.choice_type == "target"
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert low_hazard.id in option_ids
+    assert high_hazard.id in option_ids
+    assert anchor.id not in option_ids  # the anchor itself is excluded
+    # Heuristic_pick is the max-hazard pick (Paired Vault > Counter-God).
+    hp = pc.callback_data.get("heuristic_pick")
+    assert hp is not None
+    expected_max = max(
+        [low_hazard, high_hazard],
+        key=lambda a: int(getattr(a.card_def, "scp_hazard", 0) or 0),
+    )
+    assert hp == [expected_max.id]
+
+
 def test_site_zero_anchor_binds_contained_anomaly_to_active_threat():
     game, p1, _p2 = _setup()
     source = _hand_card(game, p1, "SZB Paired Vault Anomaly")
