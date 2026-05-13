@@ -282,6 +282,118 @@ def test_card_registry():
     print("  PASS: test_card_registry")
 
 
+def test_graceful_charity_human_emits_discard_choice():
+    """Phase 4: Graceful Charity drew 3 then prompts the player to pick
+    which 2 cards to discard. Human path leaves the PendingChoice unset
+    only after no cards remain in hand; with stocked library we get a choice.
+    """
+    from src.cards.yugioh.ygo_optimized import _graceful_charity_resolve
+    game, p1, _p2 = make_test_game()
+    game.setup_yugioh_player(p1, [])
+    # Stock library with 3 distinct cards.
+    lib = game.state.zones[f"library_{p1.id}"]
+    for cid in list(lib.objects):
+        lib.objects.remove(cid)
+    ids = []
+    for cdef in [KURIBOH, CELTIC_GUARDIAN, LA_JINN]:
+        obj = game.create_object(
+            name=cdef.name, owner_id=p1.id, zone=ZoneType.LIBRARY,
+            characteristics=Characteristics(types=set(cdef.characteristics.types)),
+            card_def=cdef,
+        )
+        if obj.id not in lib.objects:
+            lib.objects.append(obj.id)
+        ids.append(obj.id)
+    game.state.pending_choice = None
+    event = Event(
+        type=EventType.YGO_ACTIVATE_SPELL,
+        payload={'player': p1.id, 'card_id': 'gc-test'},
+        source='gc-test', controller=p1.id,
+    )
+    events = _graceful_charity_resolve(event, game.state)
+    # 3 DRAW events even on the human path (the draw is unconditional).
+    assert len(events) == 3, f"got {len(events)} (expected 3 draws)"
+    pc = game.state.pending_choice
+    assert pc is not None, "expected PendingChoice for human discard"
+    assert pc.choice_type == "target"
+    assert pc.player == p1.id
+    assert pc.min_choices == 2 and pc.max_choices == 2
+    # heuristic_pick = last 2 in hand (which are the 2 last drawn).
+    hand_now = game.state.zones[f"hand_{p1.id}"].objects
+    assert pc.callback_data.get("heuristic_pick") == list(hand_now[-2:]), (
+        f"hp={pc.callback_data.get('heuristic_pick')} hand={hand_now}")
+    # Cards have moved from library to hand (3 drew).
+    assert len(lib.objects) == 0, f"library still has {len(lib.objects)} cards"
+    assert len(hand_now) == 3, f"hand has {len(hand_now)} (expected 3)"
+    print("  PASS: test_graceful_charity_human_emits_discard_choice")
+
+
+def test_graceful_charity_empty_library_no_choice():
+    """If library is empty AND hand stays empty after no-op draw, no PendingChoice."""
+    from src.cards.yugioh.ygo_optimized import _graceful_charity_resolve
+    game, p1, _p2 = make_test_game()
+    game.setup_yugioh_player(p1, [])
+    lib = game.state.zones[f"library_{p1.id}"]
+    for cid in list(lib.objects):
+        lib.objects.remove(cid)
+    hand = game.state.zones[f"hand_{p1.id}"]
+    for cid in list(hand.objects):
+        hand.objects.remove(cid)
+    game.state.pending_choice = None
+    event = Event(
+        type=EventType.YGO_ACTIVATE_SPELL,
+        payload={'player': p1.id, 'card_id': 'gc-empty'},
+        source='gc-empty', controller=p1.id,
+    )
+    events = _graceful_charity_resolve(event, game.state)
+    assert events == [], f"expected 0 events, got {len(events)}"
+    assert game.state.pending_choice is None
+    print("  PASS: test_graceful_charity_empty_library_no_choice")
+
+
+def test_graceful_charity_ai_discards_last_2():
+    """AI path: heuristic_pick (last-2 in hand) preserves the old 'discard 2
+    last-drawn' behavior."""
+    from src.cards.yugioh.ygo_optimized import _graceful_charity_resolve
+    from src.ai.yugioh_adapter import YugiohAIAdapter
+    game, p1, _p2 = make_test_game()
+    game.setup_yugioh_player(p1, [])
+    lib = game.state.zones[f"library_{p1.id}"]
+    for cid in list(lib.objects):
+        lib.objects.remove(cid)
+    ids = []
+    for cdef in [KURIBOH, CELTIC_GUARDIAN, LA_JINN]:
+        obj = game.create_object(
+            name=cdef.name, owner_id=p1.id, zone=ZoneType.LIBRARY,
+            characteristics=Characteristics(types=set(cdef.characteristics.types)),
+            card_def=cdef,
+        )
+        if obj.id not in lib.objects:
+            lib.objects.append(obj.id)
+        ids.append(obj.id)
+    game.state.pending_choice = None
+    ai = YugiohAIAdapter(difficulty="medium")
+    game.turn_manager.set_ai_handler(ai)
+    game.turn_manager.ai_players.add(p1.id)
+    event = Event(
+        type=EventType.YGO_ACTIVATE_SPELL,
+        payload={'player': p1.id, 'card_id': 'gc-ai'},
+        source='gc-ai', controller=p1.id,
+    )
+    events = _graceful_charity_resolve(event, game.state)
+    # 3 draws + 2 discards expected (5 events minimum).
+    assert len(events) >= 5, f"got {len(events)} (expected >= 5)"
+    assert game.state.pending_choice is None
+    hand = game.state.zones[f"hand_{p1.id}"].objects
+    gy = game.state.zones[f"graveyard_{p1.id}"].objects
+    # First drawn (KURIBOH) stays in hand; last 2 drawn (CELTIC + LA_JINN)
+    # are discarded.
+    assert ids[0] in hand, f"first-drawn not in hand: hand={hand}"
+    assert ids[1] in gy and ids[2] in gy, (
+        f"last-2-drawn not in gy: gy={gy} expected={ids[1:]}")
+    print("  PASS: test_graceful_charity_ai_discards_last_2")
+
+
 def test_fusion_blue_eyes_ultimate():
     """Test Blue-Eyes Ultimate Dragon Fusion from Extra Deck."""
     game, p1, p2 = make_test_game()
@@ -332,6 +444,9 @@ if __name__ == "__main__":
         test_mst_destroys_spell_trap,
         test_deck_sizes,
         test_card_registry,
+        test_graceful_charity_human_emits_discard_choice,
+        test_graceful_charity_empty_library_no_choice,
+        test_graceful_charity_ai_discards_last_2,
         test_fusion_blue_eyes_ultimate,
     ]
 

@@ -50,7 +50,15 @@ POT_OF_GREED = make_ygo_spell(
 )
 
 def _graceful_charity_resolve(event, state):
-    """Draw 3 cards, then discard 2. (Simplified: draw 1 net card advantage.)"""
+    """Draw 3 cards, then discard 2.
+
+    Phase 4: after the draw 3, controller picks WHICH 2 cards in hand to
+    discard. Humans get a PendingChoice over their full hand (the discard
+    choice is the strategic moment in Graceful Charity — pitch threats vs
+    answers); AI heuristic preserves the old "last 2 drawn" behavior.
+    """
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
     events = []
     pid = event.payload.get('player')
     if not pid:
@@ -70,19 +78,80 @@ def _graceful_charity_resolve(event, state):
         drawn.append(card_id)
         events.append(Event(type=EventType.DRAW,
                             payload={'player': pid, 'card_id': card_id}))
-    # Discard 2 (discard last 2 drawn for simplicity)
-    gy = state.zones.get(f"graveyard_{pid}")
-    if gy:
-        to_discard = hand.objects[-2:] if len(hand.objects) >= 2 else list(hand.objects)
-        for cid in to_discard[:2]:
-            if cid in hand.objects:
-                hand.objects.remove(cid)
-                gy.objects.append(cid)
-                obj = state.objects.get(cid)
-                if obj:
-                    obj.zone = ZoneType.GRAVEYARD
-                events.append(Event(type=EventType.DISCARD,
-                                    payload={'player': pid, 'card_id': cid}))
+
+    # Discard 2 — true player choice. Hand may be smaller than 2 after draws
+    # (small decks / mid-game), so cap.
+    if not hand.objects:
+        return events
+    want = min(2, len(hand.objects))
+
+    options = []
+    for cid in hand.objects:
+        cobj = state.objects.get(cid)
+        if cobj is None or cobj.card_def is None:
+            continue
+        cdef = cobj.card_def
+        atk = getattr(cdef, 'atk', None)
+        df = getattr(cdef, 'def_', None) if hasattr(cdef, 'def_') else getattr(cdef, 'defense', None)
+        spell_type = getattr(cdef, 'ygo_spell_type', None)
+        trap_type = getattr(cdef, 'ygo_trap_type', None)
+        if atk is not None and df is not None:
+            desc = f"Monster · {atk}/{df}"
+        elif spell_type:
+            desc = f"Spell · {spell_type}"
+        elif trap_type:
+            desc = f"Trap · {trap_type}"
+        else:
+            desc = ""
+        options.append({"id": cid, "label": cobj.name, "description": desc})
+
+    if not options:
+        return events
+
+    source_id = event.payload.get('card_id') or ''
+    # Old behavior: discard the last 2 in hand (typically the 2 last drawn).
+    top_ids = list(hand.objects[-want:])
+
+    def _resolve_handler(choice, selected, st):
+        picked: list[str] = []
+        for entry in selected or []:
+            if isinstance(entry, dict):
+                eid = entry.get("id")
+                if eid is not None:
+                    picked.append(eid)
+            else:
+                picked.append(entry)
+        picked = picked[:want]
+
+        hd = st.zones.get(f"hand_{pid}")
+        graveyard = st.zones.get(f"graveyard_{pid}")
+        if hd is None or graveyard is None:
+            return []
+        out: list[Event] = []
+        for cid in picked:
+            if cid not in hd.objects:
+                continue
+            hd.objects.remove(cid)
+            graveyard.objects.append(cid)
+            obj = st.objects.get(cid)
+            if obj is not None:
+                obj.zone = ZoneType.GRAVEYARD
+            out.append(Event(type=EventType.DISCARD,
+                             payload={'player': pid, 'card_id': cid}))
+        return out
+
+    events.extend(create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=pid,
+        prompt=f"Discard {want} card(s) from your hand.",
+        options=options,
+        source_id=source_id,
+        min_choices=want,
+        max_choices=want,
+        handler=_resolve_handler,
+        heuristic_pick=top_ids,
+    ))
     return events
 
 GRACEFUL_CHARITY = make_ygo_spell(
