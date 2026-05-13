@@ -158,36 +158,71 @@ def _self_cleanup() -> Callable[[GameObject, GameState], list[Event]]:
     return hook
 
 
-def _cognitive_load(payoff: Callable[[GameObject, GameState], list[Event]]):
-    """Combine a payoff with exhausting one extra friendly active researcher.
+def _research_skill(p: GameObject) -> int:
+    skills = getattr(p.card_def, "scp_skills", {}) if p.card_def else {}
+    return int(skills.get("research", 0) or 0)
 
-    Models the "research has a psychic cost" theme for Mirror / Patient
-    Zero / Red Room Static. The engine has already exhausted the
-    personnel assigned to this test inside ``_staff_total`` — we walk
-    the controller's personnel list and find ONE more active body to
-    drain. If none are available the payoff still resolves.
+
+def _resolve_cognitive_load(obj: GameObject, victim_id: str, state: GameState) -> list[Event]:
+    """Exhaust ``victim_id`` and emit the cognitive-load tag event."""
+    victim = state.objects.get(victim_id)
+    if victim is None:
+        return []
+    victim.state.scp_exhausted = True
+    return [_site_event(
+        EventType.SCP_ASSIGN_STAFF,
+        obj,
+        reason="cognitive_load",
+        staff_ids=[victim.id],
+        task="research",
+    )]
+
+
+def _cognitive_load(payoff: Callable[[GameObject, GameState], list[Event]]):
+    """Combine a payoff with the player choosing one extra researcher to exhaust.
+
+    Migrated to PendingChoice — was lowest-research auto-pick. AI preserves
+    the original target via ``heuristic_pick``; humans choose which body
+    pays the psychic cost. Iteration-order ties stay deterministic so
+    existing tests that exercise specific researchers keep working.
     """
 
     def hook(obj: GameObject, state: GameState) -> list[Event]:
         events = list(payoff(obj, state) or [])
         candidates = _active_friendly_personnel(state, obj.controller)
-        if candidates:
-            # Pick the lowest-research candidate so the player keeps their
-            # best research engine for next turn — symmetric to how the AI
-            # would think about cognitive cost.
-            def _research_skill(p: GameObject) -> int:
-                skills = getattr(p.card_def, "scp_skills", {}) if p.card_def else {}
-                return int(skills.get("research", 0) or 0)
+        if not candidates:
+            return events
 
-            victim = min(candidates, key=_research_skill)
-            victim.state.scp_exhausted = True
-            events.append(_site_event(
-                EventType.SCP_ASSIGN_STAFF,
-                obj,
-                reason="cognitive_load",
-                staff_ids=[victim.id],
-                task="research",
-            ))
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        best = min(candidates, key=_research_skill)
+        options = [
+            {
+                "id": p.id,
+                "label": getattr(p.card_def, "name", p.id) if p.card_def else p.id,
+                "description": f"Research {_research_skill(p)}",
+            }
+            for p in candidates
+        ]
+
+        def _resolve_handler(choice, selected, st):
+            target_id = selected[0] if selected else best.id
+            if isinstance(target_id, dict):
+                target_id = target_id.get("id", best.id)
+            return _resolve_cognitive_load(obj, target_id, st)
+
+        events.extend(create_choice_and_resolve(
+            state,
+            choice_type="target",
+            player_id=obj.controller,
+            prompt="Cognitive load: exhaust which of your researchers?",
+            options=options,
+            source_id=obj.id,
+            min_choices=1,
+            max_choices=1,
+            handler=_resolve_handler,
+            heuristic_pick=[best.id],
+        ))
         return events
 
     return hook

@@ -231,22 +231,72 @@ def _anchor_on_contain(obj: GameObject, state: GameState) -> list[Event]:
     )
 
 
+def _resolve_blackfile(
+    actor_id: str,
+    target_id: str,
+    opponent_id: str,
+    amount: int,
+    archive: bool,
+    source_id: str,
+    game,
+) -> list[Event]:
+    """Apply a misfile to ``target_id``, audit the opponent, optionally gain archives."""
+    _ok, _message, events = scp.misfile_dossier(game, actor_id, target_id, amount=amount, source=source_id)
+    events.extend(scp.force_audit(game, actor_id, opponent_id, intensity=1, source=source_id))
+    if archive:
+        events.extend(scp.gain_archives(game, actor_id, 1, source=source_id))
+    return events
+
+
 def _blackfile_procedure(amount: int = 2, *, archive: bool = False):
+    """Blackfile NN procedure: player chooses which opponent pending dossier to misfile.
+
+    Migrated to PendingChoice — was deterministic ``pending[0]``. AI preserves
+    the original behavior via ``heuristic_pick``. Humans get a real prompt.
+    """
     def effect(obj: GameObject, state: GameState, game=None) -> list[Event]:
         opponent = _opponent(state, obj.controller)
         if game is None or not opponent:
             return []
         pending = _pending_dossiers(state, opponent)
-        if pending:
-            _ok, _message, events = scp.misfile_dossier(game, obj.controller, pending[0].id, amount=amount, source=obj.id)
-            events.extend(scp.force_audit(game, obj.controller, opponent, intensity=1, source=obj.id))
+        if not pending:
+            events = scp.force_audit(game, obj.controller, opponent, intensity=amount, source=obj.id)
             if archive:
                 events.extend(scp.gain_archives(game, obj.controller, 1, source=obj.id))
             return events
-        events = scp.force_audit(game, obj.controller, opponent, intensity=amount, source=obj.id)
-        if archive:
-            events.extend(scp.gain_archives(game, obj.controller, 1, source=obj.id))
-        return events
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        best = pending[0]
+        options = [
+            {
+                "id": p.id,
+                "label": getattr(p.card_def, "name", p.id) if p.card_def else p.id,
+                "description": f"Paperwork {p.state.scp_paperwork}",
+            }
+            for p in pending
+        ]
+
+        def _resolve_handler(choice, selected, st):
+            target_id = selected[0] if selected else best.id
+            if isinstance(target_id, dict):
+                target_id = target_id.get("id", best.id)
+            return _resolve_blackfile(
+                obj.controller, target_id, opponent, amount, archive, obj.id, game,
+            )
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="target",
+            player_id=obj.controller,
+            prompt=f"Choose an opposing pending dossier to misfile (+{amount} paperwork)",
+            options=options,
+            source_id=obj.id,
+            min_choices=1,
+            max_choices=1,
+            handler=_resolve_handler,
+            heuristic_pick=[best.id],
+        )
 
     return effect
 
@@ -268,35 +318,84 @@ def _gain_archives_and_brief(archives: int, briefing: int, *, breach: int = 0, s
     return effect
 
 
+def _resolve_quarantine(
+    obj: GameObject, target_id: str, protocol: str, mood: str, state: GameState, game=None,
+) -> list[Event]:
+    """Apply a protocol/mood to ``target_id``; ``game`` enables the engine path."""
+    target = state.objects.get(target_id)
+    if target is None:
+        return []
+    if game is not None:
+        ok, _message, events = scp.apply_protocol(game, obj.controller, target.id, protocol, source=obj.id)
+        if ok:
+            target.state.scp_mood = mood
+            events.extend(game.emit(Event(
+                type=EventType.SCP_MOOD_SHIFT,
+                payload={"object_id": target.id, "to": mood},
+                source=obj.id,
+                controller=obj.controller,
+            )))
+            return events
+    target.state.scp_mood = mood
+    if protocol not in target.state.scp_protocols:
+        target.state.scp_protocols.append(protocol)
+    return [_site_event(EventType.SCP_PROTOCOL_APPLIED, obj, anomaly_id=target.id, protocol=protocol)]
+
+
 def _quarantine_procedure(protocol: str, mood: str):
+    """Quarantine procedure: player chooses which active anomaly receives ``protocol``+``mood``.
+
+    Migrated to PendingChoice — was a deterministic max-hazard pick. AI keeps
+    the same target via ``heuristic_pick``; humans see a real prompt.
+    """
     def effect(obj: GameObject, state: GameState, game=None) -> list[Event]:
         active = _active_anomalies(state, obj.controller)
         if not active:
             scp.site(state, obj.controller)["briefing"] += 1
             return [_site_event(EventType.SCP_INCIDENT_RESOLVED, obj, reason="empty_quarantine")]
-        target = max(active, key=lambda a: int(getattr(a.card_def, "scp_hazard", 0) or 0))
-        if game is not None:
-            ok, _message, events = scp.apply_protocol(game, obj.controller, target.id, protocol, source=obj.id)
-            if ok:
-                target.state.scp_mood = mood
-                events.extend(game.emit(Event(type=EventType.SCP_MOOD_SHIFT, payload={"object_id": target.id, "to": mood}, source=obj.id, controller=obj.controller)))
-                return events
-        target.state.scp_mood = mood
-        if protocol not in target.state.scp_protocols:
-            target.state.scp_protocols.append(protocol)
-        return [_site_event(EventType.SCP_PROTOCOL_APPLIED, obj, anomaly_id=target.id, protocol=protocol)]
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        best = max(active, key=lambda a: int(getattr(a.card_def, "scp_hazard", 0) or 0))
+        options = [
+            {
+                "id": a.id,
+                "label": getattr(a.card_def, "name", a.id) if a.card_def else a.id,
+                "description": f"Hazard {getattr(a.card_def, 'scp_hazard', 0)} · Mood {a.state.scp_mood or 'neutral'}",
+            }
+            for a in active
+        ]
+
+        def _resolve_handler(choice, selected, st):
+            target_id = selected[0] if selected else best.id
+            if isinstance(target_id, dict):
+                target_id = target_id.get("id", best.id)
+            return _resolve_quarantine(obj, target_id, protocol, mood, st, game)
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="target",
+            player_id=obj.controller,
+            prompt=f"Quarantine which active anomaly? (apply {protocol}, mood {mood})",
+            options=options,
+            source_id=obj.id,
+            min_choices=1,
+            max_choices=1,
+            handler=_resolve_handler,
+            heuristic_pick=[best.id],
+        )
 
     return effect
 
 
-def _anchor_procedure(obj: GameObject, state: GameState, game=None) -> list[Event]:
-    contained = _contained_anomalies(state, obj.controller)
-    active = _active_anomalies(state, obj.controller)
-    if not contained or not active:
-        scp.site(state, obj.controller)["breach"] = max(0, scp.site(state, obj.controller)["breach"] - 2)
-        return [_site_event(EventType.SCP_BREACH_TICK, obj, reason="anchor_no_pair")]
-    source = max(contained, key=lambda a: int(getattr(a.card_def, "scp_hazard", 0) or 0))
-    target = max(active, key=lambda a: int(getattr(a.card_def, "scp_hazard", 0) or 0))
+def _resolve_anchor(
+    obj: GameObject, source_id: str, target_id: str, state: GameState, game=None,
+) -> list[Event]:
+    """Cross-contain ``source_id`` (contained) and ``target_id`` (active)."""
+    source = state.objects.get(source_id)
+    target = state.objects.get(target_id)
+    if source is None or target is None:
+        return []
     if game is not None:
         ok, _message, events = scp.cross_contain(game, obj.controller, source.id, target.id, source=obj.id)
         if ok:
@@ -305,6 +404,53 @@ def _anchor_procedure(obj: GameObject, state: GameState, game=None) -> list[Even
     target.state.scp_bound_to = source.id
     scp.site(state, obj.controller)["archives"] += 1
     return [_site_event(EventType.SCP_CROSS_CONTAINMENT, obj, contained_id=source.id, active_id=target.id)]
+
+
+def _anchor_procedure(obj: GameObject, state: GameState, game=None) -> list[Event]:
+    """Anchor procedure: player chooses which active anomaly to bind.
+
+    The contained "source" is still auto-picked as max-hazard (the obvious
+    pick — bind the worst active threat to the best containment shield).
+    Migrated to PendingChoice for the TARGET active anomaly. AI preserves
+    the original behavior via ``heuristic_pick``.
+    """
+    contained = _contained_anomalies(state, obj.controller)
+    active = _active_anomalies(state, obj.controller)
+    if not contained or not active:
+        scp.site(state, obj.controller)["breach"] = max(0, scp.site(state, obj.controller)["breach"] - 2)
+        return [_site_event(EventType.SCP_BREACH_TICK, obj, reason="anchor_no_pair")]
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    source = max(contained, key=lambda a: int(getattr(a.card_def, "scp_hazard", 0) or 0))
+    best_target = max(active, key=lambda a: int(getattr(a.card_def, "scp_hazard", 0) or 0))
+    options = [
+        {
+            "id": a.id,
+            "label": getattr(a.card_def, "name", a.id) if a.card_def else a.id,
+            "description": f"Hazard {getattr(a.card_def, 'scp_hazard', 0)} · Mood {a.state.scp_mood or 'neutral'}",
+        }
+        for a in active
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        target_id = selected[0] if selected else best_target.id
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id", best_target.id)
+        return _resolve_anchor(obj, source.id, target_id, st, game)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=obj.controller,
+        prompt=f"Anchor: bind which active anomaly to {getattr(source.card_def, 'name', source.id)}?",
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best_target.id],
+    )
 
 
 def _rotation_procedure(obj: GameObject, state: GameState, game=None) -> list[Event]:
