@@ -7,10 +7,11 @@ Tests for Hearthstone game mode functionality.
 import pytest
 import asyncio
 from src.engine.game import Game
-from src.engine.types import GameState, ZoneType
+from src.engine.types import GameState, ZoneType, CardType, EventType
 from src.cards.hearthstone.heroes import HEROES
 from src.cards.hearthstone.hero_powers import HERO_POWERS
-from src.cards.hearthstone.basic import WISP, STONETUSK_BOAR, CHILLWIND_YETI
+from src.cards.hearthstone.basic import WISP, STONETUSK_BOAR, CHILLWIND_YETI, BLOODFEN_RAPTOR
+from src.cards.hearthstone.warlock import SHADOWFLAME
 
 
 def test_game_mode_initialization():
@@ -227,6 +228,127 @@ def test_hearthstone_card_creation():
     assert CHILLWIND_YETI.characteristics.toughness == 5
 
 
+# ============================================================
+# Shadowflame — Phase 4 PendingChoice demo
+# ============================================================
+
+
+def _make_shadowflame_scene():
+    """Set up a Hearthstone game with two friendly minions for the caster.
+
+    No AI handler is registered, so Shadowflame's PendingChoice will stay
+    pending (human path).
+    """
+    game = Game(mode="hearthstone")
+    p1 = game.add_player("Player1", life=30)
+    p2 = game.add_player("Player2", life=30)
+    game.setup_hearthstone_player(p1, HEROES["Mage"], HERO_POWERS["Mage"])
+    game.setup_hearthstone_player(p2, HEROES["Warrior"], HERO_POWERS["Warrior"])
+    return game, p1, p2
+
+
+def _make_obj(game, card_def, owner, zone=ZoneType.BATTLEFIELD):
+    return game.create_object(
+        name=card_def.name,
+        owner_id=owner.id,
+        zone=zone,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+
+
+def test_shadowflame_emits_pending_choice_for_human_caster():
+    """Casting Shadowflame with no AI registered should leave a PendingChoice
+    on state, list all friendly minions as options, and NOT auto-sacrifice."""
+    game, p1, _p2 = _make_shadowflame_scene()
+    yeti = _make_obj(game, CHILLWIND_YETI, p1)          # 4/5
+    boar = _make_obj(game, STONETUSK_BOAR, p1)          # 1/1
+    wisp = _make_obj(game, WISP, p1)                    # 1/1
+    enemy = _make_obj(game, BLOODFEN_RAPTOR, _p2)       # 3/2 (untouched)
+
+    # Cast Shadowflame.
+    shadowflame_obj = game.create_object(
+        name=SHADOWFLAME.name,
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=SHADOWFLAME.characteristics,
+        card_def=SHADOWFLAME,
+    )
+    events = SHADOWFLAME.spell_effect(shadowflame_obj, game.state, [])
+
+    # Human path: no events emitted yet, choice is pending.
+    assert events == [], f"Expected no immediate events on human path, got {events}"
+
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.choice_type == "target"
+    assert pc.player == p1.id
+    assert pc.source_id == shadowflame_obj.id
+
+    option_ids = {opt["id"] for opt in pc.options}
+    assert yeti.id in option_ids
+    assert boar.id in option_ids
+    assert wisp.id in option_ids
+    assert enemy.id not in option_ids  # enemy minions aren't options
+
+    # No sacrifice has happened yet — the yeti is still alive.
+    assert yeti.state.damage == 0
+    destroy_events = [
+        e for e in game.state.event_log
+        if e.type == EventType.OBJECT_DESTROYED
+        and e.payload.get("reason") == "shadowflame"
+    ]
+    assert destroy_events == []
+
+
+def test_shadowflame_heuristic_pick_preserves_ai_max_attack_target():
+    """The pending choice's heuristic_pick must equal the highest-attack
+    friendly minion id — the prior AI behavior. This preserves the
+    auto-pick when the caster is an AI player.
+    """
+    game, p1, _p2 = _make_shadowflame_scene()
+    yeti = _make_obj(game, CHILLWIND_YETI, p1)      # 4/5 — biggest power
+    boar = _make_obj(game, STONETUSK_BOAR, p1)      # 1/1
+    wisp = _make_obj(game, WISP, p1)                # 1/1
+
+    shadowflame_obj = game.create_object(
+        name=SHADOWFLAME.name,
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=SHADOWFLAME.characteristics,
+        card_def=SHADOWFLAME,
+    )
+    SHADOWFLAME.spell_effect(shadowflame_obj, game.state, [])
+
+    pc = game.state.pending_choice
+    assert pc is not None
+    hp = (pc.callback_data or {}).get("heuristic_pick")
+    assert hp == [yeti.id], (
+        f"heuristic_pick should be the max-attack friendly minion "
+        f"(Yeti @ {yeti.characteristics.power} ATK), got {hp}"
+    )
+
+
+def test_shadowflame_no_friendly_minions_short_circuits():
+    """With no friendly minions on board, Shadowflame is a no-op:
+    returns [] and does NOT stash a PendingChoice (would be unsatisfiable)."""
+    game, p1, _p2 = _make_shadowflame_scene()
+    # p2 has a minion, but that doesn't count for the caster (p1).
+    _make_obj(game, BLOODFEN_RAPTOR, _p2)
+
+    shadowflame_obj = game.create_object(
+        name=SHADOWFLAME.name,
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=SHADOWFLAME.characteristics,
+        card_def=SHADOWFLAME,
+    )
+    events = SHADOWFLAME.spell_effect(shadowflame_obj, game.state, [])
+
+    assert events == []
+    assert game.state.pending_choice is None
+
+
 if __name__ == "__main__":
     # Run tests
     print("Running Hearthstone tests...")
@@ -266,5 +388,11 @@ if __name__ == "__main__":
     print("\n9. Testing turn structure...")
     asyncio.run(test_hearthstone_turn_structure())
     print("   ✓ Hearthstone turn structure works")
+
+    print("\n10. Testing Shadowflame PendingChoice (Phase 4 demo)...")
+    test_shadowflame_emits_pending_choice_for_human_caster()
+    test_shadowflame_heuristic_pick_preserves_ai_max_attack_target()
+    test_shadowflame_no_friendly_minions_short_circuits()
+    print("   ✓ Shadowflame emits PendingChoice; heuristic_pick preserves AI behavior; empty short-circuits")
 
     print("\n✅ All Hearthstone tests passed!")

@@ -261,8 +261,14 @@ class TestDemonfire:
 
 class TestShadowflame:
     def test_destroys_friendly_and_damages_enemies(self):
-        """Shadowflame should destroy a friendly minion and AOE enemies."""
+        """Shadowflame should destroy a friendly minion and AOE enemies.
+
+        Phase 4: Shadowflame emits a PendingChoice. Registering p1 as AI makes
+        the helper resolve inline via heuristic_pick (= max-attack friendly),
+        preserving the prior auto-pick behavior.
+        """
         game, p1, p2 = new_hs_game()
+        game.turn_manager.ai_players.add(p1.id)
         sacrifice = make_obj(game, CHILLWIND_YETI, p1)  # 4 ATK
         enemy = make_obj(game, BLOODFEN_RAPTOR, p2)
 
@@ -289,6 +295,9 @@ class TestShadowflame:
         )
         events = SHADOWFLAME.spell_effect(obj, game.state, [])
         assert events == []
+        # Phase 4: no friendly minions → no pending choice should be set
+        # (would be unsatisfiable with min_choices=1, empty options).
+        assert game.state.pending_choice is None
 
 
 # ============================================================
