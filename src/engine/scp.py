@@ -184,7 +184,17 @@ def _deindex_card(state: GameState, obj: GameObject) -> None:
                 ids.remove(obj.id)
 
 
-def _activate_dossier(game, obj: GameObject) -> list[Event]:
+def _activate_dossier(game, obj: GameObject, *, auto_seal_default: bool = False) -> list[Event]:
+    """Transition a dossier from pending/just-opened into the active state.
+
+    ``auto_seal_default``: when True and the underlying anomaly card_def carries
+    ``scp_seal_default = True``, the dossier runs its on-reveal hook (so mood
+    seeding, secrecy/breach hits, and other W1 reveal effects still fire) and
+    is then immediately converted to the ``sealed`` state, deindexed from the
+    active-anomaly registry, and an ``SCP_SEAL_DOSSIER`` event is emitted.
+    This is the open-time path; ``reveal_dossier`` always passes
+    ``auto_seal_default=False`` so an explicit reveal does not re-seal.
+    """
     state = game.state
     obj.state.scp_status = "active"
     obj.state.scp_paperwork = 0
@@ -212,6 +222,27 @@ def _activate_dossier(game, obj: GameObject) -> list[Event]:
         if callable(hook):
             for event in hook(obj, state) or []:
                 events.extend(game.emit(event))
+        # After the reveal hook has fired, convert the anomaly to sealed when
+        # its card_def declares ``scp_seal_default = True`` and the caller
+        # requested auto-seal. The mood / secrecy / breach effects of the
+        # reveal hook are intentionally preserved; only the public status flips.
+        if auto_seal_default and getattr(obj.card_def, "scp_seal_default", False):
+            obj.state.scp_status = "sealed"
+            # Remove from the active-anomaly registry (sealed dossiers are not
+            # exposed as active anomalies for hazard / test / aura purposes).
+            anomaly_list = state.scp_anomalies.get(obj.controller, [])
+            while obj.id in anomaly_list:
+                anomaly_list.remove(obj.id)
+            events.extend(game.emit(Event(
+                type=EventType.SCP_SEAL_DOSSIER,
+                payload={
+                    "player": obj.controller,
+                    "object_id": obj.id,
+                    "reason": "seal_default",
+                },
+                source=obj.id,
+                controller=obj.controller,
+            )))
     elif CardType.SCP_PROCEDURE in types:
         hook = getattr(obj.card_def, "scp_effect", None)
         if callable(hook):
@@ -271,6 +302,16 @@ def open_dossier(
         )))
         red_tape = 0
 
+    # ``scp_seal_default`` on an anomaly card_def means "open into sealed by
+    # default after running the reveal hook." It only applies when the caller
+    # did not already request an explicit sealed open (which uses the
+    # no-reveal-hook semantics inherited from SZB cards).
+    seal_default = (
+        not sealed
+        and CardType.SCP_ANOMALY in _card_types(obj)
+        and bool(getattr(obj.card_def, "scp_seal_default", False))
+    )
+
     events.extend(_move(game, obj, ZoneType.BATTLEFIELD, source=obj.id))
     obj.state.scp_status = "sealed" if sealed else ("pending" if red_tape else "active")
     obj.state.scp_paperwork = red_tape
@@ -294,7 +335,11 @@ def open_dossier(
             controller=player_id,
         )))
     elif red_tape == 0:
-        events.extend(_activate_dossier(game, obj))
+        events.extend(_activate_dossier(game, obj, auto_seal_default=seal_default))
+    # For pending dossiers (red_tape > 0), the auto-seal still applies when
+    # paperwork ticks down: ``process_paperwork`` and ``activate_dossier_now``
+    # re-read ``scp_seal_default`` off the card_def, so no per-state flag is
+    # needed here.
     events.extend(check_scp_loss(game))
     return True, "Dossier opened", events
 
@@ -338,7 +383,14 @@ def process_paperwork(game, player_id: str, amount: int = 1) -> list[Event]:
             controller=player_id,
         )))
         if obj.state.scp_paperwork == 0:
-            events.extend(_activate_dossier(game, obj))
+            # When a pending anomaly with ``scp_seal_default = True`` finally
+            # activates via the paperwork queue, route through the auto-seal
+            # path so the reveal hook fires and the dossier still ends sealed.
+            seal_default = (
+                CardType.SCP_ANOMALY in _card_types(obj)
+                and bool(getattr(obj.card_def, "scp_seal_default", False))
+            )
+            events.extend(_activate_dossier(game, obj, auto_seal_default=seal_default))
     return events
 
 
@@ -629,12 +681,18 @@ def activate_dossier_now(game, obj: GameObject, *, source: Optional[str] = None)
     """Activate exactly one pending dossier.
 
     Card effects use this instead of a huge paperwork tick so they do not
-    accidentally advance the whole queue.
+    accidentally advance the whole queue. Honors ``scp_seal_default`` like
+    ``process_paperwork`` does, so a card that yanks a sealed-by-default
+    anomaly off the pending queue still ends up sealed after its reveal hook.
     """
     if obj.zone != ZoneType.BATTLEFIELD or obj.state.scp_status != "pending":
         return []
     obj.state.scp_paperwork = 0
-    return _activate_dossier(game, obj)
+    seal_default = (
+        CardType.SCP_ANOMALY in _card_types(obj)
+        and bool(getattr(obj.card_def, "scp_seal_default", False))
+    )
+    return _activate_dossier(game, obj, auto_seal_default=seal_default)
 
 
 def shift_mood(
