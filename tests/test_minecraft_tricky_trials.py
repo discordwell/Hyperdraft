@@ -133,3 +133,92 @@ def test_end_voyage_dynamic_bonus_scales_with_end_board_and_diamonds():
 
     assert CardType.MC_MOB in sovereign.characteristics.types
     assert mc._mob_attack_power(sovereign, game.state) == 11
+
+
+# ─── Phase 4 demo: _damage_target emits PendingChoice ─────────────────────
+
+
+def test_mct_damage_target_emits_pending_choice_when_target_id_omitted():
+    """Phase 4 demo: MCT ``_damage_target`` (used by Breeze Charge, Wind Burst,
+    Trial Cleave, Sonic Boom, etc.) now emits a ``PendingChoice`` over the
+    opponent's frontmost-per-column mobs plus the avatar fallback when the
+    caller does not pre-resolve a target. Locks in:
+    (1) Choice options cover every frontmost mob (one per column) plus avatar.
+    (2) For human controllers, the choice stays pending (returns []).
+    (3) The ``heuristic_pick`` preserves the old AI behavior (first-found
+        frontmost mob across columns).
+    """
+    from src.cards.minecraft.tricky_trials import _damage_target
+
+    game, p1, p2 = _build_game()
+    # Place two frontline mobs on p2's grid in different columns. The
+    # column iteration walks columns 0..2 left-to-right, and within each
+    # column the "front" is the highest y. We place at (x=0, y=2) and
+    # (x=2, y=2) so both are frontmost in their column.
+    mob_a = _battlefield_card(game, p2.id, MINECRAFT_CARDS["Zombie"])
+    mob_a.state.mc_grid_x = 0
+    mob_a.state.mc_grid_y = 2
+    game.state.minecraft_grid[p2.id][2][0] = mob_a.id
+
+    mob_b = _battlefield_card(game, p2.id, MINECRAFT_CARDS["Zombie"])
+    mob_b.state.mc_grid_x = 2
+    mob_b.state.mc_grid_y = 2
+    game.state.minecraft_grid[p2.id][2][2] = mob_b.id
+
+    # An attacking action played by p1 with no pre-resolved target.
+    source = _battlefield_card(game, p1.id, MINECRAFT_CARDS["Trial Spawner"])
+    effect = _damage_target(3)
+    events = effect(source, game.state, target_id=None)
+
+    # Human path: choice stays pending, no events yet.
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.choice_type == "target"
+    assert pc.player == p1.id
+    assert pc.source_id == source.id
+    option_ids = {opt["id"] for opt in pc.options}
+    # Both frontline mobs + the avatar are choosable.
+    assert mob_a.id in option_ids
+    assert mob_b.id in option_ids
+    assert p2.id in option_ids
+    # heuristic_pick == first-found frontmost mob (column 0 wins).
+    hp = pc.callback_data.get("heuristic_pick")
+    assert hp == [mob_a.id]
+
+
+def test_mct_damage_target_short_circuits_when_no_opponent():
+    """No live opponent → no-op (empty events, no pending choice)."""
+    from src.cards.minecraft.tricky_trials import _damage_target
+
+    game, p1, p2 = _build_game()
+    p2.has_lost = True  # opponent eliminated
+    game.state.pending_choice = None
+
+    source = _battlefield_card(game, p1.id, MINECRAFT_CARDS["Trial Spawner"])
+    events = _damage_target(2)(source, game.state, target_id=None)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+def test_mct_damage_target_uses_preresolved_target_id_without_choice():
+    """When ``play_card`` already resolved ``target_id`` from ``target_column``
+    on the frontend, the effect bypasses the PendingChoice path and emits
+    DAMAGE directly. Preserves the existing column-target flow."""
+    from src.cards.minecraft.tricky_trials import _damage_target
+
+    game, p1, p2 = _build_game()
+    target_mob = _battlefield_card(game, p2.id, MINECRAFT_CARDS["Zombie"])
+    target_mob.state.mc_grid_x = 1
+    target_mob.state.mc_grid_y = 2
+    game.state.minecraft_grid[p2.id][2][1] = target_mob.id
+    game.state.pending_choice = None
+
+    source = _battlefield_card(game, p1.id, MINECRAFT_CARDS["Trial Spawner"])
+    events = _damage_target(4)(source, game.state, target_id=target_mob.id)
+
+    assert game.state.pending_choice is None
+    assert len(events) == 1
+    assert events[0].type == EventType.DAMAGE
+    assert events[0].payload["target"] == target_mob.id
+    assert events[0].payload["amount"] == 4

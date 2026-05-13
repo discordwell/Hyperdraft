@@ -123,23 +123,92 @@ def _damage_avatar(amount: int):
     return effect
 
 
+def _damage_resolve(obj, state, target_id: str | None, amount: int) -> list[Event]:
+    """Deterministic damage resolver. Returns the DAMAGE event for the chosen
+    target. Empty list if no valid target."""
+    if not target_id:
+        return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={"target": target_id, "amount": amount, "source": obj.id, "is_combat": False},
+        source=obj.id,
+    )]
+
+
 def _damage_target(amount: int):
+    """MCT damage helper. Phase 4 PendingChoice demo for Minecraft.
+
+    If a target_id is pre-resolved by ``play_card`` (i.e. the controller
+    chose a column on the frontend), apply damage directly. Otherwise emit
+    a ``PendingChoice`` over the opponent's frontmost-per-column mobs plus
+    the avatar fallback. AI behavior is preserved via ``heuristic_pick``,
+    which matches the old auto-pick (first-found frontmost mob across
+    columns; else the avatar). Humans now get a real target choice.
+    """
     def effect(obj, state, target_id=None):
+        if target_id:
+            return _damage_resolve(obj, state, target_id, amount)
+
         opp = _opponent(state, obj.controller)
-        target = target_id
-        if not target and opp:
-            for column in range(mc.GRID_SIZE):
-                target = mc.column_target(state, opp, column)
-                if target:
-                    break
-            target = target or opp
-        if not target:
+        if not opp:
             return []
-        return [Event(
-            type=EventType.DAMAGE,
-            payload={"target": target, "amount": amount, "source": obj.id, "is_combat": False},
-            source=obj.id,
-        )]
+
+        # Gather frontmost-per-column mobs (the original auto-pick set) and
+        # the avatar fallback. This is the demo's option universe.
+        frontmost_ids: list[str] = []
+        for column in range(mc.GRID_SIZE):
+            front = mc.column_target(state, opp, column)
+            if front and front not in frontmost_ids:
+                frontmost_ids.append(front)
+
+        # Short-circuit: no mobs and no opponent avatar → no-op. (opp truthy
+        # means at minimum the avatar is a valid target, so this branch is
+        # rarely hit.)
+        if not frontmost_ids and not opp:
+            return []
+
+        # Old auto-pick: first-found frontmost mob across columns, else avatar.
+        auto_pick = frontmost_ids[0] if frontmost_ids else opp
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        def _option_for_mob(mob_id: str) -> dict:
+            mob = state.objects.get(mob_id)
+            name = getattr(getattr(mob, "card_def", None), "name", mob_id) if mob else mob_id
+            power = getattr(getattr(mob, "characteristics", None), "power", None) if mob else None
+            toughness = getattr(getattr(mob, "characteristics", None), "toughness", None) if mob else None
+            if power is not None and toughness is not None:
+                description = f"Mob {power}/{toughness}"
+            else:
+                description = "Mob"
+            return {"id": mob_id, "label": str(name), "description": description}
+
+        opp_player = state.players.get(opp)
+        opp_label = getattr(opp_player, "name", opp) if opp_player else opp
+        avatar_life = getattr(opp_player, "life", None) if opp_player else None
+        avatar_desc = f"Avatar · {avatar_life} life" if avatar_life is not None else "Avatar"
+
+        options = [_option_for_mob(mid) for mid in frontmost_ids]
+        options.append({"id": opp, "label": f"{opp_label} (Avatar)", "description": avatar_desc})
+
+        def _resolve_handler(choice, selected, st):
+            chosen = selected[0] if selected else auto_pick
+            if isinstance(chosen, dict):
+                chosen = chosen.get("id", auto_pick)
+            return _damage_resolve(obj, st, chosen, amount)
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="target",
+            player_id=obj.controller,
+            prompt=f"Deal {amount} damage to which target?",
+            options=options,
+            source_id=obj.id,
+            min_choices=1,
+            max_choices=1,
+            handler=_resolve_handler,
+            heuristic_pick=[auto_pick],
+        )
     return effect
 
 
