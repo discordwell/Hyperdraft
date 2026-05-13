@@ -201,21 +201,94 @@ def _adjust_site(*, secrecy=0, breach=0, ethics=0, clearance=0):
     return effect
 
 
-def _paperwork_bonfire(obj: GameObject, state: GameState, game=None):
+def _resolve_paperwork_bonfire(
+    obj: GameObject, target_id: str, state: GameState, game=None,
+) -> list[Event]:
+    """Fast-track a single pending dossier (``target_id``) for secrecy -1."""
+    candidate = state.objects.get(target_id)
+    if candidate is None:
+        return []
     s = scp.site(state, obj.controller)
-    for candidate in state.objects.values():
-        if candidate.controller != obj.controller or candidate.state.scp_status != "pending":
-            continue
-        s["secrecy"] -= 1
-        if game is not None:
-            events = scp.activate_dossier_now(game, candidate, source=obj.id)
-            return events or [_site_event(EventType.SCP_FAST_TRACK, obj, reason="paperwork_bonfire")]
-        candidate.state.scp_paperwork = 0
-        return [_site_event(EventType.SCP_FAST_TRACK, obj, reason="paperwork_bonfire")]
-    return []
+    s["secrecy"] -= 1
+    if game is not None:
+        events = scp.activate_dossier_now(game, candidate, source=obj.id)
+        return events or [_site_event(EventType.SCP_FAST_TRACK, obj, reason="paperwork_bonfire")]
+    candidate.state.scp_paperwork = 0
+    return [_site_event(EventType.SCP_FAST_TRACK, obj, reason="paperwork_bonfire")]
+
+
+def _paperwork_bonfire(obj: GameObject, state: GameState, game=None):
+    """Paperwork Bonfire: player chooses which of their own pending dossiers to fast-track.
+
+    Migrated to PendingChoice — was first-pending in iteration order. AI
+    preserves the same target via ``heuristic_pick``; humans pick.
+    """
+    pending = [
+        candidate for candidate in state.objects.values()
+        if candidate.controller == obj.controller and candidate.state.scp_status == "pending"
+    ]
+    if not pending:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    # AI keeps the original first-in-iteration target.
+    best = pending[0]
+    options = [
+        {
+            "id": p.id,
+            "label": getattr(p.card_def, "name", p.id) if p.card_def else p.id,
+            "description": f"Paperwork {p.state.scp_paperwork}",
+        }
+        for p in pending
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        target_id = selected[0] if selected else best.id
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id", best.id)
+        return _resolve_paperwork_bonfire(obj, target_id, st, game)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=obj.controller,
+        prompt="Fast-track which of your pending dossiers? (secrecy -1)",
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
+
+
+def _resolve_lure(obj: GameObject, target_id: str, state: GameState) -> list[Event]:
+    """Move ``target_id`` from active -> contained for the controller."""
+    target = state.objects.get(target_id)
+    if target is None:
+        return []
+    target.state.scp_status = "contained"
+    anomaly_list = state.scp_anomalies.get(obj.controller, [])
+    if target.id in anomaly_list:
+        anomaly_list.remove(target.id)
+    contained_list = state.scp_contained.setdefault(obj.controller, [])
+    if target.id not in contained_list:
+        contained_list.append(target.id)
+    return [Event(
+        type=EventType.SCP_CONTAINED,
+        payload={"player": obj.controller, "anomaly_id": target.id, "reason": "procedure"},
+        source=obj.id,
+        controller=obj.controller,
+    )]
 
 
 def _lure_into_box(obj: GameObject, state: GameState, game=None):
+    """Lure It Into a Box: player chooses which active anomaly to contain.
+
+    Migrated to PendingChoice — was lowest-containment auto-pick. AI keeps
+    the original target via ``heuristic_pick``; humans pick.
+    """
     if game is None:
         return []
     active = [
@@ -225,13 +298,37 @@ def _lure_into_box(obj: GameObject, state: GameState, game=None):
     ]
     if not active:
         return []
-    target = min(active, key=lambda a: int(getattr(a.card_def, "scp_containment", 0) or 0))
-    target.state.scp_status = "contained"
-    state.scp_anomalies[obj.controller].remove(target.id)
-    state.scp_contained[obj.controller].append(target.id)
-    return [
-        Event(type=EventType.SCP_CONTAINED, payload={"player": obj.controller, "anomaly_id": target.id, "reason": "procedure"}, source=obj.id, controller=obj.controller),
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = min(active, key=lambda a: int(getattr(a.card_def, "scp_containment", 0) or 0))
+    options = [
+        {
+            "id": a.id,
+            "label": getattr(a.card_def, "name", a.id) if a.card_def else a.id,
+            "description": f"Containment {getattr(a.card_def, 'scp_containment', 0)} · Hazard {getattr(a.card_def, 'scp_hazard', 0)}",
+        }
+        for a in active
     ]
+
+    def _resolve_handler(choice, selected, st):
+        target_id = selected[0] if selected else best.id
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id", best.id)
+        return _resolve_lure(obj, target_id, st)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=obj.controller,
+        prompt="Contain which of your active anomalies?",
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 def _archive_sprint(obj: GameObject, state: GameState, game=None):
@@ -274,7 +371,20 @@ def _whistleblower_leak(obj: GameObject, state: GameState, game=None):
     return scp.force_audit(game, obj.controller, opponent, intensity=2, source=obj.id)
 
 
+def _resolve_misfile_audit(
+    obj: GameObject, target_id: str, opponent: str, state: GameState, game,
+) -> list[Event]:
+    """Apply a 2-paperwork misfile to ``target_id`` (opponent pending)."""
+    _ok, _message, events = scp.misfile_dossier(game, obj.controller, target_id, amount=2, source=obj.id)
+    return events
+
+
 def _misfile_audit(obj: GameObject, state: GameState, game=None):
+    """Misfile Audit: player chooses which opponent pending dossier to misfile.
+
+    Migrated to PendingChoice — was ``pending[0]`` deterministic pick. AI
+    preserves the original target via ``heuristic_pick``.
+    """
     opponent = _opponent(state, obj.controller)
     if game is None or not opponent:
         return []
@@ -285,8 +395,37 @@ def _misfile_audit(obj: GameObject, state: GameState, game=None):
     ]
     if not pending:
         return scp.force_audit(game, obj.controller, opponent, intensity=1, source=obj.id)
-    _ok, _message, events = scp.misfile_dossier(game, obj.controller, pending[0].id, amount=2, source=obj.id)
-    return events
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = pending[0]
+    options = [
+        {
+            "id": p.id,
+            "label": getattr(p.card_def, "name", p.id) if p.card_def else p.id,
+            "description": f"Paperwork {p.state.scp_paperwork}",
+        }
+        for p in pending
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        target_id = selected[0] if selected else best.id
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id", best.id)
+        return _resolve_misfile_audit(obj, target_id, opponent, st, game)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=obj.controller,
+        prompt="Misfile which opposing pending dossier? (+2 paperwork)",
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 def _weaponize_ethics(obj: GameObject, state: GameState, game=None):

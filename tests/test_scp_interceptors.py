@@ -756,6 +756,9 @@ def test_on_test_paperclip_colony_briefing_token():
 def test_on_test_red_room_static_cognitive_load():
     """Red Room Static: success grants secrecy+1 AND exhausts an extra researcher."""
     game, p1, _p2 = _setup()
+    # _cognitive_load is now a PendingChoice; AI registration resolves it
+    # inline via heuristic_pick (lowest-research researcher).
+    game.turn_manager.set_ai_player(p1.id)
     anomaly = _open_active(game, p1, "Red Room Static")
     _strip_reveal_state(anomaly, game)
     staff = _stack_research_staff(game, p1, 4)
@@ -1156,6 +1159,9 @@ def test_effect_mnestic_wake_up():
 def test_effect_paperwork_bonfire():
     """Fast-track one pending dossier (or fall through to SCP_FAST_TRACK event)."""
     game, p1, _p2 = _setup()
+    # Migrated _paperwork_bonfire emits a PendingChoice; register p1 as AI so
+    # the heuristic_pick (first pending dossier) resolves inline.
+    game.turn_manager.set_ai_player(p1.id)
     scp.site(game.state, p1.id)["clearance"] = 3
     # Seed one pending dossier.
     pending = _hand_card(game, p1, "Keter Annex")
@@ -1224,6 +1230,9 @@ def test_effect_incident_report_rewrite():
 def test_effect_lure_it_into_a_box():
     """Contain the lowest-containment active anomaly."""
     game, p1, _p2 = _setup()
+    # Migrated _lure_into_box emits a PendingChoice; register p1 as AI so the
+    # heuristic_pick (lowest-containment active anomaly) resolves inline.
+    game.turn_manager.set_ai_player(p1.id)
     # Seed an active anomaly to contain.
     anomaly = _open_active(game, p1, "Moth in the Camera")
     _strip_reveal_state(anomaly, game)

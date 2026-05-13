@@ -199,33 +199,67 @@ def _chain_reactor_reveal() -> RevealHook:
     return reveal
 
 
-def _borrowed_lock_reveal() -> RevealHook:
-    """Seal another of the controller's active anomalies (highest-hazard pick).
+def _resolve_borrowed_lock(obj: GameObject, target_id: str, state: GameState) -> list[Event]:
+    """Seal the chosen active anomaly (``target_id``)."""
+    target = state.objects.get(target_id)
+    if target is None:
+        return []
+    target.state.scp_status = "sealed"
+    return [Event(
+        type=EventType.SCP_SEAL_DOSSIER,
+        payload={
+            "player": obj.controller,
+            "object_id": target.id,
+            "reason": "borrowed_lock",
+        },
+        source=obj.id,
+        controller=obj.controller,
+    )]
 
-    The engine's ``open_dossier(..., sealed=True)`` path is a hand→battlefield
-    move that establishes ``scp_status = "sealed"``. Here we mirror just the
-    status flip + ``SCP_SEAL_DOSSIER`` emission on an already-active anomaly.
-    Choosing the highest-hazard target is deterministic and matches the
-    "lock down the worst threat" AI heuristic that SZB's other Thaumiel
-    cards already use.
+
+def _borrowed_lock_reveal() -> RevealHook:
+    """Seal another of the controller's active anomalies; player chooses which.
+
+    Migrated to PendingChoice — was highest-hazard auto-pick. AI preserves
+    the original target via ``heuristic_pick``; humans see a prompt to pick
+    a different anomaly when context warrants.
     """
 
     def reveal(obj: GameObject, state: GameState) -> list[Event]:
         candidates = _active_other_anomalies(state, obj.controller, obj.id)
         if not candidates:
             return []
-        target = max(candidates, key=lambda a: int(getattr(a.card_def, "scp_hazard", 0) or 0))
-        target.state.scp_status = "sealed"
-        return [Event(
-            type=EventType.SCP_SEAL_DOSSIER,
-            payload={
-                "player": obj.controller,
-                "object_id": target.id,
-                "reason": "borrowed_lock",
-            },
-            source=obj.id,
-            controller=obj.controller,
-        )]
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        best = max(candidates, key=lambda a: int(getattr(a.card_def, "scp_hazard", 0) or 0))
+        options = [
+            {
+                "id": a.id,
+                "label": getattr(a.card_def, "name", a.id) if a.card_def else a.id,
+                "description": f"Hazard {getattr(a.card_def, 'scp_hazard', 0)} · Mood {a.state.scp_mood or 'neutral'}",
+            }
+            for a in candidates
+        ]
+
+        def _resolve_handler(choice, selected, st):
+            target_id = selected[0] if selected else best.id
+            if isinstance(target_id, dict):
+                target_id = target_id.get("id", best.id)
+            return _resolve_borrowed_lock(obj, target_id, st)
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="target",
+            player_id=obj.controller,
+            prompt="Borrowed Lock: seal which of your active anomalies?",
+            options=options,
+            source_id=obj.id,
+            min_choices=1,
+            max_choices=1,
+            handler=_resolve_handler,
+            heuristic_pick=[best.id],
+        )
 
     return reveal
 
@@ -265,12 +299,60 @@ def _carbon_copy_reveal() -> RevealHook:
     return reveal
 
 
-def _paper_guillotine_reveal() -> RevealHook:
-    """Sacrifice one own pending dossier (max paperwork) -> secrecy +2.
+def _resolve_paper_guillotine(
+    obj: GameObject, victim_id: str, state: GameState,
+) -> list[Event]:
+    """Sacrifice ``victim_id`` (an own pending dossier) and apply secrecy +2."""
+    victim = state.objects.get(victim_id)
+    if victim is None:
+        return []
+    # Deindex the victim from active SCP buckets and zero its paperwork.
+    scp._deindex_card(state, victim)
+    before_paperwork = victim.state.scp_paperwork
+    victim.state.scp_paperwork = 0
+    victim.state.scp_status = ""
+    from_zone = victim.zone
+    battlefield = state.zones.get("battlefield")
+    graveyard_key = f"graveyard_{victim.owner}"
+    graveyard = state.zones.get(graveyard_key)
+    if battlefield and victim.id in battlefield.objects:
+        battlefield.objects.remove(victim.id)
+    if graveyard is not None and victim.id not in graveyard.objects:
+        graveyard.objects.append(victim.id)
+    victim.zone = ZoneType.GRAVEYARD
+    s = scp.site(state, obj.controller)
+    s["secrecy"] += 2
+    return [
+        Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                "object_id": victim.id,
+                "from_zone_type": from_zone,
+                "to_zone_type": ZoneType.GRAVEYARD,
+                "from_zone": "battlefield",
+                "to_zone": graveyard_key,
+                "reason": "paper_guillotine_sacrifice",
+                "paperwork_before": before_paperwork,
+            },
+            source=obj.id,
+            controller=obj.controller,
+        ),
+        _site_event(
+            EventType.SCP_INCIDENT_RESOLVED,
+            obj,
+            reason="paper_guillotine",
+            secrecy=s["secrecy"],
+            victim_id=victim.id,
+        ),
+    ]
 
-    Deterministic AI-friendly: drop the dossier that is most stuck in
-    paperwork (least useful to the controller). The sacrifice removes it
-    from the battlefield via deindexing + zone move to graveyard.
+
+def _paper_guillotine_reveal() -> RevealHook:
+    """Sacrifice one of your pending dossiers (player chooses which) -> secrecy +2.
+
+    Migrated to PendingChoice — was max-paperwork auto-pick. AI preserves
+    the original target via ``heuristic_pick``; humans choose which dossier
+    to sacrifice when the trade-off depends on board context.
     """
 
     def reveal(obj: GameObject, state: GameState) -> list[Event]:
@@ -278,49 +360,37 @@ def _paper_guillotine_reveal() -> RevealHook:
         pending = [p for p in pending if p.id != obj.id]
         if not pending:
             return []
-        victim = max(pending, key=lambda p: p.state.scp_paperwork)
-        # Deindex the victim from active SCP buckets and zero its paperwork.
-        scp._deindex_card(state, victim)
-        before_paperwork = victim.state.scp_paperwork
-        victim.state.scp_paperwork = 0
-        # Status reset so the engine sees the dossier as fully closed.
-        victim.state.scp_status = ""
-        # Move battlefield -> graveyard. Mirror what _move would do but inline
-        # because the reveal hook has no `game` reference (and thus no emit).
-        from_zone = victim.zone
-        battlefield = state.zones.get("battlefield")
-        graveyard_key = f"graveyard_{victim.owner}"
-        graveyard = state.zones.get(graveyard_key)
-        if battlefield and victim.id in battlefield.objects:
-            battlefield.objects.remove(victim.id)
-        if graveyard is not None and victim.id not in graveyard.objects:
-            graveyard.objects.append(victim.id)
-        victim.zone = ZoneType.GRAVEYARD
-        s = scp.site(state, obj.controller)
-        s["secrecy"] += 2
-        return [
-            Event(
-                type=EventType.ZONE_CHANGE,
-                payload={
-                    "object_id": victim.id,
-                    "from_zone_type": from_zone,
-                    "to_zone_type": ZoneType.GRAVEYARD,
-                    "from_zone": "battlefield",
-                    "to_zone": graveyard_key,
-                    "reason": "paper_guillotine_sacrifice",
-                    "paperwork_before": before_paperwork,
-                },
-                source=obj.id,
-                controller=obj.controller,
-            ),
-            _site_event(
-                EventType.SCP_INCIDENT_RESOLVED,
-                obj,
-                reason="paper_guillotine",
-                secrecy=s["secrecy"],
-                victim_id=victim.id,
-            ),
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        best = max(pending, key=lambda p: p.state.scp_paperwork)
+        options = [
+            {
+                "id": p.id,
+                "label": getattr(p.card_def, "name", p.id) if p.card_def else p.id,
+                "description": f"Paperwork {p.state.scp_paperwork}",
+            }
+            for p in pending
         ]
+
+        def _resolve_handler(choice, selected, st):
+            target_id = selected[0] if selected else best.id
+            if isinstance(target_id, dict):
+                target_id = target_id.get("id", best.id)
+            return _resolve_paper_guillotine(obj, target_id, st)
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="target",
+            player_id=obj.controller,
+            prompt="Paper Guillotine: sacrifice which of your pending dossiers? (secrecy +2)",
+            options=options,
+            source_id=obj.id,
+            min_choices=1,
+            max_choices=1,
+            handler=_resolve_handler,
+            heuristic_pick=[best.id],
+        )
 
     return reveal
 

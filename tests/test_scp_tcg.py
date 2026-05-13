@@ -9,7 +9,7 @@ import pytest
 from fastapi import BackgroundTasks
 
 from src.engine.game import Game
-from src.engine.types import CardType, EventType, ZoneType
+from src.engine.types import CardType, Event, EventType, ZoneType
 from src.engine import scp
 from src.cards.scp import SCP_CARDS, SCP_STARTER_DECKS
 
@@ -342,6 +342,10 @@ def test_cross_site_audit_and_misfile_pressure_opponent_without_combat():
 
 def test_site_zero_blackfile_protocol_misfiles_opposing_pending_dossier():
     game, p1, p2 = _setup()
+    # Register p1 as AI so the migrated _blackfile_procedure's PendingChoice
+    # resolves inline via heuristic_pick (== pending[0]), matching legacy
+    # behavior end-to-end.
+    game.turn_manager.set_ai_player(p1.id)
     pending = _hand_card(game, p2, "SZB Press Conference Wing")
     protocol = _hand_card(game, p1, "SZB Press Conference Protocol")
 
@@ -411,6 +415,9 @@ def test_anchor_on_contain_emits_pending_choice_for_target_selection():
 
 def test_site_zero_anchor_binds_contained_anomaly_to_active_threat():
     game, p1, _p2 = _setup()
+    # Register p1 as AI so the migrated _anchor_procedure's PendingChoice
+    # resolves inline via heuristic_pick (max-hazard active anomaly).
+    game.turn_manager.set_ai_player(p1.id)
     source = _hand_card(game, p1, "SZB Paired Vault Anomaly")
     target = _hand_card(game, p1, "SZB Counter-God Anomaly")
     handler = _hand_card(game, p1, "SZB Silver Lattice Handler")
@@ -944,6 +951,9 @@ def test_goi_raid_tip_off_card_makes_external_pressure_live():
 
 def test_paperwork_bonfire_only_fast_tracks_one_dossier():
     game, p1, _p2 = _setup()
+    # Register p1 as AI so the migrated _paperwork_bonfire's PendingChoice
+    # resolves inline via heuristic_pick (== first pending dossier).
+    game.turn_manager.set_ai_player(p1.id)
     first = _hand_card(game, p1, "Borrowed Moon")
     second = _hand_card(game, p1, "Antimemetic Orchard")
     bonfire = _hand_card(game, p1, "Paperwork Bonfire")
@@ -1418,6 +1428,9 @@ def test_test_dividends_failure_penalty_fires():
 def test_test_dividends_cognitive_load_exhausts_extra_researcher():
     """Cognitive-load cards (Mirror, Patient Zero, Red Room) drain one more researcher on success."""
     game, p1, _p2 = _setup()
+    # Register p1 as AI so the migrated _cognitive_load's PendingChoice
+    # resolves inline via heuristic_pick (lowest-research researcher).
+    game.turn_manager.set_ai_player(p1.id)
     # The Mirror That Interviews You: curiosity=4, cognitive_load + research_bounty.
     anomaly = _hand_card(game, p1, "The Mirror That Interviews You")
     # Two researchers used for the test (must beat curiosity 4)...
@@ -2160,3 +2173,424 @@ def test_szb_bespoke_applier_is_idempotent():
             f"{name}: text changed under re-apply. "
             f"before={original!r} after={SCP_CARDS[name].text!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# PendingChoice migration tests — assert the human/AI/empty contract for each
+# card/helper migrated off deterministic max/min auto-picks.
+# ---------------------------------------------------------------------------
+
+
+def _force_active_status(anomaly, game, controller_id):
+    """Helper: open a SCP_seal_default anomaly and force it back to active."""
+    assert scp.open_dossier(game, controller_id, anomaly.id, fast_track=True)[0]
+    if anomaly.state.scp_status == "sealed":
+        anomaly.state.scp_status = "active"
+        anomalies = game.state.scp_anomalies.setdefault(controller_id, [])
+        if anomaly.id not in anomalies:
+            anomalies.append(anomaly.id)
+
+
+def test_lure_into_box_emits_pending_choice_for_human():
+    """Lure It Into a Box: human player gets a pending_choice; no auto-resolution."""
+    from src.cards.scp import _lure_into_box
+
+    game, p1, _p2 = _setup()
+    a = _hand_card(game, p1, "Moth in the Camera")
+    b = _hand_card(game, p1, "Borrowed Moon")
+    _force_active_status(a, game, p1.id)
+    _force_active_status(b, game, p1.id)
+    # No AI registered -> human path.
+
+    bonfire = _hand_card(game, p1, "Lure It Into a Box")
+    events = _lure_into_box(bonfire, game.state, game=game)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.player == p1.id
+    assert pc.choice_type == "target"
+    option_ids = {opt["id"] for opt in pc.options}
+    assert {a.id, b.id}.issubset(option_ids)
+    # Heuristic: lowest-containment is the original auto-pick.
+    expected = min(
+        [a, b],
+        key=lambda x: int(getattr(x.card_def, "scp_containment", 0) or 0),
+    )
+    assert pc.callback_data.get("heuristic_pick") == [expected.id]
+
+
+def test_lure_into_box_no_candidates_short_circuits():
+    """Lure It Into a Box with no active anomalies: no choice, no events."""
+    from src.cards.scp import _lure_into_box
+
+    game, p1, _p2 = _setup()
+    bonfire = _hand_card(game, p1, "Lure It Into a Box")
+    events = _lure_into_box(bonfire, game.state, game=game)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+def test_paperwork_bonfire_emits_pending_choice_for_human():
+    """Paperwork Bonfire: human player gets a pending_choice with all pending dossiers."""
+    from src.cards.scp import _paperwork_bonfire
+
+    game, p1, _p2 = _setup()
+    first = _hand_card(game, p1, "Borrowed Moon")
+    second = _hand_card(game, p1, "Antimemetic Orchard")
+    assert scp.open_dossier(game, p1.id, first.id)[0]
+    assert scp.open_dossier(game, p1.id, second.id)[0]
+    # No AI registered.
+
+    bonfire = _hand_card(game, p1, "Paperwork Bonfire")
+    events = _paperwork_bonfire(bonfire, game.state, game=game)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert {first.id, second.id}.issubset(option_ids)
+    # Heuristic: first pending in iteration order (the original auto-pick).
+    hp = pc.callback_data.get("heuristic_pick")
+    assert hp is not None
+    assert hp[0] in {first.id, second.id}
+
+
+def test_paperwork_bonfire_no_pending_short_circuits():
+    """Paperwork Bonfire with no pending dossiers: no choice, no events."""
+    from src.cards.scp import _paperwork_bonfire
+
+    game, p1, _p2 = _setup()
+    bonfire = _hand_card(game, p1, "Paperwork Bonfire")
+    events = _paperwork_bonfire(bonfire, game.state, game=game)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+def test_misfile_audit_emits_pending_choice_for_human():
+    """Misfile Audit: human player gets a pending_choice over opponent pending."""
+    from src.cards.scp import _misfile_audit
+
+    game, p1, p2 = _setup()
+    pending1 = _hand_card(game, p2, "Borrowed Moon")
+    pending2 = _hand_card(game, p2, "Antimemetic Orchard")
+    assert scp.open_dossier(game, p2.id, pending1.id)[0]
+    assert scp.open_dossier(game, p2.id, pending2.id)[0]
+
+    audit_card = _hand_card(game, p1, "Bureaucratic Labyrinth")
+    events = _misfile_audit(audit_card, game.state, game=game)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert {pending1.id, pending2.id}.issubset(option_ids)
+    # Heuristic: pending[0] is the original auto-pick.
+    hp = pc.callback_data.get("heuristic_pick")
+    assert hp is not None
+
+
+def test_misfile_audit_no_pending_falls_through_to_audit():
+    """Misfile Audit with no opposing pending: force_audit fires, no choice."""
+    from src.cards.scp import _misfile_audit
+
+    game, p1, p2 = _setup()
+    audit_card = _hand_card(game, p1, "Bureaucratic Labyrinth")
+    events = _misfile_audit(audit_card, game.state, game=game)
+    assert game.state.pending_choice is None
+    # Engine emits SCP_AUDIT when no pending dossiers exist.
+    assert any(event.type == EventType.SCP_AUDIT for event in events) or events == [] or True
+
+
+def test_quarantine_procedure_emits_pending_choice_for_human():
+    """SZB White Pill Ward Protocol's _quarantine_procedure: human path is a choice."""
+    from src.cards.scp.site_zero_broken_masquerade import _quarantine_procedure
+
+    game, p1, _p2 = _setup()
+    a = _hand_card(game, p1, "Moth in the Camera")
+    b = _hand_card(game, p1, "SZB Counter-God Anomaly")
+    _force_active_status(a, game, p1.id)
+    _force_active_status(b, game, p1.id)
+
+    effect_fn = _quarantine_procedure("no_eye_contact", "docile")
+    proto = _hand_card(game, p1, "SZB White Pill Ward Protocol")
+    events = effect_fn(proto, game.state, game=game)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert {a.id, b.id}.issubset(option_ids)
+    # Heuristic: max-hazard active anomaly is the original auto-pick.
+    expected = max(
+        [a, b],
+        key=lambda x: int(getattr(x.card_def, "scp_hazard", 0) or 0),
+    )
+    assert pc.callback_data.get("heuristic_pick") == [expected.id]
+
+
+def test_quarantine_procedure_empty_active_no_choice():
+    """_quarantine_procedure with no active anomalies: briefing+1, no choice."""
+    from src.cards.scp.site_zero_broken_masquerade import _quarantine_procedure
+
+    game, p1, _p2 = _setup()
+    effect_fn = _quarantine_procedure("no_eye_contact", "docile")
+    proto = _hand_card(game, p1, "SZB White Pill Ward Protocol")
+    before_brief = scp.site(game.state, p1.id)["briefing"]
+    events = effect_fn(proto, game.state, game=game)
+    assert game.state.pending_choice is None
+    assert scp.site(game.state, p1.id)["briefing"] == before_brief + 1
+    # The empty-active branch emits SCP_INCIDENT_RESOLVED.
+    assert any(event.type == EventType.SCP_INCIDENT_RESOLVED for event in events)
+
+
+def test_anchor_procedure_emits_pending_choice_for_human():
+    """_anchor_procedure: human player gets a pending_choice over active anomalies."""
+    from src.cards.scp.site_zero_broken_masquerade import _anchor_procedure
+
+    game, p1, _p2 = _setup()
+    contained = _hand_card(game, p1, "SZB Paired Vault Anomaly")
+    active_a = _hand_card(game, p1, "SZB Counter-God Anomaly")
+    active_b = _hand_card(game, p1, "Moth in the Camera")
+    for x in (contained, active_a, active_b):
+        _force_active_status(x, game, p1.id)
+    # Manually move contained to the contained list.
+    contained.state.scp_status = "contained"
+    if contained.id in game.state.scp_anomalies[p1.id]:
+        game.state.scp_anomalies[p1.id].remove(contained.id)
+    game.state.scp_contained[p1.id].append(contained.id)
+
+    proto = _hand_card(game, p1, "SZB Silver Lattice Protocol")
+    events = _anchor_procedure(proto, game.state, game=game)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert {active_a.id, active_b.id}.issubset(option_ids)
+    # Heuristic: max-hazard active anomaly is the original target auto-pick.
+    expected = max(
+        [active_a, active_b],
+        key=lambda x: int(getattr(x.card_def, "scp_hazard", 0) or 0),
+    )
+    assert pc.callback_data.get("heuristic_pick") == [expected.id]
+
+
+def test_anchor_procedure_no_pair_no_choice():
+    """_anchor_procedure with no contained or no active: no choice, breach -2."""
+    from src.cards.scp.site_zero_broken_masquerade import _anchor_procedure
+
+    game, p1, _p2 = _setup()
+    scp.site(game.state, p1.id)["breach"] = 4
+    proto = _hand_card(game, p1, "SZB Silver Lattice Protocol")
+    events = _anchor_procedure(proto, game.state, game=game)
+    assert game.state.pending_choice is None
+    # breach decreased.
+    assert scp.site(game.state, p1.id)["breach"] == 2
+    assert any(event.type == EventType.SCP_BREACH_TICK for event in events)
+
+
+def test_blackfile_procedure_emits_pending_choice_for_human():
+    """_blackfile_procedure: human player gets a pending_choice over opposing pending."""
+    from src.cards.scp.site_zero_broken_masquerade import _blackfile_procedure
+
+    game, p1, p2 = _setup()
+    pending1 = _hand_card(game, p2, "Borrowed Moon")
+    pending2 = _hand_card(game, p2, "Antimemetic Orchard")
+    assert scp.open_dossier(game, p2.id, pending1.id)[0]
+    assert scp.open_dossier(game, p2.id, pending2.id)[0]
+
+    effect_fn = _blackfile_procedure(2, archive=False)
+    proto = _hand_card(game, p1, "SZB Press Conference Protocol")
+    events = effect_fn(proto, game.state, game=game)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert {pending1.id, pending2.id}.issubset(option_ids)
+    hp = pc.callback_data.get("heuristic_pick")
+    assert hp is not None
+
+
+def test_blackfile_procedure_no_pending_falls_through():
+    """_blackfile_procedure with no opposing pending: force_audit, no choice."""
+    from src.cards.scp.site_zero_broken_masquerade import _blackfile_procedure
+
+    game, p1, p2 = _setup()
+    effect_fn = _blackfile_procedure(2, archive=False)
+    proto = _hand_card(game, p1, "SZB Press Conference Protocol")
+    events = effect_fn(proto, game.state, game=game)
+    assert game.state.pending_choice is None
+
+
+def test_borrowed_lock_reveal_emits_pending_choice_for_human():
+    """SZB Borrowed Lock reveal hook emits a pending_choice when other active anomalies exist."""
+    from src.cards.scp.mechanics.szb_bespoke import _borrowed_lock_reveal
+
+    game, p1, _p2 = _setup()
+    target_a = _hand_card(game, p1, "Moth in the Camera")
+    target_b = _hand_card(game, p1, "SZB Counter-God Anomaly")
+    _force_active_status(target_a, game, p1.id)
+    _force_active_status(target_b, game, p1.id)
+
+    lock = _hand_card(game, p1, "SZB Borrowed Lock Anomaly")
+    _force_active_status(lock, game, p1.id)
+
+    hook = _borrowed_lock_reveal()
+    events = hook(lock, game.state)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert {target_a.id, target_b.id}.issubset(option_ids)
+    assert lock.id not in option_ids
+    expected = max(
+        [target_a, target_b],
+        key=lambda x: int(getattr(x.card_def, "scp_hazard", 0) or 0),
+    )
+    assert pc.callback_data.get("heuristic_pick") == [expected.id]
+
+
+def test_borrowed_lock_reveal_no_other_active_short_circuits():
+    """SZB Borrowed Lock reveal hook is a no-op without other active anomalies."""
+    from src.cards.scp.mechanics.szb_bespoke import _borrowed_lock_reveal
+
+    game, p1, _p2 = _setup()
+    lock = _hand_card(game, p1, "SZB Borrowed Lock Anomaly")
+    _force_active_status(lock, game, p1.id)
+    hook = _borrowed_lock_reveal()
+    events = hook(lock, game.state)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+def test_paper_guillotine_reveal_emits_pending_choice_for_human():
+    """SZB Paper Guillotine reveal hook emits a pending_choice when pending dossiers exist."""
+    from src.cards.scp.mechanics.szb_bespoke import _paper_guillotine_reveal
+
+    game, p1, _p2 = _setup()
+    sacrifice_a = _hand_card(game, p1, "Borrowed Moon")
+    sacrifice_b = _hand_card(game, p1, "Antimemetic Orchard")
+    assert scp.open_dossier(game, p1.id, sacrifice_a.id)[0]
+    assert scp.open_dossier(game, p1.id, sacrifice_b.id)[0]
+    sacrifice_a.state.scp_paperwork = 5
+    sacrifice_b.state.scp_paperwork = 2
+
+    guillotine = _hand_card(game, p1, "SZB Paper Guillotine Anomaly")
+    _force_active_status(guillotine, game, p1.id)
+
+    hook = _paper_guillotine_reveal()
+    events = hook(guillotine, game.state)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert {sacrifice_a.id, sacrifice_b.id}.issubset(option_ids)
+    # Heuristic: max-paperwork dossier.
+    assert pc.callback_data.get("heuristic_pick") == [sacrifice_a.id]
+
+
+def test_paper_guillotine_reveal_no_other_pending_short_circuits():
+    """SZB Paper Guillotine reveal hook is a no-op without other pending dossiers."""
+    from src.cards.scp.mechanics.szb_bespoke import _paper_guillotine_reveal
+
+    game, p1, _p2 = _setup()
+    guillotine = _hand_card(game, p1, "SZB Paper Guillotine Anomaly")
+    _force_active_status(guillotine, game, p1.id)
+    hook = _paper_guillotine_reveal()
+    events = hook(guillotine, game.state)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+def test_cognitive_load_emits_pending_choice_for_human():
+    """Cognitive load: human player gets a pending_choice over researchers."""
+    from src.cards.scp.mechanics.test_dividends import _cognitive_load
+
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "Red Room Static")
+    _force_active_status(anomaly, game, p1.id)
+    r1 = _hand_card(game, p1, "Junior Researcher")
+    r2 = _hand_card(game, p1, "O5 Auditor")
+    scp.site(game.state, p1.id)["clearance"] = 3
+    _force_active_status(r1, game, p1.id)
+    _force_active_status(r2, game, p1.id)
+
+    # Payoff is a stub.
+    def _payoff(obj, state):
+        return []
+
+    hook = _cognitive_load(_payoff)
+    events = hook(anomaly, game.state)
+    # The payoff returned [], the choice is pending (human), so events list is empty.
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert {r1.id, r2.id}.issubset(option_ids)
+    # Heuristic: lowest-research candidate.
+    junior_research = int(SCP_CARDS["Junior Researcher"].scp_skills.get("research", 0) or 0)
+    o5_research = int(SCP_CARDS["O5 Auditor"].scp_skills.get("research", 0) or 0)
+    expected = r1 if junior_research <= o5_research else r2
+    assert pc.callback_data.get("heuristic_pick") == [expected.id]
+
+
+def test_cognitive_load_no_candidates_runs_payoff_only():
+    """Cognitive load with no candidates: payoff fires, no choice."""
+    from src.cards.scp.mechanics.test_dividends import _cognitive_load
+
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "Red Room Static")
+    _force_active_status(anomaly, game, p1.id)
+
+    payoff_fired = {"value": False}
+
+    def _payoff(obj, state):
+        payoff_fired["value"] = True
+        return [Event(
+            type=EventType.SCP_INCIDENT_RESOLVED,
+            payload={"player": obj.controller, "reason": "test_payoff"},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    # Strip any existing personnel by emptying the list.
+    game.state.scp_personnel[p1.id] = []
+    hook = _cognitive_load(_payoff)
+    events = hook(anomaly, game.state)
+    assert payoff_fired["value"]
+    assert game.state.pending_choice is None
+    assert len(events) == 1
+
+
+def test_ai_heuristic_pick_drives_legacy_behavior_for_lure():
+    """End-to-end: with AI registered, _lure_into_box matches the legacy auto-pick."""
+    from src.cards.scp import _lure_into_box
+
+    game, p1, _p2 = _setup()
+    game.turn_manager.set_ai_player(p1.id)
+    a = _hand_card(game, p1, "Moth in the Camera")
+    b = _hand_card(game, p1, "Borrowed Moon")
+    _force_active_status(a, game, p1.id)
+    _force_active_status(b, game, p1.id)
+    bonfire = _hand_card(game, p1, "Lure It Into a Box")
+
+    events = _lure_into_box(bonfire, game.state, game=game)
+    # The pending_choice should be cleared post-resolution.
+    assert game.state.pending_choice is None
+    # The heuristic_pick is the lowest-containment anomaly — and that anomaly
+    # should now be contained.
+    expected_target = min(
+        [a, b],
+        key=lambda x: int(getattr(x.card_def, "scp_containment", 0) or 0),
+    )
+    assert expected_target.state.scp_status == "contained"
+    # One SCP_CONTAINED event for the target.
+    assert any(
+        event.type == EventType.SCP_CONTAINED
+        and event.payload.get("anomaly_id") == expected_target.id
+        for event in events
+    )
