@@ -257,6 +257,16 @@ class SCPAIAdapter:
                 gap = max(0, 4 - opp_site["archives"]) + max(0, 8 - opp_site["secrecy"]) + max(0, opp_site["ethics_debt"] - 2)
             elif kind == "public_panic":
                 gap = max(0, 4 - opp_site["archives"])
+            elif kind == "memory_hole":
+                # MNR alt-win: 3 forgotten opposing anomalies + secrecy >= 10.
+                # Estimate the gap as the deficit on both axes summed.
+                forgotten_total = 0
+                if hasattr(state, "scp_forgotten"):
+                    for fp_id in state.players:
+                        if fp_id == opponent_id:
+                            continue
+                        forgotten_total += len(state.scp_forgotten.get(fp_id, []))
+                gap = max(0, 3 - forgotten_total) + max(0, 10 - opp_site["secrecy"])
             else:
                 gap = 99
             if gap < closest_distance:

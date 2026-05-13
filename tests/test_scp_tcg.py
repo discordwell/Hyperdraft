@@ -2594,3 +2594,136 @@ def test_ai_heuristic_pick_drives_legacy_behavior_for_lure():
         and event.payload.get("anomaly_id") == expected_target.id
         for event in events
     )
+
+
+# ---------------------------------------------------------------------------
+# Mnestic Reset (MNR) — sample-card smoke tests proving the five verbs wire
+# end-to-end. Card-design agents extend the MNR pool from these primitives.
+# ---------------------------------------------------------------------------
+
+
+def test_mnr_antimeme_anomaly_forgets_without_mnestic_personnel():
+    """3 end-of-turns without Mnestic personnel -> anomaly ends up in scp_forgotten."""
+    game, p1, p2 = _setup()
+    anomaly = _hand_card(game, p1, "MNR Five and Three-Eighths")
+    assert scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)[0]
+    assert anomaly.state.scp_status == "active"
+
+    # tick 3 end-of-turn antimeme audits.
+    for _ in range(3):
+        scp.tick_antimeme_counters(game, p1.id)
+
+    assert anomaly.id in game.state.scp_forgotten[p1.id]
+    assert anomaly.id not in game.state.scp_anomalies[p1.id]
+    assert anomaly.state.scp_status == "forgotten"
+    # SCP_FORGET should appear in the event log.
+    assert any(
+        event.type == EventType.SCP_FORGET
+        and event.payload.get("object_id") == anomaly.id
+        for event in game.state.event_log
+    )
+
+
+def test_mnr_antimeme_anomaly_held_by_mnestic_personnel():
+    """Mnestic personnel keeps the antimeme anomaly from accumulating counters."""
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "MNR Five and Three-Eighths")
+    marion = _hand_card(game, p1, "MNR Marion Wheeler")
+    assert scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, marion.id, fast_track=True)[0]
+    assert anomaly.state.scp_status == "active"
+    assert marion.state.scp_status == "active"
+
+    for _ in range(5):
+        scp.tick_antimeme_counters(game, p1.id)
+
+    assert anomaly.id not in game.state.scp_forgotten.get(p1.id, [])
+    assert anomaly.id in game.state.scp_anomalies[p1.id]
+    assert anomaly.state.scp_status == "active"
+    assert anomaly.state.scp_forget_counters == 0
+
+
+def test_mnr_redact_makes_opponent_discard():
+    """Memory Triage resolves -> opponent's hand drops by one."""
+    game, p1, p2 = _setup()
+    procedure = _hand_card(game, p1, "MNR Memory Triage")
+    # Seed p2's hand with two cards so the discard is observable.
+    junior_a = _hand_card(game, p2, "Junior Researcher")
+    _hand_card(game, p2, "D-Class Volunteer")
+    p2_hand_before = list(game.state.zones[f"hand_{p2.id}"].objects)
+    assert len(p2_hand_before) == 2
+
+    ok, message, events = scp.open_dossier(game, p1.id, procedure.id, fast_track=True)
+    assert ok, message
+
+    p2_hand_after = list(game.state.zones[f"hand_{p2.id}"].objects)
+    assert len(p2_hand_after) == 1
+    # The lowest-impact card was Junior Researcher (RT 0) or D-Class (RT 0),
+    # both equal RT -> alphabetical. "D-Class Volunteer" sorts before
+    # "Junior Researcher", so Junior should remain in hand.
+    assert junior_a.id in p2_hand_after
+    assert any(event.type == EventType.SCP_REDACT for event in events)
+
+
+def test_mnr_cog_hazard_drains_opposing_hand():
+    """MNR Five and Three-Eighths on p1 -> p2's start-of-turn drops a card."""
+    game, p1, p2 = _setup()
+    anomaly = _hand_card(game, p1, "MNR Five and Three-Eighths")
+    assert scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)[0]
+    # Seed p2's hand with one card.
+    p2_card = _hand_card(game, p2, "Junior Researcher")
+    assert p2_card.id in game.state.zones[f"hand_{p2.id}"].objects
+
+    events = scp.apply_cognitive_hazard_start(game, p2.id)
+    assert any(event.type == EventType.SCP_COG_HAZARD_TICK for event in events)
+    assert p2_card.id not in game.state.zones[f"hand_{p2.id}"].objects
+    assert p2_card.id in game.state.zones[f"graveyard_{p2.id}"].objects
+    assert any(
+        event.type == EventType.DISCARD
+        and event.payload.get("reason") == "cognitive_hazard"
+        for event in events
+    )
+
+
+def test_mnr_memory_hole_alt_win():
+    """Manually populate scp_forgotten + secrecy 10 -> Memory Hole mandate wins."""
+    game, p1, p2 = _setup()
+    mandate = _hand_card(game, p1, "MNR Mandate 1: Memory Hole")
+    assert scp.open_dossier(game, p1.id, mandate.id, fast_track=True)[0]
+    assert mandate.state.scp_status == "active"
+
+    # Stuff 3 dummy anomaly IDs into p2's forgotten zone.
+    game.state.scp_forgotten[p2.id] = ["sentinel-1", "sentinel-2", "sentinel-3"]
+    scp.site(game.state, p1.id)["secrecy"] = 10
+
+    events = scp.check_scp_victory(game)
+    assert p2.has_lost
+    assert any(
+        event.type == EventType.PLAYER_LOSES
+        and event.payload.get("reason") == "memory_hole"
+        for event in events
+    )
+
+
+def test_mnr_card_pool_smoke():
+    """MNR_CARDS is non-empty and contains the 6 sample cards."""
+    from src.cards.scp.mnestic_reset import MNR_CARDS
+
+    assert len(MNR_CARDS) >= 6
+    for name in [
+        "MNR Five and Three-Eighths",
+        "MNR Marion Wheeler",
+        "MNR Bystander Briefing Room",
+        "MNR Memory Triage",
+        "MNR Mandate 1: Memory Hole",
+        "MNR Antimemetic Audit",
+    ]:
+        assert name in MNR_CARDS, f"sample card {name!r} missing from MNR_CARDS"
+        assert MNR_CARDS[name].scp_expansion_code == "MNR"
+    # Verb wiring assertions.
+    assert MNR_CARDS["MNR Five and Three-Eighths"].scp_antimeme == 3
+    assert MNR_CARDS["MNR Five and Three-Eighths"].scp_cog_hazard == 1
+    assert MNR_CARDS["MNR Marion Wheeler"].scp_mnestic is True
+    assert MNR_CARDS["MNR Mandate 1: Memory Hole"].scp_alt_win == "memory_hole"
+    # And it's reachable through the global SCP_CARDS dictionary.
+    assert "MNR Five and Three-Eighths" in SCP_CARDS

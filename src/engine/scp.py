@@ -66,6 +66,10 @@ def ensure_scp_state(state: GameState, player_id: str) -> None:
     state.scp_facilities.setdefault(player_id, [])
     state.scp_mandates.setdefault(player_id, [])
     state.scp_incidents.setdefault(player_id, [])
+    # MNR: forgotten zone for antimeme decay (per-player list of object IDs).
+    if not hasattr(state, "scp_forgotten"):
+        state.scp_forgotten = {}
+    state.scp_forgotten.setdefault(player_id, [])
 
 
 def setup_scp_player(game, player: Player) -> None:
@@ -172,13 +176,20 @@ def _index_active_card(state: GameState, obj: GameObject) -> None:
 
 
 def _deindex_card(state: GameState, obj: GameObject) -> None:
-    for registry in (
+    registries = [
         state.scp_anomalies,
         state.scp_contained,
         state.scp_personnel,
         state.scp_facilities,
         state.scp_mandates,
-    ):
+    ]
+    # MNR: also scrub forgotten zone so a doubly-routed move can't leave
+    # stale references. (Forgotten anomalies are never expected to be
+    # touched by other systems, but keep the bookkeeping symmetric.)
+    forgotten = getattr(state, "scp_forgotten", None)
+    if forgotten is not None:
+        registries.append(forgotten)
+    for registry in registries:
         for ids in registry.values():
             while obj.id in ids:
                 ids.remove(obj.id)
@@ -1088,6 +1099,21 @@ def check_scp_victory(game, *, source: Optional[str] = None) -> list[Event]:
                 )
                 if exposed_opponent:
                     events.extend(_declare_site_win(game, player_id, "public_panic", source=mandate.id))
+            # MNR alt-win: forget 3+ opposing anomalies + secrecy >= 10.
+            # ``scp_forgotten`` is the MNR-only zone populated by
+            # ``forget_anomaly``. Thaumiel branch above counts
+            # ``scp_contained`` only, which forget_anomaly explicitly removes
+            # from — so a forgotten anomaly never double-counts for both
+            # win conditions. (Card-design agents: the threshold is
+            # cumulative across BOTH opponents in multiplayer.)
+            if alt_win == "memory_hole":
+                forgotten_opp = 0
+                for opp_id in state.players:
+                    if opp_id == player_id:
+                        continue
+                    forgotten_opp += len(state.scp_forgotten.get(opp_id, []))
+                if forgotten_opp >= 3 and s["secrecy"] >= 10:
+                    events.extend(_declare_site_win(game, player_id, "memory_hole", source=mandate.id))
     return events
 
 
@@ -1359,6 +1385,366 @@ def _seeded_mood(mood: str, *, protocol: Optional[str] = None, briefing: int = 0
         )]
 
     return hook
+
+
+# ---------------------------------------------------------------------------
+# Mnestic Reset (MNR) verbs: mnestic / antimeme / redact / cog hazard.
+#
+# Five interlocking verbs that read three card_def attributes
+# (``scp_mnestic``, ``scp_antimeme``, ``scp_cog_hazard``), two object-state
+# fields (``scp_forget_counters``, ``scp_mnestic_gained``), and a new zone
+# (``state.scp_forgotten``). The MNR_ block below is grouped together so it
+# can be moved / tested as one feature.
+# ---------------------------------------------------------------------------
+
+
+def has_mnestic(state: GameState, player_id: str) -> bool:
+    """Return True if ``player_id`` has an active personnel with Mnestic tag.
+
+    Reads both the printed ``scp_mnestic`` card_def attribute AND the
+    per-object ``scp_mnestic_gained`` flag (set by Mnestic Wake), so a
+    personnel that became Mnestic mid-game still counts.
+    """
+    ensure_scp_state(state, player_id)
+    for staff_id in list(state.scp_personnel.get(player_id, [])):
+        staff = state.objects.get(staff_id)
+        if not staff or staff.zone != ZoneType.BATTLEFIELD:
+            continue
+        if staff.state.scp_status != "active":
+            continue
+        if bool(getattr(staff.card_def, "scp_mnestic", False)):
+            return True
+        if bool(getattr(staff.state, "scp_mnestic_gained", False)):
+            return True
+    return False
+
+
+def forget_anomaly(game, anomaly_id: str, *, source: Optional[str] = None) -> list[Event]:
+    """Move an anomaly into ``state.scp_forgotten`` (removed-from-history).
+
+    This is NOT a destroy: leaves-battlefield triggers do NOT fire, and the
+    object is intentionally pulled out of ``scp_anomalies`` / ``scp_contained``
+    but not routed through ZONE_CHANGE. The card_def's history is effectively
+    unwound. Emits a single ``SCP_FORGET`` event for log / AI consumers.
+    """
+    state = game.state
+    obj = state.objects.get(anomaly_id)
+    if obj is None or obj.zone != ZoneType.BATTLEFIELD:
+        return []
+    controller = obj.controller
+    ensure_scp_state(state, controller)
+    anomalies = state.scp_anomalies.get(controller, [])
+    while obj.id in anomalies:
+        anomalies.remove(obj.id)
+    contained = state.scp_contained.get(controller, [])
+    while obj.id in contained:
+        contained.remove(obj.id)
+    forgotten = state.scp_forgotten.setdefault(controller, [])
+    if obj.id not in forgotten:
+        forgotten.append(obj.id)
+    obj.state.scp_status = "forgotten"
+    return game.emit(Event(
+        type=EventType.SCP_FORGET,
+        payload={
+            "player": controller,
+            "object_id": obj.id,
+            "forget_counters": int(getattr(obj.state, "scp_forget_counters", 0) or 0),
+            "antimeme": int(getattr(obj.card_def, "scp_antimeme", 0) or 0),
+        },
+        source=source or obj.id,
+        controller=controller,
+    ))
+
+
+def tick_antimeme_counters(game, player_id: str) -> list[Event]:
+    """End-of-turn hook for ``player_id``. Advance every antimeme anomaly.
+
+    For each anomaly P that ``player_id`` controls (active OR contained):
+      - If P.card_def declares ``scp_antimeme = N`` (N>=1)
+      - AND ``has_mnestic(state, player_id)`` is False
+      - Then P.state.scp_forget_counters += 1
+      - If the new counter >= N, call ``forget_anomaly(game, P.id)``.
+
+    Anomalies controlled by a Mnestic-covered Site do NOT accumulate, but
+    they also do NOT reset — once a counter is on, the only way to clear
+    it is to forget the card (or future bespoke MNR cards). This is by
+    design: the antimeme is silently chewing through the dossier even
+    when a researcher temporarily remembers it.
+    """
+    state = game.state
+    ensure_scp_state(state, player_id)
+    if has_mnestic(state, player_id):
+        return []
+    events: list[Event] = []
+    # Both active and contained anomalies can accumulate. The decay clock
+    # represents the anomaly chewing through the paperwork, not its
+    # physical containment status.
+    anomaly_ids: list[str] = []
+    anomaly_ids.extend(list(state.scp_anomalies.get(player_id, [])))
+    anomaly_ids.extend(list(state.scp_contained.get(player_id, [])))
+    for anomaly_id in anomaly_ids:
+        anomaly = state.objects.get(anomaly_id)
+        if anomaly is None or anomaly.zone != ZoneType.BATTLEFIELD:
+            continue
+        threshold = int(getattr(anomaly.card_def, "scp_antimeme", 0) or 0)
+        if threshold <= 0:
+            continue
+        prior = int(getattr(anomaly.state, "scp_forget_counters", 0) or 0)
+        anomaly.state.scp_forget_counters = prior + 1
+        if anomaly.state.scp_forget_counters >= threshold:
+            events.extend(forget_anomaly(game, anomaly.id, source=anomaly.id))
+    return events
+
+
+def _opposing_players(state: GameState, player_id: str) -> list[str]:
+    """Return the IDs of every other player that hasn't lost yet."""
+    out: list[str] = []
+    for pid, player in state.players.items():
+        if pid == player_id:
+            continue
+        if getattr(player, "has_lost", False):
+            continue
+        out.append(pid)
+    return out
+
+
+def _opponent_anomalies_with_cog_hazard(state: GameState, victim_id: str) -> int:
+    """Sum scp_cog_hazard across anomalies whose controller is NOT victim_id.
+
+    Only counts anomalies whose controller's opponent (= victim_id) has NO
+    active Mnestic personnel. If victim_id is mnestic-protected, the
+    cognitive hazard is suppressed and this returns 0.
+    """
+    if has_mnestic(state, victim_id):
+        return 0
+    total = 0
+    for controller_id, anomalies in state.scp_anomalies.items():
+        if controller_id == victim_id:
+            continue
+        for anomaly_id in list(anomalies):
+            anomaly = state.objects.get(anomaly_id)
+            if anomaly is None or anomaly.zone != ZoneType.BATTLEFIELD:
+                continue
+            total += int(getattr(anomaly.card_def, "scp_cog_hazard", 0) or 0)
+    # Contained anomalies also project cog hazard. The flavor: the dossier
+    # is still chewing on the witness — sealing it doesn't stop the meme.
+    for controller_id, contained in state.scp_contained.items():
+        if controller_id == victim_id:
+            continue
+        for anomaly_id in list(contained):
+            anomaly = state.objects.get(anomaly_id)
+            if anomaly is None or anomaly.zone != ZoneType.BATTLEFIELD:
+                continue
+            total += int(getattr(anomaly.card_def, "scp_cog_hazard", 0) or 0)
+    return total
+
+
+def _hand_zone_objects(state: GameState, player_id: str) -> list[GameObject]:
+    zone = state.zones.get(f"hand_{player_id}")
+    if zone is None:
+        return []
+    out: list[GameObject] = []
+    for oid in list(zone.objects):
+        obj = state.objects.get(oid)
+        if obj is not None:
+            out.append(obj)
+    return out
+
+
+def _discard_pick_score(obj: GameObject) -> tuple[int, str]:
+    """Score used to pick the "lowest-impact" hand card to discard.
+
+    Sort key: lowest red_tape first, then alphabetical by card name. The
+    intuition: low-red-tape cards are usually cheap utility (procedures,
+    bench personnel) — losing them stings less than losing a premium
+    high-RT anomaly or mandate.
+    """
+    red_tape = int(getattr(obj.card_def, "scp_red_tape", 0) or 0) if obj.card_def else 0
+    name = (obj.card_def.name if obj.card_def else obj.name) or ""
+    return (red_tape, name)
+
+
+def _discard_hand_cards(
+    state: GameState,
+    player_id: str,
+    object_ids: list[str],
+    *,
+    source: Optional[str] = None,
+    reason: str = "mnr_discard",
+) -> list[Event]:
+    """Move the named objects from ``player_id``'s hand to their graveyard.
+
+    Helper used by both Redact and Cognitive Hazard resolution. Iterates
+    through ``object_ids`` (which is the caller's chosen subset; PendingChoice
+    or auto-pick selects them upstream) and emits a DISCARD event per card.
+    The actual zone move is performed inline because SCP cards don't go
+    through the MTG-style DISCARD pipeline handler.
+    """
+    events: list[Event] = []
+    hand = state.zones.get(f"hand_{player_id}")
+    gy = state.zones.get(f"graveyard_{player_id}")
+    if hand is None:
+        return events
+    for oid in object_ids:
+        obj = state.objects.get(oid)
+        if obj is None or obj.zone != ZoneType.HAND or obj.owner != player_id:
+            continue
+        if oid in hand.objects:
+            hand.objects.remove(oid)
+        if gy is not None and oid not in gy.objects:
+            gy.objects.append(oid)
+        obj.zone = ZoneType.GRAVEYARD
+        events.append(Event(
+            type=EventType.DISCARD,
+            payload={
+                "player": player_id,
+                "object_id": oid,
+                "reason": reason,
+            },
+            source=source,
+            controller=player_id,
+        ))
+    return events
+
+
+def _choose_lowest_impact_n(state: GameState, player_id: str, n: int) -> list[str]:
+    """Return up to ``n`` object IDs from player_id's hand ordered by impact.
+
+    Used as the auto-pick when PendingChoice isn't wired through the SCP
+    frontend. Sorts the hand by ``_discard_pick_score`` and returns the
+    head. Callers that want a different selection (human play) should
+    route through ``PendingChoice`` before falling back here.
+    """
+    if n <= 0:
+        return []
+    hand_objs = _hand_zone_objects(state, player_id)
+    hand_objs.sort(key=_discard_pick_score)
+    return [obj.id for obj in hand_objs[:n]]
+
+
+def apply_cognitive_hazard_start(game, player_id: str) -> list[Event]:
+    """Start-of-turn hook for ``player_id`` — drain hand cards.
+
+    Total cards drained = sum of ``scp_cog_hazard`` across opposing anomalies,
+    provided ``player_id`` has no active Mnestic personnel (Mnestic suppresses
+    the entire effect). If the total is 0, no event fires.
+
+    Auto-pick: lowest-impact (red_tape, then alphabetical). When the SCP
+    frontend wires PendingChoice for cog hazard, callers should swap in a
+    real choice prompt; today we pick deterministically.
+    """
+    state = game.state
+    ensure_scp_state(state, player_id)
+    total = _opponent_anomalies_with_cog_hazard(state, player_id)
+    if total <= 0:
+        return []
+    picks = _choose_lowest_impact_n(state, player_id, total)
+    if not picks:
+        # Hand was empty — emit the marker event with discarded=0 anyway so
+        # logs / AI can react. (Mnestic-protected players short-circuit at
+        # _opponent_anomalies_with_cog_hazard already.)
+        return [Event(
+            type=EventType.SCP_COG_HAZARD_TICK,
+            payload={"player": player_id, "amount": total, "discarded": 0},
+            source="SCP_SYSTEM",
+            controller=player_id,
+        )]
+    events: list[Event] = []
+    events.append(Event(
+        type=EventType.SCP_COG_HAZARD_TICK,
+        payload={"player": player_id, "amount": total, "discarded": len(picks)},
+        source="SCP_SYSTEM",
+        controller=player_id,
+    ))
+    events.extend(_discard_hand_cards(
+        state, player_id, picks,
+        source="SCP_SYSTEM", reason="cognitive_hazard",
+    ))
+    return events
+
+
+def redact_opposing(
+    game,
+    player_id: str,
+    amount: int,
+    *,
+    source: Optional[str] = None,
+) -> list[Event]:
+    """Redact N: opponent discards ``amount`` cards + the last N matching events
+    are tagged ``redacted=True``.
+
+    Currently auto-picks the lowest-impact ``amount`` cards from each
+    opponent's hand (matches the docstring contract — "human play would
+    route through PendingChoice when SCP frontend supports it"). The
+    event-history tag is a marker for AI scoring + flavor; full event
+    undo is explicitly out of scope.
+    """
+    state = game.state
+    if amount <= 0:
+        return []
+    events: list[Event] = []
+    for opp_id in _opposing_players(state, player_id):
+        picks = _choose_lowest_impact_n(state, opp_id, amount)
+        # Tag the last ``amount`` events that affected this opponent's
+        # site state. We define "affected" as the controller == opp_id.
+        # Iterate event_log in reverse so the most-recent are tagged first.
+        tagged = 0
+        for past_event in reversed(state.event_log):
+            if tagged >= amount:
+                break
+            if past_event.controller != opp_id:
+                continue
+            if not isinstance(past_event.payload, dict):
+                continue
+            past_event.payload["redacted"] = True
+            tagged += 1
+        events.append(Event(
+            type=EventType.SCP_REDACT,
+            payload={
+                "actor": player_id,
+                "target": opp_id,
+                "amount": amount,
+                "events_tagged": tagged,
+                "discarded": len(picks),
+            },
+            source=source,
+            controller=player_id,
+        ))
+        events.extend(_discard_hand_cards(
+            state, opp_id, picks,
+            source=source, reason="redact",
+        ))
+    return events
+
+
+def gain_mnestic(game, personnel_id: str, *, source: Optional[str] = None) -> list[Event]:
+    """Personnel becomes permanently Mnestic.
+
+    Sets ``state.scp_mnestic_gained = True`` on the target object so
+    ``has_mnestic`` picks it up. Idempotent: re-calling on an already-Mnestic
+    personnel still fires the event (lets cards stack "gain mnestic" hooks
+    without bookkeeping).
+    """
+    state = game.state
+    obj = state.objects.get(personnel_id)
+    if obj is None or obj.zone != ZoneType.BATTLEFIELD:
+        return []
+    obj.state.scp_mnestic_gained = True
+    return game.emit(Event(
+        type=EventType.SCP_MNESTIC_ACTIVE,
+        payload={
+            "player": obj.controller,
+            "object_id": obj.id,
+            "already_mnestic": bool(getattr(obj.card_def, "scp_mnestic", False)),
+        },
+        source=source or obj.id,
+        controller=obj.controller,
+    ))
+
+
+# ---------------------------------------------------------------------------
+# /MNR
+# ---------------------------------------------------------------------------
 
 
 def tax_own_pending(state: GameState, player_id: str, amount: int, source: Optional[str] = None) -> list[Event]:

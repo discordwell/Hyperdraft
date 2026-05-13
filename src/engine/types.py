@@ -622,6 +622,11 @@ class EventType(Enum):
     SCP_ETHICS_SPENT = auto()      # Ethics debt used as a strategic resource
     SCP_ARCHIVE_GAINED = auto()    # Player gained archive progress
     SCP_SITE_LOST = auto()         # Player lost to breach, exposure, or ethics collapse
+    # MNR (Mnestic Reset) verbs.
+    SCP_FORGET = auto()            # Antimeme anomaly removed-from-history into scp_forgotten
+    SCP_MNESTIC_ACTIVE = auto()    # Personnel gained the Mnestic tag via Mnestic Wake
+    SCP_REDACT = auto()            # Redact procedure resolved (opponent discard + event tag)
+    SCP_COG_HAZARD_TICK = auto()   # Cognitive Hazard drained N cards from opposing hand
 
 
 class EventStatus(Enum):
@@ -960,6 +965,16 @@ class ObjectState:
     scp_mood: Optional[str] = None         # docile | agitated | cryptic | cooperative
     scp_bound_to: Optional[str] = None      # Cross-containment pairing source
     scp_protocols: list[str] = field(default_factory=list) # Special containment protocol labels
+    # MNR (Mnestic Reset) per-object state.
+    # ``scp_forget_counters`` accumulates each end-of-turn an antimeme anomaly
+    # sits on the battlefield without a Mnestic personnel covering it. When
+    # the counter reaches the card_def's ``scp_antimeme`` threshold the
+    # anomaly is moved to the ``state.scp_forgotten`` zone (removed-from-history,
+    # NOT destroyed — leaves-battlefield triggers do not fire).
+    # ``scp_mnestic_gained`` is set by the Mnestic Wake activated ability so a
+    # non-Mnestic personnel can become permanently Mnestic mid-game.
+    scp_forget_counters: int = 0
+    scp_mnestic_gained: bool = False
 
     # Depths-specific (optional, unused in other modes). depth_band stores
     # an Enum from src/engine/depths.py (DepthBand). It's stored as a plain
@@ -1455,6 +1470,11 @@ class GameState:
     scp_facilities: dict[str, list[str]] = field(default_factory=dict)
     scp_mandates: dict[str, list[str]] = field(default_factory=dict)
     scp_incidents: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # MNR forgotten zone: anomalies removed-from-history by the Antimeme decay
+    # clock. Keyed by player_id. Forgotten anomalies do NOT count for thaumiel
+    # / contained-based win conditions and do NOT fire leaves-battlefield
+    # triggers — the engine treats them as if they never existed.
+    scp_forgotten: dict[str, list[str]] = field(default_factory=dict)
 
     # Depths (submarine fleet) mode state. depths_combat tracks the
     # active engagement (analogous to minecraft_combat) — populated by

@@ -1048,6 +1048,11 @@ from .site_zero_broken_masquerade import (  # noqa: E402
     make_site_zero_veil_rotation_deck,
 )
 
+# Mnestic Reset (MNR) — the antimemetic-themed expansion. Currently only the
+# scaffold + 6 smoke-test cards; card-design agents extend MNR_CARDS via the
+# sub-module lists in src/cards/scp/mnestic_reset/.
+from .mnestic_reset import MNR_CARDS  # noqa: E402
+
 
 SCP_CARDS: dict[str, CardDefinition] = {
     card.name: card
@@ -1059,6 +1064,7 @@ SCP_CARDS: dict[str, CardDefinition] = {
         *MANDATES,
         *EXPANSION_CARDS,
         *SITE_ZERO_BROKEN_MASQUERADE_CARDS,
+        *MNR_CARDS.values(),
     ]
 }
 

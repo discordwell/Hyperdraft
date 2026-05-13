@@ -56,6 +56,10 @@ class SCPTurnManager(TurnManager):
         if game:
             scp.reset_assignment_slots(self.state, active)
             events.extend(scp.process_paperwork(game, active))
+            # MNR: Cognitive Hazard fires at the start of the affected
+            # player's turn — opposing anomalies project discard pressure
+            # onto the active player unless they have a Mnestic personnel.
+            events.extend(scp.apply_cognitive_hazard_start(game, active))
 
         self.turn_state.step = Step.DRAW
         draw = Event(type=EventType.DRAW, payload={"player": active, "count": 1})
@@ -78,6 +82,12 @@ class SCPTurnManager(TurnManager):
 
         if game:
             events.extend(scp.breach_tick(game, active))
+            # MNR: end-of-turn antimeme decay. Anomalies controlled by
+            # ``active`` advance their forget counters when no Mnestic
+            # personnel is covering them — and forget out of history at
+            # threshold. Runs AFTER breach_tick so the breach numbers are
+            # the snapshot players see, then the antimeme audit happens.
+            events.extend(scp.tick_antimeme_counters(game, active))
 
         end = Event(type=EventType.TURN_END, payload={"player": active, "turn_number": self.turn_state.turn_number})
         if self.pipeline:
