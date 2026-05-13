@@ -1044,24 +1044,33 @@ def make_site_zero_redaction_lock_deck():
 
 
 ANTIMEMETIC_COLD_WAR_NAMES = [
-    # Personnel (8): Memetics density + Antimemetic-aura heroes
+    # Rebuilt around the SZB White Pill Ward + Memory Triage cluster — the
+    # site_zero_redaction_lock template at 82% winrate is too strong to ignore.
+    # We hybridize: keep an ACW Hero for archetype identity but lean on the
+    # SZB Handler on_assign hooks (Memory Triage research, White Pill Ward
+    # ethics relief) that make redaction decks tick.
+    # Personnel (8)
     "Memetics Analyst", "Memetics Analyst",
-    "Junior Researcher", "Junior Researcher",
-    "Night Shift Archivist", "O5 Auditor",
-    "ACW Hero - Director Ana Vale", "ACW Hero - Dr. Kovacs of the Blank Wing",
+    "D-Class Volunteer", "D-Class Volunteer",
+    "ACW Hero - Director Ana Vale",
+    "SZB White Pill Ward Handler",
+    "Sleep-Deprived Intern",
+    "Junior Researcher",
     # Facilities (4): research engines + high-clearance enabler
     "Memetics Lab", "Memetics Lab",
     "Redaction Office", "Black Vault",
-    # Anomalies (4): ACW sealed-default thematic + CORE antimemetic anchor
-    "ACW Blind Library Anomaly", "ACW Forgotten Embassy Anomaly",
-    "ACW Unwritten Treaty Anomaly", "Antimemetic Orchard",
-    # Procedures (7): heavy secrecy + breach control + comeback reach
+    # Anomalies (4): CORE Moth pair + ACW thematic anchor + sealed default
+    "Moth in the Camera", "Moth in the Camera",
+    "SZB White Pill Ward Anomaly",
+    "ACW Forgotten Embassy Anomaly",
+    # Procedures (7): secrecy + breach control + SZB Memetics + comeback
     "Class-A Amnestic Broadcast", "Class-A Amnestic Broadcast",
-    "Witness Relocation", "Witness Relocation",
-    "Null Room Calibration",
+    "Witness Relocation", "Null Room Calibration",
+    "SZB Quiet Recital Protocol",
     "Crisis Reframe", "Compelling Testimony",
-    # Mandates (2): 2x There Is No Antimemetics Division for redaction alt-win
-    "There Is No Antimemetics Division", "There Is No Antimemetics Division",
+    # Mandates (2): redaction alt-win + SZB White Pill Directive
+    "There Is No Antimemetics Division",
+    "SZB Directive 1: White Pill Ward",
 ]
 
 
@@ -1070,24 +1079,28 @@ def make_antimemetic_cold_war_deck():
 
 
 KETER_BLACKOUT_NAMES = [
-    # Personnel (9): heavy Security cluster + KBO Keter-aura heroes
-    "MTF Doorbreaker", "MTF Doorbreaker",
+    # Rebuilt around the SZB Thaumiel grid (Halo Key, Mercy Engine, Friendly
+    # Leviathan, Clockwork Saint, Paired Vault) — all have contained_bonus
+    # from W2/agent(b) wiring. Heavy use of SZB Handler personnel with
+    # on_assign hooks. Pairs with the now-lowered thaumiel alt-win (3 contained).
+    # Personnel (8)
     "Containment Specialist", "Containment Specialist",
-    "D-Class Volunteer", "Field Agent", "Janitor Who Knows Too Much", "O5 Auditor",
+    "MTF Doorbreaker", "O5 Auditor",
     "KBO Hero - Captain Ferro Kane",
-    # Facilities (4): containment + suppression engines
-    "Reality Anchor Array", "Keter Annex",
-    "Scranton Lattice", "Site-19 Intake Wing",
-    # Anomalies (5): big Keter threats + W2 contained-bonus payoff
-    "Unlicensed Heaven", "Borrowed Moon",
-    "KBO Last Shepherd Anomaly", "KBO Dead Switch Anomaly",
-    "KBO Cathedral Breach Anomaly",
+    "SZB Halo Key Handler", "SZB Halo Key Handler",
+    "SZB Mercy Engine Handler",
+    # Facilities (4): mix of CORE security + SZB Thaumiel facilities
+    "Keter Annex", "Scranton Lattice",
+    "SZB Friendly Leviathan Wing", "SZB Paired Vault Wing",
+    # Anomalies (5): SZB Thaumiel grid + KBO native — all contained_bonus payoff
+    "KBO Last Shepherd Anomaly",
+    "SZB Halo Key Anomaly", "SZB Mercy Engine Anomaly",
+    "SZB Friendly Leviathan Anomaly", "SZB Clockwork Saint Anomaly",
     # Procedures (5): sweepers + comeback reach
-    "Lure It Into a Box", "Last Door Protocol",
-    "Emergency Lockdown",
+    "Lure It Into a Box", "Last Door Protocol", "Emergency Lockdown",
     "Crisis Reframe", "Compelling Testimony",
-    # Mandates (2): contain bonus + KBO thaumiel alt-win
-    "Contain Mandate", "KBO Mandate 1: Sunless Reactor",
+    # Mandates (3): two thaumiel routes + research support
+    "Secure Mandate", "Contain Mandate", "KBO Mandate 1: Sunless Reactor",
 ]
 
 
