@@ -779,7 +779,12 @@ class TestDarkArbitrageBugs:
 
     def test_hidden_aggression_card_text_matches_code(self):
         """Bug #12 — Hidden Aggression's printed text and emitted PT mod must
-        agree (+2/+0 after cyc3 nerf)."""
+        agree (+2/+0 after cyc3 nerf).
+
+        Phase 4 migration adaptation: HA now emits a PendingChoice for target
+        selection. Marking P1 as AI lets the inline resolver auto-pick via
+        heuristic_pick. The resolved handler emits the PT_MODIFICATION event.
+        """
         text = HIDDEN_AGGRESSION.text or ""
         assert "+2/+0" in text, (
             f"Bug #12: Hidden Aggression text must say +2/+0 (cyc3 nerf), got: {text!r}"
@@ -787,8 +792,11 @@ class TestDarkArbitrageBugs:
         assert "+4/+0" not in text, (
             f"Bug #12: stale +4/+0 text should be gone, got: {text!r}"
         )
-        # Verify the dark_effect emits power_mod=2.
+        # Verify the dark_effect emits power_mod=2 (through choice resolution).
         game, p1, p2 = _make_finance_game()
+        # Mark P1 as AI so the inline resolver fires the heuristic_pick path.
+        game.turn_manager.set_ai_player(p1.id)
+        game.state._game = game
         ha_obj = _put_on_battlefield(game, p1.id, HIDDEN_AGGRESSION)
         _put_on_battlefield(game, p1.id, HIDDEN_ACCUMULATOR)
         from src.cards.finance.fina.dark_arbitrage import _hidden_aggression_setup
@@ -796,10 +804,16 @@ class TestDarkArbitrageBugs:
         assert ics, "HIDDEN_AGGRESSION setup_interceptors returned no interceptors"
         from src.engine.types import Event as _E
         ev = _E(type=EventType.FIN_MARKET_EVENT, payload={"obj_id": ha_obj.id}, source=ha_obj.id)
+        # The handler's REACT runs dark_effect → create_choice_and_resolve →
+        # inline AI resolve → handler returns PT_MODIFICATION events. They
+        # appear as ``new_events`` on the InterceptorResult.
         result = ics[0].handler(ev, game.state)
         new_events = list(result.new_events or [])
         pt_events = [e for e in new_events if e.type == EventType.PT_MODIFICATION]
-        assert pt_events, "Bug #12: HA dark_effect must emit a PT_MODIFICATION"
+        assert pt_events, (
+            f"Bug #12: HA dark_effect must produce a PT_MODIFICATION; "
+            f"got new_events: {[e.type for e in new_events]}"
+        )
         assert pt_events[0].payload.get("power_mod") == 2, (
             f"Bug #12: HA dark_effect must apply +2/+0, got "
             f"power_mod={pt_events[0].payload.get('power_mod')}"
@@ -1366,11 +1380,19 @@ class TestDPTimingAndCardBugs:
         with active_player=P2 (opponent's TS) must NOT apply the cant-block
         flag and must re-stage the dark pool slot. Then forging it with
         active_player=P1 (controller's TS) must apply the cant-block flag
-        to the opponent Trader."""
+        to the opponent Trader.
+
+        Phase 4 migration adaptation: CM now emits a PendingChoice for target
+        selection. Marking P1 as AI lets the inline resolver auto-pick via
+        heuristic_pick (preserving the old "highest-toughness" behavior).
+        """
         from src.cards.finance.fina.high_frequency import SPOOFING_ALGO
         from src.engine.finance import get_dark_pool, set_dark_pool
         from src.engine.types import Event as _E
         game, p1, p2 = _make_finance_game()
+        # Mark P1 as AI so the PendingChoice auto-resolves via heuristic_pick.
+        game.turn_manager.set_ai_player(p1.id)
+        game.state._game = game
         # P2 has a Trader for CM to target.
         opp_trader = _put_on_battlefield(game, p2.id, SPOOFING_ALGO)
         order, ics = self._stage_dark_pool(game, p1.id, CROSSED_MARKET)
