@@ -558,6 +558,418 @@ check("Empty bench leaves pending_choice clear",
 
 
 # =============================================================================
+# Test 10: Phase 4 PendingChoice migration — bench-target / heal-target cards
+# =============================================================================
+#
+# Migrates: Switch, Boss's Orders, Potion, Plaxcaster Frogling,
+# Cytoplast Manipulator, Trygon Predator, Emmara, Vitu-Ghazi. For each card we
+# verify three scenarios: human path (no AI registered → choice stays
+# pending), heuristic preservation (callback_data['heuristic_pick'] matches
+# the original deterministic pick), and empty short-circuit (no candidates
+# = no-op).
+#
+# Pattern: use ``game = Game(mode="pokemon")``, ``game.add_player`` without
+# registering an AI handler → ``ai_players`` is empty → all players are
+# humans → resolver leaves ``state.pending_choice`` set.
+
+print("\n=== Test 10: Phase 4 PendingChoice — additional target-pick cards ===")
+
+import copy as _copy
+from src.cards.pokemon.sv_starter import (
+    _switch_effect, _boss_orders_effect, _potion_effect,
+)
+from src.cards.pokemon.beyond.ravnica.simic import (
+    _plaxcaster_frogling_effect, PLAXCASTER_FROGLING,
+    _cytoplast_manipulator_effect, CYTOPLAST_MANIPULATOR,
+    _reef_sunder_effect, TRYGON_PREDATOR,
+)
+from src.cards.pokemon.beyond.ravnica.selesnya import (
+    _soul_of_the_accord_effect, EMMARA_SOUL_OF_THE_ACCORD,
+    _vitu_ghazi_effect,
+)
+
+
+def _make_basic_pokemon(name, hp, ptype, evolution_stage="Basic"):
+    return make_pokemon(
+        name=name, hp=hp, pokemon_type=ptype,
+        evolution_stage=evolution_stage,
+        attacks=[{"name": "Stub", "cost": [{"type": "C", "count": 1}],
+                  "damage": 10, "text": ""}],
+        weakness_type=PokemonType.PSYCHIC.value, retreat_cost=1,
+    )
+
+
+def _make_game_p1_active(active_def):
+    """Build a 2-player Pokemon game with ``active_def`` as p1 Active."""
+    game = Game(mode="pokemon")
+    p1 = game.add_player("P1")
+    p2 = game.add_player("P2")
+    active = game.create_object(
+        active_def.name, p1.id, ZoneType.ACTIVE_SPOT,
+        _copy.deepcopy(active_def.characteristics), active_def,
+    )
+    # p2 needs an Active too for legal state.
+    opp_def = _make_basic_pokemon("OppActive", 70, PokemonType.WATER.value)
+    opp_active = game.create_object(
+        opp_def.name, p2.id, ZoneType.ACTIVE_SPOT,
+        _copy.deepcopy(opp_def.characteristics), opp_def,
+    )
+    return game, p1, p2, active, opp_active
+
+
+def _bench_pokemon(game, player_id, name, hp, ptype, damage=0,
+                   evolution_stage="Basic"):
+    cdef = _make_basic_pokemon(name, hp, ptype, evolution_stage)
+    obj = game.create_object(
+        cdef.name, player_id, ZoneType.BENCH,
+        _copy.deepcopy(cdef.characteristics), cdef,
+    )
+    obj.state.damage_counters = damage
+    return obj
+
+
+# --- Switch ---------------------------------------------------------------
+print("\n--- Switch ---")
+# Build with a stand-in Active and a populated bench
+game = Game(mode="pokemon")
+p1 = game.add_player("P1"); p2 = game.add_player("P2")
+active_def = _make_basic_pokemon("StarterActive", 60, PokemonType.FIRE.value)
+game.create_object(active_def.name, p1.id, ZoneType.ACTIVE_SPOT,
+                   _copy.deepcopy(active_def.characteristics), active_def)
+game.create_object(active_def.name, p2.id, ZoneType.ACTIVE_SPOT,
+                   _copy.deepcopy(active_def.characteristics), active_def)
+weak_bench = _bench_pokemon(game, p1.id, "WeakBench", 60, PokemonType.GRASS.value)
+strong_bench = _bench_pokemon(game, p1.id, "StrongBench", 120, PokemonType.WATER.value)
+event = Event(type=EventType.PKM_PLAY_ITEM, payload={'player': p1.id})
+events = _switch_effect(event, game.state)
+check("Switch human path returns no events", events == [])
+pc = game.state.pending_choice
+check("Switch sets a pending_choice", pc is not None)
+check("Switch choice is 'target' type", pc is not None and pc.choice_type == "target")
+check("Switch choice belongs to caster (p1)",
+      pc is not None and pc.player == p1.id)
+opt_ids = {o["id"] for o in (pc.options if pc else [])}
+check("Switch options include both bench Pokemon",
+      weak_bench.id in opt_ids and strong_bench.id in opt_ids)
+hp_pick = (pc.callback_data or {}).get("heuristic_pick")
+check("Switch heuristic_pick is the higher-HP bench",
+      hp_pick == [strong_bench.id])
+handler = (pc.callback_data or {}).get("handler")
+if handler:
+    handler_events = handler(pc, [strong_bench.id], game.state)
+    check("Switch handler emits PKM_SWITCH",
+          len(handler_events) == 1 and handler_events[0].type == EventType.PKM_SWITCH)
+    check("Switch handler promotes the chosen bench",
+          game.state.zones[f"active_spot_{p1.id}"].objects[0] == strong_bench.id)
+game.state.pending_choice = None
+
+# Empty short-circuit: no bench
+game_e = Game(mode="pokemon")
+p1e = game_e.add_player("P1"); p2e = game_e.add_player("P2")
+game_e.create_object(active_def.name, p1e.id, ZoneType.ACTIVE_SPOT,
+                     _copy.deepcopy(active_def.characteristics), active_def)
+game_e.create_object(active_def.name, p2e.id, ZoneType.ACTIVE_SPOT,
+                     _copy.deepcopy(active_def.characteristics), active_def)
+events_e = _switch_effect(Event(type=EventType.PKM_PLAY_ITEM,
+                                payload={'player': p1e.id}), game_e.state)
+check("Switch empty-bench short-circuit returns no events", events_e == [])
+check("Switch empty-bench leaves pending_choice clear",
+      game_e.state.pending_choice is None)
+
+
+# --- Boss's Orders --------------------------------------------------------
+print("\n--- Boss's Orders ---")
+game = Game(mode="pokemon")
+p1 = game.add_player("P1"); p2 = game.add_player("P2")
+game.create_object(active_def.name, p1.id, ZoneType.ACTIVE_SPOT,
+                   _copy.deepcopy(active_def.characteristics), active_def)
+game.create_object(active_def.name, p2.id, ZoneType.ACTIVE_SPOT,
+                   _copy.deepcopy(active_def.characteristics), active_def)
+opp_weak = _bench_pokemon(game, p2.id, "OppWeak", 60, PokemonType.GRASS.value, damage=4)
+opp_strong = _bench_pokemon(game, p2.id, "OppStrong", 120, PokemonType.WATER.value)
+event = Event(type=EventType.PKM_PLAY_ITEM, payload={'player': p1.id})
+events = _boss_orders_effect(event, game.state)
+check("Boss's Orders human path returns no events", events == [])
+pc = game.state.pending_choice
+check("Boss's Orders pending_choice set", pc is not None)
+check("Boss's Orders choice belongs to caster (p1)",
+      pc is not None and pc.player == p1.id)
+opt_ids = {o["id"] for o in (pc.options if pc else [])}
+check("Boss's Orders options include opp bench Pokemon",
+      opp_weak.id in opt_ids and opp_strong.id in opt_ids)
+hp_pick = (pc.callback_data or {}).get("heuristic_pick")
+# Weakest body (opp_weak: 60 HP - 40 damage = 20 HP remaining) wins.
+check("Boss's Orders heuristic_pick is the weakest body",
+      hp_pick == [opp_weak.id])
+game.state.pending_choice = None
+
+# Empty short-circuit: no opp bench
+game_e = Game(mode="pokemon")
+p1e = game_e.add_player("P1"); p2e = game_e.add_player("P2")
+game_e.create_object(active_def.name, p1e.id, ZoneType.ACTIVE_SPOT,
+                     _copy.deepcopy(active_def.characteristics), active_def)
+game_e.create_object(active_def.name, p2e.id, ZoneType.ACTIVE_SPOT,
+                     _copy.deepcopy(active_def.characteristics), active_def)
+events_e = _boss_orders_effect(Event(type=EventType.PKM_PLAY_ITEM,
+                                     payload={'player': p1e.id}), game_e.state)
+check("Boss's Orders empty-bench short-circuit returns no events", events_e == [])
+
+
+# --- Potion ---------------------------------------------------------------
+print("\n--- Potion ---")
+game = Game(mode="pokemon")
+p1 = game.add_player("P1"); p2 = game.add_player("P2")
+active_obj = game.create_object(
+    active_def.name, p1.id, ZoneType.ACTIVE_SPOT,
+    _copy.deepcopy(active_def.characteristics), active_def,
+)
+active_obj.state.damage_counters = 2  # 20 damage
+game.create_object(active_def.name, p2.id, ZoneType.ACTIVE_SPOT,
+                   _copy.deepcopy(active_def.characteristics), active_def)
+hurt_bench = _bench_pokemon(game, p1.id, "Hurt", 60, PokemonType.GRASS.value, damage=5)
+events = _potion_effect(Event(type=EventType.PKM_PLAY_ITEM,
+                              payload={'player': p1.id}), game.state)
+check("Potion human path returns no events", events == [])
+pc = game.state.pending_choice
+check("Potion pending_choice set", pc is not None)
+opt_ids = {o["id"] for o in (pc.options if pc else [])}
+check("Potion options include both damaged Pokemon",
+      active_obj.id in opt_ids and hurt_bench.id in opt_ids)
+hp_pick = (pc.callback_data or {}).get("heuristic_pick")
+# Most-damaged: hurt_bench (5 counters) > active_obj (2)
+check("Potion heuristic_pick is most-damaged Pokemon",
+      hp_pick == [hurt_bench.id])
+game.state.pending_choice = None
+
+# Empty short-circuit: no damaged Pokemon
+game_e = Game(mode="pokemon")
+p1e = game_e.add_player("P1"); p2e = game_e.add_player("P2")
+game_e.create_object(active_def.name, p1e.id, ZoneType.ACTIVE_SPOT,
+                     _copy.deepcopy(active_def.characteristics), active_def)
+game_e.create_object(active_def.name, p2e.id, ZoneType.ACTIVE_SPOT,
+                     _copy.deepcopy(active_def.characteristics), active_def)
+events_e = _potion_effect(Event(type=EventType.PKM_PLAY_ITEM,
+                                payload={'player': p1e.id}), game_e.state)
+check("Potion empty-damage short-circuit returns no events", events_e == [])
+
+
+# --- Plaxcaster Frogling --------------------------------------------------
+print("\n--- Plaxcaster Frogling ---")
+game, p1, p2, plax, _opp = _make_game_p1_active(PLAXCASTER_FROGLING)
+healthy = _bench_pokemon(game, p1.id, "Healthy", 90, PokemonType.WATER.value, damage=0)
+hurt = _bench_pokemon(game, p1.id, "Hurt", 80, PokemonType.WATER.value, damage=3)
+events = _plaxcaster_frogling_effect(plax, game.state)
+check("Plaxcaster human path returns no events", events == [])
+pc = game.state.pending_choice
+check("Plaxcaster pending_choice set", pc is not None)
+hp_pick = (pc.callback_data or {}).get("heuristic_pick")
+# First DAMAGED bench Pokemon — order matters: healthy first then hurt
+# (healthy has 0 damage, hurt has 3), so heuristic picks hurt.
+check("Plaxcaster heuristic_pick is first damaged bench Pokemon",
+      hp_pick == [hurt.id])
+handler = (pc.callback_data or {}).get("handler")
+if handler:
+    handler_events = handler(pc, [hurt.id], game.state)
+    check("Plaxcaster handler emits a PKM_HEAL",
+          len(handler_events) == 1 and handler_events[0].type == EventType.PKM_HEAL)
+    check("Plaxcaster handler reduces damage counters on target",
+          hurt.state.damage_counters == 1)
+game.state.pending_choice = None
+
+# Empty short-circuit
+game_e, _p1, _p2, plax_e, _opp = _make_game_p1_active(PLAXCASTER_FROGLING)
+events_e = _plaxcaster_frogling_effect(plax_e, game_e.state)
+check("Plaxcaster empty-bench short-circuit returns no events", events_e == [])
+
+
+# --- Cytoplast Manipulator -----------------------------------------------
+print("\n--- Cytoplast Manipulator ---")
+game, p1, p2, cyto, _opp = _make_game_p1_active(CYTOPLAST_MANIPULATOR)
+# Cytoplast needs an attached energy on the attacker
+energy_def = make_basic_energy("Grass Energy", PokemonType.GRASS.value)
+energy_obj = game.create_object(
+    energy_def.name, p1.id, ZoneType.BATTLEFIELD,
+    _copy.deepcopy(energy_def.characteristics), energy_def,
+)
+cyto.state.attached_energy.append(energy_obj.id)
+bench_a = _bench_pokemon(game, p1.id, "BenchA", 90, PokemonType.GRASS.value)
+bench_b = _bench_pokemon(game, p1.id, "BenchB", 120, PokemonType.GRASS.value)
+events = _cytoplast_manipulator_effect(cyto, game.state)
+check("Cytoplast human path returns no events", events == [])
+pc = game.state.pending_choice
+check("Cytoplast pending_choice set", pc is not None)
+hp_pick = (pc.callback_data or {}).get("heuristic_pick")
+check("Cytoplast heuristic_pick is the first bench Pokemon",
+      hp_pick == [bench_a.id])
+game.state.pending_choice = None
+
+# Empty: no bench
+game_e, _p1, _p2, cyto_e, _opp = _make_game_p1_active(CYTOPLAST_MANIPULATOR)
+energy_e = game_e.create_object(
+    energy_def.name, _p1.id, ZoneType.BATTLEFIELD,
+    _copy.deepcopy(energy_def.characteristics), energy_def,
+)
+cyto_e.state.attached_energy.append(energy_e.id)
+events_e = _cytoplast_manipulator_effect(cyto_e, game_e.state)
+check("Cytoplast empty-bench short-circuit returns no events", events_e == [])
+
+# Empty: no attached energy
+game_e2, _p1, _p2, cyto_e2, _opp = _make_game_p1_active(CYTOPLAST_MANIPULATOR)
+_bench_pokemon(game_e2, _p1.id, "BenchX", 90, PokemonType.GRASS.value)
+events_e2 = _cytoplast_manipulator_effect(cyto_e2, game_e2.state)
+check("Cytoplast no-energy short-circuit returns no events", events_e2 == [])
+
+
+# --- Trygon Predator (Reef Sunder) ---------------------------------------
+print("\n--- Trygon Predator ---")
+game, p1, p2, trygon, opp_active = _make_game_p1_active(TRYGON_PREDATOR)
+# Opponent Active needs attached energy for Reef Sunder to move
+opp_energy = game.create_object(
+    energy_def.name, p2.id, ZoneType.BATTLEFIELD,
+    _copy.deepcopy(energy_def.characteristics), energy_def,
+)
+opp_active.state.attached_energy.append(opp_energy.id)
+# Two opp bench Pokemon — one with no energy (lowest), one with 1
+opp_b_empty = _bench_pokemon(game, p2.id, "OppEmpty", 80, PokemonType.WATER.value)
+opp_b_loaded = _bench_pokemon(game, p2.id, "OppLoaded", 80, PokemonType.WATER.value)
+loaded_energy = game.create_object(
+    energy_def.name, p2.id, ZoneType.BATTLEFIELD,
+    _copy.deepcopy(energy_def.characteristics), energy_def,
+)
+opp_b_loaded.state.attached_energy.append(loaded_energy.id)
+
+events = _reef_sunder_effect(trygon, game.state)
+check("Trygon human path returns no events", events == [])
+pc = game.state.pending_choice
+check("Trygon pending_choice set", pc is not None)
+check("Trygon chooser is the caster", pc is not None and pc.player == p1.id)
+opt_ids = {o["id"] for o in (pc.options if pc else [])}
+check("Trygon options are opp bench Pokemon",
+      opp_b_empty.id in opt_ids and opp_b_loaded.id in opt_ids)
+hp_pick = (pc.callback_data or {}).get("heuristic_pick")
+check("Trygon heuristic_pick is lowest-attached-energy bench",
+      hp_pick == [opp_b_empty.id])
+game.state.pending_choice = None
+
+# Empty bench → discard energy (legacy fallback)
+game_e, _p1, _p2, trygon_e, opp_e = _make_game_p1_active(TRYGON_PREDATOR)
+opp_energy_e = game_e.create_object(
+    energy_def.name, _p2.id, ZoneType.BATTLEFIELD,
+    _copy.deepcopy(energy_def.characteristics), energy_def,
+)
+opp_e.state.attached_energy.append(opp_energy_e.id)
+events_e = _reef_sunder_effect(trygon_e, game_e.state)
+check("Trygon empty-bench discards opp energy (no choice)",
+      any(ev.type == EventType.PKM_DISCARD_ENERGY for ev in events_e))
+check("Trygon empty-bench leaves pending_choice clear",
+      game_e.state.pending_choice is None)
+
+# Empty: opp Active has no attached energy
+game_e2, _p1, _p2, trygon_e2, opp_e2 = _make_game_p1_active(TRYGON_PREDATOR)
+_bench_pokemon(game_e2, _p2.id, "OppBench", 70, PokemonType.WATER.value)
+events_e2 = _reef_sunder_effect(trygon_e2, game_e2.state)
+check("Trygon no-energy short-circuit returns no events", events_e2 == [])
+
+
+# --- Emmara, Soul of the Accord ------------------------------------------
+print("\n--- Emmara, Soul of the Accord ---")
+game, p1, p2, emmara, _opp = _make_game_p1_active(EMMARA_SOUL_OF_THE_ACCORD)
+# Need a Grass Energy in deck and a bench Pokemon
+grass_energy = game.create_object(
+    energy_def.name, p1.id, ZoneType.LIBRARY,
+    _copy.deepcopy(energy_def.characteristics), energy_def,
+)
+library = game.state.zones[f"library_{p1.id}"]
+library.objects.append(grass_energy.id)
+bench_a = _bench_pokemon(game, p1.id, "BenchA", 90, PokemonType.GRASS.value)
+bench_b = _bench_pokemon(game, p1.id, "BenchB", 70, PokemonType.GRASS.value)
+
+events = _soul_of_the_accord_effect(emmara, game.state)
+check("Emmara human path returns no events", events == [])
+pc = game.state.pending_choice
+check("Emmara pending_choice set", pc is not None)
+hp_pick = (pc.callback_data or {}).get("heuristic_pick")
+check("Emmara heuristic_pick is first bench Pokemon",
+      hp_pick == [bench_a.id])
+game.state.pending_choice = None
+
+# Empty: no bench
+game_e, _p1, _p2, emmara_e, _opp = _make_game_p1_active(EMMARA_SOUL_OF_THE_ACCORD)
+grass_e = game_e.create_object(
+    energy_def.name, _p1.id, ZoneType.LIBRARY,
+    _copy.deepcopy(energy_def.characteristics), energy_def,
+)
+game_e.state.zones[f"library_{_p1.id}"].objects.append(grass_e.id)
+events_e = _soul_of_the_accord_effect(emmara_e, game_e.state)
+check("Emmara empty-bench short-circuit returns no events", events_e == [])
+
+
+# --- Vitu-Ghazi (caster branch) ------------------------------------------
+print("\n--- Vitu-Ghazi, the City-Tree ---")
+game = Game(mode="pokemon")
+p1 = game.add_player("P1"); p2 = game.add_player("P2")
+# Both Actives needed
+caster_active = game.create_object(
+    active_def.name, p1.id, ZoneType.ACTIVE_SPOT,
+    _copy.deepcopy(active_def.characteristics), active_def,
+)
+opp_active = game.create_object(
+    active_def.name, p2.id, ZoneType.ACTIVE_SPOT,
+    _copy.deepcopy(active_def.characteristics), active_def,
+)
+# Caster needs 3+ bench
+b1 = _bench_pokemon(game, p1.id, "CB1", 90, PokemonType.GRASS.value)
+b2 = _bench_pokemon(game, p1.id, "CB2", 90, PokemonType.GRASS.value)
+b3 = _bench_pokemon(game, p1.id, "CB3", 90, PokemonType.GRASS.value)
+# Give b2 some attached energy to test the lowest-attached heuristic
+extra_energy = game.create_object(
+    energy_def.name, p1.id, ZoneType.BATTLEFIELD,
+    _copy.deepcopy(energy_def.characteristics), energy_def,
+)
+b2.state.attached_energy.append(extra_energy.id)
+# Caster needs energy in hand to attach
+hand_energy = game.create_object(
+    energy_def.name, p1.id, ZoneType.HAND,
+    _copy.deepcopy(energy_def.characteristics), energy_def,
+)
+game.state.zones[f"hand_{p1.id}"].objects.append(hand_energy.id)
+
+events = _vitu_ghazi_effect(
+    Event(type=EventType.PKM_PLAY_ITEM, payload={'player': p1.id}),
+    game.state,
+)
+# Note: heal events still emit synchronously; only the attach is gated by choice.
+check("Vitu-Ghazi pending_choice set after caster attach branch",
+      game.state.pending_choice is not None)
+pc = game.state.pending_choice
+check("Vitu-Ghazi caster choice belongs to p1",
+      pc is not None and pc.player == p1.id)
+opt_ids = {o["id"] for o in (pc.options if pc else [])}
+check("Vitu-Ghazi caster options are caster's bench",
+      b1.id in opt_ids and b2.id in opt_ids and b3.id in opt_ids)
+hp_pick = (pc.callback_data or {}).get("heuristic_pick")
+# Lowest-attached: b1 or b3 (both 0), b2 has 1. First-seen wins.
+check("Vitu-Ghazi heuristic_pick is a 0-energy bench Pokemon",
+      hp_pick is not None and hp_pick[0] in {b1.id, b3.id})
+game.state.pending_choice = None
+
+# Empty short-circuit: not enough bench
+game_e = Game(mode="pokemon")
+p1e = game_e.add_player("P1"); p2e = game_e.add_player("P2")
+game_e.create_object(active_def.name, p1e.id, ZoneType.ACTIVE_SPOT,
+                     _copy.deepcopy(active_def.characteristics), active_def)
+game_e.create_object(active_def.name, p2e.id, ZoneType.ACTIVE_SPOT,
+                     _copy.deepcopy(active_def.characteristics), active_def)
+_bench_pokemon(game_e, p1e.id, "OnlyOne", 60, PokemonType.GRASS.value)
+events_e = _vitu_ghazi_effect(
+    Event(type=EventType.PKM_PLAY_ITEM, payload={'player': p1e.id}),
+    game_e.state,
+)
+check("Vitu-Ghazi <3 bench leaves pending_choice clear",
+      game_e.state.pending_choice is None)
+
+
+# =============================================================================
 # Results
 # =============================================================================
 

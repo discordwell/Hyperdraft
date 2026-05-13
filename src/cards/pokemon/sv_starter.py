@@ -432,8 +432,39 @@ def _rare_candy_effect(event, state):
     )]
 
 
+def _switch_resolve(player_id: str, target_id: str, state) -> list[Event]:
+    """Swap player's Active with ``target_id`` from their Bench."""
+    active_zone = state.zones.get(f"active_spot_{player_id}")
+    bench_zone = state.zones.get(f"bench_{player_id}")
+    if not active_zone or not active_zone.objects:
+        return []
+    if not bench_zone or target_id not in bench_zone.objects:
+        return []
+    old_active_id = active_zone.objects[0]
+    active_zone.objects[0] = target_id
+    bench_zone.objects.remove(target_id)
+    bench_zone.objects.append(old_active_id)
+    old_active = state.objects.get(old_active_id)
+    new_active = state.objects.get(target_id)
+    if old_active:
+        old_active.zone = ZoneType.BENCH
+        old_active.state.status_conditions = set()
+    if new_active:
+        new_active.zone = ZoneType.ACTIVE_SPOT
+    return [Event(
+        type=EventType.PKM_SWITCH,
+        payload={'player': player_id, 'old_active': old_active_id,
+                 'new_active': target_id},
+    )]
+
+
 def _switch_effect(event, state):
-    """Switch your Active Pokemon with 1 of your Benched Pokemon."""
+    """Switch your Active Pokemon with 1 of your Benched Pokemon.
+
+    Phase 4 migration: caster picks the bench Pokemon to promote via
+    PendingChoice. Heuristic preserves the v1 pick (AI handler's
+    ``choose_promote`` if registered; otherwise highest-HP-plus-energy).
+    """
     player_id = event.payload.get('player')
     if not player_id:
         return []
@@ -457,7 +488,6 @@ def _switch_effect(event, state):
             score = 0
             if pkm.card_def:
                 score += (pkm.card_def.hp or 0) / 10.0
-                # Count attached energy
                 energy_count = len(getattr(pkm.state, 'attached_energy', []))
                 score += energy_count * 5
             if score > best_score:
@@ -466,22 +496,46 @@ def _switch_effect(event, state):
 
     if not best_bench_id:
         return []
-    # Swap
-    old_active_id = active_zone.objects[0]
-    active_zone.objects[0] = best_bench_id
-    bench_zone.objects.remove(best_bench_id)
-    bench_zone.objects.append(old_active_id)
-    old_active = state.objects.get(old_active_id)
-    new_active = state.objects.get(best_bench_id)
-    if old_active:
-        old_active.zone = ZoneType.BENCH
-        old_active.state.status_conditions = set()  # Moving to bench clears status
-    if new_active:
-        new_active.zone = ZoneType.ACTIVE_SPOT
-    return [Event(
-        type=EventType.PKM_SWITCH,
-        payload={'player': player_id, 'old_active': old_active_id, 'new_active': best_bench_id},
-    )]
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    options: list[dict] = []
+    for pkm_id in bench_zone.objects:
+        pkm = state.objects.get(pkm_id)
+        if not pkm or not pkm.card_def:
+            continue
+        max_hp = pkm.card_def.hp or 0
+        current_hp = max_hp - (pkm.state.damage_counters * 10)
+        ptype = pkm.card_def.pokemon_type or '?'
+        attached = len(getattr(pkm.state, 'attached_energy', []))
+        options.append({
+            "id": pkm_id,
+            "label": pkm.name or pkm.card_def.name or pkm_id,
+            "description": f"HP {current_hp}/{max_hp} · {attached} Energy · Type {ptype}",
+        })
+    if not options:
+        return []
+    if best_bench_id not in {o["id"] for o in options}:
+        best_bench_id = options[0]["id"]
+
+    def _resolve_handler(choice, selected, st):
+        target_id = selected[0] if selected else best_bench_id
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id", best_bench_id)
+        return _switch_resolve(player_id, target_id, st)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=player_id,
+        prompt="Switch your Active Pokemon with which Benched Pokemon?",
+        options=options,
+        source_id="Switch",
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best_bench_id],
+    )
 
 
 def _iono_effect(event, state):
@@ -517,8 +571,38 @@ def _iono_effect(event, state):
     return events
 
 
+def _boss_orders_resolve(opp_id: str, target_id: str, state) -> list[Event]:
+    """Pull opp's bench ``target_id`` into the Active Spot."""
+    active_zone = state.zones.get(f"active_spot_{opp_id}")
+    bench_zone = state.zones.get(f"bench_{opp_id}")
+    if not active_zone or not active_zone.objects:
+        return []
+    if not bench_zone or target_id not in bench_zone.objects:
+        return []
+    old_active_id = active_zone.objects[0]
+    active_zone.objects[0] = target_id
+    bench_zone.objects.remove(target_id)
+    bench_zone.objects.append(old_active_id)
+    old_active = state.objects.get(old_active_id)
+    new_active = state.objects.get(target_id)
+    if old_active:
+        old_active.zone = ZoneType.BENCH
+    if new_active:
+        new_active.zone = ZoneType.ACTIVE_SPOT
+    return [Event(
+        type=EventType.PKM_SWITCH,
+        payload={'player': opp_id, 'old_active': old_active_id,
+                 'new_active': target_id},
+    )]
+
+
 def _boss_orders_effect(event, state):
-    """Switch in 1 of your opponent's Benched Pokemon to the Active Spot."""
+    """Switch in 1 of your opponent's Benched Pokemon to the Active Spot.
+
+    Phase 4 migration: caster picks the opp bench Pokemon to drag out via
+    PendingChoice. Heuristic preserves the v1 pick (AI handler's
+    ``choose_boss_target`` if registered; otherwise weakest body).
+    """
     player_id = event.payload.get('player')
     if not player_id:
         return []
@@ -550,20 +634,45 @@ def _boss_orders_effect(event, state):
                 worst_id = pkm_id
     if not chosen_id:
         chosen_id = worst_id or bench_zone.objects[0]
-    old_active_id = active_zone.objects[0]
-    active_zone.objects[0] = chosen_id
-    bench_zone.objects.remove(chosen_id)
-    bench_zone.objects.append(old_active_id)
-    old_active = state.objects.get(old_active_id)
-    new_active = state.objects.get(chosen_id)
-    if old_active:
-        old_active.zone = ZoneType.BENCH
-    if new_active:
-        new_active.zone = ZoneType.ACTIVE_SPOT
-    return [Event(
-        type=EventType.PKM_SWITCH,
-        payload={'player': opp_id, 'old_active': old_active_id, 'new_active': chosen_id},
-    )]
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    options: list[dict] = []
+    for pkm_id in bench_zone.objects:
+        pkm = state.objects.get(pkm_id)
+        if not pkm or not pkm.card_def:
+            continue
+        max_hp = pkm.card_def.hp or 0
+        current_hp = max_hp - (pkm.state.damage_counters * 10)
+        ptype = pkm.card_def.pokemon_type or '?'
+        options.append({
+            "id": pkm_id,
+            "label": pkm.name or pkm.card_def.name or pkm_id,
+            "description": f"HP {current_hp}/{max_hp} · Type {ptype}",
+        })
+    if not options:
+        return []
+    if chosen_id not in {o["id"] for o in options}:
+        chosen_id = options[0]["id"]
+
+    def _resolve_handler(choice, selected, st):
+        target_id = selected[0] if selected else chosen_id
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id", chosen_id)
+        return _boss_orders_resolve(opp_id, target_id, st)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=player_id,
+        prompt="Drag which of your opponent's Benched Pokemon out to Active?",
+        options=options,
+        source_id="Boss's Orders",
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[chosen_id],
+    )
 
 
 def _super_rod_effect(event, state):
@@ -596,8 +705,26 @@ def _super_rod_effect(event, state):
     return []
 
 
+def _potion_resolve(target_id: str, state) -> list[Event]:
+    """Heal up to 30 damage (3 counters) from ``target_id``."""
+    pkm = state.objects.get(target_id)
+    if not pkm or pkm.state.damage_counters <= 0:
+        return []
+    heal_counters = min(3, pkm.state.damage_counters)
+    pkm.state.damage_counters -= heal_counters
+    return [Event(
+        type=EventType.PKM_HEAL,
+        payload={'pokemon_id': target_id, 'amount': heal_counters * 10},
+    )]
+
+
 def _potion_effect(event, state):
-    """Heal 30 damage from 1 of your Pokemon."""
+    """Heal 30 damage from 1 of your Pokemon.
+
+    Phase 4 migration: caster picks which damaged Pokemon to heal via
+    PendingChoice. Heuristic preserves the v1 pick (AI handler's
+    ``choose_potion_target`` if registered; otherwise the most-damaged body).
+    """
     player_id = event.payload.get('player')
     if not player_id:
         return []
@@ -619,13 +746,45 @@ def _potion_effect(event, state):
         best_id = ai_target
     if not best_id or most_damage == 0:
         return []
-    pkm = state.objects.get(best_id)
-    heal_counters = min(3, pkm.state.damage_counters)  # 30 damage = 3 counters
-    pkm.state.damage_counters -= heal_counters
-    return [Event(
-        type=EventType.PKM_HEAL,
-        payload={'pokemon_id': best_id, 'amount': heal_counters * 10},
-    )]
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    options: list[dict] = []
+    for cand_id in candidates:
+        pkm = state.objects.get(cand_id)
+        if not pkm or not pkm.card_def:
+            continue
+        max_hp = pkm.card_def.hp or 0
+        current_hp = max_hp - (pkm.state.damage_counters * 10)
+        ptype = pkm.card_def.pokemon_type or '?'
+        options.append({
+            "id": cand_id,
+            "label": pkm.name or pkm.card_def.name or cand_id,
+            "description": f"HP {current_hp}/{max_hp} · Type {ptype}",
+        })
+    if not options:
+        return []
+    if best_id not in {o["id"] for o in options}:
+        best_id = options[0]["id"]
+
+    def _resolve_handler(choice, selected, st):
+        target_id = selected[0] if selected else best_id
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id", best_id)
+        return _potion_resolve(target_id, st)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=player_id,
+        prompt="Heal 30 damage from which of your Pokemon?",
+        options=options,
+        source_id="Potion",
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best_id],
+    )
 
 
 # =============================================================================

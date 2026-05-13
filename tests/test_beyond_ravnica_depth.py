@@ -343,7 +343,15 @@ def test_niv_mizzets_tower_draws_and_rewards_spent_trainers():
 
 
 def test_trygon_predator_moves_active_energy_to_opponent_bench():
+    """Phase 4 migration: the move is now gated by a PendingChoice. With
+    both players registered as AI, the shared resolver inlines the
+    heuristic_pick (lowest-attached-energy bench), so the test asserts the
+    same final state as the v1 deterministic path."""
     game, p1, p2 = make_game()
+    # Make both players AI so the PendingChoice resolves synchronously.
+    from src.engine.pokemon_turn import PokemonTurnManager
+    if isinstance(game.turn_manager, PokemonTurnManager):
+        game.turn_manager.ai_players = {p1.id, p2.id}
     attacker = place_card(game, p1.id, TRYGON_PREDATOR, ZoneType.ACTIVE_SPOT)
     opponent_active = place_card(game, p2.id, NIVLET, ZoneType.ACTIVE_SPOT)
     opponent_bench = place_card(game, p2.id, COILING_ORACLE, ZoneType.BENCH)

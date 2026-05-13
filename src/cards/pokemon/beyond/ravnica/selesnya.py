@@ -257,8 +257,33 @@ CONCLAVE_CAVALIER = make_pokemon(
 # Trainer cards
 # =============================================================================
 
+def _vitu_ghazi_attach(target_bench_id: str, energy_id: str, hand,
+                       state) -> list[Event]:
+    """Move the energy in ``hand`` onto ``target_bench_id``."""
+    target_bench = state.objects.get(target_bench_id)
+    if not target_bench or energy_id not in hand.objects:
+        return []
+    hand.objects.remove(energy_id)
+    target_bench.state.attached_energy.append(energy_id)
+    energy = state.objects.get(energy_id)
+    if energy:
+        energy.zone = ZoneType.BATTLEFIELD
+    return [Event(
+        type=EventType.PKM_ATTACH_ENERGY,
+        payload={'pokemon_id': target_bench_id, 'energy_id': energy_id,
+                 'source': 'Vitu-Ghazi, the City-Tree'},
+    )]
+
+
 def _vitu_ghazi_effect(event, state):
-    """Heal both Actives; wide boards convert hand energy into growth."""
+    """Heal both Actives; wide boards convert hand energy into growth.
+
+    Phase 4 migration: the caster's bench-attach branch becomes a real
+    target choice (PendingChoice). The opponent's branch stays
+    deterministic (chained inline-resolves are fragile when both players
+    are humans, and the caster wouldn't make that choice anyway).
+    """
+    caster_id = event.payload.get('player')
     events = []
     for pid in state.players:
         active_zone = state.zones.get(f"active_spot_{pid}")
@@ -287,24 +312,59 @@ def _vitu_ghazi_effect(event, state):
                 break
         if not energy_id:
             continue
-        target_bench_id = min(
-            bench.objects,
-            key=lambda bid: len(getattr(state.objects.get(bid).state, 'attached_energy', []))
-            if state.objects.get(bid) else 99,
-        )
-        target_bench = state.objects.get(target_bench_id)
-        if not target_bench:
-            continue
-        hand.objects.remove(energy_id)
-        target_bench.state.attached_energy.append(energy_id)
-        energy = state.objects.get(energy_id)
-        if energy:
-            energy.zone = ZoneType.BATTLEFIELD
-        events.append(Event(
-            type=EventType.PKM_ATTACH_ENERGY,
-            payload={'pokemon_id': target_bench_id, 'energy_id': energy_id,
-                     'source': 'Vitu-Ghazi, the City-Tree'},
-        ))
+
+        if pid == caster_id:
+            from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+            options: list[dict] = []
+            best_bench_id: str | None = None
+            best_attached = 10 ** 9
+            for bid in bench.objects:
+                obj = state.objects.get(bid)
+                if not obj or not obj.card_def:
+                    continue
+                attached = len(getattr(obj.state, 'attached_energy', []))
+                ptype = obj.card_def.pokemon_type or '?'
+                options.append({
+                    "id": bid,
+                    "label": obj.name or obj.card_def.name or bid,
+                    "description": f"{attached} Energy · Type {ptype}",
+                })
+                if attached < best_attached:
+                    best_attached = attached
+                    best_bench_id = bid
+            if not options:
+                continue
+            if best_bench_id is None:
+                best_bench_id = options[0]["id"]
+
+            def _resolve_handler(choice, selected, st,
+                                 _hand=hand, _energy=energy_id,
+                                 _fallback=best_bench_id):
+                target_bench_id = selected[0] if selected else _fallback
+                if isinstance(target_bench_id, dict):
+                    target_bench_id = target_bench_id.get("id", _fallback)
+                return _vitu_ghazi_attach(target_bench_id, _energy, _hand, st)
+
+            events.extend(create_choice_and_resolve(
+                state,
+                choice_type="target",
+                player_id=caster_id,
+                prompt="Attach an Energy from your hand to which Benched Pokemon?",
+                options=options,
+                source_id='Vitu-Ghazi, the City-Tree',
+                min_choices=1,
+                max_choices=1,
+                handler=_resolve_handler,
+                heuristic_pick=[best_bench_id],
+            ))
+        else:
+            target_bench_id = min(
+                bench.objects,
+                key=lambda bid: len(getattr(state.objects.get(bid).state, 'attached_energy', []))
+                if state.objects.get(bid) else 99,
+            )
+            events.extend(_vitu_ghazi_attach(target_bench_id, energy_id, hand, state))
     return events
 
 
@@ -461,8 +521,33 @@ EMMLET = make_pokemon(
 )
 
 
+def _emmara_attach(library, found_energy: str, target_id: str,
+                   state) -> list[Event]:
+    """Move the tutored energy onto ``target_id`` and shuffle library."""
+    target = state.objects.get(target_id)
+    if not target:
+        random.shuffle(library.objects)
+        return []
+    if found_energy in library.objects:
+        library.objects.remove(found_energy)
+    target.state.attached_energy.append(found_energy)
+    energy_obj = state.objects.get(found_energy)
+    if energy_obj:
+        energy_obj.zone = ZoneType.BATTLEFIELD
+    random.shuffle(library.objects)
+    return [Event(
+        type=EventType.PKM_ATTACH_ENERGY,
+        payload={'pokemon_id': target_id, 'energy_id': found_energy,
+                 'source': "Emmara, Soul of the Accord"},
+    )]
+
+
 def _soul_of_the_accord_effect(attacker, state):
-    """Search deck for a Grass Energy and attach it to a benched Pokemon."""
+    """Search deck for a Grass Energy and attach it to a benched Pokemon.
+
+    Phase 4 migration: caster picks the bench destination via PendingChoice.
+    Heuristic preserves the v1 pick (first bench Pokemon, token-flavor).
+    """
     library = state.zones.get(f"library_{attacker.controller}")
     bench = state.zones.get(f"bench_{attacker.controller}")
     if not library or not bench or not bench.objects:
@@ -481,23 +566,44 @@ def _soul_of_the_accord_effect(attacker, state):
     if not found_energy:
         random.shuffle(library.objects)
         return []
-    # Pick the first benched Pokemon (token-flavor: any ally)
-    target_id = bench.objects[0]
-    target = state.objects.get(target_id)
-    if not target:
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    options: list[dict] = []
+    for bid in bench.objects:
+        obj = state.objects.get(bid)
+        if not obj or not obj.card_def:
+            continue
+        attached = len(getattr(obj.state, 'attached_energy', []))
+        ptype = obj.card_def.pokemon_type or '?'
+        options.append({
+            "id": bid,
+            "label": obj.name or obj.card_def.name or bid,
+            "description": f"{attached} Energy · Type {ptype}",
+        })
+    if not options:
         random.shuffle(library.objects)
         return []
-    library.objects.remove(found_energy)
-    target.state.attached_energy.append(found_energy)
-    energy_obj = state.objects.get(found_energy)
-    if energy_obj:
-        energy_obj.zone = ZoneType.BATTLEFIELD
-    random.shuffle(library.objects)
-    return [Event(
-        type=EventType.PKM_ATTACH_ENERGY,
-        payload={'pokemon_id': target_id, 'energy_id': found_energy,
-                 'source': "Emmara, Soul of the Accord"},
-    )]
+    best_id = options[0]["id"]
+
+    def _resolve_handler(choice, selected, st):
+        target_id = selected[0] if selected else best_id
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id", best_id)
+        return _emmara_attach(library, found_energy, target_id, st)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=attacker.controller,
+        prompt="Attach Grass Energy to which of your Benched Pokemon?",
+        options=options,
+        source_id=attacker.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best_id],
+    )
 
 
 EMMARA_SOUL_OF_THE_ACCORD = make_pokemon(

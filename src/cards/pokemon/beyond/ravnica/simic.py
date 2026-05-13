@@ -446,24 +446,69 @@ MOMIR_VIG_SIMIC_VISIONARY = make_pokemon(
 # Additional stand-alone Basics
 # =============================================================================
 
-def _cytoplast_manipulator_effect(attacker, state):
-    """Move 1 attached energy from this Pokemon to a benched Pokemon you control."""
-    if not attacker.state.attached_energy:
-        return []
-    bench = state.zones.get(f"bench_{attacker.controller}")
-    if not bench or not bench.objects:
-        return []
-    # Pick the first benched Pokemon
-    target_id = bench.objects[0]
+def _cytoplast_resolve(attacker_id: str, target_id: str, state) -> list[Event]:
+    """Move one attached energy from ``attacker_id`` to ``target_id``."""
+    attacker = state.objects.get(attacker_id)
     target = state.objects.get(target_id)
-    if not target:
+    if not attacker or not target or not attacker.state.attached_energy:
         return []
     energy_id = attacker.state.attached_energy.pop(0)
     target.state.attached_energy.append(energy_id)
     return [Event(
         type=EventType.PKM_ATTACH_ENERGY,
-        payload={'pokemon_id': target_id, 'energy_id': energy_id, 'source': 'Cytoplast Manipulator'},
+        payload={'pokemon_id': target_id, 'energy_id': energy_id,
+                 'source': 'Cytoplast Manipulator'},
     )]
+
+
+def _cytoplast_manipulator_effect(attacker, state):
+    """Move 1 attached energy from this Pokemon to a benched Pokemon you control.
+
+    Phase 4 migration: caster picks the bench destination via PendingChoice.
+    Heuristic preserves the v1 pick (first bench Pokemon).
+    """
+    if not attacker.state.attached_energy:
+        return []
+    bench = state.zones.get(f"bench_{attacker.controller}")
+    if not bench or not bench.objects:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    options: list[dict] = []
+    for bid in bench.objects:
+        obj = state.objects.get(bid)
+        if not obj or not obj.card_def:
+            continue
+        attached = len(getattr(obj.state, 'attached_energy', []))
+        ptype = obj.card_def.pokemon_type or '?'
+        options.append({
+            "id": bid,
+            "label": obj.name or obj.card_def.name or bid,
+            "description": f"{attached} Energy · Type {ptype}",
+        })
+    if not options:
+        return []
+    best_id = options[0]["id"]
+
+    def _resolve_handler(choice, selected, st):
+        target_id = selected[0] if selected else best_id
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id", best_id)
+        return _cytoplast_resolve(attacker.id, target_id, st)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=attacker.controller,
+        prompt="Move 1 Energy from this Pokemon to which Benched Pokemon?",
+        options=options,
+        source_id=attacker.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best_id],
+    )
 
 
 CYTOPLAST_MANIPULATOR = make_pokemon(
@@ -486,29 +531,75 @@ CYTOPLAST_MANIPULATOR = make_pokemon(
 )
 
 
-def _plaxcaster_frogling_effect(attacker, state):
-    """Heal 20 (2 counters) from a benched Pokemon you control."""
-    bench = state.zones.get(f"bench_{attacker.controller}")
-    if not bench or not bench.objects:
-        return []
-    # Pick the first benched Pokemon with damage
-    target_id = None
-    for bid in bench.objects:
-        obj = state.objects.get(bid)
-        if obj and obj.state.damage_counters > 0:
-            target_id = bid
-            break
-    if target_id is None:
-        target_id = bench.objects[0]
+def _plaxcaster_resolve(target_id: str, state) -> list[Event]:
+    """Apply the heal to ``target_id`` (up to 2 counters)."""
     target = state.objects.get(target_id)
     if not target:
         return []
     healed = min(target.state.damage_counters, 2)
+    if healed <= 0:
+        return []
     target.state.damage_counters -= healed
     return [Event(
         type=EventType.PKM_HEAL,
-        payload={'pokemon_id': target_id, 'counters': healed, 'source': 'Plaxcaster Frogling'},
+        payload={'pokemon_id': target_id, 'counters': healed,
+                 'source': 'Plaxcaster Frogling'},
     )]
+
+
+def _plaxcaster_frogling_effect(attacker, state):
+    """Heal 20 (2 counters) from a benched Pokemon you control.
+
+    Phase 4 migration: caster picks the bench target via PendingChoice.
+    Heuristic preserves the v1 pick (first damaged bench Pokemon, else the
+    first bench Pokemon) so AI behavior is unchanged.
+    """
+    bench = state.zones.get(f"bench_{attacker.controller}")
+    if not bench or not bench.objects:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    options: list[dict] = []
+    best_id: str | None = None
+    for bid in bench.objects:
+        obj = state.objects.get(bid)
+        if not obj or not obj.card_def:
+            continue
+        max_hp = obj.card_def.hp or 0
+        current_hp = max_hp - (obj.state.damage_counters * 10)
+        ptype = obj.card_def.pokemon_type or '?'
+        options.append({
+            "id": bid,
+            "label": obj.name or obj.card_def.name or bid,
+            "description": f"HP {current_hp}/{max_hp} · Type {ptype}",
+        })
+        # First damaged bench Pokemon wins the heuristic pick (v1 behavior).
+        if best_id is None and obj.state.damage_counters > 0:
+            best_id = bid
+    if not options:
+        return []
+    if best_id is None:
+        best_id = options[0]["id"]
+
+    def _resolve_handler(choice, selected, st):
+        target_id = selected[0] if selected else best_id
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id", best_id)
+        return _plaxcaster_resolve(target_id, st)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=attacker.controller,
+        prompt="Heal 20 damage from which of your Benched Pokemon?",
+        options=options,
+        source_id=attacker.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best_id],
+    )
 
 
 PLAXCASTER_FROGLING = make_pokemon(
@@ -531,8 +622,29 @@ PLAXCASTER_FROGLING = make_pokemon(
 )
 
 
+def _reef_sunder_resolve(opp_id: str, active_id: str, target_id: str,
+                         state) -> list[Event]:
+    """Pop the first attached energy off ``active_id`` and attach to ``target_id``."""
+    active = state.objects.get(active_id)
+    target = state.objects.get(target_id)
+    if not active or not target or not active.state.attached_energy:
+        return []
+    energy_id = active.state.attached_energy.pop(0)
+    target.state.attached_energy.append(energy_id)
+    return [Event(
+        type=EventType.PKM_ATTACH_ENERGY,
+        payload={'pokemon_id': target_id, 'energy_id': energy_id,
+                 'source': 'Trygon Predator'},
+    )]
+
+
 def _reef_sunder_effect(attacker, state):
-    """Move opposing Active Energy to the bench, or discard it if stranded."""
+    """Move opposing Active Energy to the bench, or discard it if stranded.
+
+    Phase 4 migration: caster picks the opp bench destination via
+    PendingChoice. Heuristic preserves the v1 pick (lowest-attached-energy
+    bench Pokemon — the spot most likely to "strand" the energy for opp).
+    """
     opp_id = next((p for p in state.players if p != attacker.controller), None)
     if not opp_id:
         return []
@@ -543,34 +655,66 @@ def _reef_sunder_effect(attacker, state):
     if not active or not active.state.attached_energy:
         return []
 
-    energy_id = active.state.attached_energy.pop(0)
     bench = state.zones.get(f"bench_{opp_id}")
-    if bench and bench.objects:
-        target_id = min(
-            bench.objects,
-            key=lambda bid: len(getattr(state.objects.get(bid).state, 'attached_energy', []))
-            if state.objects.get(bid) else 99,
-        )
-        target = state.objects.get(target_id)
-        if target:
-            target.state.attached_energy.append(energy_id)
-            return [Event(
-                type=EventType.PKM_ATTACH_ENERGY,
-                payload={'pokemon_id': target_id, 'energy_id': energy_id,
-                         'source': 'Trygon Predator'},
-            )]
+    # No bench → discard the energy (original fallback path).
+    if not bench or not bench.objects:
+        energy_id = active.state.attached_energy.pop(0)
+        grave = state.zones.get(f"graveyard_{opp_id}")
+        if grave:
+            grave.objects.append(energy_id)
+        energy = state.objects.get(energy_id)
+        if energy:
+            energy.zone = ZoneType.GRAVEYARD
+        return [Event(
+            type=EventType.PKM_DISCARD_ENERGY,
+            payload={'pokemon_id': active.id, 'energy_id': energy_id,
+                     'source': 'Trygon Predator'},
+        )]
 
-    grave = state.zones.get(f"graveyard_{opp_id}")
-    if grave:
-        grave.objects.append(energy_id)
-    energy = state.objects.get(energy_id)
-    if energy:
-        energy.zone = ZoneType.GRAVEYARD
-    return [Event(
-        type=EventType.PKM_DISCARD_ENERGY,
-        payload={'pokemon_id': active.id, 'energy_id': energy_id,
-                 'source': 'Trygon Predator'},
-    )]
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    options: list[dict] = []
+    best_id: str | None = None
+    best_attached = 10 ** 9
+    for bid in bench.objects:
+        obj = state.objects.get(bid)
+        if not obj or not obj.card_def:
+            continue
+        attached = len(getattr(obj.state, 'attached_energy', []))
+        ptype = obj.card_def.pokemon_type or '?'
+        options.append({
+            "id": bid,
+            "label": obj.name or obj.card_def.name or bid,
+            "description": f"{attached} Energy · Type {ptype}",
+        })
+        if attached < best_attached:
+            best_attached = attached
+            best_id = bid
+    if not options:
+        return []
+    if best_id is None:
+        best_id = options[0]["id"]
+
+    active_id = active.id
+
+    def _resolve_handler(choice, selected, st):
+        target_id = selected[0] if selected else best_id
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id", best_id)
+        return _reef_sunder_resolve(opp_id, active_id, target_id, st)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=attacker.controller,
+        prompt="Move 1 Energy to which of your opponent's Benched Pokemon?",
+        options=options,
+        source_id=attacker.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best_id],
+    )
 
 
 TRYGON_PREDATOR = make_pokemon(
