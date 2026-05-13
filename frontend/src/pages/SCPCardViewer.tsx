@@ -131,7 +131,7 @@ function SCPArt({ card, compact = false }: { card: CardDefinitionData; compact?:
           src={card.image_url ?? undefined}
           alt={card.name}
           className="absolute inset-0 h-full w-full object-cover"
-          loading="lazy"
+          decoding="async"
           onError={(event) => {
             event.currentTarget.style.display = 'none';
           }}
@@ -239,7 +239,7 @@ function DetailCard({ card }: { card: CardDefinitionData }) {
             {label(type)}
             {card.subtypes.length > 0 ? ` - ${card.subtypes.join(' / ')}` : ''}
           </div>
-          <div className="min-h-40 bg-zinc-100 px-4 py-3 text-zinc-950">
+          <div className={`min-h-40 px-4 py-3 ${tone}`}>
             <p className="whitespace-pre-wrap text-sm leading-relaxed">{card.text || 'No printed text.'}</p>
           </div>
           <div className="flex items-center justify-between border-t border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-400">

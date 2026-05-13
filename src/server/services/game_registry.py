@@ -17,6 +17,7 @@ Supported games (canonical IDs match GameState.game_mode):
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
@@ -222,6 +223,17 @@ _EXTRAS: dict[str, Callable[[CardDefinition], dict[str, Any]]] = {
 }
 
 
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _scp_image_url(card_def: CardDefinition, name: str) -> Optional[str]:
+    code = getattr(card_def, "scp_expansion_code", None) or "CORE"
+    slug = _SLUG_RE.sub("-", name.lower()).strip("-")
+    if not slug:
+        return None
+    return f"/scp-art/{code.lower()}/{slug}.png"
+
+
 def card_to_data(game: str, name: str, card_def: CardDefinition) -> dict[str, Any]:
     """Serialize a CardDefinition for the deckbuilder UI.
 
@@ -230,6 +242,9 @@ def card_to_data(game: str, name: str, card_def: CardDefinition) -> dict[str, An
     """
     g = normalize_game(game)
     chars = card_def.characteristics
+    image_url = getattr(card_def, "image_url", None)
+    if image_url is None and g == "scp":
+        image_url = _scp_image_url(card_def, name)
     return {
         "name": name,
         "domain": getattr(card_def, "domain", None),
@@ -239,7 +254,7 @@ def card_to_data(game: str, name: str, card_def: CardDefinition) -> dict[str, An
         "power": chars.power,
         "toughness": chars.toughness,
         "text": card_def.text or "",
-        "image_url": getattr(card_def, "image_url", None),
+        "image_url": image_url,
         # Legacy MTG fields kept on the wire so existing UI keeps working until
         # frontend is migrated.
         "mana_cost": chars.mana_cost,
