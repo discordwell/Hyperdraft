@@ -493,3 +493,66 @@ def _put_in_hand(g, player_id, card_def, n=1):
             characteristics=card_def.characteristics, card_def=card_def,
         ))
     return out
+
+
+# ===========================================================================
+# Phase 3a — POKEMON_BIAS_PRESETS
+# ===========================================================================
+
+
+def test_pokemon_bias_presets_symbol_exists():
+    """ultra-loop greps for POKEMON_BIAS_PRESETS — name must be exact."""
+    from src.ai.pokemon.biases import POKEMON_BIAS_PRESETS
+    assert isinstance(POKEMON_BIAS_PRESETS, dict)
+    expected = {'balanced', 'aggro_burn', 'control_disrupt',
+                'lz_engine', 'bench_swarm', 'energy_denial'}
+    assert expected.issubset(set(POKEMON_BIAS_PRESETS.keys())), (
+        f"Missing presets: {expected - set(POKEMON_BIAS_PRESETS.keys())}"
+    )
+
+
+def test_adapter_bias_kwarg_is_orthogonal_to_difficulty():
+    """bias= is a new kwarg; 20+ existing call sites that pass only
+    difficulty= must still work unchanged."""
+    from src.ai.pokemon.adapter import PokemonAIAdapter
+    # Old-style call: just difficulty.
+    a1 = PokemonAIAdapter(difficulty="medium")
+    assert a1.bias == "balanced"
+    # New-style: both.
+    a2 = PokemonAIAdapter(difficulty="hard", bias="lz_engine")
+    assert a2.difficulty == "hard"
+    assert a2.bias == "lz_engine"
+
+
+def test_bias_attack_multipliers_change_scores():
+    """A card with a bias multiplier of 2.0 should score ~2x compared to
+    'balanced' (which leaves it at 1.0×)."""
+    from src.ai.pokemon.adapter import PokemonAIAdapter
+    from src.ai.pokemon.biases import apply_attack_bias, get_preset
+
+    balanced = get_preset('balanced')
+    lz = get_preset('lz_engine')
+    base_score = 50.0
+
+    base_balanced = apply_attack_bias(
+        balanced, 'Mirko Vosk, Mind Drinker', 'Lost Recall', base_score)
+    base_lz = apply_attack_bias(
+        lz, 'Mirko Vosk, Mind Drinker', 'Lost Recall', base_score)
+
+    assert base_balanced == 50.0  # multiplier 1.0
+    assert base_lz == 100.0  # multiplier 2.0
+
+
+def test_set_player_bias_overrides_per_player():
+    """In a Dimir LZ vs Boros bench matchup, each player needs a
+    different bias preset."""
+    from src.ai.pokemon.adapter import PokemonAIAdapter
+
+    a = PokemonAIAdapter(difficulty="medium", bias="balanced")
+    a.set_player_bias("p1", "lz_engine")
+    a.set_player_bias("p2", "bench_swarm")
+
+    assert a._get_bias("p1") == "lz_engine"
+    assert a._get_bias("p2") == "bench_swarm"
+    # Player not set falls back to global bias.
+    assert a._get_bias("p3") == "balanced"

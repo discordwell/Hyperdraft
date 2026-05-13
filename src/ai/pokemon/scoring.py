@@ -412,6 +412,15 @@ def _score_attack(adapter, attacker: 'GameObject', attack: dict,
                 score += scorer(adapter, attacker, attack, state, player_id)
             except Exception:
                 pass
+        # Bias preset multipliers (POKEMON_BIAS_PRESETS in biases.py).
+        # Scales the final score by the active preset's per-card +
+        # global_attack_pressure multipliers.
+        try:
+            from src.ai.pokemon.biases import apply_attack_bias
+            preset = adapter.get_bias_preset(player_id)
+            score = apply_attack_bias(preset, card_name, attack_name, score)
+        except Exception:
+            pass
 
     return score
 
@@ -469,6 +478,15 @@ def _score_evolution(adapter, base: 'GameObject', evolution: 'GameObject',
     if scorer:
         try:
             score += scorer(adapter, base, evolution, state, player_id)
+        except Exception:
+            pass
+
+    # Bias preset multiplier (POKEMON_BIAS_PRESETS).
+    if name:
+        try:
+            from src.ai.pokemon.biases import apply_evolution_bias
+            preset = adapter.get_bias_preset(player_id)
+            score = apply_evolution_bias(preset, name, score)
         except Exception:
             pass
 
@@ -786,7 +804,13 @@ def _score_investment_target(adapter, pokemon: 'GameObject', attack: dict,
 
 def _score_trainer(adapter, card: 'GameObject', state: GameState,
                    player_id: str) -> float:
-    """Score a Trainer card using registry or text fallback."""
+    """Score a Trainer card using registry or text fallback.
+
+    Bias preset multipliers (`get_bias_preset(player_id)`) are applied
+    AFTER the base scorer + attack-pressure / resource-conservation
+    adjustments — so the preset scales the final number, not the
+    intermediate.
+    """
     settings = adapter._get_settings(player_id)
     name = card.card_def.name if card.card_def else ''
 
@@ -800,7 +824,7 @@ def _score_trainer(adapter, card: 'GameObject', state: GameState,
             if settings.get('use_resource_conservation'):
                 score = _adjust_trainer_for_deck_risk(
                     adapter, card, state, player_id, score)
-            return score
+            return _apply_bias_trainer(adapter, name, score, player_id)
 
     score = _score_trainer_text_fallback(adapter, card, state, player_id)
     if settings.get('use_attack_pressure'):
@@ -809,7 +833,18 @@ def _score_trainer(adapter, card: 'GameObject', state: GameState,
     if settings.get('use_resource_conservation'):
         score = _adjust_trainer_for_deck_risk(
             adapter, card, state, player_id, score)
-    return score
+    return _apply_bias_trainer(adapter, name, score, player_id)
+
+
+def _apply_bias_trainer(adapter, card_name: str, score: float,
+                        player_id: str) -> float:
+    """Apply the active bias preset's trainer multiplier."""
+    try:
+        from src.ai.pokemon.biases import apply_trainer_bias
+        preset = adapter.get_bias_preset(player_id)
+        return apply_trainer_bias(preset, card_name, score)
+    except Exception:
+        return score
 
 
 def _adjust_trainer_for_attack_pressure(adapter, card: 'GameObject',

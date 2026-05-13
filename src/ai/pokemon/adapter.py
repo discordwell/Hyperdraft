@@ -146,10 +146,16 @@ class PokemonAIAdapter:
         },
     }
 
-    def __init__(self, difficulty: str = DEFAULT_DIFFICULTY):
+    def __init__(self, difficulty: str = DEFAULT_DIFFICULTY,
+                 bias: Optional[str] = None):
         self.difficulty = str(difficulty or self.DEFAULT_DIFFICULTY).strip().lower()
         # Per-player difficulty overrides (for bot-vs-bot with different levels)
         self.player_difficulties: dict[str, str] = {}
+        # Bias preset — orthogonal axis to difficulty. Controls *style*
+        # (which archetype the AI prefers). See src/ai/pokemon/biases.py
+        # for the registered POKEMON_BIAS_PRESETS dict.
+        self.bias: str = str(bias).strip().lower() if bias else 'balanced'
+        self.player_biases: dict[str, str] = {}
         self._energy_plans: dict[str, EnergyPlan] = {}
         self._current_context: Optional[TurnContext] = None
 
@@ -175,6 +181,22 @@ class PokemonAIAdapter:
         if player_id and player_id in self.player_difficulties:
             return str(self.player_difficulties[player_id]).strip().lower()
         return self.difficulty
+
+    def _get_bias(self, player_id: str = None) -> str:
+        """Return the active bias preset name for ``player_id``."""
+        if player_id and player_id in self.player_biases:
+            return str(self.player_biases[player_id]).strip().lower()
+        return self.bias
+
+    def get_bias_preset(self, player_id: str = None) -> dict:
+        """Return the resolved bias preset dict for ``player_id``."""
+        from src.ai.pokemon.biases import get_preset
+        return get_preset(self._get_bias(player_id))
+
+    def set_player_bias(self, player_id: str, bias: str) -> None:
+        """Override the bias preset for one player (for AI-vs-AI matchups
+        where each side runs a different archetype)."""
+        self.player_biases[player_id] = str(bias).strip().lower()
 
     def _get_settings(self, player_id: str = None) -> dict:
         diff = self._get_difficulty(player_id)
