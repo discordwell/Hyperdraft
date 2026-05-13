@@ -50,11 +50,17 @@ def dispatch_choice(player_id: str, choice, state) -> list:
     if choice_type == 'pkm_target_choice':
         return _resolve_target(choice, preset)
 
+    # Phase 4 migrations use the engine-standard ``target`` choice_type
+    # with rich ``{id, label, description}`` options. The same target
+    # resolution logic applies.
+    if choice_type == 'target':
+        return _resolve_target_rich(choice, preset)
+
     # Fallback: prefer heuristic_pick, else first option.
     if preset is not None:
         return _wrap(preset)
     options = getattr(choice, 'options', None) or []
-    return [0] if options else [0]
+    return [options[0]] if options else [0]
 
 
 def _resolve_modal(choice, preset: Any) -> list:
@@ -110,6 +116,43 @@ def _resolve_target(choice, preset: Any) -> list:
     if options:
         return [options[0]]
     return [0]
+
+
+def _resolve_target_rich(choice, preset: Any) -> list:
+    """Pick a target from rich ``{id, label, description}`` option dicts.
+
+    Phase 4 migration target shape — heuristic_pick is a list of target IDs
+    (or a bare ID). We look up the matching option dict and return the
+    selection in the same list-of-IDs format the handler expects.
+    """
+    options = getattr(choice, 'options', None) or []
+    if preset is not None:
+        if isinstance(preset, list) and preset:
+            return list(preset)
+        if isinstance(preset, str):
+            return [preset]
+        try:
+            idx = int(preset)
+            if 0 <= idx < len(options):
+                opt = options[idx]
+                if isinstance(opt, dict) and 'id' in opt:
+                    return [opt['id']]
+                return [opt]
+        except (TypeError, ValueError):
+            pass
+    if options:
+        opt = options[0]
+        if isinstance(opt, dict) and 'id' in opt:
+            return [opt['id']]
+        return [opt]
+    return [0]
+
+
+def _wrap(preset: Any) -> list:
+    """Coerce ``preset`` into the engine's list-form selection."""
+    if isinstance(preset, list):
+        return list(preset)
+    return [preset]
 
 
 def _clamp_idx(idx: int, options: list) -> int:
