@@ -1062,3 +1062,93 @@ def test_mechanics_package_imports_cleanly():
     assert callable(mechanics.apply_all_mechanics)
     # No-op default doesn't error.
     mechanics.apply_all_mechanics({})
+
+
+def test_expansion_acw_anomaly_arrives_cryptic_and_sealed_by_default():
+    """W5 generator default: every ACW templated anomaly is cryptic + sealed.
+
+    Picks any ACW expansion anomaly. After reveal, mood is ``cryptic`` and the
+    ``mirror_box`` protocol is on the anomaly. ``scp_seal_default`` is True.
+    """
+    acw_anomaly_names = [
+        name
+        for name, card in SCP_CARDS.items()
+        if getattr(card, "scp_expansion_code", None) == "ACW"
+        and CardType.SCP_ANOMALY in card.characteristics.types
+        and "Anomaly" in name
+    ]
+    assert acw_anomaly_names, "Expected ACW templated anomalies in expansion pool"
+    sample_name = acw_anomaly_names[0]
+    sample = SCP_CARDS[sample_name]
+    # Generator-baked seal hint.
+    assert getattr(sample, "scp_seal_default", False) is True
+    # Reveal hook fires on activation.
+    game, p1, _p2 = _setup()
+    obj = _hand_card(game, p1, sample_name)
+    ok, _msg, _events = scp.open_dossier(game, p1.id, obj.id, fast_track=True)
+    assert ok
+    assert obj.state.scp_status == "active"
+    assert obj.state.scp_mood == "cryptic"
+    assert "mirror_box" in obj.state.scp_protocols
+
+
+def test_expansion_goi_anomaly_reveal_costs_secrecy_or_breach():
+    """W5 generator default: GOI anomalies reveal with public_reveal (even index)
+    or hostile_reveal (odd index). Either way, the controller pays.
+    """
+    game, p1, _p2 = _setup()
+    goi_anomaly_names = [
+        name
+        for name, card in SCP_CARDS.items()
+        if getattr(card, "scp_expansion_code", None) == "GOI"
+        and CardType.SCP_ANOMALY in card.characteristics.types
+        and "Anomaly" in name
+    ]
+    assert goi_anomaly_names
+    # Reveal an even-index GOI anomaly (motif index 0 → "Serpent Consulate").
+    name = "GOI Serpent Consulate Anomaly"
+    assert name in SCP_CARDS
+    secrecy_before = scp.site(game.state, p1.id)["secrecy"]
+    obj = _hand_card(game, p1, name)
+    ok, _msg, _events = scp.open_dossier(game, p1.id, obj.id, fast_track=True)
+    assert ok
+    # public_reveal -1 secrecy, plus fast_track on a 0-tape card costs 0,
+    # so the only delta to secrecy is the reveal hook itself.
+    assert scp.site(game.state, p1.id)["secrecy"] == secrecy_before - 1
+
+
+def test_expansion_eth_specialist_carries_secondary_task_aura():
+    """W5 generator default: ETH Specialist's aura buffs the secondary task
+    (``contain`` for the Ethics archetype) on friendly Ethics-subtype staff.
+    """
+    eth_spec_names = [
+        name
+        for name, card in SCP_CARDS.items()
+        if getattr(card, "scp_expansion_code", None) == "ETH"
+        and CardType.SCP_PERSONNEL in card.characteristics.types
+        and "Specialist" in name
+    ]
+    assert eth_spec_names
+    sample = SCP_CARDS[eth_spec_names[0]]
+    # The Ethics archetype's secondary task is "contain".
+    assert sample.scp_aura == {"subtype:Ethics": {"contain": 1}}
+    # And the aura actually fires in _staff_total against an Ethics-tagged
+    # friendly. We use a second ETH specialist as the target so we know it
+    # carries the Ethics subtype.
+    game, p1, _p2 = _setup()
+    source = _hand_card(game, p1, sample.name)
+    target_name = next(n for n in eth_spec_names if n != sample.name)
+    target = _hand_card(game, p1, target_name)
+    scp.open_dossier(game, p1.id, source.id, fast_track=True)
+    scp.open_dossier(game, p1.id, target.id, fast_track=True)
+    target_skills = SCP_CARDS[target_name].scp_skills
+    # Both staff have subtype Ethics and both carry the aura, so both auras
+    # apply to both staff: each staff's contribution is
+    # base_contain + (n_auras x +1). With two ETH specialists this is
+    # (skills.contain + 2) per staff. The total is the sum across both.
+    per_staff = sample.scp_skills.get("contain", 0) + 2
+    expected_contain = per_staff + (target_skills.get("contain", 0) + 2)
+    total, _used = scp._staff_total(
+        game.state, p1.id, [source.id, target.id], "contain"
+    )
+    assert total == expected_contain
