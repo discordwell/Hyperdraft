@@ -416,6 +416,9 @@ def test_frierenrift_guillotine_converts_attack_to_armor():
 
 def test_riftclash_freeze_riders_draw_and_scale_armor():
     game, p1, p2 = make_riftclash_game()
+    # Ice Shackle now emits a PendingChoice; AI registration makes it
+    # resolve inline against the heuristic_pick target.
+    game.turn_manager.ai_players.add(p1.id)
     enemy = spawn(game, NEXUS_GUARDIAN, p2.id)
     enemy.state.frozen = True
 
@@ -434,6 +437,9 @@ def test_riftclash_freeze_riders_draw_and_scale_armor():
 
 def test_riftclash_pass3_cinder_lance_and_cryo_sentinel_branches():
     game, p1, p2 = make_riftclash_game()
+    # Cinder Lance now emits a PendingChoice; AI registration makes it
+    # resolve inline against the heuristic_pick (highest-Attack target).
+    game.turn_manager.ai_players.add(p1.id)
     enemy = spawn(game, NEXUS_GUARDIAN, p2.id)
     enemy.state.damage = 3
 
