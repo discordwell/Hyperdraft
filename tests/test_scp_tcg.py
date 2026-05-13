@@ -2705,6 +2705,93 @@ def test_mnr_memory_hole_alt_win():
     )
 
 
+def test_mnr_mnestic_saturation_alt_win():
+    """5 active+unexhausted Mnestic personnel + 4 archives -> Mnestic Saturation wins.
+
+    Mirrors test_mnr_memory_hole_alt_win's shape, but driven by direct state
+    manipulation so we can position the personnel without colliding with
+    open_dossier's own check_scp_victory cascade. The Mandate is opened
+    first (still empty staff -> no win yet), then we manually pre-populate
+    scp_personnel with five Mnestic objects, set archives = 4, and call
+    check_scp_victory explicitly.
+
+    Negative-case riders covered in the companion test.
+    """
+    game, p1, p2 = _setup()
+    mandate = _hand_card(game, p1, "MNR Mandate 4: Mnestic Saturation")
+    assert scp.open_dossier(game, p1.id, mandate.id, fast_track=True)[0]
+    assert mandate.state.scp_status == "active"
+
+    # Build 5 Mnestic personnel objects directly in the battlefield + the
+    # scp_personnel index. This skirts open_dossier's victory-check cascade
+    # so the test can land the personnel before the engine evaluates the
+    # mandate.
+    mnestic_ids: list[str] = []
+    for _ in range(5):
+        person = _hand_card(game, p1, "MNR Marion Wheeler")
+        # Re-zone manually so we don't fire open_dossier's victory check.
+        person.zone = ZoneType.BATTLEFIELD
+        person.state.scp_status = "active"
+        person.state.scp_exhausted = False
+        game.state.scp_personnel.setdefault(p1.id, []).append(person.id)
+        mnestic_ids.append(person.id)
+
+    scp.site(game.state, p1.id)["archives"] = 4
+
+    events = scp.check_scp_victory(game)
+    assert p2.has_lost
+    assert any(
+        event.type == EventType.PLAYER_LOSES
+        and event.payload.get("reason") == "mnestic_saturation"
+        for event in events
+    )
+
+
+def test_mnr_mnestic_saturation_negative_cases():
+    """Exhausted / non-active Mnestic personnel are excluded from the threshold."""
+    game, p1, p2 = _setup()
+    mandate = _hand_card(game, p1, "MNR Mandate 4: Mnestic Saturation")
+    assert scp.open_dossier(game, p1.id, mandate.id, fast_track=True)[0]
+    scp.site(game.state, p1.id)["archives"] = 4
+
+    mnestic_ids: list[str] = []
+    for _ in range(4):
+        person = _hand_card(game, p1, "MNR Marion Wheeler")
+        person.zone = ZoneType.BATTLEFIELD
+        person.state.scp_status = "active"
+        person.state.scp_exhausted = False
+        game.state.scp_personnel.setdefault(p1.id, []).append(person.id)
+        mnestic_ids.append(person.id)
+
+    # Only 4 valid -> no win yet.
+    events = scp.check_scp_victory(game)
+    assert not p2.has_lost
+    assert not any(
+        event.type == EventType.PLAYER_LOSES
+        and event.payload.get("reason") == "mnestic_saturation"
+        for event in events
+    )
+
+    # Add a 5th Mnestic personnel, but mark it exhausted -> still no win.
+    extra = _hand_card(game, p1, "MNR Marion Wheeler")
+    extra.zone = ZoneType.BATTLEFIELD
+    extra.state.scp_status = "active"
+    extra.state.scp_exhausted = True
+    game.state.scp_personnel.setdefault(p1.id, []).append(extra.id)
+    events = scp.check_scp_victory(game)
+    assert not p2.has_lost
+
+    # Unexhaust it -> now 5 valid, victory should land.
+    extra.state.scp_exhausted = False
+    events = scp.check_scp_victory(game)
+    assert p2.has_lost
+    assert any(
+        event.type == EventType.PLAYER_LOSES
+        and event.payload.get("reason") == "mnestic_saturation"
+        for event in events
+    )
+
+
 def test_mnr_card_pool_smoke():
     """MNR_CARDS is non-empty and contains the 6 sample cards."""
     from src.cards.scp.mnestic_reset import MNR_CARDS

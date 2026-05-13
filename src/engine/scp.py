@@ -1114,6 +1114,26 @@ def check_scp_victory(game, *, source: Optional[str] = None) -> list[Event]:
                     forgotten_opp += len(state.scp_forgotten.get(opp_id, []))
                 if forgotten_opp >= 3 and s["secrecy"] >= 10:
                     events.extend(_declare_site_win(game, player_id, "memory_hole", source=mandate.id))
+            # MNR alt-win: 5 active+unexhausted Mnestic personnel (printed
+            # mnestic OR Wake-gained) and 4+ archives. Active-only excludes
+            # contained/forgotten personnel; unexhausted-only requires the
+            # mnestic field to be ready (not mid-assignment) when the
+            # check fires, matching how thaumiel's "contained" rider works
+            # for anomalies. Counts ``scp_mnestic`` on card_def AND
+            # state-gained Mnestic from Mnestic Wake.
+            if alt_win == "mnestic_saturation":
+                mnestic_count = 0
+                for pid in state.scp_personnel.get(player_id, []):
+                    person = state.objects.get(pid)
+                    if not person or person.state.scp_status != "active":
+                        continue
+                    if person.state.scp_exhausted:
+                        continue
+                    if (getattr(person.card_def, "scp_mnestic", False)
+                            or person.state.scp_mnestic_gained):
+                        mnestic_count += 1
+                if mnestic_count >= 5 and s["archives"] >= 4:
+                    events.extend(_declare_site_win(game, player_id, "mnestic_saturation", source=mandate.id))
     return events
 
 
