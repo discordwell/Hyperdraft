@@ -922,33 +922,100 @@ OFF_EXCHANGE_FINISHER = make_trader(
 # =============================================================================
 
 # Iceberg Order {1} — Dark Pool. When this triggers, deal 1 damage to target Trader and draw a card.
+#
+# Phase 4 migration: damage allocation now uses ``divide_allocation``
+# PendingChoice so humans can spread the 1 leverage damage across opposing
+# Traders. AI keeps the old "all-to-weakest" pick via ``heuristic_pick``.
 def _iceberg_order_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def dark_effect(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get("battlefield")
-        events = []
-        if bf:
-            opp_traders = [
-                o for oid in bf.objects
-                if (o := state.objects.get(oid))
-                and o.controller != obj.controller
-                and CardType.FIN_TRADER in o.characteristics.types
-            ]
-            if opp_traders:
-                target = min(opp_traders, key=lambda o: o.characteristics.toughness or 0)
-                events.append(Event(
-                    type=EventType.DAMAGE,
-                    payload={"target": target.id, "amount": 1, "source": obj.id},
-                    source=obj.id,
-                ))
-        events.append(Event(
+        # Always track trigger count + always draw, regardless of damage path.
+        key = f"fin_dp_triggered_{obj.controller}"
+        state.turn_data[key] = state.turn_data.get(key, 0) + 1
+        draw_event = Event(
             type=EventType.DRAW,
             payload={"player": obj.controller, "count": 1},
             source=obj.id,
-        ))
-        # Track trigger count
-        key = f"fin_dp_triggered_{obj.controller}"
-        state.turn_data[key] = state.turn_data.get(key, 0) + 1
-        return events
+        )
+        bf = state.zones.get("battlefield")
+        if not bf:
+            return [draw_event]
+        opp_traders = [
+            o for oid in bf.objects
+            if (o := state.objects.get(oid))
+            and o.controller != obj.controller
+            and CardType.FIN_TRADER in o.characteristics.types
+        ]
+        if not opp_traders:
+            # No targets: still draw (the draw is unconditional in card text).
+            return [draw_event]
+
+        # Lazy import: avoids circulars during finance.py setup.
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        total_amount = 1  # printed: "deal 1 damage"
+        source_id = obj.id
+        controller = obj.controller
+
+        options = [
+            {
+                "id": t.id,
+                "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+                "name": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+                "type": "Trader",
+                "life": (t.characteristics.toughness or 0) - int(getattr(t.state, "damage", 0) or 0),
+                "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+            }
+            for t in opp_traders
+        ]
+
+        # AI heuristic: preserve old "weakest-toughness" pick.
+        weakest = min(opp_traders, key=lambda o: o.characteristics.toughness or 0)
+        heuristic = [{"target_id": weakest.id, "amount": total_amount}]
+
+        def _resolve_handler(choice, selected, st):
+            allocations: dict[str, int] = selected if isinstance(selected, dict) else {}
+            if not allocations and isinstance(selected, list):
+                for item in selected:
+                    if isinstance(item, dict):
+                        tid = item.get("target_id") or item.get("id")
+                        if tid:
+                            allocations[tid] = int(item.get("amount", 0) or 0)
+                    elif isinstance(item, tuple) and len(item) == 2:
+                        allocations[item[0]] = int(item[1] or 0)
+            if not allocations:
+                allocations = {weakest.id: total_amount}
+            dmg_events = [
+                Event(
+                    type=EventType.DAMAGE,
+                    payload={"target": tid, "amount": int(amt or 0), "source": source_id},
+                    source=source_id,
+                    controller=controller,
+                )
+                for tid, amt in allocations.items()
+                if amt and int(amt) > 0
+            ]
+            # Card text: "deal 1 damage AND draw a card". Both happen.
+            return dmg_events + [Event(
+                type=EventType.DRAW,
+                payload={"player": controller, "count": 1},
+                source=source_id,
+            )]
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="divide_allocation",
+            player_id=controller,
+            prompt="Distribute Iceberg Order damage among opposing Traders",
+            options=options,
+            source_id=source_id,
+            min_choices=1,
+            max_choices=len(options),
+            handler=_resolve_handler,
+            heuristic_pick=heuristic,
+            total_amount=total_amount,
+            effect_type="damage",
+        )
+
     return dark_pool_setup(obj, state, dark_effect)
 
 ICEBERG_ORDER = make_order(
@@ -960,28 +1027,67 @@ ICEBERG_ORDER = make_order(
 
 
 # Off-Exchange Position {2} — Dark Pool. When this triggers, target Trader gets -3/-0 until Market Close.
+#
+# Phase 4 migration: humans pick the debuff target via a "target" PendingChoice;
+# AI keeps the old "highest-power threat" pick via ``heuristic_pick``.
 def _off_exchange_position_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def dark_effect(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get("battlefield")
-        events = []
-        if bf:
-            opp_traders = [
-                o for oid in bf.objects
-                if (o := state.objects.get(oid))
-                and o.controller != obj.controller
-                and CardType.FIN_TRADER in o.characteristics.types
-            ]
-            if opp_traders:
-                # Pick the highest-power threat
-                target = max(opp_traders, key=lambda o: o.characteristics.power or 0)
-                events.append(Event(
-                    type=EventType.PT_MODIFICATION,
-                    payload={"object_id": target.id, "power_mod": -3, "toughness_mod": 0, "duration": "end_of_turn"},
-                    source=obj.id,
-                ))
         key = f"fin_dp_triggered_{obj.controller}"
         state.turn_data[key] = state.turn_data.get(key, 0) + 1
-        return events
+
+        bf = state.zones.get("battlefield")
+        if not bf:
+            return []
+        opp_traders = [
+            o for oid in bf.objects
+            if (o := state.objects.get(oid))
+            and o.controller != obj.controller
+            and CardType.FIN_TRADER in o.characteristics.types
+        ]
+        if not opp_traders:
+            return []
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        source_id = obj.id
+        controller = obj.controller
+
+        options = [
+            {
+                "id": t.id,
+                "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+                "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+            }
+            for t in opp_traders
+        ]
+
+        # AI heuristic: preserve old "highest-power threat" pick.
+        best = max(opp_traders, key=lambda o: o.characteristics.power or 0)
+
+        def _resolve_handler(choice, selected, st):
+            tid = selected[0] if selected else best.id
+            if isinstance(tid, dict):
+                tid = tid.get("id") or tid.get("target_id")
+            if not tid:
+                tid = best.id
+            return [Event(
+                type=EventType.PT_MODIFICATION,
+                payload={"object_id": tid, "power_mod": -3, "toughness_mod": 0, "duration": "end_of_turn"},
+                source=source_id,
+                controller=controller,
+            )]
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="target",
+            player_id=controller,
+            prompt="Choose an opposing Trader to give -3/-0",
+            options=options,
+            source_id=source_id,
+            handler=_resolve_handler,
+            heuristic_pick=[best.id],
+        )
+
     return dark_pool_setup(obj, state, dark_effect)
 
 OFF_EXCHANGE_POSITION = make_order(
@@ -994,28 +1100,67 @@ OFF_EXCHANGE_POSITION = make_order(
 
 
 # Block Trade Sweep {3} — Dark Pool. When this triggers, destroy target Trader with Defense Rating 3 or less.
+#
+# Phase 4 migration: humans pick the destroyed Trader via a "target" choice
+# (filtered to defense ≤3); AI keeps the old min-toughness pick.
 def _block_trade_sweep_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def dark_effect(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get("battlefield")
-        events = []
-        if bf:
-            small_traders = [
-                o for oid in bf.objects
-                if (o := state.objects.get(oid))
-                and o.controller != obj.controller
-                and CardType.FIN_TRADER in o.characteristics.types
-                and (o.characteristics.toughness or 0) <= 3
-            ]
-            if small_traders:
-                target = min(small_traders, key=lambda o: o.characteristics.toughness or 0)
-                events.append(Event(
-                    type=EventType.OBJECT_DESTROYED,
-                    payload={"object_id": target.id, "reason": "block_trade_sweep"},
-                    source=obj.id,
-                ))
         key = f"fin_dp_triggered_{obj.controller}"
         state.turn_data[key] = state.turn_data.get(key, 0) + 1
-        return events
+
+        bf = state.zones.get("battlefield")
+        if not bf:
+            return []
+        small_traders = [
+            o for oid in bf.objects
+            if (o := state.objects.get(oid))
+            and o.controller != obj.controller
+            and CardType.FIN_TRADER in o.characteristics.types
+            and (o.characteristics.toughness or 0) <= 3
+        ]
+        if not small_traders:
+            return []
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        source_id = obj.id
+        controller = obj.controller
+
+        options = [
+            {
+                "id": t.id,
+                "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+                "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+            }
+            for t in small_traders
+        ]
+
+        weakest = min(small_traders, key=lambda o: o.characteristics.toughness or 0)
+
+        def _resolve_handler(choice, selected, st):
+            tid = selected[0] if selected else weakest.id
+            if isinstance(tid, dict):
+                tid = tid.get("id") or tid.get("target_id")
+            if not tid:
+                tid = weakest.id
+            return [Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={"object_id": tid, "reason": "block_trade_sweep"},
+                source=source_id,
+                controller=controller,
+            )]
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="target",
+            player_id=controller,
+            prompt="Choose an opposing Trader (Defense ≤3) to destroy",
+            options=options,
+            source_id=source_id,
+            handler=_resolve_handler,
+            heuristic_pick=[weakest.id],
+        )
+
     return dark_pool_setup(obj, state, dark_effect)
 
 BLOCK_TRADE_SWEEP = make_order(
@@ -1030,12 +1175,14 @@ BLOCK_TRADE_SWEEP = make_order(
 # Forced Liquidation {3} — Order. Destroy target Trader.
 # rebalance: NEW card (the missing answer) — unconditional {3} destroy-target-Trader.
 # Mirrors Murder/Doom Blade benchmark; format previously had no clean answer at this cost.
+#
+# Phase 4 migration: humans pick the destroyed Trader; AI keeps the old
+# "highest-power threat" pick via ``heuristic_pick``.
 def _forced_liquidation_resolve(event: Event, state: GameState) -> list[Event]:
     controller = event.payload.get("controller")
     bf = state.zones.get("battlefield")
     if not bf:
         return []
-    # Target the highest-power opposing Trader (consistent with other auto-target picks).
     candidates = [
         o for oid in getattr(bf, "objects", [])
         if (o := state.objects.get(oid))
@@ -1044,12 +1191,45 @@ def _forced_liquidation_resolve(event: Event, state: GameState) -> list[Event]:
     ]
     if not candidates:
         return []
-    target = max(candidates, key=lambda o: o.characteristics.power or 0)
-    return [Event(
-        type=EventType.OBJECT_DESTROYED,
-        payload={"object_id": target.id, "reason": "forced_liquidation"},
-        source=event.payload.get("source_id", ""),
-    )]
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    source_id = event.payload.get("source_id", "") or event.source or ""
+
+    options = [
+        {
+            "id": t.id,
+            "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+            "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+        }
+        for t in candidates
+    ]
+
+    best = max(candidates, key=lambda o: o.characteristics.power or 0)
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get("id") or tid.get("target_id")
+        if not tid:
+            tid = best.id
+        return [Event(
+            type=EventType.OBJECT_DESTROYED,
+            payload={"object_id": tid, "reason": "forced_liquidation"},
+            source=source_id,
+            controller=controller,
+        )]
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt="Choose an opposing Trader to destroy",
+        options=options,
+        source_id=source_id,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 FORCED_LIQUIDATION = make_order(
@@ -1215,6 +1395,9 @@ MARGIN_SQUEEZE = make_order(
 # Crossed Market {2} — Dark Pool. When this triggers, target Trader cannot attack OR block this turn.
 # rebalance: effect upgrade — was can't-block-only; now can't-attack-or-block (can't-block useless when
 # the trigger fires on opponent's TS since opponent is attacking, not defending).
+#
+# Phase 4 migration: humans pick which Trader is locked out; AI keeps the old
+# "highest-toughness threat" pick via ``heuristic_pick``.
 def _crossed_market_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def dark_effect(event: Event, state: GameState) -> list[Event]:
         # bug #29: the global system trigger fires FIN_MARKET_EVENT on the
@@ -1226,23 +1409,60 @@ def _crossed_market_setup(obj: GameObject, state: GameState) -> list[Interceptor
         if active_player and active_player != obj.controller:
             set_dark_pool(state, obj.id)
             return []
-        bf = state.zones.get("battlefield")
-        events = []
-        if bf:
-            opp_traders = [
-                o for oid in bf.objects
-                if (o := state.objects.get(oid))
-                and o.controller != obj.controller
-                and CardType.FIN_TRADER in o.characteristics.types
-            ]
-            if opp_traders:
-                target = max(opp_traders, key=lambda o: o.characteristics.toughness or 0)
-                # Mark as can't-attack AND can't-block this turn (rebalance: was block-only)
-                state.turn_data[f"fin_cant_block_{target.id}"] = True
-                state.turn_data[f"fin_cant_attack_{target.id}"] = True
         key = f"fin_dp_triggered_{obj.controller}"
         state.turn_data[key] = state.turn_data.get(key, 0) + 1
-        return events
+
+        bf = state.zones.get("battlefield")
+        if not bf:
+            return []
+        opp_traders = [
+            o for oid in bf.objects
+            if (o := state.objects.get(oid))
+            and o.controller != obj.controller
+            and CardType.FIN_TRADER in o.characteristics.types
+        ]
+        if not opp_traders:
+            return []
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        source_id = obj.id
+        controller = obj.controller
+
+        options = [
+            {
+                "id": t.id,
+                "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+                "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+            }
+            for t in opp_traders
+        ]
+
+        best = max(opp_traders, key=lambda o: o.characteristics.toughness or 0)
+
+        def _resolve_handler(choice, selected, st):
+            tid = selected[0] if selected else best.id
+            if isinstance(tid, dict):
+                tid = tid.get("id") or tid.get("target_id")
+            if not tid:
+                tid = best.id
+            # Mark as can't-attack AND can't-block this turn (mutate state in place,
+            # since this is a marker rather than a pipeline event).
+            st.turn_data[f"fin_cant_block_{tid}"] = True
+            st.turn_data[f"fin_cant_attack_{tid}"] = True
+            return []
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="target",
+            player_id=controller,
+            prompt="Choose an opposing Trader; it cannot attack or block this turn",
+            options=options,
+            source_id=source_id,
+            handler=_resolve_handler,
+            heuristic_pick=[best.id],
+        )
+
     return dark_pool_setup(obj, state, dark_effect)
 
 CROSSED_MARKET = make_order(
@@ -1254,8 +1474,14 @@ CROSSED_MARKET = make_order(
 
 
 # Hidden Aggression {2} — Dark Pool. When this triggers, target Trader you control gets +4/+0 until Market Close.
+#
+# Phase 4 migration: humans pick which friendly Trader gets the buff; AI keeps
+# the old "highest-power friendly" pick via ``heuristic_pick``.
 def _hidden_aggression_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def dark_effect(event: Event, state: GameState) -> list[Event]:
+        key = f"fin_dp_triggered_{obj.controller}"
+        state.turn_data[key] = state.turn_data.get(key, 0) + 1
+
         bf = state.zones.get("battlefield")
         if not bf:
             return []
@@ -1265,18 +1491,49 @@ def _hidden_aggression_setup(obj: GameObject, state: GameState) -> list[Intercep
             and o.controller == obj.controller
             and CardType.FIN_TRADER in o.characteristics.types
         ]
-        events = []
-        if my_traders:
-            # Buff the highest-power friendly Trader
-            target = max(my_traders, key=lambda o: o.characteristics.power or 0)
-            events.append(Event(
+        if not my_traders:
+            return []
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        source_id = obj.id
+        controller = obj.controller
+
+        options = [
+            {
+                "id": t.id,
+                "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+                "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+            }
+            for t in my_traders
+        ]
+
+        best = max(my_traders, key=lambda o: o.characteristics.power or 0)
+
+        def _resolve_handler(choice, selected, st):
+            tid = selected[0] if selected else best.id
+            if isinstance(tid, dict):
+                tid = tid.get("id") or tid.get("target_id")
+            if not tid:
+                tid = best.id
+            return [Event(
                 type=EventType.PT_MODIFICATION,
-                payload={"object_id": target.id, "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"},  # cyc3: +4→+2
-                source=obj.id,
-            ))
-        key = f"fin_dp_triggered_{obj.controller}"
-        state.turn_data[key] = state.turn_data.get(key, 0) + 1
-        return events
+                payload={"object_id": tid, "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"},  # cyc3: +4→+2
+                source=source_id,
+                controller=controller,
+            )]
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="target",
+            player_id=controller,
+            prompt="Choose one of your Traders to give +2/+0",
+            options=options,
+            source_id=source_id,
+            handler=_resolve_handler,
+            heuristic_pick=[best.id],
+        )
+
     return dark_pool_setup(obj, state, dark_effect)
 
 HIDDEN_AGGRESSION = make_order(
@@ -1308,27 +1565,88 @@ LIT_MARKET_DECOY = make_order(
 
 
 # Internalization Order {3} — Dark Pool. When this triggers, deal 3 damage to target Trader.
+#
+# Phase 4 migration: humans split the 3 damage across opposing Traders via
+# divide_allocation; AI keeps the old "all-to-toughest" pick (preserves the
+# original "always kills it dead" heuristic).
 def _internalization_order_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def dark_effect(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get("battlefield")
-        events = []
-        if bf:
-            opp_traders = [
-                o for oid in bf.objects
-                if (o := state.objects.get(oid))
-                and o.controller != obj.controller
-                and CardType.FIN_TRADER in o.characteristics.types
-            ]
-            if opp_traders:
-                target = max(opp_traders, key=lambda o: o.characteristics.toughness or 0)
-                events.append(Event(
-                    type=EventType.DAMAGE,
-                    payload={"target": target.id, "amount": 3, "source": obj.id},
-                    source=obj.id,
-                ))
         key = f"fin_dp_triggered_{obj.controller}"
         state.turn_data[key] = state.turn_data.get(key, 0) + 1
-        return events
+
+        bf = state.zones.get("battlefield")
+        if not bf:
+            return []
+        opp_traders = [
+            o for oid in bf.objects
+            if (o := state.objects.get(oid))
+            and o.controller != obj.controller
+            and CardType.FIN_TRADER in o.characteristics.types
+        ]
+        if not opp_traders:
+            return []
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        total_amount = 3  # printed: "deal 3 damage"
+        source_id = obj.id
+        controller = obj.controller
+
+        options = [
+            {
+                "id": t.id,
+                "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+                "name": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+                "type": "Trader",
+                "life": (t.characteristics.toughness or 0) - int(getattr(t.state, "damage", 0) or 0),
+                "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+            }
+            for t in opp_traders
+        ]
+
+        # AI heuristic: preserve old "all-to-highest-toughness" pick (the most
+        # likely to actually survive the damage and need a finisher).
+        target = max(opp_traders, key=lambda o: o.characteristics.toughness or 0)
+        heuristic = [{"target_id": target.id, "amount": total_amount}]
+
+        def _resolve_handler(choice, selected, st):
+            allocations: dict[str, int] = selected if isinstance(selected, dict) else {}
+            if not allocations and isinstance(selected, list):
+                for item in selected:
+                    if isinstance(item, dict):
+                        tid = item.get("target_id") or item.get("id")
+                        if tid:
+                            allocations[tid] = int(item.get("amount", 0) or 0)
+                    elif isinstance(item, tuple) and len(item) == 2:
+                        allocations[item[0]] = int(item[1] or 0)
+            if not allocations:
+                allocations = {target.id: total_amount}
+            return [
+                Event(
+                    type=EventType.DAMAGE,
+                    payload={"target": tid, "amount": int(amt or 0), "source": source_id},
+                    source=source_id,
+                    controller=controller,
+                )
+                for tid, amt in allocations.items()
+                if amt and int(amt) > 0
+            ]
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="divide_allocation",
+            player_id=controller,
+            prompt="Distribute Internalization Order damage among opposing Traders",
+            options=options,
+            source_id=source_id,
+            min_choices=1,
+            max_choices=len(options),
+            handler=_resolve_handler,
+            heuristic_pick=heuristic,
+            total_amount=total_amount,
+            effect_type="damage",
+        )
+
     return dark_pool_setup(obj, state, dark_effect)
 
 INTERNALIZATION_ORDER = make_order(
@@ -1476,6 +1794,9 @@ DARK_LIQUIDITY_SURGE = make_strategy(
 
 # Capital Structure Arb {5} — Place 3 Leverage counters on target Trader you control.
 # It also gets Arbitrage 2 until Market Close.
+#
+# Phase 4 migration: humans pick the Trader; AI keeps the old "highest
+# (power+leverage)" pick via ``heuristic_pick``.
 def _capital_structure_arb_resolve(event: Event, state: GameState) -> list[Event]:
     controller = event.payload.get("controller") or event.controller
     if not controller:
@@ -1491,12 +1812,51 @@ def _capital_structure_arb_resolve(event: Event, state: GameState) -> list[Event
     ]
     if not my_traders:
         return []
-    # Target the highest-power friendly Trader
-    target = max(my_traders, key=lambda o: (o.characteristics.power or 0) + o.state.counters.get("leverage", 0))
-    target.state.counters["leverage"] = target.state.counters.get("leverage", 0) + 3
-    # Grant Arbitrage 2 until Market Close — stored in turn_data as a temporary buff
-    state.turn_data[f"fin_arb_buff_{target.id}"] = 2
-    return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    source_id = event.payload.get("source_id", "") or event.source or ""
+
+    options = [
+        {
+            "id": t.id,
+            "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+            "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0} · Lev {t.state.counters.get('leverage', 0)}",
+        }
+        for t in my_traders
+    ]
+
+    # AI heuristic: preserve old "highest (power+leverage)" pick.
+    best = max(
+        my_traders,
+        key=lambda o: (o.characteristics.power or 0) + o.state.counters.get("leverage", 0),
+    )
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get("id") or tid.get("target_id")
+        if not tid:
+            tid = best.id
+        target_obj = st.objects.get(tid)
+        if target_obj is None:
+            target_obj = best
+            tid = best.id
+        target_obj.state.counters["leverage"] = target_obj.state.counters.get("leverage", 0) + 3
+        # Grant Arbitrage 2 until Market Close — stored in turn_data as a temporary buff
+        st.turn_data[f"fin_arb_buff_{tid}"] = 2
+        return []
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt="Choose one of your Traders to place 3 Leverage counters on (and gain Arbitrage 2)",
+        options=options,
+        source_id=source_id,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 CAPITAL_STRUCTURE_ARB = make_strategy(
     "Capital Structure Arb", "{5}",

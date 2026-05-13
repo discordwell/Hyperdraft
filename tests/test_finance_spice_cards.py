@@ -57,6 +57,23 @@ from src.cards.finance.fina.dark_arbitrage import (           # noqa: E402
     FLOOR_CAPTAIN_CARO,
     HIDDEN_ACCUMULATOR,
     CROSSING_NETWORK_PILOT,
+    # Phase 4 migration cards
+    ICEBERG_ORDER,
+    OFF_EXCHANGE_POSITION,
+    BLOCK_TRADE_SWEEP,
+    FORCED_LIQUIDATION,
+    CROSSED_MARKET,
+    HIDDEN_AGGRESSION,
+    INTERNALIZATION_ORDER,
+    CAPITAL_STRUCTURE_ARB,
+    _iceberg_order_setup,
+    _off_exchange_position_setup,
+    _block_trade_sweep_setup,
+    _forced_liquidation_resolve,
+    _crossed_market_setup,
+    _hidden_aggression_setup,
+    _internalization_order_setup,
+    _capital_structure_arb_resolve,
 )
 
 
@@ -629,6 +646,672 @@ def test_crossing_network_pilot_no_opp_traders_short_circuits():
     print(f"[PASS] DA Crossing Network Pilot short-circuits on empty opp")
 
 
+# ===========================================================================
+# Phase 4 migration: 8 more deterministic-pick cards → PendingChoice
+# ===========================================================================
+#
+# Migrated cards:
+#   - ICEBERG_ORDER          (divide_allocation, 1 dmg)
+#   - OFF_EXCHANGE_POSITION  (target, -3/-0)
+#   - BLOCK_TRADE_SWEEP      (target, destroy small)
+#   - FORCED_LIQUIDATION     (target, destroy)
+#   - CROSSED_MARKET         (target, can't attack/block)
+#   - HIDDEN_AGGRESSION      (target, friendly +2/+0)
+#   - INTERNALIZATION_ORDER  (divide_allocation, 3 dmg)
+#   - CAPITAL_STRUCTURE_ARB  (target, +3 lev counter friendly)
+#
+# For each: human-path emits the right PendingChoice; AI-path resolves via
+# heuristic_pick; empty short-circuits cleanly without touching fin_stack.
+
+def _fire_dark_effect(game, order_obj, setup_fn, *, controller_id=None):
+    """Wire up an Order's setup_interceptors and synthesize a
+    FIN_MARKET_EVENT against it. Returns the InterceptorResult.
+    """
+    from src.engine.types import Event as _E
+    ics = setup_fn(order_obj, game.state)
+    assert ics, f"{order_obj.card_def.name}: setup returned no interceptors"
+    for ic in ics:
+        order_obj.interceptor_ids.append(ic.id)
+        game.register_interceptor(ic)
+    ev = _E(
+        type=EventType.FIN_MARKET_EVENT,
+        payload={"obj_id": order_obj.id, "controller": controller_id or order_obj.controller},
+        source=order_obj.id,
+        controller=controller_id or order_obj.controller,
+    )
+    return ics[0].handler(ev, game.state)
+
+
+def _stage_order(game, controller_id, card_def):
+    """Place an Order in EXILE so its setup_interceptors can run."""
+    obj = game.create_object(
+        name=card_def.name,
+        owner_id=controller_id,
+        zone=ZoneType.EXILE,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    return obj
+
+
+def _fin_stack_depth(game):
+    fs = getattr(game.state, "fin_stack", None)
+    return fs.depth() if fs is not None else 0
+
+
+# ----- ICEBERG_ORDER: divide_allocation 1 dmg --------------------------------
+
+def test_iceberg_order_human_path_emits_divide_allocation():
+    """Human controller: dark_effect sets a divide_allocation PendingChoice
+    with total_amount=1 and one option per opp Trader."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, ICEBERG_ORDER)
+    enemy_a = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)        # 2/2
+    enemy_b = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)  # 1/3
+    dmg_a_before = int(getattr(enemy_a.state, "damage", 0) or 0)
+    dmg_b_before = int(getattr(enemy_b.state, "damage", 0) or 0)
+    fs_before = _fin_stack_depth(game)
+
+    _fire_dark_effect(game, order, _iceberg_order_setup)
+
+    pc = game.state.pending_choice
+    assert pc is not None, "expected pending_choice after Iceberg dark_effect"
+    assert pc.choice_type == "divide_allocation"
+    assert pc.player == p1.id
+    assert pc.source_id == order.id
+    assert pc.callback_data.get("total_amount") == 1
+    assert pc.callback_data.get("effect_type") == "damage"
+    option_ids = {opt["id"] for opt in pc.options}
+    assert enemy_a.id in option_ids and enemy_b.id in option_ids
+
+    # No damage applied until human resolves.
+    assert int(getattr(enemy_a.state, "damage", 0) or 0) == dmg_a_before
+    assert int(getattr(enemy_b.state, "damage", 0) or 0) == dmg_b_before
+    # Stack-safety.
+    assert _fin_stack_depth(game) == fs_before
+    print("[PASS] DA Iceberg Order human-path emits divide_allocation")
+
+
+def test_iceberg_order_heuristic_preserves_min_toughness_pick():
+    """heuristic_pick = all damage to weakest enemy Trader."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, ICEBERG_ORDER)
+    weakest = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)        # tough=2
+    _ = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)        # tough=3
+
+    _fire_dark_effect(game, order, _iceberg_order_setup)
+
+    hp = game.state.pending_choice.callback_data.get("heuristic_pick")
+    assert isinstance(hp, list) and len(hp) == 1
+    pick = hp[0]
+    assert isinstance(pick, dict)
+    assert pick.get("target_id") == weakest.id
+    assert int(pick.get("amount", 0)) == 1
+    print("[PASS] DA Iceberg Order heuristic preserves min-toughness")
+
+
+def test_iceberg_order_no_opp_traders_short_circuits():
+    """No opp Traders: no PendingChoice. Card text says draw is unconditional,
+    so the dark_effect still emits a DRAW event in the InterceptorResult."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, ICEBERG_ORDER)
+    fs_before = _fin_stack_depth(game)
+
+    result = _fire_dark_effect(game, order, _iceberg_order_setup)
+
+    assert game.state.pending_choice is None
+    new_events = list(result.new_events or [])
+    draw_events = [e for e in new_events if e.type == EventType.DRAW]
+    assert draw_events, (
+        f"Iceberg Order draw is unconditional; got new_events: "
+        f"{[e.type for e in new_events]}"
+    )
+    assert _fin_stack_depth(game) == fs_before
+    print("[PASS] DA Iceberg Order short-circuits + still draws")
+
+
+# ----- OFF_EXCHANGE_POSITION: target -3/-0 -----------------------------------
+
+def test_off_exchange_position_human_path_emits_target_choice():
+    """Human controller: dark_effect sets a 'target' PendingChoice with one
+    option per opp Trader. No PT_MODIFICATION applied yet."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, OFF_EXCHANGE_POSITION)
+    enemy_a = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)
+    enemy_b = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)
+    fs_before = _fin_stack_depth(game)
+
+    result = _fire_dark_effect(game, order, _off_exchange_position_setup)
+
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.choice_type == "target"
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert enemy_a.id in option_ids and enemy_b.id in option_ids
+    new_events = list(result.new_events or [])
+    assert not any(e.type == EventType.PT_MODIFICATION for e in new_events), (
+        "human path must not emit PT_MODIFICATION before choice resolves"
+    )
+    assert _fin_stack_depth(game) == fs_before
+    print("[PASS] DA Off-Exchange Position human-path emits target choice")
+
+
+def test_off_exchange_position_heuristic_preserves_max_power_pick():
+    """heuristic_pick = highest-power threat (the old auto-pick)."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, OFF_EXCHANGE_POSITION)
+    weak = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)  # 1/3
+    strong = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)      # 2/2
+
+    _fire_dark_effect(game, order, _off_exchange_position_setup)
+
+    hp = game.state.pending_choice.callback_data.get("heuristic_pick")
+    assert hp == [strong.id], f"expected [{strong.id}], got {hp}"
+    print("[PASS] DA Off-Exchange Position heuristic preserves max-power")
+
+
+def test_off_exchange_position_no_opp_traders_short_circuits():
+    """No opp Traders: no PendingChoice. fin_stack untouched."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, OFF_EXCHANGE_POSITION)
+    fs_before = _fin_stack_depth(game)
+
+    _fire_dark_effect(game, order, _off_exchange_position_setup)
+
+    assert game.state.pending_choice is None
+    assert _fin_stack_depth(game) == fs_before
+    print("[PASS] DA Off-Exchange Position short-circuits on empty opp")
+
+
+# ----- BLOCK_TRADE_SWEEP: target destroy (≤3 tough) --------------------------
+
+def test_block_trade_sweep_human_path_emits_target_choice():
+    """Human controller: dark_effect sets a 'target' PendingChoice with one
+    option per opp Trader (tough ≤3). High-tough Traders excluded."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, BLOCK_TRADE_SWEEP)
+    # Both starter cards are tough ≤3.
+    weak_a = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)        # tough=2
+    weak_b = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)  # tough=3
+    fs_before = _fin_stack_depth(game)
+
+    _fire_dark_effect(game, order, _block_trade_sweep_setup)
+
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.choice_type == "target"
+    option_ids = {opt["id"] for opt in pc.options}
+    assert weak_a.id in option_ids and weak_b.id in option_ids
+    assert _fin_stack_depth(game) == fs_before
+    print("[PASS] DA Block Trade Sweep human-path emits target choice")
+
+
+def test_block_trade_sweep_heuristic_preserves_min_toughness_pick():
+    """heuristic_pick = min-toughness in the candidate pool."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, BLOCK_TRADE_SWEEP)
+    weak = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)         # tough=2
+    _ = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)       # tough=3
+
+    _fire_dark_effect(game, order, _block_trade_sweep_setup)
+
+    hp = game.state.pending_choice.callback_data.get("heuristic_pick")
+    assert hp == [weak.id], f"expected [{weak.id}], got {hp}"
+    print("[PASS] DA Block Trade Sweep heuristic preserves min-toughness")
+
+
+def test_block_trade_sweep_no_small_traders_short_circuits():
+    """No candidates (no small Traders): no PendingChoice."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, BLOCK_TRADE_SWEEP)
+    # No opp Traders at all -> short-circuit.
+    fs_before = _fin_stack_depth(game)
+
+    _fire_dark_effect(game, order, _block_trade_sweep_setup)
+
+    assert game.state.pending_choice is None
+    assert _fin_stack_depth(game) == fs_before
+    print("[PASS] DA Block Trade Sweep short-circuits on empty candidates")
+
+
+# ----- FORCED_LIQUIDATION: resolve {3} destroy --------------------------------
+
+def test_forced_liquidation_human_path_emits_target_choice():
+    """Human controller: resolve emits a 'target' PendingChoice. No destroy
+    applied yet."""
+    game, p1, p2 = _make_finance_game()
+    enemy_a = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)
+    enemy_b = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)
+    fs_before = _fin_stack_depth(game)
+
+    resolve_event = Event(
+        type=EventType.FIN_PLAY_CARD,
+        payload={"controller": p1.id, "source_id": "test_src"},
+        source="test_src",
+        controller=p1.id,
+    )
+    out_events = _forced_liquidation_resolve(resolve_event, game.state)
+
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.choice_type == "target"
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert enemy_a.id in option_ids and enemy_b.id in option_ids
+    # Human path: no destroy event yet.
+    destroyed = [e for e in (out_events or []) if e.type == EventType.OBJECT_DESTROYED]
+    assert not destroyed, "human path must not emit destroy before choice resolves"
+    assert _fin_stack_depth(game) == fs_before
+    print("[PASS] DA Forced Liquidation human-path emits target choice")
+
+
+def test_forced_liquidation_heuristic_preserves_max_power_pick():
+    """heuristic_pick = highest-power opposing Trader."""
+    game, p1, p2 = _make_finance_game()
+    weak = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)  # 1/3
+    strong = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)       # 2/2
+
+    resolve_event = Event(
+        type=EventType.FIN_PLAY_CARD,
+        payload={"controller": p1.id, "source_id": "test_src"},
+        source="test_src",
+        controller=p1.id,
+    )
+    _forced_liquidation_resolve(resolve_event, game.state)
+
+    hp = game.state.pending_choice.callback_data.get("heuristic_pick")
+    assert hp == [strong.id], f"expected [{strong.id}], got {hp}"
+    print("[PASS] DA Forced Liquidation heuristic preserves max-power")
+
+
+def test_forced_liquidation_no_candidates_short_circuits():
+    """No opp Traders: resolve returns [], no PendingChoice."""
+    game, p1, p2 = _make_finance_game()
+    fs_before = _fin_stack_depth(game)
+
+    resolve_event = Event(
+        type=EventType.FIN_PLAY_CARD,
+        payload={"controller": p1.id, "source_id": "test_src"},
+        source="test_src",
+        controller=p1.id,
+    )
+    out_events = _forced_liquidation_resolve(resolve_event, game.state)
+
+    assert out_events == []
+    assert game.state.pending_choice is None
+    assert _fin_stack_depth(game) == fs_before
+    print("[PASS] DA Forced Liquidation short-circuits on empty candidates")
+
+
+# ----- CROSSED_MARKET: target can't-attack/block ------------------------------
+
+def test_crossed_market_human_path_emits_target_choice():
+    """Human controller, controller-TS firing: dark_effect emits a 'target'
+    PendingChoice. The cant-attack/block flag is NOT set yet."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, CROSSED_MARKET)
+    enemy = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)
+    fs_before = _fin_stack_depth(game)
+
+    _fire_dark_effect(game, order, _crossed_market_setup, controller_id=p1.id)
+
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.choice_type == "target"
+    option_ids = {opt["id"] for opt in pc.options}
+    assert enemy.id in option_ids
+    # Flag NOT yet set (human resolves it).
+    assert not game.state.turn_data.get(f"fin_cant_block_{enemy.id}")
+    assert not game.state.turn_data.get(f"fin_cant_attack_{enemy.id}")
+    assert _fin_stack_depth(game) == fs_before
+    print("[PASS] DA Crossed Market human-path emits target choice")
+
+
+def test_crossed_market_heuristic_preserves_max_toughness_pick():
+    """heuristic_pick = highest-toughness opp Trader."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, CROSSED_MARKET)
+    _ = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)            # tough=2
+    sturdy = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)  # tough=3
+
+    _fire_dark_effect(game, order, _crossed_market_setup, controller_id=p1.id)
+
+    hp = game.state.pending_choice.callback_data.get("heuristic_pick")
+    assert hp == [sturdy.id], f"expected [{sturdy.id}], got {hp}"
+    print("[PASS] DA Crossed Market heuristic preserves max-toughness")
+
+
+def test_crossed_market_no_opp_traders_short_circuits():
+    """No opp Traders: no PendingChoice."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, CROSSED_MARKET)
+    fs_before = _fin_stack_depth(game)
+
+    _fire_dark_effect(game, order, _crossed_market_setup, controller_id=p1.id)
+
+    assert game.state.pending_choice is None
+    assert _fin_stack_depth(game) == fs_before
+    print("[PASS] DA Crossed Market short-circuits on empty opp")
+
+
+# ----- HIDDEN_AGGRESSION: target friendly +2/+0 -------------------------------
+
+def test_hidden_aggression_human_path_emits_target_choice():
+    """Human controller: dark_effect emits a 'target' PendingChoice across
+    friendly Traders. No PT_MODIFICATION applied yet."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, HIDDEN_AGGRESSION)
+    ally_a = _put_on_battlefield(game, p1.id, FLASH_CRASH_BOT)
+    ally_b = _put_on_battlefield(game, p1.id, STATISTICAL_ARB_CLERK)
+    fs_before = _fin_stack_depth(game)
+
+    result = _fire_dark_effect(game, order, _hidden_aggression_setup)
+
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.choice_type == "target"
+    option_ids = {opt["id"] for opt in pc.options}
+    assert ally_a.id in option_ids and ally_b.id in option_ids
+    new_events = list(result.new_events or [])
+    assert not any(e.type == EventType.PT_MODIFICATION for e in new_events)
+    assert _fin_stack_depth(game) == fs_before
+    print("[PASS] DA Hidden Aggression human-path emits target choice")
+
+
+def test_hidden_aggression_heuristic_preserves_max_power_pick():
+    """heuristic_pick = highest-power friendly Trader."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, HIDDEN_AGGRESSION)
+    _ = _put_on_battlefield(game, p1.id, STATISTICAL_ARB_CLERK)  # 1/3
+    strong = _put_on_battlefield(game, p1.id, FLASH_CRASH_BOT)    # 2/2
+
+    _fire_dark_effect(game, order, _hidden_aggression_setup)
+
+    hp = game.state.pending_choice.callback_data.get("heuristic_pick")
+    assert hp == [strong.id], f"expected [{strong.id}], got {hp}"
+    print("[PASS] DA Hidden Aggression heuristic preserves max-power")
+
+
+def test_hidden_aggression_no_friendly_traders_short_circuits():
+    """No friendly Traders: no PendingChoice."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, HIDDEN_AGGRESSION)
+    fs_before = _fin_stack_depth(game)
+
+    _fire_dark_effect(game, order, _hidden_aggression_setup)
+
+    assert game.state.pending_choice is None
+    assert _fin_stack_depth(game) == fs_before
+    print("[PASS] DA Hidden Aggression short-circuits on empty allies")
+
+
+# ----- INTERNALIZATION_ORDER: divide_allocation 3 dmg -------------------------
+
+def test_internalization_order_human_path_emits_divide_allocation():
+    """Human controller: dark_effect sets a divide_allocation PendingChoice
+    with total_amount=3."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, INTERNALIZATION_ORDER)
+    enemy_a = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)
+    enemy_b = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)
+    fs_before = _fin_stack_depth(game)
+
+    _fire_dark_effect(game, order, _internalization_order_setup)
+
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.choice_type == "divide_allocation"
+    assert pc.callback_data.get("total_amount") == 3, (
+        f"Internalization printed 3 damage; got total_amount="
+        f"{pc.callback_data.get('total_amount')}"
+    )
+    assert pc.callback_data.get("effect_type") == "damage"
+    option_ids = {opt["id"] for opt in pc.options}
+    assert enemy_a.id in option_ids and enemy_b.id in option_ids
+    assert _fin_stack_depth(game) == fs_before
+    print("[PASS] DA Internalization Order human-path emits divide_allocation (3 dmg)")
+
+
+def test_internalization_order_heuristic_preserves_max_toughness_pick():
+    """heuristic_pick = all 3 damage onto highest-toughness Trader."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, INTERNALIZATION_ORDER)
+    _ = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)             # tough=2
+    sturdy = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)  # tough=3
+
+    _fire_dark_effect(game, order, _internalization_order_setup)
+
+    hp = game.state.pending_choice.callback_data.get("heuristic_pick")
+    assert isinstance(hp, list) and len(hp) == 1
+    pick = hp[0]
+    assert pick.get("target_id") == sturdy.id
+    assert int(pick.get("amount", 0)) == 3
+    print("[PASS] DA Internalization Order heuristic preserves max-toughness")
+
+
+def test_internalization_order_no_opp_traders_short_circuits():
+    """No opp Traders: no PendingChoice, no events."""
+    game, p1, p2 = _make_finance_game()
+    order = _stage_order(game, p1.id, INTERNALIZATION_ORDER)
+    fs_before = _fin_stack_depth(game)
+
+    result = _fire_dark_effect(game, order, _internalization_order_setup)
+
+    assert game.state.pending_choice is None
+    assert list(result.new_events or []) == []
+    assert _fin_stack_depth(game) == fs_before
+    print("[PASS] DA Internalization Order short-circuits on empty opp")
+
+
+# ----- CAPITAL_STRUCTURE_ARB: resolve {5} +3 lev + Arb2 ----------------------
+
+def test_capital_structure_arb_human_path_emits_target_choice():
+    """Human controller: resolve emits a 'target' PendingChoice over friendly
+    Traders. No counters / arb buff applied yet."""
+    game, p1, p2 = _make_finance_game()
+    ally_a = _put_on_battlefield(game, p1.id, FLASH_CRASH_BOT)
+    ally_b = _put_on_battlefield(game, p1.id, STATISTICAL_ARB_CLERK)
+    fs_before = _fin_stack_depth(game)
+    lev_a_before = ally_a.state.counters.get("leverage", 0)
+    lev_b_before = ally_b.state.counters.get("leverage", 0)
+
+    resolve_event = Event(
+        type=EventType.FIN_PLAY_CARD,
+        payload={"controller": p1.id, "source_id": "test_src"},
+        source="test_src",
+        controller=p1.id,
+    )
+    _capital_structure_arb_resolve(resolve_event, game.state)
+
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.choice_type == "target"
+    option_ids = {opt["id"] for opt in pc.options}
+    assert ally_a.id in option_ids and ally_b.id in option_ids
+    # No counters / arb buff applied yet.
+    assert ally_a.state.counters.get("leverage", 0) == lev_a_before
+    assert ally_b.state.counters.get("leverage", 0) == lev_b_before
+    assert not game.state.turn_data.get(f"fin_arb_buff_{ally_a.id}")
+    assert not game.state.turn_data.get(f"fin_arb_buff_{ally_b.id}")
+    assert _fin_stack_depth(game) == fs_before
+    print("[PASS] DA Capital Structure Arb human-path emits target choice")
+
+
+def test_capital_structure_arb_heuristic_preserves_max_power_plus_lev():
+    """heuristic_pick = highest (power + leverage) friendly Trader."""
+    game, p1, p2 = _make_finance_game()
+    weak = _put_on_battlefield(game, p1.id, STATISTICAL_ARB_CLERK)  # 1/3
+    strong = _put_on_battlefield(game, p1.id, FLASH_CRASH_BOT)       # 2/2
+    weak.state.counters["leverage"] = 0
+    strong.state.counters["leverage"] = 0
+
+    resolve_event = Event(
+        type=EventType.FIN_PLAY_CARD,
+        payload={"controller": p1.id, "source_id": "test_src"},
+        source="test_src",
+        controller=p1.id,
+    )
+    _capital_structure_arb_resolve(resolve_event, game.state)
+
+    hp = game.state.pending_choice.callback_data.get("heuristic_pick")
+    assert hp == [strong.id], (
+        f"expected highest power+lev pick=[{strong.id}], got {hp}"
+    )
+    print("[PASS] DA Capital Structure Arb heuristic preserves max(power+lev)")
+
+
+def test_capital_structure_arb_no_friendly_traders_short_circuits():
+    """No friendly Traders: resolve returns [], no PendingChoice."""
+    game, p1, p2 = _make_finance_game()
+    fs_before = _fin_stack_depth(game)
+
+    resolve_event = Event(
+        type=EventType.FIN_PLAY_CARD,
+        payload={"controller": p1.id, "source_id": "test_src"},
+        source="test_src",
+        controller=p1.id,
+    )
+    out_events = _capital_structure_arb_resolve(resolve_event, game.state)
+
+    assert out_events == []
+    assert game.state.pending_choice is None
+    assert _fin_stack_depth(game) == fs_before
+    print("[PASS] DA Capital Structure Arb short-circuits on empty allies")
+
+
+# ----- AI auto-resolve smoke test (one happy-path per pattern) ---------------
+
+def test_phase4_migration_ai_paths_resolve_inline():
+    """Smoke: every migrated card with an AI controller auto-resolves inline
+    (no lingering pending_choice) via heuristic_pick. Verifies the heuristic
+    path round-trips through resolve_pending_choice_inline → _process_choice.
+    """
+    # 1. ICEBERG_ORDER: weakest takes 1 damage, draw fires.
+    game, p1, p2 = _make_finance_game()
+    game.turn_manager.set_ai_player(p1.id)
+    game.state._game = game
+    order = _stage_order(game, p1.id, ICEBERG_ORDER)
+    weak = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)
+    _ = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)
+    result = _fire_dark_effect(game, order, _iceberg_order_setup)
+    assert game.state.pending_choice is None
+    new_events = list(result.new_events or [])
+    # The AI-resolved handler emits DAMAGE (to weakest) + DRAW.
+    dmg_events = [e for e in new_events if e.type == EventType.DAMAGE]
+    draw_events = [e for e in new_events if e.type == EventType.DRAW]
+    assert any(e.payload.get("target") == weak.id for e in dmg_events), (
+        f"AI path: expected DAMAGE targeting weakest {weak.id}; got events: "
+        f"{[(e.type, e.payload) for e in new_events]}"
+    )
+    assert draw_events, "Iceberg always draws"
+
+    # 2. OFF_EXCHANGE_POSITION: AI auto-targets strongest, -3/-0 emitted.
+    game, p1, p2 = _make_finance_game()
+    game.turn_manager.set_ai_player(p1.id)
+    game.state._game = game
+    order = _stage_order(game, p1.id, OFF_EXCHANGE_POSITION)
+    _ = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)
+    strong = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)
+    result = _fire_dark_effect(game, order, _off_exchange_position_setup)
+    assert game.state.pending_choice is None
+    pt_events = [e for e in (result.new_events or []) if e.type == EventType.PT_MODIFICATION]
+    assert any(e.payload.get("object_id") == strong.id and e.payload.get("power_mod") == -3
+               for e in pt_events), (
+        f"OEP AI path: expected -3/-0 onto strongest {strong.id}; "
+        f"got: {[(e.payload) for e in pt_events]}"
+    )
+
+    # 3. BLOCK_TRADE_SWEEP: AI auto-targets weakest, OBJECT_DESTROYED.
+    game, p1, p2 = _make_finance_game()
+    game.turn_manager.set_ai_player(p1.id)
+    game.state._game = game
+    order = _stage_order(game, p1.id, BLOCK_TRADE_SWEEP)
+    weak = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)
+    _ = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)
+    result = _fire_dark_effect(game, order, _block_trade_sweep_setup)
+    assert game.state.pending_choice is None
+    dest = [e for e in (result.new_events or []) if e.type == EventType.OBJECT_DESTROYED]
+    assert any(e.payload.get("object_id") == weak.id for e in dest)
+
+    # 4. FORCED_LIQUIDATION (resolve path): AI auto-targets strongest, destroy.
+    game, p1, p2 = _make_finance_game()
+    game.turn_manager.set_ai_player(p1.id)
+    game.state._game = game
+    _ = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)
+    strong = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)
+    resolve_event = Event(
+        type=EventType.FIN_PLAY_CARD,
+        payload={"controller": p1.id, "source_id": "test_src"},
+        source="test_src",
+        controller=p1.id,
+    )
+    out_events = _forced_liquidation_resolve(resolve_event, game.state)
+    assert game.state.pending_choice is None
+    dest = [e for e in out_events if e.type == EventType.OBJECT_DESTROYED]
+    assert any(e.payload.get("object_id") == strong.id for e in dest)
+
+    # 5. CROSSED_MARKET: AI auto-targets sturdiest, flags set.
+    game, p1, p2 = _make_finance_game()
+    game.turn_manager.set_ai_player(p1.id)
+    game.state._game = game
+    order = _stage_order(game, p1.id, CROSSED_MARKET)
+    _ = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)
+    sturdy = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)
+    _fire_dark_effect(game, order, _crossed_market_setup, controller_id=p1.id)
+    assert game.state.pending_choice is None
+    assert game.state.turn_data.get(f"fin_cant_block_{sturdy.id}") is True
+    assert game.state.turn_data.get(f"fin_cant_attack_{sturdy.id}") is True
+
+    # 6. HIDDEN_AGGRESSION: AI auto-targets strongest ally, +2/+0 emitted.
+    game, p1, p2 = _make_finance_game()
+    game.turn_manager.set_ai_player(p1.id)
+    game.state._game = game
+    order = _stage_order(game, p1.id, HIDDEN_AGGRESSION)
+    _ = _put_on_battlefield(game, p1.id, STATISTICAL_ARB_CLERK)
+    strong = _put_on_battlefield(game, p1.id, FLASH_CRASH_BOT)
+    result = _fire_dark_effect(game, order, _hidden_aggression_setup)
+    assert game.state.pending_choice is None
+    pt_events = [e for e in (result.new_events or []) if e.type == EventType.PT_MODIFICATION]
+    assert any(e.payload.get("object_id") == strong.id and e.payload.get("power_mod") == 2
+               for e in pt_events)
+
+    # 7. INTERNALIZATION_ORDER: AI dumps 3 onto sturdiest.
+    game, p1, p2 = _make_finance_game()
+    game.turn_manager.set_ai_player(p1.id)
+    game.state._game = game
+    order = _stage_order(game, p1.id, INTERNALIZATION_ORDER)
+    _ = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)
+    sturdy = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)
+    result = _fire_dark_effect(game, order, _internalization_order_setup)
+    assert game.state.pending_choice is None
+    dmg = [e for e in (result.new_events or []) if e.type == EventType.DAMAGE]
+    assert any(e.payload.get("target") == sturdy.id and e.payload.get("amount") == 3
+               for e in dmg), (
+        f"Internalization AI path: expected 3 dmg to sturdiest {sturdy.id}; "
+        f"got: {[e.payload for e in dmg]}"
+    )
+
+    # 8. CAPITAL_STRUCTURE_ARB: AI auto-buffs highest power+lev ally.
+    game, p1, p2 = _make_finance_game()
+    game.turn_manager.set_ai_player(p1.id)
+    game.state._game = game
+    _ = _put_on_battlefield(game, p1.id, STATISTICAL_ARB_CLERK)
+    strong = _put_on_battlefield(game, p1.id, FLASH_CRASH_BOT)
+    resolve_event = Event(
+        type=EventType.FIN_PLAY_CARD,
+        payload={"controller": p1.id, "source_id": "test_src"},
+        source="test_src",
+        controller=p1.id,
+    )
+    _capital_structure_arb_resolve(resolve_event, game.state)
+    assert game.state.pending_choice is None
+    assert strong.state.counters.get("leverage", 0) == 3
+    assert game.state.turn_data.get(f"fin_arb_buff_{strong.id}") == 2
+
+    print("[PASS] DA Phase 4 migration: all 8 AI paths resolve inline")
+
+
 def test_crossing_network_pilot_ai_path_resolves_to_heuristic():
     """When the controller is AI and no make_choice handler is registered,
     ``resolve_pending_choice_inline`` falls back to ``heuristic_pick`` and
@@ -696,6 +1379,32 @@ ALL_TESTS = [
     test_crossing_network_pilot_heuristic_preserves_min_toughness_pick,
     test_crossing_network_pilot_no_opp_traders_short_circuits,
     test_crossing_network_pilot_ai_path_resolves_to_heuristic,
+    # Phase 4 migration: 8 cards × 3 cases + 1 AI smoke = 25 tests
+    test_iceberg_order_human_path_emits_divide_allocation,
+    test_iceberg_order_heuristic_preserves_min_toughness_pick,
+    test_iceberg_order_no_opp_traders_short_circuits,
+    test_off_exchange_position_human_path_emits_target_choice,
+    test_off_exchange_position_heuristic_preserves_max_power_pick,
+    test_off_exchange_position_no_opp_traders_short_circuits,
+    test_block_trade_sweep_human_path_emits_target_choice,
+    test_block_trade_sweep_heuristic_preserves_min_toughness_pick,
+    test_block_trade_sweep_no_small_traders_short_circuits,
+    test_forced_liquidation_human_path_emits_target_choice,
+    test_forced_liquidation_heuristic_preserves_max_power_pick,
+    test_forced_liquidation_no_candidates_short_circuits,
+    test_crossed_market_human_path_emits_target_choice,
+    test_crossed_market_heuristic_preserves_max_toughness_pick,
+    test_crossed_market_no_opp_traders_short_circuits,
+    test_hidden_aggression_human_path_emits_target_choice,
+    test_hidden_aggression_heuristic_preserves_max_power_pick,
+    test_hidden_aggression_no_friendly_traders_short_circuits,
+    test_internalization_order_human_path_emits_divide_allocation,
+    test_internalization_order_heuristic_preserves_max_toughness_pick,
+    test_internalization_order_no_opp_traders_short_circuits,
+    test_capital_structure_arb_human_path_emits_target_choice,
+    test_capital_structure_arb_heuristic_preserves_max_power_plus_lev,
+    test_capital_structure_arb_no_friendly_traders_short_circuits,
+    test_phase4_migration_ai_paths_resolve_inline,
 ]
 
 
