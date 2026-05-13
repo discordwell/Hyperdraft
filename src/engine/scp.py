@@ -25,7 +25,7 @@ from .types import (
 
 STARTING_SECRECY = 10
 ARCHIVES_TO_WIN = 7
-BREACH_LIMIT = 10
+BREACH_LIMIT = 12
 ETHICS_LIMIT = 8
 
 TASKS = ("contain", "research", "suppress")

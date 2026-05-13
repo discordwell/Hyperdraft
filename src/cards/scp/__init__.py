@@ -642,7 +642,7 @@ def _anomaly_defaults(archetype: str, index: int):
             "On reveal: mood becomes cryptic, mirror_box protocol applied; opens sealed by default.",
         )
     if archetype == "blackout":
-        if index % 2 == 0:
+        if index % 4 == 0:
             return (
                 _hostile_reveal(1),
                 False,
@@ -654,22 +654,28 @@ def _anomaly_defaults(archetype: str, index: int):
             "On reveal: mood becomes agitated (+hazard, +containment).",
         )
     if archetype == "raid":
-        if index % 2 == 0:
+        if index % 3 == 0:
             return (
-                scp._public_reveal(1),
+                _hostile_reveal(1),
                 False,
-                "On reveal: secrecy -1 from public leak.",
+                "On reveal: breach +1.",
             )
         return (
-            _hostile_reveal(1),
+            scp._public_reveal(1),
             False,
-            "On reveal: breach +1.",
+            "On reveal: secrecy -1 from public leak.",
         )
     if archetype == "ethics":
+        if index % 3 == 0:
+            return (
+                _ethics_reveal(1),
+                False,
+                "On reveal: ethics debt +1.",
+            )
         return (
-            _ethics_reveal(1),
+            scp._seeded_mood("docile"),
             False,
-            "On reveal: ethics debt +1.",
+            "On reveal: mood becomes docile (-hazard, -containment, -curiosity).",
         )
     if archetype == "oneiric":
         return (
