@@ -25,7 +25,8 @@ if TYPE_CHECKING:
 
 def apply_all_mechanics(cards: "dict[str, CardDefinition]") -> None:
     """Called once after ``SCP_CARDS`` is built. Mechanic modules register here."""
-    # Mechanic agents will add lines here, each importing apply_<mechanic>
-    # from their sibling module and calling it on ``cards``.
     from .contained_auras import apply_contained_auras
+    from .test_dividends import apply_test_dividends
+
     apply_contained_auras(cards)
+    apply_test_dividends(cards)

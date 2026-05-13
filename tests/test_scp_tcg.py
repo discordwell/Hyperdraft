@@ -181,7 +181,9 @@ def test_research_test_uses_assigned_personnel_and_gains_archive():
     ok, message, events = scp.run_test(game, p1.id, anomaly.id, [junior.id, intern.id])
 
     assert ok, message
-    assert scp.site(game.state, p1.id)["archives"] == 1
+    # Moth in the Camera now wires a research_bounty on-test hook (+1 archive on top
+    # of the engine's base +1), so a successful test yields 2 archives.
+    assert scp.site(game.state, p1.id)["archives"] == 2
     assert junior.state.scp_exhausted is True
     assert intern.state.scp_exhausted is True
     assert any(event.type == EventType.SCP_TEST_RUN and event.payload["success"] for event in events)
@@ -296,7 +298,8 @@ def test_mandate_bonus_affects_assignment_checks():
     assert scp.open_dossier(game, p1.id, junior.id)[0]
 
     assert scp.run_test(game, p1.id, anomaly.id, [junior.id])[0]
-    assert scp.site(game.state, p1.id)["archives"] == 1
+    # Moth in the Camera has a research_bounty on-test payoff (+1 extra archive).
+    assert scp.site(game.state, p1.id)["archives"] == 2
 
 
 def test_sealed_dossier_has_no_hazard_until_revealed():
@@ -1256,3 +1259,144 @@ def test_w2_contained_aura_feeds_staff_total_for_research():
         f"Oracle Mold contained-aura should add +1 to research staff total "
         f"(baseline {baseline_total}, boosted {boosted_total})."
     )
+
+
+# ---------------------------------------------------------------------------
+# W3 — Test Dividends: on-test payoffs & failure penalties.
+# ---------------------------------------------------------------------------
+
+
+def test_test_dividends_success_payoff_changes_site_state():
+    """Successful research on a wired anomaly applies the success payoff."""
+    game, p1, _p2 = _setup()
+    # Singing Vending Machine: research_bounty → +1 extra archive on success.
+    # curiosity=4, but we'll stack staff so the test passes.
+    anomaly = _hand_card(game, p1, "Singing Vending Machine")
+    o5 = _hand_card(game, p1, "O5 Auditor")  # research:3, clearance handled by site setup
+    scp.site(game.state, p1.id)["clearance"] = 3  # ensure O5 can be played
+    intern = _hand_card(game, p1, "Sleep-Deprived Intern")  # research:1
+    junior = _hand_card(game, p1, "Junior Researcher")  # research:1
+
+    assert scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, o5.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, intern.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, junior.id, fast_track=True)[0]
+
+    # Verify the on-test hook is wired by the mechanic applier.
+    assert callable(getattr(anomaly.card_def, "scp_on_test", None))
+
+    archives_before = scp.site(game.state, p1.id)["archives"]
+    ok, _msg, events = scp.run_test(game, p1.id, anomaly.id, [o5.id, intern.id, junior.id])
+    assert ok
+    archives_after = scp.site(game.state, p1.id)["archives"]
+    # Engine base +1 archive + research_bounty +1 = +2 total.
+    assert archives_after - archives_before == 2
+    assert any(
+        event.type == EventType.SCP_ARCHIVE_GAINED
+        and event.payload.get("reason") == "research_bounty"
+        for event in events
+    )
+
+
+def test_test_dividends_failure_penalty_fires():
+    """Failed research on an anomaly with a wired fail-hook applies the penalty."""
+    game, p1, _p2 = _setup()
+    # Hostile Nursery Rhyme: curiosity=5, fail-hook = breach_punish(+1).
+    anomaly = _hand_card(game, p1, "Hostile Nursery Rhyme")
+    assert scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)[0]
+
+    # Verify the fail-hook is wired by the mechanic applier.
+    assert callable(getattr(anomaly.card_def, "scp_on_test_fail", None))
+
+    breach_before = scp.site(game.state, p1.id)["breach"]
+    secrecy_before = scp.site(game.state, p1.id)["secrecy"]
+    # Run a test with NO staff -> total 0 < curiosity 5 -> failure.
+    ok, _msg, events = scp.run_test(game, p1.id, anomaly.id, [])
+    assert ok
+    breach_after = scp.site(game.state, p1.id)["breach"]
+    secrecy_after = scp.site(game.state, p1.id)["secrecy"]
+    # Engine baseline failure: secrecy -1, breach += max(1, hazard - total).
+    # Hazard=2, total=0 -> engine breach += 2. Our fail-hook adds +1 more.
+    assert secrecy_after == secrecy_before - 1
+    assert breach_after == breach_before + 2 + 1  # engine leak + fail-hook punish
+    assert any(
+        event.type == EventType.SCP_BREACH_TICK
+        and event.payload.get("reason") == "research_failure_breach"
+        for event in events
+    )
+
+
+def test_test_dividends_cognitive_load_exhausts_extra_researcher():
+    """Cognitive-load cards (Mirror, Patient Zero, Red Room) drain one more researcher on success."""
+    game, p1, _p2 = _setup()
+    # The Mirror That Interviews You: curiosity=4, cognitive_load + research_bounty.
+    anomaly = _hand_card(game, p1, "The Mirror That Interviews You")
+    # Two researchers used for the test (must beat curiosity 4)...
+    o5 = _hand_card(game, p1, "O5 Auditor")  # research:3
+    scp.site(game.state, p1.id)["clearance"] = 3
+    intern = _hand_card(game, p1, "Sleep-Deprived Intern")  # research:1
+    # ...plus a THIRD bystander who is not assigned to the test but is on the
+    # battlefield, active, and unexhausted. Cognitive load should drain them.
+    bystander = _hand_card(game, p1, "Junior Researcher")  # research:1
+
+    assert scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, o5.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, intern.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, bystander.id, fast_track=True)[0]
+
+    assert bystander.state.scp_exhausted is False
+
+    ok, _msg, events = scp.run_test(game, p1.id, anomaly.id, [o5.id, intern.id])
+    assert ok
+
+    # The bystander (lowest research between bystander and analyst-tier cards)
+    # should now be exhausted by the cognitive-load hook.
+    assert bystander.state.scp_exhausted is True
+    # The assigned staff are also exhausted (standard engine behavior).
+    assert o5.state.scp_exhausted is True
+    assert intern.state.scp_exhausted is True
+    assert any(
+        event.type == EventType.SCP_ASSIGN_STAFF
+        and event.payload.get("reason") == "cognitive_load"
+        for event in events
+    )
+
+
+def test_test_dividends_cognitive_load_safe_when_no_bystander_available():
+    """Cognitive-load hook degrades gracefully when no extra researcher exists."""
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "The Mirror That Interviews You")
+    o5 = _hand_card(game, p1, "O5 Auditor")
+    scp.site(game.state, p1.id)["clearance"] = 3
+    intern = _hand_card(game, p1, "Sleep-Deprived Intern")
+    # No third bystander on the battlefield this time.
+
+    assert scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, o5.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, intern.id, fast_track=True)[0]
+
+    archives_before = scp.site(game.state, p1.id)["archives"]
+    ok, _msg, _events = scp.run_test(game, p1.id, anomaly.id, [o5.id, intern.id])
+    assert ok
+    # Both staff still get exhausted by the test, payoff (+2 archives) still fires.
+    assert scp.site(game.state, p1.id)["archives"] - archives_before == 2
+
+
+def test_test_dividends_applier_is_idempotent():
+    """Running apply_test_dividends repeatedly is safe."""
+    from src.cards.scp import SCP_CARDS
+    from src.cards.scp.mechanics.test_dividends import apply_test_dividends
+
+    moth = SCP_CARDS["Moth in the Camera"]
+    original_text = moth.text
+    original_hook = moth.scp_on_test
+    assert callable(original_hook)
+
+    apply_test_dividends(SCP_CARDS)
+    apply_test_dividends(SCP_CARDS)
+
+    # Text is unchanged, hook is still a callable. (The factory creates new
+    # closures each call, so identity may change — only behavioural identity
+    # matters, and that is covered by the other tests.)
+    assert moth.text == original_text
+    assert callable(moth.scp_on_test)
