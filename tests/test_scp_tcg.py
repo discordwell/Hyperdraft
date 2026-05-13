@@ -1648,3 +1648,129 @@ def test_reveal_identity_acw_anomaly_is_sealed_default_and_cryptic_on_reveal():
     assert anomaly.state.scp_mood == "cryptic"
     assert "mirror_box" in anomaly.state.scp_protocols
     assert any(e.type == EventType.SCP_MOOD_SHIFT for e in events)
+
+
+# ---------------------------------------------------------------------------
+# SZB bespoke mechanics (b) — the 18 SZB-bare anomalies wired into the
+# Thaumiel-grid / bureaucratic / media / strange idioms.
+# ---------------------------------------------------------------------------
+
+
+def test_szb_thaumiel_contained_aura_buffs_matching_task():
+    """Contained SZB Halo Key Anomaly gives +2 containment to the controller.
+
+    Mirrors test_contained_bonus_extends_active_bonus_for_tests but with the
+    bespoke wiring instead of an ad-hoc card_def patch — proves apply_szb_bespoke
+    set scp_contained_bonus correctly.
+    """
+    game, p1, _p2 = _setup()
+    halo = _hand_card(game, p1, "SZB Halo Key Anomaly")
+    specialist = _hand_card(game, p1, "Containment Specialist")
+    assert scp.open_dossier(game, p1.id, halo.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, specialist.id, fast_track=True)[0]
+    # Halo Key is contain=5; specialist (contain 2) + dummy contain check
+    # should fail without a helper, but we just force it into the contained
+    # bucket via a direct mutation (mirrors how `_contain_anomaly_for_test`
+    # would, but inline so the test stays self-contained).
+    halo.state.scp_status = "contained"
+    if halo.id in game.state.scp_anomalies[p1.id]:
+        game.state.scp_anomalies[p1.id].remove(halo.id)
+    if halo.id not in game.state.scp_contained[p1.id]:
+        game.state.scp_contained[p1.id].append(halo.id)
+    # Now the contained-aura should add +2 to the controller's contain checks.
+    assert scp._active_bonus(game.state, p1.id, "contain") == 2
+    # And not bleed into other tasks.
+    assert scp._active_bonus(game.state, p1.id, "research") == 0
+    assert scp._active_bonus(game.state, p1.id, "suppress") == 0
+
+
+def test_szb_bureaucratic_anomaly_taxes_own_pending_on_reveal():
+    """SZB Misfile Saint Anomaly taxes the controller's other pending dossiers."""
+    game, p1, _p2 = _setup()
+    # Stage a pending personnel so the tax has a target.
+    spec = _hand_card(game, p1, "Containment Specialist")  # red_tape=1
+    assert scp.open_dossier(game, p1.id, spec.id)[0]
+    assert spec.state.scp_status == "pending"
+    paperwork_before = spec.state.scp_paperwork
+
+    misfile = _hand_card(game, p1, "SZB Misfile Saint Anomaly")
+    ok, message, events = scp.open_dossier(game, p1.id, misfile.id, fast_track=True)
+    assert ok, message
+    assert misfile.state.scp_status == "active"
+    # Specialist took +1 paperwork from the reveal-time tax.
+    assert spec.state.scp_paperwork == paperwork_before + 1
+    tax_events = [
+        e for e in events
+        if e.type == EventType.SCP_PAPERWORK_TICK
+        and e.payload.get("reason") == "tax_own_pending"
+    ]
+    assert tax_events, "expected SCP_PAPERWORK_TICK reason=tax_own_pending"
+
+
+def test_szb_media_anomaly_drops_secrecy_on_reveal():
+    """SZB Glass Newsroom Anomaly drops secrecy by 2 on reveal (public_reveal idiom)."""
+    game, p1, _p2 = _setup()
+    newsroom = _hand_card(game, p1, "SZB Glass Newsroom Anomaly")  # red_tape=1
+    secrecy_before = scp.site(game.state, p1.id)["secrecy"]
+    ok, message, events = scp.open_dossier(game, p1.id, newsroom.id, fast_track=True)
+    assert ok, message
+    assert newsroom.state.scp_status == "active"
+    # secrecy delta = -1 from fast-track (red_tape=1) + -2 from public_reveal = -3.
+    assert scp.site(game.state, p1.id)["secrecy"] == secrecy_before - 1 - 2
+    audit_events = [
+        e for e in events
+        if e.type == EventType.SCP_AUDIT
+        and e.payload.get("reason") == "public_reveal"
+    ]
+    assert audit_events, "expected SCP_AUDIT reason=public_reveal"
+
+
+def test_szb_chain_reactor_scales_with_other_active_anomalies():
+    """SZB Chain Reactor Anomaly: breach +1 per OTHER active anomaly on reveal."""
+    game, p1, _p2 = _setup()
+    # Stage 2 other active anomalies first.
+    moth = _hand_card(game, p1, "Moth in the Camera")
+    assert scp.open_dossier(game, p1.id, moth.id, fast_track=True)[0]
+    rain = _hand_card(game, p1, "Rain Inside the Elevator")
+    assert scp.open_dossier(game, p1.id, rain.id, fast_track=True)[0]
+    assert moth.state.scp_status == "active"
+    assert rain.state.scp_status == "active"
+
+    chain = _hand_card(game, p1, "SZB Chain Reactor Anomaly")  # red_tape=0
+    breach_before = scp.site(game.state, p1.id)["breach"]
+    ok, message, events = scp.open_dossier(game, p1.id, chain.id, fast_track=True)
+    assert ok, message
+    # Two other active anomalies => +2 breach.
+    assert scp.site(game.state, p1.id)["breach"] == breach_before + 2
+    chain_events = [
+        e for e in events
+        if e.type == EventType.SCP_BREACH_TICK
+        and e.payload.get("reason") == "chain_reactor_reveal"
+    ]
+    assert chain_events, "expected SCP_BREACH_TICK reason=chain_reactor_reveal"
+
+
+def test_szb_bespoke_applier_is_idempotent():
+    """Running apply_szb_bespoke twice produces no double-append in card.text."""
+    from src.cards.scp import SCP_CARDS
+    from src.cards.scp.mechanics.szb_bespoke import apply_szb_bespoke
+
+    # Capture text after the natural single-apply that happened at import time.
+    before = {
+        name: SCP_CARDS[name].text
+        for name in (
+            "SZB Halo Key Anomaly",
+            "SZB Misfile Saint Anomaly",
+            "SZB Glass Newsroom Anomaly",
+            "SZB Chain Reactor Anomaly",
+            "SZB Answer Box Anomaly",
+        )
+    }
+    # Re-apply twice — idempotent guards should make the text identical.
+    apply_szb_bespoke(SCP_CARDS)
+    apply_szb_bespoke(SCP_CARDS)
+    for name, original in before.items():
+        assert SCP_CARDS[name].text == original, (
+            f"{name}: text changed under re-apply. "
+            f"before={original!r} after={SCP_CARDS[name].text!r}"
+        )

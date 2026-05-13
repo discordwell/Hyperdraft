@@ -34,9 +34,11 @@ def apply_all_mechanics(cards: "dict[str, CardDefinition]") -> None:
     from .contained_auras import apply_contained_auras
     from .personnel_synergy import apply_personnel_synergy
     from .reveal_identity import apply_reveal_identity
+    from .szb_bespoke import apply_szb_bespoke
     from .test_dividends import apply_test_dividends
 
     apply_reveal_identity(cards)
     apply_test_dividends(cards)
     apply_contained_auras(cards)
     apply_personnel_synergy(cards)
+    apply_szb_bespoke(cards)
