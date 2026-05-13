@@ -1,0 +1,173 @@
+"""Engine-agnostic helpers for resolving ``PendingChoice`` inline.
+
+Two functions:
+
+- ``resolve_pending_choice_inline(state)`` — synchronously resolves
+  ``state.pending_choice`` IF the choice player is AI. For human players
+  it returns immediately with the choice still set on ``state``, so the
+  session-level pause-resume in ``src/server/session.py:_get_human_action``
+  blocks on the next ``human_action_handler`` invocation.
+
+- ``create_choice_and_resolve(state, ...)`` — one-stop helper for card
+  ``effect_fn``s: build a ``PendingChoice``, stash it on ``state``, and
+  immediately try to resolve it. Returns the events the chosen mode emitted
+  (empty for humans, where the choice stays pending).
+
+This module supersedes the Pokemon-specific
+``src/cards/pokemon/_helpers.py:_resolve_pending_choice_inline``, which is
+preserved as a compat alias that simply delegates here.
+
+The key behavioral difference from the old Pokemon helper: humans are no
+longer silently auto-resolved to option ``[0]``. Today no human ever played
+through that path (Pokemon BRV cards only fire mid-AI-turn), but the bug
+would have surfaced as soon as a human cast a modal trainer.
+"""
+from __future__ import annotations
+
+from typing import Any, Callable, Optional
+
+from src.engine.types import Event, GameState, PendingChoice
+
+
+# Per-engine AI handler attribute names on ``game.turn_manager``. Probed in
+# order; the first that exists wins. Finance is special — handlers are
+# stored per-player in a dict (``finance_ai_handlers[player_id]``).
+_AI_HANDLER_ATTRS: tuple[str, ...] = (
+    "pokemon_ai_handler",
+    "hearthstone_ai_handler",
+    "ygo_ai_handler",
+    "scp_ai_handler",
+    "minecraft_ai_handler",
+)
+
+
+def _lookup_ai_handler(turn_mgr, player_id: str):
+    """Find the AI handler for ``player_id`` on ``turn_mgr``.
+
+    Returns the handler instance with a ``make_choice(player_id, choice, state)``
+    method, or ``None`` if no engine-specific handler is registered.
+    """
+    if turn_mgr is None:
+        return None
+    for attr in _AI_HANDLER_ATTRS:
+        handler = getattr(turn_mgr, attr, None)
+        if handler is not None:
+            return handler
+    handlers = getattr(turn_mgr, "finance_ai_handlers", None)
+    if isinstance(handlers, dict):
+        return handlers.get(player_id)
+    return None
+
+
+def resolve_pending_choice_inline(state: GameState) -> tuple[list[Event], list]:
+    """Synchronously resolve ``state.pending_choice`` for an AI player.
+
+    Returns ``(events, selected)``. For human players, returns ``([], [])``
+    and leaves ``state.pending_choice`` set so the next call into
+    ``session._get_human_action`` blocks on it.
+
+    For AI players: invokes the engine's registered AI handler's
+    ``make_choice``; falls back to ``callback_data['heuristic_pick']`` then
+    to ``[0]``. Routes the selection through ``Game._process_choice`` so the
+    callback_data handler (or built-in type dispatcher) runs. Always clears
+    ``state.pending_choice`` on the AI path, even on handler errors, so the
+    engine never deadlocks.
+    """
+    choice = state.pending_choice
+    if choice is None:
+        return [], []
+
+    game = getattr(state, "_game", None)
+    turn_mgr = getattr(game, "turn_manager", None) if game is not None else None
+    ai_players = getattr(turn_mgr, "ai_players", set()) or set()
+
+    if choice.player not in ai_players:
+        # Human path. Session will block on this choice via _get_human_action.
+        return [], []
+
+    try:
+        selected: list = []
+        ai_handler = _lookup_ai_handler(turn_mgr, choice.player)
+        if ai_handler is not None and hasattr(ai_handler, "make_choice"):
+            try:
+                selected = ai_handler.make_choice(choice.player, choice, state) or []
+            except Exception:
+                selected = []
+        if not selected:
+            preset = (choice.callback_data or {}).get("heuristic_pick")
+            if preset is None:
+                selected = [0]
+            elif isinstance(preset, list):
+                selected = preset
+            else:
+                selected = [preset]
+
+        events: list[Event] = []
+        if game is not None:
+            try:
+                events = game._process_choice(choice, selected) or []
+            except Exception:
+                events = []
+        else:
+            # Bare test path with no Game wiring. Honor the handler directly.
+            handler = (choice.callback_data or {}).get("handler")
+            if handler:
+                try:
+                    events = handler(choice, selected, state) or []
+                except Exception:
+                    events = []
+        return events, selected
+    finally:
+        state.pending_choice = None
+
+
+def create_choice_and_resolve(
+    state: GameState,
+    *,
+    choice_type: str,
+    player_id: str,
+    prompt: str,
+    options: list,
+    source_id: str,
+    min_choices: int = 1,
+    max_choices: int = 1,
+    handler: Optional[Callable] = None,
+    heuristic_pick: Any = None,
+    **extra_callback_data: Any,
+) -> list[Event]:
+    """Build a ``PendingChoice``, stash on ``state``, resolve if AI.
+
+    For humans, returns ``[]`` and leaves the choice pending. The session
+    layer (``src/server/session.py:1034``) will block on it the next time
+    the human's action handler is called.
+
+    For AI players, invokes the engine's AI handler synchronously via
+    ``resolve_pending_choice_inline`` and returns the events the handler
+    emitted (typically destroy/draw/damage events that the calling
+    ``effect_fn`` should include in its return list).
+
+    Card migration callers MUST short-circuit on empty options BEFORE
+    calling this helper. A ``PendingChoice`` with zero options and
+    ``min_choices >= 1`` is unsatisfiable and will deadlock the engine
+    (the human session will time out after 300s, then the AI fallback
+    of ``[0]`` will be out-of-range).
+    """
+    callback_data: dict[str, Any] = dict(extra_callback_data)
+    if handler is not None:
+        callback_data["handler"] = handler
+    if heuristic_pick is not None:
+        callback_data["heuristic_pick"] = heuristic_pick
+
+    choice = PendingChoice(
+        choice_type=choice_type,
+        player=player_id,
+        prompt=prompt,
+        options=list(options),
+        source_id=source_id,
+        min_choices=min_choices,
+        max_choices=max_choices,
+        callback_data=callback_data,
+    )
+    state.pending_choice = choice
+    events, _selected = resolve_pending_choice_inline(state)
+    return events

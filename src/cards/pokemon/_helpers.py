@@ -37,69 +37,20 @@ from src.engine.types import (
 # ===========================================================================
 
 
+from src.engine.pending_choice_helpers import (
+    resolve_pending_choice_inline as _shared_resolve,
+)
+
+
 def _resolve_pending_choice_inline(state: GameState) -> tuple[list[Event], list]:
-    """Synchronously resolve ``state.pending_choice`` for an AI-controlled
-    player.
+    """Compat alias — delegates to the engine-agnostic shared helper.
 
-    Returns ``(events_emitted, selected)`` so callers can read both the
-    dispatcher's resulting events (for modal cards) and the raw selection
-    (for target helpers that just want the picked ID back).
-
-    Phase 1a contract: looks up the AI handler from
-    ``state._game.turn_manager`` and calls ``ai.make_choice(...)``; the
-    selection is then routed through ``Game._process_choice`` so the
-    callback_data handler runs (mirroring MTG's session.py flow).
-
-    For non-AI players we fall back to ``[0]`` for now; a future PR wires
-    the server-side suspend/resume path so human players see the choice
-    in the API response and submit it back.
-
-    Guarantees ``state.pending_choice`` is cleared on return, even on
-    handler errors, so the engine doesn't deadlock.
+    The canonical implementation now lives in
+    ``src/engine/pending_choice_helpers.py``. Behavior identical for AI
+    players; for human players, the shared helper correctly LEAVES the
+    choice pending (the old implementation auto-resolved to ``[0]``).
     """
-    choice = state.pending_choice
-    if choice is None:
-        return [], []
-    try:
-        game = getattr(state, '_game', None)
-        selected: list = []
-        if game is not None:
-            turn_mgr = getattr(game, 'turn_manager', None)
-            ai_handler = getattr(turn_mgr, 'pokemon_ai_handler', None)
-            ai_players = getattr(turn_mgr, 'ai_players', set()) or set()
-            if ai_handler and choice.player in ai_players:
-                try:
-                    selected = ai_handler.make_choice(choice.player, choice, state) or []
-                except Exception:
-                    selected = []
-        if not selected:
-            # Default fallback: prefer the precomputed heuristic_pick the
-            # helper stored, else first option.
-            preset = (choice.callback_data or {}).get('heuristic_pick')
-            if preset is None:
-                selected = [0]
-            elif isinstance(preset, list):
-                selected = preset
-            else:
-                selected = [preset]
-        events: list[Event] = []
-        if game is not None:
-            try:
-                events = game._process_choice(choice, selected) or []
-            except Exception:
-                events = []
-        else:
-            # No game wiring (rare; mostly direct-resolver tests). Honor
-            # the handler manually so the mode effect still runs.
-            handler = (choice.callback_data or {}).get('handler')
-            if handler:
-                try:
-                    events = handler(choice, selected, state) or []
-                except Exception:
-                    events = []
-        return events, selected
-    finally:
-        state.pending_choice = None
+    return _shared_resolve(state)
 
 
 def _pkm_modal_resolve_handler(choice: PendingChoice, selected: list, state: GameState) -> list[Event]:
