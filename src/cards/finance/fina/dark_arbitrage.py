@@ -798,27 +798,94 @@ DARK_INVENTORY_POSITION = make_trader(
 
 # Crossing Network Pilot {4} 4/3 — Leverage 2.
 # When this attacks, deal 1 damage to target Trader regardless of blocking.
+#
+# Phase 4 demo: damage allocation uses ``divide_allocation`` PendingChoice so
+# humans can choose which enemy Trader takes the leverage damage. AI keeps the
+# old "all-to-weakest" behavior via ``heuristic_pick``. Each target gets at
+# least 1, so with ``total_amount=1`` exactly one target absorbs the damage.
 def _crossing_network_pilot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def atk_fn(event: Event, state: GameState) -> list[Event]:
-        # Target the weakest opposing Trader
+        # Find all candidate opposing Traders
         bf = state.zones.get("battlefield")
         if not bf:
             return []
         opp_traders = [
-            state.objects.get(oid) for oid in bf.objects
+            o for oid in bf.objects
             if (o := state.objects.get(oid))
             and o.controller != obj.controller
             and CardType.FIN_TRADER in o.characteristics.types
         ]
-        opp_traders = [o for o in opp_traders if o is not None]
         if not opp_traders:
             return []
-        target = min(opp_traders, key=lambda o: o.characteristics.toughness or 0)
-        return [Event(
-            type=EventType.DAMAGE,
-            payload={"target": target.id, "amount": 1, "source": obj.id},
-            source=obj.id,
-        )]
+
+        # Lazy import: avoids circulars when this module is loaded for cards.
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        total_amount = 1  # printed: "deal 1 damage". See card text above.
+        source_id = obj.id
+        controller = obj.controller
+
+        # Build options for ChoiceModal. ``name``/``type``/``life`` (toughness
+        # here) keys are surfaced by the divide_allocation renderer for the
+        # +/- target chips.
+        options = [
+            {
+                "id": t.id,
+                "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+                "name": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+                "type": "Trader",
+                "life": (t.characteristics.toughness or 0) - int(getattr(t.state, "damage", 0) or 0),
+                "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+            }
+            for t in opp_traders
+        ]
+
+        # AI heuristic: preserve the old "all-to-weakest" pick.
+        weakest = min(opp_traders, key=lambda o: o.characteristics.toughness or 0)
+        heuristic = [{"target_id": weakest.id, "amount": total_amount}]
+
+        def _resolve_handler(choice, selected, st):
+            # ``selected`` is a list of {target_id, amount} after normalization
+            # by Game._process_divide_allocation_choice — or a dict mapping
+            # target_id -> amount.
+            allocations = selected if isinstance(selected, dict) else {}
+            if not allocations and isinstance(selected, list):
+                for item in selected:
+                    if isinstance(item, dict):
+                        tid = item.get("target_id") or item.get("id")
+                        if tid:
+                            allocations[tid] = int(item.get("amount", 0) or 0)
+                    elif isinstance(item, tuple) and len(item) == 2:
+                        allocations[item[0]] = int(item[1] or 0)
+            if not allocations:
+                # Safety: empty/invalid selection -> fall back to heuristic.
+                allocations = {weakest.id: total_amount}
+            return [
+                Event(
+                    type=EventType.DAMAGE,
+                    payload={"target": tid, "amount": int(amt or 0), "source": source_id},
+                    source=source_id,
+                    controller=controller,
+                )
+                for tid, amt in allocations.items()
+                if amt and int(amt) > 0
+            ]
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="divide_allocation",
+            player_id=controller,
+            prompt="Distribute leverage damage among opposing Traders",
+            options=options,
+            source_id=source_id,
+            min_choices=1,
+            max_choices=len(options),
+            handler=_resolve_handler,
+            heuristic_pick=heuristic,
+            total_amount=total_amount,
+            effect_type="damage",
+        )
+
     return [
         _add_leverage_etb(obj, 2),
         _make_leverage_power_query(obj),

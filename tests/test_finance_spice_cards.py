@@ -56,6 +56,7 @@ from src.cards.finance.fina.dark_arbitrage import (           # noqa: E402
     COORDINATED_BLOCK_STRATEGY,
     FLOOR_CAPTAIN_CARO,
     HIDDEN_ACCUMULATOR,
+    CROSSING_NETWORK_PILOT,
 )
 
 
@@ -500,6 +501,177 @@ def test_coordinated_block_strategy_loads_as_dark_pool_order():
 
 
 # ===========================================================================
+# Phase 4 demo: Crossing Network Pilot uses divide_allocation PendingChoice
+# ===========================================================================
+
+def _fire_attack(game, attacker):
+    """Mark attacker as attacking and emit ATTACK_DECLARED."""
+    attacker.state.attacking = True
+    return game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={"attacker_id": attacker.id},
+        source=attacker.id,
+        controller=attacker.controller,
+    ))
+
+
+def test_crossing_network_pilot_human_path_emits_divide_allocation():
+    """Human controller: attacking sets pending_choice with type
+    ``divide_allocation``, ``total_amount=1``, options for every opposing
+    Trader, and no damage applied yet."""
+    game, p1, p2 = _make_finance_game()
+    # Note: p1 is NOT registered as AI → human path.
+    pilot = _put_on_battlefield(game, p1.id, CROSSING_NETWORK_PILOT)
+    enemy_a = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)       # 2/2
+    enemy_b = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK) # 1/3
+    dmg_before_a = int(getattr(enemy_a.state, "damage", 0) or 0)
+    dmg_before_b = int(getattr(enemy_b.state, "damage", 0) or 0)
+    fin_stack_depth_before = game.state.fin_stack.depth() if getattr(
+        game.state, "fin_stack", None
+    ) is not None else 0
+
+    _fire_attack(game, pilot)
+
+    pc = game.state.pending_choice
+    assert pc is not None, "expected pending_choice after Pilot attack"
+    assert pc.choice_type == "divide_allocation", (
+        f"expected divide_allocation, got {pc.choice_type}"
+    )
+    assert pc.player == p1.id
+    assert pc.source_id == pilot.id
+    assert pc.callback_data.get("total_amount") == 1, (
+        f"expected total_amount=1, got {pc.callback_data.get('total_amount')}"
+    )
+    assert pc.callback_data.get("effect_type") == "damage"
+    option_ids = {opt["id"] for opt in pc.options}
+    assert enemy_a.id in option_ids and enemy_b.id in option_ids, (
+        f"expected both opp Traders as options; got {option_ids}"
+    )
+
+    # Opp Traders are untouched until the human submits the choice.
+    assert int(getattr(enemy_a.state, "damage", 0) or 0) == dmg_before_a, (
+        f"enemy_a damage changed before choice resolved"
+    )
+    assert int(getattr(enemy_b.state, "damage", 0) or 0) == dmg_before_b, (
+        f"enemy_b damage changed before choice resolved"
+    )
+
+    # Stack-safety: divide_allocation must not push onto fin_stack.
+    fin_stack_depth_after = game.state.fin_stack.depth() if getattr(
+        game.state, "fin_stack", None
+    ) is not None else 0
+    assert fin_stack_depth_after == fin_stack_depth_before, (
+        f"fin_stack depth changed: {fin_stack_depth_before} → "
+        f"{fin_stack_depth_after}"
+    )
+    print(f"[PASS] DA Crossing Network Pilot human-path emits "
+          f"divide_allocation (total_amount=1, opts={len(pc.options)})")
+
+
+def test_crossing_network_pilot_heuristic_preserves_min_toughness_pick():
+    """heuristic_pick = all damage onto the weakest enemy Trader (the old
+    "all to weakest" behavior). Validates the format the AI fallback
+    consumes from ``callback_data['heuristic_pick']``."""
+    game, p1, p2 = _make_finance_game()
+    pilot = _put_on_battlefield(game, p1.id, CROSSING_NETWORK_PILOT)
+    # FLASH_CRASH_BOT is 2/2 (toughness 2); STATISTICAL_ARB_CLERK is 1/3.
+    # The weakest by toughness is FLASH_CRASH_BOT (tough=2).
+    weakest = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)
+    sturdier = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)
+    assert (weakest.characteristics.toughness or 0) < (
+        sturdier.characteristics.toughness or 0
+    ), "test setup invariant: weakest must have lowest toughness"
+
+    _fire_attack(game, pilot)
+
+    pc = game.state.pending_choice
+    assert pc is not None
+    hp = pc.callback_data.get("heuristic_pick")
+    assert hp is not None, "expected heuristic_pick on the choice"
+    # heuristic_pick should be [{"target_id": weakest.id, "amount": 1}]
+    assert isinstance(hp, list) and len(hp) == 1, (
+        f"expected single-entry heuristic_pick; got {hp}"
+    )
+    pick = hp[0]
+    assert isinstance(pick, dict)
+    assert pick.get("target_id") == weakest.id, (
+        f"heuristic should target weakest ({weakest.id}); got {pick}"
+    )
+    assert int(pick.get("amount", 0)) == pc.callback_data.get("total_amount"), (
+        f"heuristic amount must equal total_amount; got {pick.get('amount')}"
+    )
+    print(f"[PASS] DA Crossing Network Pilot heuristic preserves "
+          f"all-to-weakest (target={weakest.id})")
+
+
+def test_crossing_network_pilot_no_opp_traders_short_circuits():
+    """If there are no opposing Traders, the attack trigger short-circuits:
+    no pending_choice, no damage events, fin_stack untouched."""
+    game, p1, p2 = _make_finance_game()
+    pilot = _put_on_battlefield(game, p1.id, CROSSING_NETWORK_PILOT)
+    # Opp board is empty — no enemy Traders.
+    fin_stack_depth_before = game.state.fin_stack.depth() if getattr(
+        game.state, "fin_stack", None
+    ) is not None else 0
+
+    _fire_attack(game, pilot)
+
+    assert game.state.pending_choice is None, (
+        "expected no pending_choice when there are no opp Traders"
+    )
+    fin_stack_depth_after = game.state.fin_stack.depth() if getattr(
+        game.state, "fin_stack", None
+    ) is not None else 0
+    assert fin_stack_depth_after == fin_stack_depth_before, (
+        f"fin_stack depth changed on empty short-circuit: "
+        f"{fin_stack_depth_before} → {fin_stack_depth_after}"
+    )
+    print(f"[PASS] DA Crossing Network Pilot short-circuits on empty opp")
+
+
+def test_crossing_network_pilot_ai_path_resolves_to_heuristic():
+    """When the controller is AI and no make_choice handler is registered,
+    ``resolve_pending_choice_inline`` falls back to ``heuristic_pick`` and
+    applies the damage to the weakest enemy Trader. The pending_choice is
+    cleared after resolution and fin_stack is not corrupted."""
+    game, p1, p2 = _make_finance_game()
+    # Mark p1 as AI but DO NOT register a make_choice handler. The fallback
+    # path uses heuristic_pick.
+    game.turn_manager.set_ai_player(p1.id)
+    # Expose Game on state so resolve_pending_choice_inline can find it.
+    game.state._game = game
+
+    pilot = _put_on_battlefield(game, p1.id, CROSSING_NETWORK_PILOT)
+    weakest = _put_on_battlefield(game, p2.id, FLASH_CRASH_BOT)
+    _ = _put_on_battlefield(game, p2.id, STATISTICAL_ARB_CLERK)
+    fin_stack_depth_before = game.state.fin_stack.depth() if getattr(
+        game.state, "fin_stack", None
+    ) is not None else 0
+
+    events_emitted = _fire_attack(game, pilot)
+
+    # AI path: choice already resolved inline → pending_choice is cleared.
+    assert game.state.pending_choice is None, (
+        "expected AI to resolve the choice inline; got a lingering choice"
+    )
+    # Damage should have hit the weakest enemy Trader (via heuristic_pick).
+    weakest_damage = int(getattr(weakest.state, "damage", 0) or 0)
+    assert weakest_damage >= 1, (
+        f"expected weakest to take ≥1 damage from heuristic resolve; "
+        f"damage={weakest_damage}, events emitted={[e.type for e in events_emitted]}"
+    )
+    fin_stack_depth_after = game.state.fin_stack.depth() if getattr(
+        game.state, "fin_stack", None
+    ) is not None else 0
+    assert fin_stack_depth_after == fin_stack_depth_before, (
+        f"fin_stack depth changed on AI resolve: "
+        f"{fin_stack_depth_before} → {fin_stack_depth_after}"
+    )
+    print(f"[PASS] DA Crossing Network Pilot AI path resolves to "
+          f"heuristic (weakest_damage={weakest_damage})")
+
+
+# ===========================================================================
 # Test runner
 # ===========================================================================
 
@@ -520,6 +692,10 @@ ALL_TESTS = [
     test_phantom_pool_operator_pumps_on_dp_stage,
     test_floor_captain_caro_etb_pumps_other_traders,
     test_coordinated_block_strategy_loads_as_dark_pool_order,
+    test_crossing_network_pilot_human_path_emits_divide_allocation,
+    test_crossing_network_pilot_heuristic_preserves_min_toughness_pick,
+    test_crossing_network_pilot_no_opp_traders_short_circuits,
+    test_crossing_network_pilot_ai_path_resolves_to_heuristic,
 ]
 
 
