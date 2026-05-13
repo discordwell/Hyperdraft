@@ -27,20 +27,21 @@ def apply_all_mechanics(cards: "dict[str, CardDefinition]") -> None:
     """Called once after ``SCP_CARDS`` is built. Mechanic modules register here.
 
     Order matters for text composition: reveal-identity sets baseline rules
-    text first, then test_dividends and contained_auras append their clauses.
-    Personnel synergy edits a disjoint family (personnel cards only) so its
-    order is independent.
+    text first, then test_dividends, contained_auras, and szb_bespoke append
+    their clauses. Personnel synergy and quirks edit a disjoint family
+    (personnel cards only); quirks runs after synergy so its text clauses
+    land on top of synergy's aura sentences.
     """
     from .contained_auras import apply_contained_auras
     from .personnel_quirks import apply_personnel_quirks
     from .personnel_synergy import apply_personnel_synergy
     from .reveal_identity import apply_reveal_identity
+    from .szb_bespoke import apply_szb_bespoke
     from .test_dividends import apply_test_dividends
 
     apply_reveal_identity(cards)
     apply_test_dividends(cards)
     apply_contained_auras(cards)
+    apply_szb_bespoke(cards)
     apply_personnel_synergy(cards)
-    # personnel_quirks runs AFTER personnel_synergy so its text-append clauses
-    # land on top of synergy's aura sentences (Janitor / Memory Triage share).
     apply_personnel_quirks(cards)
