@@ -200,3 +200,79 @@ Cross-team mirror: iter 2 Dimir hit the SAME structural starvation with Lazlet (
 2. (NEW) **Pro Research consumes the Supporter slot — plan one turn ahead**. If you panic-PR to dig for Aurelet, you CANNOT also play Boss's Orders that turn. The kill line is delayed by one turn at best.
 3. (NEW) **Lazav ex on Active is a 5+ turn problem**. Don't try to KO it head-on. Use Battalion Mark + bench-snipe to race the prize game OR Boss's Orders to grab benched 1-prize Pokemon. Boss's Orders is the surgical answer (iter 1 finding confirmed).
 4. (NEW) **Aurelia ex draws are precious — protect the line from Pro Research**. If Aurelia ex is in hand and you don't have a way to evolve this turn, DO NOT play Pro Research (it'll pitch the win condition). Hold for Super Rod recovery.
+
+### v2-iter1 (2026-05-13) — **WON** (31 turns, prize race 6-0 via Gideon+Feather kill chain)
+
+**Outcome**: Boros took all 6 prizes. KO'd Lazav ex on T29 for +2 prizes (the supposedly un-KO-able 280 HP wall) and final Lazlet KO on T31. Final: Boros prizes=0, opp prizes_remaining=4.
+
+**MAJOR FINDING — Aurelia ex is OPTIONAL not REQUIRED**:
+- **Drew 0/2 Aurelia ex in 31 turns and still won**. Win condition was Aurelin (90 HP / 60 dmg with bench bonus) + Feather, the Redeemed (120 HP / 80 dmg + Trainer recursion) + Gideon Blackblade (20 dmg + 20 heal Supporter, every turn). Boros Cluestone tutored R+F at T15 to enable the Feather attack.
+- **Implication**: the deck is more resilient than the prior plan implied. Stage 2 Aurelia ex is upside, NOT a requirement. Update decision logic: don't bottleneck the entire game on drawing/evolving Aurelia ex; treat Aurelin and Feather Redeemed as legitimate co-equal apex attackers.
+
+**MAJOR FINDING — Gideon+Feather kill chain confirmed vs Lazav ex**:
+- **Gideon Blackblade does NOT end turn** (RETRACTING iter 3's claim — iter 2 was right). Confirmed via T19 and T29 plays this game; both turns continued with Feather attack after Gideon resolved.
+- **Kill chain math**: Gideon 20 + Feather Redeemed Recursion 80 = **100 dmg/turn cumulative**. Lazav ex 280 HP + 1 Potion 30 = 310 dmg threshold. Cleared in 4 turns (T25/27/29 plus chip on T19). KO'd Lazav ex T29 for +2 prizes despite Dimir's Veiled Whisper through-hit on T28 (Feather 120→40 then heal→60 via Gideon).
+- **Strategic update**: vs Dimir Lazav ex Active, the kill line is **Gideon every turn + Feather every turn**. Don't surrender to the 280 HP wall. Iter 3's pessimism on this matchup was wrong.
+
+**What worked (CONFIRMED workhorses)**:
+- **Pro Research panic at T9** saved the game (bricked 8 turns on energy, dug 7 cards including 5 energy). Iter 2 finding holds.
+- **Aurelet 4→6 deck fix WORKED** (drew 3 Aurelet vs iter 1's 0). Aurelin chain viable. Confirmed — keep at 6.
+- **Boros Cluestone T15** — tutored 1 R + 1 F when energy was thin in mid-game. Confirmed strong tempo card.
+- **Sunhome Stadium NEVER played** (3-of-3) — mutual heal avoided correctly.
+- **Ultra Ball NEVER played** (3-of-3) — too costly to discard energy.
+
+**What didn't**:
+- **Aurelia ex 0/2 drawn** — variance, but the win still came (see above). Don't roll back the 2-copy count; it's fine as upside.
+- **Nest Ball mis-targeted Reckoner over Aurelet** (T9) — heuristic bug, encoder-fix pending.
+- **Engine bug T23**: Fire attach to Reckoner Bench 2 ended turn unexpectedly. Possible same-turn double-attach bug. Worth investigating.
+
+**Updated decision priorities (delta from iter 3)**:
+1. (NEW) **Gideon Blackblade is an EVERY-TURN play**, not a finisher. 20 dmg + 20 heal is free value alongside an attack. Play it whenever a Supporter slot is open.
+2. (NEW) **Don't bottleneck on Aurelia ex**. Aurelin (90 HP / 60 dmg) + Feather, the Redeemed (120 HP / 80 dmg) are legitimate apex attackers. Win the prize race with what's drawn, not what's hoped for.
+3. (NEW) **Lazav ex 280 HP IS KO-able**. Stack Gideon+Feather for 100 dmg/turn cumulative; clears in 4 turns even with one Potion. Don't surrender to the wall.
+
+### v2-iter2 (2026-05-13) — **LOST** (17 turns, prize race 0-6 — Boros took 0 prizes)
+
+**Outcome**: Boros took 0 prizes; Dimir took 6 by T17 via Veiled Whisper + Shadowstrike chain. Series: **1-1**.
+
+**Decisive variance event — energy starvation**: drew Boros Blend Energy on T2 (worked, Aurelet attacked T2 for 20). After that: Cluestone tutored ×2 (both Fighting-heavy), Boros Blend ×2 played but second only delivered 1/2 energy because Fighting depleted in deck. Pro Research T8 drew 7 cards with **0 energy** in the result. **Net**: T8→T17 had ZERO energy attach options for 5+ turns despite playing 2 Cluestones, 1 Blend, Pro Research, Nest Ball, Ultra Ball searches. Feather Redeemed evolved T10 and **never attacked** (no R+C energy).
+
+**Root cause — Fighting Energy ratio is too thin**:
+- Deck ships **8 Fire / 5 Fighting**.
+- Pokemon needing R: Aurelet (R+R+R), Aurelin (R+C), Feather Redeemed (R+C), Reckoner (R+C).
+- Pokemon needing F: Aurelia ex (R+R+F+F), Reckoner (R+C uses optionally).
+- **3 Pokemon** compete for Fire reliably; **only Aurelia ex needs Fighting** (and she's a 2-of, often discarded by Pro Research).
+- Cluestone tutors 1 R + 1 F per play — net positive on the rarer Fighting, but hurts Fire density.
+- **Recommended deck-list fix**: bump Fire Energy to 9-10 OR drop Fighting to 4. The current ratio plus Cluestone double-tutoring optimal-types front-loads the fix; the deck still needs a Fire density floor.
+
+**Refined finding — Aurelia-ex-optional is CONDITIONAL**:
+- v2-iter1 said "Pilot B won 0/2 Aurelia ex drawn → Aurelia is optional" because Feather + Gideon was online.
+- v2-iter2 says: when Feather can't be powered (energy starvation), Aurelia ex is the ONLY remaining apex. Without either Feather (R+C-online) OR Aurelia ex (R+R+F+F-online), the deck has no reliable 80+ damage attack. **Update**: don't pitch Aurelia ex from Pro Research if Feather Redeemed isn't already on the field with energy. She's the backup apex for energy-bricked games.
+
+**NEW engine bugs (CRITICAL)**:
+- **Switch consumed but did NOT swap Active↔Bench** (T4): hand -1, discard +1, but Aurelet stayed Active. Pilot fell back to Retreat (worked correctly). Engine fix needed before Switch is a viable play.
+- **Potion consumed but did NOT heal damage counters** (T6): hand -1, discard +1, but Aurelet's 4 damage counters stayed. Possible disambiguation (no target chosen?). Engine fix needed.
+- Both bugs are deferred at the encoder level: Switch and Potion are heavily down-weighted (-100 baseline) until the engine fixes land.
+
+**Confirmed — Dimir is now a stronger opponent post-encoder-fixes**:
+- Dimir KO'd my Feathlet at T5 (vs v2-iter1 where Dimir spent T2-T9 setting up).
+- Dimir KO'd Aurelin in a SINGLE hit at T9.
+- 4 Dimir KOs in 8 turns vs v2-iter1's 1 KO in 18 turns. The bench-stacking guard + bare-promotion penalty have made Dimir more efficient. **Dimir is no longer the slow-setup opponent of v1.**
+
+**What worked (despite the loss)**:
+- **Boros Blend Energy T2** — confirmed iter 2 finding: free R+F attach for Tiny Smite T2. Best tempo card in deck. Played T2 every game it's drawn.
+- **Aurelet 4→6 deck fix** — drew 5+ Aurelets across the game. Bench refills happened consistently. **Keep Aurelet at 6.**
+- **Sunhome NEVER played** (4-of-4) — heuristic correctly defers it vs Dimir's tank.
+- **Gideon Blackblade 20 dmg** — T10 Gideon hit Lazav for 20 (Lazav 230→210). Confirmed v2-iter1: Gideon does NOT end turn (game continued through Sunhome / Ultra Ball / End Turn after Gideon).
+
+**What didn't (mostly energy-bottleneck)**:
+- **Feather Redeemed never attacked** — drew it twice, evolved T10, but had 0 energy attach options after T8. The Gideon+Feather kill combo theoretically works but is **energy-fragile**.
+- **Boss's Orders never used** — discarded via Ultra Ball T12 because no energy to attack with.
+- **Aurelia ex never used** — drew T1, sat in hand, eventually pitched to Pro Research T8.
+
+**Updated decision priorities (delta from v2-iter1)**:
+1. (NEW) **Boros Blend Energy is a T1-T2 priority**, not optional. Free R+F to Active = 1-turn ramp. Play immediately when drawn early.
+2. (NEW) **Boros Cluestone is the energy-density linchpin** — without it, Fighting drops out of deck mid-game. Play whenever drawn. (Bias 1.3→1.5 in v2-iter2 encoder.)
+3. (NEW) **Don't pitch Aurelia ex from Pro Research** if Feather Redeemed isn't already powered on the field. She's the energy-bricked-game backup apex.
+4. (NEW) **Don't play Switch or Potion** — both are confirmed broken in v2-iter2 (engine Bug 6, 7). Down-weighted at the encoder level. Will re-enable when engine fixes land.
+5. (NEW) **Feathlet Halo Bash for 30 is a fine T3-T4 attacker** when no Aurelin is in hand — don't sit on bench, bench it as a pressure piece. (Bias 1.2 added in v2-iter2 encoder.)

@@ -196,6 +196,20 @@ def legal_pokemon_actions(game, player_id: str) -> list[dict[str, Any]]:
                         ["resource", "setup"],
                     )
 
+        # iter1 fix (pilot A v2-iter1 "Evolve actions lack disambiguation labels"):
+        # with 2 Lazlets on field, 4 identical "Evolve Lazlet into Lazander" labels
+        # appeared. Mirror the energy-attach disambiguation pattern below: suffix
+        # the target name with (Active) / (Bench) / (Bench N) only when the target
+        # name collides across zones.
+        evo_name_counts: dict[str, int] = {}
+        for p in own_pokemon:
+            evo_name_counts[p.name] = evo_name_counts.get(p.name, 0) + 1
+        evo_active_obj = _active_pokemon(game, player_id)
+        evo_active_id = evo_active_obj.id if evo_active_obj else None
+        evo_bench_objs = _bench_pokemon(game, player_id)
+        evo_bench_ids_by_name: dict[str, list[str]] = {}
+        for b in evo_bench_objs:
+            evo_bench_ids_by_name.setdefault(b.name, []).append(b.id)
         for evolution in hand:
             if CardType.POKEMON not in _card_types(evolution) or not evolution.card_def:
                 continue
@@ -204,10 +218,21 @@ def legal_pokemon_actions(game, player_id: str) -> list[dict[str, Any]]:
             for target in own_pokemon:
                 ok, _msg = turn_mgr.can_evolve(target.id, evolution.id)
                 if ok:
+                    label = f"Evolve {target.name} into {evolution.name}"
+                    if evo_name_counts.get(target.name, 0) > 1:
+                        if target.id == evo_active_id:
+                            label += " (Active)"
+                        else:
+                            same_name_bench = evo_bench_ids_by_name.get(target.name, [])
+                            if len(same_name_bench) > 1:
+                                idx = same_name_bench.index(target.id) + 1
+                                label += f" (Bench {idx})"
+                            else:
+                                label += " (Bench)"
                     add(
                         "PKM_EVOLVE",
                         {"card_id": evolution.id, "target_id": target.id},
-                        f"Evolve {target.name} into {evolution.name}",
+                        label,
                         ["tempo", "value"],
                     )
 

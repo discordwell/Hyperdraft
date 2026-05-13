@@ -175,3 +175,61 @@ piece OR ≥1 energy fixer". Dimir Blend Energy in opener is a hard keep.
 1. (NEW) **Default Lazav ex attack: Veiled Whisper, not Shadowstrike**. Build 2 energy ({P}{D}) and KO 80-HP threats; only build to 4 energy for Aurelia ex KO or mill-out finish.
 2. (NEW) **Tox-Pawpsule on opp blocker** when opp lacks Switch — chip damage while you press tempo elsewhere.
 3. (NEW) **Retreat-and-promote pattern**: when chipped Active is about to die and a Stage 2 ex is bench-ready with energy, retreat (pay the cost) to swap a sub-50% HP Active for a fresh 280 HP wall. Worth the energy cost.
+
+### v2-iter1 (2026-05-13) — **LOST** (31 turns, prize race 0-6 to Boros)
+
+**Outcome**: Boros took all 6 prizes; Dimir got 2 (Aurelet T4, Feather Redeemed T28). Loss dominated by pilot-coordination race condition (pilot-A executed only 13/51 Dimir actions; pilot-B-fallback played the rest), so strategy validation is partial.
+
+**Decisive variance event**: race condition fixed direction. Where the doc says "promote Lazav ex carefully", pilot-B-fallback promoted Lazav ex BARE (0 energy) on T22 because the legal_actions packet had the option. Three turns of attach-only followed before Lazav could fire — by then Boros's Gideon+Feather chain had already chipped Lazav 280→60.
+
+**MAJOR retraction (cross-checked with Pilot B)**:
+- **Iter 3's "Lazav ex un-KO-able with one Potion" was wrong**. Boros's Gideon (20) + Feather Redeemed Recursion (80) stacks 100 dmg/turn cumulatively. KOs 280 HP Lazav ex in 3.5 turns even with one Potion heal. **Update strategy doc**: Lazav ex is NOT an automatic 280-HP wall vs Boros — when Gideon+Feather is online, Dimir needs to either (a) prevent Feather Redeemed from evolving, (b) use Voidmage Energy Drain to disrupt Boros's Fire attachments, or (c) win the prize race elsewhere (Veiled Whisper KOs on Boros bench). Don't trust the wall.
+
+**What worked**:
+- Lazlet 4→6 deck fix WORKED (drew 3 Lazlet vs iter 2's 0). Lazav line was reliably available.
+- T2 Disguise Drip + Dimir Blend Energy execution went per plan.
+- T28 Veiled Whisper KO'd Feather Redeemed (40 HP from chip) — only Dimir KO of the second half.
+
+**What didn't (mostly mis-execution from race condition)**:
+- **Lazav ex promoted bare** on T22 (no energy) — required 3 turns of attach-only before fire. By then chip damage had pre-broken the wall.
+- **Bench-Lazander pileup** — heuristic kept evolving Lazlet → Lazander on bench (3 Lazanders simultaneously) without promoting any. Energy attached to bench Lazander was wasted unless promoted. **New rule**: don't evolve a 2nd Lazander on bench while Active is non-Lazander.
+- **Voidmage Apprentice Energy Drain never fired** — Voidmage benched but never had P attached for the disrupt attack. Vs Boros's Gideon+Feather Fire reliance, Energy Drain would have been disruptive.
+- **Mirko Vosk never evolved** (Mirklet lingered on bench). Plan B (Lost Recall) never activated.
+
+**Updated decision priorities (delta from iter 3)**:
+1. (NEW) **Don't promote Lazav ex BARE**. Strategic rule: don't promote unless Lazav ex has ≥2 energy attached AND a kill target ≤80 HP within reach. Bare Lazav ex burns 3 turns of attach-only before relevant.
+2. (NEW) **Don't pile up Lazanders on bench**. Don't evolve a 2nd Lazander while the 1st isn't promoted. Energy attached to bench Lazander is wasted; redirect to next-priority attacker (Voidmage P attach for Energy Drain).
+3. (NEW) **Voidmage Energy Drain is the Boros disruption answer**. With Boros leaning on Fire-attaching to Feather Redeemed every turn, dropping a P on benched Voidmage and draining Boros's Active energy slows the 100-dmg/turn combo by ~1 turn each cycle.
+4. (NEW) **Lazav ex 280 HP is NOT a Boros-proof wall**. When Boros has Gideon+Feather online, plan a parallel pressure path (Veiled Whisper bench-snipes via Boss's Orders if available, Tox-Pawpsule chip on opp Active). Do NOT assume Lazav ex sits on Active forever.
+
+### v2-iter2 (2026-05-13) — **WON** (17 turns, prize race 6-0 via Veiled Whisper chain + Shadowstrike finisher)
+
+**Outcome**: Dimir took all 6 prizes. KO order: T5 Feathlet (Veiled Whisper), T7 Aurelet (Veiled Whisper), T9 Aurelin (Veiled Whisper + Tox-Pawpsule poison tick = 90), T13 Feather Redeemed (Shadowstrike 200 + mill 4), T15 Aurelet 10HP (Veiled Whisper), T17 Aurelet 60HP (Veiled Whisper — game).
+
+**Series state**: **1-1** going into v2-iter3.
+
+**Key plays validating v2-iter1 priorities**:
+- **T5 Lazav ex same-turn evolve via Lazander energy inheritance**: Lazander had 3P from earlier attaches + 1D from Dimir Blend (free). Ultra-Ball-fetched Lazav ex from deck → evolved Lazander → Lazav ex inherited 3P+1D → Veiled Whisper online same turn for KO of Feathlet. **Best-case Stage 2 ex deploy turn = T5** when energy is on Lazander pre-evolve. Add to plan: **prefer Ultra Ball when Lazander is on field with ≥2 energy AND Lazav ex is in deck** — same-turn evolve gives a free tempo turn.
+- **T11 single-Lazlet bench (followed v2-iter1 priority 4)**: had 2 Lazlet in hand, benched only 1. Bench-stacking guard demonstrated by pilot.
+- **Voidmage proactive bench T9 (followed priority 2)**: Voidmage came up via Pro Research → benched immediately as Boros answer. Never fired (Boros's Active energy too low to be worth disrupting), but the proactive bench prevented bench-empty exposure.
+
+**What worked (carryover)**:
+- Pro Research T9 was the inflection turn (drew Voidmage + 2 Lazlet + Tox-Pawpsule + Nest Ball — full board rebuild from a dead hand).
+- Tox-Pawpsule + chip math: T9 Aurelin (90 HP) KO'd by Veiled Whisper 80 + 1 poison counter = exactly 90. **Single poison tick mattered** — Tox-Pawpsule's 1-counter scaling is decisive in tight HP windows.
+- Shadowstrike used CORRECTLY this game (1× on T13 to 1-shot Feather Redeemed at 120 HP — fits the v2-iter1 rule "only commit Shadowstrike for actually-1-shotable Stage 2 ex's or 120+ HP non-ex").
+
+**What didn't (mostly engine bugs)**:
+- **Shadowstrike apply silently no-op'd on first try** (T13). Had to retry — second apply with same action_id worked. Engine bug; pilot lost ~30sec but no game impact.
+- **Mill events mislabeled `PKM_DISCARD_ENERGY`** for Shadowstrike's mill-4. Pilot initially thought Lazav was discarding energy as cost. Cosmetic but confusing — engine fix needed.
+- **Boros healed Feather Redeemed 40→120 between T11 and T13**. Pilot didn't have a clear action log to confirm cause. Possible Sanguine Sacrament (60) + Potion (30) chain — except v2-iter2 ALSO confirmed **Potion is broken** (consumed but no heal). So this heal source is genuinely unclear; likely engine bug.
+- **Packet perspective glitch on opp turn**: Lazav showed 0 energies in Boros's packet view (still my Pokemon). Reverted to true 5-energy state on next Dimir-perspective packet. Cosmetic.
+
+**Untested this game (no opportunity)**:
+- Bare-promotion penalty: Lazav ex never went on bench, so promote-bare path didn't arise.
+- Bench-stacking guard at heuristic level: pilot was hands-on the whole game; heuristic AI didn't get to make redundancy decisions.
+
+**Updated decision priorities (delta from v2-iter1)**:
+1. (NEW) **Ultra Ball + Stage-2-on-loaded-Stage-1 = same-turn ex deploy**: when a Lazander has ≥2 energy attached AND Lazav ex is in deck, Ultra Ball into Lazav ex + same-turn evolve = full energy carryover, attack-ready immediately. Best-case Stage 2 ex deploy turn = T5.
+2. (NEW) **Veiled Whisper > Shadowstrike default re-confirmed**: 4-of-5 KOs this game were Veiled Whisper (2-energy 80 dmg). Shadowstrike only fires when target is 120+ HP non-ex AND can't be 2-shot by Veiled Whisper. Fits the v2-iter1 rule, expanded.
+3. (NEW) **Pro Research T9-T10 inflection**: when starting hand goes dead (only Rare Candy + dead trainers, no Lazlet/Mirklet to advance), Pro Research is the panic refresh. Dimir's Plan B (Pro Research → rebuild) actually works here — drew exactly what was needed in iter2.
+4. (NEW) **Tox-Pawpsule 1-counter scaling decisive**: when opp Active HP equals (Veiled Whisper 80 + 10), playing Tox-Pawpsule converts a survive into a KO. Look for this exact-90-HP edge case.

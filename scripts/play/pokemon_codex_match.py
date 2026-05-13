@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import os
 import random
 import sys
 from dataclasses import dataclass, field
@@ -116,8 +117,23 @@ async def initialize_referee(
 
 
 def _save_state(referee: CodexPokemonRefereeState, path: Path) -> None:
+    """Atomic write — fixes the v2-iter3 race condition where parallel pilots
+    truncated the pickle to 0 bytes. Write to a tempfile alongside the
+    target, then ``os.replace`` (POSIX atomic rename within same dir)."""
+    import tempfile
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(_pickle.dumps(referee))
+    data = _pickle.dumps(referee)
+    fd, tmp_path = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, 'wb') as f:
+            f.write(data)
+        os.replace(tmp_path, str(path))
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def _load_state(path: Path) -> CodexPokemonRefereeState:
@@ -453,7 +469,8 @@ async def _main_async(args: argparse.Namespace) -> None:
     if args.command == "packet":
         referee = _load_state(Path(args.state))
         packet = current_packet(referee)
-        _save_state(referee, Path(args.state))
+        # packet is read-only; v2-iter3 race condition was partly caused by
+        # this being a no-op write that still raced apply's write window.
         print(json.dumps(packet, indent=2))
         return
     if args.command == "apply":

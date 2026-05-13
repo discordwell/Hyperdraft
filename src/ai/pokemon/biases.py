@@ -156,6 +156,12 @@ POKEMON_BIAS_PRESETS: dict[str, dict] = {
             # iter 2: Mirklet Tiny Bite is the Plan-C chip attack when
             # both Stage 2 lines are stalled. 1-cost backup pressure.
             ('Mirklet', 'Tiny Bite'): 1.2,
+            # v2-iter1: Voidmage Energy Drain is the Boros disruption
+            # answer — vs the Gideon+Feather 100-dmg/turn combo, draining
+            # Boros's Active Fire energy slows the kill chain ~1 turn per
+            # cycle. Pilot A's Voidmage benched but never fired (no P
+            # attached). 1.3× nudges the heuristic to attach P + attack.
+            ('Voidmage Apprentice', 'Energy Drain'): 1.3,
         },
         evolution_multipliers={
             'Mirko Vosk, Mind Drinker': 2.0,
@@ -180,7 +186,17 @@ POKEMON_BIAS_PRESETS: dict[str, dict] = {
             ('Aurelia, the Warleader ex', 'Battalion Mark'): 2.0,
             # iter 1: Feather, the Redeemed is a confirmed secondary
             # win condition (120 HP, R+C 80 + Trainer recursion).
-            ('Feather, the Redeemed', 'Redeemed Recursion'): 1.4,
+            # v2-iter1: Bumped 1.4 → 1.6 — Feather Redeemed Recursion took
+            # 3 KOs this game (Lazander, Lazav ex, Lazlet) and was the
+            # primary kill engine alongside Gideon. Pilot B won with 0/2
+            # Aurelia ex drawn — Feather is a legitimate co-equal apex.
+            ('Feather, the Redeemed', 'Redeemed Recursion'): 1.6,
+            # v2-iter2: Feathlet Halo Bash 30 dmg is fine early-game
+            # pressure when no Aurelin is in hand. Pilot B's iter 2
+            # T4 Halo Bash for 30 → Lazander 70→40 was the only second
+            # attack of the entire game. Encourages bench-the-Feathlet
+            # + attack rather than holding for the evolve. 1.2 cap.
+            ('Feathlet', 'Halo Bash'): 1.2,
         },
         evolution_multipliers={
             'Aurelia, the Warleader ex': 1.8,
@@ -198,6 +214,24 @@ POKEMON_BIAS_PRESETS: dict[str, dict] = {
             # bump further (over-tuning risks Boss's Orders being played
             # when no high-value bench target exists).
             "Boss's Orders": 1.6,
+            # v2-iter2: Boros Cluestone bumped 1.3 → 1.5. Energy
+            # starvation cost the game — Cluestone is the only
+            # repeatable typed-energy tutor in the deck. Cap at 1.5
+            # (don't push past 2.0 — Cluestone splits the deck's
+            # energy density when over-played).
+            'Boros Cluestone': 1.5,
+            # v2-iter2 ENGINE BUG GUARD: Switch is broken (consumed
+            # but does not actually swap Active↔Bench). Heavy down-
+            # weight at the bias level until Bug 6 fixed. Encoder
+            # also returns -100 in TRAINER_SCORERS for belt-and-
+            # suspenders. TODO: re-enable when engine Bug 6 lands.
+            'Switch': 0.3,
+            # v2-iter2 ENGINE BUG GUARD: Potion is broken (consumed
+            # but does not heal damage counters). Heavy down-weight
+            # at the bias level until Bug 7 fixed. Encoder also
+            # returns -100 in TRAINER_SCORERS. TODO: re-enable when
+            # engine Bug 7 lands.
+            'Potion': 0.4,
             # iter 1: Sunhome heals BOTH actives. Against a tank that
             # we can't KO, the mutual heal favors opp. Down-weight.
             'Sunhome, Fortress of the Legion': 0.7,
@@ -208,12 +242,21 @@ POKEMON_BIAS_PRESETS: dict[str, dict] = {
             # iter 2: Boros Blend Energy + retreat is a 1-turn ramp
             # combo (saved game T18 — wrong-typed Active swapped for
             # fresh Basic, Blend gives R+F immediately).
+            # v2-iter2: Boros Blend is the ONLY direct-attach-to-Active
+            # in the deck; without it, T2 Active has 1 manual attach max.
+            # Pilot B's energy-starvation loss (Fighting depleted by T8)
+            # would have been worse without the T2 Blend. Keep at 1.4.
             'Boros Blend Energy': 1.4,
             # iter 2: Gideon Blackblade is a confirmed kill-spell
             # finisher (Supporter, 20 dmg + 20 heal, doesn't end
             # turn). Won iter 2 by KO'ing opp's lone Mirklet at 10 HP
             # → empty bench → no_pokemon. Save for opp Active ≤ 20 HP.
-            'Gideon Blackblade': 1.8,
+            # v2-iter1: RETRACTING iter 3's "ends turn" claim — Pilot B
+            # confirmed via 2 plays (T19, T29) that Gideon does NOT end
+            # turn. It's a free 20+heal stapled to attack EVERY turn.
+            # Bumped 1.8 → 2.0 (cap) so the heuristic plays it whenever
+            # the Supporter slot is open, not just as a finisher.
+            'Gideon Blackblade': 2.0,
         },
     ),
 

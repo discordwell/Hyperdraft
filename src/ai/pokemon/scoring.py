@@ -209,6 +209,26 @@ def _score_attacker(adapter, pokemon: 'GameObject', state: GameState,
         if remaining <= max_hp * 0.3:
             score -= 10.0  # About to give up 2 prizes
 
+    # iter1 fix (pilot A v2-iter1 "Lazav ex promoted bare with 0 energy"): when
+    # scoring a *bench* Pokemon as a promotion / retreat-replacement candidate,
+    # penalize bare ex/expensive attackers heavily. Promoting Lazav ex with 0
+    # energy cost ~3 turns of attach-only before it could attack. Guard: pokemon
+    # is benched, has 0 attached energy, and its cheapest attack needs >=2.
+    active_id_check = adapter._get_active(state, player_id)
+    if active_id_check and pokemon.id != active_id_check:
+        attached = len(pokemon.state.attached_energy or [])
+        if attached == 0 and pokemon.card_def.attacks:
+            cheapest = min(
+                (sum(c.get('count', 0) for c in (atk.get('cost', []) or []))
+                 for atk in (pokemon.card_def.attacks or [])
+                 if atk.get('cost')),
+                default=0,
+            )
+            if cheapest >= 2:
+                score -= 35.0
+                if pokemon.card_def.is_ex:
+                    score -= 15.0  # ex bare-promote loses 2 prizes if KO'd dry
+
     return score
 
 
@@ -507,6 +527,23 @@ def _score_evolution(adapter, base: 'GameObject', evolution: 'GameObject',
                 if opp.card_def.weakness_type == evolution.card_def.pokemon_type:
                     score += 15.0  # We hit weakness
 
+    # iter1 fix (pilot A v2-iter1 "3 Lazanders piled up on bench"): if a copy of
+    # this evolution name is already in play (Active or bench), penalize stacking
+    # another one. Energy attached to a 2nd/3rd bench Lazander is wasted unless
+    # the 1st gets promoted — and the heuristic typically doesn't promote bench
+    # evolutions on its own. -25 per existing copy keeps the first evolve viable
+    # but suppresses redundant bench-pileups.
+    evo_name = evolution.card_def.name if evolution.card_def else ''
+    if evo_name:
+        in_play_same_name = 0
+        for pkm_id in adapter._get_all_in_play(state, player_id):
+            other = state.objects.get(pkm_id)
+            if other and other.id != base.id and other.card_def \
+                    and other.card_def.name == evo_name:
+                in_play_same_name += 1
+        if in_play_same_name >= 1:
+            score -= 25.0 * in_play_same_name
+
     # Card-name-aware evolution bias. Additive — runs after the generic
     # evolution logic. EVOLUTION_SCORERS key = evolution card name.
     name = evolution.card_def.name if evolution.card_def else ''
@@ -725,6 +762,29 @@ def _score_energy_attachment(adapter, energy: 'GameObject', pokemon: 'GameObject
     # Slightly penalize benched Pokemon that have plenty of energy already
     if active_id and pokemon.id != active_id and total_current >= 3:
         score -= 5.0
+
+    # v2-iter2 ENCODER FIX (Pilot B Boros energy bottleneck): if the energy
+    # being attached is a multi-type "Blend Energy" Energy card AND the
+    # target Pokemon needs 2+ distinct typed colors, prioritize this attach
+    # +20. (Currently all BRV "Blend Energy" cards are TRAINER ITEMS, not
+    # Energy cards — this guard fires only if a future Blend is implemented
+    # as a real Energy card. Companion logic in _adjust_trainer_for_attack_pressure
+    # covers the trainer-item path.)
+    energy_name = energy.card_def.name if energy.card_def else ''
+    if energy_name.endswith('Blend Energy'):
+        # Count distinct typed needs of the target.
+        typed_needs_count = 0
+        for atk in (pokemon.card_def.attacks or []):
+            seen_types: set[str] = set()
+            for req in atk.get('cost', []):
+                etype = req.get('type', 'C')
+                if etype != 'C':
+                    have = current_energy.get(etype, 0)
+                    if req.get('count', 0) > have:
+                        seen_types.add(etype)
+            typed_needs_count = max(typed_needs_count, len(seen_types))
+        if typed_needs_count >= 2:
+            score += 20.0
 
     if settings.get('use_attack_pressure'):
         for attack in (pokemon.card_def.attacks or []):
@@ -947,6 +1007,23 @@ def _adjust_trainer_for_attack_pressure(adapter, card: 'GameObject',
     if active_gap <= 1 and active_gap > 0:
         if 'energy' in text and ('attach' in text or 'hand' in text):
             score += 14.0
+
+    # v2-iter2 ENCODER FIX (Pilot B Boros energy bottleneck): Blend Energy
+    # items search-and-attach TWO different colors directly to Active. When
+    # the Active needs both colors of the Blend (e.g. Aurelin needs R+C and
+    # could use F too via Aurelia ex evolution), prioritize the Blend
+    # ABOVE manual attach of either single color. Boros Blend covers R+F;
+    # Dimir Blend covers P+D; etc. The Active's typed_needs dict tells us
+    # which colors are still required. If the Active has 2+ distinct
+    # non-Colorless types still needed, a Blend item that delivers both is
+    # strictly better than picking one and leaving the other dry. +20.
+    is_blend_item = name.endswith('Blend Energy') and 'attach' in text
+    if is_blend_item and ctx.my_active:
+        active_typed_needs = ctx.energy_needs.get(ctx.my_active, {}).get(
+            'typed_needs', {})
+        # 2+ distinct typed colors still needed = Blend is dual-cover gold.
+        if len(active_typed_needs) >= 2:
+            score += 20.0
 
     if ctx.opp_active and ctx.my_active:
         opp = state.objects.get(ctx.opp_active)

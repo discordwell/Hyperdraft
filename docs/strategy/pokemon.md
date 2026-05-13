@@ -399,3 +399,85 @@ Is Boros bench swarm structurally weaker than Dimir LZ, or are 3 games not enoug
 - **Deck construction**: bump Aurelet 4→5/6 in `make_boros_deck` and Lazlet 4→5/6 in `make_dimir_deck` (`src/cards/pokemon/beyond/ravnica/`). The variance source is the deck-list, not the AI.
 - **Engine fixes (5 bugs)**: Rare Candy gate, duplicate-name disambiguation, Pro Research DRAW resolution, Ultra Ball search-failure feedback, Gideon Blackblade turn-end clarification.
 - **Heuristic encoder pass**: Nest Ball evolution-line awareness, Ultra Ball Basic-priority when bench=0, Aurelia ex attack-mode selection by bench count.
+
+### 2026-05-13 — v2-iter1 (single mode v2): Boros bench-swarm vs Dimir LZ — Boros WON 6-0 in 31 turns
+
+**Matchup summary**: Boros (Pilot B) took all 6 prizes via Lazav ex KO on T29 (+2 prizes via ex) and final Lazlet KO on T31. Game-defining sequence: confirmed the Gideon Blackblade + Feather Redeemed Recursion 100-dmg/turn combo melts Lazav ex's 280 HP in 4 turns even with one Potion heal.
+
+**RETRACTION 1 — Iter 3 was WRONG: Gideon Blackblade does NOT end turn**:
+
+- **Iter 2 was right; iter 3 was misread.** Pilot B confirmed via 2 separate plays this game (T19, T29) — both turns continued with attack actions after Gideon resolved (Gideon 20 + heal 20, then Feather Redeemed Recursion 80, then turn ended via End Turn action).
+- **Trace path**: T19 packet sequence was `Gideon Blackblade` → `Redeemed Recursion (Feather)` → `End Turn` → opp turn. T29 same sequence. Iter 3's "next packet was opp's turn" likely missed the intervening attack action in the transcript.
+- **Strategic update**: Gideon is a **free 20-dmg + 20-heal Supporter EVERY turn** it's available, NOT a one-shot finisher. Top-tier Boros tempo card — play alongside an attack on every available turn. Bias preset bumped 1.8 → 2.0.
+
+**RETRACTION 2 — Iter 3 was MISLEADING: Lazav ex 280 HP wall is NOT un-KO-able**:
+
+- **Iter 3 claim**: "Lazav ex un-KO-able with one Potion (Boros lacks Darkness exploiter)."
+- **Reality (this game)**: Boros's Gideon (20) + Feather Redeemed Recursion (80) = **100 damage/turn cumulative**. Lazav ex 280 HP + 1 Potion 30 heal = 310 dmg threshold. Boros exceeds it in **3.5 turns** (4 turn cycles to be safe). Pilot B confirmed in T29 — KO'd Lazav ex 280 HP cleanly in 4 turns of stacked Gideon+Feather even though Dimir got one Veiled Whisper through.
+- **Strategic update**: Boros has a real, repeatable kill line vs Lazav ex. **Don't surrender to Lazav ex** when the Gideon+Feather combo is online. Conversely, Dimir's "tank Active forever" plan needs reinforcement (Sanguine Sacrament, Tox-Pawpsule chip, Niv-Mizzet's Quandary forced switch) — bare Lazav ex with one Potion is NOT enough.
+
+**NEW finding — Aurelia ex is OPTIONAL not REQUIRED for bench-swarm**:
+
+- Pilot B drew **0/2 Aurelia ex** in 31 turns and still WON. The win came from Aurelin (90 HP / 60 dmg with bench bonus) + Feather, the Redeemed (120 HP / 80 dmg + Trainer recursion) + Gideon Blackblade chip-and-heal.
+- Doc previously framed Aurelia ex as the win condition ("T4-T5 Aurelia ex active"). **Update**: the deck's win condition is **any of {Aurelin, Feather Redeemed, Aurelia ex} chained with Gideon+Cluestone**. Stage 2 ex is upside, not a requirement. Deck is more resilient than previously documented.
+- **Implication for bias presets**: do NOT bump Aurelia ex weighting further (already 1.8×, demonstrably unnecessary). Bench_swarm preset should reward the Stage 1 attackers as primary, not the Stage 2 alone.
+
+**NEW engine bug — Evolve action labels lack `(Active)/(Bench N)` disambiguation**:
+
+- Iter 3 fix only patched `Attach` action labels. Evolve actions still show "Evolve Lazlet into Lazander" with no zone marker when 2+ Lazlets are in play. Pilot A reported T20 promotion mistake (bare Lazlet promoted instead of Lazav line) traceable to this. Pilot B reported T3 evolved Bench Aurelet instead of Active Aurelet.
+- **Fix scope**: extend the `Attach` `(Active)/(Bench N)` suffix logic in `src/engine/pokemon_legal_actions.py` (around line 207-212) to `PKM_EVOLVE` action labels.
+
+**NEW coordination issue — pilot-vs-pilot race condition**:
+
+- v2-loop runs two LLM pilots (one per seat). Pilot A reported only **13/51 Dimir-side actions** were executed by pilot-A's code path; the remaining 38 went through pilot-B's (or the default heuristic fallback's) action pipe before pilot-A's packet-fetch finished.
+- Cause: whichever pilot polls + applies first wins each action slot. The race window (~3-5 seconds) is shorter than pilot-A's typical decision latency.
+- **Effect**: pilot-A's strategy doc became functionally unreachable. The mid-game "promote Lazav ex bare" mistake was made by pilot-B-as-Dimir-fallback, not by pilot-A executing the strategy doc.
+- **Fix scope**: parent orchestrator (in `.claude/skills/ultra-loop/`) should serialize per-seat pilot calls or use a per-seat lock. Until fixed, single-mode (one LLM pilot) is the only reliable path; double-mode results are race-poisoned.
+
+**Confirmed findings (3-of-3+ carryover)**:
+- Aurelet 4→6 deck fix WORKED (Pilot B drew 3 Aurelet vs iter 1's 0).
+- Lazlet 4→6 deck fix WORKED (Pilot A drew 3 Lazlet vs iter 2's 0).
+- Pro Research panic button (T9 saved Boros).
+- Sunhome Stadium correctly NOT played (3-of-3-of-3).
+- Ultra Ball correctly NOT played (3-of-3-of-3).
+- Nest Ball still mis-targets Reckoner over Aurelet (4-of-4 — encoder fix still pending).
+
+### 2026-05-13 — v2-iter2 (single mode v2): Dimir LZ vs Boros bench-swarm — Dimir WON 6-0 in 17 turns
+
+**Series state**: **1-1** after iter 2 (v2-iter1 Boros won 31T; v2-iter2 Dimir won 17T).
+
+**Matchup summary**: Dimir Pilot A executed cleanly — no pilot-coordination collision this game. Lazav ex assembled by T5 via Lazlet → Lazander → Ultra-Ball-fetch Lazav ex on Lazander (energy inheritance kept the Stage 2 active-ready). Veiled Whisper KO chain handled 4 of 6 prizes; Shadowstrike 1-shot Feather Redeemed for the final Stage 1 KO. Boros bricked on Fighting energy delivery — Feather Redeemed evolved T10 with 0 energy and never attacked.
+
+**Verified — v2-iter1 encoder fixes WORKING**:
+- **Bench-stacking guard** (-25 per existing copy in `_score_evolution`): Dimir avoided piling Lazanders on bench (only 1 Lazander promoted, others held as Lazlets in hand).
+- **Bare-promotion penalty** (-35 / -50 ex in `_score_attacker`): Dimir never promoted Lazav ex bare; the only Lazav ex promotion was the T5 same-turn evolve from a Lazander already carrying 3P+1D.
+- **Evolve-action disambiguation**: no T20-style mis-promote reported this game.
+- **Net effect**: Dimir played more efficiently than v2-iter1 (4 KOs in 8 turns vs v2-iter1's 1 KO in 18 turns). Pilot B explicitly flagged Dimir as a stronger opponent post-fixes.
+
+**Refined finding — Aurelia-ex-optional is CONDITIONAL**:
+- v2-iter1 said "Pilot B won 0/2 Aurelia ex drawn → Aurelia is optional".
+- v2-iter2 says: that finding only holds when Feather + Gideon kill combo can fire. When Boros energy-bricks (couldn't keep Fighting in deck for Aurelin/Feather), the deck has **no apex attacker at all**. Aurelia ex is the backup apex when Feather Redeemed can't be powered. Update: Aurelia ex is **optional iff the Feather+Gideon combo is online** — otherwise it's the backup win condition.
+
+**Boros energy bottleneck (NEW)**:
+- Cluestone tutored Fighting twice (4 of 5 Fighting basics consumed); Boros Blend delivered only 1/2 energy at T8 because Fighting was depleted in deck. Aurelet/Aurelin/Feather all need R+C; Aurelia ex's Bombardment needs Fighting; Reckoner needs Fighting. With 5 Fighting in deck and 3 Pokemon needing it, the ratio is too thin.
+- **Recommended deck-list fix**: bump Fire copies in `make_boros_deck` (currently 8 Fire / 5 Fighting). Either bring Fire to 10 or Fighting up to 7 — three R-needing Pokemon (Aurelet, Aurelin, Feather) all compete for a small Fire pool while Cluestone splits the deck's energy further. Coach scope flags; deck author owns the change.
+
+**NEW engine bugs**:
+1. **Switch consumed but did NOT swap Active↔Bench** (T4 Boros): hand -1, discard +1, but Aurelet stayed Active. Pilot fell back to Retreat. Reproducible.
+2. **Potion consumed but did NOT heal** (T6 Boros): hand -1, discard +1, but Aurelet's 4 damage counters stayed. Possible disambiguation (no target chosen?).
+3. **Mill events emit `PKM_DISCARD_ENERGY` instead of `PKM_DISCARD_DECK_CARD` / `PKM_MILL`** (T13 Dimir Shadowstrike): mill-4 events were mis-categorized in the action log. Cosmetic but very confusing for pilots reading transcripts.
+4. **Shadowstrike apply silently no-op'd on first try** (T13 Dimir): valid packet_hash + selected_action_id returned but no PKM_KNOCKOUT in events; second apply with same action ID worked. Race condition or stale-state suspect.
+5. **Packet perspective glitch on opp turn**: Dimir's Lazav (still my Pokemon) appeared with 0 energies in the Boros-perspective packet; reverted to true 5-energy state on next Dimir-perspective packet. Cosmetic rendering inconsistency.
+
+**Confirmed findings (carryover)**:
+- Lazav ex 280 HP wall held for 17 turns this game — but ONLY because Boros never assembled the Gideon+Feather combo (energy bricked). v2-iter1's "wall is NOT un-KO-able" stands as a principle (when combo fires); this game it sat unchallenged.
+- Aurelet 4→6 deck fix WORKED (Boros drew 5+ Aurelets across the game).
+- Lazlet 4→6 deck fix WORKED (Dimir drew Lazlet and built Lazav line by T5).
+- Sunhome NEVER played by Boros (4-of-4 — guidance held).
+- Tox-Pawpsule KO chain: T9 Aurelin (90 HP) was KO'd by Veiled Whisper 80 + 1 poison counter = exactly 90. Single tick mattered.
+
+**Engine bugs queued for next fix pass** (not coach scope):
+- Switch / Potion item application bugs (Bug 6, 7).
+- Mill event-name mis-categorization (Bug 8).
+- Shadowstrike race / stale-state (Bug 9).
+- Packet perspective rendering (Bug 10).
