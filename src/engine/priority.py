@@ -408,6 +408,93 @@ class PrioritySystem:
                 fallback.append(opt)
         return fallback
 
+    def _emit_cast_target_choice(self, card, action: PlayerAction) -> Optional[list[Event]]:
+        """Emit a PendingChoice for cast-time targets and pause the cast.
+
+        Phase 5b: when a CardDefinition declares ``target_requirements`` and
+        the action didn't pre-supply targets (drag-to-target / AI selection
+        both pre-supply), the engine chains one PendingChoice per requirement
+        and re-enters ``_handle_cast_spell_sync`` with all targets filled in.
+
+        Returns:
+            - ``[]`` cast paused; PendingChoice is set on state. Caller must
+              return this verbatim from the cast handler.
+            - ``None`` no PendingChoice was emitted (no requirements, or a
+              requirement had zero legal targets — caller should return ``[]``
+              itself to abort the cast cleanly, MTG rules: a spell with no
+              legal targets can't be cast).
+        """
+        from .targeting import TargetingSystem
+        reqs = card.card_def.target_requirements
+        if not reqs:
+            return None
+        return self._emit_cast_target_choice_step(
+            card, action, reqs, 0, [], TargetingSystem(self.state)
+        )
+
+    def _emit_cast_target_choice_step(
+        self,
+        card,
+        action: PlayerAction,
+        reqs: list,
+        idx: int,
+        accumulated: list,
+        targeting,
+    ) -> Optional[list[Event]]:
+        """Recursive helper: emit choice for reqs[idx], chain to idx+1 on resolve."""
+        import dataclasses
+        from .pending_choice_helpers import create_choice_and_resolve
+
+        # Base case: all requirements satisfied — re-enter the cast.
+        if idx >= len(reqs):
+            new_action = dataclasses.replace(action, targets=accumulated)
+            return self._handle_cast_spell_sync(new_action)
+
+        req = reqs[idx]
+        legal_ids = targeting.get_legal_targets(req, card, action.player_id)
+        if not legal_ids:
+            # No legal target for this requirement — cast can't proceed.
+            # MTG rules: "if no legal targets, the spell can't be cast".
+            return []
+
+        # Build options for the modal. Players get a display label; objects
+        # use their name.
+        options: list[dict] = []
+        for tid in legal_ids:
+            obj = self.state.objects.get(tid)
+            if obj is not None:
+                label = getattr(obj, "name", None) or tid
+            else:
+                player = self.state.players.get(tid)
+                label = getattr(player, "name", None) or f"Player {tid[:8]}"
+            options.append({"id": tid, "label": label})
+
+        priority_sys = self
+
+        def handler(choice, selected, st):
+            picked = [s.get("id") if isinstance(s, dict) else s for s in selected]
+            return priority_sys._emit_cast_target_choice_step(
+                card, action, reqs, idx + 1, accumulated + [picked], targeting
+            )
+
+        # AI fallback heuristic: pick the first legal target. Better
+        # heuristics live in src/ai/engine.py:_select_targets_for_spell
+        # (which runs before the action is submitted, so this code path
+        # only fires for AIs that submit untargeted casts — rare).
+        max_t = req.max_targets()
+        return create_choice_and_resolve(
+            self.state,
+            choice_type="target",
+            player_id=action.player_id,
+            prompt=req.label or "Choose a target",
+            options=options,
+            source_id=card.id,
+            min_choices=req.min_targets(),
+            max_choices=int(max_t) if max_t != float('inf') else len(options),
+            handler=handler,
+            heuristic_pick=[legal_ids[0]],
+        )
+
     async def _notify_action_processed(self, action: PlayerAction) -> None:
         """
         Invoke the `on_action_processed` hook.
@@ -1638,6 +1725,18 @@ class PrioritySystem:
         card = self.state.objects.get(action.card_id)
         if not card:
             return []
+
+        # Phase 5b: cast-time target picker via PendingChoice. If the card
+        # declares ``target_requirements`` and the action didn't pre-supply
+        # targets (drag-to-target casts and AI ``_select_targets_for_spell``
+        # both pre-supply), emit a PendingChoice and pause the cast. The
+        # choice handler re-enters this method with targets filled in.
+        if (card.card_def is not None
+                and getattr(card.card_def, 'target_requirements', None)
+                and not action.targets):
+            paused = self._emit_cast_target_choice(card, action)
+            if paused is not None:
+                return paused
 
         # === W7 cast-from-zone (pre zone-check) ===
         # Generic cast-from-zone permission lookup. Runs BEFORE the bespoke

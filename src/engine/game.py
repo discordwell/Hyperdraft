@@ -2157,12 +2157,16 @@ def make_instant(
     abilities: list = None,
     resolve = None,
     setup_interceptors = None,
+    target_requirements: list = None,
 ) -> 'CardDefinition':
     """Helper to create instant card definitions.
 
     ``setup_interceptors`` is supported so spells can register self-acting
     static abilities that fire while the card is in hand (e.g. cost reductions
     of the form 'This spell costs {X} less to cast if Y').
+
+    ``target_requirements`` (Phase 5b) — see
+    ``src/cards/card_factories.py::make_instant`` for the contract.
     """
     from .types import CardDefinition, Characteristics
 
@@ -2179,6 +2183,7 @@ def make_instant(
         abilities=abilities or [],
         resolve=resolve,
         setup_interceptors=setup_interceptors,
+        target_requirements=target_requirements,
     )
 
 
