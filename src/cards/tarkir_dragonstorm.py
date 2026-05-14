@@ -3828,6 +3828,59 @@ NARSET_JESKAI_WAYMASTER = make_creature(
     rarity="rare",
 )
 
+# --- NERIV, HEART OF THE STORM ---
+# Flying / If a creature you control that entered this turn would deal damage,
+# it deals twice that much damage instead.
+def neriv_heart_of_the_storm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Damage from a creature you control that entered this turn is doubled.
+
+    Wired through ``make_replacement_effect``. The filter requires DAMAGE events
+    whose source is a creature controlled by Neriv's controller and which still
+    has summoning sickness (a proxy for "entered this turn"). The replacement
+    doubles ``amount``. The marker pin prevents Neriv from re-doubling its own
+    output. Sickness-clearing happens at the controller's untap step, so this
+    naturally stops doubling next turn (correct behaviour: a creature that
+    entered last turn no longer qualifies).
+    """
+    from src.cards.interceptor_helpers import make_replacement_effect
+    src_controller = obj.controller
+    src_id = obj.id
+
+    def damage_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        amount = event.payload.get('amount', 0)
+        if amount <= 0:
+            return False
+        damage_source_id = event.source or event.payload.get('source')
+        damage_source = state.objects.get(damage_source_id) if damage_source_id else None
+        if damage_source is None:
+            return False
+        if damage_source.controller != src_controller:
+            return False
+        if CardType.CREATURE not in damage_source.characteristics.types:
+            return False
+        # Proxy for "entered this turn": summoning sickness flag still set.
+        # Engine clears this at the controller's untap step.
+        if not getattr(damage_source.state, 'summoning_sickness', False):
+            return False
+        return True
+
+    def double_damage(event: Event, state: GameState) -> Event:
+        new_event = event.copy()
+        new_event.payload['amount'] = int(event.payload.get('amount', 0)) * 2
+        new_event.payload['_doubled_by'] = src_id
+        return new_event
+
+    return make_replacement_effect(
+        obj,
+        event_filter=damage_filter,
+        replace_fn=double_damage,
+        duration='permanent',
+        apply_once_per_event=True,
+    )
+
+
 NERIV_HEART_OF_THE_STORM = make_creature(
     name="Neriv, Heart of the Storm",
     power=4, toughness=5,
@@ -3837,6 +3890,7 @@ NERIV_HEART_OF_THE_STORM = make_creature(
     supertypes={"Legendary"},
     text="Flying\nIf a creature you control that entered this turn would deal damage, it deals twice that much damage instead.",
     rarity="mythic",
+    setup_interceptors=neriv_heart_of_the_storm_setup,
 )
 
 NEW_WAY_FORWARD = make_instant(
