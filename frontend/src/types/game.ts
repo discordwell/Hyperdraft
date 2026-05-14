@@ -308,6 +308,10 @@ export interface PendingChoice {
   source_id: string;
   min_choices: number;
   max_choices: number;
+  // Rendering hint emitted by the engine. ``'overlay'`` => render as
+  // click-to-target board highlights (Phase 5b MTG cast-time targets);
+  // absent or ``'modal'`` => standard ChoiceModal panel.
+  interaction_mode?: 'modal' | 'overlay';
 }
 
 // Game Log Entry

@@ -18,6 +18,10 @@ interface TargetablePlayerProps {
   hasPriority?: boolean;
   isOpponent?: boolean;
   onDrop?: (item: DragItem, playerId: string) => void;
+  // Phase 5b overlay-mode targeting: when set, render a glow ring and
+  // wire a click handler so the player can be picked as a target.
+  isTargetable?: boolean;
+  onTargetClick?: (playerId: string) => void;
 }
 
 export function TargetablePlayer({
@@ -27,6 +31,8 @@ export function TargetablePlayer({
   hasPriority = false,
   isOpponent = false,
   onDrop,
+  isTargetable = false,
+  onTargetClick,
 }: TargetablePlayerProps) {
   const isDragging = useDragDropStore((s) => s.isDragging);
   const validDropZones = useDragDropStore((s) => s.validDropZones);
@@ -77,15 +83,29 @@ export function TargetablePlayer({
     }
   }, [isValidDropTarget, onDrop, playerId, setHoveredZone, endDrag]);
 
+  // Click-to-target (overlay-mode pending choice). Drop interactions
+  // still go through the drag-and-drop handlers above; this click
+  // handler only fires when the player is wired as a legal target.
+  const handleClick = useCallback(() => {
+    if (isTargetable && onTargetClick) {
+      onTargetClick(playerId);
+    }
+  }, [isTargetable, onTargetClick, playerId]);
+
   return (
     <div
+      data-testid={`targetable-player-${playerId}`}
       className={clsx(
         'relative transition-all duration-200 rounded-lg',
         {
           'ring-4 ring-cyan-400 ring-opacity-80 scale-105': isValidDropTarget && !isOver,
           'ring-4 ring-emerald-500 scale-110 bg-emerald-900/20': isActiveTarget || isOver,
+          // Overlay-mode targetable glow (distinct from drag drop-target hint).
+          'ring-4 ring-amber-400 ring-opacity-80 cursor-pointer hover:scale-105':
+            isTargetable && !isValidDropTarget && !isActiveTarget && !isOver,
         }
       )}
+      onClick={handleClick}
       onDragOver={handleDragOver}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}

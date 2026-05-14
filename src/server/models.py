@@ -367,6 +367,12 @@ class PendingChoiceData(BaseModel):
     source_id: str
     min_choices: int = 1
     max_choices: int = 1
+    # Optional rendering hint from the engine. ``"overlay"`` tells the
+    # frontend to render this choice as click-to-target board highlights
+    # instead of a modal panel (Phase 5b: MTG cast-time targets). Absent
+    # or ``"modal"`` keeps the legacy modal rendering used by every other
+    # engine that emits a PendingChoice.
+    interaction_mode: Optional[str] = None
 
 
 class PendingChoiceWaitingData(BaseModel):

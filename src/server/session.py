@@ -538,7 +538,15 @@ class GameSession:
 
         if pending_choice:
             if player_id == pending_choice.player:
-                # This player needs to make the choice
+                # This player needs to make the choice. Surface the
+                # rendering hint (Phase 5b overlay mode for MTG cast-time
+                # targets) from callback_data so the frontend can switch
+                # to click-to-target board highlights instead of a modal.
+                interaction_mode = None
+                cb_data = getattr(pending_choice, "callback_data", None) or {}
+                raw_hint = cb_data.get("interaction_mode")
+                if raw_hint in ("overlay", "modal"):
+                    interaction_mode = raw_hint
                 pending_choice_data = PendingChoiceData(
                     id=pending_choice.id,
                     choice_type=pending_choice.choice_type,
@@ -547,7 +555,8 @@ class GameSession:
                     options=pending_choice.options,
                     source_id=pending_choice.source_id,
                     min_choices=pending_choice.min_choices,
-                    max_choices=pending_choice.max_choices
+                    max_choices=pending_choice.max_choices,
+                    interaction_mode=interaction_mode,
                 )
             else:
                 # Another player is making a choice

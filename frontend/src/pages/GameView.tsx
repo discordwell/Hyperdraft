@@ -283,6 +283,14 @@ export function GameView() {
     return gameState.pending_choice;
   }, [gameState?.pending_choice, playerId]);
 
+  // Phase 5b: MTG cast-time targets ship as overlay-mode pending choices.
+  // GameBoard renders click-to-target highlights for these; ChoiceModal
+  // collapses to a floating cancel pill (see ChoiceModal isOverlayMode).
+  const overlayPendingChoice = useMemo(() => {
+    if (!pendingChoice) return null;
+    return pendingChoice.interaction_mode === 'overlay' ? pendingChoice : null;
+  }, [pendingChoice]);
+
   // Handle choice submission
   const handleChoiceSubmit = useCallback(async (selectedIds: string[]) => {
     if (!matchId || !playerId || !pendingChoice) return;
@@ -428,6 +436,8 @@ export function GameView() {
           onPlayLand={handlePlayLand}
           onCastSpell={handleCastSpell}
           onCastMultiTargetSpell={handleCastMultiTargetSpell}
+          overlayPendingChoice={overlayPendingChoice}
+          onSubmitOverlayChoice={handleChoiceSubmit}
         />
 
         {/* Priority Prompt — surfaces priority window during stack
@@ -441,7 +451,12 @@ export function GameView() {
           onRespond={handleRespondToPriority}
         />
 
-        {/* Choice Modal Overlay */}
+        {/* Choice Modal Overlay. In overlay mode the modal renders just
+            a floating Cancel pill; GameBoard handles target highlighting
+            and click submission. `onCancel` is intentionally a no-op for
+            cast-time targeting (MTG rules don't allow aborting a cast
+            once initiated). The choice will time out server-side if the
+            player doesn't pick. */}
         {pendingChoice && (
           <ChoiceModal
             pendingChoice={pendingChoice}
@@ -450,6 +465,7 @@ export function GameView() {
             graveyard={graveyardLookup}
             players={gameState.players}
             onSubmit={handleChoiceSubmit}
+            onCancel={pendingChoice.interaction_mode === 'overlay' ? () => { /* server choice stays pending */ } : undefined}
             isLoading={isSubmittingChoice}
           />
         )}

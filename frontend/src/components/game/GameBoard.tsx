@@ -19,7 +19,7 @@ import { BattlefieldEventLayer } from './shared/DamageFloater';
 import { useBattlefieldEvents } from '../../hooks/useBattlefieldEvents';
 import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
 import { useCardPreviewStore } from '../../hooks/useCardPreview';
-import type { GameState, CardData, LegalActionData } from '../../types';
+import type { GameState, CardData, LegalActionData, PendingChoice } from '../../types';
 
 interface GameBoardProps {
   gameState: GameState;
@@ -32,6 +32,11 @@ interface GameBoardProps {
   onPlayLand?: (cardId: string) => void;
   onCastSpell?: (cardId: string, targets?: string[]) => void;
   onCastMultiTargetSpell?: (cardId: string, targets: string[][]) => void;
+  // Phase 5b: when an overlay-mode pending choice is active for the
+  // local player, GameBoard surfaces the legal options as click-to-target
+  // highlights and submits the choice on click.
+  overlayPendingChoice?: PendingChoice | null;
+  onSubmitOverlayChoice?: (selectedIds: string[]) => void;
 }
 
 export function GameBoard({
@@ -45,6 +50,8 @@ export function GameBoard({
   onPlayLand,
   onCastSpell,
   onCastMultiTargetSpell,
+  overlayPendingChoice = null,
+  onSubmitOverlayChoice,
 }: GameBoardProps) {
   const multiTargetMode = useDragDropStore((s) => s.multiTargetMode);
   const multiTargetSpell = useDragDropStore((s) => s.multiTargetSpell);
@@ -106,6 +113,55 @@ export function GameBoard({
 
   // Can act?
   const canAct = gameState.priority_player === playerId;
+
+  // Phase 5b overlay-mode targeting: extract legal option IDs and a
+  // quick membership lookup for the click-intercept path. Empty when no
+  // overlay-mode choice is active.
+  const overlayOptionIds = useMemo<string[]>(() => {
+    if (!overlayPendingChoice) return [];
+    return overlayPendingChoice.options
+      .map((opt) => (typeof opt === 'string' ? opt : opt?.id))
+      .filter((id): id is string => Boolean(id));
+  }, [overlayPendingChoice]);
+
+  const overlayTargetSet = useMemo(() => new Set(overlayOptionIds), [overlayOptionIds]);
+
+  // Card click handler — intercepts when overlay-mode targeting is
+  // active and the clicked card is a legal target, otherwise falls
+  // through to the supplied ``onCardClick``.
+  const handleCardClickInternal = useCallback(
+    (card: CardData, zone: 'hand' | 'battlefield') => {
+      if (overlayPendingChoice && onSubmitOverlayChoice && overlayTargetSet.has(card.id)) {
+        onSubmitOverlayChoice([card.id]);
+        return;
+      }
+      onCardClick?.(card, zone);
+    },
+    [overlayPendingChoice, onSubmitOverlayChoice, overlayTargetSet, onCardClick]
+  );
+
+  // Player click handler — same intercept pattern. When the click isn't
+  // a legal target, we no-op (TargetablePlayer has no default click
+  // behaviour outside drop-target wiring).
+  const handlePlayerClickInternal = useCallback(
+    (clickedPlayerId: string) => {
+      if (
+        overlayPendingChoice &&
+        onSubmitOverlayChoice &&
+        overlayTargetSet.has(clickedPlayerId)
+      ) {
+        onSubmitOverlayChoice([clickedPlayerId]);
+      }
+    },
+    [overlayPendingChoice, onSubmitOverlayChoice, overlayTargetSet]
+  );
+
+  // Merge overlay target IDs with the existing ``validTargets`` prop so
+  // both highlight paths drive a single glow ring in Battlefield.
+  const effectiveValidTargets = useMemo(() => {
+    if (overlayOptionIds.length === 0) return validTargets;
+    return Array.from(new Set([...validTargets, ...overlayOptionIds]));
+  }, [validTargets, overlayOptionIds]);
 
   // Get the legal action for a card
   const getCardAction = useCallback((cardId: string): LegalActionData | undefined => {
@@ -288,6 +344,8 @@ export function GameBoard({
               hasPriority={gameState.priority_player === opponentId}
               isOpponent
               onDrop={handlePlayerDrop}
+              isTargetable={overlayTargetSet.has(opponentId)}
+              onTargetClick={handlePlayerClickInternal}
             />
           )}
         </div>
@@ -308,9 +366,9 @@ export function GameBoard({
         permanents={opponentBattlefield}
         isOpponent
         selectedCardId={selectedCardId}
-        validTargets={validTargets}
+        validTargets={effectiveValidTargets}
         combatAttackers={combatAttackers}
-        onCardClick={(card) => onCardClick?.(card, 'battlefield')}
+        onCardClick={(card) => handleCardClickInternal(card, 'battlefield')}
         onCardDrop={handleCardDrop}
       />
 
@@ -329,11 +387,11 @@ export function GameBoard({
       <Battlefield
         permanents={myBattlefield}
         selectedCardId={selectedCardId}
-        validTargets={validTargets}
+        validTargets={effectiveValidTargets}
         selectedAttackers={selectedAttackers}
         selectedBlockers={selectedBlockers}
         combatAttackers={combatAttackers}
-        onCardClick={(card) => onCardClick?.(card, 'battlefield')}
+        onCardClick={(card) => handleCardClickInternal(card, 'battlefield')}
         onCardDrop={handleCardDrop}
         onBattlefieldDrop={handleBattlefieldDrop}
       />
@@ -348,6 +406,8 @@ export function GameBoard({
               isActivePlayer={gameState.active_player === playerId}
               hasPriority={canAct}
               onDrop={handlePlayerDrop}
+              isTargetable={overlayTargetSet.has(playerId)}
+              onTargetClick={handlePlayerClickInternal}
             />
           )}
         </div>
@@ -358,9 +418,9 @@ export function GameBoard({
             castableCards={castableCards}
             playableLands={playableLands}
             legalActions={gameState.legal_actions}
-            onCardClick={(card) => onCardClick?.(card, 'hand')}
+            onCardClick={(card) => handleCardClickInternal(card, 'hand')}
             onGetValidDropZones={getValidDropZones}
-            disabled={!canAct}
+            disabled={!canAct && !overlayPendingChoice}
           />
         </div>
       </div>

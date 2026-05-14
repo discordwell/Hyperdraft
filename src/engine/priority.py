@@ -493,6 +493,12 @@ class PrioritySystem:
         # (which runs before the action is submitted, so this code path
         # only fires for AIs that submit untargeted casts — rare).
         max_t = req.max_targets()
+        # Phase 5b polish: MTG cast-time target prompts render as
+        # click-to-target board overlays (legacy drag-style UX) rather
+        # than the generic modal panel. ``interaction_mode='overlay'`` is
+        # propagated through ``callback_data`` to the client; other
+        # engines that build choices via ``create_choice_and_resolve``
+        # omit this hint and keep modal-style rendering.
         return create_choice_and_resolve(
             self.state,
             choice_type="target",
@@ -504,6 +510,7 @@ class PrioritySystem:
             max_choices=int(max_t) if max_t != float('inf') else len(options),
             handler=handler,
             heuristic_pick=[legal_ids[0]],
+            interaction_mode="overlay",
         )
 
     async def _notify_action_processed(self, action: PlayerAction) -> None:
