@@ -1439,6 +1439,193 @@ def has_mnestic(state: GameState, player_id: str) -> bool:
     return False
 
 
+def _iter_active_personnel(state: GameState, player_id: str):
+    """Yield active battlefield personnel objects for ``player_id`` with card_def set."""
+    for staff_id in list(state.scp_personnel.get(player_id, [])):
+        staff = state.objects.get(staff_id)
+        if not staff or staff.zone != ZoneType.BATTLEFIELD:
+            continue
+        if staff.state.scp_status != "active":
+            continue
+        if not staff.card_def:
+            continue
+        yield staff
+
+
+def has_active_subtype(state: GameState, player_id: str, subtype: str) -> bool:
+    """True if ``player_id`` has at least one active personnel with ``subtype``.
+
+    Reads ``card_def.characteristics.subtypes`` — set when the card was
+    minted. Compare with ``has_mnestic`` (which is a printed attribute on
+    the card_def itself, not a subtype string).
+    """
+    for staff in _iter_active_personnel(state, player_id):
+        subtypes = getattr(staff.card_def.characteristics, "subtypes", set()) or set()
+        if subtype in subtypes:
+            return True
+    return False
+
+
+def count_active_subtype(state: GameState, player_id: str, subtype: str) -> int:
+    """Count active personnel with ``subtype``."""
+    total = 0
+    for staff in _iter_active_personnel(state, player_id):
+        subtypes = getattr(staff.card_def.characteristics, "subtypes", set()) or set()
+        if subtype in subtypes:
+            total += 1
+    return total
+
+
+def first_active_subtype(state: GameState, player_id: str, subtype: str) -> Optional[GameObject]:
+    """Return the first active personnel with ``subtype``, or None."""
+    for staff in _iter_active_personnel(state, player_id):
+        subtypes = getattr(staff.card_def.characteristics, "subtypes", set()) or set()
+        if subtype in subtypes:
+            return staff
+    return None
+
+
+def _first_opposing_player(state: GameState, player_id: str) -> Optional[str]:
+    """Return the first non-eliminated opponent of ``player_id``, or None.
+
+    Public-facing thin wrapper used by reset/bump/recover helpers. Distinct
+    from ``_opposing_players`` (which returns the full list).
+    """
+    for pid, player in state.players.items():
+        if pid == player_id:
+            continue
+        if getattr(player, "has_lost", False):
+            continue
+        return pid
+    return None
+
+
+def reset_forget_counters(
+    state: GameState,
+    player_id: str,
+    limit: Optional[int] = None,
+) -> int:
+    """Zero out ``scp_forget_counters`` on (at most ``limit``) anomalies.
+
+    Acts on both active and contained anomalies. Returns the count reset.
+    If ``limit`` is None, resets all. Picks the highest counter first
+    (most-decayed anomaly is the most valuable to refresh).
+
+    Honors the ``mnr_no_reset_this_turn`` site flag: if set on the
+    player's own site, the reset short-circuits to 0 (the flag is cleared
+    by the SCP turn manager at end-of-turn).
+    """
+    ensure_scp_state(state, player_id)
+    if site(state, player_id).get("mnr_no_reset_this_turn"):
+        return 0
+    candidates: list[tuple[int, GameObject]] = []
+    pool: list[str] = []
+    pool.extend(list(state.scp_anomalies.get(player_id, [])))
+    pool.extend(list(state.scp_contained.get(player_id, [])))
+    for aid in pool:
+        an = state.objects.get(aid)
+        if not an or an.zone != ZoneType.BATTLEFIELD:
+            continue
+        counter = int(getattr(an.state, "scp_forget_counters", 0) or 0)
+        if counter > 0:
+            candidates.append((counter, an))
+    # Highest counters first (most urgent to reset).
+    candidates.sort(key=lambda c: -c[0])
+    if limit is not None:
+        candidates = candidates[:limit]
+    for _, an in candidates:
+        an.state.scp_forget_counters = 0
+    return len(candidates)
+
+
+def bump_opposing_antimeme_counters(
+    state: GameState,
+    player_id: str,
+    amount: int = 1,
+    limit: Optional[int] = None,
+) -> list[GameObject]:
+    """Add ``amount`` to ``scp_forget_counters`` on opposing antimeme anomalies.
+
+    Picks the LOWEST current counter first (so the bump is most likely to
+    advance multiple anomalies toward their forget threshold). If ``limit``
+    is None, hits all qualifying anomalies. Returns the bumped objects.
+    """
+    opp_id = _first_opposing_player(state, player_id)
+    if opp_id is None:
+        return []
+    bumped: list[GameObject] = []
+    pool: list[str] = []
+    pool.extend(list(state.scp_anomalies.get(opp_id, [])))
+    pool.extend(list(state.scp_contained.get(opp_id, [])))
+    candidates: list[GameObject] = []
+    for aid in pool:
+        an = state.objects.get(aid)
+        if not an or an.zone != ZoneType.BATTLEFIELD:
+            continue
+        threshold = int(getattr(an.card_def, "scp_antimeme", 0) or 0)
+        if threshold <= 0:
+            continue
+        candidates.append(an)
+    # Lowest current counter first.
+    candidates.sort(key=lambda a: int(getattr(a.state, "scp_forget_counters", 0) or 0))
+    if limit is not None:
+        candidates = candidates[:limit]
+    for an in candidates:
+        prior = int(getattr(an.state, "scp_forget_counters", 0) or 0)
+        an.state.scp_forget_counters = prior + amount
+        bumped.append(an)
+    return bumped
+
+
+def recover_forgotten(
+    state: GameState,
+    player_id: str,
+    limit: int = 1,
+) -> list[GameObject]:
+    """Move up to ``limit`` anomalies from ``scp_forgotten`` back to ``scp_anomalies``.
+
+    Requires a Mnestic personnel on board (the case files only resurface
+    when somebody can remember). Returns the recovered anomaly objects.
+    Sets ``scp_status = "active"`` and resets forget counters to 0.
+    """
+    if limit <= 0:
+        return []
+    if not has_mnestic(state, player_id):
+        return []
+    forgotten = state.scp_forgotten.get(player_id, [])
+    if not forgotten:
+        return []
+    recovered: list[GameObject] = []
+    # Take from the tail (most-recently forgotten first — feels right
+    # narratively, and matches list.pop() semantics).
+    while forgotten and len(recovered) < limit:
+        aid = forgotten.pop()
+        an = state.objects.get(aid)
+        if an is None:
+            continue
+        an.state.scp_status = "active"
+        an.state.scp_forget_counters = 0
+        active = state.scp_anomalies.setdefault(player_id, [])
+        if an.id not in active:
+            active.append(an.id)
+        recovered.append(an)
+    return recovered
+
+
+def clear_mnr_no_reset_flag(state: GameState, player_id: str) -> bool:
+    """Clear the ``mnr_no_reset_this_turn`` site flag for ``player_id``.
+
+    Returns True if the flag was set (and is now cleared), False otherwise.
+    Called by the SCP turn manager at end-of-turn so the marker only
+    persists for the duration of the active player's turn.
+    """
+    s = site(state, player_id)
+    if s.get("mnr_no_reset_this_turn"):
+        s["mnr_no_reset_this_turn"] = False
+        return True
+    return False
+
+
 def forget_anomaly(game, anomaly_id: str, *, source: Optional[str] = None) -> list[Event]:
     """Move an anomaly into ``state.scp_forgotten`` (removed-from-history).
 

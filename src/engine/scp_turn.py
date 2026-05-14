@@ -88,6 +88,12 @@ class SCPTurnManager(TurnManager):
             # threshold. Runs AFTER breach_tick so the breach numbers are
             # the snapshot players see, then the antimeme audit happens.
             events.extend(scp.tick_antimeme_counters(game, active))
+            # MNR Pattern Disruption marker is planted on the affected
+            # player's site at cast time and is meant to block exactly one
+            # of their reset_forget_counters calls. Clear it at the end of
+            # the active player's turn so it bites the player it was aimed
+            # at and doesn't accidentally persist into the next round.
+            scp.clear_mnr_no_reset_flag(self.state, active)
 
         end = Event(type=EventType.TURN_END, payload={"player": active, "turn_number": self.turn_state.turn_number})
         if self.pipeline:

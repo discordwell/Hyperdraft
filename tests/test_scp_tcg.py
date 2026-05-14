@@ -2792,6 +2792,72 @@ def test_mnr_mnestic_saturation_negative_cases():
     )
 
 
+def test_mnr_no_reset_flag_blocks_reset_forget_counters():
+    """``mnr_no_reset_this_turn`` site flag short-circuits reset_forget_counters.
+
+    Pattern Disruption was previously a soft marker the engine ignored.
+    Promoting the helper to ``scp.reset_forget_counters`` wires the flag
+    into a real engine check — when the flag is set on a player's site
+    they cannot zero their forget counters this turn.
+    """
+    game, p1, _p2 = _setup()
+    anomaly = _hand_card(game, p1, "MNR Five and Three-Eighths")
+    assert scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)[0]
+    assert anomaly.state.scp_status == "active"
+
+    # Manually stack a forget counter without crossing the antimeme threshold.
+    anomaly.state.scp_forget_counters = 1
+
+    # Without the flag, reset clears the counter.
+    cleared = scp.reset_forget_counters(game.state, p1.id, limit=None)
+    assert cleared == 1
+    assert anomaly.state.scp_forget_counters == 0
+
+    # Re-arm the counter and plant the flag — reset is now blocked.
+    anomaly.state.scp_forget_counters = 2
+    scp.site(game.state, p1.id)["mnr_no_reset_this_turn"] = True
+
+    cleared = scp.reset_forget_counters(game.state, p1.id, limit=None)
+    assert cleared == 0, "Flag should short-circuit reset to 0"
+    assert anomaly.state.scp_forget_counters == 2, "Counter should be unchanged"
+
+    # Clearing the flag restores normal behavior.
+    assert scp.clear_mnr_no_reset_flag(game.state, p1.id) is True
+    cleared = scp.reset_forget_counters(game.state, p1.id, limit=None)
+    assert cleared == 1
+    assert anomaly.state.scp_forget_counters == 0
+
+
+def test_mnr_pattern_disruption_plants_flag_and_turn_clears_it():
+    """Casting Pattern Disruption plants the flag on the opponent's site;
+    cycling the opponent's end-of-turn clears it.
+    """
+    game, p1, p2 = _setup()
+    # Give p2 an antimeme anomaly so Pattern Disruption has a valid bump target.
+    opp_anomaly = _hand_card(game, p2, "MNR Five and Three-Eighths")
+    assert scp.open_dossier(game, p2.id, opp_anomaly.id, fast_track=True)[0]
+
+    procedure = _hand_card(game, p1, "MNR Pattern Disruption")
+    assert scp.open_dossier(game, p1.id, procedure.id, fast_track=True)[0]
+
+    # Resolution should have planted the flag on p2's site and bumped one
+    # of p2's antimeme anomalies.
+    assert scp.site(game.state, p2.id).get("mnr_no_reset_this_turn") is True
+    assert opp_anomaly.state.scp_forget_counters >= 1
+
+    # Direct verification: p2 cannot reset while flagged.
+    blocked = scp.reset_forget_counters(game.state, p2.id, limit=None)
+    assert blocked == 0
+
+    # Clearing the flag (as the turn manager would at end-of-p2-turn) unblocks
+    # the reset.
+    assert scp.clear_mnr_no_reset_flag(game.state, p2.id) is True
+    assert scp.site(game.state, p2.id).get("mnr_no_reset_this_turn") is False
+    cleared = scp.reset_forget_counters(game.state, p2.id, limit=None)
+    assert cleared == 1
+    assert opp_anomaly.state.scp_forget_counters == 0
+
+
 def test_mnr_card_pool_smoke():
     """MNR_CARDS is non-empty and contains the 6 sample cards."""
     from src.cards.scp.mnestic_reset import MNR_CARDS
