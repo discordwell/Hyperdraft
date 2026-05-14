@@ -825,6 +825,39 @@ class HearthstoneAIAdapter:
                 game.pipeline.emit(zone_event)
             events.append(zone_event)
 
+        elif CardType.SECRET in card.characteristics.types:
+            # Secrets mirror the weapon branch: hand → battlefield via
+            # ZONE_CHANGE so the secret's setup_interceptor (which is
+            # gated duration='while_on_battlefield') goes live and can
+            # react to opponent actions on the next turn.
+            #
+            # Audit commit 535b7598 surfaced that without this branch the
+            # MINION/WEAPON/SPELL elif chain silently no-ops on SECRET,
+            # so mana was never deducted, hand never decremented, and no
+            # interceptor ever fired — affecting 16 secrets across
+            # Mage/Paladin/Hunter and 3 shipping starter-deck cards.
+            #
+            # NOTE: Real Hearthstone forbids a duplicate active secret
+            # and caps secrets at 5 per player. The legal-action
+            # generator doesn't enforce that today — TODO follow-on.
+            if player:
+                player.mana_crystals_available -= cost
+
+            zone_event = Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': card_id,
+                    'from_zone': f'hand_{player_id}',
+                    'from_zone_type': ZoneType.HAND,
+                    'to_zone': 'battlefield',
+                    'to_zone_type': ZoneType.BATTLEFIELD
+                },
+                source=card_id
+            )
+            if game.pipeline:
+                game.pipeline.emit(zone_event)
+            events.append(zone_event)
+
         # Track cards played this turn (for Combo, etc.) and consume cost modifiers
         if player:
             player.cards_played_this_turn += 1

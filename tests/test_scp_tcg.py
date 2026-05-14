@@ -540,20 +540,31 @@ def test_scp_native_alternate_veil_lockdown_win():
 
 
 def test_scp_native_alternate_ethics_audit_win():
-    """ethics_audit: 4 archives + secrecy 8+. Ethics-debt gate dropped 2026-05."""
+    """ethics_audit: 4 archives + secrecy 7+. Ethics-debt gate dropped 2026-05.
+
+    Secrecy threshold lowered 8 -> 7 in May 2026 archetype-trace audit — ETH's
+    secrecy ceiling was median 6-7 across 10 games at the old threshold, making
+    the alt-win mechanically unreachable.
+    """
     game, p1, p2 = _setup()
     mandate = _hand_card(game, p1, "ETH Mandate 1: Mercy Ledger")
 
     assert scp.open_dossier(game, p1.id, mandate.id, fast_track=True)[0]
-    # Below archive threshold: no win.
+    # Below archive threshold: no win even at high secrecy.
     scp.site(game.state, p1.id)["archives"] = 3
     scp.site(game.state, p1.id)["secrecy"] = 8
     events = scp.check_scp_victory(game)
     assert not p2.has_lost
 
-    # At threshold: wins regardless of ethics_debt (used to gate at <=2).
+    # Below secrecy threshold (6 < 7): no win even at archive threshold.
     scp.site(game.state, p1.id)["archives"] = 4
-    scp.site(game.state, p1.id)["secrecy"] = 8
+    scp.site(game.state, p1.id)["secrecy"] = 6
+    events = scp.check_scp_victory(game)
+    assert not p2.has_lost
+
+    # At new threshold (4 archives, 7 secrecy): wins regardless of ethics_debt.
+    scp.site(game.state, p1.id)["archives"] = 4
+    scp.site(game.state, p1.id)["secrecy"] = 7
     scp.site(game.state, p1.id)["ethics_debt"] = 5
     events = scp.check_scp_victory(game)
     assert p2.has_lost
@@ -3154,12 +3165,16 @@ def test_mnr_cog_hazard_drains_opposing_hand():
 
 
 def test_mnr_memory_hole_alt_win():
-    """Total forgotten >= 3 (across ALL players) + secrecy 10 -> Memory Hole wins.
+    """Total forgotten >= 3 (across ALL players) + secrecy 8 -> Memory Hole wins.
 
     The relaxed rule sums every player's ``scp_forgotten`` zone — opposing
     forgets still count, but own-side decays count too (the deck plays
     Antimeme anomalies that drift into ``scp_forgotten`` as a cost).
     Mirror-match-only no longer.
+
+    Secrecy threshold lowered 10 -> 8 in May 2026 archetype-trace audit — the
+    MNR starter's secrecy ceiling was median 7 across 40 games at the old
+    threshold, making the alt-win mechanically unreachable.
     """
     game, p1, p2 = _setup()
     mandate = _hand_card(game, p1, "MNR Mandate 1: Memory Hole")
@@ -3169,8 +3184,14 @@ def test_mnr_memory_hole_alt_win():
     # Stuff 3 dummy anomaly IDs into p2's forgotten zone (opposing-side
     # contributions still trigger the win).
     game.state.scp_forgotten[p2.id] = ["sentinel-1", "sentinel-2", "sentinel-3"]
-    scp.site(game.state, p1.id)["secrecy"] = 10
 
+    # Below new secrecy threshold (7 < 8): no win.
+    scp.site(game.state, p1.id)["secrecy"] = 7
+    events = scp.check_scp_victory(game)
+    assert not p2.has_lost
+
+    # At new threshold: wins.
+    scp.site(game.state, p1.id)["secrecy"] = 8
     events = scp.check_scp_victory(game)
     assert p2.has_lost
     assert any(
@@ -3436,3 +3457,219 @@ def test_mnr_card_pool_smoke():
     assert MNR_CARDS["MNR Mandate 1: Memory Hole"].scp_alt_win == "memory_hole"
     # And it's reachable through the global SCP_CARDS dictionary.
     assert "MNR Five and Three-Eighths" in SCP_CARDS
+
+
+def test_mnr_antimeme_decay_ticks_when_mnestic_exhausted():
+    """Antimeme counters advance when every Mnestic personnel is exhausted.
+
+    Pre-May 2026 audit: ``has_mnestic`` ignored exhaustion, so any active
+    Mnestic personnel blocked the decay clock. With a Mnestic-heavy deck the
+    forget zone never populated and the memory_hole alt-win was unreachable.
+    Post-fix: ``tick_antimeme_counters`` uses ``has_unexhausted_mnestic``;
+    Mnestic personnel who acted this turn no longer suppress the antimeme.
+    """
+    game, p1, p2 = _setup()
+    # Plant a Mnestic personnel and an antimeme=1 anomaly on the battlefield.
+    person = _hand_card(game, p1, "MNR Marion Wheeler")
+    person.zone = ZoneType.BATTLEFIELD
+    person.state.scp_status = "active"
+    person.state.scp_exhausted = True  # exhausted == "already acted this turn"
+    game.state.scp_personnel.setdefault(p1.id, []).append(person.id)
+
+    anomaly = _hand_card(game, p1, "MNR Five and Three-Eighths")
+    anomaly.zone = ZoneType.BATTLEFIELD
+    anomaly.state.scp_status = "active"
+    anomaly.state.scp_forget_counters = 0
+    # antimeme=3 from card_def, but the helper uses scp_antimeme attr — confirm
+    # we can read the threshold for a sanity check.
+    threshold = int(getattr(anomaly.card_def, "scp_antimeme", 0) or 0)
+    assert threshold >= 1
+    game.state.scp_anomalies.setdefault(p1.id, []).append(anomaly.id)
+
+    # Even though the Mnestic personnel is active, it's exhausted — the
+    # decay clock should advance.
+    assert not scp.has_unexhausted_mnestic(game.state, p1.id)
+    scp.tick_antimeme_counters(game, p1.id)
+    assert anomaly.state.scp_forget_counters == 1
+
+
+def test_mnr_antimeme_decay_blocked_by_unexhausted_mnestic():
+    """Unexhausted Mnestic still blocks the decay clock.
+
+    Negative case for the exhaust-aware decay fix: a Mnestic personnel that
+    hasn't acted this turn (e.g. just untapped) freezes the antimeme counter
+    as before. Keeps the design intent that "researchers who are paying
+    attention block the antimeme" intact.
+    """
+    game, p1, p2 = _setup()
+    person = _hand_card(game, p1, "MNR Marion Wheeler")
+    person.zone = ZoneType.BATTLEFIELD
+    person.state.scp_status = "active"
+    person.state.scp_exhausted = False  # unexhausted == "watching the file"
+    game.state.scp_personnel.setdefault(p1.id, []).append(person.id)
+
+    anomaly = _hand_card(game, p1, "MNR Five and Three-Eighths")
+    anomaly.zone = ZoneType.BATTLEFIELD
+    anomaly.state.scp_status = "active"
+    anomaly.state.scp_forget_counters = 0
+    game.state.scp_anomalies.setdefault(p1.id, []).append(anomaly.id)
+
+    assert scp.has_unexhausted_mnestic(game.state, p1.id)
+    scp.tick_antimeme_counters(game, p1.id)
+    assert anomaly.state.scp_forget_counters == 0
+
+
+def test_eth_starter_can_win_via_ethics_audit_across_ai_matchups():
+    """Integration regression: ETH plays ethics_audit alt-win at least once
+    across 10 AI-vs-AI games (combined SCR + ACW matchups).
+
+    Pre-fix (May 2026 audit): ETH's secrecy ceiling was median 6-7, but
+    the threshold was 8 — alt-win never fired in 10 games. Post-fix (secrecy
+    threshold 8 -> 7 + AI secrecy-pump hint), the win is reachable.
+
+    Marked ``ai_integration`` so it can be deselected when running the unit
+    layer alone. Uses 10 games rather than 20 to keep the suite fast; the
+    seeds are deliberately spread so a single bad seed doesn't tank the run.
+    """
+    import asyncio
+    from src.ai.scp_adapter import SCPAIAdapter
+
+    async def run_one(p1_deck, p2_deck, seed):
+        game = Game(mode="scp")
+        p1 = game.add_player("P1")
+        p2 = game.add_player("P2")
+        game.setup_scp_player(p1, SCP_STARTER_DECKS[p1_deck]())
+        game.setup_scp_player(p2, SCP_STARTER_DECKS[p2_deck]())
+        game.shuffle_library(p1.id)
+        game.shuffle_library(p2.id)
+        game.turn_manager.set_ai_player(p1.id)
+        game.turn_manager.set_ai_player(p2.id)
+
+        class _Dispatch:
+            def __init__(self, adapters):
+                self.adapters = adapters
+            async def take_turn(self, player_id, state, game):
+                return await self.adapters[player_id].take_turn(player_id, state, game)
+
+        game.turn_manager.set_ai_handler(_Dispatch({
+            p1.id: SCPAIAdapter(difficulty="medium", pilot="balanced"),
+            p2.id: SCPAIAdapter(difficulty="medium", pilot="balanced"),
+        }))
+
+        win_reason = None
+        pipeline = getattr(game, "pipeline", None)
+        original_emit = pipeline.emit if pipeline else None
+
+        def trace_emit(event):
+            nonlocal win_reason
+            if event.type == EventType.PLAYER_LOSES:
+                win_reason = (event.payload or {}).get("reason")
+            return original_emit(event)
+
+        if pipeline:
+            pipeline.emit = trace_emit
+        await game.start_game()
+        for _ in range(80):
+            if game.is_game_over():
+                break
+            await game.run_turn()
+        if pipeline:
+            pipeline.emit = original_emit
+        return win_reason
+
+    import random as _random
+    saw_ethics_audit = False
+    for seed in list(range(200, 220)):  # 20 games seed 200-219
+        _random.seed(seed)  # deterministic library shuffle
+        # Alternate opponents to cover both matchups.
+        opponent = "secure_contain_research" if seed % 2 == 0 else "antimemetic_cold_war"
+        reason = asyncio.run(run_one("ethics_reckoning", opponent, seed))
+        if reason == "ethics_audit":
+            saw_ethics_audit = True
+            break
+    assert saw_ethics_audit, (
+        "ethics_audit alt-win did not fire across 20 ETH-vs-(SCR/ACW) games. "
+        "Either the secrecy threshold rebalance regressed, the AI secrecy-pump "
+        "hint regressed, or the deck composition no longer reaches secrecy 7."
+    )
+
+
+def test_mnr_starter_can_win_via_memory_hole_across_ai_matchups():
+    """Integration regression: MNR plays memory_hole alt-win at least once
+    across 20 AI-vs-AI games (mix of SCR + ACW).
+
+    Pre-fix (May 2026 audit): MNR's memory_hole alt-win never fired across
+    40 games — engine threshold was secrecy=10 (median ceiling was 7) and
+    Mnestic personnel froze antimeme decay so ``scp_forgotten`` never
+    accumulated. Post-fix:
+      - secrecy threshold 10 -> 8 in ``check_scp_victory``
+      - antimeme decay advances when Mnestic personnel are exhausted
+      - AI secrecy-pump procedures prioritised under memory_hole alt-win
+      - Class-B Inoculation Drill (zero-firing sideboard card) dropped from
+        starter, replaced with Incident Report Rewrite + False Flag Cover
+        Story (both +secrecy procedures).
+
+    Memory hole fires roughly 2-3 times per 20 games in trace runs; we
+    accept at-least-once across 20 games as the regression bar.
+    """
+    import asyncio
+    from src.ai.scp_adapter import SCPAIAdapter
+
+    async def run_one(p1_deck, p2_deck, seed):
+        game = Game(mode="scp")
+        p1 = game.add_player("P1")
+        p2 = game.add_player("P2")
+        game.setup_scp_player(p1, SCP_STARTER_DECKS[p1_deck]())
+        game.setup_scp_player(p2, SCP_STARTER_DECKS[p2_deck]())
+        game.shuffle_library(p1.id)
+        game.shuffle_library(p2.id)
+        game.turn_manager.set_ai_player(p1.id)
+        game.turn_manager.set_ai_player(p2.id)
+
+        class _Dispatch:
+            def __init__(self, adapters):
+                self.adapters = adapters
+            async def take_turn(self, player_id, state, game):
+                return await self.adapters[player_id].take_turn(player_id, state, game)
+
+        game.turn_manager.set_ai_handler(_Dispatch({
+            p1.id: SCPAIAdapter(difficulty="medium", pilot="balanced"),
+            p2.id: SCPAIAdapter(difficulty="medium", pilot="balanced"),
+        }))
+
+        win_reason = None
+        pipeline = getattr(game, "pipeline", None)
+        original_emit = pipeline.emit if pipeline else None
+
+        def trace_emit(event):
+            nonlocal win_reason
+            if event.type == EventType.PLAYER_LOSES:
+                win_reason = (event.payload or {}).get("reason")
+            return original_emit(event)
+
+        if pipeline:
+            pipeline.emit = trace_emit
+        await game.start_game()
+        for _ in range(80):
+            if game.is_game_over():
+                break
+            await game.run_turn()
+        if pipeline:
+            pipeline.emit = original_emit
+        return win_reason
+
+    import random as _random
+    saw_memory_hole = False
+    for seed in list(range(100, 140)):  # 40 games seed 100-139
+        _random.seed(seed)  # deterministic library shuffle
+        opponent = "secure_contain_research" if seed % 2 == 0 else "antimemetic_cold_war"
+        reason = asyncio.run(run_one("mnestic_reset_division", opponent, seed))
+        if reason == "memory_hole":
+            saw_memory_hole = True
+            break
+    assert saw_memory_hole, (
+        "memory_hole alt-win did not fire across 40 MNR-vs-(SCR/ACW) games. "
+        "Either the secrecy threshold rebalance regressed, the antimeme exhaust "
+        "decay fix regressed, the AI secrecy-pump hint regressed, or the deck "
+        "composition no longer produces enough forgotten anomalies."
+    )

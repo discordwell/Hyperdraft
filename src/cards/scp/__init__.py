@@ -1350,16 +1350,21 @@ MNESTIC_RESET_DIVISION_NAMES = [
     # Anomalies (5)
     "MNR Memory Reef", "MNR Personnel Drift", "MNR Missing Floor",
     "MNR Soft Erasure", "MNR The Director's Note",
-    # Procedures (6): tighter secrecy generation so Memory Hole (10 secrecy)
-    # is reachable. Dropped Mass Remembrance + Cold Storage Open in favor of
-    # Witness Relocation (+2 secrecy) and Class-A Amnestic Broadcast (+3 secrecy)
-    # — two big secrecy pumps that push the deck through the 10 threshold.
-    "MNR Memory Triage",
+    # Procedures (6): tuned for Memory Hole (3+ forgotten + 8 secrecy).
+    # Archetype-trace audit (May 2026) found Memory Triage and Class-B Drill
+    # never fired across 5 games — Triage is unfocused Redact-1, Class-B is a
+    # sideboard card vs antimeme decks (and MNR IS the antimeme deck). Both
+    # dropped. Replaced with Incident Report Rewrite (rt=0 secrecy +1, free
+    # ceiling push) and False Flag Cover Story (rt=1 secrecy +2 + breach -1,
+    # paired secrecy pump with defense). Found Files retained — its precondition
+    # (Mnestic personnel active) is met reliably; AI now scores Recovery subtype
+    # high under memory_hole alt-win.
     "MNR Class-A Inoculation Dose",
     "Class-A Amnestic Broadcast",
     "Witness Relocation",
+    "False Flag Cover Story",
+    "Incident Report Rewrite",
     "MNR Found Files",
-    "MNR Class-B Inoculation Drill",
     # Mandates (2): both MNR alt-win paths simultaneously
     "MNR Mandate 4: Mnestic Saturation",
     "MNR Mandate 1: Memory Hole",

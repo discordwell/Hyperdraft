@@ -68,10 +68,21 @@ def make_ygo_flip_trigger(obj: GameObject, effect_fn):
 
 
 def make_ygo_ignition_effect(obj: GameObject, effect_fn):
-    """Create an Ignition Effect (SS1, activated during Main Phase)."""
+    """Create an Ignition Effect (SS1, activated during Main Phase).
+
+    Listens for ``EventType.YGO_ACTIVATE_MONSTER_EFFECT`` — the dedicated
+    YGO activation surface emitted by ``YugiohTurnManager._do_activate_monster_effect``.
+    The legacy ``EventType.ACTIVATE`` filter (an MTG-only emission) is also
+    accepted for backwards compatibility, but the YGO turn manager no longer
+    emits it.
+    """
     def _filter(event: Event, state: GameState) -> bool:
-        return (event.type == EventType.ACTIVATE and
-                event.payload.get('card_id') == obj.id)
+        if event.type == EventType.YGO_ACTIVATE_MONSTER_EFFECT:
+            return event.payload.get('monster_id') == obj.id
+        # Legacy path — kept for any callers still emitting ACTIVATE.
+        if event.type == EventType.ACTIVATE:
+            return event.payload.get('card_id') == obj.id
+        return False
 
     def _handler(event: Event, state: GameState) -> InterceptorResult:
         events = effect_fn(obj, state)
@@ -85,8 +96,12 @@ def make_ygo_ignition_effect(obj: GameObject, effect_fn):
 
 
 def make_ygo_quick_effect(obj: GameObject, effect_fn):
-    """Create a Quick Effect (SS2, can be activated during either turn)."""
-    return make_ygo_ignition_effect(obj, effect_fn)  # Same structure, SS differs in chain
+    """Create a Quick Effect (SS2, can be activated during either turn).
+
+    Wraps ``make_ygo_ignition_effect`` — the activation surface is the same;
+    spell-speed differs only in chain resolution rules.
+    """
+    return make_ygo_ignition_effect(obj, effect_fn)
 
 
 def make_ygo_continuous_effect(obj: GameObject, modifier_fn):

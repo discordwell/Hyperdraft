@@ -301,6 +301,8 @@ class EventType(Enum):
     YGO_EQUIP = auto()                # Equip card to monster
     YGO_LP_CHANGE = auto()            # Life Points changed
     YGO_DRAW = auto()                 # Draw Phase draw
+    YGO_ACTIVATE_MONSTER_EFFECT = auto()  # Activate a monster's Ignition/Quick Effect
+                                          # payload: {'monster_id', 'effect_index', 'player', 'targets'}
 
     # Minecraft TCG mechanics
     MC_PLAY_CARD = auto()             # Play/craft a Minecraft card

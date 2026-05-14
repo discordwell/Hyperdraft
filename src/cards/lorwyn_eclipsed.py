@@ -41,6 +41,7 @@ from src.cards.interceptor_helpers import (
     make_cycling_setup,
     # Modal resolve
     make_modal_resolve,
+    ModeSpec,
     # Copy-token
     make_copy_token_event,
     # Type-overwrite auras (Lignify-style)
@@ -3200,68 +3201,37 @@ def riverguards_reflexes_resolve(targets: list, state: GameState) -> list[Event]
 
 
 def run_away_together_resolve(targets: list, state: GameState) -> list[Event]:
-    """
-    Run Away Together: Choose two target creatures controlled by different
-    players. Return those creatures to their owners' hands.
+    """Run Away Together (Phase 5b): targets[0] is 2 creatures.
+    Different-controllers constraint is checked at resolve; if violated, fizzle.
     """
     spell_id, caster_id = _ecl_get_spell_and_caster(state, "Run Away Together")
-
-    creatures = [
-        (oid, obj.controller)
-        for oid, obj in state.objects.items()
-        if obj.zone == ZoneType.BATTLEFIELD
-        and CardType.CREATURE in obj.characteristics.types
-    ]
-    if len(creatures) < 2:
+    if not targets or not targets[0] or len(targets[0]) < 2:
         return []
-
-    distinct_controllers = {c for _, c in creatures}
-    if len(distinct_controllers) < 2:
-        return []
-
-    legal = [oid for oid, _ in creatures]
-
-    def _handler(choice, selected, gs):
-        if not selected or len(selected) < 2:
-            return []
-        # Validate different controllers.
-        controllers = []
-        for tid in selected[:2]:
-            obj = gs.objects.get(tid)
-            if obj is not None:
-                controllers.append(obj.controller)
-        if len(set(controllers)) < 2:
-            return []
-        evts = []
-        for tid in selected[:2]:
-            obj = gs.objects.get(tid)
-            if not obj or obj.zone != ZoneType.BATTLEFIELD:
-                continue
-            evts.append(Event(
-                type=EventType.ZONE_CHANGE,
-                payload={
-                    'object_id': tid,
-                    'from_zone_type': ZoneType.BATTLEFIELD,
-                    'to_zone_type': ZoneType.HAND,
-                    'to_zone': f'hand_{obj.owner}',
-                    'reason': 'bounced',
-                },
-                source=choice.source_id,
-            ))
-        return evts
-
-    ch = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=legal,
-        prompt="Run Away Together: Choose two creatures with different controllers",
-        min_targets=2,
-        max_targets=2,
-    )
-    ch.choice_type = "target_with_callback"
-    ch.callback_data['handler'] = _handler
-    return []
+    picks = [normalize_target(t, state)[0] for t in targets[0][:2]]
+    controllers = []
+    for tid in picks:
+        obj = state.objects.get(tid)
+        if obj is not None:
+            controllers.append(obj.controller)
+    if len(set(controllers)) < 2:
+        return []  # fizzle: same-controller picks violate constraint
+    evts: list[Event] = []
+    for tid in picks:
+        obj = state.objects.get(tid)
+        if not obj or obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        evts.append(Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': tid,
+                'from_zone_type': ZoneType.BATTLEFIELD,
+                'to_zone_type': ZoneType.HAND,
+                'to_zone': f'hand_{obj.owner}',
+                'reason': 'bounced',
+            },
+            source=spell_id, controller=caster_id,
+        ))
+    return evts
 
 
 def thirst_for_identity_resolve(targets: list, state: GameState) -> list[Event]:
@@ -3760,59 +3730,26 @@ GOLDMEADOW_NOMAD = make_creature(
 )
 GOLDMEADOW_NOMAD.setup_in_graveyard = goldmeadow_nomad_gy_setup
 
-def _keep_out_mode_damage(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+def _keep_out_mode_damage(state, caster_id, spell_id, targets=None):
     """4 damage to target tapped creature."""
-    legal = [
-        oid for oid, o in state.objects.items()
-        if (o.zone == ZoneType.BATTLEFIELD
-            and CardType.CREATURE in o.characteristics.types
-            and getattr(o.state, 'tapped', False))
-    ]
-    if not legal:
+    if not targets:
         return []
-    def _on_target(ch, selected, st):
-        if not selected:
-            return []
-        return [Event(
-            type=EventType.DAMAGE,
-            payload={'target': selected[0], 'amount': 4, 'source': spell_id},
-            source=spell_id, controller=caster_id,
-        )]
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Keep Out: choose tapped creature for 4 damage",
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': targets[0].id, 'amount': 4, 'source': spell_id},
+        source=spell_id, controller=caster_id,
+    )]
 
 
-def _keep_out_mode_destroy_enchant(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+def _keep_out_mode_destroy_enchant(state, caster_id, spell_id, targets=None):
     """Destroy target enchantment."""
-    legal = [
-        oid for oid, o in state.objects.items()
-        if (o.zone == ZoneType.BATTLEFIELD
-            and CardType.ENCHANTMENT in o.characteristics.types)
-    ]
-    if not legal:
+    if not targets:
         return []
-    def _on_target(ch, selected, st):
-        if not selected:
-            return []
-        return [Event(
-            type=EventType.DESTROY,
-            payload={'object_id': selected[0]},
-            source=spell_id, controller=caster_id,
-        )]
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Keep Out: destroy target enchantment",
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
+    return [Event(
+        type=EventType.DESTROY,
+        payload={'object_id': targets[0].id},
+        source=spell_id, controller=caster_id,
+    )]
 
 
 KEEP_OUT = make_instant(
@@ -3823,8 +3760,22 @@ KEEP_OUT = make_instant(
     resolve=make_modal_resolve(
         "Keep Out",
         modes=[
-            ("Keep Out deals 4 damage to target tapped creature", _keep_out_mode_damage),
-            ("Destroy target enchantment", _keep_out_mode_destroy_enchant),
+            ModeSpec(
+                "Keep Out deals 4 damage to target tapped creature",
+                _keep_out_mode_damage,
+                target_requirement=TargetRequirement(
+                    filter=creature_filter(tapped=True),
+                    count=1, label="target tapped creature",
+                ),
+            ),
+            ModeSpec(
+                "Destroy target enchantment",
+                _keep_out_mode_destroy_enchant,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(types={CardType.ENCHANTMENT}),
+                    count=1, label="target enchantment",
+                ),
+            ),
         ],
         min_modes=1, max_modes=1,
     ),
@@ -4281,6 +4232,13 @@ RUN_AWAY_TOGETHER = make_instant(
     colors={Color.BLUE},
     text="Choose two target creatures controlled by different players. Return those creatures to their owners' hands.",
     resolve=run_away_together_resolve,
+    target_requirements=[
+        TargetRequirement(
+            filter=creature_filter(),
+            count=2,
+            label="two target creatures controlled by different players",
+        ),
+    ],
 )
 
 SHINESTRIKER = make_creature(
@@ -4858,65 +4816,31 @@ TWILIGHT_DIVINER = make_creature(
     setup_interceptors=twilight_diviner_setup
 )
 
-def _unbury_mode_one(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+def _unbury_mode_one(state, caster_id, spell_id, targets=None):
     """Return target creature card from your graveyard to hand."""
-    gy = state.zones.get(f"graveyard_{caster_id}")
-    legal = []
-    if gy:
-        for cid in gy.objects:
-            obj = state.objects.get(cid)
-            if obj and CardType.CREATURE in obj.characteristics.types:
-                legal.append(cid)
-    if not legal:
+    if not targets:
         return []
-    def _on_target(ch, selected, st):
-        if not selected:
-            return []
-        return [Event(
-            type=EventType.RETURN_FROM_GRAVEYARD,
-            payload={'card_id': selected[0], 'destination': 'hand'},
-            source=spell_id, controller=caster_id,
-        )]
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Unbury: choose creature card to return",
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
+    return [Event(
+        type=EventType.RETURN_FROM_GRAVEYARD,
+        payload={'card_id': targets[0].id, 'destination': 'hand'},
+        source=spell_id, controller=caster_id,
+    )]
 
 
-def _unbury_mode_two(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
-    """Return two creature cards sharing a type. Engine gap: shared-type validation
-    not enforced — pick any two creature cards.
+def _unbury_mode_two(state, caster_id, spell_id, targets=None):
+    """Return two creature cards sharing a type. Engine gap: shared-type
+    validation not enforced — pick any two creature cards.
     """
-    gy = state.zones.get(f"graveyard_{caster_id}")
-    legal = []
-    if gy:
-        for cid in gy.objects:
-            obj = state.objects.get(cid)
-            if obj and CardType.CREATURE in obj.characteristics.types:
-                legal.append(cid)
-    if len(legal) < 2:
+    if not targets or len(targets) < 2:
         return []
-    def _on_target(ch, selected, st):
-        return [
-            Event(
-                type=EventType.RETURN_FROM_GRAVEYARD,
-                payload={'card_id': cid, 'destination': 'hand'},
-                source=spell_id, controller=caster_id,
-            ) for cid in (selected or [])
-        ]
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Unbury: choose two creature cards (engine gap: shared-type not enforced)",
-        min_targets=2, max_targets=2,
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
+    return [
+        Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={'card_id': t.id, 'destination': 'hand'},
+            source=spell_id, controller=caster_id,
+        )
+        for t in targets[:2]
+    ]
 
 
 UNBURY = make_instant(
@@ -4927,8 +4851,30 @@ UNBURY = make_instant(
     resolve=make_modal_resolve(
         "Unbury",
         modes=[
-            ("Return target creature card from your graveyard to your hand", _unbury_mode_one),
-            ("Return two target creature cards (shared-type partial)", _unbury_mode_two),
+            ModeSpec(
+                "Return target creature card from your graveyard to your hand",
+                _unbury_mode_one,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(
+                        types={CardType.CREATURE},
+                        zones=[ZoneType.GRAVEYARD],
+                        controller='you',
+                    ),
+                    count=1, label="target creature card in your graveyard",
+                ),
+            ),
+            ModeSpec(
+                "Return two target creature cards (shared-type partial)",
+                _unbury_mode_two,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(
+                        types={CardType.CREATURE},
+                        zones=[ZoneType.GRAVEYARD],
+                        controller='you',
+                    ),
+                    count=2, label="two target creature cards in your graveyard",
+                ),
+            ),
         ],
         min_modes=1, max_modes=1,
     ),

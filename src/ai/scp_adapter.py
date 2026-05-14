@@ -254,19 +254,24 @@ class SCPAIAdapter:
             elif kind == "veil_lockdown":
                 gap = max(0, 3 - opp_site["archives"]) + opp_site["breach"]
             elif kind == "ethics_audit":
-                gap = max(0, 4 - opp_site["archives"]) + max(0, 8 - opp_site["secrecy"]) + max(0, opp_site["ethics_debt"] - 2)
+                # Threshold tracks check_scp_victory secrecy 8 -> 7 (May 2026
+                # archetype-trace audit). ethics_debt term retained as a soft
+                # signal even though the engine no longer enforces it.
+                gap = max(0, 4 - opp_site["archives"]) + max(0, 7 - opp_site["secrecy"]) + max(0, opp_site["ethics_debt"] - 2)
             elif kind == "public_panic":
                 gap = max(0, 4 - opp_site["archives"])
             elif kind == "memory_hole":
-                # MNR alt-win: 3 forgotten opposing anomalies + secrecy >= 10.
-                # Estimate the gap as the deficit on both axes summed.
+                # MNR alt-win: 3 forgotten anomalies (across all players) +
+                # secrecy >= 8. Estimate the gap as the deficit on both axes
+                # summed. Threshold tracks the engine value in check_scp_victory
+                # (lowered 10 -> 8 in the May 2026 archetype-trace audit).
                 forgotten_total = 0
                 if hasattr(state, "scp_forgotten"):
                     for fp_id in state.players:
                         if fp_id == opponent_id:
                             continue
                         forgotten_total += len(state.scp_forgotten.get(fp_id, []))
-                gap = max(0, 3 - forgotten_total) + max(0, 10 - opp_site["secrecy"])
+                gap = max(0, 3 - forgotten_total) + max(0, 8 - opp_site["secrecy"])
             else:
                 gap = 99
             if gap < closest_distance:
@@ -467,6 +472,13 @@ class SCPAIAdapter:
                 break
             site = scp.site(state, player_id)
 
+            # MNR memory_hole engine signal — counted once per turn so the
+            # nested score() can read it without rescanning state.
+            mnr_total_forgotten = (
+                sum(len(state.scp_forgotten.get(pid, [])) for pid in state.players)
+                if own_alt_win == "memory_hole" else 0
+            )
+
             def score(card_id: str) -> tuple[int, int, str]:
                 obj = state.objects[card_id]
                 types = obj.characteristics.types
@@ -479,8 +491,48 @@ class SCPAIAdapter:
                 quarantine = "quarantine" in text
                 anchor = "anchor" in text
                 clean_hands = "ethics" in text and self.pilot == "clean_hands"
+                # Secrecy-pump priority for alt-wins that require secrecy
+                # thresholds (May 2026 archetype-trace fix):
+                #   - memory_hole: 3+ forgotten + secrecy >= 8
+                #   - ethics_audit: 4 archives + secrecy >= 7
+                #   - redaction: archives + secrecy >= 12
+                # When below the win-line secrecy, secrecy-pump procedures are
+                # the primary clock. The old score() default sent procedures
+                # with neither Audit/Raid/Bureaucracy nor a pilot-keyword to
+                # rank=4 ("play if nothing better"), which left Witness
+                # Relocation / Class-A Amnestic Broadcast / Incident Report
+                # Rewrite dead in ETH and MNR despite being the deck's actual
+                # win-clock cards. We rank these AFTER the stabilizer check
+                # below so emergency breach control still takes priority.
+                secrecy_pump = "secrecy +" in text and CardType.SCP_PROCEDURE in types
+                secrecy_target = (
+                    8 if own_alt_win == "memory_hole"
+                    else 7 if own_alt_win == "ethics_audit"
+                    else 12 if own_alt_win == "redaction"
+                    else None
+                )
+                alt_win_secrecy_pump = (
+                    secrecy_pump
+                    and secrecy_target is not None
+                    and site["secrecy"] < secrecy_target
+                )
+                # Recovery procedures pop forgotten anomalies back, but under
+                # memory_hole the forgotten pile is the win condition (3+
+                # forgotten + 8 secrecy). Only prio Recovery when we already
+                # have surplus forgotten (4+); below that, leave forgotten in
+                # place to keep racking the alt-win threshold.
+                is_recovery = "Recovery" in subtypes and CardType.SCP_PROCEDURE in types
+                alt_win_recovery = (
+                    own_alt_win == "memory_hole"
+                    and is_recovery
+                    and mnr_total_forgotten >= 4
+                )
                 if stabilizer and (site["breach"] >= 4 or site["secrecy"] <= 6):
                     rank = -1
+                elif alt_win_secrecy_pump:
+                    rank = 0
+                elif alt_win_recovery:
+                    rank = 0
                 elif CardType.SCP_PROCEDURE in types and rotation and self.pilot == "rotation":
                     rank = 0
                 elif CardType.SCP_PROCEDURE in types and quarantine and self.pilot == "quarantine" and active_anomalies:

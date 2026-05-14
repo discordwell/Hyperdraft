@@ -75,6 +75,14 @@ class YugiohAIAdapter:
         if flip:
             return flip
 
+        # 3.5 Activate face-up monster ignition / quick effects (once per turn).
+        # Run this before spells so the AI uses monster-effect engines while
+        # they're available — disruption monsters like Eight-and-a-Half-Tails
+        # and Boseiju Mechanical Bridgekeeper depend on it.
+        ignition = self._pick_monster_ignition(monsters, player_id, state, turn_state, opp_monsters)
+        if ignition:
+            return ignition
+
         # 4. Activate spells from hand
         spell = self._pick_spell_activation(hand, player_id, state, opp_id, opp_monsters, monsters)
         if spell:
@@ -553,6 +561,110 @@ class YugiohAIAdapter:
                     }
 
         return None
+
+    # === Monster Ignition / Quick Effects ===
+
+    # Text markers identifying once-per-turn player-activated effects.
+    _IGNITION_TEXT_MARKERS = (
+        "once per turn",
+        "(ignition)",
+        "ignition:",
+        "ignition effect",
+        "quick effect",
+        "(quick)",
+    )
+
+    def _has_ignition_effect(self, obj: 'GameObject') -> bool:
+        """Heuristic check — does this monster expose a once-per-turn surface?"""
+        if not obj or not obj.card_def:
+            return False
+        text = (getattr(obj.card_def, 'text', '') or '').lower()
+        return any(marker in text for marker in self._IGNITION_TEXT_MARKERS)
+
+    def _score_ignition_effect(self, obj: 'GameObject',
+                               opp_monsters: list, my_monsters: list,
+                               player_id: str, state: GameState) -> int:
+        """Score the value of activating a monster's ignition effect.
+
+        Bonuses:
+        - +200 per opponent monster the effect can plausibly hit (removal)
+        - +150 per "draw"/"search"/"add to hand" marker (card advantage)
+        - +100 per "damage"/"inflict" marker (burn)
+        - +80 per own-monster pump marker (combat support)
+        - small flat bonus so any ignition fires over passing the phase
+        """
+        if not obj.card_def:
+            return -1
+        text = (getattr(obj.card_def, 'text', '') or '').lower()
+        score = 30  # Baseline — firing any once-per-turn engine beats passing.
+
+        removal_terms = ("destroy", "banish", "send 1", "to gy", "return ",
+                         "bounce", "shuffle")
+        if any(term in text for term in removal_terms):
+            # Each opposing target multiplies the value.
+            visible_opp = [m for m in opp_monsters
+                           if not getattr(m.state, "face_down", False)]
+            score += 200 * (1 + len(visible_opp))
+
+        if any(term in text for term in ("draw", "search", "add 1", "add to hand")):
+            score += 150
+
+        if any(term in text for term in ("damage", "inflict", "burn")):
+            score += 100
+
+        if any(term in text for term in ("gain ", "atk", "pump")):
+            score += 80 * max(1, len(my_monsters))
+
+        if "discard" in text and "opponent" in text:
+            score += 250  # Hand disruption is high-leverage in YGO.
+
+        # Defensive ignitions (e.g. "this card cannot be destroyed")
+        # are still worth playing on tempo.
+        if "cannot" in text or "negate" in text:
+            score += 60
+
+        return score
+
+    def _pick_monster_ignition(self, monsters: list, player_id: str,
+                               state: GameState,
+                               turn_state: 'YugiohTurnState',
+                               opp_monsters: list) -> Optional[dict]:
+        """Pick the highest-scoring face-up monster ignition effect to fire.
+
+        Skips monsters that already fired this turn (gated by
+        ``obj.state.ignition_used_turn``). Returns an action dict the
+        YGO turn manager can dispatch through ``_execute_action``.
+        """
+        cur_turn = getattr(turn_state, 'turn_number', 0)
+        my_monsters = monsters
+        candidates: list[tuple[int, 'GameObject']] = []
+        for obj in monsters:
+            if getattr(obj.state, 'face_down', False):
+                continue
+            pos = getattr(obj.state, 'ygo_position', None)
+            if pos not in ('face_up_atk', 'face_up_def'):
+                continue
+            if getattr(obj.state, 'ignition_used_turn', None) == cur_turn:
+                continue
+            if not self._has_ignition_effect(obj):
+                continue
+            score = self._score_ignition_effect(
+                obj, opp_monsters, my_monsters, player_id, state
+            )
+            if score <= 0:
+                continue
+            candidates.append((score, obj))
+
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        _, chosen = candidates[0]
+        return {
+            'action_type': 'activate_monster_effect',
+            'card_id': chosen.id,
+            'monster_id': chosen.id,
+            'effect_index': 0,
+        }
 
     # === Battle Phase Logic ===
 

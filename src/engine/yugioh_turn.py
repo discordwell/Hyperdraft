@@ -388,6 +388,8 @@ class YugiohTurnManager(TurnManager):
             events.extend(self._do_set_spell_trap(player_id, action))
         elif action_type == 'special_summon':
             events.extend(self._do_special_summon(player_id, action))
+        elif action_type == 'activate_monster_effect':
+            events.extend(self._do_activate_monster_effect(player_id, action))
 
         if self.pipeline:
             processed = []
@@ -433,6 +435,8 @@ class YugiohTurnManager(TurnManager):
             cb(f"{name} changed {card_name or 'a monster'}'s position.", "position", player_id)
         elif action_type == 'special_summon':
             cb(f"{name} Special Summoned {card_name or 'a monster'}!", "summon", player_id)
+        elif action_type == 'activate_monster_effect':
+            cb(f"{name} activated {card_name or 'a monster'}'s effect!", "activate", player_id)
 
     # === Normal Summon / Tribute Summon ===
 
@@ -813,6 +817,64 @@ class YugiohTurnManager(TurnManager):
             source=card_id,
             controller=player_id,
         ))
+
+        return events
+
+    # === Activate Monster Effect (Ignition / Quick) ===
+
+    def _do_activate_monster_effect(self, player_id: str, action: dict) -> list[Event]:
+        """Activate a face-up monster's Ignition or Quick effect.
+
+        This is the YGO surface for monster effects registered via
+        ``make_ygo_ignition_effect`` / ``make_ygo_quick_effect`` in
+        ``yugioh_helpers.py``. The handler emits a single
+        ``YGO_ACTIVATE_MONSTER_EFFECT`` event; the matching interceptor
+        catches it and the pipeline re-emits whatever events the card's
+        ``effect_fn`` returns.
+
+        Per-turn limits are tracked by setting
+        ``obj.state.ignition_used_turn = self.ygo_turn_state.turn_number``
+        after activation. The legality gate in ``yugioh_legal_actions.py``
+        checks this counter.
+        """
+        events: list[Event] = []
+        card_id = action.get('card_id') or action.get('monster_id')
+        targets = action.get('targets') or []
+        effect_index = action.get('effect_index', 0)
+
+        obj = self.state.objects.get(card_id)
+        if not obj or obj.zone != ZoneType.MONSTER_ZONE:
+            return events
+        # Must be face-up to activate an ignition effect.
+        if getattr(obj.state, 'face_down', False):
+            return events
+        # Only the controller may activate an ignition effect (Quick Effects
+        # may relax this — for now we honor controller, matching the existing
+        # action surface).
+        if obj.controller != player_id:
+            return events
+        # Once-per-turn gate.
+        last_used = getattr(obj.state, 'ignition_used_turn', None)
+        if last_used == self.ygo_turn_state.turn_number:
+            return events
+
+        events.append(Event(
+            type=EventType.YGO_ACTIVATE_MONSTER_EFFECT,
+            payload={
+                'monster_id': card_id,
+                'card_id': card_id,  # alias for any legacy listeners
+                'card_name': obj.name,
+                'player': player_id,
+                'controller': player_id,
+                'effect_index': effect_index,
+                'targets': targets,
+            },
+            source=card_id,
+            controller=player_id,
+        ))
+
+        # Mark the gate AFTER we emit so the interceptor sees the same turn.
+        obj.state.ignition_used_turn = self.ygo_turn_state.turn_number
 
         return events
 

@@ -1088,7 +1088,13 @@ def check_scp_victory(game, *, source: Optional[str] = None) -> list[Event]:
             # archetype's own anomalies seed ethics_debt on reveal, so the
             # old requirement directly fought its win condition. Now just
             # archives + secrecy, matching public_panic's complexity.
-            if alt_win == "ethics_audit" and s["archives"] >= 4 and s["secrecy"] >= 8:
+            # Secrecy 8 -> 7: archetype-trace audit (May 2026) found ETH's
+            # secrecy ceiling is median 6-7 across vs SCR and vs ACW; the 8
+            # threshold meant ethics_audit alt-win never fired in 10 games.
+            # Dropping to 7 puts the win condition in reach of the deck's
+            # actual secrecy generation while keeping it above the loss
+            # threshold (secrecy <= 0).
+            if alt_win == "ethics_audit" and s["archives"] >= 4 and s["secrecy"] >= 7:
                 events.extend(_declare_site_win(game, player_id, "ethics_audit", source=mandate.id))
             if alt_win == "public_panic" and s["archives"] >= 4:
                 exposed_opponent = any(
@@ -1100,7 +1106,7 @@ def check_scp_victory(game, *, source: Optional[str] = None) -> list[Event]:
                 if exposed_opponent:
                     events.extend(_declare_site_win(game, player_id, "public_panic", source=mandate.id))
             # MNR alt-win: 3+ forgotten anomalies (across ALL players) +
-            # secrecy >= 10. ``scp_forgotten`` is the MNR-only zone populated
+            # secrecy >= 8. ``scp_forgotten`` is the MNR-only zone populated
             # by ``forget_anomaly``. Originally counted opposing-only forgets,
             # but only MNR runs Antimeme anomalies, so the opposing-only
             # variant was effectively mirror-match-only. The new formula
@@ -1110,11 +1116,16 @@ def check_scp_victory(game, *, source: Optional[str] = None) -> list[Event]:
             # branch above counts ``scp_contained`` only, which
             # ``forget_anomaly`` explicitly removes from — so a forgotten
             # anomaly never double-counts for both win conditions.
+            # Secrecy 10 -> 8: archetype-trace audit (May 2026) reported
+            # MNR's secrecy ceiling is median 7 across 40 games. At 10
+            # the win was mechanically unreachable. At 8, the deck's two
+            # explicit secrecy-pumps (Class-A Amnestic Broadcast +3,
+            # Witness Relocation +2) plus normal +1s push through.
             if alt_win == "memory_hole":
                 total_forgotten = sum(
                     len(state.scp_forgotten.get(pid, [])) for pid in state.players
                 )
-                if total_forgotten >= 3 and s["secrecy"] >= 10:
+                if total_forgotten >= 3 and s["secrecy"] >= 8:
                     events.extend(_declare_site_win(game, player_id, "memory_hole", source=mandate.id))
             # MNR alt-win: 4 active Mnestic personnel (printed mnestic OR
             # Wake-gained) and 4+ archives. Active-only excludes
@@ -1665,24 +1676,57 @@ def forget_anomaly(game, anomaly_id: str, *, source: Optional[str] = None) -> li
     ))
 
 
+def has_unexhausted_mnestic(state: GameState, player_id: str) -> bool:
+    """Variant of ``has_mnestic`` that requires the Mnestic personnel to be
+    unexhausted. Used by ``tick_antimeme_counters`` (May 2026 audit fix) so the
+    decay clock advances on turns where every Mnestic personnel has been
+    tapped out by assignments. Distinct from ``has_mnestic`` so the
+    ``mnestic_saturation`` alt-win still counts active-but-exhausted personnel
+    (designers explicitly rejected the unexhausted rider for that count).
+    """
+    ensure_scp_state(state, player_id)
+    for staff_id in list(state.scp_personnel.get(player_id, [])):
+        staff = state.objects.get(staff_id)
+        if not staff or staff.zone != ZoneType.BATTLEFIELD:
+            continue
+        if staff.state.scp_status != "active":
+            continue
+        if getattr(staff.state, "scp_exhausted", False):
+            continue
+        if bool(getattr(staff.card_def, "scp_mnestic", False)):
+            return True
+        if bool(getattr(staff.state, "scp_mnestic_gained", False)):
+            return True
+    return False
+
+
 def tick_antimeme_counters(game, player_id: str) -> list[Event]:
     """End-of-turn hook for ``player_id``. Advance every antimeme anomaly.
 
     For each anomaly P that ``player_id`` controls (active OR contained):
       - If P.card_def declares ``scp_antimeme = N`` (N>=1)
-      - AND ``has_mnestic(state, player_id)`` is False
+      - AND no UNEXHAUSTED Mnestic personnel is active for ``player_id``
       - Then P.state.scp_forget_counters += 1
       - If the new counter >= N, call ``forget_anomaly(game, P.id)``.
 
-    Anomalies controlled by a Mnestic-covered Site do NOT accumulate, but
-    they also do NOT reset — once a counter is on, the only way to clear
-    it is to forget the card (or future bespoke MNR cards). This is by
-    design: the antimeme is silently chewing through the dossier even
-    when a researcher temporarily remembers it.
+    Mnestic blocks decay only when the personnel are actually paying
+    attention — exhausted-from-action Mnestic personnel let the antimeme
+    slip through. This is by design (May 2026 audit): with the previous
+    "any active Mnestic" gate, MNR decks that committed to keeping Mnestic
+    on board could never produce ``scp_forgotten`` cards, blocking the
+    memory_hole alt-win. The exhaust gate honors the design rationale
+    ("the antimeme is silently chewing through the dossier even when a
+    researcher temporarily remembers it") — researchers who just spent
+    the turn doing something else aren't remembering anything.
+
+    Anomalies covered by an unexhausted Mnestic personnel do NOT
+    accumulate, but they also do NOT reset — once a counter is on, the
+    only way to clear it is to forget the card (or future bespoke MNR
+    cards).
     """
     state = game.state
     ensure_scp_state(state, player_id)
-    if has_mnestic(state, player_id):
+    if has_unexhausted_mnestic(state, player_id):
         return []
     events: list[Event] = []
     # Both active and contained anomalies can accumulate. The decay clock

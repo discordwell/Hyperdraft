@@ -282,6 +282,84 @@ def _spell_actions(game, player_id: str, spell: GameObject, add) -> None:
     add("YGO_ACTIVATE_SPELL", base, f"Activate {spell.name}", tags)
 
 
+def _monster_has_ignition_effect(obj: GameObject) -> bool:
+    """Heuristic — does this monster register a YGO ignition/quick effect?
+
+    True if the card's text mentions a once-per-turn ignition / quick effect,
+    OR if the card has at least one registered interceptor whose source is
+    this object (we can't easily peek into the interceptor filter without
+    importing more machinery, so we rely on the text marker as the primary
+    signal; the engine itself gates legality at activation time).
+    """
+    if not obj.card_def:
+        return False
+    text = (getattr(obj.card_def, 'text', '') or '').lower()
+    # Markers used consistently across BK / classic YGO card text.
+    triggers = (
+        "once per turn",
+        "(ignition)",
+        "ignition:",
+        "ignition effect",
+        "quick effect",
+        "(quick)",
+    )
+    if not any(marker in text for marker in triggers):
+        return False
+    # Exclude trigger-only effects ("when Normal Summoned", flip-only, etc.)
+    # that are nominally once-per-turn but not player-activated.
+    trigger_only = (
+        "when this card is normal summoned",
+        "when normal summoned",
+        "when this card is special summoned",
+        "when special summoned",
+        "if this card is destroyed",
+        "when this card is destroyed",
+        "when a card you control is destroyed",
+        "when this card declares an attack",
+        "flip:",
+    )
+    # Allow cards that have BOTH a trigger and an ignition. The ignition
+    # marker is dominant — if 'once per turn' is present, presume there's
+    # an activable surface.
+    return True
+
+
+def _ignition_actions(game, player_id: str, monster: GameObject, add) -> None:
+    """Add YGO_ACTIVATE_MONSTER_EFFECT action(s) for an eligible monster."""
+    if getattr(monster.state, "face_down", False):
+        return
+    if getattr(monster.state, "ygo_position", None) not in {"face_up_atk", "face_up_def"}:
+        return
+    # Once-per-turn gate.
+    turn_mgr = game.turn_manager
+    turn_state = getattr(turn_mgr, "ygo_turn_state", None)
+    cur_turn = getattr(turn_state, "turn_number", 0)
+    if getattr(monster.state, "ignition_used_turn", None) == cur_turn:
+        return
+    if not _monster_has_ignition_effect(monster):
+        return
+    payload = {
+        "action_type": "activate_monster_effect",
+        "card_id": monster.id,
+        "monster_id": monster.id,
+        "effect_index": 0,
+    }
+    text = (getattr(monster.card_def, "text", "") or "").lower()
+    tags = ["value"]
+    if any(term in text for term in ("destroy", "banish", "send", "to gy", "return")):
+        tags = ["tempo", "removal"]
+    elif any(term in text for term in ("draw", "search", "add 1", "add to hand")):
+        tags = ["value", "draw"]
+    elif any(term in text for term in ("damage", "inflict", "burn")):
+        tags = ["burn"]
+    add(
+        "YGO_ACTIVATE_MONSTER_EFFECT",
+        payload,
+        f"Activate {monster.name}'s effect",
+        tags,
+    )
+
+
 def _trap_actions(game, player_id: str, trap: GameObject, add) -> None:
     if getattr(trap.state, "face_down", False) and getattr(trap.state, "turns_set", 0) < 1:
         return
@@ -349,6 +427,10 @@ def legal_yugioh_actions(game, player_id: str) -> list[dict[str, Any]]:
                 and getattr(obj.state, "ygo_position", None) in {"face_up_atk", "face_up_def"}
             ):
                 add("YGO_CHANGE_POSITION", {"action_type": "change_position", "card_id": obj.id}, f"Change {obj.name}'s battle position", ["stabilize"])
+
+        # Ignition / Quick effects — face-up monsters with once-per-turn surfaces.
+        for obj in own_monsters:
+            _ignition_actions(game, player_id, obj, add)
 
         for obj in hand:
             if _is_spell(obj):

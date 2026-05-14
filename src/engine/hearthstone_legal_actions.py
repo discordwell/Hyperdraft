@@ -357,7 +357,21 @@ async def _execute_card_play(game, player_id: str, card_id: str | None, targets:
         return events
 
     player.mana_crystals_available -= cost
-    if CardType.MINION in card.characteristics.types or CardType.WEAPON in card.characteristics.types:
+    if (
+        CardType.MINION in card.characteristics.types
+        or CardType.WEAPON in card.characteristics.types
+        or CardType.SECRET in card.characteristics.types
+    ):
+        # Secrets share battlefield-entry semantics with weapons: their
+        # `setup_interceptors` register an interceptor gated
+        # ``duration='while_on_battlefield'`` that goes live once the
+        # secret's source object moves into BATTLEFIELD. (See audit
+        # commit 535b7598 — without this branch the SECRET elif chain
+        # silently no-ops: no mana deduction, no hand → battlefield
+        # zone move, no interceptor activation.)
+        # NOTE: Real Hearthstone forbids casting a duplicate active
+        # secret and caps at 5 active secrets per player. The legal-
+        # action generator does not enforce that today — TODO follow-on.
         zone_event = Event(
             type=EventType.ZONE_CHANGE,
             payload={

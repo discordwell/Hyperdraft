@@ -354,6 +354,7 @@ async def apply_action_id(
         "YGO_ACTIVATE_SPELL",
         "YGO_ACTIVATE_TRAP",
         "YGO_SET_SPELL_TRAP",
+        "YGO_ACTIVATE_MONSTER_EFFECT",
     }:
         events.extend(turn_mgr._execute_action(player_id, payload))
     else:  # pragma: no cover - legal generator controls action types.
