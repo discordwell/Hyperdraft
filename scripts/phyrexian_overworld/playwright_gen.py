@@ -98,14 +98,34 @@ def _slug_safe_in(prompt: str, fname: str) -> bool:
 
 
 def load_queue(queue_path: Path, out_dir: Path) -> list[dict]:
-    """Read draw_prompts.json and filter out cards whose PNG already exists."""
+    """Read draw_prompts.json and filter out cards whose PNG already exists.
+
+    Accepts both schema shapes:
+      v1 (Phyrexia/minecraft-era): a flat list of ``{filename, prompt, ...}``
+      v2 (post-FBN art_harness):   ``{version, entries: [{output_file,
+                                     filename, prompt, ...}], ...}``
+    """
     data = json.loads(queue_path.read_text(encoding="utf-8"))
-    remaining = [
-        e for e in data
-        if "filename" in e and "prompt" in e
-        and _slug_safe_in(e["prompt"], e["filename"])
-        and not (out_dir / e["filename"]).exists()
-    ]
+    if isinstance(data, dict) and "entries" in data:
+        raw = data["entries"]
+    else:
+        raw = data
+
+    remaining = []
+    for e in raw:
+        if "prompt" not in e:
+            continue
+        # v2 prefers ``output_file``; v1 used ``filename``. The art_harness
+        # writes both during the transition, so this picks whichever is set.
+        fname = e.get("filename") or e.get("output_file")
+        if not fname or not _slug_safe_in(e["prompt"], fname):
+            continue
+        if (out_dir / fname).exists():
+            continue
+        # Normalise so the rest of the script can reference ``filename``.
+        if "filename" not in e:
+            e["filename"] = fname
+        remaining.append(e)
     return remaining
 
 
