@@ -20,7 +20,11 @@ _count_attacking_traders reads 1), then emit ATTACK_DECLARED with attacker_id.
 from __future__ import annotations
 
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/HYPERDRAFT')
+from pathlib import Path
+
+# Use the actual test-file location, not a hardcoded main-project path —
+# otherwise tests running in a worktree pick up cards from the wrong source.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.engine.types import (
     CardType, EventType, Event, ZoneType, new_id,
