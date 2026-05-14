@@ -680,6 +680,365 @@ class PrioritySystem:
             interaction_mode="overlay",
         )
 
+    # ------------------------------------------------------------------
+    # Phase 5b: activated-ability cast-time target picker
+    # ------------------------------------------------------------------
+    def _emit_activate_target_choice_step(
+        self,
+        action: PlayerAction,
+        ability,
+        source,
+        reqs: list,
+        idx: int,
+        accumulated: list,
+        targeting,
+    ) -> Optional[list[Event]]:
+        """Recursive helper: emit choice for reqs[idx], chain to idx+1 on resolve.
+
+        Structural twin of ``_emit_cast_target_choice_step`` but for activated
+        abilities. CR 602.1 mandates announce -> choose targets -> pay costs,
+        so the choice fires BEFORE ``can_pay_activation`` / ``pay_activation_cost``.
+        Base case re-enters ``_handle_activate_registered_ability_sync`` with
+        ``dataclasses.replace(action, targets=accumulated)``.
+
+        ``reqs`` entries may be plain ``TargetRequirement`` or
+        ``TargetRequirementBuilder`` callables (cross-target support); the
+        builder receives the IDs picked for earlier requirements.
+
+        Returns:
+            - ``[]`` choice paused — PendingChoice is set on state.
+            - ``None`` no choice emitted (no requirements, no legal targets
+              for a non-optional req).
+        """
+        import dataclasses
+        from .pending_choice_helpers import create_choice_and_resolve
+        from .targeting import Target, resolve_target_requirement_spec
+
+        # Base case: all requirements satisfied — re-enter the activation.
+        if idx >= len(reqs):
+            new_action = dataclasses.replace(action, targets=accumulated)
+            return self._handle_activate_registered_ability_sync(new_action, source)
+
+        accumulated_ids: list[list[str]] = []
+        for picks in accumulated:
+            accumulated_ids.append([
+                (t.id if hasattr(t, 'id') else t) for t in picks
+            ])
+
+        try:
+            req = resolve_target_requirement_spec(
+                reqs[idx], self.state, action.player_id, accumulated_ids
+            )
+        except TypeError:
+            # Malformed spec — abort without cost paid.
+            return []
+
+        legal_ids = targeting.get_legal_targets(req, source, action.player_id)
+        if not legal_ids:
+            # No legal target. For optional requirements (count_type='up_to'
+            # with min=0), advance with an empty pick list. Otherwise abort
+            # cleanly — CR 602.1 says no cost is paid yet, so the player
+            # simply walks away.
+            if req.min_targets() == 0 and getattr(req, "divide_amount", None) is None:
+                return self._emit_activate_target_choice_step(
+                    action, ability, source, reqs, idx + 1,
+                    accumulated + [[]], targeting,
+                )
+            return []
+
+        # Build options for the modal.
+        options: list[dict] = []
+        for tid in legal_ids:
+            obj = self.state.objects.get(tid)
+            if obj is not None:
+                label = getattr(obj, "name", None) or tid
+                option = {"id": tid, "label": label, "name": label}
+                if hasattr(obj, "characteristics"):
+                    chs = obj.characteristics
+                    if chs.toughness is not None:
+                        option["life"] = (chs.toughness or 0) - int(
+                            getattr(obj.state, "damage", 0) or 0
+                        )
+                    option["type"] = (
+                        "creature"
+                        if any(
+                            t.name == "CREATURE"
+                            for t in getattr(chs, "types", set()) or set()
+                        )
+                        else "permanent"
+                    )
+            else:
+                player = self.state.players.get(tid)
+                label = getattr(player, "name", None) or f"Player {tid[:8]}"
+                option = {
+                    "id": tid,
+                    "label": label,
+                    "name": label,
+                    "type": "player",
+                }
+                if player is not None:
+                    option["life"] = getattr(player, "life", 0)
+            options.append(option)
+
+        priority_sys = self
+        state_snapshot = self.state
+
+        divide_amount = getattr(req, "divide_amount", None)
+        if divide_amount is not None:
+            if callable(divide_amount):
+                try:
+                    total_amount = int(divide_amount(self.state, action.player_id) or 0)
+                except Exception:
+                    total_amount = 0
+            else:
+                total_amount = int(divide_amount or 0)
+
+            if total_amount <= 0:
+                return []
+
+            def divide_handler(choice, selected, st):
+                allocations: list[tuple[str, int]] = []
+                if isinstance(selected, dict):
+                    for tid, amt in selected.items():
+                        allocations.append((str(tid), int(amt or 0)))
+                elif isinstance(selected, list):
+                    for item in selected:
+                        if isinstance(item, dict):
+                            tid = item.get("target_id") or item.get("id")
+                            amt = int(item.get("amount", 0) or 0)
+                            if tid:
+                                allocations.append((str(tid), amt))
+                        elif isinstance(item, tuple) and len(item) == 2:
+                            allocations.append((str(item[0]), int(item[1] or 0)))
+
+                picked: list[Target] = []
+                for tid, amt in allocations:
+                    if amt <= 0:
+                        continue
+                    is_player = tid in state_snapshot.players
+                    picked.append(Target(
+                        id=tid,
+                        is_player=is_player,
+                        divided_amount=amt,
+                    ))
+                return priority_sys._emit_activate_target_choice_step(
+                    action, ability, source, reqs, idx + 1,
+                    accumulated + [picked], targeting,
+                )
+
+            heuristic = [{"target_id": legal_ids[0], "amount": total_amount}]
+            prompt = req.label or f"Allocate {total_amount} among targets"
+            return create_choice_and_resolve(
+                self.state,
+                choice_type="divide_allocation",
+                player_id=action.player_id,
+                prompt=prompt,
+                options=options,
+                source_id=source.id,
+                min_choices=1,
+                max_choices=len(options),
+                handler=divide_handler,
+                heuristic_pick=heuristic,
+                total_amount=total_amount,
+                effect="damage",
+                interaction_mode="overlay",
+            )
+
+        def handler(choice, selected, st):
+            picked_ids = [s.get("id") if isinstance(s, dict) else s for s in selected]
+            picked: list[Target] = []
+            for tid in picked_ids:
+                is_player = tid in state_snapshot.players
+                picked.append(Target(id=tid, is_player=is_player))
+            # Mirror the cast handler: clear the pending_choice here so the
+            # recursive re-entry doesn't trip its own pending-choice guard
+            # on the AI inline path (cast does this at priority.py:645).
+            st.pending_choice = None
+            return priority_sys._emit_activate_target_choice_step(
+                action, ability, source, reqs, idx + 1,
+                accumulated + [picked], targeting,
+            )
+
+        min_t = req.min_targets()
+        max_t = req.max_targets()
+        heuristic_count = max(1, min_t)
+        heuristic_picks = legal_ids[:min(heuristic_count, len(legal_ids))]
+        return create_choice_and_resolve(
+            self.state,
+            choice_type="target",
+            player_id=action.player_id,
+            prompt=req.label or "Choose a target",
+            options=options,
+            source_id=source.id,
+            min_choices=min_t,
+            max_choices=int(max_t) if max_t != float('inf') else len(options),
+            handler=handler,
+            heuristic_pick=heuristic_picks,
+            interaction_mode="overlay",
+        )
+
+    def _handle_activate_registered_ability_sync(
+        self, action: PlayerAction, source,
+    ) -> list[Event]:
+        """Sync core of registered ``activated:N`` ability dispatch.
+
+        Factored out of ``_handle_activate_ability`` so the Phase 5b
+        target-choice handler can re-enter the activation flow with baked-in
+        ``action.targets``. The async outer handler also delegates here when
+        ``action.ability_id`` starts with ``"activated:"``.
+
+        Order matches CR 602.1: identify ability → emit cast-time target
+        choice (if declared and empty) → pay costs → push stack item.
+        """
+        from .activated import (
+            can_pay_activation,
+            pay_activation_cost,
+            record_activation,
+        )
+        from .cost_query import get_effective_activation_cost
+
+        events: list[Event] = []
+        pushed_stack_item = False
+
+        if not action.ability_id or not action.ability_id.startswith("activated:"):
+            return []
+        try:
+            idx = int(action.ability_id.split(":", 1)[1])
+        except ValueError:
+            return []
+        abilities = getattr(source.state, "activated_abilities", []) or []
+        if not (0 <= idx < len(abilities)):
+            return []
+        ability = abilities[idx]
+
+        # Phase 5b: engine-authoritative cast-time targeting. If the ability
+        # declares ``target_requirements`` and the action arrives without
+        # pre-supplied targets, emit a chained PendingChoice and pause the
+        # activation — BEFORE paying any cost (CR 602.1). Pre-supplied
+        # targets (drag-to-target / AI ``_select_activated_targets``) skip
+        # this path entirely.
+        if (
+            not action.targets
+            and getattr(ability, 'target_requirements', None)
+        ):
+            from .targeting import TargetingSystem
+            # Never start a new picker while another choice is pending.
+            if self.state.pending_choice is not None:
+                return []
+            paused = self._emit_activate_target_choice_step(
+                action, ability, source,
+                ability.target_requirements, 0, [],
+                TargetingSystem(self.state),
+            )
+            if paused is not None:
+                return paused
+
+        _is_active = (
+            self.turn_manager is not None
+            and self.turn_manager.turn_state.active_player_id == action.player_id
+        )
+        _is_main = False
+        if self.turn_manager is not None:
+            from .turn import Phase as _Phase
+            _is_main = self.turn_manager.turn_state.phase in (
+                _Phase.PRECOMBAT_MAIN, _Phase.POSTCOMBAT_MAIN
+            )
+        _stack_empty = (self.stack is None) or (len(self.stack.items) == 0)
+        _x = int(getattr(action, 'x_value', 0) or 0)
+        _effective_cost = None
+        if ability.mana_cost is not None:
+            try:
+                _effective_cost = get_effective_activation_cost(
+                    ability, source, action.player_id, self.state,
+                )
+            except Exception:
+                _effective_cost = ability.mana_cost
+        if not can_pay_activation(
+            ability, source, self.state, action.player_id,
+            mana_system=self.mana_system,
+            is_active_player=_is_active,
+            is_main_phase=_is_main,
+            stack_empty=_stack_empty,
+            x_value=_x,
+            effective_mana_cost=_effective_cost,
+        ):
+            return []
+        # Pay costs (mana paid via mana_system; tap/sac/etc emit events).
+        events.extend(pay_activation_cost(
+            ability, source, self.state, action.player_id,
+            mana_system=self.mana_system,
+            x_value=_x,
+            effective_mana_cost=_effective_cost,
+        ))
+        _src_id = source.id
+        _effect_fn = ability.effect_fn
+
+        try:
+            _sig = inspect.signature(_effect_fn)
+            _accepts_x = (
+                'x_value' in _sig.parameters
+                or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD
+                    for p in _sig.parameters.values()
+                )
+            )
+        except (TypeError, ValueError):
+            _accepts_x = False
+
+        def _resolve_activated(targets, st: GameState) -> list[Event]:
+            obj = st.objects.get(_src_id)
+            if obj is None:
+                return []
+            flat: list = []
+            for group in (targets or []):
+                if isinstance(group, list):
+                    flat.extend(group)
+                else:
+                    flat.append(group)
+            try:
+                if _accepts_x:
+                    return list(_effect_fn(obj, st, flat, x_value=_x) or [])
+                return list(_effect_fn(obj, st, flat) or [])
+            except Exception:
+                return []
+
+        if self.stack:
+            self.stack.push(StackItem(
+                id="",
+                type=StackItemType.ACTIVATED_ABILITY,
+                source_id=source.id,
+                controller_id=action.player_id,
+                chosen_targets=action.targets,
+                resolve_fn=_resolve_activated,
+            ))
+            pushed_stack_item = True
+        record_activation(ability, self.state)
+        # === Crime tracking (OTJ) ===
+        from .crime import check_cast_targets_for_crime as _ccfc
+        _crime_events = _ccfc(
+            controller_id=action.player_id,
+            targets=action.targets,
+            state=self.state,
+            source_id=action.source_id,
+        )
+        events.extend(_crime_events)
+        events.append(Event(
+            type=EventType.ACTIVATE,
+            payload={
+                'source_id': action.source_id,
+                'ability_id': action.ability_id,
+                'controller': action.player_id,
+                'is_exhaust': bool(getattr(ability, 'is_exhaust', False)),
+                'x_value': _x,
+            },
+        ))
+        # Ward / TARGET_CHOSEN parity.
+        if pushed_stack_item and action.targets:
+            events.extend(build_target_chosen_events(
+                action.source_id, action.player_id, action.targets,
+            ))
+        return events
+
     async def _notify_action_processed(self, action: PlayerAction) -> None:
         """
         Invoke the `on_action_processed` hook.
@@ -3011,135 +3370,7 @@ class PrioritySystem:
         if source and action.ability_id:
             # Phase 4: registered activated abilities (cards/interceptor_helpers.make_activated_ability).
             if action.ability_id.startswith("activated:"):
-                from .activated import (
-                    can_pay_activation,
-                    pay_activation_cost,
-                    record_activation,
-                )
-                from .cost_query import get_effective_activation_cost
-                try:
-                    idx = int(action.ability_id.split(":", 1)[1])
-                except ValueError:
-                    return []
-                abilities = getattr(source.state, "activated_abilities", []) or []
-                if not (0 <= idx < len(abilities)):
-                    return []
-                ability = abilities[idx]
-                _is_active = (
-                    self.turn_manager is not None
-                    and self.turn_manager.turn_state.active_player_id == action.player_id
-                )
-                _is_main = False
-                if self.turn_manager is not None:
-                    from .turn import Phase as _Phase
-                    _is_main = self.turn_manager.turn_state.phase in (
-                        _Phase.PRECOMBAT_MAIN, _Phase.POSTCOMBAT_MAIN
-                    )
-                _stack_empty = (self.stack is None) or (len(self.stack.items) == 0)
-                # Resolve activated-ability cost reductions (Boom Scholar etc.).
-                _x = int(getattr(action, 'x_value', 0) or 0)
-                _effective_cost = None
-                if ability.mana_cost is not None:
-                    try:
-                        _effective_cost = get_effective_activation_cost(
-                            ability, source, action.player_id, self.state,
-                        )
-                    except Exception:
-                        _effective_cost = ability.mana_cost
-                if not can_pay_activation(
-                    ability, source, self.state, action.player_id,
-                    mana_system=self.mana_system,
-                    is_active_player=_is_active,
-                    is_main_phase=_is_main,
-                    stack_empty=_stack_empty,
-                    x_value=_x,
-                    effective_mana_cost=_effective_cost,
-                ):
-                    return []
-                # Pay costs (mana paid via mana_system; tap/sac/etc emit events).
-                events.extend(pay_activation_cost(
-                    ability, source, self.state, action.player_id,
-                    mana_system=self.mana_system,
-                    x_value=_x,
-                    effective_mana_cost=_effective_cost,
-                ))
-                # Capture references for the resolve closure.
-                _src_id = source.id
-                _ctrl = action.player_id
-                _effect_fn = ability.effect_fn
-
-                # Backward-compatible effect-fn dispatch: existing effect
-                # functions take (obj, state, targets); X-cost-aware ones may
-                # also accept ``x_value=`` (kw-only). Inspect the signature
-                # once and route accordingly.
-                try:
-                    _sig = inspect.signature(_effect_fn)
-                    _accepts_x = (
-                        'x_value' in _sig.parameters
-                        or any(
-                            p.kind == inspect.Parameter.VAR_KEYWORD
-                            for p in _sig.parameters.values()
-                        )
-                    )
-                except (TypeError, ValueError):
-                    _accepts_x = False
-
-                def _resolve_activated(targets, st: GameState) -> list[Event]:
-                    obj = st.objects.get(_src_id)
-                    if obj is None:
-                        return []
-                    flat: list = []
-                    for group in (targets or []):
-                        if isinstance(group, list):
-                            flat.extend(group)
-                        else:
-                            flat.append(group)
-                    try:
-                        if _accepts_x:
-                            return list(_effect_fn(obj, st, flat, x_value=_x) or [])
-                        return list(_effect_fn(obj, st, flat) or [])
-                    except Exception:
-                        return []
-
-                if self.stack:
-                    self.stack.push(StackItem(
-                        id="",
-                        type=StackItemType.ACTIVATED_ABILITY,
-                        source_id=source.id,
-                        controller_id=action.player_id,
-                        chosen_targets=action.targets,
-                        resolve_fn=_resolve_activated,
-                    ))
-                    pushed_stack_item = True
-                record_activation(ability, self.state)
-                # === Crime tracking (OTJ) ===
-                # CR 701.55: activating an ability that targets an
-                # opponent / their permanents / their GY cards is a crime.
-                from .crime import check_cast_targets_for_crime as _ccfc
-                _crime_events = _ccfc(
-                    controller_id=action.player_id,
-                    targets=action.targets,
-                    state=self.state,
-                    source_id=action.source_id,
-                )
-                events.extend(_crime_events)
-                events.append(Event(
-                    type=EventType.ACTIVATE,
-                    payload={
-                        'source_id': action.source_id,
-                        'ability_id': action.ability_id,
-                        'controller': action.player_id,
-                        'is_exhaust': bool(getattr(ability, 'is_exhaust', False)),
-                        'x_value': _x,
-                    },
-                ))
-                # Ward / TARGET_CHOSEN parity: emit one event per chosen target
-                # so ward (and similar) fires on activated-ability targeting.
-                if pushed_stack_item and action.targets:
-                    events.extend(build_target_chosen_events(
-                        action.source_id, action.player_id, action.targets,
-                    ))
-                return events
+                return self._handle_activate_registered_ability_sync(action, source)
 
             # Graveyard activated abilities (Unearth/Embalm/Eternalize).
             if action.ability_id.startswith("graveyard:") and self.stack:

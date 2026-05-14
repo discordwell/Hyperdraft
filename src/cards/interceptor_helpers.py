@@ -6055,6 +6055,7 @@ def make_activated_ability(
     once_per_game: bool = False,
     targets_required: int = 0,
     target_kind: str = "any",
+    target_requirements: Optional[list] = None,
     precondition_fn: Optional[Callable[[GameObject, GameState], bool]] = None,
 ):
     """Register an activated ability on ``obj`` and return the descriptor.
@@ -6063,6 +6064,14 @@ def make_activated_ability(
     still return ``[]`` (or any other interceptors it wants to register) — the
     activated ability is consulted via ``obj.state.activated_abilities``, not
     via the event pipeline.
+
+    Phase 5b: ``target_requirements`` (a list of ``TargetRequirement |
+    TargetRequirementBuilder``, same shape as ``CardDefinition.target_requirements``)
+    routes the ability through the engine-authoritative cast-time target picker.
+    The priority handler emits a ``PendingChoice`` before paying costs, mirroring
+    CR 602.1 (announce → choose targets → pay costs). Legacy abilities omit
+    ``target_requirements`` and continue to work the old way (no validation,
+    pre-supplied ``action.targets`` only).
 
     Example::
 
@@ -6095,6 +6104,7 @@ def make_activated_ability(
         once_per_game=once_per_game,
         targets_required=targets_required,
         target_kind=target_kind,
+        target_requirements=target_requirements,
         precondition_fn=precondition_fn,
     )
 

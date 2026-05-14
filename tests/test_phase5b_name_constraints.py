@@ -384,16 +384,25 @@ def test_yenna_skips_name_collision():
     two Glass Caskets, each is "another permanent" relative to the other
     — both excluded.
 
-    Add a third enchantment with a unique name to verify it remains legal."""
+    Add a third enchantment with a unique name to verify it remains legal.
+
+    Phase 5b: Yenna is wired through ``target_requirements``, so the engine's
+    activated-ability priority handler emits the PendingChoice via
+    ``_emit_activate_target_choice_step``."""
     print("\n=== Test: Yenna skips name collisions ===")
+    import asyncio
     from src.cards.wilds_of_eldraine import YENNA_REDTOOTH_REGENT
     from src.engine.types import GameObject, ObjectState
+    from src.engine.priority import PlayerAction, ActionType
+    from src.engine.turn import Phase
 
     game = Game()
     p1 = game.add_player("Alice")
+    # Yenna's ability is sorcery-speed; set Alice as the active player on a
+    # main phase so the engine considers the activation legal.
+    game.turn_manager.turn_state.active_player_id = p1.id
+    game.turn_manager.turn_state.phase = Phase.PRECOMBAT_MAIN
 
-    # Spawn Yenna by calling her setup so her activated ability is
-    # registered.
     yenna = game.create_object(
         name=YENNA_REDTOOTH_REGENT.name,
         owner_id=p1.id,
@@ -402,7 +411,6 @@ def test_yenna_skips_name_collision():
         card_def=YENNA_REDTOOTH_REGENT,
     )
 
-    # Two Glass Caskets — same name; both should be excluded.
     g1 = GameObject(
         id="ench_g1", name="Glass Casket",
         characteristics=Characteristics(types={CardType.ENCHANTMENT}, subtypes={"Aura"}),
@@ -418,7 +426,6 @@ def test_yenna_skips_name_collision():
     g2.state = ObjectState(is_token=False)
     game.state.objects[g2.id] = g2
 
-    # A unique-name enchantment.
     cooped = GameObject(
         id="ench_cooped", name="Cooped Up",
         characteristics=Characteristics(types={CardType.ENCHANTMENT}, subtypes={"Aura"}),
@@ -427,21 +434,26 @@ def test_yenna_skips_name_collision():
     cooped.state = ObjectState(is_token=False)
     game.state.objects[cooped.id] = cooped
 
-    # Trigger Yenna's effect_fn directly (we don't go through the activated
-    # ability priority path — we just want to inspect the prompt logic).
     abilities = getattr(yenna.state, 'activated_abilities', None) or []
     assert len(abilities) == 1, (
         f"Yenna should register exactly one activated ability; got {abilities}"
     )
-    ability = abilities[0]
-    # The effect_fn signature is (obj, state, targets) — call directly.
-    ability.effect_fn(yenna, game.state, [])
+
+    # Phase 5b: trigger the engine path. Empty action.targets → engine emits
+    # a PendingChoice with legal targets enumerated (name-collision filtering
+    # applied by the TargetRequirementBuilder).
+    action = PlayerAction(
+        type=ActionType.ACTIVATE_ABILITY,
+        player_id=p1.id, source_id=yenna.id,
+        ability_id="activated:0",
+    )
+    asyncio.get_event_loop().run_until_complete(
+        game.priority_system._handle_activate_ability(action),
+    )
 
     pc = game.state.pending_choice
     assert pc is not None, "Yenna's ability must emit a target prompt"
-    opts = set(pc.options) if isinstance(pc.options, list) else set()
-    # Both Glass Caskets must be excluded (they share names); Cooped Up
-    # must be legal.
+    opts = {opt["id"] if isinstance(opt, dict) else opt for opt in pc.options}
     assert g1.id not in opts, (
         f"Glass Casket #1 must be excluded; got {opts}"
     )
@@ -459,11 +471,16 @@ def test_yenna_with_unique_enchantments_offers_all():
     """When every enchantment has a unique name, Yenna's prompt should
     list all of them as legal targets."""
     print("\n=== Test: Yenna offers all unique enchantments ===")
+    import asyncio
     from src.cards.wilds_of_eldraine import YENNA_REDTOOTH_REGENT
     from src.engine.types import GameObject, ObjectState
+    from src.engine.priority import PlayerAction, ActionType
+    from src.engine.turn import Phase
 
     game = Game()
     p1 = game.add_player("Alice")
+    game.turn_manager.turn_state.active_player_id = p1.id
+    game.turn_manager.turn_state.phase = Phase.PRECOMBAT_MAIN
 
     yenna = game.create_object(
         name=YENNA_REDTOOTH_REGENT.name,
@@ -488,12 +505,18 @@ def test_yenna_with_unique_enchantments_offers_all():
     ench_b.state = ObjectState()
     game.state.objects[ench_b.id] = ench_b
 
-    ability = yenna.state.activated_abilities[0]
-    ability.effect_fn(yenna, game.state, [])
+    action = PlayerAction(
+        type=ActionType.ACTIVATE_ABILITY,
+        player_id=p1.id, source_id=yenna.id,
+        ability_id="activated:0",
+    )
+    asyncio.get_event_loop().run_until_complete(
+        game.priority_system._handle_activate_ability(action),
+    )
 
     pc = game.state.pending_choice
     assert pc is not None
-    opts = set(pc.options) if isinstance(pc.options, list) else set()
+    opts = {opt["id"] if isinstance(opt, dict) else opt for opt in pc.options}
     assert ench_a.id in opts and ench_b.id in opts, (
         f"unique-name enchantments must be legal; got {opts}"
     )

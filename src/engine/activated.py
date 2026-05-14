@@ -74,6 +74,16 @@ class ActivatedAbility:
     targets_required: int = 0
     target_kind: str = "any"
 
+    # Phase 5b: engine-authoritative cast-time targeting for activated
+    # abilities. When set, the ``_handle_activate_ability`` priority handler
+    # emits a PendingChoice (mirroring ``_emit_cast_target_choice_step``)
+    # BEFORE paying any cost — matching CR 602.1 (announce → choose targets →
+    # pay costs). Shape matches ``CardDefinition.target_requirements``: a list
+    # of ``TargetRequirement | TargetRequirementBuilder``. Legacy abilities
+    # leave this ``None`` and rely on the older ``targets_required`` /
+    # ``target_kind`` path (or pre-supplied ``action.targets``).
+    target_requirements: Optional[list] = None
+
     # State (mutable across activations).
     activations_this_turn: int = 0
     last_activation_turn: int = -1
@@ -274,6 +284,7 @@ def register_activated_ability(
     once_per_game: bool = False,
     targets_required: int = 0,
     target_kind: str = "any",
+    target_requirements: Optional[list] = None,
     is_adventure: bool = False,
     is_plot: bool = False,
     precondition_fn: Optional[Callable[[Any, Any], bool]] = None,
@@ -318,6 +329,7 @@ def register_activated_ability(
         is_exhaust=is_exhaust,
         targets_required=targets_required,
         target_kind=target_kind,
+        target_requirements=target_requirements,
         is_adventure=is_adventure,
         is_plot=is_plot,
         precondition_fn=precondition_fn,

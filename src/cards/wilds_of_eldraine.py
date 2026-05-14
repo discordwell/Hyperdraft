@@ -5790,21 +5790,19 @@ def yenna_redtooth_regent_setup(obj: GameObject, state: GameState) -> list[Inter
     same name as another permanent you control. Create a non-legendary copy
     token; if the token is an Aura, untap Yenna and scry 2. Sorcery speed.
 
-    Phase 5b name-constraint wiring: at activation time, the effect_fn
-    snapshots ``_names_of_your_other_permanents`` (excluding Yenna herself)
-    and emits a target-choice PendingChoice with name-collision candidates
-    filtered out. The handler then queues the OBJECT_CREATED copy event
-    plus the conditional UNTAP + SCRY rider.
+    Phase 5b wiring: the activated ability declares ``target_requirements``
+    via ``target_without_same_name_as_other_permanents`` so the engine
+    emits a cast-time PendingChoice BEFORE paying costs (CR 602.1). The
+    effect_fn consumes ``targets[0]`` and queues the copy + conditional
+    untap/scry rider.
     """
-    from src.engine.targeting import has_other_permanent_with_same_name
-    from src.engine.pending_choice_helpers import create_choice_and_resolve
+    from src.engine.targeting import target_without_same_name_as_other_permanents
 
-    def _copy_chosen(choice, selected, st):
-        if not selected:
+    def _activated_effect(o, st, targets):
+        if not targets:
             return []
-        target_id = selected[0]
-        if isinstance(target_id, dict):
-            target_id = target_id.get("id") or target_id.get("target_id")
+        tgt = targets[0]
+        target_id = getattr(tgt, "id", None) or tgt
         target = st.objects.get(target_id)
         if target is None or target.zone != ZoneType.BATTLEFIELD:
             return []
@@ -5813,65 +5811,25 @@ def yenna_redtooth_regent_setup(obj: GameObject, state: GameState) -> list[Inter
             type=EventType.OBJECT_CREATED,
             payload={
                 'copy_of': target_id,
-                'controller': obj.controller,
+                'controller': o.controller,
                 'is_token': True,
                 'supertypes': list(existing_supertypes),
             },
-            source=obj.id,
+            source=o.id,
         )]
         # If the chosen enchantment is an Aura, untap Yenna and scry 2.
         if 'Aura' in target.characteristics.subtypes:
             events.append(Event(
                 type=EventType.UNTAP,
-                payload={'object_id': obj.id},
-                source=obj.id,
+                payload={'object_id': o.id},
+                source=o.id,
             ))
             events.append(Event(
                 type=EventType.SCRY,
-                payload={'player': obj.controller, 'amount': 2},
-                source=obj.id,
+                payload={'player': o.controller, 'amount': 2},
+                source=o.id,
             ))
         return events
-
-    def _activated_effect(o, st, _targets):
-        # Per-candidate name-collision check: an enchantment X you control is
-        # legal iff no OTHER permanent you control (excluding X and Yenna)
-        # shares X's printed name. "Another permanent" is relative to the
-        # target, not relative to the source.
-        legal: list[str] = []
-        for cand in st.objects.values():
-            if cand.zone != ZoneType.BATTLEFIELD:
-                continue
-            if cand.controller != o.controller:
-                continue
-            if CardType.ENCHANTMENT not in cand.characteristics.types:
-                continue
-            if has_other_permanent_with_same_name(
-                cand, st, controller_id=o.controller, source_id=o.id,
-            ):
-                continue
-            legal.append(cand.id)
-        if not legal:
-            return []
-        # AI heuristic: prefer an Aura (gets the untap+scry rider).
-        best_idx = 0
-        for i, tid in enumerate(legal):
-            cand = st.objects.get(tid)
-            if cand is not None and 'Aura' in cand.characteristics.subtypes:
-                best_idx = i
-                break
-        return create_choice_and_resolve(
-            st,
-            choice_type='target',
-            player_id=o.controller,
-            prompt="Choose an enchantment to copy (no name collision)",
-            options=legal,
-            source_id=o.id,
-            min_choices=1,
-            max_choices=1,
-            handler=_copy_chosen,
-            heuristic_pick=best_idx,
-        )
 
     make_activated_ability(
         obj,
@@ -5879,8 +5837,14 @@ def yenna_redtooth_regent_setup(obj: GameObject, state: GameState) -> list[Inter
         effect_fn=_activated_effect,
         description="Copy target enchantment you control (no name collision)",
         sorcery_speed=True,
-        targets_required=0,  # We pick our own target inline via PendingChoice.
-        target_kind="any",
+        target_requirements=[
+            target_without_same_name_as_other_permanents(
+                source_id=obj.id,
+                kind='enchantment',
+                count=1,
+                label="target enchantment you control",
+            ),
+        ],
     )
     return []
 
