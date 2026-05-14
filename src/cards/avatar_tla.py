@@ -59,6 +59,14 @@ from src.cards.interceptor_helpers import (
     make_modal_resolve,
     # Vehicle animation (Round 9).
     make_animate_via_exhaust,
+    # Phase 5b: normalize Target object / raw ID inputs from resolve fns.
+    normalize_target,
+)
+
+# Phase 5b cast-time target requirements
+from src.engine.targeting import (
+    target_creature, target_any, target_player, target_spell,
+    TargetRequirement, TargetFilter, creature_filter, permanent_filter,
 )
 
 
@@ -4257,43 +4265,27 @@ def _tla_count_lessons_in_graveyard(state: GameState, player_id: str) -> int:
 # --- ENTER_THE_AVATAR_STATE: pump + grant 4 keywords + Avatar type -----------
 
 def enter_the_avatar_state_resolve(targets: list, state: GameState) -> list[Event]:
-    """Target creature you control becomes an Avatar and gains flying/first strike/lifelink/hexproof until EOT."""
+    """Target creature you control becomes an Avatar and gains flying/first strike/lifelink/hexproof until EOT.
+
+    Phase 5b: consume the cast-time target picked via PendingChoice.
+    """
     caster_id, spell_id = _tla_caster_and_id(state, "Enter the Avatar State")
     spell_id = spell_id or "enter_the_avatar_state_spell"
     if not caster_id:
         return []
-    valid: list[str] = []
-    for obj in state.objects.values():
-        if (obj.zone == ZoneType.BATTLEFIELD
-                and obj.controller == caster_id
-                and CardType.CREATURE in obj.characteristics.types):
-            valid.append(obj.id)
-    if not valid:
+    if not targets or not targets[0]:
         return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid,
-        prompt="Enter the Avatar State: choose target creature",
-        min_targets=1,
-        max_targets=1,
-    )
-    choice.choice_type = "target_with_callback"
-    def _execute(choice, selected, state: GameState) -> list[Event]:
-        if not selected:
-            return []
-        target_id = selected[0]
-        events: list[Event] = []
-        for kw in ('flying', 'first_strike', 'lifelink', 'hexproof'):
-            events.append(Event(
-                type=EventType.GRANT_KEYWORD,
-                payload={'object_id': target_id, 'keyword': kw, 'duration': 'end_of_turn'},
-                source=choice.source_id,
-            ))
-        return events
-    choice.callback_data['handler'] = _execute
-    return []
+    target_id, is_player = normalize_target(targets[0][0], state)
+    if is_player:
+        return []
+    events: list[Event] = []
+    for kw in ('flying', 'first_strike', 'lifelink', 'hexproof'):
+        events.append(Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': target_id, 'keyword': kw, 'duration': 'end_of_turn'},
+            source=spell_id,
+        ))
+    return events
 
 
 # --- ACCUMULATE_WISDOM: top-3 look (or all 3 if 3+ Lessons in GY) -----------
@@ -4352,48 +4344,32 @@ def accumulate_wisdom_resolve(targets: list, state: GameState) -> list[Event]:
 # --- OCTOPUS_FORM: +1/+1 + hexproof + untap ----------------------------------
 
 def octopus_form_resolve(targets: list, state: GameState) -> list[Event]:
-    """Target creature you control gets +1/+1 and gains hexproof until EOT. Untap it."""
+    """Target creature you control gets +1/+1 and gains hexproof until EOT. Untap it.
+
+    Phase 5b: consume the cast-time target picked via PendingChoice.
+    """
     caster_id, spell_id = _tla_caster_and_id(state, "Octopus Form")
     spell_id = spell_id or "octopus_form_spell"
     if not caster_id:
         return []
-    valid: list[str] = []
-    for obj in state.objects.values():
-        if (obj.zone == ZoneType.BATTLEFIELD
-                and obj.controller == caster_id
-                and CardType.CREATURE in obj.characteristics.types):
-            valid.append(obj.id)
-    if not valid:
+    if not targets or not targets[0]:
         return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid,
-        prompt="Octopus Form: choose your creature",
-        min_targets=1,
-        max_targets=1,
-    )
-    choice.choice_type = "target_with_callback"
-    def _execute(choice, selected, state: GameState) -> list[Event]:
-        if not selected:
-            return []
-        tid = selected[0]
-        return [
-            Event(
-                type=EventType.PT_MODIFICATION,
-                payload={'object_id': tid, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'end_of_turn'},
-                source=choice.source_id,
-            ),
-            Event(
-                type=EventType.GRANT_KEYWORD,
-                payload={'object_id': tid, 'keyword': 'hexproof', 'duration': 'end_of_turn'},
-                source=choice.source_id,
-            ),
-            Event(type=EventType.UNTAP, payload={'object_id': tid}, source=choice.source_id),
-        ]
-    choice.callback_data['handler'] = _execute
-    return []
+    tid, is_player = normalize_target(targets[0][0], state)
+    if is_player:
+        return []
+    return [
+        Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': tid, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'end_of_turn'},
+            source=spell_id,
+        ),
+        Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': tid, 'keyword': 'hexproof', 'duration': 'end_of_turn'},
+            source=spell_id,
+        ),
+        Event(type=EventType.UNTAP, payload={'object_id': tid}, source=spell_id),
+    ]
 
 
 # --- SPIRIT_WATER_REVIVAL: Draw two cards (waterbend bonus is engine gap) ----
@@ -4446,41 +4422,25 @@ def day_of_black_sun_resolve(targets: list, state: GameState) -> list[Event]:
 # --- COMBUSTION_TECHNIQUE: 2 + Lessons damage; if dies, exile instead --------
 
 def combustion_technique_resolve(targets: list, state: GameState) -> list[Event]:
-    """Deal (2 + Lessons in GY) damage to target creature. (Exile-on-death is engine gap.)"""
+    """Deal (2 + Lessons in GY) damage to target creature. (Exile-on-death is engine gap.)
+
+    Phase 5b: consume the cast-time target picked via PendingChoice.
+    """
     caster_id, spell_id = _tla_caster_and_id(state, "Combustion Technique")
     spell_id = spell_id or "combustion_technique_spell"
     if not caster_id:
         return []
-    valid = [
-        obj.id for obj in state.objects.values()
-        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types
-    ]
-    if not valid:
+    if not targets or not targets[0]:
+        return []
+    tid, is_player = normalize_target(targets[0][0], state)
+    if is_player:
         return []
     damage = 2 + _tla_count_lessons_in_graveyard(state, caster_id)
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid,
-        prompt=f"Combustion Technique: deal {damage} damage",
-        min_targets=1,
-        max_targets=1,
-        callback_data={'damage': damage},
-    )
-    choice.choice_type = "target_with_callback"
-    def _execute(choice, selected, state: GameState) -> list[Event]:
-        if not selected:
-            return []
-        tid = selected[0]
-        amt = choice.callback_data.get('damage', 2)
-        return [Event(
-            type=EventType.DAMAGE,
-            payload={'target': tid, 'amount': amt, 'is_combat': False},
-            source=choice.source_id,
-        )]
-    choice.callback_data['handler'] = _execute
-    return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': tid, 'amount': damage, 'is_combat': False},
+        source=spell_id,
+    )]
 
 
 # --- FIRE_NATION_ATTACKS: Create two 2/2 red Soldier tokens (no firebending kw)
@@ -4514,27 +4474,24 @@ def fire_nation_attacks_resolve(targets: list, state: GameState) -> list[Event]:
 # --- THE_LAST_AGNI_KAI: fight (excess damage->{R} is engine gap) -------------
 
 def the_last_agni_kai_resolve(targets: list, state: GameState) -> list[Event]:
-    """Target creature you control fights target creature an opponent controls."""
+    """Target creature you control fights target creature an opponent controls.
+
+    Phase 5b: consume the cast-time targets picked via PendingChoice.
+    targets[0] = your creature, targets[1] = opponent's creature.
+    """
     caster_id, spell_id = _tla_caster_and_id(state, "The Last Agni Kai")
     spell_id = spell_id or "the_last_agni_kai_spell"
     if not caster_id:
         return []
-    own_creatures = [
-        obj.id for obj in state.objects.values()
-        if (obj.zone == ZoneType.BATTLEFIELD and obj.controller == caster_id
-            and CardType.CREATURE in obj.characteristics.types)
-    ]
-    opp_creatures = [
-        obj.id for obj in state.objects.values()
-        if (obj.zone == ZoneType.BATTLEFIELD and obj.controller != caster_id
-            and CardType.CREATURE in obj.characteristics.types)
-    ]
-    if not own_creatures or not opp_creatures:
+    if not targets or len(targets) < 2 or not targets[0] or not targets[1]:
         return []
-    # Pick first viable pair (AI/test default).
+    own_id, own_is_player = normalize_target(targets[0][0], state)
+    opp_id, opp_is_player = normalize_target(targets[1][0], state)
+    if own_is_player or opp_is_player:
+        return []
     return [Event(
         type=EventType.FIGHT,
-        payload={'attacker': own_creatures[0], 'defender': opp_creatures[0]},
+        payload={'attacker': own_id, 'defender': opp_id},
         source=spell_id,
     )]
 
@@ -4542,28 +4499,31 @@ def the_last_agni_kai_resolve(targets: list, state: GameState) -> list[Event]:
 # --- ALLIES_AT_LAST: Up to two of your creatures each deal P damage to a target
 
 def allies_at_last_resolve(targets: list, state: GameState) -> list[Event]:
-    """Up to two of your creatures each deal damage equal to their power to target opp creature."""
+    """Up to two of your creatures each deal damage equal to their power to target opp creature.
+
+    Phase 5b: consume the cast-time targets picked via PendingChoice.
+    targets[0] = up to 2 of your creatures, targets[1] = target opponent creature.
+    """
     caster_id, spell_id = _tla_caster_and_id(state, "Allies at Last")
     spell_id = spell_id or "allies_at_last_spell"
     if not caster_id:
         return []
-    own_creatures = [
-        obj.id for obj in state.objects.values()
-        if (obj.zone == ZoneType.BATTLEFIELD and obj.controller == caster_id
-            and CardType.CREATURE in obj.characteristics.types)
-    ]
-    opp_creatures = [
-        obj.id for obj in state.objects.values()
-        if (obj.zone == ZoneType.BATTLEFIELD and obj.controller != caster_id
-            and CardType.CREATURE in obj.characteristics.types)
-    ]
-    if not own_creatures or not opp_creatures:
+    if not targets or len(targets) < 2 or not targets[1]:
         return []
-    # AI/test: pick first opp target; first up-to-2 own attackers.
-    target_id = opp_creatures[0]
-    attackers = own_creatures[:2]
+    opp_id, opp_is_player = normalize_target(targets[1][0], state)
+    if opp_is_player:
+        return []
+    # targets[0] = up to two creatures you control. May be empty (up_to count).
+    own_picks: list[str] = []
+    if targets[0]:
+        for entry in targets[0]:
+            own_id, own_is_player = normalize_target(entry, state)
+            if not own_is_player:
+                own_picks.append(own_id)
+    if not own_picks:
+        return []
     events: list[Event] = []
-    for src in attackers:
+    for src in own_picks:
         src_obj = state.objects.get(src)
         try:
             p = get_power(src_obj, state) if src_obj else 0
@@ -4573,7 +4533,7 @@ def allies_at_last_resolve(targets: list, state: GameState) -> list[Event]:
         if amt > 0:
             events.append(Event(
                 type=EventType.DAMAGE,
-                payload={'target': target_id, 'amount': amt, 'is_combat': False},
+                payload={'target': opp_id, 'amount': amt, 'is_combat': False},
                 source=src,
             ))
     return events
@@ -4582,71 +4542,57 @@ def allies_at_last_resolve(targets: list, state: GameState) -> list[Event]:
 # --- PILLAR_LAUNCH: +2/+2, gain reach, untap ----------------------------------
 
 def pillar_launch_resolve(targets: list, state: GameState) -> list[Event]:
-    """Target creature gets +2/+2 and gains reach until EOT. Untap it."""
+    """Target creature gets +2/+2 and gains reach until EOT. Untap it.
+
+    Phase 5b: consume the cast-time target picked via PendingChoice.
+    """
     caster_id, spell_id = _tla_caster_and_id(state, "Pillar Launch")
     spell_id = spell_id or "pillar_launch_spell"
     if not caster_id:
         return []
-    valid = [
-        obj.id for obj in state.objects.values()
-        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types
-    ]
-    if not valid:
+    if not targets or not targets[0]:
         return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid,
-        prompt="Pillar Launch: choose creature",
-        min_targets=1,
-        max_targets=1,
-    )
-    choice.choice_type = "target_with_callback"
-    def _execute(choice, selected, state: GameState) -> list[Event]:
-        if not selected:
-            return []
-        tid = selected[0]
-        return [
-            Event(
-                type=EventType.PT_MODIFICATION,
-                payload={'object_id': tid, 'power_mod': 2, 'toughness_mod': 2, 'duration': 'end_of_turn'},
-                source=choice.source_id,
-            ),
-            Event(
-                type=EventType.GRANT_KEYWORD,
-                payload={'object_id': tid, 'keyword': 'reach', 'duration': 'end_of_turn'},
-                source=choice.source_id,
-            ),
-            Event(type=EventType.UNTAP, payload={'object_id': tid}, source=choice.source_id),
-        ]
-    choice.callback_data['handler'] = _execute
-    return []
+    tid, is_player = normalize_target(targets[0][0], state)
+    if is_player:
+        return []
+    return [
+        Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': tid, 'power_mod': 2, 'toughness_mod': 2, 'duration': 'end_of_turn'},
+            source=spell_id,
+        ),
+        Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': tid, 'keyword': 'reach', 'duration': 'end_of_turn'},
+            source=spell_id,
+        ),
+        Event(type=EventType.UNTAP, payload={'object_id': tid}, source=spell_id),
+    ]
 
 
 # --- ROCKY_REBUKE: Your creature deals damage equal to its power -------------
 
 def rocky_rebuke_resolve(targets: list, state: GameState) -> list[Event]:
-    """Target creature you control deals damage equal to its power to target opp creature."""
+    """Target creature you control deals damage equal to its power to target opp creature.
+
+    Phase 5b: consume the cast-time targets picked via PendingChoice.
+    targets[0] = your creature, targets[1] = opponent's creature.
+    """
     caster_id, spell_id = _tla_caster_and_id(state, "Rocky Rebuke")
     spell_id = spell_id or "rocky_rebuke_spell"
     if not caster_id:
         return []
-    own_creatures = [
-        obj for obj in state.objects.values()
-        if (obj.zone == ZoneType.BATTLEFIELD and obj.controller == caster_id
-            and CardType.CREATURE in obj.characteristics.types)
-    ]
-    opp_creatures = [
-        obj.id for obj in state.objects.values()
-        if (obj.zone == ZoneType.BATTLEFIELD and obj.controller != caster_id
-            and CardType.CREATURE in obj.characteristics.types)
-    ]
-    if not own_creatures or not opp_creatures:
+    if not targets or len(targets) < 2 or not targets[0] or not targets[1]:
         return []
-    src = own_creatures[0]
+    own_id, own_is_player = normalize_target(targets[0][0], state)
+    opp_id, opp_is_player = normalize_target(targets[1][0], state)
+    if own_is_player or opp_is_player:
+        return []
+    own_obj = state.objects.get(own_id)
+    if own_obj is None:
+        return []
     try:
-        p = get_power(src, state)
+        p = get_power(own_obj, state)
     except Exception:
         p = 0
     amt = max(0, p or 0)
@@ -4654,8 +4600,8 @@ def rocky_rebuke_resolve(targets: list, state: GameState) -> list[Event]:
         return []
     return [Event(
         type=EventType.DAMAGE,
-        payload={'target': opp_creatures[0], 'amount': amt, 'is_combat': False},
-        source=src.id,
+        payload={'target': opp_id, 'amount': amt, 'is_combat': False},
+        source=own_id,
     )]
 
 
@@ -4947,6 +4893,7 @@ ENTER_THE_AVATAR_STATE = make_instant(
     text="Until end of turn, target creature you control becomes an Avatar in addition to its other types and gains flying, first strike, lifelink, and hexproof. (A creature with hexproof can't be the target of spells or abilities your opponents control.)",
     subtypes={"Lesson"},
     resolve=enter_the_avatar_state_resolve,
+    target_requirements=[target_creature(count=1, controller='you')],
 )
 
 FANCY_FOOTWORK = make_instant(
@@ -5439,6 +5386,7 @@ OCTOPUS_FORM = make_instant(
     text="Target creature you control gets +1/+1 and gains hexproof until end of turn. Untap it. (It can't be the target of spells or abilities your opponents control.)",
     subtypes={"Lesson"},
     resolve=octopus_form_resolve,
+    target_requirements=[target_creature(count=1, controller='you')],
 )
 
 OTTERPENGUIN = make_creature(
@@ -6269,6 +6217,7 @@ COMBUSTION_TECHNIQUE = make_instant(
     text="Combustion Technique deals damage equal to 2 plus the number of Lesson cards in your graveyard to target creature. If that creature would die this turn, exile it instead.",
     subtypes={"Lesson"},
     resolve=combustion_technique_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 CRESCENT_ISLAND_TEMPLE = make_enchantment(
@@ -6460,6 +6409,10 @@ THE_LAST_AGNI_KAI = make_instant(
     colors={Color.RED},
     text="Target creature you control fights target creature an opponent controls. If the creature the opponent controls is dealt excess damage this way, add that much {R}.\nUntil end of turn, you don't lose unspent red mana as steps and phases end.",
     resolve=the_last_agni_kai_resolve,
+    target_requirements=[
+        target_creature(count=1, controller='you'),
+        target_creature(count=1, controller='opponent'),
+    ],
 )
 
 THE_LEGEND_OF_ROKU = make_creature(
@@ -6647,6 +6600,15 @@ ALLIES_AT_LAST = make_instant(
     colors={Color.GREEN},
     text="Affinity for Allies (This spell costs {1} less to cast for each Ally you control.)\nUp to two target creatures you control each deal damage equal to their power to target creature an opponent controls.",
     resolve=allies_at_last_resolve,
+    target_requirements=[
+        TargetRequirement(
+            filter=creature_filter(controller='you'),
+            count=2,
+            count_type='up_to',
+            label="up to two target creatures you control",
+        ),
+        target_creature(count=1, controller='opponent'),
+    ],
 )
 
 AVATAR_DESTINY = make_enchantment(
@@ -6953,6 +6915,7 @@ PILLAR_LAUNCH = make_instant(
     colors={Color.GREEN},
     text="Target creature gets +2/+2 and gains reach until end of turn. Untap it.",
     resolve=pillar_launch_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 RAUCOUS_AUDIENCE = make_creature(
@@ -6989,6 +6952,10 @@ ROCKY_REBUKE = make_instant(
     colors={Color.GREEN},
     text="Target creature you control deals damage equal to its power to target creature an opponent controls.",
     resolve=rocky_rebuke_resolve,
+    target_requirements=[
+        target_creature(count=1, controller='you'),
+        target_creature(count=1, controller='opponent'),
+    ],
 )
 
 SABERTOOTH_MOOSELION = make_creature(
