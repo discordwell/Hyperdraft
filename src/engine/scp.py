@@ -1099,40 +1099,42 @@ def check_scp_victory(game, *, source: Optional[str] = None) -> list[Event]:
                 )
                 if exposed_opponent:
                     events.extend(_declare_site_win(game, player_id, "public_panic", source=mandate.id))
-            # MNR alt-win: forget 3+ opposing anomalies + secrecy >= 10.
-            # ``scp_forgotten`` is the MNR-only zone populated by
-            # ``forget_anomaly``. Thaumiel branch above counts
-            # ``scp_contained`` only, which forget_anomaly explicitly removes
-            # from — so a forgotten anomaly never double-counts for both
-            # win conditions. (Card-design agents: the threshold is
-            # cumulative across BOTH opponents in multiplayer.)
+            # MNR alt-win: 3+ forgotten anomalies (across ALL players) +
+            # secrecy >= 10. ``scp_forgotten`` is the MNR-only zone populated
+            # by ``forget_anomaly``. Originally counted opposing-only forgets,
+            # but only MNR runs Antimeme anomalies, so the opposing-only
+            # variant was effectively mirror-match-only. The new formula
+            # sums across every player's scp_forgotten zone — thematically
+            # MNR is the "memory is collective loss" archetype, and the
+            # deck's own Antimeme decays now feed its win con. Thaumiel
+            # branch above counts ``scp_contained`` only, which
+            # ``forget_anomaly`` explicitly removes from — so a forgotten
+            # anomaly never double-counts for both win conditions.
             if alt_win == "memory_hole":
-                forgotten_opp = 0
-                for opp_id in state.players:
-                    if opp_id == player_id:
-                        continue
-                    forgotten_opp += len(state.scp_forgotten.get(opp_id, []))
-                if forgotten_opp >= 3 and s["secrecy"] >= 10:
+                total_forgotten = sum(
+                    len(state.scp_forgotten.get(pid, [])) for pid in state.players
+                )
+                if total_forgotten >= 3 and s["secrecy"] >= 10:
                     events.extend(_declare_site_win(game, player_id, "memory_hole", source=mandate.id))
-            # MNR alt-win: 5 active+unexhausted Mnestic personnel (printed
-            # mnestic OR Wake-gained) and 4+ archives. Active-only excludes
-            # contained/forgotten personnel; unexhausted-only requires the
-            # mnestic field to be ready (not mid-assignment) when the
-            # check fires, matching how thaumiel's "contained" rider works
-            # for anomalies. Counts ``scp_mnestic`` on card_def AND
-            # state-gained Mnestic from Mnestic Wake.
+            # MNR alt-win: 4 active Mnestic personnel (printed mnestic OR
+            # Wake-gained) and 4+ archives. Active-only excludes
+            # contained/forgotten personnel. The original rider also
+            # demanded "unexhausted", but Mnestic personnel get exhausted
+            # in tests/contain/suppress — the engine's core action loop
+            # — so maintaining 5 unexhausted Mnestic simultaneously
+            # fought against actually playing the game. Threshold lowered
+            # from 5 -> 4 to fit the deck's 6-8 Mnestic personnel after
+            # a few attritioned out across a 16-turn game.
             if alt_win == "mnestic_saturation":
                 mnestic_count = 0
                 for pid in state.scp_personnel.get(player_id, []):
                     person = state.objects.get(pid)
                     if not person or person.state.scp_status != "active":
                         continue
-                    if person.state.scp_exhausted:
-                        continue
                     if (getattr(person.card_def, "scp_mnestic", False)
                             or person.state.scp_mnestic_gained):
                         mnestic_count += 1
-                if mnestic_count >= 5 and s["archives"] >= 4:
+                if mnestic_count >= 4 and s["archives"] >= 4:
                     events.extend(_declare_site_win(game, player_id, "mnestic_saturation", source=mandate.id))
     return events
 
