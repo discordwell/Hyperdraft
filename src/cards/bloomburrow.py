@@ -54,6 +54,8 @@ from src.cards.interceptor_helpers import (
     make_dynamic_pt_boost,
     # Modal resolve
     make_modal_resolve,
+    ModeSpec,
+    normalize_target,
     # Planeswalker loyalty framework
     make_loyalty_ability,
     make_planeswalker_setup,
@@ -5930,244 +5932,56 @@ def rabid_bite_resolve(targets: list, state: GameState) -> list[Event]:
 # MODAL SPELL RESOLVE FUNCTIONS
 # =============================================================================
 
-def _agate_assault_mode_handler(choice, selected, state: GameState) -> list[Event]:
-    """Handle Agate Assault mode selection and follow-up targeting."""
-    selected_mode = selected[0] if selected else 0
-    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
-
-    caster_id = choice.player
-    spell_id = choice.source_id
-
-    if mode_index == 0:
-        # Mode 1: 4 damage to target creature (exile if dies)
-        valid_targets = [
-            obj.id for obj in state.objects.values()
-            if (obj.zone == ZoneType.BATTLEFIELD and
-                CardType.CREATURE in obj.characteristics.types)
-        ]
-
-        if not valid_targets:
-            return []
-
-        target_choice = create_target_choice(
-            state=state,
-            player_id=caster_id,
-            source_id=spell_id,
-            legal_targets=valid_targets,
-            prompt="Choose a creature to deal 4 damage (exile if it dies)",
-            min_targets=1,
-            max_targets=1
-        )
-        target_choice.choice_type = "target_with_callback"
-        target_choice.callback_data['handler'] = _agate_assault_damage_execute
+def _agate_assault_mode_damage(state, caster_id, spell_id, targets=None):
+    """Mode 1: 4 damage to target creature; exile if dies."""
+    if not targets:
         return []
-
-    else:
-        # Mode 2: Exile target artifact
-        valid_targets = [
-            obj.id for obj in state.objects.values()
-            if (obj.zone == ZoneType.BATTLEFIELD and
-                CardType.ARTIFACT in obj.characteristics.types)
-        ]
-
-        if not valid_targets:
-            return []
-
-        target_choice = create_target_choice(
-            state=state,
-            player_id=caster_id,
-            source_id=spell_id,
-            legal_targets=valid_targets,
-            prompt="Choose an artifact to exile",
-            min_targets=1,
-            max_targets=1
-        )
-        target_choice.choice_type = "target_with_callback"
-        target_choice.callback_data['handler'] = _agate_assault_exile_execute
-        return []
-
-
-def _agate_assault_damage_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Agate Assault damage mode: 4 damage, exile if dies."""
-    target_id = selected[0] if selected else None
-    if not target_id:
-        return []
-
-    target = state.objects.get(target_id)
-    if not target or target.zone != ZoneType.BATTLEFIELD:
-        return []
-
     return [Event(
         type=EventType.DAMAGE,
         payload={
-            'target': target_id,
-            'amount': 4,
-            'source': choice.source_id,
-            'is_combat': False,
-            'exile_on_death': True
+            'target': targets[0].id, 'amount': 4,
+            'source': spell_id, 'is_combat': False,
+            'exile_on_death': True,
         },
-        source=choice.source_id
+        source=spell_id, controller=caster_id,
     )]
 
 
-def _agate_assault_exile_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Agate Assault exile mode: Exile target artifact."""
-    target_id = selected[0] if selected else None
-    if not target_id:
+def _agate_assault_mode_exile(state, caster_id, spell_id, targets=None):
+    """Mode 2: Exile target artifact."""
+    if not targets:
         return []
-
-    target = state.objects.get(target_id)
-    if not target or target.zone != ZoneType.BATTLEFIELD:
-        return []
-
     return [Event(
         type=EventType.EXILE,
-        payload={'object_id': target_id},
-        source=choice.source_id
+        payload={'object_id': targets[0].id},
+        source=spell_id, controller=caster_id,
     )]
 
 
-def agate_assault_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Agate Assault: Modal - 4 damage to creature or exile artifact."""
-    caster_id, spell_id = _get_spell_info(state, "Agate Assault")
-
-    modes = [
-        {"index": 0, "text": "Deal 4 damage to target creature (exile if it dies)"},
-        {"index": 1, "text": "Exile target artifact"},
-    ]
-
-    choice = create_modal_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        modes=modes,
-        min_modes=1,
-        max_modes=1,
-        prompt="Choose one:"
-    )
-    choice.choice_type = "modal_with_callback"
-    choice.callback_data['handler'] = _agate_assault_mode_handler
-
-    return []
-
-
-def _early_winter_mode_handler(choice, selected, state: GameState) -> list[Event]:
-    """Handle Early Winter mode selection and follow-up targeting."""
-    selected_mode = selected[0] if selected else 0
-    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
-
-    caster_id = choice.player
-    spell_id = choice.source_id
-
-    if mode_index == 0:
-        # Mode 1: Exile target creature
-        valid_targets = [
-            obj.id for obj in state.objects.values()
-            if (obj.zone == ZoneType.BATTLEFIELD and
-                CardType.CREATURE in obj.characteristics.types)
-        ]
-
-        if not valid_targets:
-            return []
-
-        target_choice = create_target_choice(
-            state=state,
-            player_id=caster_id,
-            source_id=spell_id,
-            legal_targets=valid_targets,
-            prompt="Choose a creature to exile",
-            min_targets=1,
-            max_targets=1
-        )
-        target_choice.choice_type = "target_with_callback"
-        target_choice.callback_data['handler'] = _early_winter_exile_execute
+def _early_winter_mode_exile(state, caster_id, spell_id, targets=None):
+    """Mode 1: Exile target creature."""
+    if not targets:
         return []
-
-    else:
-        # Mode 2: Target opponent exiles an enchantment they control
-        # For now, simplified - find opponent's enchantments
-        opponents = [p for p in state.players.keys() if p != caster_id]
-        valid_targets = [
-            obj.id for obj in state.objects.values()
-            if (obj.zone == ZoneType.BATTLEFIELD and
-                CardType.ENCHANTMENT in obj.characteristics.types and
-                obj.controller != caster_id)
-        ]
-
-        if not valid_targets:
-            return []
-
-        # Simplified: caster chooses which opponent's enchantment gets exiled
-        target_choice = create_target_choice(
-            state=state,
-            player_id=caster_id,
-            source_id=spell_id,
-            legal_targets=valid_targets,
-            prompt="Choose an opponent's enchantment for them to exile",
-            min_targets=1,
-            max_targets=1
-        )
-        target_choice.choice_type = "target_with_callback"
-        target_choice.callback_data['handler'] = _early_winter_enchantment_execute
-        return []
-
-
-def _early_winter_exile_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Early Winter: Exile target creature."""
-    target_id = selected[0] if selected else None
-    if not target_id:
-        return []
-
-    target = state.objects.get(target_id)
-    if not target or target.zone != ZoneType.BATTLEFIELD:
-        return []
-
     return [Event(
         type=EventType.EXILE,
-        payload={'object_id': target_id},
-        source=choice.source_id
+        payload={'object_id': targets[0].id},
+        source=spell_id, controller=caster_id,
     )]
 
 
-def _early_winter_enchantment_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Early Winter: Opponent exiles their enchantment."""
-    target_id = selected[0] if selected else None
-    if not target_id:
+def _early_winter_mode_exile_enchantment(state, caster_id, spell_id, targets=None):
+    """Mode 2: Opponent exiles their enchantment."""
+    if not targets:
         return []
-
-    target = state.objects.get(target_id)
-    if not target or target.zone != ZoneType.BATTLEFIELD:
-        return []
-
     return [Event(
         type=EventType.EXILE,
-        payload={'object_id': target_id},
-        source=choice.source_id
+        payload={'object_id': targets[0].id},
+        source=spell_id, controller=caster_id,
     )]
 
 
-def early_winter_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Early Winter: Modal - exile creature or opponent exiles enchantment."""
-    caster_id, spell_id = _get_spell_info(state, "Early Winter")
-
-    modes = [
-        {"index": 0, "text": "Exile target creature"},
-        {"index": 1, "text": "Target opponent exiles an enchantment they control"},
-    ]
-
-    choice = create_modal_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        modes=modes,
-        min_modes=1,
-        max_modes=1,
-        prompt="Choose one:"
-    )
-    choice.choice_type = "modal_with_callback"
-    choice.callback_data['handler'] = _early_winter_mode_handler
-
-    return []
+# early_winter_resolve replaced by make_modal_resolve(ModeSpec(...)) on
+# the card def below.
 
 
 def _downwind_ambusher_mode_handler(choice, selected, state: GameState) -> list[Event]:
@@ -7558,32 +7372,15 @@ SKYSKIPPER_DUO = make_creature(
     setup_interceptors=skyskipper_duo_setup
 )
 
-def _spellgyre_mode_counter(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+def _spellgyre_mode_counter(state: GameState, caster_id: str, spell_id: str, targets=None) -> list[Event]:
     """Counter target spell."""
-    stack = state.zones.get('stack')
-    legal = []
-    if stack:
-        for cid in stack.objects:
-            if cid != spell_id:
-                legal.append(cid)
-    if not legal:
+    if not targets:
         return []
-    def _on_target(ch, selected, st):
-        if not selected:
-            return []
-        return [Event(
-            type=EventType.COUNTER_SPELL,
-            payload={'target': selected[0]},
-            source=spell_id, controller=caster_id,
-        )]
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Spellgyre: choose target spell to counter",
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
+    return [Event(
+        type=EventType.COUNTER_SPELL,
+        payload={'target': targets[0].id},
+        source=spell_id, controller=caster_id,
+    )]
 
 
 def _spellgyre_mode_surveil_draw(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
@@ -7610,7 +7407,11 @@ SPELLGYRE = make_instant(
     resolve=make_modal_resolve(
         "Spellgyre",
         modes=[
-            ("Counter target spell", _spellgyre_mode_counter),
+            ModeSpec(
+                "Counter target spell",
+                _spellgyre_mode_counter,
+                target_requirement=target_spell(),
+            ),
             ("Surveil 2, then draw two cards", _spellgyre_mode_surveil_draw),
         ],
         min_modes=1, max_modes=1,
@@ -7802,7 +7603,29 @@ EARLY_WINTER = make_instant(
     mana_cost="{4}{B}",
     colors={Color.BLACK},
     text="Choose one —\n• Exile target creature.\n• Target opponent exiles an enchantment they control.",
-    resolve=early_winter_resolve,
+    resolve=make_modal_resolve(
+        "Early Winter",
+        modes=[
+            ModeSpec(
+                "Exile target creature",
+                _early_winter_mode_exile,
+                target_requirement=target_creature(count=1),
+            ),
+            ModeSpec(
+                "Target opponent exiles an enchantment they control",
+                _early_winter_mode_exile_enchantment,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(
+                        types={CardType.ENCHANTMENT},
+                        controller='opponent',
+                    ),
+                    count=1,
+                    label="target enchantment an opponent controls",
+                ),
+            ),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 FEED_THE_CYCLE = make_instant(
@@ -8073,7 +7896,25 @@ AGATE_ASSAULT = make_sorcery(
     mana_cost="{2}{R}",
     colors={Color.RED},
     text="Choose one —\n• Agate Assault deals 4 damage to target creature. If that creature would die this turn, exile it instead.\n• Exile target artifact.",
-    resolve=agate_assault_resolve,
+    resolve=make_modal_resolve(
+        "Agate Assault",
+        modes=[
+            ModeSpec(
+                "Agate Assault deals 4 damage to target creature",
+                _agate_assault_mode_damage,
+                target_requirement=target_creature(count=1),
+            ),
+            ModeSpec(
+                "Exile target artifact",
+                _agate_assault_mode_exile,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(types={CardType.ARTIFACT}),
+                    count=1, label="target artifact",
+                ),
+            ),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 ALANIAS_PATHMAKER = make_creature(

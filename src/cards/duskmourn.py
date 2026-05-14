@@ -60,6 +60,8 @@ from src.cards.interceptor_helpers import (
     track_exile_with, count_exiled_with,
     make_hand_to_battlefield_choice,
     reveal_top_n_with_distinct_filter,
+    # Phase 5b modal helpers
+    make_modal_resolve, ModeSpec, normalize_target,
 )
 from src.engine.spell_resolve import (
     resolve_chain,
@@ -5265,133 +5267,37 @@ FLOODPITS_DROWNER = make_creature(
     setup_interceptors=floodpits_drowner_setup
 )
 
-def _get_out_target_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Get Out after target selection."""
-    mode_index = choice.callback_data.get('mode', 0)
-
-    if not selected:
+def _get_out_mode_counter(state, caster_id, spell_id, targets=None):
+    """Get Out mode 1: counter target creature/enchantment spell."""
+    if not targets:
         return []
+    return [Event(
+        type=EventType.SPELL_COUNTERED,
+        payload={'spell_id': targets[0].id},
+        source=spell_id, controller=caster_id,
+    )]
 
-    events = []
-    if mode_index == 0:
-        # Mode 0: Counter target creature or enchantment spell
-        target_id = selected[0]
-        target = state.objects.get(target_id)
-        if target and target.zone == ZoneType.STACK:
+
+def _get_out_mode_return(state, caster_id, spell_id, targets=None):
+    """Get Out mode 2: return one or two creatures/enchantments you own to hand."""
+    if not targets:
+        return []
+    events: list[Event] = []
+    for t in targets:
+        target = state.objects.get(t.id)
+        if target and target.zone == ZoneType.BATTLEFIELD:
             events.append(Event(
-                type=EventType.SPELL_COUNTERED,
-                payload={'spell_id': target_id},
-                source=choice.source_id
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': t.id,
+                    'from_zone': 'battlefield',
+                    'to_zone': f'hand_{target.owner}',
+                    'from_zone_type': ZoneType.BATTLEFIELD,
+                    'to_zone_type': ZoneType.HAND,
+                },
+                source=spell_id, controller=caster_id,
             ))
-    else:
-        # Mode 1: Return one or two targets to hand
-        for target_id in selected:
-            target = state.objects.get(target_id)
-            if target and target.zone == ZoneType.BATTLEFIELD:
-                events.append(Event(
-                    type=EventType.ZONE_CHANGE,
-                    payload={
-                        'object_id': target_id,
-                        'from_zone': 'battlefield',
-                        'to_zone': f'hand_{target.owner}',
-                        'from_zone_type': ZoneType.BATTLEFIELD,
-                        'to_zone_type': ZoneType.HAND
-                    },
-                    source=choice.source_id
-                ))
-
     return events
-
-
-def _get_out_mode_selected(choice, selected, state: GameState) -> list[Event]:
-    """Handle Get Out mode selection, then prompt for target."""
-    selected_mode = selected[0]
-    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
-
-    legal_targets = []
-    if mode_index == 0:
-        # Counter creature or enchantment spell - look at stack
-        stack_zone = state.zones.get('stack')
-        if stack_zone:
-            for obj_id in stack_zone.objects:
-                obj = state.objects.get(obj_id)
-                if not obj:
-                    continue
-                target_types = obj.characteristics.types
-                if CardType.CREATURE in target_types or CardType.ENCHANTMENT in target_types:
-                    legal_targets.append(obj_id)
-        prompt = "Choose a creature or enchantment spell to counter"
-        min_targets = 1
-        max_targets = 1
-    else:
-        # Return creatures/enchantments you own to hand
-        for obj in state.objects.values():
-            if obj.zone != ZoneType.BATTLEFIELD:
-                continue
-            if obj.owner != choice.player:
-                continue
-            target_types = obj.characteristics.types
-            if CardType.CREATURE in target_types or CardType.ENCHANTMENT in target_types:
-                legal_targets.append(obj.id)
-        prompt = "Choose one or two creatures and/or enchantments you own"
-        min_targets = 1
-        max_targets = 2
-
-    if not legal_targets:
-        return []
-
-    target_choice = create_target_choice(
-        state=state,
-        player_id=choice.player,
-        source_id=choice.source_id,
-        legal_targets=legal_targets,
-        prompt=f"Get Out - {prompt}",
-        min_targets=min_targets,
-        max_targets=max_targets,
-        callback_data={'handler': _get_out_target_execute, 'mode': mode_index}
-    )
-
-    return []
-
-
-def get_out_resolve(targets: list, state: GameState) -> list[Event]:
-    """
-    Resolve Get Out: Choose one -
-    - Counter target creature or enchantment spell.
-    - Return one or two target creatures and/or enchantments you own to your hand.
-    """
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Get Out":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "get_out_spell"
-
-    modes = [
-        {"index": 0, "text": "Counter target creature or enchantment spell."},
-        {"index": 1, "text": "Return one or two target creatures and/or enchantments you own to your hand."}
-    ]
-
-    choice = create_modal_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        modes=modes,
-        prompt="Get Out - Choose one:"
-    )
-    choice.choice_type = "modal_with_callback"
-    choice.callback_data['handler'] = _get_out_mode_selected
-
-    return []
 
 
 GET_OUT = make_instant(
@@ -5399,7 +5305,36 @@ GET_OUT = make_instant(
     mana_cost="{U}{U}",
     colors={Color.BLUE},
     text="Choose one —\n• Counter target creature or enchantment spell.\n• Return one or two target creatures and/or enchantments you own to your hand.",
-    resolve=get_out_resolve,
+    resolve=make_modal_resolve(
+        "Get Out",
+        modes=[
+            ModeSpec(
+                "Counter target creature or enchantment spell",
+                _get_out_mode_counter,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(
+                        types={CardType.CREATURE, CardType.ENCHANTMENT},
+                        zones=[ZoneType.STACK],
+                    ),
+                    count=1,
+                    label="target creature or enchantment spell",
+                ),
+            ),
+            ModeSpec(
+                "Return one or two target creatures and/or enchantments you own to your hand",
+                _get_out_mode_return,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(
+                        types={CardType.CREATURE, CardType.ENCHANTMENT},
+                        controller='you',
+                    ),
+                    count=2, count_type='up_to', optional=False,
+                    label="one or two target creatures and/or enchantments you own",
+                ),
+            ),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 GHOSTLY_KEYBEARER = make_creature(
@@ -7464,46 +7399,8 @@ UNTIMELY_MALFUNCTION = make_instant(
     resolve=untimely_malfunction_resolve,
 )
 
-def _vengeful_possession_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Vengeful Possession after target selection."""
-    target_id = selected[0] if selected else None
-    if not target_id:
-        return []
-
-    target = state.objects.get(target_id)
-    if not target or target.zone != ZoneType.BATTLEFIELD:
-        return []
-    if CardType.CREATURE not in target.characteristics.types:
-        return []
-
-    return [
-        Event(
-            type=EventType.GAIN_CONTROL,
-            payload={
-                'object_id': target_id,
-                'new_controller': choice.player,
-                'duration': 'end_of_turn'
-            },
-            source=choice.source_id
-        ),
-        Event(
-            type=EventType.UNTAP,
-            payload={'object_id': target_id},
-            source=choice.source_id
-        ),
-        Event(
-            type=EventType.GRANT_KEYWORD,
-            payload={'object_id': target_id, 'keyword': 'haste', 'duration': 'end_of_turn'},
-            source=choice.source_id
-        )
-    ]
-
-
 def vengeful_possession_resolve(targets: list, state: GameState) -> list[Event]:
-    """
-    Resolve Vengeful Possession: Gain control of target creature until end of turn.
-    Untap it. It gains haste.
-    """
+    """Vengeful Possession (Phase 5b): targets[0][0] is the creature to threaten."""
     stack_zone = state.zones.get('stack')
     caster_id = None
     spell_id = None
@@ -7514,33 +7411,34 @@ def vengeful_possession_resolve(targets: list, state: GameState) -> list[Event]:
                 caster_id = obj.controller
                 spell_id = obj.id
                 break
-
     if caster_id is None:
         caster_id = state.active_player
     if spell_id is None:
         spell_id = "vengeful_possession_spell"
-
-    valid_targets = [
-        obj.id for obj in state.objects.values()
-        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types
-    ]
-
-    if not valid_targets:
+    if not targets or not targets[0]:
         return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Vengeful Possession - Choose a creature to gain control of",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _vengeful_possession_execute
-
-    return []
+    tid, _ = normalize_target(targets[0][0], state)
+    return [
+        Event(
+            type=EventType.GAIN_CONTROL,
+            payload={
+                'object_id': tid,
+                'new_controller': caster_id,
+                'duration': 'end_of_turn',
+            },
+            source=spell_id, controller=caster_id,
+        ),
+        Event(
+            type=EventType.UNTAP,
+            payload={'object_id': tid},
+            source=spell_id, controller=caster_id,
+        ),
+        Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': tid, 'keyword': 'haste', 'duration': 'end_of_turn'},
+            source=spell_id, controller=caster_id,
+        ),
+    ]
 
 
 VENGEFUL_POSSESSION = make_sorcery(
@@ -7549,6 +7447,7 @@ VENGEFUL_POSSESSION = make_sorcery(
     colors={Color.RED},
     text="Gain control of target creature until end of turn. Untap it. It gains haste until end of turn. You may discard a card. If you do, draw a card.",
     resolve=vengeful_possession_resolve,
+    target_requirements=[target_creature(count=1, controller='opponent')],
 )
 
 VICIOUS_CLOWN = make_creature(
