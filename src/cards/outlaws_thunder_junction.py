@@ -55,6 +55,8 @@ from src.cards.interceptor_helpers import (
     make_dynamic_pt_boost,
     # W12: Spree (cost-per-mode)
     SpreeMode, make_spree_setup, make_spree_resolve,
+    # Phase 5b modal + target normalize
+    make_modal_resolve, ModeSpec, normalize_target,
 )
 from src.engine.turn_state import spells_cast_this_turn
 
@@ -7780,49 +7782,8 @@ DESPERATE_BLOODSEEKER = make_creature(
 # FAKE YOUR OWN DEATH - Combat trick + death trigger
 # =============================================================================
 
-def _fake_your_own_death_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Fake Your Own Death after target selection."""
-    target_id = selected[0] if selected else None
-    if not target_id:
-        return []
-
-    target = state.objects.get(target_id)
-    if not target or target.zone != ZoneType.BATTLEFIELD:
-        return []
-
-    if CardType.CREATURE not in target.characteristics.types:
-        return []
-
-    return [
-        Event(
-            type=EventType.TEMPORARY_EFFECT,
-            payload={
-                'effect': 'pump',
-                'target_id': target_id,
-                'power_mod': 2,
-                'toughness_mod': 0,
-                'duration': 'end_of_turn'
-            },
-            source=choice.source_id
-        ),
-        Event(
-            type=EventType.TEMPORARY_EFFECT,
-            payload={
-                'effect': 'grant_death_trigger',
-                'target_id': target_id,
-                'trigger': 'return_and_treasure',
-                'duration': 'end_of_turn'
-            },
-            source=choice.source_id
-        )
-    ]
-
-
 def fake_your_own_death_resolve(targets: list, state: GameState) -> list[Event]:
-    """
-    Resolve Fake Your Own Death: Until end of turn, target creature gets +2/+0
-    and gains death trigger to return and create Treasure.
-    """
+    """Fake Your Own Death (Phase 5b): targets[0][0] is the creature buffed."""
     stack_zone = state.zones.get('stack')
     caster_id = None
     spell_id = None
@@ -7833,35 +7794,39 @@ def fake_your_own_death_resolve(targets: list, state: GameState) -> list[Event]:
                 caster_id = obj.controller
                 spell_id = obj.id
                 break
-
     if caster_id is None:
         caster_id = state.active_player
     if spell_id is None:
         spell_id = "fake_your_own_death_spell"
 
-    # Find valid targets: creatures
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD:
-            if CardType.CREATURE in obj.characteristics.types:
-                valid_targets.append(obj.id)
-
-    if not valid_targets:
+    if not targets or not targets[0]:
         return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to get +2/+0 and death protection",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _fake_your_own_death_execute
-
-    return []
+    tid, _ = normalize_target(targets[0][0], state)
+    target = state.objects.get(tid)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+    return [
+        Event(
+            type=EventType.TEMPORARY_EFFECT,
+            payload={
+                'effect': 'pump',
+                'target_id': tid,
+                'power_mod': 2, 'toughness_mod': 0,
+                'duration': 'end_of_turn',
+            },
+            source=spell_id, controller=caster_id,
+        ),
+        Event(
+            type=EventType.TEMPORARY_EFFECT,
+            payload={
+                'effect': 'grant_death_trigger',
+                'target_id': tid,
+                'trigger': 'return_and_treasure',
+                'duration': 'end_of_turn',
+            },
+            source=spell_id, controller=caster_id,
+        ),
+    ]
 
 
 FAKE_YOUR_OWN_DEATH = make_instant(
@@ -7870,6 +7835,7 @@ FAKE_YOUR_OWN_DEATH = make_instant(
     colors={Color.BLACK},
     text="Until end of turn, target creature gets +2/+0 and gains \"When this creature dies, return it to the battlefield tapped under its owner's control and you create a Treasure token.\" (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")",
     resolve=fake_your_own_death_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 FORSAKEN_MINER = make_creature(
@@ -7941,47 +7907,8 @@ MOURNERS_SURPRISE = make_sorcery(
 # NEUTRALIZE THE GUARDS - Mass debuff to opponent's creatures + surveil
 # =============================================================================
 
-def _neutralize_the_guards_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Neutralize the Guards after target selection."""
-    target_player = selected[0] if selected else None
-    if not target_player:
-        return []
-
-    spell = state.objects.get(choice.source_id)
-    controller = spell.controller if spell else state.active_player
-
-    events = []
-    # Give -1/-1 to all creatures that opponent controls
-    for obj in state.objects.values():
-        if obj.controller == target_player and obj.zone == ZoneType.BATTLEFIELD:
-            if CardType.CREATURE in obj.characteristics.types:
-                events.append(Event(
-                    type=EventType.TEMPORARY_EFFECT,
-                    payload={
-                        'effect': 'pump',
-                        'target_id': obj.id,
-                        'power_mod': -1,
-                        'toughness_mod': -1,
-                        'duration': 'end_of_turn'
-                    },
-                    source=choice.source_id
-                ))
-
-    # Surveil 2
-    events.append(Event(
-        type=EventType.SURVEIL,
-        payload={'player': controller, 'amount': 2},
-        source=choice.source_id
-    ))
-
-    return events
-
-
 def neutralize_the_guards_resolve(targets: list, state: GameState) -> list[Event]:
-    """
-    Resolve Neutralize the Guards: Creatures target opponent controls get -1/-1
-    until end of turn. Surveil 2.
-    """
+    """Neutralize the Guards (Phase 5b): targets[0][0] is the target opponent."""
     stack_zone = state.zones.get('stack')
     caster_id = None
     spell_id = None
@@ -7992,31 +7919,34 @@ def neutralize_the_guards_resolve(targets: list, state: GameState) -> list[Event
                 caster_id = obj.controller
                 spell_id = obj.id
                 break
-
     if caster_id is None:
         caster_id = state.active_player
     if spell_id is None:
         spell_id = "neutralize_the_guards_spell"
 
-    # Find valid targets: opponents
-    valid_targets = [p_id for p_id in state.players.keys() if p_id != caster_id]
-
-    if not valid_targets:
+    if not targets or not targets[0]:
         return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose an opponent",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _neutralize_the_guards_execute
-
-    return []
+    target_player, _ = normalize_target(targets[0][0], state)
+    events: list[Event] = []
+    for obj in state.objects.values():
+        if obj.controller == target_player and obj.zone == ZoneType.BATTLEFIELD:
+            if CardType.CREATURE in obj.characteristics.types:
+                events.append(Event(
+                    type=EventType.TEMPORARY_EFFECT,
+                    payload={
+                        'effect': 'pump',
+                        'target_id': obj.id,
+                        'power_mod': -1, 'toughness_mod': -1,
+                        'duration': 'end_of_turn',
+                    },
+                    source=spell_id, controller=caster_id,
+                ))
+    events.append(Event(
+        type=EventType.SURVEIL,
+        payload={'player': caster_id, 'amount': 2},
+        source=spell_id, controller=caster_id,
+    ))
+    return events
 
 
 NEUTRALIZE_THE_GUARDS = make_instant(
@@ -8025,6 +7955,7 @@ NEUTRALIZE_THE_GUARDS = make_instant(
     colors={Color.BLACK},
     text="Creatures target opponent controls get -1/-1 until end of turn. Surveil 2. (Look at the top two cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.)",
     resolve=neutralize_the_guards_resolve,
+    target_requirements=[target_player(controller='opponent')],
 )
 
 NEZUMI_LINKBREAKER = make_creature(
@@ -9232,56 +9163,8 @@ STINGERBACK_TERROR = make_creature(
 # TAKE FOR A RIDE - Threaten effect
 # =============================================================================
 
-def _take_for_a_ride_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Take for a Ride after target selection."""
-    target_id = selected[0] if selected else None
-    if not target_id:
-        return []
-
-    target = state.objects.get(target_id)
-    if not target or target.zone != ZoneType.BATTLEFIELD:
-        return []
-
-    if CardType.CREATURE not in target.characteristics.types:
-        return []
-
-    spell = state.objects.get(choice.source_id)
-    controller = spell.controller if spell else state.active_player
-
-    return [
-        Event(
-            type=EventType.TEMPORARY_EFFECT,
-            payload={
-                'effect': 'gain_control',
-                'target_id': target_id,
-                'new_controller': controller,
-                'duration': 'end_of_turn'
-            },
-            source=choice.source_id
-        ),
-        Event(
-            type=EventType.UNTAP,
-            payload={'object_id': target_id},
-            source=choice.source_id
-        ),
-        Event(
-            type=EventType.TEMPORARY_EFFECT,
-            payload={
-                'effect': 'grant_keywords',
-                'target_id': target_id,
-                'keywords': ['haste'],
-                'duration': 'end_of_turn'
-            },
-            source=choice.source_id
-        )
-    ]
-
-
 def take_for_a_ride_resolve(targets: list, state: GameState) -> list[Event]:
-    """
-    Resolve Take for a Ride: Gain control of target creature until end of turn.
-    Untap that creature. It gains haste until end of turn.
-    """
+    """Take for a Ride (Phase 5b): targets[0][0] is the creature to threaten."""
     stack_zone = state.zones.get('stack')
     caster_id = None
     spell_id = None
@@ -9292,35 +9175,43 @@ def take_for_a_ride_resolve(targets: list, state: GameState) -> list[Event]:
                 caster_id = obj.controller
                 spell_id = obj.id
                 break
-
     if caster_id is None:
         caster_id = state.active_player
     if spell_id is None:
         spell_id = "take_for_a_ride_spell"
-
-    # Find valid targets: creatures (typically opponent's, but can target any)
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD:
-            if CardType.CREATURE in obj.characteristics.types:
-                valid_targets.append(obj.id)
-
-    if not valid_targets:
+    if not targets or not targets[0]:
         return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to gain control of",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _take_for_a_ride_execute
-
-    return []
+    tid, _ = normalize_target(targets[0][0], state)
+    target = state.objects.get(tid)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+    return [
+        Event(
+            type=EventType.TEMPORARY_EFFECT,
+            payload={
+                'effect': 'gain_control',
+                'target_id': tid,
+                'new_controller': caster_id,
+                'duration': 'end_of_turn',
+            },
+            source=spell_id, controller=caster_id,
+        ),
+        Event(
+            type=EventType.UNTAP,
+            payload={'object_id': tid},
+            source=spell_id, controller=caster_id,
+        ),
+        Event(
+            type=EventType.TEMPORARY_EFFECT,
+            payload={
+                'effect': 'grant_keywords',
+                'target_id': tid,
+                'keywords': ['haste'],
+                'duration': 'end_of_turn',
+            },
+            source=spell_id, controller=caster_id,
+        ),
+    ]
 
 
 TAKE_FOR_A_RIDE = make_sorcery(
@@ -9329,6 +9220,7 @@ TAKE_FOR_A_RIDE = make_sorcery(
     colors={Color.RED},
     text="Take for a Ride has flash as long as you've committed a crime this turn. (Targeting opponents, anything they control, and/or cards in their graveyards is a crime.)\nGain control of target creature until end of turn. Untap that creature. It gains haste until end of turn.",
     resolve=take_for_a_ride_resolve,
+    target_requirements=[target_creature(count=1, controller='opponent')],
 )
 
 TERROR_OF_THE_PEAKS = make_creature(
@@ -9429,106 +9321,36 @@ BEASTBOND_OUTCASTER = make_creature(
 # BETRAYAL AT THE VAULT - One creature damages two others
 # =============================================================================
 
-def _betrayal_at_the_vault_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Betrayal at the Vault after target selection."""
-    if len(selected) < 3:
-        return []
-
-    your_creature_id = selected[0]
-    target1_id = selected[1]
-    target2_id = selected[2]
-
-    your_creature = state.objects.get(your_creature_id)
-    if not your_creature or your_creature.zone != ZoneType.BATTLEFIELD:
-        return []
-
-    from src.engine import get_power
-    power = get_power(your_creature, state)
-
-    events = []
-
-    # Deal damage to first target
-    target1 = state.objects.get(target1_id)
-    if target1 and target1.zone == ZoneType.BATTLEFIELD:
-        events.append(Event(
-            type=EventType.DAMAGE,
-            payload={
-                'target': target1_id,
-                'amount': power,
-                'source': your_creature_id,
-                'is_combat': False
-            },
-            source=choice.source_id
-        ))
-
-    # Deal damage to second target
-    target2 = state.objects.get(target2_id)
-    if target2 and target2.zone == ZoneType.BATTLEFIELD:
-        events.append(Event(
-            type=EventType.DAMAGE,
-            payload={
-                'target': target2_id,
-                'amount': power,
-                'source': your_creature_id,
-                'is_combat': False
-            },
-            source=choice.source_id
-        ))
-
-    return events
-
-
 def betrayal_at_the_vault_resolve(targets: list, state: GameState) -> list[Event]:
     """
-    Resolve Betrayal at the Vault: Target creature you control deals damage equal
-    to its power to each of two other target creatures.
+    Betrayal at the Vault (Phase 5b): targets[0][0] is your creature (damage
+    source); targets[1] is the list of 2 other creatures taking damage.
     """
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Betrayal at the Vault":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "betrayal_at_the_vault_spell"
-
-    # Find your creatures
-    your_creatures = []
-    other_creatures = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD:
-            if CardType.CREATURE in obj.characteristics.types:
-                if obj.controller == caster_id:
-                    your_creatures.append(obj.id)
-                other_creatures.append(obj.id)  # All creatures can be targets
-
-    if not your_creatures or len(other_creatures) < 3:
+    from src.engine import get_power
+    if not targets or len(targets) < 2 or not targets[0] or not targets[1]:
         return []
-
-    # Need to select: 1 creature you control, 2 other creatures
-    all_targets = your_creatures + [c for c in other_creatures if c not in your_creatures]
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=list(set(all_targets)),  # Dedupe
-        prompt="Choose your creature, then two other creatures to damage",
-        min_targets=3,
-        max_targets=3,
-        callback_data={'your_creatures': your_creatures}
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _betrayal_at_the_vault_execute
-
-    return []
+    own_tid, _ = normalize_target(targets[0][0], state)
+    own = state.objects.get(own_tid)
+    if not own or own.zone != ZoneType.BATTLEFIELD:
+        return []
+    power = get_power(own, state)
+    events: list[Event] = []
+    for entry in targets[1]:
+        tid, _ = normalize_target(entry, state)
+        if tid == own_tid:
+            continue  # "other" target
+        obj = state.objects.get(tid)
+        if not obj or obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        events.append(Event(
+            type=EventType.DAMAGE,
+            payload={
+                'target': tid, 'amount': power,
+                'source': own_tid, 'is_combat': False,
+            },
+            source=own_tid,
+        ))
+    return events
 
 
 BETRAYAL_AT_THE_VAULT = make_instant(
@@ -9537,6 +9359,13 @@ BETRAYAL_AT_THE_VAULT = make_instant(
     colors={Color.GREEN},
     text="Target creature you control deals damage equal to its power to each of two other target creatures.",
     resolve=betrayal_at_the_vault_resolve,
+    target_requirements=[
+        target_creature(count=1, controller='you'),
+        TargetRequirement(
+            filter=creature_filter(),
+            count=2, label="two other target creatures",
+        ),
+    ],
 )
 
 BRISTLEPACK_SENTRY = make_creature(
