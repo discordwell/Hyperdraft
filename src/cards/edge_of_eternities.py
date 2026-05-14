@@ -2422,6 +2422,25 @@ def illvoi_galeblade_setup(obj: GameObject, state: GameState) -> list[Intercepto
     return []
 
 
+def slagdrill_scrapper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}, {T}, Sacrifice another artifact or land: Draw a card.
+
+    Note: the generic activated-cost parser only handles self-sacrifice. A
+    "Sacrifice another artifact or land" additional cost is approximated by
+    the framework as a tap-and-mana cost; the effect_fn still fires for the
+    draw, while the engine pays the printed mana + tap. The "another
+    artifact or land" sacrifice is not enforced at this layer — engine gap
+    for "Sacrifice another X" non-self costs.
+    """
+    make_draw_ability(
+        obj,
+        cost="{2}, {T}, Sacrifice another artifact or land",
+        count=1,
+        description="Draw a card",
+    )
+    return []
+
+
 def illvoi_light_jammer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Equipment: ETB attach + hexproof EOT. +1/+2. Equip {3}."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
@@ -5715,6 +5734,7 @@ SLAGDRILL_SCRAPPER = make_artifact_creature(
     colors={Color.RED},
     subtypes={"Robot", "Scout"},
     text="{2}, {T}, Sacrifice another artifact or land: Draw a card.",
+    setup_interceptors=slagdrill_scrapper_setup,
 )
 
 SYSTEMS_OVERRIDE = make_sorcery(
