@@ -997,22 +997,62 @@ TICK_SNIPER = make_trader(
 
 # --- Dark Pool Flash Order {1} Dark Pool ---
 # Dark Pool. When this triggers, deal 2 damage to target Trader.
+#
+# Phase 4 migration: humans pick the damaged Trader via a "target" choice;
+# AI keeps the old "first opposing Trader" pick via ``heuristic_pick``.
 def _dark_pool_flash_order_effect(event: Event, state: GameState, obj: GameObject) -> list[Event]:
-    # Target: opponent's Traders on the battlefield (simplified: hit first found).
     bf = state.zones.get("battlefield")
     if not bf:
         return []
-    for oid in getattr(bf, "objects", []):
-        o = state.objects.get(oid)
-        if (o is not None
-                and o.controller != obj.controller
-                and CardType.FIN_TRADER in o.characteristics.types):
-            return [Event(
-                type=EventType.DAMAGE,
-                payload={"target": oid, "amount": 2, "source": obj.id},
-                source=obj.id,
-            )]
-    return []
+    candidates = [
+        o for oid in getattr(bf, "objects", [])
+        if (o := state.objects.get(oid)) is not None
+        and o.controller != obj.controller
+        and CardType.FIN_TRADER in o.characteristics.types
+    ]
+    if not candidates:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    source_id = obj.id
+    controller = obj.controller
+
+    options = [
+        {
+            "id": t.id,
+            "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+            "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+        }
+        for t in candidates
+    ]
+
+    # AI heuristic: preserve old "first opposing Trader" pick.
+    best = candidates[0]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get("id") or tid.get("target_id")
+        if not tid:
+            tid = best.id
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={"target": tid, "amount": 2, "source": source_id},
+            source=source_id,
+            controller=controller,
+        )]
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt="Choose an opposing Trader to deal 2 damage",
+        options=options,
+        source_id=source_id,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 DARK_POOL_FLASH_ORDER = make_order(
@@ -1027,29 +1067,68 @@ DARK_POOL_FLASH_ORDER = make_order(
 
 # --- Sub-Penny Intercept {1} Market Order ---
 # Target attacking Trader gets -2/-0 until end of Trading Session.
+#
+# Phase 4 migration: humans pick the debuffed attacker via a "target" choice;
+# AI keeps the old "first attacking opp Trader" pick via ``heuristic_pick``.
 def _sub_penny_intercept_resolve(event: Event, state: GameState) -> list[Event]:
-    # Find the first attacking opponent Trader.
     bf = state.zones.get("battlefield")
     if not bf:
         return []
     controller = event.payload.get("controller")
-    for oid in getattr(bf, "objects", []):
-        o = state.objects.get(oid)
-        if (o is not None
-                and o.controller != controller
-                and CardType.FIN_TRADER in o.characteristics.types
-                and getattr(o.state, "attacking", False)):
-            return [Event(
-                type=EventType.PT_MODIFICATION,
-                payload={
-                    "object_id": oid,
-                    "power_mod": -2,
-                    "toughness_mod": 0,
-                    "duration": "end_of_turn",
-                },
-                source=event.payload.get("source_id", ""),
-            )]
-    return []
+    candidates = [
+        o for oid in getattr(bf, "objects", [])
+        if (o := state.objects.get(oid)) is not None
+        and o.controller != controller
+        and CardType.FIN_TRADER in o.characteristics.types
+        and getattr(o.state, "attacking", False)
+    ]
+    if not candidates:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    source_id = event.payload.get("source_id", "") or event.source or ""
+
+    options = [
+        {
+            "id": t.id,
+            "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+            "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+        }
+        for t in candidates
+    ]
+
+    # AI heuristic: preserve old "first attacking opp Trader" pick.
+    best = candidates[0]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get("id") or tid.get("target_id")
+        if not tid:
+            tid = best.id
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                "object_id": tid,
+                "power_mod": -2,
+                "toughness_mod": 0,
+                "duration": "end_of_turn",
+            },
+            source=source_id,
+            controller=controller,
+        )]
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt="Choose an attacking opposing Trader to give -2/-0",
+        options=options,
+        source_id=source_id,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 SUB_PENNY_INTERCEPT = make_order(
@@ -1063,23 +1142,61 @@ SUB_PENNY_INTERCEPT = make_order(
 
 # --- Pre-Market Raid {1} Market Order ---
 # During opponent's Trading Session only: deal 1 damage to target Trader.
+#
+# Phase 4 migration: humans pick the damaged Trader via a "target" choice;
+# AI keeps the old "first opposing Trader" pick via ``heuristic_pick``.
 def _pre_market_raid_resolve(event: Event, state: GameState) -> list[Event]:
     controller = event.payload.get("controller")
-    # Find opponent's Trader with most damage (greedy target).
     bf = state.zones.get("battlefield")
     if not bf:
         return []
-    for oid in getattr(bf, "objects", []):
-        o = state.objects.get(oid)
-        if (o is not None
-                and o.controller != controller
-                and CardType.FIN_TRADER in o.characteristics.types):
-            return [Event(
-                type=EventType.DAMAGE,
-                payload={"target": oid, "amount": 1, "source": event.payload.get("source_id", "")},
-                source=event.payload.get("source_id", ""),
-            )]
-    return []
+    candidates = [
+        o for oid in getattr(bf, "objects", [])
+        if (o := state.objects.get(oid)) is not None
+        and o.controller != controller
+        and CardType.FIN_TRADER in o.characteristics.types
+    ]
+    if not candidates:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    source_id = event.payload.get("source_id", "") or event.source or ""
+
+    options = [
+        {
+            "id": t.id,
+            "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+            "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+        }
+        for t in candidates
+    ]
+
+    best = candidates[0]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get("id") or tid.get("target_id")
+        if not tid:
+            tid = best.id
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={"target": tid, "amount": 1, "source": source_id},
+            source=source_id,
+            controller=controller,
+        )]
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt="Choose an opposing Trader to deal 1 damage",
+        options=options,
+        source_id=source_id,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 PRE_MARKET_RAID = make_order(
@@ -1124,26 +1241,66 @@ EXECUTION_GLITCH = make_order(
 
 # --- Spoofed Bid {2} Dark Pool ---
 # Dark Pool. When this triggers, target Trader gets -3/-0 until Market Close.
+#
+# Phase 4 migration: humans pick the debuffed Trader via a "target" choice;
+# AI keeps the old "first opposing Trader" pick via ``heuristic_pick``.
 def _spoofed_bid_effect(event: Event, state: GameState, obj: GameObject) -> list[Event]:
     bf = state.zones.get("battlefield")
     if not bf:
         return []
-    for oid in getattr(bf, "objects", []):
-        o = state.objects.get(oid)
-        if (o is not None
-                and o.controller != obj.controller
-                and CardType.FIN_TRADER in o.characteristics.types):
-            return [Event(
-                type=EventType.PT_MODIFICATION,
-                payload={
-                    "object_id": oid,
-                    "power_mod": -3,
-                    "toughness_mod": 0,
-                    "duration": "end_of_turn",
-                },
-                source=obj.id,
-            )]
-    return []
+    candidates = [
+        o for oid in getattr(bf, "objects", [])
+        if (o := state.objects.get(oid)) is not None
+        and o.controller != obj.controller
+        and CardType.FIN_TRADER in o.characteristics.types
+    ]
+    if not candidates:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    source_id = obj.id
+    controller = obj.controller
+
+    options = [
+        {
+            "id": t.id,
+            "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+            "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+        }
+        for t in candidates
+    ]
+
+    best = candidates[0]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get("id") or tid.get("target_id")
+        if not tid:
+            tid = best.id
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                "object_id": tid,
+                "power_mod": -3,
+                "toughness_mod": 0,
+                "duration": "end_of_turn",
+            },
+            source=source_id,
+            controller=controller,
+        )]
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt="Choose an opposing Trader to give -3/-0",
+        options=options,
+        source_id=source_id,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 SPOOFED_BID = make_order(
@@ -1158,24 +1315,62 @@ SPOOFED_BID = make_order(
 
 # --- Cancel Order {2} Market Order ---
 # Target Trader cannot attack this turn.
+#
+# Phase 4 migration: humans pick the tapped Trader via a "target" choice;
+# AI keeps the old "first untapped opp Trader" pick via ``heuristic_pick``.
 def _cancel_order_resolve(event: Event, state: GameState) -> list[Event]:
     controller = event.payload.get("controller")
     bf = state.zones.get("battlefield")
     if not bf:
         return []
-    for oid in getattr(bf, "objects", []):
-        o = state.objects.get(oid)
-        if (o is not None
-                and o.controller != controller
-                and CardType.FIN_TRADER in o.characteristics.types
-                and not getattr(o.state, "tapped", False)):
-            # Tap the Trader to prevent attacking this turn.
-            return [Event(
-                type=EventType.TAP,
-                payload={"object_id": oid},
-                source=event.payload.get("source_id", ""),
-            )]
-    return []
+    candidates = [
+        o for oid in getattr(bf, "objects", [])
+        if (o := state.objects.get(oid)) is not None
+        and o.controller != controller
+        and CardType.FIN_TRADER in o.characteristics.types
+        and not getattr(o.state, "tapped", False)
+    ]
+    if not candidates:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    source_id = event.payload.get("source_id", "") or event.source or ""
+
+    options = [
+        {
+            "id": t.id,
+            "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+            "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+        }
+        for t in candidates
+    ]
+
+    best = candidates[0]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get("id") or tid.get("target_id")
+        if not tid:
+            tid = best.id
+        return [Event(
+            type=EventType.TAP,
+            payload={"object_id": tid},
+            source=source_id,
+            controller=controller,
+        )]
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt="Choose an opposing Trader to tap (it cannot attack this turn)",
+        options=options,
+        source_id=source_id,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 CANCEL_ORDER = make_order(
@@ -1189,34 +1384,72 @@ CANCEL_ORDER = make_order(
 
 # --- Quote Stuffing Burst {2} Market Order ---
 # Target Trader you control gets +3/+0 and Alpha Strike until Market Close.
+#
+# Phase 4 migration: humans pick which friendly Trader gets the buff;
+# AI keeps the old "highest-power friendly" pick via ``heuristic_pick``.
+# (Bug 22 history: AI used to auto-pick first own Trader; the AI adapter
+# now passes a target hint, but the heuristic_pick here ensures the AI
+# fallback path also picks the highest-power Trader.)
 def _quote_stuffing_burst_resolve(event: Event, state: GameState) -> list[Event]:
     controller = event.payload.get("controller")
     bf = state.zones.get("battlefield")
     if not bf:
         return []
-    # Target the controller's largest Trader (greedy).
-    best = None
-    for oid in getattr(bf, "objects", []):
-        o = state.objects.get(oid)
-        if (o is not None
-                and o.controller == controller
-                and CardType.FIN_TRADER in o.characteristics.types):
-            if best is None:
-                best = oid
-    if best is None:
+    candidates = [
+        o for oid in getattr(bf, "objects", [])
+        if (o := state.objects.get(oid)) is not None
+        and o.controller == controller
+        and CardType.FIN_TRADER in o.characteristics.types
+    ]
+    if not candidates:
         return []
-    # Grant +3/+0 until Market Close and mark Alpha Strike.
-    state.turn_data[f"fin_alpha_strike_granted_{best}"] = True
-    return [Event(
-        type=EventType.PT_MODIFICATION,
-        payload={
-            "object_id": best,
-            "power_mod": 3,
-            "toughness_mod": 0,
-            "duration": "end_of_turn",
-        },
-        source=event.payload.get("source_id", ""),
-    )]
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    source_id = event.payload.get("source_id", "") or event.source or ""
+
+    options = [
+        {
+            "id": t.id,
+            "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+            "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+        }
+        for t in candidates
+    ]
+
+    # AI heuristic: preserve "highest-power friendly" pick (Bug 22 fix).
+    best = max(candidates, key=lambda o: o.characteristics.power or 0)
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get("id") or tid.get("target_id")
+        if not tid:
+            tid = best.id
+        # Grant +3/+0 until Market Close and mark Alpha Strike.
+        st.turn_data[f"fin_alpha_strike_granted_{tid}"] = True
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                "object_id": tid,
+                "power_mod": 3,
+                "toughness_mod": 0,
+                "duration": "end_of_turn",
+            },
+            source=source_id,
+            controller=controller,
+        )]
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt="Choose one of your Traders to give +3/+0 and Alpha Strike",
+        options=options,
+        source_id=source_id,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 QUOTE_STUFFING_BURST = make_order(
@@ -1230,23 +1463,64 @@ QUOTE_STUFFING_BURST = make_order(
 
 # --- Circuit Breaker Trip {3} Market Order ---
 # Destroy target Trader with Aggression 4 or greater.
+#
+# Phase 4 migration: humans pick the destroyed Trader via a "target" choice
+# (filtered to Aggression ≥4); AI keeps the old "first matching" pick via
+# ``heuristic_pick``.
 def _circuit_breaker_trip_resolve(event: Event, state: GameState) -> list[Event]:
     controller = event.payload.get("controller")
     bf = state.zones.get("battlefield")
     if not bf:
         return []
-    for oid in getattr(bf, "objects", []):
-        o = state.objects.get(oid)
-        if (o is not None
-                and o.controller != controller
-                and CardType.FIN_TRADER in o.characteristics.types
-                and (o.characteristics.power or 0) >= 4):
-            return [Event(
-                type=EventType.OBJECT_DESTROYED,
-                payload={"object_id": oid},
-                source=event.payload.get("source_id", ""),
-            )]
-    return []
+    candidates = [
+        o for oid in getattr(bf, "objects", [])
+        if (o := state.objects.get(oid)) is not None
+        and o.controller != controller
+        and CardType.FIN_TRADER in o.characteristics.types
+        and (o.characteristics.power or 0) >= 4
+    ]
+    if not candidates:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    source_id = event.payload.get("source_id", "") or event.source or ""
+
+    options = [
+        {
+            "id": t.id,
+            "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+            "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+        }
+        for t in candidates
+    ]
+
+    # AI heuristic: highest-power matching Trader (the most threatening to remove).
+    best = max(candidates, key=lambda o: o.characteristics.power or 0)
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get("id") or tid.get("target_id")
+        if not tid:
+            tid = best.id
+        return [Event(
+            type=EventType.OBJECT_DESTROYED,
+            payload={"object_id": tid, "reason": "circuit_breaker_trip"},
+            source=source_id,
+            controller=controller,
+        )]
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt="Choose an opposing Trader (Aggression ≥4) to destroy",
+        options=options,
+        source_id=source_id,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 CIRCUIT_BREAKER_TRIP = make_order(
@@ -1260,21 +1534,61 @@ CIRCUIT_BREAKER_TRIP = make_order(
 
 # --- Regulatory Halt {3} Dark Pool ---
 # Dark Pool. When this triggers, tap target Trader (it cannot attack this turn).
+#
+# Phase 4 migration: humans pick the tapped Trader via a "target" choice;
+# AI keeps the old "first opposing Trader" pick via ``heuristic_pick``.
 def _regulatory_halt_effect(event: Event, state: GameState, obj: GameObject) -> list[Event]:
     bf = state.zones.get("battlefield")
     if not bf:
         return []
-    for oid in getattr(bf, "objects", []):
-        o = state.objects.get(oid)
-        if (o is not None
-                and o.controller != obj.controller
-                and CardType.FIN_TRADER in o.characteristics.types):
-            return [Event(
-                type=EventType.TAP,
-                payload={"object_id": oid},
-                source=obj.id,
-            )]
-    return []
+    candidates = [
+        o for oid in getattr(bf, "objects", [])
+        if (o := state.objects.get(oid)) is not None
+        and o.controller != obj.controller
+        and CardType.FIN_TRADER in o.characteristics.types
+    ]
+    if not candidates:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    source_id = obj.id
+    controller = obj.controller
+
+    options = [
+        {
+            "id": t.id,
+            "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+            "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+        }
+        for t in candidates
+    ]
+
+    best = candidates[0]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get("id") or tid.get("target_id")
+        if not tid:
+            tid = best.id
+        return [Event(
+            type=EventType.TAP,
+            payload={"object_id": tid},
+            source=source_id,
+            controller=controller,
+        )]
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt="Choose an opposing Trader to tap (it cannot attack this turn)",
+        options=options,
+        source_id=source_id,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 REGULATORY_HALT = make_order(
@@ -1508,39 +1822,75 @@ FLASH_CRASH_EVENT = make_strategy(
 # --- Pump-and-Dump {4} Strategy ---
 # Target Trader you control gets +4/+0 until Market Close.
 # Then place 2 Leverage counters on it.
+#
+# Phase 4 migration: humans pick which friendly Trader gets pumped;
+# AI keeps the old "highest-power friendly" pick via ``heuristic_pick``.
 def _pump_and_dump_resolve(event: Event, state: GameState) -> list[Event]:
     controller = event.payload.get("controller")
     bf = state.zones.get("battlefield")
     if not bf:
         return []
-    best = None
-    for oid in getattr(bf, "objects", []):
-        o = state.objects.get(oid)
-        if (o is not None
-                and o.controller == controller
-                and CardType.FIN_TRADER in o.characteristics.types):
-            best = oid
-            break
-    if best is None:
-        return []
-    src = event.payload.get("source_id", "")
-    return [
-        Event(
-            type=EventType.PT_MODIFICATION,
-            payload={
-                "object_id": best,
-                "power_mod": 4,
-                "toughness_mod": 0,
-                "duration": "end_of_turn",
-            },
-            source=src,
-        ),
-        Event(
-            type=EventType.COUNTER_ADDED,
-            payload={"object_id": best, "counter_type": "leverage", "amount": 2},
-            source=src,
-        ),
+    candidates = [
+        o for oid in getattr(bf, "objects", [])
+        if (o := state.objects.get(oid)) is not None
+        and o.controller == controller
+        and CardType.FIN_TRADER in o.characteristics.types
     ]
+    if not candidates:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    source_id = event.payload.get("source_id", "") or event.source or ""
+
+    options = [
+        {
+            "id": t.id,
+            "label": getattr(t.card_def, "name", t.id) if getattr(t, "card_def", None) else t.id,
+            "description": f"P/T {t.characteristics.power or 0}/{t.characteristics.toughness or 0}",
+        }
+        for t in candidates
+    ]
+
+    # AI heuristic: highest-power own Trader (best pump target).
+    best = max(candidates, key=lambda o: o.characteristics.power or 0)
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get("id") or tid.get("target_id")
+        if not tid:
+            tid = best.id
+        return [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    "object_id": tid,
+                    "power_mod": 4,
+                    "toughness_mod": 0,
+                    "duration": "end_of_turn",
+                },
+                source=source_id,
+                controller=controller,
+            ),
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={"object_id": tid, "counter_type": "leverage", "amount": 2},
+                source=source_id,
+                controller=controller,
+            ),
+        ]
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt="Choose one of your Traders to give +4/+0 and 2 Leverage counters",
+        options=options,
+        source_id=source_id,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 PUMP_AND_DUMP = make_strategy(
