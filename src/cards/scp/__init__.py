@@ -1189,31 +1189,35 @@ def make_site_zero_redaction_lock_deck():
 
 
 ANTIMEMETIC_COLD_WAR_NAMES = [
-    # Rebuilt around the SZB White Pill Ward + Memory Triage cluster — the
-    # site_zero_redaction_lock template at 82% winrate is too strong to ignore.
-    # We hybridize: keep an ACW Hero for archetype identity but lean on the
-    # SZB Handler on_assign hooks (Memory Triage research, White Pill Ward
-    # ethics relief) that make redaction decks tick.
-    # Personnel (8)
+    # Targeted nerf: previous build hybridized the SZB White Pill Ward
+    # cluster too aggressively and clocked ~70-82% winrate, cloning
+    # site_zero_redaction_lock's dominance. We drop the SZB White Pill
+    # Ward Anomaly (the high-impact contained-bonus piece) and replace
+    # with CORE Antimemetic Orchard (still on-theme, no SZB stack), and
+    # we shave 1 SZB Quiet Recital Protocol back to a CORE breach
+    # sweeper so the deck's procedure suite carries less SZB density.
+    # Personnel (8) — unchanged
     "Memetics Analyst", "Memetics Analyst",
     "D-Class Volunteer", "D-Class Volunteer",
     "ACW Hero - Director Ana Vale",
     "SZB White Pill Ward Handler",
     "Sleep-Deprived Intern",
     "Junior Researcher",
-    # Facilities (4): research engines + high-clearance enabler
+    # Facilities (4): unchanged
     "Memetics Lab", "Memetics Lab",
     "Redaction Office", "Black Vault",
-    # Anomalies (4): CORE Moth pair + ACW thematic anchor + sealed default
+    # Anomalies (4): swap SZB White Pill Ward Anomaly -> CORE Antimemetic
+    # Orchard (loses the SZB contained-bonus stack)
     "Moth in the Camera", "Moth in the Camera",
-    "SZB White Pill Ward Anomaly",
+    "Antimemetic Orchard",
     "ACW Forgotten Embassy Anomaly",
-    # Procedures (7): secrecy + breach control + SZB Memetics + comeback
+    # Procedures (7): drop 1x SZB Quiet Recital -> CORE Null Room
+    # Calibration (still breach relief, weaker payoff)
     "Class-A Amnestic Broadcast", "Class-A Amnestic Broadcast",
     "Witness Relocation", "Null Room Calibration",
-    "SZB Quiet Recital Protocol",
+    "Null Room Calibration",
     "Crisis Reframe", "Compelling Testimony",
-    # Mandates (2): redaction alt-win + SZB White Pill Directive
+    # Mandates (2): unchanged
     "There Is No Antimemetics Division",
     "SZB Directive 1: White Pill Ward",
 ]
@@ -1279,11 +1283,24 @@ def make_goi_frontline_deck():
 
 
 ETHICS_RECKONING_NAMES = [
-    # Personnel (8): subtype-aura anchors + cheap bodies
+    # Rebuilt to actually target the ethics_audit alt-win (4 Archives +
+    # secrecy 8+). The previous build used "There Is No Antimemetics
+    # Division" (alt_win=redaction: 3 Archives + secrecy 12+), which is
+    # 4 secrecy harder and unrelated to ETH's ethics-debt motif. We now
+    # use ETH Mandate 1: Mercy Ledger (alt_win=ethics_audit) and load
+    # ETH-tribal procedures that push the secrecy/archive numbers
+    # without painting "Memetics Analyst" tax.
+    #
+    # We also borrow MNR's Bystander pivot (Conference Attendee) — a
+    # RT-0 research body that can Mnestic Wake by paying 1 ethics debt,
+    # which ETH naturally produces.
+    # Personnel (8): subtype-aura anchors + ETH-Specialist research engine
     "Ethics Liaison", "Ethics Liaison",
-    "D-Class Volunteer", "D-Class Volunteer",
-    "O5 Auditor", "Memetics Analyst",
+    "D-Class Volunteer",
+    "MNR Conference Attendee",
+    "O5 Auditor",
     "ETH Hero - Chairwoman Inez Salt", "ETH Hero - Dr. Gideon Vale",
+    "ETH Burden Archive Specialist",
     # Facilities (4): ethics anchor + research engines
     "Ethics Committee Desk", "Ethics Committee Desk",
     "Memetics Lab", "Deepwell Archive",
@@ -1291,13 +1308,16 @@ ETHICS_RECKONING_NAMES = [
     "ETH Audit Cathedral Anomaly", "ETH Patient Sun Anomaly",
     "ETH Confession Engine Anomaly", "ETH Burden Archive Anomaly",
     "ETH Mercy Ledger Anomaly",
-    # Procedures (6): conversion engine + comeback reach
-    "Weaponize Ethics Debt", "Weaponize Ethics Debt",
-    "Ethics Waiver",
-    "Cross-Test Proposal",
+    # Procedures (6): conversion engine + ETH-tribal secrecy/archive
+    # pushers + comeback. Audit Cathedral Protocol (secrecy +3) is the
+    # critical piece that lets the deck reach the 8 secrecy threshold.
+    "Weaponize Ethics Debt",
+    "ETH Audit Cathedral Protocol",
+    "ETH Clean-Room Tribunal Protocol",
+    "Witness Relocation",
     "Crisis Reframe", "Compelling Testimony",
-    # Mandates (2): alt-win + suppress aura
-    "There Is No Antimemetics Division",
+    # Mandates (2): real ethics_audit alt-win + suppress aura
+    "ETH Mandate 1: Mercy Ledger",
     "Protect Mandate",
 ]
 
