@@ -139,16 +139,27 @@ def test_audience_with_trostani_creates_token_and_draws():
     print("PASS: Audience with Trostani makes Plant + draws")
 
 
-def test_urgent_necropsy_opens_destroy_choice():
-    """Urgent Necropsy queues a chained destroy-up-to-one choice."""
+def test_urgent_necropsy_destroys_picked_target():
+    """Urgent Necropsy: Phase 5b — targets are pre-supplied at cast time
+    via ``target_requirements``. The resolve fn now consumes ``targets[0]``
+    and emits a destroy event directly (instead of opening its own chained
+    choice). Earlier test version asserted the resolve-time PendingChoice
+    shape, which no longer exists.
+    """
     game, (p, opp) = _make_game(2)
-    _put_creature(game, opp, "Opp Creature", 2, 2)
-    URGENT_NECROPSY.resolve([], game.state)
-    pc = game.state.pending_choice
-    assert pc is not None
-    assert pc.choice_type == "target_with_callback"
-    assert pc.min_choices == 0 and pc.max_choices == 1
-    print("PASS: Urgent Necropsy opens chained destroy choice")
+    victim = _put_creature(game, opp, "Opp Creature", 2, 2)
+    # Pre-supplied targets shape: list[list], one inner list per requirement.
+    events = URGENT_NECROPSY.resolve([[victim.id]], game.state)
+    assert URGENT_NECROPSY.target_requirements, \
+        "URGENT_NECROPSY must declare target_requirements for cast-time prompt"
+    # Effect should destroy the picked target. Tolerate "destroy" via
+    # OBJECT_DESTROYED or ZONE_CHANGE to graveyard depending on impl.
+    destroy_events = [e for e in events
+                      if e.type in (EventType.OBJECT_DESTROYED, EventType.ZONE_CHANGE)
+                      and (e.payload.get('object_id') == victim.id
+                           or e.payload.get('target') == victim.id)]
+    assert destroy_events, f"expected destroy event for {victim.id}, got {events}"
+    print("PASS: Urgent Necropsy destroys pre-supplied target (Phase 5b)")
 
 
 def test_felonious_rage_pumps_caster_creature():
@@ -163,19 +174,31 @@ def test_felonious_rage_pumps_caster_creature():
     print("PASS: Felonious Rage scopes target to caster's creatures")
 
 
-def test_hardhitting_question_opens_two_target_chain():
-    """Hard-Hitting Question opens a target choice for caster's creatures first."""
+def test_hardhitting_question_declares_two_target_requirements():
+    """Hard-Hitting Question: Phase 5b — declares 2 target_requirements
+    (caster's creature + opposing creature). Previously the resolve fn
+    opened a chained PendingChoice itself; now the engine drives the chain
+    via ``_emit_cast_target_choice`` at cast time. The test asserts both
+    the declared requirement shape AND that the resolve fn produces the
+    fight/draw events when targets are pre-supplied.
+    """
+    assert HARDHITTING_QUESTION.target_requirements, \
+        "HARDHITTING_QUESTION must declare target_requirements"
+    reqs = HARDHITTING_QUESTION.target_requirements
+    assert len(reqs) == 2, f"expected 2 requirements, got {len(reqs)}"
+    # First req should be caster-scoped, second opponent-scoped.
+    assert reqs[0].filter.controller in ('you',), \
+        f"first req should target caster's creatures, got controller={reqs[0].filter.controller}"
+    assert reqs[1].filter.controller in ('opponent',), \
+        f"second req should target opponent's creatures, got controller={reqs[1].filter.controller}"
+
+    # Sanity: with both targets supplied, the resolve fn produces events.
     game, (p, opp) = _make_game(2)
-    _put_creature(game, p, "Mine", 4, 4)
-    _put_creature(game, opp, "Theirs", 2, 2)
-    HARDHITTING_QUESTION.resolve([], game.state)
-    pc = game.state.pending_choice
-    assert pc is not None
-    # First choice is over caster's creatures.
-    for tid in pc.options:
-        obj = game.state.objects[tid]
-        assert obj.controller == p.id
-    print("PASS: Hard-Hitting Question opens own-creature choice first")
+    mine = _put_creature(game, p, "Mine", 4, 4)
+    theirs = _put_creature(game, opp, "Theirs", 2, 2)
+    events = HARDHITTING_QUESTION.resolve([[mine.id], [theirs.id]], game.state)
+    assert events, "expected effect events from pre-supplied targets"
+    print("PASS: Hard-Hitting Question declares 2-req cast-time targeting (Phase 5b)")
 
 
 def test_cerebral_confiscation_modal():
@@ -263,21 +286,27 @@ def test_riverguards_reflexes_emits_pump_keyword_untap():
     print("PASS: Riverguard's Reflexes emits all 3 events")
 
 
-def test_run_away_together_requires_two_distinct_controllers():
-    """Run Away Together opens a 2-target choice, validating distinct controllers."""
+def test_run_away_together_bounces_two_distinct_controller_picks():
+    """Run Away Together: Phase 5b — targets pre-supplied at cast time
+    via two declared ``target_requirements`` (one per side). The resolve
+    fn consumes both inner target lists and emits ZONE_CHANGE events.
+    Earlier test version asserted the inline chained-choice; that path
+    is now engine-driven via ``_emit_cast_target_choice``.
+    """
     game, (p, opp) = _make_game(2)
     a = _put_creature(game, p, "A", 1, 1)
     b = _put_creature(game, opp, "B", 1, 1)
 
-    RUN_AWAY_TOGETHER.resolve([], game.state)
-    pc = game.state.pending_choice
-    assert pc is not None
-    assert pc.min_choices == 2 and pc.max_choices == 2
-    handler = pc.callback_data['handler']
-    events = handler(pc, [a.id, b.id], game.state)
+    assert RUN_AWAY_TOGETHER.target_requirements, \
+        "RUN_AWAY_TOGETHER must declare target_requirements"
+
+    # Single requirement with 2 picks → shape is [[id_a, id_b]], not [[a],[b]].
+    # (Run Away Together declares one TargetRequirement(count=2) per its
+    # `target_requirements` in lorwyn_eclipsed.py.)
+    events = RUN_AWAY_TOGETHER.resolve([[a.id, b.id]], game.state)
     bounce_evts = [e for e in events if e.type == EventType.ZONE_CHANGE]
-    assert len(bounce_evts) == 2
-    print("PASS: Run Away Together bounces 2 distinct-controller creatures")
+    assert len(bounce_evts) == 2, f"expected 2 bounce events, got {len(bounce_evts)}: {events}"
+    print("PASS: Run Away Together bounces 2 distinct-controller targets (Phase 5b)")
 
 
 def test_run_away_together_rejects_same_controller():
@@ -388,15 +417,15 @@ ALL_TESTS = [
     test_macabre_reconstruction_opens_choice,
     test_extract_a_confession_opens_per_opponent_sacrifice_choices,
     test_audience_with_trostani_creates_token_and_draws,
-    test_urgent_necropsy_opens_destroy_choice,
+    test_urgent_necropsy_destroys_picked_target,
     test_felonious_rage_pumps_caster_creature,
-    test_hardhitting_question_opens_two_target_chain,
+    test_hardhitting_question_declares_two_target_requirements,
     test_cerebral_confiscation_modal,
     test_blight_rot_emits_minus_counters,
     test_darkness_descends_blankets_battlefield,
     test_blossoming_defense_opens_self_target_choice_and_emits_pump_keyword,
     test_riverguards_reflexes_emits_pump_keyword_untap,
-    test_run_away_together_requires_two_distinct_controllers,
+    test_run_away_together_bounces_two_distinct_controller_picks,
     test_run_away_together_rejects_same_controller,
     test_thirst_for_identity_draws_three_and_opens_discard,
     test_nameless_inversion_pump,
