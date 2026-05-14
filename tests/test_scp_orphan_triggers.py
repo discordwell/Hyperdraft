@@ -45,44 +45,45 @@ ENGINE_DIR = REPO_ROOT / "src" / "engine"
 # Slots the engine MUST continue to read. Removing a wired slot here is
 # a deliberate engine deprecation — update this list AND the cards in the
 # same commit.
+#
+# 2026-05-14 update: the orphan-trigger close-out wired all 17 previously
+# orphaned slots in the engine. The grandfather list below is now empty.
+# Per-slot fire-proof tests live in tests/test_scp_orphan_wiring.py — they
+# instantiate a card with each slot bound to a counter, drive the engine
+# path that should fire it, and assert the counter incremented.
 EXPECTED_WIRED_SLOTS = frozenset({
+    # Originally wired (2026-05-13).
     "scp_on_assign",
     "scp_on_contain",
     "scp_on_reveal",
     "scp_on_test",
     "scp_on_test_fail",
+    # Wired in the 2026-05-14 close-out.
+    "scp_on_activate",
+    "scp_on_annihilation_wave_fire",
+    "scp_on_anomaly_enter",
+    "scp_on_any_compleated",
+    "scp_on_archive",
+    "scp_on_archive_stub",
+    "scp_on_audit_return",
+    "scp_on_breach",
+    "scp_on_dragon_contain",
+    "scp_on_memory_hole",
+    "scp_on_open_dossier",
+    "scp_on_opponent_compleated",
+    "scp_on_play",
+    "scp_on_rift_play",
+    "scp_on_sacrifice",
+    "scp_on_turn_end",
+    "scp_on_you_compleated",
 })
 
 
-# Slots that are *currently* orphaned — declared by at least one card but
-# never read by the engine. Captured at 2026-05-14 (audit run: 17 orphans,
-# 60+ declarations across the orphan set). New orphans cannot be added
-# without updating this allow-list — that forces the card author to either
-# (a) wire the slot in the engine or (b) remove the orphan declaration.
-#
-# The recommended close-out for each orphan slot is one of:
-#  * "wire in engine"  — the trigger semantics are real and 3+ cards use it
-#  * "remove from card" — the trigger was speculative; rewrite via existing
-#                         wired slots or via scp_effect
-GRANDFATHERED_ORPHAN_SLOTS = frozenset({
-    "scp_on_activate",              # 1 decl
-    "scp_on_annihilation_wave_fire", # 2 decl
-    "scp_on_anomaly_enter",          # 3 decl
-    "scp_on_any_compleated",         # 1 decl
-    "scp_on_archive",                # 5 decl
-    "scp_on_archive_stub",           # 1 decl
-    "scp_on_audit_return",           # 6 decl
-    "scp_on_breach",                 # 6 decl
-    "scp_on_dragon_contain",         # 2 decl
-    "scp_on_memory_hole",            # 3 decl
-    "scp_on_open_dossier",           # 2 decl
-    "scp_on_opponent_compleated",    # 3 decl
-    "scp_on_play",                   # 10 decl — highest-value rewire target
-    "scp_on_rift_play",              # 1 decl
-    "scp_on_sacrifice",              # 11 decl — highest-volume orphan
-    "scp_on_turn_end",               # 3 decl
-    "scp_on_you_compleated",         # 3 decl
-})
+# Empty after the 2026-05-14 close-out. Kept as a frozenset so the
+# downstream test_grandfathered_orphan_list_does_not_drift_above_baseline
+# check still works — any non-empty future entry must come with a comment
+# explaining why it can't be wired yet.
+GRANDFATHERED_ORPHAN_SLOTS: frozenset[str] = frozenset()
 
 
 # ---------------------------------------------------------------------------

@@ -106,6 +106,15 @@ class SCPTurnManager(TurnManager):
             events.extend(scp.apply_compleation_vector(game, active))
             scp.clear_leyline_saturation(self.state, active)
             events.extend(scp.cleanup_rift_window(game, active))
+            # scp_on_turn_end fires on every battlefield card the active
+            # player controls. Used for end-of-turn upkeep effects that
+            # the existing scp.tick_antimeme_counters / spark-clearance /
+            # rift-cleanup paths don't already cover. Fires AFTER all the
+            # archetype-specific cleanups so the hook sees post-cleanup
+            # state.
+            events.extend(scp._fire_static_trigger(
+                game, "scp_on_turn_end", active, state=self.state,
+            ))
 
         end = Event(type=EventType.TURN_END, payload={"player": active, "turn_number": self.turn_state.turn_number})
         if self.pipeline:

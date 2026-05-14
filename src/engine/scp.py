@@ -192,6 +192,74 @@ def _card_types(obj: GameObject) -> set[CardType]:
     return set(obj.characteristics.types or set())
 
 
+def _fire_card_hook(game, obj: GameObject, hook_name: str, state: GameState = None) -> list[Event]:
+    """Fire a single ``scp_on_<name>`` hook bound to ``obj.card_def``.
+
+    Centralizes the established pattern: read the callable, accept either
+    ``(obj, state)`` or ``(obj, state, game)`` signature, emit produced
+    events through ``game.emit``. Returns the emitted events. No-op when
+    the hook is missing or not callable.
+
+    Hooks that emit events expected to fire through the pipeline must use
+    ``game.emit`` here so interceptors run; hooks that return pre-emitted
+    events (carrying ``timestamp`` or already in ``state.event_log``) are
+    passed through unchanged.
+    """
+    if obj is None or obj.card_def is None:
+        return []
+    hook = getattr(obj.card_def, hook_name, None)
+    if not callable(hook):
+        return []
+    if state is None:
+        state = game.state
+    try:
+        produced = hook(obj, state, game)
+    except TypeError:
+        produced = hook(obj, state)
+    out: list[Event] = []
+    for event in produced or []:
+        if getattr(event, "timestamp", 0) or event in state.event_log:
+            out.append(event)
+        else:
+            out.extend(game.emit(event))
+    return out
+
+
+def _fire_static_trigger(
+    game,
+    hook_name: str,
+    player_id: str,
+    *,
+    state: GameState = None,
+    excluded_object_id: Optional[str] = None,
+) -> list[Event]:
+    """Fire ``hook_name`` on every battlefield card ``player_id`` controls.
+
+    Use for cross-card static triggers ("when ANY anomaly enters, do X"
+    on cards that watch that event). ``excluded_object_id`` skips the
+    triggering card itself when a static trigger shouldn't self-fire.
+
+    Walks every zone the SCP engine tracks: scp_anomalies, scp_personnel,
+    scp_facilities, scp_contained, scp_mandates. Cards that don't carry
+    the hook are silently skipped.
+    """
+    if state is None:
+        state = game.state
+    events: list[Event] = []
+    for bucket in (
+        state.scp_anomalies, state.scp_personnel, state.scp_facilities,
+        state.scp_contained, state.scp_mandates,
+    ):
+        for oid in list(bucket.get(player_id, [])):
+            if excluded_object_id is not None and oid == excluded_object_id:
+                continue
+            other = state.objects.get(oid)
+            if other is None or other.zone != ZoneType.BATTLEFIELD:
+                continue
+            events.extend(_fire_card_hook(game, other, hook_name, state))
+    return events
+
+
 def _index_active_card(state: GameState, obj: GameObject) -> None:
     controller = obj.controller
     ensure_scp_state(state, controller)
@@ -301,8 +369,30 @@ def _activate_dossier(game, obj: GameObject, *, auto_seal_default: bool = False)
                     events.append(event)
                 else:
                     events.extend(game.emit(event))
+        # scp_on_play fires *before* the procedure moves to the graveyard
+        # so the hook still sees the card on battlefield. For Procedures,
+        # scp_on_play is often used in place of scp_effect (the eldrazi_apex
+        # and phyrexian_strain Procedures attach scp_on_play directly).
+        events.extend(_fire_card_hook(game, obj, "scp_on_play", state))
         _deindex_card(state, obj)
         _move(game, obj, ZoneType.GRAVEYARD, source=obj.id)
+    else:
+        # Non-anomaly, non-procedure card types still fire scp_on_play as a
+        # generic post-activation trigger when set.
+        events.extend(_fire_card_hook(game, obj, "scp_on_play", state))
+
+    # scp_on_play for Anomalies fires AFTER scp_on_reveal so on-reveal logic
+    # (mood / status changes) has already settled.
+    if CardType.SCP_ANOMALY in types:
+        events.extend(_fire_card_hook(game, obj, "scp_on_play", state))
+        # Cross-card static trigger: when an Anomaly enters play, every
+        # other card the controller owns whose scp_on_anomaly_enter hook is
+        # set fires. Skip the triggering card itself.
+        events.extend(_fire_static_trigger(
+            game, "scp_on_anomaly_enter", obj.controller,
+            state=state, excluded_object_id=obj.id,
+        ))
+
     return events
 
 
@@ -386,6 +476,10 @@ def open_dossier(
     # paperwork ticks down: ``process_paperwork`` and ``activate_dossier_now``
     # re-read ``scp_seal_default`` off the card_def, so no per-state flag is
     # needed here.
+    # scp_on_open_dossier fires after the dossier transitions to battlefield,
+    # whether it lands sealed / pending / active. Sealed dossiers have skipped
+    # the reveal path, so this is the only hook they fire.
+    events.extend(_fire_card_hook(game, obj, "scp_on_open_dossier", state))
     events.extend(check_scp_loss(game))
     return True, "Dossier opened", events
 
@@ -715,6 +809,15 @@ def contain_anomaly(game, player_id: str, anomaly_id: str, staff_ids: list[str],
         if callable(hook):
             for event in hook(anomaly, state) or []:
                 events.extend(game.emit(event))
+        # scp_on_dragon_contain is a Dragon-archetype subtype-filtered
+        # variant — fires only when a Dragon-subtype anomaly is contained.
+        # The Dragon Conclave archetype attaches it on Containment Hangar
+        # facilities that pay off when dragons specifically get contained.
+        subtypes = getattr(anomaly.card_def, "subtypes", set()) or set()
+        if "Dragon" in subtypes:
+            events.extend(_fire_static_trigger(
+                game, "scp_on_dragon_contain", player_id, state=state,
+            ))
     else:
         site(state, player_id)["breach"] += max(1, _effective_hazard(anomaly))
         site(state, player_id)["secrecy"] -= 1
@@ -772,12 +875,14 @@ def breach_tick(game, player_id: str) -> list[Event]:
     state = game.state
     ensure_scp_state(state, player_id)
     total = 0
+    breaching_anomalies: list[GameObject] = []
     for anomaly_id in list(state.scp_anomalies.get(player_id, [])):
         anomaly = state.objects.get(anomaly_id)
         if not anomaly or anomaly.zone != ZoneType.BATTLEFIELD or anomaly.state.scp_status != "active":
             continue
         total += _effective_hazard(anomaly)
         anomaly.state.scp_suppressed = 0
+        breaching_anomalies.append(anomaly)
     if site(state, player_id)["ethics_debt"] >= 5:
         total += 1
     site(state, player_id)["breach"] += total
@@ -787,8 +892,18 @@ def breach_tick(game, player_id: str) -> list[Event]:
         source="SCP_SYSTEM",
         controller=player_id,
     ))
+    # scp_on_breach fires per-anomaly that contributed hazard to this tick.
+    # The hook sees the anomaly object plus state, and is the natural fire
+    # point for "when this anomaly breaches, do X" effects (boltgun-style
+    # passive damage, secondary-effect breach payoffs, …).
+    for anomaly in breaching_anomalies:
+        events.extend(_fire_card_hook(game, anomaly, "scp_on_breach", state))
     if total > 0:
         events.extend(incident_tick(game, player_id))
+    # apply_annihilation_wave is gated on SCP_BREACH_TICK per its docstring;
+    # call it here so Cluster 7 / Eldrazi Apex anomalies actually fire. Was
+    # an engine gap separate from the trigger orphans.
+    events.extend(apply_annihilation_wave(game, player_id, breach_amount=total))
     events.extend(check_scp_loss(game))
     events.extend(check_scp_victory(game))
     return events
@@ -809,7 +924,12 @@ def activate_dossier_now(game, obj: GameObject, *, source: Optional[str] = None)
         CardType.SCP_ANOMALY in _card_types(obj)
         and bool(getattr(obj.card_def, "scp_seal_default", False))
     )
-    return _activate_dossier(game, obj, auto_seal_default=seal_default)
+    events = _activate_dossier(game, obj, auto_seal_default=seal_default)
+    # scp_on_activate is the explicit-activation hook: cards that want a
+    # different trigger semantics than the implicit "on play" / "on reveal"
+    # paths use this for ability-activation effects.
+    events.extend(_fire_card_hook(game, obj, "scp_on_activate", game.state))
+    return events
 
 
 def shift_mood(
@@ -1031,6 +1151,10 @@ def memory_hole(game, player_id: str, object_id: str, *, source: Optional[str] =
         controller=player_id,
     ))
     events.extend(_move(game, obj, ZoneType.EXILE, source=source))
+    # scp_on_memory_hole fires on the card being memory-holed, before the
+    # phylactery audit decides whether to pull it back to hand. This lets
+    # antimeme / cognitive-rewrite cards react to their own redaction.
+    events.extend(_fire_card_hook(game, obj, "scp_on_memory_hole", state))
     # FBN Cluster 2: Phylactery Audit. If the card carries
     # ``scp_phylactery_audit = X``, the audit fires now — on accept the card
     # is yanked back to hand (reversing the exile) and the audit counter
@@ -1039,6 +1163,43 @@ def memory_hole(game, player_id: str, object_id: str, *, source: Optional[str] =
     events.extend(apply_phylactery_audit(state, game, obj))
     events.extend(check_scp_victory(game, source=source))
     return True, "Memory-holed", events
+
+
+def sacrifice_dossier(game, player_id: str, object_id: str, *, source: Optional[str] = None) -> tuple[bool, str, list[Event]]:
+    """Sacrifice a dossier ``player_id`` controls, firing ``scp_on_sacrifice``.
+
+    Distinct from ``memory_hole`` (which is a *voluntary* redaction for a
+    secrecy gain at archive cost) and from procedure resolution (which
+    auto-moves the procedure to graveyard). Sacrifice is the explicit
+    "this card pays itself as a cost" path that Procedure effects can call
+    against their own pending/active anomalies (Eldrazi Apex "sacrifice N
+    Anomalies for briefing" pattern).
+
+    The card's ``scp_on_sacrifice`` hook fires *before* the move to
+    graveyard so the hook still sees the card on battlefield. After the
+    hook, ``_move`` puts the card in GRAVEYARD and ``_deindex_card``
+    updates the SCP zone indices.
+    """
+    state = game.state
+    obj = state.objects.get(object_id)
+    if obj is None or obj.controller != player_id:
+        return False, "Object not found", []
+    if obj.zone != ZoneType.BATTLEFIELD:
+        return False, "Only on-battlefield cards can be sacrificed", []
+    events = game.emit(Event(
+        type=EventType.SCP_INCIDENT_RESOLVED,
+        payload={
+            "player": player_id,
+            "reason": "sacrifice",
+            "object_id": obj.id,
+        },
+        source=source,
+        controller=player_id,
+    ))
+    events.extend(_fire_card_hook(game, obj, "scp_on_sacrifice", state))
+    _deindex_card(state, obj)
+    events.extend(_move(game, obj, ZoneType.GRAVEYARD, source=source))
+    return True, "Sacrificed", events
 
 
 def effective_hazard_for_ai(obj: GameObject) -> int:
@@ -1071,6 +1232,15 @@ def gain_archives(game, player_id: str, amount: int, *, source: Optional[str] = 
         source=source,
         controller=player_id,
     ))
+    # scp_on_archive fires on the source card whose containment / activation
+    # produced the archive gain. scp_on_archive_stub is a variant the Spirit
+    # Archive archetype uses on stub-bearing cards (per-card flavor; same
+    # semantic fire point).
+    if source:
+        source_obj = state.objects.get(source)
+        if source_obj is not None:
+            events.extend(_fire_card_hook(game, source_obj, "scp_on_archive", state))
+            events.extend(_fire_card_hook(game, source_obj, "scp_on_archive_stub", state))
     events.extend(check_scp_victory(game, source=source))
     return events
 
@@ -2226,6 +2396,25 @@ def apply_compleation_vector(game, player_id: str) -> list[Event]:
                         source=anomaly.id,
                         controller=new_controller,
                     )))
+                    # Compleation triggers fan out as static triggers on
+                    # both sides of the swap. scp_on_any_compleated fires on
+                    # cards owned by either player (universal observer);
+                    # scp_on_opponent_compleated fires on cards owned by the
+                    # player who *lost* the personnel (their opponent just
+                    # compleated one of theirs); scp_on_you_compleated fires
+                    # on cards owned by the player whose personnel switched.
+                    for observer in (old_controller, new_controller):
+                        events.extend(_fire_static_trigger(
+                            game, "scp_on_any_compleated", observer, state=state,
+                        ))
+                    events.extend(_fire_static_trigger(
+                        game, "scp_on_opponent_compleated", old_controller,
+                        state=state,
+                    ))
+                    events.extend(_fire_static_trigger(
+                        game, "scp_on_you_compleated", new_controller,
+                        state=state,
+                    ))
     events.extend(check_scp_victory(game))
     return events
 
@@ -2276,7 +2465,7 @@ def apply_phylactery_audit(state: GameState, game, card_obj: GameObject) -> list
         forgotten = state.scp_forgotten.setdefault(controller, [])
         if card_obj.id not in forgotten:
             forgotten.append(card_obj.id)
-    return game.emit(Event(
+    events = game.emit(Event(
         type=EventType.SCP_PHYLACTERY_AUDIT_OFFER,
         payload={
             "player": controller,
@@ -2288,6 +2477,12 @@ def apply_phylactery_audit(state: GameState, game, card_obj: GameObject) -> list
         source=card_obj.id,
         controller=controller,
     ))
+    # scp_on_audit_return fires only on the accept branch — the card has
+    # actually returned to hand. On reject the card stays in EXILE / is
+    # appended to scp_forgotten and no return happens.
+    if accepted:
+        events.extend(_fire_card_hook(game, card_obj, "scp_on_audit_return", state))
+    return events
 
 
 # ---------------------------------------------------------------------------
@@ -2481,6 +2676,11 @@ def play_from_rift_window(game, player_id: str, card_id: str) -> tuple[bool, str
         window.remove(card_id)
     s["rift_window"] = window
     events = _activate_dossier(game, obj, auto_seal_default=False)
+    # scp_on_rift_play fires after the rift-window play resolves. It is the
+    # rift-specific entry path; cards that want a different trigger than
+    # the generic scp_on_play use this for rift-specific payoffs (Multiverse
+    # Rift archetype's Containment Aperture Alpha attaches this).
+    events.extend(_fire_card_hook(game, obj, "scp_on_rift_play", state))
     return True, "Played from rift window", events
 
 
@@ -2539,6 +2739,11 @@ def apply_annihilation_wave(game, player_id: str, *, breach_amount: int = 1) -> 
         events.extend(redact_opposing(game, player_id, n, source=anomaly.id))
         for opp_id in _opposing_players(state, player_id):
             site(state, opp_id)["breach"] += n
+        # scp_on_annihilation_wave_fire fires on the anomaly that just fired
+        # its wave. Used by Eldrazi Apex anomalies that want secondary
+        # effects ("when this anomaly's wave fires, also +1 breach to all
+        # opponents", "draw a brief", etc.).
+        events.extend(_fire_card_hook(game, anomaly, "scp_on_annihilation_wave_fire", state))
     events.extend(check_scp_loss(game))
     return events
 
