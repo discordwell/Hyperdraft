@@ -45,6 +45,13 @@ export function ChoiceModal({
 
   const { choice_type, prompt, options: rawOptions, min_choices, max_choices } = pendingChoice;
 
+  // Phase 5b: cast-time target prompts from the MTG engine ship with
+  // ``interaction_mode='overlay'`` — render only a floating Cancel /
+  // Pass-priority pill so the player can click targets directly on the
+  // board (GameBoard wires the click handler). All other engines /
+  // choice types continue to render the modal panel below.
+  const isOverlayMode = pendingChoice.interaction_mode === 'overlay';
+
   // Get divide_allocation specific data
   const totalAmount = (pendingChoice as DivideAllocationChoice).total_amount ?? 0;
   const effectType = (pendingChoice as DivideAllocationChoice).effect_type ?? 'damage';
@@ -284,6 +291,37 @@ export function ChoiceModal({
         return 'cyan';
     }
   }, [choice_type]);
+
+  // Overlay-mode rendering: no backdrop, no panel — just a fixed
+  // floating button so the player can cancel the targeting prompt.
+  // Highlighting / click-handling of legal targets lives in GameBoard
+  // (it reads ``pendingChoice`` and threads the option IDs through
+  // Battlefield's ``validTargets`` prop).
+  if (isOverlayMode) {
+    return (
+      <div
+        data-testid="choice-overlay"
+        className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2 pointer-events-none"
+      >
+        <div className="pointer-events-auto bg-amber-900/90 border border-amber-500/70 text-amber-100 text-xs px-3 py-2 rounded-lg shadow-lg max-w-xs">
+          <div className="font-semibold uppercase tracking-wide text-amber-300 mb-0.5">
+            Select Target
+          </div>
+          <div>{prompt}</div>
+        </div>
+        {onCancel && (
+          <button
+            data-testid="choice-overlay-cancel"
+            className="pointer-events-auto px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium shadow-lg border border-slate-500 transition-colors"
+            onClick={onCancel}
+            disabled={isLoading}
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">

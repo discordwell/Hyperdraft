@@ -224,6 +224,29 @@ def test_pending_choice_handler_completes_the_cast():
         f"Bolt should now be on stack, got {bolt.zone}"
 
 
+def test_cast_target_choice_carries_overlay_interaction_mode():
+    """Phase 5b polish: MTG cast-time target prompts ship with
+    ``callback_data['interaction_mode']='overlay'`` so the frontend
+    renders them as click-to-target board highlights instead of a modal
+    panel. Other engines/choice paths leave the hint absent."""
+    game, p1, p2, bolt, _mountain = _setup_game_with_bolt_in_hand()
+    _add_creature(game, p2.id, "Bear")
+
+    action = PlayerAction(
+        type=ActionType.CAST_SPELL,
+        player_id=p1.id,
+        card_id=bolt.id,
+        targets=[],
+    )
+    asyncio.run(game.priority_system._handle_cast_spell(action))
+    pc = game.state.pending_choice
+    assert pc is not None, "PendingChoice should be set for cast-time target"
+    assert pc.callback_data.get("interaction_mode") == "overlay", (
+        "MTG cast-time PendingChoice must carry interaction_mode='overlay' "
+        f"for frontend overlay rendering; got {pc.callback_data.get('interaction_mode')!r}"
+    )
+
+
 def test_cast_paused_state_does_not_leak_mana():
     """While PendingChoice is open, no mana has been paid — cancelling the
     choice (engine just clears it) leaves the player in their pre-cast state."""
@@ -257,6 +280,8 @@ if __name__ == "__main__":
     print("PASS  test_cast_with_no_legal_targets_aborts")
     test_pending_choice_handler_completes_the_cast()
     print("PASS  test_pending_choice_handler_completes_the_cast")
+    test_cast_target_choice_carries_overlay_interaction_mode()
+    print("PASS  test_cast_target_choice_carries_overlay_interaction_mode")
     test_cast_paused_state_does_not_leak_mana()
     print("PASS  test_cast_paused_state_does_not_leak_mana")
     print("\nAll Phase 5b cast-target-choice tests passed.")
