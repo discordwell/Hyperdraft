@@ -431,8 +431,34 @@ CAPTAIN_SISAY = make_trainer_supporter(
 )
 
 
+def _selesnya_cluestone_attach(target_id: str, energy_id: str, state) -> list[Event]:
+    """Move ``energy_id`` (already removed from library) onto ``target_id``.
+
+    Helper for Selesnya Cluestone's PendingChoice handler — splits the
+    state mutation from the candidate-enumeration so the resolver can run
+    cleanly after a deferred selection.
+    """
+    target = state.objects.get(target_id)
+    obj = state.objects.get(energy_id)
+    if not target:
+        return []
+    target.state.attached_energy.append(energy_id)
+    if obj:
+        obj.zone = ZoneType.BATTLEFIELD
+    return [Event(
+        type=EventType.PKM_ATTACH_ENERGY,
+        payload={'pokemon_id': target_id, 'energy_id': energy_id,
+                 'source': 'Selesnya Cluestone'},
+    )]
+
+
 def _selesnya_cluestone_effect(event, state):
-    """Search guild Energy; wide boards convert one into acceleration."""
+    """Search guild Energy; wide boards convert one into acceleration.
+
+    Phase 4 migration: when the wide-board attach branch triggers, the
+    caster picks the Benched Pokemon to attach to via PendingChoice.
+    Heuristic preserves the v1 pick (lowest-attached-energy bench).
+    """
     player_id = event.payload.get('player')
     if not player_id:
         return []
@@ -464,22 +490,51 @@ def _selesnya_cluestone_effect(event, state):
             library.objects.remove(cid)
             obj = state.objects.get(cid)
             if should_attach and not attached and bench and bench.objects:
-                target_id = min(
-                    bench.objects,
-                    key=lambda bid: len(getattr(state.objects.get(bid).state, 'attached_energy', []))
-                    if state.objects.get(bid) else 99,
-                )
-                target = state.objects.get(target_id)
-                if target:
-                    target.state.attached_energy.append(cid)
-                    if obj:
-                        obj.zone = ZoneType.BATTLEFIELD
-                    attached = True
-                    events.append(Event(
-                        type=EventType.PKM_ATTACH_ENERGY,
-                        payload={'pokemon_id': target_id, 'energy_id': cid,
-                                 'source': 'Selesnya Cluestone'},
+                # Build target options for PendingChoice. Heuristic v1:
+                # lowest-attached-energy bench Pokemon (least developed,
+                # most likely to benefit from the boost).
+                from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+                options: list[dict] = []
+                best_id: str | None = None
+                best_attached = 10 ** 9
+                for bid in bench.objects:
+                    bpkm = state.objects.get(bid)
+                    if not bpkm or not bpkm.card_def:
+                        continue
+                    bench_attached = len(getattr(bpkm.state, 'attached_energy', []))
+                    ptype = bpkm.card_def.pokemon_type or '?'
+                    options.append({
+                        "id": bid,
+                        "label": bpkm.name or bpkm.card_def.name or bid,
+                        "description": f"{bench_attached} Energy · Type {ptype}",
+                    })
+                    if bench_attached < best_attached:
+                        best_attached = bench_attached
+                        best_id = bid
+                if options and best_id is not None:
+                    cid_local = cid
+
+                    def _resolve_handler(choice, selected, st,
+                                         _cid=cid_local, _fallback=best_id):
+                        target_id = selected[0] if selected else _fallback
+                        if isinstance(target_id, dict):
+                            target_id = target_id.get("id", _fallback)
+                        return _selesnya_cluestone_attach(target_id, _cid, st)
+
+                    events.extend(create_choice_and_resolve(
+                        state,
+                        choice_type="target",
+                        player_id=player_id,
+                        prompt="Attach this Energy to which Benched Pokemon?",
+                        options=options,
+                        source_id='Selesnya Cluestone',
+                        min_choices=1,
+                        max_choices=1,
+                        handler=_resolve_handler,
+                        heuristic_pick=[best_id],
                     ))
+                    attached = True
                     continue
             hand.objects.append(cid)
             if obj:

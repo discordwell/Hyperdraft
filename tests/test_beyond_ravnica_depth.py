@@ -285,7 +285,15 @@ def test_cartel_aristocrat_contract_bottoms_card_heals_and_drains():
 
 
 def test_selesnya_cluestone_attaches_when_board_is_wide():
-    game, p1, _p2 = make_game()
+    """Phase 4 migration: the wide-board attach branch now emits a
+    PendingChoice. With both players registered as AI, the shared
+    resolver inlines the heuristic_pick (lowest-attached-energy bench),
+    so the test asserts the same final state as the v1 deterministic path."""
+    game, p1, p2 = make_game()
+    # Make both players AI so the PendingChoice resolves synchronously.
+    from src.engine.pokemon_turn import PokemonTurnManager
+    if isinstance(game.turn_manager, PokemonTurnManager):
+        game.turn_manager.ai_players = {p1.id, p2.id}
     bench = [
         place_card(game, p1.id, SAPROLING_SENTINEL, ZoneType.BENCH)
         for _ in range(3)
