@@ -9658,7 +9658,63 @@ def make_adventure_setup(
 
 __all_adventure__ = [
     "make_adventure_setup",
+    "make_plot_setup",
 ]
+
+
+def make_plot_setup(plot_cost: str, *, description: str = ""):
+    """Return a ``setup_in_hand`` callable that registers Plot as a hand-zone
+    activated ability.
+
+    OTJ Plot mechanic (CR 702.166):
+
+        Plot {cost} (You may pay {cost} and exile this card from your hand.
+        Cast it as a sorcery on a later turn without paying its mana cost.
+        Plot only as a sorcery.)
+
+    The activated ability's cost is ``{plot_cost}, Exile this card`` and it
+    is restricted to sorcery speed. Paying the cost sets the source object's
+    ``state.plotted_turn`` to the current turn number (handled in
+    ``pay_activation_cost``); this makes the card eligible to be cast from
+    exile via ``ability_id="exile:plot"`` on any subsequent turn during a
+    sorcery window.
+
+    The ability's effect_fn is a no-op (Plot has no resolution effect — the
+    "value" is the deferred free cast, not the cost-payment). The
+    ``PLOT_PAID`` and ``PLOT_BECOMES_PLOTTED`` events are emitted as part
+    of cost payment so "When this card becomes plotted" triggers fire.
+
+    Args:
+        plot_cost: mana portion of the Plot cost, e.g. ``"{1}{W}"``,
+            ``"{R}"``, ``"{4}{U}"``.
+        description: optional UI string. Defaults to ``"Plot ({cost})"``.
+
+    Returns:
+        A setup_in_hand callable suitable for ``CardDefinition.setup_in_hand``.
+    """
+    from src.engine.activated import register_activated_ability
+
+    cost_text = f"{plot_cost}, Exile this card"
+
+    def _plot_effect_fn(obj: "GameObject", state: "GameState", targets: list) -> list[Event]:
+        # Plot has no resolvable effect — the ability is purely a cost-step.
+        # Returning [] here means the activated-ability stack item resolves
+        # to nothing (mana was already paid, card already exiled, plotted_turn
+        # already set during ``pay_activation_cost``).
+        return []
+
+    def _setup(obj: "GameObject", state: "GameState") -> list[Interceptor]:
+        register_activated_ability(
+            obj,
+            cost=cost_text,
+            effect_fn=_plot_effect_fn,
+            description=description or f"Plot ({plot_cost})",
+            sorcery_speed=True,
+            is_plot=True,
+        )
+        return []
+
+    return _setup
 
 
 # =============================================================================

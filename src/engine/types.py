@@ -1190,6 +1190,15 @@ class CardFace:
     toughness: Optional[int] = None
     resolve: Optional[Callable[['Event', 'GameState'], list['Event']]] = None
 
+    # Phase 5b: cast-time target picker for this face. Mirrors
+    # ``CardDefinition.target_requirements``. When the engine routes a cast
+    # through this face (e.g. Adventure half from exile), the cast handler
+    # reads target_requirements from the face instead of the parent
+    # CardDefinition. Type: ``list[TargetRequirement]`` from
+    # ``src/engine/targeting.py`` — imported lazily inside the cast handler
+    # to avoid a circular import.
+    target_requirements: Optional[list] = None
+
 
 # =============================================================================
 # Card Definition (template for creating objects)
@@ -1237,9 +1246,19 @@ class CardDefinition:
     # this path entirely (no behavioural change). AI casts that pre-supply
     # via ``_select_targets_for_spell`` also skip it. This is purely the
     # engine-driven prompt fallback that other engines have via
-    # ``create_choice_and_resolve``. Type: ``list[TargetRequirement]`` from
+    # ``create_choice_and_resolve``.
+    #
+    # Type: ``list[Union[TargetRequirement, TargetRequirementBuilder]]`` from
     # ``src/engine/targeting.py`` — imported lazily inside the cast handler
     # to avoid a circular import.
+    #
+    # Phase 5b cross-target: a list entry may be a ``TargetRequirementBuilder``
+    # — ``Callable[[GameState, controller_id, list[list[str]]], TargetRequirement]``
+    # — that builds the requirement from prior picks. Use this when a
+    # later requirement's filter depends on what was already chosen:
+    # "another target creature" (exclude prior picks), "different controllers"
+    # (exclude prior pick's controller), "same mana value" (pin MV from
+    # prior pick). See ``targeting.resolve_target_requirement_spec``.
     target_requirements: Optional[list] = None
 
     # Hearthstone-specific fields

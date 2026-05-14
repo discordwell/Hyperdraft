@@ -57,6 +57,8 @@ from src.cards.interceptor_helpers import (
     SpreeMode, make_spree_setup, make_spree_resolve,
     # Phase 5b modal + target normalize
     make_modal_resolve, ModeSpec, normalize_target,
+    # Phase 5b alt-cost: Plot
+    make_plot_setup,
 )
 from src.engine.turn_state import spells_cast_this_turn
 
@@ -87,6 +89,8 @@ from src.engine.targeting import (
     target_any,
     target_player,
     target_spell,
+    # Phase 5b cross-target builders
+    another_target_creature,
 )
 
 
@@ -5403,6 +5407,8 @@ DUST_ANIMUS = make_creature(
     text="Flying\nIf you control five or more untapped lands, this creature enters with two +1/+1 counters and a lifelink counter on it.\nPlot {1}{W} (You may pay {1}{W} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=dust_animus_setup,
 )
+# Phase 5b: register Plot {1}{W} as a hand-zone activated ability.
+DUST_ANIMUS.setup_in_hand = make_plot_setup(plot_cost="{1}{W}")
 
 # =============================================================================
 # ERIETTE'S LULLABY - Destroy tapped creature + life gain
@@ -6154,6 +6160,8 @@ SHERIFF_OF_SAFE_PASSAGE = make_creature(
     text="This creature enters with a +1/+1 counter on it plus an additional +1/+1 counter on it for each other creature you control.\nPlot {1}{W} (You may pay {1}{W} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=sheriff_of_safe_passage_setup,
 )
+# Phase 5b: register Plot {1}{W} as a hand-zone activated ability.
+SHERIFF_OF_SAFE_PASSAGE.setup_in_hand = make_plot_setup(plot_cost="{1}{W}")
 
 STAGECOACH_SECURITY = make_creature(
     name="Stagecoach Security",
@@ -6164,6 +6172,8 @@ STAGECOACH_SECURITY = make_creature(
     text="When this creature enters, creatures you control get +1/+1 and gain vigilance until end of turn.\nPlot {3}{W} (You may pay {3}{W} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=stagecoach_security_setup,
 )
+# Phase 5b: register Plot {3}{W} as a hand-zone activated ability.
+STAGECOACH_SECURITY.setup_in_hand = make_plot_setup(plot_cost="{3}{W}")
 
 # =============================================================================
 # STEER CLEAR - Conditional damage to attacker/blocker
@@ -6391,6 +6401,8 @@ DJINN_OF_FOOLS_FALL = make_creature(
     subtypes={"Djinn"},
     text="Flying\nPlot {3}{U} (You may pay {3}{U} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
 )
+# Phase 5b: register Plot {3}{U} as a hand-zone activated ability.
+DJINN_OF_FOOLS_FALL.setup_in_hand = make_plot_setup(plot_cost="{3}{U}")
 
 DOUBLE_DOWN = make_enchantment(
     name="Double Down",
@@ -6736,12 +6748,77 @@ HARRIER_STRIX = make_creature(
     setup_interceptors=harrier_strix_setup,
 )
 
+# Phase 5b: migrate Jailbreak Scheme to SpreeMode pattern.
+def _jailbreak_counter_unblockable(spell, state, targets):
+    """Mode 0: +1/+1 counter on target creature + unblockable this turn."""
+    if not targets:
+        return []
+    target_id = targets[0].id if hasattr(targets[0], "id") else targets[0]
+    return [
+        Event(type=EventType.COUNTER_ADDED,
+              payload={'object_id': target_id, 'counter_type': '+1/+1', 'amount': 1},
+              source=spell.id),
+        Event(type=EventType.GRANT_KEYWORD,
+              payload={'object_id': target_id, 'keyword': 'unblockable',
+                       'duration': 'end_of_turn'},
+              source=spell.id),
+    ]
+
+
+def _jailbreak_bounce_to_library(spell, state, targets):
+    """Mode 1: put target artifact/creature on top or bottom of library.
+
+    Engine simplification: bounce to the top of the owner's library
+    (owner's choice would require a PendingChoice from that owner; we
+    pick top as the more common outcome).
+    """
+    if not targets:
+        return []
+    target_id = targets[0].id if hasattr(targets[0], "id") else targets[0]
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+    return [
+        Event(type=EventType.ZONE_CHANGE,
+              payload={
+                  'object_id': target_id,
+                  'from_zone_type': ZoneType.BATTLEFIELD,
+                  'to_zone_type': ZoneType.LIBRARY,
+                  'to_top': True,
+              },
+              source=spell.id),
+    ]
+
+
+_JAILBREAK_SCHEME_MODES = [
+    SpreeMode(
+        name="Counter + Evasion", extra_cost="{3}",
+        effect_fn=_jailbreak_counter_unblockable,
+        target_kind="creature", targets_required=1,
+        description="Put a +1/+1 counter on target creature. It can't be blocked this turn.",
+    ),
+    SpreeMode(
+        name="Library bounce", extra_cost="{2}",
+        effect_fn=_jailbreak_bounce_to_library,
+        target_kind="permanent", targets_required=1,
+        description="Target artifact or creature's owner puts it on top of their library.",
+        legal_targets_filter=lambda spell, state: [
+            obj.id for obj in state.objects.values()
+            if obj.zone == ZoneType.BATTLEFIELD
+            and (CardType.ARTIFACT in obj.characteristics.types
+                 or CardType.CREATURE in obj.characteristics.types)
+        ],
+    ),
+]
+
+
 JAILBREAK_SCHEME = make_sorcery(
     name="Jailbreak Scheme",
     mana_cost="{U}",
     colors={Color.BLUE},
     text="Spree (Choose one or more additional costs.)\n+ {3} — Put a +1/+1 counter on target creature. It can't be blocked this turn.\n+ {2} — Target artifact or creature's owner puts it on their choice of the top or bottom of their library.",
-    resolve=jailbreak_scheme_resolve,
+    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_JAILBREAK_SCHEME_MODES),
+    resolve=make_spree_resolve(_JAILBREAK_SCHEME_MODES),
 )
 
 THE_KEY_TO_THE_VAULT = make_artifact(
@@ -6762,6 +6839,8 @@ LOAN_SHARK = make_creature(
     text="When this creature enters, if you've cast two or more spells this turn, draw a card.\nPlot {3}{U} (You may pay {3}{U} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=loan_shark_setup,
 )
+# Phase 5b: register Plot {3}{U} as a hand-zone activated ability.
+LOAN_SHARK.setup_in_hand = make_plot_setup(plot_cost="{3}{U}")
 
 MARAUDING_SPHINX = make_creature(
     name="Marauding Sphinx",
@@ -6909,12 +6988,62 @@ def metamorphic_blast_resolve(targets: list, state: GameState) -> list[Event]:
     return []
 
 
+# Phase 5b: migrate Metamorphic Blast to SpreeMode pattern.
+def _metamorphic_blast_rabbit(spell, state, targets):
+    """Mode 0: target creature becomes a white 0/1 Rabbit until EOT."""
+    if not targets:
+        return []
+    target_id = targets[0].id if hasattr(targets[0], "id") else targets[0]
+    # Use a PT_SET-ish event; the engine's becomes-creature handling is in
+    # interceptor_helpers. For a minimal effect, emit PT_MODIFICATION events.
+    # Simpler: emit PT_SET-equivalent and let the becomes_creature helper handle it.
+    from src.cards.interceptor_helpers import becomes_creature as _becomes_creature
+    target = state.objects.get(target_id)
+    if target is None:
+        return []
+    _becomes_creature(
+        target, state,
+        power=0, toughness=1,
+        subtypes={"Rabbit"},
+    )
+    return []
+
+
+def _metamorphic_blast_draw_two(spell, state, targets):
+    """Mode 1: target player draws two cards."""
+    if not targets:
+        return []
+    target_id = targets[0].id if hasattr(targets[0], "id") else targets[0]
+    return [
+        Event(type=EventType.DRAW_CARD,
+              payload={'player': target_id, 'amount': 2},
+              source=spell.id),
+    ]
+
+
+_METAMORPHIC_BLAST_MODES = [
+    SpreeMode(
+        name="Rabbit", extra_cost="{1}",
+        effect_fn=_metamorphic_blast_rabbit,
+        target_kind="creature", targets_required=1,
+        description="Target creature becomes a 0/1 white Rabbit until end of turn.",
+    ),
+    SpreeMode(
+        name="Draw two", extra_cost="{3}",
+        effect_fn=_metamorphic_blast_draw_two,
+        target_kind="player", targets_required=1,
+        description="Target player draws two cards.",
+    ),
+]
+
+
 METAMORPHIC_BLAST = make_instant(
     name="Metamorphic Blast",
     mana_cost="{U}",
     colors={Color.BLUE},
     text="Spree (Choose one or more additional costs.)\n+ {1} — Until end of turn, target creature becomes a white Rabbit with base power and toughness 0/1.\n+ {3} — Target player draws two cards.",
-    resolve=metamorphic_blast_resolve,
+    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_METAMORPHIC_BLAST_MODES),
+    resolve=make_spree_resolve(_METAMORPHIC_BLAST_MODES),
 )
 
 NIMBLE_BRIGAND = make_creature(
@@ -6936,6 +7065,8 @@ OUTLAW_STITCHER = make_creature(
     text="When this creature enters, create a 2/2 blue and black Zombie Rogue creature token, then put two +1/+1 counters on that token for each spell you've cast this turn other than the first.\nPlot {4}{U} (You may pay {4}{U} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=outlaw_stitcher_setup,
 )
+# Phase 5b: register Plot {4}{U} as a hand-zone activated ability.
+OUTLAW_STITCHER.setup_in_hand = make_plot_setup(plot_cost="{4}{U}")
 
 PEERLESS_ROPEMASTER = make_creature(
     name="Peerless Ropemaster",
@@ -7110,6 +7241,8 @@ PLAN_THE_HEIST = make_sorcery(
     colors={Color.BLUE},
     text="Surveil 3 if you have no cards in hand. Then draw three cards. (To surveil 3, look at the top three cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.)\nPlot {3}{U} (You may pay {3}{U} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
 )
+# Phase 5b: register Plot {3}{U} as a hand-zone activated ability.
+PLAN_THE_HEIST.setup_in_hand = make_plot_setup(plot_cost="{3}{U}")
 
 RAZZLEDAZZLER = make_creature(
     name="Razzle-Dazzler",
@@ -7156,6 +7289,8 @@ SLICKSHOT_LOCKPICKER = make_creature(
     text="When this creature enters, target instant or sorcery card in your graveyard gains flashback until end of turn. The flashback cost is equal to its mana cost. (You may cast that card from your graveyard for its flashback cost. Then exile it.)\nPlot {2}{U} (You may pay {2}{U} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=slickshot_lockpicker_setup,
 )
+# Phase 5b: register Plot {2}{U} as a hand-zone activated ability.
+SLICKSHOT_LOCKPICKER.setup_in_hand = make_plot_setup(plot_cost="{2}{U}")
 
 SLICKSHOT_VAULTBUSTER = make_creature(
     name="Slickshot Vault-Buster",
@@ -7184,6 +7319,8 @@ STEP_BETWEEN_WORLDS = make_sorcery(
     text="Each player may shuffle their hand and graveyard into their library. Each player who does draws seven cards. Exile Step Between Worlds.\nPlot {4}{U}{U} (You may pay {4}{U}{U} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     resolve=step_between_worlds_resolve,
 )
+# Phase 5b: register Plot {4}{U}{U} as a hand-zone activated ability.
+STEP_BETWEEN_WORLDS.setup_in_hand = make_plot_setup(plot_cost="{4}{U}{U}")
 
 STOIC_SPHINX = make_creature(
     name="Stoic Sphinx",
@@ -7534,6 +7671,8 @@ VISAGE_BANDIT = make_creature(
     text="You may have this creature enter as a copy of a creature you control, except it's a Shapeshifter Rogue in addition to its other types.\nPlot {2}{U} (You may pay {2}{U} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=visage_bandit_setup,
 )
+# Phase 5b: register Plot {2}{U} as a hand-zone activated ability.
+VISAGE_BANDIT.setup_in_hand = make_plot_setup(plot_cost="{2}{U}")
 
 AMBUSH_GIGAPEDE = make_creature(
     name="Ambush Gigapede",
@@ -7561,6 +7700,8 @@ BLACKSNAG_BUZZARD = make_creature(
     text="Flying\nThis creature enters with a +1/+1 counter on it if a creature died this turn.\nPlot {1}{B} (You may pay {1}{B} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=blacksnag_buzzard_setup,
 )
+# Phase 5b: register Plot {1}{B} as a hand-zone activated ability.
+BLACKSNAG_BUZZARD.setup_in_hand = make_plot_setup(plot_cost="{1}{B}")
 
 BLOOD_HUSTLER = make_creature(
     name="Blood Hustler",
@@ -7984,6 +8125,8 @@ PITILESS_CARNAGE = make_sorcery(
     colors={Color.BLACK},
     text="Sacrifice any number of permanents you control, then draw that many cards.\nPlot {1}{B}{B} (You may pay {1}{B}{B} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
 )
+# Phase 5b: register Plot {1}{B}{B} as a hand-zone activated ability.
+PITILESS_CARNAGE.setup_in_hand = make_plot_setup(plot_cost="{1}{B}{B}")
 
 RAKISH_CREW = make_enchantment(
     name="Rakish Crew",
@@ -8022,6 +8165,8 @@ RICTUS_ROBBER = make_creature(
     text="When this creature enters, if a creature died this turn, create a 2/2 blue and black Zombie Rogue creature token.\nPlot {2}{B} (You may pay {2}{B} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=rictus_robber_setup,
 )
+# Phase 5b: register Plot {2}{B} as a hand-zone activated ability.
+RICTUS_ROBBER.setup_in_hand = make_plot_setup(plot_cost="{2}{B}")
 
 ROOFTOP_ASSASSIN = make_creature(
     name="Rooftop Assassin",
@@ -8337,12 +8482,63 @@ def unfortunate_accident_resolve(targets: list, state: GameState) -> list[Event]
     return []
 
 
+# Phase 5b: migrate Unfortunate Accident to SpreeMode pattern (cost-per-mode).
+def _unfortunate_accident_destroy(spell, state, targets):
+    """Mode 0: destroy target creature."""
+    if not targets:
+        return []
+    target_id = targets[0].id if hasattr(targets[0], "id") else targets[0]
+    target = state.objects.get(target_id)
+    if not target or target.zone != ZoneType.BATTLEFIELD:
+        return []
+    if CardType.CREATURE not in target.characteristics.types:
+        return []
+    return [Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': target_id},
+        source=spell.id,
+    )]
+
+
+def _unfortunate_accident_token(spell, state, targets):
+    """Mode 1: create a 1/1 red Mercenary token."""
+    return [Event(
+        type=EventType.CREATE_TOKEN,
+        payload={
+            'controller': spell.controller,
+            'name': 'Mercenary',
+            'power': 1, 'toughness': 1,
+            'types': {CardType.CREATURE},
+            'subtypes': {'Mercenary'},
+            'colors': {Color.RED},
+            'is_token': True,
+        },
+        source=spell.id,
+    )]
+
+
+_UNFORTUNATE_ACCIDENT_MODES = [
+    SpreeMode(
+        name="Destroy", extra_cost="{2}{B}",
+        effect_fn=_unfortunate_accident_destroy,
+        target_kind="creature", targets_required=1,
+        description="Destroy target creature.",
+    ),
+    SpreeMode(
+        name="Mercenary token", extra_cost="{1}",
+        effect_fn=_unfortunate_accident_token,
+        description="Create a 1/1 red Mercenary creature token.",
+    ),
+]
+
+
 UNFORTUNATE_ACCIDENT = make_instant(
     name="Unfortunate Accident",
     mana_cost="{B}",
     colors={Color.BLACK},
     text="Spree (Choose one or more additional costs.)\n+ {2}{B} — Destroy target creature.\n+ {1} — Create a 1/1 red Mercenary creature token with \"{T}: Target creature you control gets +1/+0 until end of turn. Activate only as a sorcery.\"",
-    resolve=unfortunate_accident_resolve,
+    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_UNFORTUNATE_ACCIDENT_MODES),
+    resolve=make_spree_resolve(_UNFORTUNATE_ACCIDENT_MODES),
 )
 
 UNSCRUPULOUS_CONTRACTOR = make_creature(
@@ -8354,6 +8550,8 @@ UNSCRUPULOUS_CONTRACTOR = make_creature(
     text="When this creature enters, you may sacrifice a creature. When you do, target player draws two cards and loses 2 life.\nPlot {2}{B} (You may pay {2}{B} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=unscrupulous_contractor_setup,
 )
+# Phase 5b: register Plot {2}{B} as a hand-zone activated ability.
+UNSCRUPULOUS_CONTRACTOR.setup_in_hand = make_plot_setup(plot_cost="{2}{B}")
 
 VADMIR_NEW_BLOOD = make_creature(
     name="Vadmir, New Blood",
@@ -8481,6 +8679,8 @@ CUNNING_COYOTE = make_creature(
     text="Haste\nWhen this creature enters, another target creature you control gets +1/+1 and gains haste until end of turn.\nPlot {1}{R} (You may pay {1}{R} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=cunning_coyote_setup,
 )
+# Phase 5b: register Plot {1}{R} as a hand-zone activated ability.
+CUNNING_COYOTE.setup_in_hand = make_plot_setup(plot_cost="{1}{R}")
 
 DEADEYE_DUELIST = make_creature(
     name="Deadeye Duelist",
@@ -8500,6 +8700,8 @@ DEMONIC_RUCKUS = make_enchantment(
     subtypes={"Aura"},
     setup_interceptors=demonic_ruckus_setup,
 )
+# Phase 5b: register Plot {R} as a hand-zone activated ability.
+DEMONIC_RUCKUS.setup_in_hand = make_plot_setup(plot_cost="{R}")
 
 DISCERNING_PEDDLER = make_creature(
     name="Discerning Peddler",
@@ -8846,6 +9048,8 @@ HIGHWAY_ROBBERY = make_sorcery(
     colors={Color.RED},
     text="You may discard a card or sacrifice a land. If you do, draw two cards.\nPlot {1}{R} (You may pay {1}{R} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
 )
+# Phase 5b: register Plot {1}{R} as a hand-zone activated ability.
+HIGHWAY_ROBBERY.setup_in_hand = make_plot_setup(plot_cost="{1}{R}")
 
 IRASCIBLE_WOLVERINE = make_creature(
     name="Irascible Wolverine",
@@ -8856,6 +9060,8 @@ IRASCIBLE_WOLVERINE = make_creature(
     text="When this creature enters, exile the top card of your library. Until end of turn, you may play that card.\nPlot {2}{R} (You may pay {2}{R} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=irascible_wolverine_setup,
 )
+# Phase 5b: register Plot {2}{R} as a hand-zone activated ability.
+IRASCIBLE_WOLVERINE.setup_in_hand = make_plot_setup(plot_cost="{2}{R}")
 
 IRONFIST_PULVERIZER = make_creature(
     name="Iron-Fist Pulverizer",
@@ -8876,6 +9082,11 @@ LONGHORN_SHARPSHOOTER = make_creature(
     text="Reach\nWhen this card becomes plotted, it deals 2 damage to any target.\nPlot {3}{R} (You may pay {3}{R} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=longhorn_sharpshooter_setup,
 )
+# Phase 5b: register Plot {3}{R} as a hand-zone activated ability. The
+# existing setup_interceptors wires the "When this card becomes plotted,
+# deals 2 damage to any target" trigger; this setup_in_hand adds the
+# Plot activation that fires the PLOT_BECOMES_PLOTTED event.
+LONGHORN_SHARPSHOOTER.setup_in_hand = make_plot_setup(plot_cost="{3}{R}")
 
 MAGDA_THE_HOARDMASTER = make_creature(
     name="Magda, the Hoardmaster",
@@ -9148,6 +9359,8 @@ SLICKSHOT_SHOWOFF = make_creature(
     text="Flying, haste\nWhenever you cast a noncreature spell, this creature gets +2/+0 until end of turn.\nPlot {1}{R} (You may pay {1}{R} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=slickshot_showoff_setup,
 )
+# Phase 5b: register Plot {1}{R} as a hand-zone activated ability.
+SLICKSHOT_SHOWOFF.setup_in_hand = make_plot_setup(plot_cost="{1}{R}")
 
 STINGERBACK_TERROR = make_creature(
     name="Stingerback Terror",
@@ -9158,6 +9371,8 @@ STINGERBACK_TERROR = make_creature(
     text="Flying, trample\nThis creature gets -1/-1 for each card in your hand.\nPlot {2}{R} (You may pay {2}{R} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=stingerback_terror_setup,
 )
+# Phase 5b: register Plot {2}{R} as a hand-zone activated ability.
+STINGERBACK_TERROR.setup_in_hand = make_plot_setup(plot_cost="{2}{R}")
 
 # =============================================================================
 # TAKE FOR A RIDE - Threaten effect
@@ -9297,6 +9512,8 @@ ALOE_ALCHEMIST = make_creature(
     text="Trample\nWhen this card becomes plotted, target creature gets +3/+2 and gains trample until end of turn.\nPlot {1}{G} (You may pay {1}{G} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=aloe_alchemist_setup,
 )
+# Phase 5b: register Plot {1}{G} as a hand-zone activated ability.
+ALOE_ALCHEMIST.setup_in_hand = make_plot_setup(plot_cost="{1}{G}")
 
 ANKLE_BITER = make_creature(
     name="Ankle Biter",
@@ -9316,6 +9533,8 @@ BEASTBOND_OUTCASTER = make_creature(
     text="When this creature enters, if you control a creature with power 4 or greater, draw a card.\nPlot {1}{G} (You may pay {1}{G} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=beastbond_outcaster_setup,
 )
+# Phase 5b: register Plot {1}{G} as a hand-zone activated ability.
+BEASTBOND_OUTCASTER.setup_in_hand = make_plot_setup(plot_cost="{1}{G}")
 
 # =============================================================================
 # BETRAYAL AT THE VAULT - One creature damages two others
@@ -9359,11 +9578,14 @@ BETRAYAL_AT_THE_VAULT = make_instant(
     colors={Color.GREEN},
     text="Target creature you control deals damage equal to its power to each of two other target creatures.",
     resolve=betrayal_at_the_vault_resolve,
+    # Phase 5b cross-target: the two "other" targets must differ from the
+    # first pick (your damage source). The callable builder excludes the
+    # source-creature ID from the legal options for the second requirement.
     target_requirements=[
-        target_creature(count=1, controller='you'),
-        TargetRequirement(
-            filter=creature_filter(),
-            count=2, label="two other target creatures",
+        target_creature(count=1, controller='you', label="target creature you control"),
+        another_target_creature(
+            count=2,
+            label="two other target creatures",
         ),
     ],
 )
@@ -9437,6 +9659,8 @@ FREESTRIDER_COMMANDO = make_creature(
     text="This creature enters with two +1/+1 counters on it if it wasn't cast or no mana was spent to cast it.\nPlot {3}{G} (You may pay {3}{G} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=freestrider_commando_setup,
 )
+# Phase 5b: register Plot {3}{G} as a hand-zone activated ability.
+FREESTRIDER_COMMANDO.setup_in_hand = make_plot_setup(plot_cost="{3}{G}")
 
 FREESTRIDER_LOOKOUT = make_creature(
     name="Freestrider Lookout",
@@ -9631,6 +9855,8 @@ OUTCASTER_TRAILBLAZER = make_creature(
     text="When this creature enters, add one mana of any color.\nWhenever another creature you control with power 4 or greater enters, draw a card.\nPlot {2}{G} (You may pay {2}{G} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=outcaster_trailblazer_setup,
 )
+# Phase 5b: register Plot {2}{G} as a hand-zone activated ability.
+OUTCASTER_TRAILBLAZER.setup_in_hand = make_plot_setup(plot_cost="{2}{G}")
 
 PATIENT_NATURALIST = make_creature(
     name="Patient Naturalist",
@@ -9651,6 +9877,8 @@ RAILWAY_BRAWLER = make_creature(
     text="Reach, trample\nWhenever another creature you control enters, put X +1/+1 counters on it, where X is its power.\nPlot {3}{G} (You may pay {3}{G} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=railway_brawler_setup,
 )
+# Phase 5b: register Plot {3}{G} as a hand-zone activated ability.
+RAILWAY_BRAWLER.setup_in_hand = make_plot_setup(plot_cost="{3}{G}")
 
 RAMBLING_POSSUM = make_creature(
     name="Rambling Possum",
@@ -9688,6 +9916,8 @@ RISE_OF_THE_VARMINTS = make_sorcery(
     text="Create X 2/1 green Varmint creature tokens, where X is the number of creature cards in your graveyard.\nPlot {2}{G} (You may pay {2}{G} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     resolve=rise_of_the_varmints_resolve,
 )
+# Phase 5b: register Plot {2}{G} as a hand-zone activated ability.
+RISE_OF_THE_VARMINTS.setup_in_hand = make_plot_setup(plot_cost="{2}{G}")
 
 SMUGGLERS_SURPRISE = make_instant(
     name="Smuggler's Surprise",
@@ -9771,6 +10001,8 @@ SPINEWOODS_PALADIN = make_creature(
     text="Trample\nWhen this creature enters, you gain 3 life.\nPlot {3}{G} (You may pay {3}{G} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     setup_interceptors=spinewoods_paladin_setup,
 )
+# Phase 5b: register Plot {3}{G} as a hand-zone activated ability.
+SPINEWOODS_PALADIN.setup_in_hand = make_plot_setup(plot_cost="{3}{G}")
 
 STUBBORN_BURROWFIEND = make_creature(
     name="Stubborn Burrowfiend",
@@ -10099,6 +10331,8 @@ TUMBLEWEED_RISING = make_sorcery(
     text="Create an X/X green Elemental creature token, where X is the greatest power among creatures you control.\nPlot {2}{G} (You may pay {2}{G} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     resolve=tumbleweed_rising_resolve,
 )
+# Phase 5b: register Plot {2}{G} as a hand-zone activated ability.
+TUMBLEWEED_RISING.setup_in_hand = make_plot_setup(plot_cost="{2}{G}")
 
 VORACIOUS_VARMINT = make_creature(
     name="Voracious Varmint",
@@ -10475,6 +10709,8 @@ PILLAGE_THE_BOG = make_sorcery(
     text="Look at the top X cards of your library, where X is twice the number of lands you control. Put one of them into your hand and the rest on the bottom of your library in a random order.\nPlot {1}{B}{G} (You may pay {1}{B}{G} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
     resolve=pillage_the_bog_resolve,
 )
+# Phase 5b: register Plot {1}{B}{G} as a hand-zone activated ability.
+PILLAGE_THE_BOG.setup_in_hand = make_plot_setup(plot_cost="{1}{B}{G}")
 
 RAKDOS_JOINS_UP = make_enchantment(
     name="Rakdos Joins Up",

@@ -424,8 +424,19 @@ class PrioritySystem:
               itself to abort the cast cleanly, MTG rules: a spell with no
               legal targets can't be cast).
         """
-        from .targeting import TargetingSystem
         reqs = card.card_def.target_requirements
+        if not reqs:
+            return None
+        return self._emit_cast_target_choice_with(card, action, reqs)
+
+    def _emit_cast_target_choice_with(
+        self, card, action: PlayerAction, reqs: list,
+    ) -> Optional[list[Event]]:
+        """Variant of ``_emit_cast_target_choice`` that accepts an explicit
+        list of requirements. Used when the requirements come from a CardFace
+        (Adventure half) rather than the parent CardDefinition.
+        """
+        from .targeting import TargetingSystem
         if not reqs:
             return None
         return self._emit_cast_target_choice_step(
@@ -441,21 +452,54 @@ class PrioritySystem:
         accumulated: list,
         targeting,
     ) -> Optional[list[Event]]:
-        """Recursive helper: emit choice for reqs[idx], chain to idx+1 on resolve."""
+        """Recursive helper: emit choice for reqs[idx], chain to idx+1 on resolve.
+
+        Phase 5b cross-target: each entry in ``reqs`` may be a plain
+        ``TargetRequirement`` OR a ``TargetRequirementBuilder`` callable
+        (``Callable[[state, controller_id, prior_picks_ids], TargetRequirement]``).
+        Callables are resolved at this step so a later requirement can
+        depend on the IDs picked for earlier ones (e.g. "another target
+        creature" exclude the first pick, "different controllers" exclude
+        the first pick's controller, "same mana value" pin the second
+        filter's MV to the first pick's MV).
+        """
         import dataclasses
         from .pending_choice_helpers import create_choice_and_resolve
-        from .targeting import Target
+        from .targeting import Target, resolve_target_requirement_spec
 
         # Base case: all requirements satisfied — re-enter the cast.
         if idx >= len(reqs):
             new_action = dataclasses.replace(action, targets=accumulated)
             return self._handle_cast_spell_sync(new_action)
 
-        req = reqs[idx]
+        # Cross-target: project the accumulated picks down to a
+        # list-of-list-of-ids so the builder callable can read prior picks
+        # without leaking ``Target`` internals to card-side code.
+        accumulated_ids: list[list[str]] = []
+        for picks in accumulated:
+            accumulated_ids.append([
+                (t.id if hasattr(t, 'id') else t) for t in picks
+            ])
+
+        try:
+            req = resolve_target_requirement_spec(
+                reqs[idx], self.state, action.player_id, accumulated_ids
+            )
+        except TypeError:
+            # Malformed spec — abort the cast rather than crash the engine.
+            return []
+
         legal_ids = targeting.get_legal_targets(req, card, action.player_id)
         if not legal_ids:
             # No legal target for this requirement — cast can't proceed.
             # MTG rules: "if no legal targets, the spell can't be cast".
+            # For optional requirements (count_type='up_to' with min=0),
+            # advance past this requirement with an empty pick list so the
+            # rest of the chain still runs.
+            if req.min_targets() == 0:
+                return self._emit_cast_target_choice_step(
+                    card, action, reqs, idx + 1, accumulated + [[]], targeting
+                )
             return []
 
         # Build options for the modal. Players get a display label; objects
@@ -484,15 +528,34 @@ class PrioritySystem:
             for tid in picked_ids:
                 is_player = tid in state_snapshot.players
                 picked.append(Target(id=tid, is_player=is_player))
+            # Phase 5b cross-target: clear this requirement's PendingChoice
+            # before chaining. ``submit_choice`` does this in game.py:1497
+            # BEFORE invoking _process_choice; the AI inline path
+            # (``resolve_pending_choice_inline``) defers clearing to its
+            # ``finally`` block, which leaves a stale c_N on state.pending_choice
+            # while the handler is running. That stale value would make the
+            # base-case re-entry into ``_handle_cast_spell_sync`` early-out at
+            # its ``if pending_choice is not None`` guard, silently dropping
+            # the cast on the AI path. Self-clearing here makes both paths
+            # behave identically.
+            st.pending_choice = None
             return priority_sys._emit_cast_target_choice_step(
                 card, action, reqs, idx + 1, accumulated + [picked], targeting
             )
 
-        # AI fallback heuristic: pick the first legal target. Better
-        # heuristics live in src/ai/engine.py:_select_targets_for_spell
-        # (which runs before the action is submitted, so this code path
-        # only fires for AIs that submit untargeted casts — rare).
+        # AI fallback heuristic: pick the first ``min_targets()`` legal
+        # targets so cross-target requirements that need more than one pick
+        # (e.g. "two other target creatures") satisfy their min count for
+        # the AI path. Better heuristics live in
+        # src/ai/engine.py:_select_targets_for_spell (which runs before the
+        # action is submitted, so this code path only fires for AIs that
+        # submit untargeted casts — rare).
+        min_t = req.min_targets()
         max_t = req.max_targets()
+        # Take at least one pick even if min_targets==0 (so the chain has
+        # an option for the AI to pursue); cap at min(min_t, available).
+        heuristic_count = max(1, min_t)
+        heuristic_picks = legal_ids[:min(heuristic_count, len(legal_ids))]
         # Phase 5b polish: MTG cast-time target prompts render as
         # click-to-target board overlays (legacy drag-style UX) rather
         # than the generic modal panel. ``interaction_mode='overlay'`` is
@@ -506,10 +569,10 @@ class PrioritySystem:
             prompt=req.label or "Choose a target",
             options=options,
             source_id=card.id,
-            min_choices=req.min_targets(),
+            min_choices=min_t,
             max_choices=int(max_t) if max_t != float('inf') else len(options),
             handler=handler,
-            heuristic_pick=[legal_ids[0]],
+            heuristic_pick=heuristic_picks,
             interaction_mode="overlay",
         )
 
@@ -762,6 +825,70 @@ class PrioritySystem:
                     requires_mana=not cost.is_free(),
                     mana_cost=cost,
                 ))
+
+        # OTJ Plot: cast a plotted card from exile for free on a later turn,
+        # sorcery-speed. ``can_cast_plotted`` enforces (a) the card is in
+        # exile with a recorded plotted_turn (b) plot_cast_used is False
+        # (c) current turn > plotted_turn (the "later turn" rule). We gate
+        # this further to the controller's own main phase with empty stack
+        # so Plot casts respect sorcery speed (CR 702.166c).
+        if exile_zone:
+            # Reuse the is_active/is_main/stack_empty flags computed below in
+            # this method's later phase 4 section. They're not yet in scope
+            # here, so we recompute (cheap).
+            _plot_is_active = (
+                self.turn_manager is not None
+                and self.turn_manager.turn_state.active_player_id == player_id
+            )
+            _plot_is_main = False
+            if self.turn_manager is not None:
+                from .turn import Phase as _Phase
+                _plot_is_main = self.turn_manager.turn_state.phase in (
+                    _Phase.PRECOMBAT_MAIN, _Phase.POSTCOMBAT_MAIN
+                )
+            _plot_stack_empty = (self.stack is None) or (len(self.stack.items) == 0)
+
+            if _plot_is_active and _plot_is_main and _plot_stack_empty:
+                from .plot_saddle import can_cast_plotted
+                for card_id in exile_zone.objects:
+                    card = self.state.objects.get(card_id)
+                    if not card or card.owner != player_id:
+                        continue
+                    if not can_cast_plotted(card, self.state):
+                        continue
+                    # Don't double-add if Adventure already surfaced this card.
+                    if any(
+                        a.card_id == card_id and a.ability_id == "exile:plot"
+                        for a in actions
+                    ):
+                        continue
+                    # Plot cast is free (mana cost = empty). Only additional
+                    # cost plans (rare for Plot cards) still need to be payable.
+                    std_plan = self._get_standard_additional_cost_plan(card)
+                    free_cost = ManaCost()
+                    ctx = CastCostContext(
+                        state=self.state,
+                        mana_system=self.mana_system,
+                        player_id=player_id,
+                        casting_card_id=card_id,
+                        casting_card_name=card.name,
+                        casting_zone=card.zone,
+                        base_mana_cost=free_cost,
+                        x_value=0,
+                    )
+                    if not self._can_pay_cost_plan(std_plan, ctx):
+                        continue
+                    desc = f"Cast {card.name} (plotted, free)"
+                    if std_plan:
+                        desc = f"{desc}; {describe_plan(std_plan)}"
+                    actions.append(LegalAction(
+                        type=ActionType.CAST_SPELL,
+                        card_id=card_id,
+                        ability_id="exile:plot",
+                        description=desc,
+                        requires_mana=False,
+                        mana_cost=free_cost,
+                    ))
 
         # === W7 cast-from-zone (legal actions surface) ===
         # Generic cast-from-zone permissions installed via cast_permission.py.
@@ -1749,12 +1876,30 @@ class PrioritySystem:
         # targets (drag-to-target casts and AI ``_select_targets_for_spell``
         # both pre-supply), emit a PendingChoice and pause the cast. The
         # choice handler re-enters this method with targets filled in.
-        if (card.card_def is not None
-                and getattr(card.card_def, 'target_requirements', None)
-                and not action.targets):
-            paused = self._emit_cast_target_choice(card, action)
-            if paused is not None:
-                return paused
+        #
+        # Multi-face support: when the cast action carries a face marker
+        # (``action.data['_cast_face']`` set to ``'adventure'`` / ``'left'``
+        # / ``'right'`` / ``'back'``), the engine first looks for
+        # ``target_requirements`` on the named ``CardFace`` and falls back
+        # to the parent CardDefinition if absent. Adventure spell halves
+        # currently activate through ACTIVATE_ABILITY (with
+        # ``targets_required``/``target_kind`` on the ActivatedAbility), so
+        # this face-marker path is forward-compat for routing those
+        # through CAST_SPELL. Cast-from-adventure-exile (the main creature/
+        # enchantment half) still reads parent CardDefinition.target_requirements
+        # because the main face IS the parent definition.
+        if not action.targets and card.card_def is not None:
+            face_reqs = None
+            cast_face_id = action.data.get('_cast_face') if action.data else None
+            if cast_face_id:
+                face = getattr(card.card_def, cast_face_id, None)
+                if face is not None:
+                    face_reqs = getattr(face, 'target_requirements', None)
+            reqs = face_reqs if face_reqs else getattr(card.card_def, 'target_requirements', None)
+            if reqs:
+                paused = self._emit_cast_target_choice_with(card, action, reqs)
+                if paused is not None:
+                    return paused
 
         # === W7 cast-from-zone (pre zone-check) ===
         # Generic cast-from-zone permission lookup. Runs BEFORE the bespoke
@@ -1782,6 +1927,18 @@ class PrioritySystem:
             and getattr(card.state, 'adventure_exile', False)
             and card.owner == action.player_id
             and (action.ability_id == "exile:adventure" or action.ability_id is None)
+        )
+
+        # OTJ Plot: cast a previously-plotted card from exile for free on
+        # a later turn. The card must have ``state.plotted_turn`` set and
+        # be owned by the casting player. ``can_cast_plotted`` already
+        # enforces the "later turn" rule and that plot_cast_used is False.
+        from .plot_saddle import can_cast_plotted as _can_cast_plotted
+        from_plotted_exile = (
+            card.zone == ZoneType.EXILE
+            and action.ability_id == "exile:plot"
+            and card.owner == action.player_id
+            and _can_cast_plotted(card, self.state)
         )
 
         # Choose a single casting option when casting from the graveyard.
@@ -1844,6 +2001,13 @@ class PrioritySystem:
             # leaves exile (post stack-push), so an aborted cast leaves
             # the card castable from exile next time.
             paid_cost = ManaCost.parse(card.characteristics.mana_cost or "")
+        elif from_plotted_exile:
+            # OTJ Plot: cast for free. The ``plot_cast_used`` flag is set
+            # after the cast commits (in _continue_cast_spell_with_additional_costs).
+            # We flag this cast as a free alt-cost so the upfront affordability
+            # check bypasses mana payment (mirrors Discover cast-for-free).
+            paid_cost = ManaCost()
+            action.data['_alt_cost'] = True
         else:
             # === W7 cast-from-zone (cost selection) ===
             # If a generic cast-from-zone permission applies (and we didn't
@@ -2101,6 +2265,19 @@ class PrioritySystem:
             # ensures an aborted cast (rare path) leaves the card still flagged.
             if card.zone == ZoneType.EXILE and getattr(card.state, 'adventure_exile', False):
                 card.state.adventure_exile = False
+
+            # OTJ Plot: mark the plotted cast as consumed so the card can't
+            # be cast for free a second time. ``plotted_turn`` is cleared
+            # too so ``can_cast_plotted`` returns False on subsequent passes.
+            # We do this once we're committed to the cast (mirrors the
+            # Adventure flag-clear above). Only triggers when this cast is
+            # specifically the plotted-cast ability (``exile:plot``).
+            if (card.zone == ZoneType.EXILE
+                    and action.ability_id == "exile:plot"
+                    and getattr(card.state, 'plotted_turn', None) is not None
+                    and not getattr(card.state, 'plot_cast_used', False)):
+                card.state.plot_cast_used = True
+                card.state.plotted_turn = None
 
             stack_item_id_for_conspire: Optional[str] = None
             if self.stack:

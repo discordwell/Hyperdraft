@@ -2312,6 +2312,7 @@ def make_sorcery(
     abilities: list = None,
     resolve = None,
     setup_interceptors = None,
+    target_requirements: list = None,
     fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """Helper to create sorcery card definitions.
@@ -2319,6 +2320,9 @@ def make_sorcery(
     ``setup_interceptors`` is supported so spells can register self-acting
     static abilities that fire while the card is in hand (e.g. cost reductions
     of the form 'This spell costs {X} less to cast if Y').
+
+    ``target_requirements`` (Phase 5b) — see
+    ``src/cards/card_factories.py::make_sorcery`` for the contract.
     """
     from .types import CardDefinition, Characteristics
 
@@ -2335,6 +2339,7 @@ def make_sorcery(
         abilities=abilities or [],
         resolve=resolve,
         setup_interceptors=setup_interceptors,
+        target_requirements=target_requirements,
         fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 

@@ -162,6 +162,22 @@ class TargetFilter:
             if self.toughness_min is not None and toughness < self.toughness_min:
                 return False
 
+        # Mana value checks (Phase 5b cross-target: "same mana value")
+        if self.mana_value_min is not None or self.mana_value_max is not None:
+            chars = getattr(obj, 'characteristics', None)
+            # Compute mana value from the printed mana_cost via ManaCost.
+            # Done lazily here to avoid a top-of-file import cycle.
+            try:
+                from .mana import ManaCost
+                cost = ManaCost.parse(getattr(chars, 'mana_cost', '') or '')
+                mv = cost.mana_value
+            except Exception:
+                mv = 0
+            if self.mana_value_min is not None and mv < self.mana_value_min:
+                return False
+            if self.mana_value_max is not None and mv > self.mana_value_max:
+                return False
+
         # State checks
         if self.tapped is True and not obj.state.tapped:
             return False
@@ -219,6 +235,55 @@ class Target:
     id: str  # Object ID or player ID
     is_player: bool = False
     divided_amount: Optional[int] = None  # For divided effects
+
+
+# Phase 5b cross-target support: a TargetRequirementBuilder is a callable
+# that receives game state, the casting player, and the list of IDs already
+# picked for earlier requirements, and returns a ``TargetRequirement`` whose
+# filter encodes the cross-target constraint (e.g. "another target" excludes
+# IDs already chosen, "different controllers" excludes the prior pick's
+# controller, "same mana value" reads the prior pick's MV from state).
+#
+# ``CardDefinition.target_requirements`` may mix plain ``TargetRequirement``
+# instances and these builders. ``priority._emit_cast_target_choice_step``
+# resolves builders to a fresh ``TargetRequirement`` each time it advances
+# to the next requirement in the chain.
+#
+# ``accumulated`` is shaped as a list of lists (one inner list per prior
+# requirement, holding the chosen target IDs). Index ``[i]`` corresponds to
+# requirement ``[i]`` in the spec — earlier requirements only.
+TargetRequirementBuilder = Callable[
+    [GameState, str, list[list[str]]],
+    "TargetRequirement",
+]
+
+
+def resolve_target_requirement_spec(
+    spec,
+    state: GameState,
+    controller_id: str,
+    accumulated_ids: list,
+) -> "TargetRequirement":
+    """Coerce a ``target_requirements`` spec entry into a ``TargetRequirement``.
+
+    ``spec`` may be a plain ``TargetRequirement`` (back-compat path) or a
+    ``TargetRequirementBuilder`` callable. Builders are invoked with the
+    state, the casting player id, and the picks collected for earlier
+    requirements; the returned ``TargetRequirement`` is used verbatim.
+
+    This indirection lets cross-target constraints ("another target",
+    "different controllers", "same mana value as the first target") be
+    expressed declaratively without bloating ``TargetFilter`` with bespoke
+    fields.
+    """
+    if isinstance(spec, TargetRequirement):
+        return spec
+    if callable(spec):
+        return spec(state, controller_id, accumulated_ids)
+    raise TypeError(
+        f"target_requirements entry must be TargetRequirement or callable, "
+        f"got {type(spec).__name__}"
+    )
 
 
 class TargetingSystem:
@@ -498,12 +563,18 @@ def card_in_graveyard_filter(**kwargs) -> TargetFilter:
 
 # Convenience requirement constructors
 
-def target_creature(count: int = 1, **filter_kwargs) -> TargetRequirement:
-    """'Target creature' requirement."""
+def target_creature(count: int = 1, *, label: Optional[str] = None, **filter_kwargs) -> TargetRequirement:
+    """'Target creature' requirement.
+
+    ``label`` overrides the auto-generated label string ("target creature" /
+    "target N creatures"); leaving it None falls back to the default.
+    """
     return TargetRequirement(
         filter=creature_filter(**filter_kwargs),
         count=count,
-        label=f"target creature" if count == 1 else f"target {count} creatures"
+        label=label if label is not None else (
+            f"target creature" if count == 1 else f"target {count} creatures"
+        ),
     )
 
 
@@ -538,3 +609,135 @@ def target_spell(**filter_kwargs) -> TargetRequirement:
         count=1,
         label="target spell"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 5b cross-target builders
+#
+# Common ``TargetRequirementBuilder`` callables for cards that have
+# inter-target constraints. Each returns a callable suitable for placing
+# directly inside ``CardDefinition.target_requirements``.
+# ---------------------------------------------------------------------------
+
+
+def another_target_creature(
+    *,
+    count: int = 1,
+    count_type: Literal['exactly', 'up_to', 'any_number'] = 'exactly',
+    label: Optional[str] = None,
+    optional: bool = False,
+    prior_index: int = 0,
+    **filter_kwargs,
+) -> "TargetRequirementBuilder":
+    """Builder for "another target creature" — excludes IDs picked for an
+    earlier requirement.
+
+    ``prior_index`` selects which earlier requirement's picks to exclude
+    (defaults to the first requirement). Useful when the previous req
+    selected a "your creature" and this one selects "another target creature"
+    that must differ from it.
+
+    Pass ``optional=True`` for "up to one/two other target creature" — the
+    UI/AI may submit an empty selection. ``optional`` is forwarded onto the
+    underlying ``TargetRequirement`` which lowers ``min_targets()`` to 0.
+    """
+    def _build(state, controller_id, accumulated_ids):
+        excluded = set(accumulated_ids[prior_index]) if prior_index < len(accumulated_ids) else set()
+        # Merge with any user-supplied exclude_ids. Copy the dict so the
+        # builder is idempotent (callers may reuse the same builder across
+        # multiple casts; pop() on the shared dict would erase exclude_ids
+        # from the second cast onward).
+        local_kwargs = dict(filter_kwargs)
+        merged_excludes = set(local_kwargs.pop('exclude_ids', set())) | excluded
+        kwargs = dict(local_kwargs, exclude_ids=merged_excludes)
+        return TargetRequirement(
+            filter=creature_filter(**kwargs),
+            count=count,
+            count_type=count_type,
+            optional=optional,
+            label=label or (f"another target creature" if count == 1
+                            else f"{count} other target creatures"),
+        )
+    return _build
+
+
+def target_creature_different_controller(
+    *,
+    label: Optional[str] = None,
+    prior_index: int = 0,
+    **filter_kwargs,
+) -> "TargetRequirementBuilder":
+    """Builder for "target creature controlled by a different player" —
+    excludes any creature controlled by the controller of the earlier pick.
+
+    The exclusion is implemented via a ``custom_filter`` because the
+    static ``controller='you'/'opponent'`` axis is computed relative to
+    the spell's source, not relative to a prior pick.
+    """
+    def _build(state, controller_id, accumulated_ids):
+        prior_ids = accumulated_ids[prior_index] if prior_index < len(accumulated_ids) else []
+        forbidden_controllers: set = set()
+        for tid in prior_ids:
+            obj = state.objects.get(tid)
+            if obj is not None:
+                forbidden_controllers.add(obj.controller)
+
+        existing_custom = filter_kwargs.pop('custom_filter', None)
+
+        def _diff_controller(obj, st, _existing=existing_custom, _forbidden=forbidden_controllers):
+            if obj.controller in _forbidden:
+                return False
+            if _existing is not None:
+                return _existing(obj, st)
+            return True
+
+        return TargetRequirement(
+            filter=creature_filter(custom_filter=_diff_controller, **filter_kwargs),
+            count=1,
+            label=label or "target creature controlled by a different player",
+        )
+    return _build
+
+
+def target_with_matching_mana_value(
+    *,
+    base_filter_factory: Callable[..., TargetFilter] = permanent_filter,
+    prior_index: int = 0,
+    label: Optional[str] = None,
+    count: int = 1,
+    **filter_kwargs,
+) -> "TargetRequirementBuilder":
+    """Builder for "target X with the same mana value as the previous target".
+
+    ``base_filter_factory`` is one of the filter helpers (creature_filter,
+    permanent_filter, etc.) used to build the constrained filter. The
+    builder pins ``mana_value_min == mana_value_max`` to the prior pick's
+    mana value so only equal-MV targets pass.
+    """
+    def _build(state, controller_id, accumulated_ids):
+        prior_ids = accumulated_ids[prior_index] if prior_index < len(accumulated_ids) else []
+        mv: Optional[int] = None
+        for tid in prior_ids:
+            obj = state.objects.get(tid)
+            if obj is not None:
+                try:
+                    from .mana import ManaCost
+                    cost_str = getattr(obj.characteristics, 'mana_cost', '') or ''
+                    mv = ManaCost.parse(cost_str).mana_value
+                except Exception:
+                    mv = None
+                if mv is not None:
+                    break
+
+        kwargs = dict(filter_kwargs)
+        if mv is not None:
+            kwargs['mana_value_min'] = mv
+            kwargs['mana_value_max'] = mv
+
+        return TargetRequirement(
+            filter=base_filter_factory(**kwargs),
+            count=count,
+            label=label or (f"target with mana value {mv}" if mv is not None
+                            else "target with matching mana value"),
+        )
+    return _build

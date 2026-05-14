@@ -18,7 +18,7 @@ from src.engine import (
     Event, EventType,
     Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult,
     GameObject, GameState, ZoneType, CardType, Color,
-    Characteristics, ObjectState, CardDefinition,
+    Characteristics, ObjectState, CardDefinition, CardFace,
     make_creature, make_enchantment,
     new_id, get_power, get_toughness
 )
@@ -7507,6 +7507,19 @@ VIRTUE_OF_PERSISTENCE.setup_in_hand = make_adventure_setup(
     effect_fn=_virtue_of_persistence_adventure,
     description="Adventure: target creature -3/-3 EOT, gain 2 life",
     targets_required=1, target_kind="creature",
+)
+# Phase 5b: Adventure CardFace target_requirements (forward-compat). Today
+# the Adventure half is cast as an activated ability that uses the
+# ``targets_required``/``target_kind`` route above. When/if the engine
+# routes Adventure halves through CAST_SPELL, the cast handler will read
+# target_requirements from this face (see priority._handle_cast_spell_sync's
+# ``_cast_face`` face-marker support).
+VIRTUE_OF_PERSISTENCE.adventure = CardFace(
+    name="Locthwain Scorn",
+    mana_cost="{1}{B}",
+    types={CardType.SORCERY},
+    text="Target creature gets -3/-3 until end of turn. You gain 2 life.",
+    target_requirements=[target_creature(count=1)],
 )
 
 VORACIOUS_VERMIN = make_creature(

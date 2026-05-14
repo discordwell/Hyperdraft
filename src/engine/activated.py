@@ -88,6 +88,12 @@ class ActivatedAbility:
     # casting the main half from exile.
     is_adventure: bool = False
 
+    # OTJ Plot marker. When True, paying ``exile_self`` sets the source
+    # object's ``state.plotted_turn`` to the current turn number so the
+    # cast subsystem can offer casting the spell from exile on a later
+    # turn at sorcery speed without paying its mana cost.
+    is_plot: bool = False
+
     # Optional state-time gate. When provided, ``can_pay_activation`` invokes
     # ``precondition_fn(obj, state) -> bool``; if it returns False, the ability
     # is treated as not legal. Use for "Activate only if X happened this turn"
@@ -269,6 +275,7 @@ def register_activated_ability(
     targets_required: int = 0,
     target_kind: str = "any",
     is_adventure: bool = False,
+    is_plot: bool = False,
     precondition_fn: Optional[Callable[[Any, Any], bool]] = None,
 ) -> ActivatedAbility:
     """Register an activated ability descriptor on ``obj.state.activated_abilities``.
@@ -312,6 +319,7 @@ def register_activated_ability(
         targets_required=targets_required,
         target_kind=target_kind,
         is_adventure=is_adventure,
+        is_plot=is_plot,
         precondition_fn=precondition_fn,
     )
 
@@ -553,6 +561,36 @@ def pay_activation_cost(
         # on obj.state persists through the zone change.
         if ability.is_adventure:
             obj.state.adventure_exile = True
+        # OTJ Plot: mark the source so the cast subsystem can surface a
+        # free cast from exile on a later turn (sorcery speed). We record
+        # the turn the plot cost was paid; ``can_cast_plotted`` requires
+        # strict-greater-than to ensure same-turn casts are rejected.
+        # The PLOT_PAID + PLOT_BECOMES_PLOTTED markers are emitted as
+        # part of the resolve so triggers like "When this card becomes
+        # plotted" fire after the cost is paid.
+        if ability.is_plot:
+            obj.state.plotted_turn = state.turn_number
+            obj.state.plot_cast_used = False
+            events.append(Event(
+                type=EventType.PLOT_PAID,
+                payload={
+                    'object_id': obj.id,
+                    'player': player_id,
+                    'turn': state.turn_number,
+                },
+                source=obj.id,
+                controller=player_id,
+            ))
+            events.append(Event(
+                type=EventType.PLOT_BECOMES_PLOTTED,
+                payload={
+                    'object_id': obj.id,
+                    'player': player_id,
+                    'turn': state.turn_number,
+                },
+                source=obj.id,
+                controller=player_id,
+            ))
 
     # Counter removal from self
     if ability.counter_removal:
