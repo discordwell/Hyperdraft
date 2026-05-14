@@ -14,11 +14,15 @@ from src.cards.hearthstone.basic import (
     WISP, STONETUSK_BOAR, CHILLWIND_YETI, BLOODFEN_RAPTOR, BOULDERFIST_OGRE,
     SEN_JIN_SHIELDMASTA,
 )
-from src.cards.hearthstone.warlock import SHADOWFLAME
-from src.cards.hearthstone.rogue import SAP, ASSASSINATE
+from src.cards.hearthstone.warlock import SHADOWFLAME, CORRUPTION
+from src.cards.hearthstone.rogue import SAP, ASSASSINATE, BETRAYAL, EVISCERATE
 from src.cards.hearthstone.warrior import EXECUTE
 from src.cards.hearthstone.priest import (
     SHADOW_WORD_PAIN, SHADOW_WORD_DEATH, SHADOW_MADNESS, CABAL_SHADOW_PRIEST,
+)
+from src.cards.hearthstone.paladin import HAND_OF_PROTECTION, BLESSING_OF_WISDOM
+from src.cards.hearthstone.shaman import (
+    WINDFURY_SPELL, HEX, ANCESTRAL_SPIRIT, ANCESTRAL_HEALING,
 )
 from src.cards.hearthstone import riftclash, frierenrift
 
@@ -747,6 +751,419 @@ def test_ice_shackle_no_enemy_minions_short_circuits():
     game.setup_hearthstone_player(p2, riftclash.GLACIEL_REFORGED, riftclash.CRYO_WARD)
 
     _shackle, events = _cast(game, riftclash.ICE_SHACKLE, p1)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+# ============================================================
+# PendingChoice migrations — residual deterministic-pick cards
+# ============================================================
+# Migrated in the follow-up to commit 6fcb918b. Same pattern as the
+# original ten — every card now emits a PendingChoice over the legal
+# bucket. Humans see the choice; AI keeps the prior highest-attack
+# auto-pick via ``heuristic_pick``.
+
+
+# ---- Betrayal (rogue): splash an enemy's attack onto its neighbours ----
+
+def test_betrayal_emits_pending_choice_for_human_caster():
+    game, p1, p2 = _hs_scene()
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    yeti = _make_obj(game, CHILLWIND_YETI, p2)
+    boar = _make_obj(game, STONETUSK_BOAR, p2)
+
+    _bet, events = _cast(game, BETRAYAL, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.choice_type == "target"
+    opts = {opt["id"] for opt in pc.options}
+    assert ogre.id in opts
+    assert yeti.id in opts
+    assert boar.id in opts
+    # Highest-attack pick = the 6-attack Ogre.
+    assert (pc.callback_data or {}).get("heuristic_pick") == [ogre.id]
+
+
+def test_betrayal_heuristic_resolves_for_ai_caster():
+    """AI path: BETRAYAL splashes the 6-attack Ogre onto the adjacent Yeti."""
+    game, p1, p2 = _hs_scene()
+    game.turn_manager.ai_players.add(p1.id)
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    yeti = _make_obj(game, CHILLWIND_YETI, p2)
+
+    _bet, _events = _cast(game, BETRAYAL, p1)
+    assert game.state.pending_choice is None
+    # The Yeti is adjacent to the Ogre, so it takes 6 splash damage.
+    splash = [e for e in game.state.event_log
+              if e.type == EventType.DAMAGE
+              and e.payload.get("target") == yeti.id
+              and e.payload.get("amount") == 6]
+    assert len(splash) == 1
+
+
+def test_betrayal_no_enemy_minions_short_circuits():
+    game, p1, _p2 = _hs_scene()
+    _bet, events = _cast(game, BETRAYAL, p1)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+def test_betrayal_legacy_explicit_target_bypasses_choice():
+    game, p1, p2 = _hs_scene()
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    yeti = _make_obj(game, CHILLWIND_YETI, p2)
+
+    _bet, events = _cast(game, BETRAYAL, p1, targets=[ogre.id])
+    assert game.state.pending_choice is None
+    splash = [e for e in events
+              if e.type == EventType.DAMAGE
+              and e.payload.get("target") == yeti.id]
+    assert len(splash) == 1
+
+
+# ---- Eviscerate (rogue): single-target burn, hero or minion ----
+
+def test_eviscerate_emits_pending_choice_for_human_caster():
+    game, p1, p2 = _hs_scene()
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    yeti = _make_obj(game, CHILLWIND_YETI, p2)
+
+    _ev, events = _cast(game, EVISCERATE, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    opts = {opt["id"] for opt in pc.options}
+    assert ogre.id in opts
+    assert yeti.id in opts
+    assert p2.hero_id in opts  # hero is also a legal target
+    # Heuristic should prefer the highest-attack minion over the hero.
+    assert (pc.callback_data or {}).get("heuristic_pick") == [ogre.id]
+
+
+def test_eviscerate_heuristic_resolves_for_ai_caster():
+    game, p1, p2 = _hs_scene()
+    game.turn_manager.ai_players.add(p1.id)
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+
+    _ev, _events = _cast(game, EVISCERATE, p1)
+    burn = [e for e in game.state.event_log
+            if e.type == EventType.DAMAGE
+            and e.payload.get("target") == ogre.id
+            and e.payload.get("amount") == 2]
+    assert len(burn) == 1
+
+
+def test_eviscerate_combo_applied_via_choice():
+    """Eviscerate's combo damage should flow through the choice path."""
+    game, p1, p2 = _hs_scene()
+    game.turn_manager.ai_players.add(p1.id)
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    p1.cards_played_this_turn = 1  # combo active
+
+    _ev, _events = _cast(game, EVISCERATE, p1)
+    burn = [e for e in game.state.event_log
+            if e.type == EventType.DAMAGE
+            and e.payload.get("target") == ogre.id
+            and e.payload.get("amount") == 4]
+    assert len(burn) == 1
+
+
+def test_eviscerate_no_targets_short_circuits():
+    """No enemies at all means no choice and no events."""
+    game, p1, _p2 = _hs_scene()
+    # No board, but enemy hero still exists. Default _hs_scene wires both heroes,
+    # so we need a scene with no players for true emptiness; instead verify the
+    # choice only contains the hero when no minions exist.
+    _ev, events = _cast(game, EVISCERATE, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert {opt["id"] for opt in pc.options} == {_p2.hero_id}
+
+
+def test_eviscerate_legacy_explicit_target_bypasses_choice():
+    game, p1, p2 = _hs_scene()
+    yeti = _make_obj(game, CHILLWIND_YETI, p2)
+
+    _ev, events = _cast(game, EVISCERATE, p1, targets=[yeti.id])
+    assert game.state.pending_choice is None
+    burn = [e for e in events
+            if e.type == EventType.DAMAGE
+            and e.payload.get("target") == yeti.id
+            and e.payload.get("amount") == 2]
+    assert len(burn) == 1
+
+
+# ---- Hand of Protection (paladin): grant Divine Shield to a friendly ----
+
+def test_hand_of_protection_emits_pending_choice_for_human_caster():
+    game, p1, _p2 = _hs_scene()
+    yeti = _make_obj(game, CHILLWIND_YETI, p1)
+    boar = _make_obj(game, STONETUSK_BOAR, p1)
+
+    _hop, events = _cast(game, HAND_OF_PROTECTION, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert {opt["id"] for opt in pc.options} == {yeti.id, boar.id}
+    # Heuristic picks highest-attack friendly = Yeti (4 attack).
+    assert (pc.callback_data or {}).get("heuristic_pick") == [yeti.id]
+
+
+def test_hand_of_protection_heuristic_resolves_for_ai():
+    game, p1, _p2 = _hs_scene()
+    game.turn_manager.ai_players.add(p1.id)
+    yeti = _make_obj(game, CHILLWIND_YETI, p1)
+
+    _hop, _events = _cast(game, HAND_OF_PROTECTION, p1)
+    grants = [e for e in game.state.event_log
+              if e.type == EventType.KEYWORD_GRANT
+              and e.payload.get("object_id") == yeti.id
+              and e.payload.get("keyword") == "divine_shield"]
+    assert len(grants) == 1
+
+
+def test_hand_of_protection_no_friendly_minions_short_circuits():
+    game, p1, _p2 = _hs_scene()
+    _hop, events = _cast(game, HAND_OF_PROTECTION, p1)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+def test_hand_of_protection_legacy_explicit_target_bypasses_choice():
+    game, p1, _p2 = _hs_scene()
+    yeti = _make_obj(game, CHILLWIND_YETI, p1)
+    boar = _make_obj(game, STONETUSK_BOAR, p1)
+
+    _hop, events = _cast(game, HAND_OF_PROTECTION, p1, targets=[boar.id])
+    assert game.state.pending_choice is None
+    grants = [e for e in events
+              if e.type == EventType.KEYWORD_GRANT
+              and e.payload.get("object_id") == boar.id]
+    assert len(grants) == 1
+
+
+# ---- Blessing of Wisdom (paladin): friendly attacks => draw ----
+
+def test_blessing_of_wisdom_emits_pending_choice_for_human_caster():
+    game, p1, _p2 = _hs_scene()
+    yeti = _make_obj(game, CHILLWIND_YETI, p1)
+    boar = _make_obj(game, STONETUSK_BOAR, p1)
+
+    _bow, events = _cast(game, BLESSING_OF_WISDOM, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert {opt["id"] for opt in pc.options} == {yeti.id, boar.id}
+    assert (pc.callback_data or {}).get("heuristic_pick") == [yeti.id]
+
+
+def test_blessing_of_wisdom_heuristic_attaches_interceptor_for_ai():
+    game, p1, _p2 = _hs_scene()
+    game.turn_manager.ai_players.add(p1.id)
+    _yeti = _make_obj(game, CHILLWIND_YETI, p1)
+    interceptors_before = len(game.state.interceptors)
+
+    _bow, _events = _cast(game, BLESSING_OF_WISDOM, p1)
+    assert game.state.pending_choice is None
+    # Resolution attaches a draw-on-attack interceptor for the chosen minion.
+    assert len(game.state.interceptors) >= interceptors_before + 1
+
+
+def test_blessing_of_wisdom_no_friendly_minions_short_circuits():
+    game, p1, _p2 = _hs_scene()
+    _bow, events = _cast(game, BLESSING_OF_WISDOM, p1)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+# ---- Corruption (warlock): mark an enemy for destruction next turn ----
+
+def test_corruption_emits_pending_choice_for_human_caster():
+    game, p1, p2 = _hs_scene()
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    yeti = _make_obj(game, CHILLWIND_YETI, p2)
+
+    _corr, events = _cast(game, CORRUPTION, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert {opt["id"] for opt in pc.options} == {ogre.id, yeti.id}
+    assert (pc.callback_data or {}).get("heuristic_pick") == [ogre.id]
+
+
+def test_corruption_heuristic_attaches_interceptor_for_ai():
+    game, p1, p2 = _hs_scene()
+    game.turn_manager.ai_players.add(p1.id)
+    _ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    interceptors_before = len(game.state.interceptors)
+
+    _corr, _events = _cast(game, CORRUPTION, p1)
+    assert game.state.pending_choice is None
+    # The delayed-destroy interceptor should be registered.
+    assert len(game.state.interceptors) >= interceptors_before + 1
+
+
+def test_corruption_no_enemy_minions_short_circuits():
+    game, p1, _p2 = _hs_scene()
+    _corr, events = _cast(game, CORRUPTION, p1)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+# ---- Windfury (shaman): grant Windfury to a friendly minion ----
+
+def test_windfury_spell_emits_pending_choice_for_human_caster():
+    game, p1, _p2 = _hs_scene()
+    yeti = _make_obj(game, CHILLWIND_YETI, p1)
+    boar = _make_obj(game, STONETUSK_BOAR, p1)
+
+    _wf, events = _cast(game, WINDFURY_SPELL, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert {opt["id"] for opt in pc.options} == {yeti.id, boar.id}
+    assert (pc.callback_data or {}).get("heuristic_pick") == [yeti.id]
+
+
+def test_windfury_spell_heuristic_grants_for_ai():
+    game, p1, _p2 = _hs_scene()
+    game.turn_manager.ai_players.add(p1.id)
+    yeti = _make_obj(game, CHILLWIND_YETI, p1)
+
+    _wf, _events = _cast(game, WINDFURY_SPELL, p1)
+    grants = [e for e in game.state.event_log
+              if e.type == EventType.KEYWORD_GRANT
+              and e.payload.get("object_id") == yeti.id
+              and e.payload.get("keyword") == "windfury"]
+    assert len(grants) == 1
+
+
+def test_windfury_spell_no_friendly_minions_short_circuits():
+    game, p1, _p2 = _hs_scene()
+    _wf, events = _cast(game, WINDFURY_SPELL, p1)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+# ---- Hex (shaman): polymorph an enemy minion into a Frog ----
+
+def test_hex_emits_pending_choice_for_human_caster():
+    game, p1, p2 = _hs_scene()
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    yeti = _make_obj(game, CHILLWIND_YETI, p2)
+
+    _hex, events = _cast(game, HEX, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert {opt["id"] for opt in pc.options} == {ogre.id, yeti.id}
+    assert (pc.callback_data or {}).get("heuristic_pick") == [ogre.id]
+
+
+def test_hex_heuristic_transforms_for_ai():
+    game, p1, p2 = _hs_scene()
+    game.turn_manager.ai_players.add(p1.id)
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+
+    _hex, _events = _cast(game, HEX, p1)
+    polys = [e for e in game.state.event_log
+             if e.type == EventType.TRANSFORM
+             and e.payload.get("object_id") == ogre.id]
+    assert len(polys) == 1
+
+
+def test_hex_no_enemy_minions_short_circuits():
+    game, p1, _p2 = _hs_scene()
+    _hex, events = _cast(game, HEX, p1)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+def test_hex_legacy_explicit_target_bypasses_choice():
+    game, p1, p2 = _hs_scene()
+    _ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+    yeti = _make_obj(game, CHILLWIND_YETI, p2)
+
+    _hex, events = _cast(game, HEX, p1, targets=[yeti.id])
+    assert game.state.pending_choice is None
+    polys = [e for e in events
+             if e.type == EventType.TRANSFORM
+             and e.payload.get("object_id") == yeti.id]
+    assert len(polys) == 1
+
+
+# ---- Ancestral Spirit (shaman): give a friendly minion resummon deathrattle ----
+
+def test_ancestral_spirit_emits_pending_choice_for_human_caster():
+    game, p1, _p2 = _hs_scene()
+    yeti = _make_obj(game, CHILLWIND_YETI, p1)
+    boar = _make_obj(game, STONETUSK_BOAR, p1)
+
+    _as, events = _cast(game, ANCESTRAL_SPIRIT, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert {opt["id"] for opt in pc.options} == {yeti.id, boar.id}
+    assert (pc.callback_data or {}).get("heuristic_pick") == [yeti.id]
+
+
+def test_ancestral_spirit_heuristic_attaches_for_ai():
+    game, p1, _p2 = _hs_scene()
+    game.turn_manager.ai_players.add(p1.id)
+    _yeti = _make_obj(game, CHILLWIND_YETI, p1)
+    interceptors_before = len(game.state.interceptors)
+
+    _as, _events = _cast(game, ANCESTRAL_SPIRIT, p1)
+    assert game.state.pending_choice is None
+    assert len(game.state.interceptors) >= interceptors_before + 1
+
+
+def test_ancestral_spirit_no_friendly_minions_short_circuits():
+    game, p1, _p2 = _hs_scene()
+    _as, events = _cast(game, ANCESTRAL_SPIRIT, p1)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+# ---- Ancestral Healing (shaman): full heal + Taunt for any minion ----
+
+def test_ancestral_healing_emits_pending_choice_for_human_caster():
+    game, p1, p2 = _hs_scene()
+    yeti = _make_obj(game, CHILLWIND_YETI, p1)
+    boar = _make_obj(game, STONETUSK_BOAR, p1)
+    ogre = _make_obj(game, BOULDERFIST_OGRE, p2)
+
+    _ah, events = _cast(game, ANCESTRAL_HEALING, p1)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    # All minions are legal targets — friendly AND enemy.
+    opts = {opt["id"] for opt in pc.options}
+    assert yeti.id in opts
+    assert boar.id in opts
+    assert ogre.id in opts
+    # Heuristic picks highest-attack across all minions = Ogre (6 attack).
+    assert (pc.callback_data or {}).get("heuristic_pick") == [ogre.id]
+
+
+def test_ancestral_healing_heuristic_grants_taunt_for_ai():
+    game, p1, _p2 = _hs_scene()
+    game.turn_manager.ai_players.add(p1.id)
+    yeti = _make_obj(game, CHILLWIND_YETI, p1)
+
+    _ah, _events = _cast(game, ANCESTRAL_HEALING, p1)
+    grants = [e for e in game.state.event_log
+              if e.type == EventType.KEYWORD_GRANT
+              and e.payload.get("object_id") == yeti.id
+              and e.payload.get("keyword") == "taunt"]
+    assert len(grants) == 1
+
+
+def test_ancestral_healing_no_minions_short_circuits():
+    game, p1, _p2 = _hs_scene()
+    _ah, events = _cast(game, ANCESTRAL_HEALING, p1)
     assert events == []
     assert game.state.pending_choice is None
 

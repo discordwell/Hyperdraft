@@ -54,6 +54,10 @@ def new_hs_game():
     for _ in range(10):
         game.mana_system.on_turn_start(p1.id)
         game.mana_system.on_turn_start(p2.id)
+    # PendingChoice migration: register both players as AI so deterministic-pick
+    # cards (Hex, etc.) resolve inline via heuristic_pick.
+    game.turn_manager.ai_players.add(p1.id)
+    game.turn_manager.ai_players.add(p2.id)
     return game, p1, p2
 
 

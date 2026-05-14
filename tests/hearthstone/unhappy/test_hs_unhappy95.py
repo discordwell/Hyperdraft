@@ -59,6 +59,10 @@ def new_hs_game():
     for _ in range(10):
         game.mana_system.on_turn_start(p1.id)
         game.mana_system.on_turn_start(p2.id)
+    # PendingChoice migration: register both players as AI so deterministic-pick
+    # cards (Eviscerate, etc.) resolve inline via heuristic_pick.
+    game.turn_manager.ai_players.add(p1.id)
+    game.turn_manager.ai_players.add(p2.id)
     return game, p1, p2
 
 
@@ -234,6 +238,9 @@ class TestRogueCombo:
         game.setup_hearthstone_player(p2, HEROES["Mage"], HERO_POWERS["Mage"])
         for _ in range(10):
             game.mana_system.on_turn_start(p1.id)
+        # PendingChoice migration: AI registration so Eviscerate resolves inline via heuristic_pick.
+        game.turn_manager.ai_players.add(p1.id)
+        game.turn_manager.ai_players.add(p2.id)
 
         # Play another card first
         p1.cards_played_this_turn = 1
@@ -254,6 +261,9 @@ class TestRogueCombo:
         game.setup_hearthstone_player(p2, HEROES["Mage"], HERO_POWERS["Mage"])
         for _ in range(10):
             game.mana_system.on_turn_start(p1.id)
+        # PendingChoice migration: AI registration so Eviscerate resolves inline via heuristic_pick.
+        game.turn_manager.ai_players.add(p1.id)
+        game.turn_manager.ai_players.add(p2.id)
 
         p2_life_before = p2.life
 
