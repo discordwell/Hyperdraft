@@ -319,20 +319,87 @@ def _kira_setup(obj, state):
 
 
 def _heiko_yamazaki_setup(obj, state):
-    """When Tribute Summoned: SS 2 Lv 4 or lower 'Samurai' from your GY in face-up DEF."""
+    """When Tribute Summoned: SS up to 2 Lv 4 or lower 'Samurai' from your GY in face-up DEF.
+
+    Phase 4: controller picks WHICH 2 Lv-4-or-lower Samurai to revive. Humans
+    get a ``PendingChoice`` over all eligible GY candidates; AI heuristic
+    preserves the prior "first 2 in GY order" behavior.
+    """
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
     def effect_fn(o, state):
-        events = []
-        for _ in range(2):
-            target = find_in_graveyard(state, o.controller, "Samurai", max_level=4)
-            if not target:
-                break
-            ev = revive_from_graveyard(state, o.controller, target)
-            # Force DEF position
-            tobj = state.objects.get(target)
-            if tobj:
-                tobj.state.ygo_position = 'face_up_def'
-            events.extend(ev)
-        return events
+        # Collect every Lv≤4 Samurai in GY.
+        gy = state.zones.get(f"graveyard_{o.controller}")
+        if not gy:
+            return []
+        candidates: list[str] = []
+        for cid in gy.objects:
+            cobj = state.objects.get(cid)
+            if not cobj or not cobj.card_def:
+                continue
+            if "Samurai" not in (cobj.card_def.characteristics.subtypes or set()):
+                continue
+            lvl = getattr(cobj.card_def, 'level', 99) or 99
+            if lvl > 4:
+                continue
+            candidates.append(cid)
+        if not candidates:
+            return []
+        want = min(2, len(candidates))
+
+        options: list[dict] = []
+        for cid in candidates:
+            cobj = state.objects.get(cid)
+            if cobj is None or cobj.card_def is None:
+                continue
+            cdef = cobj.card_def
+            atk = getattr(cdef, 'atk', None) or 0
+            df = getattr(cdef, 'def_', None) if hasattr(cdef, 'def_') else getattr(cdef, 'defense', None)
+            if df is None:
+                df = 0
+            lvl = getattr(cdef, 'level', None) or 0
+            options.append({"id": cid, "label": cobj.name,
+                            "description": f"Lv{lvl} Samurai · ATK/DEF {atk}/{df}"})
+        if not options:
+            return []
+
+        # Heuristic: first 2 eligible (preserves the old find-loop behavior).
+        top_ids = candidates[:want]
+
+        def _resolve(choice, selected, st):
+            picked: list[str] = []
+            for entry in selected or []:
+                if isinstance(entry, dict):
+                    eid = entry.get("id")
+                    if eid is not None:
+                        picked.append(eid)
+                else:
+                    picked.append(entry)
+            picked = picked[:want]
+            valid_ids = {opt["id"] for opt in options}
+            picked = [cid for cid in picked if cid in valid_ids]
+            if not picked:
+                picked = top_ids
+            out: list[Event] = []
+            for tid in picked:
+                out.extend(revive_from_graveyard(st, o.controller, tid))
+                tobj = st.objects.get(tid)
+                if tobj:
+                    tobj.state.ygo_position = 'face_up_def'
+            return out
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="target",
+            player_id=o.controller,
+            prompt=f"Choose up to {want} Lv 4 or lower 'Samurai' from your GY to Special Summon in DEF.",
+            options=options,
+            source_id=o.id,
+            min_choices=want,
+            max_choices=want,
+            handler=_resolve,
+            heuristic_pick=top_ids,
+        )
     def _filter(event, state):
         return (event.type == EventType.YGO_TRIBUTE_SUMMON and
                 event.payload.get('card_id') == obj.id)
