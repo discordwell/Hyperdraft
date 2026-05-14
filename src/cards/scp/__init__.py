@@ -1077,13 +1077,16 @@ apply_all_mechanics(SCP_CARDS)
 
 
 SECURE_CONTAIN_RESEARCH_NAMES = [
+    # Added Crisis Reframe + Compelling Testimony for catch-up reach.
+    # Dropped Friendly Fire Evacuation + Recursive Hallway (lowest-impact slots).
     "Junior Researcher", "Junior Researcher", "Containment Specialist", "D-Class Volunteer",
     "Field Agent", "Ethics Liaison", "Sleep-Deprived Intern", "D-Class Volunteer",
     "Site-19 Intake Wing", "Memetics Lab", "Observation Theatre", "Redaction Office",
-    "Moth in the Camera", "Red Room Static", "Patient Zero of Yesterday", "Recursive Hallway",
+    "Moth in the Camera", "Red Room Static", "Patient Zero of Yesterday",
     "The Mirror That Interviews You", "Hostile Nursery Rhyme", "Oracle Mold",
     "Class-A Amnestic Broadcast", "Emergency Lockdown", "False Flag Cover Story",
-    "Friendly Fire Evacuation", "Incident Report Rewrite", "Secure Mandate",
+    "Crisis Reframe", "Compelling Testimony",
+    "Incident Report Rewrite", "Secure Mandate",
 ]
 
 
@@ -1336,7 +1339,7 @@ def make_oneiric_archives_deck():
 
 MNESTIC_RESET_DIVISION_NAMES = [
     # Personnel (8): 6 Mnestic anchors + 2 Bystanders that can Mnestic Wake
-    # to scale toward the Mnestic Saturation alt-win (5 active Mnestic + 4 archives).
+    # to scale toward the Mnestic Saturation alt-win (4 active Mnestic + 4 archives).
     "MNR Forgotten Bureau Liaison", "MNR Forgotten Bureau Liaison",
     "MNR Memory Pattern Analyst", "MNR Mnemonic Surgeon",
     "MNR Class-A Inoculated Agent", "MNR Mnestic-Coated Operative",
@@ -1347,13 +1350,15 @@ MNESTIC_RESET_DIVISION_NAMES = [
     # Anomalies (5)
     "MNR Memory Reef", "MNR Personnel Drift", "MNR Missing Floor",
     "MNR Soft Erasure", "MNR The Director's Note",
-    # Procedures (6): one Redact, secrecy generation for Memory Hole,
-    # cognitive sweeper to force opposing forgets, plus recovery tools.
+    # Procedures (6): tighter secrecy generation so Memory Hole (10 secrecy)
+    # is reachable. Dropped Mass Remembrance + Cold Storage Open in favor of
+    # Witness Relocation (+2 secrecy) and Class-A Amnestic Broadcast (+3 secrecy)
+    # — two big secrecy pumps that push the deck through the 10 threshold.
     "MNR Memory Triage",
     "MNR Class-A Inoculation Dose",
-    "MNR Mass Remembrance",
+    "Class-A Amnestic Broadcast",
+    "Witness Relocation",
     "MNR Found Files",
-    "MNR Cold Storage Open",
     "MNR Class-B Inoculation Drill",
     # Mandates (2): both MNR alt-win paths simultaneously
     "MNR Mandate 4: Mnestic Saturation",
