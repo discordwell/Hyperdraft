@@ -51,6 +51,12 @@ codex-pokemon-strategy/__pycache__/
 orphan_triage.json
 noop_cleanup_worksheet.json
 
+# Per-run scratch scripts in scripts/ — prefix with _ to keep them out of commits.
+# Durable tools should live in scripts/<subdir>/ instead (e.g. scripts/new_set/,
+# scripts/art/). Example: scripts/_mnr_*.py drove one MNR art run; the durable
+# extract lives at scripts/art/chatgpt_browser_download.py.
+scripts/_*.py
+
 # IDE
 .vscode/
 .idea/
