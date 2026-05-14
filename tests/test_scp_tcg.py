@@ -2693,13 +2693,20 @@ def test_mnr_cog_hazard_drains_opposing_hand():
 
 
 def test_mnr_memory_hole_alt_win():
-    """Manually populate scp_forgotten + secrecy 10 -> Memory Hole mandate wins."""
+    """Total forgotten >= 3 (across ALL players) + secrecy 10 -> Memory Hole wins.
+
+    The relaxed rule sums every player's ``scp_forgotten`` zone — opposing
+    forgets still count, but own-side decays count too (the deck plays
+    Antimeme anomalies that drift into ``scp_forgotten`` as a cost).
+    Mirror-match-only no longer.
+    """
     game, p1, p2 = _setup()
     mandate = _hand_card(game, p1, "MNR Mandate 1: Memory Hole")
     assert scp.open_dossier(game, p1.id, mandate.id, fast_track=True)[0]
     assert mandate.state.scp_status == "active"
 
-    # Stuff 3 dummy anomaly IDs into p2's forgotten zone.
+    # Stuff 3 dummy anomaly IDs into p2's forgotten zone (opposing-side
+    # contributions still trigger the win).
     game.state.scp_forgotten[p2.id] = ["sentinel-1", "sentinel-2", "sentinel-3"]
     scp.site(game.state, p1.id)["secrecy"] = 10
 
@@ -2712,36 +2719,110 @@ def test_mnr_memory_hole_alt_win():
     )
 
 
+def test_mnr_memory_hole_own_side_forgets_count():
+    """Own-side forgotten anomalies count under the relaxed rule.
+
+    Distinct positive case for the new semantics: every forget is on the
+    winner's side, no opposing contribution. Pre-fix this would never
+    have triggered Memory Hole.
+    """
+    game, p1, p2 = _setup()
+    mandate = _hand_card(game, p1, "MNR Mandate 1: Memory Hole")
+    assert scp.open_dossier(game, p1.id, mandate.id, fast_track=True)[0]
+    assert mandate.state.scp_status == "active"
+
+    # All forgets on p1's own side; p2's zone stays empty.
+    game.state.scp_forgotten[p1.id] = ["own-1", "own-2", "own-3"]
+    game.state.scp_forgotten[p2.id] = []
+    scp.site(game.state, p1.id)["secrecy"] = 10
+
+    events = scp.check_scp_victory(game)
+    assert p2.has_lost
+    assert any(
+        event.type == EventType.PLAYER_LOSES
+        and event.payload.get("reason") == "memory_hole"
+        for event in events
+    )
+
+
+def test_mnr_memory_hole_split_forgets_count():
+    """Forgets summed across players still trigger Memory Hole.
+
+    Two own-side decays + one opposing forget -> 3 total, win fires.
+    """
+    game, p1, p2 = _setup()
+    mandate = _hand_card(game, p1, "MNR Mandate 1: Memory Hole")
+    assert scp.open_dossier(game, p1.id, mandate.id, fast_track=True)[0]
+
+    game.state.scp_forgotten[p1.id] = ["own-1", "own-2"]
+    game.state.scp_forgotten[p2.id] = ["opp-1"]
+    scp.site(game.state, p1.id)["secrecy"] = 10
+
+    events = scp.check_scp_victory(game)
+    assert p2.has_lost
+    assert any(
+        event.type == EventType.PLAYER_LOSES
+        and event.payload.get("reason") == "memory_hole"
+        for event in events
+    )
+
+
 def test_mnr_mnestic_saturation_alt_win():
-    """5 active+unexhausted Mnestic personnel + 4 archives -> Mnestic Saturation wins.
+    """4 active Mnestic personnel + 4 archives -> Mnestic Saturation wins.
 
-    Mirrors test_mnr_memory_hole_alt_win's shape, but driven by direct state
-    manipulation so we can position the personnel without colliding with
-    open_dossier's own check_scp_victory cascade. The Mandate is opened
-    first (still empty staff -> no win yet), then we manually pre-populate
-    scp_personnel with five Mnestic objects, set archives = 4, and call
-    check_scp_victory explicitly.
-
-    Negative-case riders covered in the companion test.
+    Relaxed from the original 5-active-unexhausted rule: the unexhausted
+    rider fought the engine's exhaust-on-action loop, and the threshold
+    of 5 was unreachable for the deck's 6-8 Mnestic personnel after
+    attrition. Mirrors test_mnr_memory_hole_alt_win's shape but driven
+    by direct state manipulation so we can position the personnel
+    without colliding with open_dossier's own check_scp_victory cascade.
     """
     game, p1, p2 = _setup()
     mandate = _hand_card(game, p1, "MNR Mandate 4: Mnestic Saturation")
     assert scp.open_dossier(game, p1.id, mandate.id, fast_track=True)[0]
     assert mandate.state.scp_status == "active"
 
-    # Build 5 Mnestic personnel objects directly in the battlefield + the
-    # scp_personnel index. This skirts open_dossier's victory-check cascade
-    # so the test can land the personnel before the engine evaluates the
-    # mandate.
+    # Build 4 Mnestic personnel directly in the battlefield + scp_personnel
+    # index. This skirts open_dossier's victory-check cascade so the test
+    # can land the personnel before the engine evaluates the mandate.
     mnestic_ids: list[str] = []
-    for _ in range(5):
+    for _ in range(4):
         person = _hand_card(game, p1, "MNR Marion Wheeler")
-        # Re-zone manually so we don't fire open_dossier's victory check.
         person.zone = ZoneType.BATTLEFIELD
         person.state.scp_status = "active"
         person.state.scp_exhausted = False
         game.state.scp_personnel.setdefault(p1.id, []).append(person.id)
         mnestic_ids.append(person.id)
+
+    scp.site(game.state, p1.id)["archives"] = 4
+
+    events = scp.check_scp_victory(game)
+    assert p2.has_lost
+    assert any(
+        event.type == EventType.PLAYER_LOSES
+        and event.payload.get("reason") == "mnestic_saturation"
+        for event in events
+    )
+
+
+def test_mnr_mnestic_saturation_exhausted_personnel_still_count():
+    """Mnestic personnel count toward saturation even when exhausted.
+
+    Distinct positive case for the relaxed rule: 4 Mnestic with one of
+    them exhausted (the typical mid-game state after an assignment)
+    must still trigger the win.
+    """
+    game, p1, p2 = _setup()
+    mandate = _hand_card(game, p1, "MNR Mandate 4: Mnestic Saturation")
+    assert scp.open_dossier(game, p1.id, mandate.id, fast_track=True)[0]
+
+    for i in range(4):
+        person = _hand_card(game, p1, "MNR Marion Wheeler")
+        person.zone = ZoneType.BATTLEFIELD
+        person.state.scp_status = "active"
+        # First one is exhausted — pre-fix this would have failed.
+        person.state.scp_exhausted = (i == 0)
+        game.state.scp_personnel.setdefault(p1.id, []).append(person.id)
 
     scp.site(game.state, p1.id)["archives"] = 4
 
@@ -2755,22 +2836,25 @@ def test_mnr_mnestic_saturation_alt_win():
 
 
 def test_mnr_mnestic_saturation_negative_cases():
-    """Exhausted / non-active Mnestic personnel are excluded from the threshold."""
+    """Non-active Mnestic personnel (contained/forgotten) excluded from threshold.
+
+    The unexhausted rider was dropped, but the active-only rider stays:
+    Mnestic who have been forgotten or are otherwise non-active should
+    not count toward saturation.
+    """
     game, p1, p2 = _setup()
     mandate = _hand_card(game, p1, "MNR Mandate 4: Mnestic Saturation")
     assert scp.open_dossier(game, p1.id, mandate.id, fast_track=True)[0]
     scp.site(game.state, p1.id)["archives"] = 4
 
-    mnestic_ids: list[str] = []
-    for _ in range(4):
+    # 3 active Mnestic — short of the 4 threshold, no win.
+    for _ in range(3):
         person = _hand_card(game, p1, "MNR Marion Wheeler")
         person.zone = ZoneType.BATTLEFIELD
         person.state.scp_status = "active"
         person.state.scp_exhausted = False
         game.state.scp_personnel.setdefault(p1.id, []).append(person.id)
-        mnestic_ids.append(person.id)
 
-    # Only 4 valid -> no win yet.
     events = scp.check_scp_victory(game)
     assert not p2.has_lost
     assert not any(
@@ -2779,17 +2863,18 @@ def test_mnr_mnestic_saturation_negative_cases():
         for event in events
     )
 
-    # Add a 5th Mnestic personnel, but mark it exhausted -> still no win.
-    extra = _hand_card(game, p1, "MNR Marion Wheeler")
-    extra.zone = ZoneType.BATTLEFIELD
-    extra.state.scp_status = "active"
-    extra.state.scp_exhausted = True
-    game.state.scp_personnel.setdefault(p1.id, []).append(extra.id)
+    # Add a 4th Mnestic that's non-active (e.g. forgotten) -> still no win.
+    inactive = _hand_card(game, p1, "MNR Marion Wheeler")
+    inactive.zone = ZoneType.BATTLEFIELD
+    inactive.state.scp_status = "forgotten"
+    inactive.state.scp_exhausted = False
+    game.state.scp_personnel.setdefault(p1.id, []).append(inactive.id)
     events = scp.check_scp_victory(game)
     assert not p2.has_lost
 
-    # Unexhaust it -> now 5 valid, victory should land.
-    extra.state.scp_exhausted = False
+    # Flip it to active -> 4 valid, win lands (even though exhausted
+    # would no longer have been a blocker either).
+    inactive.state.scp_status = "active"
     events = scp.check_scp_victory(game)
     assert p2.has_lost
     assert any(

@@ -89,6 +89,27 @@ def _winner_reason(game: Game, winner_id: Optional[str]) -> str:
             for opponent_id, opponent_site in game.state.scp_sites.items():
                 if opponent_id != winner_id and opponent_site.get("secrecy", 0) <= 6:
                     return "public_panic"
+        # MNR alt-wins. memory_hole sums forgotten anomalies across all
+        # players (own-side forgets count under the relaxed rule); both
+        # mirror the thresholds in src/engine/scp.py::check_scp_victory.
+        if alt_win == "memory_hole":
+            total_forgotten = sum(
+                len(game.state.scp_forgotten.get(pid, []))
+                for pid in game.state.players
+            )
+            if total_forgotten >= 3 and winner_site.get("secrecy", 0) >= 10:
+                return "memory_hole"
+        if alt_win == "mnestic_saturation":
+            mnestic_count = 0
+            for pid in game.state.scp_personnel.get(winner_id, []):
+                person = game.state.objects.get(pid)
+                if not person or person.state.scp_status != "active":
+                    continue
+                if (getattr(person.card_def, "scp_mnestic", False)
+                        or person.state.scp_mnestic_gained):
+                    mnestic_count += 1
+            if mnestic_count >= 4 and winner_site.get("archives", 0) >= 4:
+                return "mnestic_saturation"
     return "alternate_or_state_based"
 
 
