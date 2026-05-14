@@ -31,6 +31,15 @@ from src.cards.interceptor_helpers import (
     make_etb_trigger,
     make_death_trigger,
     make_saga_setup,
+    # Phase 5b: normalize Target object / raw ID inputs from resolve fns
+    normalize_target,
+)
+
+# Phase 5b cast-time target requirements
+from src.engine.targeting import (
+    target_creature, target_any, target_player, target_spell,
+    TargetRequirement, TargetFilter, creature_filter, permanent_filter,
+    spell_filter, card_in_graveyard_filter,
 )
 
 
@@ -107,24 +116,19 @@ def _dragons_prey_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def dragons_prey_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Dragon's Prey: Destroy target creature."""
+    """Resolve Dragon's Prey via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Dragon's Prey")
-    valid_targets = _get_creatures_on_battlefield(state)
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to destroy",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _dragons_prey_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_dragons_prey_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # CAUSTIC EXHALE - Target creature gets -3/-3 until end of turn
@@ -145,24 +149,19 @@ def _caustic_exhale_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def caustic_exhale_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Caustic Exhale: Target creature gets -3/-3 until end of turn."""
+    """Resolve Caustic Exhale via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Caustic Exhale")
-    valid_targets = _get_creatures_on_battlefield(state)
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to give -3/-3",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _caustic_exhale_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_caustic_exhale_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # SALT ROAD SKIRMISH - Destroy target creature. Create two 1/1 Warriors.
@@ -202,24 +201,19 @@ def _salt_road_skirmish_execute(choice, selected, state: GameState) -> list[Even
 
 
 def salt_road_skirmish_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Salt Road Skirmish: Destroy target creature, create two 1/1 Warriors."""
+    """Resolve Salt Road Skirmish via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Salt Road Skirmish")
-    valid_targets = _get_creatures_on_battlefield(state)
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to destroy",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _salt_road_skirmish_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_salt_road_skirmish_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # WORTHY COST - Exile target creature or planeswalker (additional cost: sacrifice)
@@ -244,27 +238,19 @@ def _worthy_cost_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def worthy_cost_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Worthy Cost: Exile target creature or planeswalker."""
+    """Resolve Worthy Cost via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Worthy Cost")
-    valid_targets = _get_permanents_on_battlefield(
-        state,
-        types={CardType.CREATURE, CardType.PLANESWALKER}
-    )
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature or planeswalker to exile",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _worthy_cost_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_worthy_cost_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # CHANNELED DRAGONFIRE - Deal 2 damage to any target
@@ -292,32 +278,19 @@ def _channeled_dragonfire_execute(choice, selected, state: GameState) -> list[Ev
 
 
 def channeled_dragonfire_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Channeled Dragonfire: Deal 2 damage to any target."""
+    """Resolve Channeled Dragonfire via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Channeled Dragonfire")
-    valid_targets = []
-    # Add creatures and planeswalkers
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD:
-            if CardType.CREATURE in obj.characteristics.types or CardType.PLANESWALKER in obj.characteristics.types:
-                valid_targets.append(obj.id)
-    # Add players
-    for player_id in state.players:
-        valid_targets.append(player_id)
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a target for Channeled Dragonfire (2 damage)",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _channeled_dragonfire_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_channeled_dragonfire_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # MOLTEN EXHALE - Deal 4 damage to target creature or planeswalker
@@ -385,24 +358,19 @@ def _narsets_rebuke_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def narsets_rebuke_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Narset's Rebuke: Deal 5 damage to target creature, add {U}{R}{W}."""
+    """Resolve Narset's Rebuke via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Narset's Rebuke")
-    valid_targets = _get_creatures_on_battlefield(state)
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature for Narset's Rebuke (5 damage)",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _narsets_rebuke_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_narsets_rebuke_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # TWIN BOLT - Deal 2 damage divided among one or two targets
@@ -548,24 +516,19 @@ def _lightfoot_technique_execute(choice, selected, state: GameState) -> list[Eve
 
 
 def lightfoot_technique_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Lightfoot Technique: +1/+1 counter, flying and indestructible."""
+    """Resolve Lightfoot Technique via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Lightfoot Technique")
-    valid_targets = _get_creatures_on_battlefield(state)
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to get +1/+1 counter, flying and indestructible",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _lightfoot_technique_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_lightfoot_technique_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # REBELLIOUS STRIKE - Target creature gets +3/+0, draw a card
@@ -592,24 +555,19 @@ def _rebellious_strike_execute(choice, selected, state: GameState) -> list[Event
 
 
 def rebellious_strike_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Rebellious Strike: Target creature gets +3/+0, draw a card."""
+    """Resolve Rebellious Strike via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Rebellious Strike")
-    valid_targets = _get_creatures_on_battlefield(state)
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to get +3/+0",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _rebellious_strike_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_rebellious_strike_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # ALESHA'S LEGACY - Target creature gains deathtouch and indestructible
@@ -630,27 +588,19 @@ def _aleshas_legacy_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def aleshas_legacy_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Alesha's Legacy: Target creature you control gains deathtouch and indestructible."""
+    """Resolve Alesha's Legacy via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Alesha's Legacy")
-    valid_targets = _get_creatures_on_battlefield(
-        state,
-        filter_fn=lambda obj, s: obj.controller == caster_id
-    )
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature you control to gain deathtouch and indestructible",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _aleshas_legacy_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_aleshas_legacy_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # DESPERATE MEASURES - Target creature gets +1/-1, draw 2 if it dies
@@ -671,24 +621,19 @@ def _desperate_measures_execute(choice, selected, state: GameState) -> list[Even
 
 
 def desperate_measures_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Desperate Measures: Target creature gets +1/-1 until end of turn."""
+    """Resolve Desperate Measures via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Desperate Measures")
-    valid_targets = _get_creatures_on_battlefield(state)
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to get +1/-1",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _desperate_measures_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_desperate_measures_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # SNAKESKIN VEIL - Put +1/+1 counter, gain hexproof
@@ -716,27 +661,19 @@ def _snakeskin_veil_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def snakeskin_veil_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Snakeskin Veil: +1/+1 counter and hexproof until end of turn."""
+    """Resolve Snakeskin Veil via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Snakeskin Veil")
-    valid_targets = _get_creatures_on_battlefield(
-        state,
-        filter_fn=lambda obj, s: obj.controller == caster_id
-    )
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature you control to get +1/+1 and hexproof",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _snakeskin_veil_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_snakeskin_veil_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # WILD RIDE - Target creature gets +3/+0 and gains haste
@@ -764,24 +701,19 @@ def _wild_ride_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def wild_ride_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Wild Ride: Target creature gets +3/+0 and gains haste."""
+    """Resolve Wild Ride via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Wild Ride")
-    valid_targets = _get_creatures_on_battlefield(state)
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to get +3/+0 and haste",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _wild_ride_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_wild_ride_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # URENI'S REBUFF - Return target creature to its owner's hand
@@ -806,24 +738,19 @@ def _urenis_rebuff_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def urenis_rebuff_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Ureni's Rebuff: Return target creature to its owner's hand."""
+    """Resolve Ureni's Rebuff via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Ureni's Rebuff")
-    valid_targets = _get_creatures_on_battlefield(state)
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to return to its owner's hand",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _urenis_rebuff_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_urenis_rebuff_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # AURORAL PROCESSION - Return target card from your graveyard to your hand
@@ -848,28 +775,19 @@ def _auroral_procession_execute(choice, selected, state: GameState) -> list[Even
 
 
 def auroral_procession_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Auroral Procession: Return target card from your graveyard to your hand."""
+    """Resolve Auroral Procession via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Auroral Procession")
-    # Get cards in controller's graveyard
-    graveyard_key = f"graveyard_{caster_id}"
-    if graveyard_key not in state.zones:
-        return []
-    valid_targets = list(state.zones[graveyard_key].objects)
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a card from your graveyard to return to your hand",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _auroral_procession_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_auroral_procession_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # DEFIBRILLATING CURRENT - Deal 4 damage to target creature/planeswalker, gain 2 life
@@ -895,27 +813,19 @@ def _defibrillating_current_execute(choice, selected, state: GameState) -> list[
 
 
 def defibrillating_current_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Defibrillating Current: Deal 4 damage to target, gain 2 life."""
+    """Resolve Defibrillating Current via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Defibrillating Current")
-    valid_targets = _get_permanents_on_battlefield(
-        state,
-        types={CardType.CREATURE, CardType.PLANESWALKER}
-    )
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature or planeswalker for Defibrillating Current (4 damage)",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _defibrillating_current_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_defibrillating_current_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # INEVITABLE DEFEAT - Exile target nonland permanent, drain 3 life
@@ -952,28 +862,19 @@ def _inevitable_defeat_execute(choice, selected, state: GameState) -> list[Event
 
 
 def inevitable_defeat_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Inevitable Defeat: Exile target nonland permanent, drain 3 life."""
+    """Resolve Inevitable Defeat via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Inevitable Defeat")
-    # Get nonland permanents
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD and CardType.LAND not in obj.characteristics.types:
-            valid_targets.append(obj.id)
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a nonland permanent to exile",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _inevitable_defeat_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_inevitable_defeat_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # KIN-TREE SEVERANCE - Exile target permanent with MV 3 or greater
@@ -998,30 +899,19 @@ def _kintree_severance_execute(choice, selected, state: GameState) -> list[Event
 
 
 def kintree_severance_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Kin-Tree Severance: Exile target permanent with mana value 3 or greater."""
+    """Resolve Kin-Tree Severance via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Kin-Tree Severance")
-    # Get permanents with MV >= 3
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD:
-            mv = obj.characteristics.mana_value if hasattr(obj.characteristics, 'mana_value') else 0
-            if mv >= 3:
-                valid_targets.append(obj.id)
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a permanent with mana value 3 or greater to exile",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _kintree_severance_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_kintree_severance_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # PERENNATION - Return target permanent card from graveyard to battlefield
@@ -1049,35 +939,19 @@ def _perennation_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def perennation_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Perennation: Return target permanent from graveyard with hexproof and indestructible counters."""
+    """Resolve Perennation via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Perennation")
-    # Get permanent cards in controller's graveyard
-    graveyard_key = f"graveyard_{caster_id}"
-    if graveyard_key not in state.zones:
-        return []
-    valid_targets = []
-    for card_id in state.zones[graveyard_key].objects:
-        card = state.objects.get(card_id)
-        if card:
-            types = card.characteristics.types
-            # Permanents are creatures, artifacts, enchantments, planeswalkers, lands
-            if any(t in types for t in [CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT, CardType.PLANESWALKER, CardType.LAND]):
-                valid_targets.append(card_id)
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a permanent card from your graveyard to return to the battlefield",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _perennation_execute
-    return []
-
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_perennation_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # MODAL SPELLS
@@ -1446,71 +1320,38 @@ def _dispelling_exhale_execute(choice, selected, state: GameState) -> list[Event
 
 
 def dispelling_exhale_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Dispelling Exhale: Counter target spell unless controller pays {2} (or {4})."""
+    """Resolve Dispelling Exhale via Phase 5b targets[0] (engine-emitted PendingChoice)."""
     caster_id, spell_id = _find_spell_on_stack(state, "Dispelling Exhale")
-    # Get spells on stack (excluding self)
-    stack_zone = state.zones.get('stack')
-    valid_targets = []
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            if obj_id != spell_id:
-                valid_targets.append(obj_id)
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a spell to counter (unless controller pays)",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _dispelling_exhale_execute
-    return []
-
-
-# SPECTRAL DENIAL - Counter unless pays {X}
-def _spectral_denial_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Spectral Denial - counter spell unless controller pays X."""
-    target_id = selected[0] if selected else None
-    if not target_id:
-        return []
-    x_value = choice.callback_data.get('x_value', 0)
-    return [Event(
-        type=EventType.COUNTER_SPELL_UNLESS_PAY,
-        payload={'spell_id': target_id, 'cost': x_value},
-        source=choice.source_id
-    )]
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_dispelling_exhale_execute(synth, [tid], state))
+    return events
 
 
 def spectral_denial_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Spectral Denial: Counter target spell unless controller pays {X}."""
+    """Resolve Spectral Denial: Counter target spell unless controller pays {X}.
+
+    Phase 5b: target picking happens at cast time via ``target_requirements``.
+    """
     caster_id, spell_id = _find_spell_on_stack(state, "Spectral Denial")
-    # Get spells on stack (excluding self)
-    stack_zone = state.zones.get('stack')
-    valid_targets = []
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            if obj_id != spell_id:
-                valid_targets.append(obj_id)
-    if not valid_targets:
-        return []
-    # X value would be determined from spell's mana cost payment
-    # For now, assume X is stored somewhere in the spell object
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a spell to counter (unless controller pays X)",
-        min_targets=1,
-        max_targets=1
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _spectral_denial_execute
-    return []
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_spectral_denial_execute(synth, [tid], state))
+    return events
 
 
 # =============================================================================
@@ -2053,6 +1894,7 @@ LIGHTFOOT_TECHNIQUE = make_instant(
     text="Put a +1/+1 counter on target creature. It gains flying and indestructible until end of turn. (Damage and effects that say \"destroy\" don't destroy it.)",
     rarity="common",
     resolve=lightfoot_technique_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 LOXODON_BATTLE_PRIEST = make_creature(
@@ -2109,6 +1951,7 @@ REBELLIOUS_STRIKE = make_instant(
     text="Target creature gets +3/+0 until end of turn.\nDraw a card.",
     rarity="common",
     resolve=rebellious_strike_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 RILING_DAWNBREAKER = make_creature(
@@ -2305,6 +2148,7 @@ DISPELLING_EXHALE = make_instant(
     text="As an additional cost to cast this spell, you may behold a Dragon. (You may choose a Dragon you control or reveal a Dragon card from your hand.)\nCounter target spell unless its controller pays {2}. If a Dragon was beheld, counter that spell unless its controller pays {4} instead.",
     rarity="common",
     resolve=dispelling_exhale_resolve,
+    target_requirements=[target_spell()],
 )
 
 DRAGONOLOGIST = make_creature(
@@ -2466,6 +2310,7 @@ SPECTRAL_DENIAL = make_instant(
     text="This spell costs {1} less to cast for each creature you control with power 4 or greater.\nCounter target spell unless its controller pays {X}.",
     rarity="uncommon",
     resolve=spectral_denial_resolve,
+    target_requirements=[target_spell()],
 )
 
 STILLNESS_IN_MOTION = make_enchantment(
@@ -2512,6 +2357,7 @@ URENIS_REBUFF = make_sorcery(
     text="Return target creature to its owner's hand.\nHarmonize {5}{U} (You may cast this card from your graveyard for its harmonize cost. You may tap a creature you control to reduce that cost by {X}, where X is its power. Then exile this spell.)",
     rarity="uncommon",
     resolve=urenis_rebuff_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 VETERAN_ICE_CLIMBER = make_creature(
@@ -2596,6 +2442,7 @@ ALESHAS_LEGACY = make_instant(
     text="Target creature you control gains deathtouch and indestructible until end of turn. (Damage and effects that say \"destroy\" don't destroy it.)",
     rarity="common",
     resolve=aleshas_legacy_resolve,
+    target_requirements=[target_creature(count=1, controller='you')],
 )
 
 AVENGER_OF_THE_FALLEN = make_creature(
@@ -2615,6 +2462,7 @@ CAUSTIC_EXHALE = make_instant(
     text="As an additional cost to cast this spell, behold a Dragon or pay {1}. (To behold a Dragon, choose a Dragon you control or reveal a Dragon card from your hand.)\nTarget creature gets -3/-3 until end of turn.",
     rarity="common",
     resolve=caustic_exhale_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 CORRODING_DRAGONSTORM = make_enchantment(
@@ -2650,6 +2498,7 @@ DESPERATE_MEASURES = make_instant(
     text="Target creature gets +1/-1 until end of turn. When it dies under your control this turn, draw two cards.",
     rarity="uncommon",
     resolve=desperate_measures_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 DRAGONS_PREY = make_instant(
@@ -2659,6 +2508,7 @@ DRAGONS_PREY = make_instant(
     text="This spell costs {2} more to cast if it targets a Dragon.\nDestroy target creature.",
     rarity="common",
     resolve=dragons_prey_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 FERAL_DEATHGORGER = make_creature(
@@ -2749,6 +2599,7 @@ SALT_ROAD_SKIRMISH = make_sorcery(
     text="Destroy target creature. Create two 1/1 red Warrior creature tokens. They gain haste until end of turn. Sacrifice them at the beginning of the next end step.",
     rarity="uncommon",
     resolve=salt_road_skirmish_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 SANDSKITTER_OUTRIDER = make_creature(
@@ -2855,6 +2706,14 @@ WORTHY_COST = make_sorcery(
     text="As an additional cost to cast this spell, sacrifice a creature.\nExile target creature or planeswalker.",
     rarity="common",
     resolve=worthy_cost_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE, CardType.PLANESWALKER},
+            zones=[ZoneType.BATTLEFIELD],
+        ),
+        count=1,
+        label="target creature or planeswalker",
+    )],
 )
 
 YATHAN_TOMBGUARD = make_creature(
@@ -2882,6 +2741,7 @@ CHANNELED_DRAGONFIRE = make_sorcery(
     text="Channeled Dragonfire deals 2 damage to any target.\nHarmonize {5}{R}{R} (You may cast this card from your graveyard for its harmonize cost. You may tap a creature you control to reduce that cost by {X}, where X is its power. Then exile this spell.)",
     rarity="uncommon",
     resolve=channeled_dragonfire_resolve,
+    target_requirements=[target_any(count=1)],
 )
 
 CORISTEEL_CUTTER = make_artifact(
@@ -3004,6 +2864,7 @@ NARSETS_REBUKE = make_instant(
     text="Narset's Rebuke deals 5 damage to target creature. Add {U}{R}{W}. If that creature would die this turn, exile it instead.",
     rarity="common",
     resolve=narsets_rebuke_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 OVERWHELMING_SURGE = make_instant(
@@ -3178,6 +3039,7 @@ WILD_RIDE = make_sorcery(
     text="Target creature gets +3/+0 and gains haste until end of turn.\nHarmonize {4}{R} (You may cast this card from your graveyard for its harmonize cost. You may tap a creature you control to reduce that cost by {X}, where X is its power. Then exile this spell.)",
     rarity="common",
     resolve=wild_ride_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 ZURGOS_VANGUARD = make_creature(
@@ -3428,6 +3290,7 @@ SNAKESKIN_VEIL = make_instant(
     text="Put a +1/+1 counter on target creature you control. It gains hexproof until end of turn. (It can't be the target of spells or abilities your opponents control.)",
     rarity="common",
     resolve=snakeskin_veil_resolve,
+    target_requirements=[target_creature(count=1, controller='you')],
 )
 
 SULTAI_DEVOTEE = make_creature(
@@ -3524,6 +3387,14 @@ AURORAL_PROCESSION = make_instant(
     text="Return target card from your graveyard to your hand.",
     rarity="uncommon",
     resolve=auroral_procession_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            zones=[ZoneType.GRAVEYARD],
+            controller='you',
+        ),
+        count=1,
+        label="target card from your graveyard",
+    )],
 )
 
 def awaken_the_honored_dead_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3618,6 +3489,14 @@ DEFIBRILLATING_CURRENT = make_sorcery(
     text="Defibrillating Current deals 4 damage to target creature or planeswalker and you gain 2 life.",
     rarity="uncommon",
     resolve=defibrillating_current_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE, CardType.PLANESWALKER},
+            zones=[ZoneType.BATTLEFIELD],
+        ),
+        count=1,
+        label="target creature or planeswalker",
+    )],
 )
 
 DISRUPTIVE_STORMBROOD = make_creature(
@@ -3776,6 +3655,14 @@ INEVITABLE_DEFEAT = make_instant(
     text="This spell can't be countered.\nExile target nonland permanent. Its controller loses 3 life and you gain 3 life.",
     rarity="rare",
     resolve=inevitable_defeat_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT, CardType.PLANESWALKER},
+            zones=[ZoneType.BATTLEFIELD],
+        ),
+        count=1,
+        label="target nonland permanent",
+    )],
 )
 
 JESKAI_BRUSHMASTER = make_creature(
@@ -3826,6 +3713,15 @@ KHERU_GOLDKEEPER = make_creature(
     rarity="uncommon",
 )
 
+def _kintree_severance_filter(obj, st):
+    """Permanent with mana value >= 3."""
+    try:
+        mv = obj.characteristics.mana_value or 0
+    except Exception:
+        mv = 0
+    return mv >= 3
+
+
 KINTREE_SEVERANCE = make_instant(
     name="Kin-Tree Severance",
     mana_cost="{2/W}{2/B}{2/G}",
@@ -3833,6 +3729,16 @@ KINTREE_SEVERANCE = make_instant(
     text="Exile target permanent with mana value 3 or greater.",
     rarity="uncommon",
     resolve=kintree_severance_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT,
+                   CardType.LAND, CardType.PLANESWALKER},
+            zones=[ZoneType.BATTLEFIELD],
+            custom_filter=_kintree_severance_filter,
+        ),
+        count=1,
+        label="target permanent with mana value 3 or greater",
+    )],
 )
 
 KISHLA_SKIMMER = make_creature(
@@ -3949,6 +3855,16 @@ PERENNATION = make_sorcery(
     text="Return target permanent card from your graveyard to the battlefield with a hexproof counter and an indestructible counter on it.",
     rarity="mythic",
     resolve=perennation_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT,
+                   CardType.LAND, CardType.PLANESWALKER},
+            zones=[ZoneType.GRAVEYARD],
+            controller='you',
+        ),
+        count=1,
+        label="target permanent card from your graveyard",
+    )],
 )
 
 PURGING_STORMBROOD = make_creature(

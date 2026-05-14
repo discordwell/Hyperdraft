@@ -47,6 +47,15 @@ from src.cards.interceptor_helpers import (
     make_type_overwrite_aura,
     # Conspire (W29)
     make_conspire_grant,
+    # Phase 5b: normalize Target object / raw ID inputs from resolve fns
+    normalize_target,
+)
+
+# Phase 5b cast-time target requirements
+from src.engine.targeting import (
+    target_creature, target_any, target_player, target_spell,
+    TargetRequirement, TargetFilter, creature_filter, permanent_filter,
+    spell_filter, card_in_graveyard_filter,
 )
 
 
@@ -3149,21 +3158,19 @@ def _ecl_get_spell_and_caster(state: GameState, spell_name: str) -> tuple:
 
 
 def riverguards_reflexes_resolve(targets: list, state: GameState) -> list[Event]:
-    """Riverguard's Reflexes: +2/+2 + first strike + untap on a target creature."""
-    spell_id, caster_id = _ecl_get_spell_and_caster(state, "Riverguard's Reflexes")
-    legal = [
-        oid for oid, obj in state.objects.items()
-        if obj.zone == ZoneType.BATTLEFIELD
-        and CardType.CREATURE in obj.characteristics.types
-    ]
-    if not legal:
-        return []
+    """Riverguard's Reflexes: +2/+2 + first strike + untap on a target creature.
 
-    def _handler(choice, selected, gs):
-        if not selected:
-            return []
-        tid = selected[0]
-        return [
+    Phase 5b: target picking happens at cast time via ``target_requirements``.
+    """
+    spell_id, _caster_id = _ecl_get_spell_and_caster(state, "Riverguard's Reflexes")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        if is_player:
+            continue
+        events.extend([
             Event(
                 type=EventType.PT_MODIFICATION,
                 payload={
@@ -3172,7 +3179,7 @@ def riverguards_reflexes_resolve(targets: list, state: GameState) -> list[Event]
                     'toughness_mod': 2,
                     'duration': 'end_of_turn',
                 },
-                source=choice.source_id,
+                source=spell_id,
             ),
             Event(
                 type=EventType.KEYWORD_GRANT,
@@ -3181,25 +3188,15 @@ def riverguards_reflexes_resolve(targets: list, state: GameState) -> list[Event]
                     'keywords': ['first strike'],
                     'until': 'end_of_turn',
                 },
-                source=choice.source_id,
+                source=spell_id,
             ),
             Event(
                 type=EventType.UNTAP,
                 payload={'object_id': tid},
-                source=choice.source_id,
+                source=spell_id,
             ),
-        ]
-
-    ch = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=legal,
-        prompt="Riverguard's Reflexes: Choose target creature",
-    )
-    ch.choice_type = "target_with_callback"
-    ch.callback_data['handler'] = _handler
-    return []
+        ])
+    return events
 
 
 def run_away_together_resolve(targets: list, state: GameState) -> list[Event]:
@@ -3303,19 +3300,16 @@ def wanderwine_farewell_resolve(targets: list, state: GameState) -> list[Event]:
     their owners' hands. (Token rider conditional on controlling a Merfolk
     is approximated: each return creates a token if the controller has any
     Merfolk in play.)
+
+    Phase 5b: target picking happens at cast time via ``target_requirements``.
     """
     spell_id, caster_id = _ecl_get_spell_and_caster(state, "Wanderwine Farewell")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
 
-    legal = [
-        oid for oid, obj in state.objects.items()
-        if obj.zone == ZoneType.BATTLEFIELD
-        and CardType.LAND not in obj.characteristics.types
-    ]
-    if not legal:
-        return []
-
-    def _has_merfolk(controller_id, gs):
-        for oid, obj in gs.objects.items():
+    def _has_merfolk(controller_id):
+        for oid, obj in state.objects.items():
             if obj.zone != ZoneType.BATTLEFIELD:
                 continue
             if obj.controller != controller_id:
@@ -3324,88 +3318,65 @@ def wanderwine_farewell_resolve(targets: list, state: GameState) -> list[Event]:
                 return True
         return False
 
-    def _handler(choice, selected, gs):
-        evts = []
-        returned = 0
-        for tid in (selected or []):
-            obj = gs.objects.get(tid)
-            if not obj or obj.zone != ZoneType.BATTLEFIELD:
-                continue
-            evts.append(Event(
-                type=EventType.ZONE_CHANGE,
-                payload={
-                    'object_id': tid,
-                    'from_zone_type': ZoneType.BATTLEFIELD,
-                    'to_zone_type': ZoneType.HAND,
-                    'to_zone': f'hand_{obj.owner}',
-                    'reason': 'bounced',
-                },
-                source=choice.source_id,
-            ))
-            returned += 1
-        if returned and _has_merfolk(caster_id, gs):
-            for _ in range(returned):
-                evts.append(Event(
-                    type=EventType.OBJECT_CREATED,
-                    payload={
-                        'name': 'Merfolk',
-                        'controller': caster_id,
-                        'power': 1,
-                        'toughness': 1,
-                        'types': [CardType.CREATURE],
-                        'subtypes': ['Merfolk'],
-                        'colors': [Color.WHITE, Color.BLUE],
-                        'is_token': True,
-                    },
-                    source=choice.source_id,
-                ))
-        return evts
+    returned = 0
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        if is_player:
+            continue
+        obj = state.objects.get(tid)
+        if not obj or obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        events.append(Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': tid,
+                'from_zone_type': ZoneType.BATTLEFIELD,
+                'to_zone_type': ZoneType.HAND,
+                'to_zone': f'hand_{obj.owner}',
+                'reason': 'bounced',
+            },
+            source=spell_id,
+        ))
+        returned += 1
 
-    ch = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=legal,
-        prompt="Wanderwine Farewell: Choose one or two nonland permanents",
-        min_targets=1,
-        max_targets=min(2, len(legal)),
-    )
-    ch.choice_type = "target_with_callback"
-    ch.callback_data['handler'] = _handler
-    return []
+    if returned and _has_merfolk(caster_id):
+        for _ in range(returned):
+            events.append(Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'name': 'Merfolk',
+                    'controller': caster_id,
+                    'power': 1,
+                    'toughness': 1,
+                    'types': [CardType.CREATURE],
+                    'subtypes': ['Merfolk'],
+                    'colors': [Color.WHITE, Color.BLUE],
+                    'is_token': True,
+                },
+                source=spell_id,
+            ))
+    return events
 
 
 def blight_rot_resolve(targets: list, state: GameState) -> list[Event]:
-    """Blight Rot: Put four -1/-1 counters on target creature."""
-    spell_id, caster_id = _ecl_get_spell_and_caster(state, "Blight Rot")
-    legal = [
-        oid for oid, obj in state.objects.items()
-        if obj.zone == ZoneType.BATTLEFIELD
-        and CardType.CREATURE in obj.characteristics.types
-    ]
-    if not legal:
-        return []
+    """Blight Rot: Put four -1/-1 counters on target creature.
 
-    def _handler(choice, selected, gs):
-        if not selected:
-            return []
-        tid = selected[0]
-        return [Event(
+    Phase 5b: target picking happens at cast time via ``target_requirements``.
+    """
+    spell_id, _caster_id = _ecl_get_spell_and_caster(state, "Blight Rot")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        if is_player:
+            continue
+        events.append(Event(
             type=EventType.COUNTER_ADDED,
             payload={'object_id': tid, 'counter_type': '-1/-1', 'amount': 4},
-            source=choice.source_id,
-        )]
-
-    ch = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=legal,
-        prompt="Blight Rot: Choose target creature",
-    )
-    ch.choice_type = "target_with_callback"
-    ch.callback_data['handler'] = _handler
-    return []
+            source=spell_id,
+        ))
+    return events
 
 
 def darkness_descends_resolve(targets: list, state: GameState) -> list[Event]:
@@ -3427,21 +3398,18 @@ def nameless_inversion_resolve(targets: list, state: GameState) -> list[Event]:
     """
     Nameless Inversion: Target creature gets +3/-3 until end of turn.
     (Loses-all-creature-types is engine-gap and not applied.)
-    """
-    spell_id, caster_id = _ecl_get_spell_and_caster(state, "Nameless Inversion")
-    legal = [
-        oid for oid, obj in state.objects.items()
-        if obj.zone == ZoneType.BATTLEFIELD
-        and CardType.CREATURE in obj.characteristics.types
-    ]
-    if not legal:
-        return []
 
-    def _handler(choice, selected, gs):
-        if not selected:
-            return []
-        tid = selected[0]
-        return [Event(
+    Phase 5b: target picking happens at cast time via ``target_requirements``.
+    """
+    spell_id, _caster_id = _ecl_get_spell_and_caster(state, "Nameless Inversion")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        if is_player:
+            continue
+        events.append(Event(
             type=EventType.PT_MODIFICATION,
             payload={
                 'object_id': tid,
@@ -3449,19 +3417,9 @@ def nameless_inversion_resolve(targets: list, state: GameState) -> list[Event]:
                 'toughness_mod': -3,
                 'duration': 'end_of_turn',
             },
-            source=choice.source_id,
-        )]
-
-    ch = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=legal,
-        prompt="Nameless Inversion: Choose target creature",
-    )
-    ch.choice_type = "target_with_callback"
-    ch.callback_data['handler'] = _handler
-    return []
+            source=spell_id,
+        ))
+    return events
 
 
 def perfect_intimidation_resolve(targets: list, state: GameState) -> list[Event]:
@@ -3591,22 +3549,18 @@ def blossoming_defense_resolve(targets: list, state: GameState) -> list[Event]:
     """
     Blossoming Defense: Target creature you control gets +2/+2 and gains
     hexproof until end of turn.
-    """
-    spell_id, caster_id = _ecl_get_spell_and_caster(state, "Blossoming Defense")
-    legal = [
-        oid for oid, obj in state.objects.items()
-        if obj.zone == ZoneType.BATTLEFIELD
-        and obj.controller == caster_id
-        and CardType.CREATURE in obj.characteristics.types
-    ]
-    if not legal:
-        return []
 
-    def _handler(choice, selected, gs):
-        if not selected:
-            return []
-        tid = selected[0]
-        return [
+    Phase 5b: target picking happens at cast time via ``target_requirements``.
+    """
+    spell_id, _caster_id = _ecl_get_spell_and_caster(state, "Blossoming Defense")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        if is_player:
+            continue
+        events.extend([
             Event(
                 type=EventType.PT_MODIFICATION,
                 payload={
@@ -3615,7 +3569,7 @@ def blossoming_defense_resolve(targets: list, state: GameState) -> list[Event]:
                     'toughness_mod': 2,
                     'duration': 'end_of_turn',
                 },
-                source=choice.source_id,
+                source=spell_id,
             ),
             Event(
                 type=EventType.KEYWORD_GRANT,
@@ -3624,20 +3578,10 @@ def blossoming_defense_resolve(targets: list, state: GameState) -> list[Event]:
                     'keywords': ['hexproof'],
                     'until': 'end_of_turn',
                 },
-                source=choice.source_id,
+                source=spell_id,
             ),
-        ]
-
-    ch = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=legal,
-        prompt="Blossoming Defense: Target creature you control",
-    )
-    ch.choice_type = "target_with_callback"
-    ch.callback_data['handler'] = _handler
-    return []
+        ])
+    return events
 
 
 # =============================================================================
@@ -4007,6 +3951,7 @@ RIVERGUARDS_REFLEXES = make_instant(
     colors={Color.WHITE},
     text="Target creature gets +2/+2 and gains first strike until end of turn. Untap it.",
     resolve=riverguards_reflexes_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 SHORE_LURKER = make_creature(
@@ -4482,6 +4427,14 @@ WANDERWINE_FAREWELL = make_sorcery(
     text="Convoke (Your creatures can help cast this spell. Each creature you tap while casting this spell pays for {1} or one mana of that creature's color.)\nReturn one or two target nonland permanents to their owners' hands. Then if you control a Merfolk, create a 1/1 white and blue Merfolk creature token for each permanent returned to its owner's hand this way.",
     subtypes={"Merfolk"},
     resolve=wanderwine_farewell_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT, CardType.PLANESWALKER},
+            zones=[ZoneType.BATTLEFIELD],
+        ),
+        count=2, count_type='up_to',
+        label="one or two target nonland permanents",
+    )],
 )
 
 WILD_UNRAVELING = make_instant(
@@ -4593,6 +4546,7 @@ BLIGHT_ROT = make_instant(
     colors={Color.BLACK},
     text="Put four -1/-1 counters on target creature.",
     resolve=blight_rot_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 BLIGHTED_BLACKTHORN = make_creature(
@@ -4819,6 +4773,7 @@ NAMELESS_INVERSION = make_instant(
     text="Changeling (This card is every creature type.)\nTarget creature gets +3/-3 and loses all creature types until end of turn.",
     subtypes={"Shapeshifter"},
     resolve=nameless_inversion_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 NIGHTMARE_SOWER = make_creature(
@@ -5225,45 +5180,32 @@ GIANTFALL = make_instant(
 )
 
 def goatnap_resolve(targets: list, state: GameState) -> list[Event]:
-    """Goatnap: threaten target creature; +3/+0 EOT bonus if it's a Goat."""
+    """Goatnap: threaten target creature; +3/+0 EOT bonus if it's a Goat.
+
+    Phase 5b: target picking happens at cast time via ``target_requirements``.
+    """
     from src.cards.interceptor_helpers import threaten_creature
     spell_id, caster_id = _ecl_get_spell_and_caster(state, "Goatnap")
-
-    legal: list[str] = []
-    for obj_id, obj in state.objects.items():
-        if (obj.zone == ZoneType.BATTLEFIELD
-                and CardType.CREATURE in obj.characteristics.types
-                and obj.controller != caster_id):
-            legal.append(obj_id)
-    if not legal:
-        return []
-
-    def _handler(choice, selected, gs):
-        if not selected:
-            return []
-        target_id = selected[0]
-        events = list(threaten_creature(target_id, caster_id, source_id=spell_id))
-        target = gs.objects.get(target_id)
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        if is_player:
+            continue
+        events.extend(list(threaten_creature(tid, caster_id, source_id=spell_id)))
+        target = state.objects.get(tid)
         if target and "Goat" in target.characteristics.subtypes:
             events.append(Event(
                 type=EventType.PT_MODIFICATION,
                 payload={
-                    'object_id': target_id,
+                    'object_id': tid,
                     'power_mod': 3, 'toughness_mod': 0,
                     'duration': 'end_of_turn',
                 },
                 source=spell_id, controller=caster_id,
             ))
-        return events
-
-    ch = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Goatnap: Choose target creature to steal",
-    )
-    ch.choice_type = "target_with_callback"
-    ch.callback_data['handler'] = _handler
-    return []
+    return events
 
 
 GOATNAP = make_sorcery(
@@ -5272,6 +5214,7 @@ GOATNAP = make_sorcery(
     colors={Color.RED},
     text="Gain control of target creature until end of turn. Untap that creature. It gains haste until end of turn. If that creature is a Goat, it also gets +3/+0 until end of turn.",
     resolve=goatnap_resolve,
+    target_requirements=[target_creature(count=1, controller='opponent')],
 )
 
 GOLIATH_DAYDREAMER = make_creature(
@@ -5314,25 +5257,19 @@ IMPOLITE_ENTRANCE = make_sorcery(
 def kindle_the_inner_flame_resolve(targets: list, state: GameState) -> list[Event]:
     """Create a token copy of target creature you control. The "haste / sacrifice
     at end step" rider is partially wired (haste via except_keywords); the
-    delayed end-step sacrifice trigger is engine-gap and is left noop."""
-    spell_id, caster_id = _ecl_get_spell_and_caster(state, "Kindle the Inner Flame")
-    legal = [
-        oid for oid, obj in state.objects.items()
-        if (obj.zone == ZoneType.BATTLEFIELD
-            and CardType.CREATURE in obj.characteristics.types
-            and obj.controller == caster_id)
-    ]
-    if not legal:
-        return []
+    delayed end-step sacrifice trigger is engine-gap and is left noop.
 
-    def _handler(choice, selected, gs):
-        if not selected:
-            return []
-        tid = selected[0] if not isinstance(selected[0], dict) else selected[0].get('id')
-        if not tid:
-            return []
-        # Preserve the original's keyword abilities and add haste.
-        target = gs.objects.get(tid)
+    Phase 5b: target picking happens at cast time via ``target_requirements``.
+    """
+    spell_id, caster_id = _ecl_get_spell_and_caster(state, "Kindle the Inner Flame")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        if is_player:
+            continue
+        target = state.objects.get(tid)
         existing_keywords = []
         if target is not None:
             for ab in target.characteristics.abilities or []:
@@ -5342,21 +5279,13 @@ def kindle_the_inner_flame_resolve(targets: list, state: GameState) -> list[Even
         keywords = list(existing_keywords)
         if 'haste' not in [k.lower() for k in keywords]:
             keywords.append('haste')
-        return make_copy_token_event(
+        events.extend(make_copy_token_event(
             target_id=tid,
             controller=caster_id,
             source_id=spell_id,
             except_keywords=keywords,
-        )
-
-    ch = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Kindle the Inner Flame: choose a creature to copy",
-    )
-    ch.choice_type = "target_with_callback"
-    ch.callback_data['handler'] = _handler
-    return []
+        ))
+    return events
 
 
 KINDLE_THE_INNER_FLAME = make_sorcery(
@@ -5366,6 +5295,7 @@ KINDLE_THE_INNER_FLAME = make_sorcery(
     text="Create a token that's a copy of target creature you control, except it has haste and \"At the beginning of the end step, sacrifice this token.\"\nFlashback—{1}{R}, Behold three Elementals. (You may cast this card from your graveyard for its flashback cost. Then exile it. To behold an Elemental, choose an Elemental you control or reveal an Elemental card from your hand.)",
     subtypes={"Elemental"},
     resolve=kindle_the_inner_flame_resolve,
+    target_requirements=[target_creature(count=1, controller='you')],
 )
 
 KULRATH_ZEALOT = make_creature(
@@ -5546,6 +5476,7 @@ BLOSSOMING_DEFENSE = make_instant(
     colors={Color.GREEN},
     text="Target creature you control gets +2/+2 and gains hexproof until end of turn. (It can't be the target of spells or abilities your opponents control.)",
     resolve=blossoming_defense_resolve,
+    target_requirements=[target_creature(count=1, controller='you')],
 )
 
 BRISTLEBANE_BATTLER = make_creature(

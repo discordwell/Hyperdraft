@@ -51,8 +51,16 @@ from src.cards.interceptor_helpers import (
     make_modal_resolve,
     # Target picker
     create_target_choice,
+    # Phase 5b: normalize Target object / raw ID inputs from resolve fns
+    normalize_target,
 )
 from src.engine.turn_state import spells_cast_this_turn
+
+# Phase 5b cast-time target requirements
+from src.engine.targeting import (
+    target_creature, target_any, target_player, target_spell,
+    TargetRequirement, TargetFilter, creature_filter, permanent_filter,
+)
 
 
 # =============================================================================
@@ -3676,11 +3684,12 @@ def focus_fire_resolve(targets: list, state: GameState) -> list[Event]:
     events: list[Event] = []
     if targets and targets[0]:
         for t in targets[0]:
-            if t.is_player:
+            tid, is_player = normalize_target(t, state)
+            if is_player:
                 continue
             events.append(Event(
                 type=EventType.DAMAGE,
-                payload={'target': t.id, 'amount': damage, 'is_combat': False, 'is_player': False},
+                payload={'target': tid, 'amount': damage, 'is_combat': False, 'is_player': False},
                 source=spell_id,
             ))
     return events
@@ -3692,12 +3701,13 @@ def annul_resolve(targets: list, state: GameState) -> list[Event]:
     events: list[Event] = []
     if targets and targets[0]:
         for t in targets[0]:
-            if t.is_player:
+            tid, is_player = normalize_target(t, state)
+            if is_player:
                 continue
             events.append(Event(
                 type=EventType.ZONE_CHANGE,
                 payload={
-                    'object_id': t.id,
+                    'object_id': tid,
                     'to_zone_type': ZoneType.GRAVEYARD,
                     'reason': 'countered',
                 },
@@ -3738,16 +3748,17 @@ def dark_endurance_resolve(targets: list, state: GameState) -> list[Event]:
     events: list[Event] = []
     if targets and targets[0]:
         for t in targets[0]:
-            if t.is_player:
+            tid, is_player = normalize_target(t, state)
+            if is_player:
                 continue
             events.append(Event(
                 type=EventType.PT_MODIFICATION,
-                payload={'object_id': t.id, 'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+                payload={'object_id': tid, 'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn'},
                 source=spell_id,
             ))
             events.append(Event(
                 type=EventType.GRANT_KEYWORD,
-                payload={'object_id': t.id, 'keyword': 'indestructible', 'duration': 'end_of_turn'},
+                payload={'object_id': tid, 'keyword': 'indestructible', 'duration': 'end_of_turn'},
                 source=spell_id,
             ))
     return events
@@ -3820,9 +3831,10 @@ def cut_propulsion_resolve(targets: list, state: GameState) -> list[Event]:
     events: list[Event] = []
     if targets and targets[0]:
         for t in targets[0]:
-            if t.is_player:
+            tid, is_player = normalize_target(t, state)
+            if is_player:
                 continue
-            obj = state.objects.get(t.id)
+            obj = state.objects.get(tid)
             if obj is None or obj.zone != ZoneType.BATTLEFIELD:
                 continue
             try:
@@ -3837,7 +3849,7 @@ def cut_propulsion_resolve(targets: list, state: GameState) -> list[Event]:
             if damage > 0:
                 events.append(Event(
                     type=EventType.DAMAGE,
-                    payload={'target': t.id, 'amount': damage, 'is_combat': False, 'is_player': False, 'source': t.id},
+                    payload={'target': tid, 'amount': damage, 'is_combat': False, 'is_player': False, 'source': tid},
                     source=spell_id,
                 ))
     return events
@@ -3849,17 +3861,18 @@ def rig_for_war_resolve(targets: list, state: GameState) -> list[Event]:
     events: list[Event] = []
     if targets and targets[0]:
         for t in targets[0]:
-            if t.is_player:
+            tid, is_player = normalize_target(t, state)
+            if is_player:
                 continue
             events.append(Event(
                 type=EventType.PT_MODIFICATION,
-                payload={'object_id': t.id, 'power_mod': 3, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+                payload={'object_id': tid, 'power_mod': 3, 'toughness_mod': 0, 'duration': 'end_of_turn'},
                 source=spell_id,
             ))
             for kw in ('first_strike', 'reach'):
                 events.append(Event(
                     type=EventType.GRANT_KEYWORD,
-                    payload={'object_id': t.id, 'keyword': kw, 'duration': 'end_of_turn'},
+                    payload={'object_id': tid, 'keyword': kw, 'duration': 'end_of_turn'},
                     source=spell_id,
                 ))
     return events
@@ -3872,17 +3885,16 @@ def diplomatic_relations_resolve(targets: list, state: GameState) -> list[Event]
     events: list[Event] = []
     own_id: Optional[str] = None
     opp_id: Optional[str] = None
-    flat = []
-    if targets:
-        for group in targets:
-            if group:
-                flat.extend(group)
-    # First non-player target = your creature (target group 0); second = opponent's.
-    non_player = [t for t in flat if not t.is_player]
-    if len(non_player) >= 1:
-        own_id = non_player[0].id
-    if len(non_player) >= 2:
-        opp_id = non_player[1].id
+    # Phase 5b: targets[0] = your creature (controller='you' requirement),
+    # targets[1] = opponent's creature (controller='opponent' requirement).
+    if targets and len(targets) >= 1 and targets[0]:
+        tid, is_player = normalize_target(targets[0][0], state)
+        if not is_player:
+            own_id = tid
+    if targets and len(targets) >= 2 and targets[1]:
+        tid, is_player = normalize_target(targets[1][0], state)
+        if not is_player:
+            opp_id = tid
 
     if own_id:
         events.append(Event(
@@ -4000,11 +4012,12 @@ def spacetime_anomaly_resolve(targets: list, state: GameState) -> list[Event]:
         return events
     if targets and targets[0]:
         for t in targets[0]:
-            if not t.is_player:
+            tid, is_player = normalize_target(t, state)
+            if not is_player:
                 continue
             events.append(Event(
                 type=EventType.MILL,
-                payload={'player': t.id, 'amount': amount},
+                payload={'player': tid, 'amount': amount},
                 source=spell_id,
             ))
     return events
@@ -4179,6 +4192,7 @@ FOCUS_FIRE = make_instant(
     colors={Color.WHITE},
     text="Focus Fire deals X damage to target attacking or blocking creature, where X is 2 plus the number of creatures and/or Spacecraft you control.",
     resolve=focus_fire_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 HALIYA_GUIDED_BY_LIGHT = make_creature(
@@ -4492,6 +4506,15 @@ ANNUL = make_instant(
     colors={Color.BLUE},
     text="Counter target artifact or enchantment spell.",
     resolve=annul_resolve,
+    # Counter target artifact or enchantment spell (stack zone)
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.ARTIFACT, CardType.ENCHANTMENT},
+            zones=[ZoneType.STACK],
+        ),
+        count=1,
+        label="target artifact or enchantment spell",
+    )],
 )
 
 ATOMIC_MICROSIZER = make_artifact(
@@ -5037,6 +5060,7 @@ DARK_ENDURANCE = make_instant(
     colors={Color.BLACK},
     text="This spell costs {1} less to cast if it targets a blocking creature.\nTarget creature gets +2/+0 and gains indestructible until end of turn. (Damage and effects that say \"destroy\" don't destroy it.)",
     resolve=dark_endurance_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 DECODE_TRANSMISSIONS = make_sorcery(
@@ -5359,6 +5383,7 @@ CUT_PROPULSION = make_instant(
     colors={Color.RED},
     text="Target creature deals damage to itself equal to its power. If that creature has flying, it deals twice that much damage to itself instead.",
     resolve=cut_propulsion_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 DEBRIS_FIELD_CRUSHER = make_artifact(
@@ -5648,6 +5673,7 @@ RIG_FOR_WAR = make_instant(
     colors={Color.RED},
     text="Target creature gets +3/+0 and gains first strike and reach until end of turn.",
     resolve=rig_for_war_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 ROVING_ACTUATOR = make_artifact_creature(
@@ -5868,6 +5894,10 @@ DIPLOMATIC_RELATIONS = make_instant(
     colors={Color.GREEN},
     text="Target creature you control gets +1/+0 and gains vigilance until end of turn. It deals damage equal to its power to target creature an opponent controls.",
     resolve=diplomatic_relations_resolve,
+    target_requirements=[
+        target_creature(count=1, controller='you'),
+        target_creature(count=1, controller='opponent'),
+    ],
 )
 
 DRIX_FATEMAKER = make_creature(
@@ -6362,6 +6392,7 @@ SPACETIME_ANOMALY = make_sorcery(
     colors={Color.BLUE, Color.WHITE},
     text="Target player mills cards equal to your life total.",
     resolve=spacetime_anomaly_resolve,
+    target_requirements=[target_player(controller='any')],
 )
 
 STATION_MONITOR = make_creature(

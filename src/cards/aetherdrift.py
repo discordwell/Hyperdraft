@@ -31,8 +31,17 @@ from src.cards.interceptor_helpers import (
     make_animate_via_exhaust, make_attack_trigger,
     make_exhaust_reset_effect, make_upkeep_trigger,
     make_activated_ability,
+    # Phase 5b: normalize Target object / raw ID inputs from resolve fns
+    normalize_target,
 )
 import re
+
+# Phase 5b cast-time target requirements
+from src.engine.targeting import (
+    target_creature, target_any, target_player, target_spell,
+    TargetRequirement, TargetFilter, creature_filter, permanent_filter,
+    spell_filter, card_in_graveyard_filter,
+)
 
 
 # =============================================================================
@@ -1040,6 +1049,20 @@ def marshals_pathcruiser_setup(obj: GameObject, state: GameState) -> list[Interc
 # SPELL RESOLVE FUNCTIONS
 # =============================================================================
 
+def _aetherdrift_spell_id(state: GameState, spell_name: str) -> str:
+    """Locate the spell object on the stack (Phase 5b: targets pre-supplied,
+    we just need the source_id for emitted events). Falls back to a synthetic
+    id if the spell isn't on the stack (e.g. resolve invoked directly in a test).
+    """
+    stack_zone = state.zones.get('stack')
+    if stack_zone:
+        for obj_id in stack_zone.objects:
+            obj = state.objects.get(obj_id)
+            if obj and obj.name == spell_name:
+                return obj.id
+    return f"{spell_name.lower().replace(' ', '_').replace(chr(39), '')}_spell"
+
+
 def _lightning_strike_execute(choice, selected, state: GameState) -> list[Event]:
     """Execute Lightning Strike after target selection - deal 3 damage."""
     target_id = selected[0] if selected else None
@@ -1068,63 +1091,27 @@ def _lightning_strike_execute(choice, selected, state: GameState) -> list[Event]
 
 
 def lightning_strike_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Lightning Strike: Deal 3 damage to any target.
+
+    Phase 5b: target picking happens at cast time via ``target_requirements``.
     """
-    Resolve Lightning Strike: Deal 3 damage to any target.
-
-    Creates a target choice for the caster. Returns empty events to pause resolution.
-    """
-    # Find the spell on the stack to determine who cast it
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Lightning Strike":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    # Fallback to active player if we can't find the spell
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "lightning_strike_spell"
-
-    # Find valid targets: creatures, planeswalkers, and players
-    valid_targets = []
-
-    # Add creatures and planeswalkers
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD:
-            if CardType.CREATURE in obj.characteristics.types or CardType.PLANESWALKER in obj.characteristics.types:
-                valid_targets.append(obj.id)
-
-    # Add players
-    for player_id in state.players:
-        valid_targets.append(player_id)
-
-    if not valid_targets:
-        # No legal targets, spell fizzles
-        return []
-
-    # Create target choice for the player
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a target for Lightning Strike (3 damage)",
-        min_targets=1,
-        max_targets=1
-    )
-
-    # Set up callback for when target is selected
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _lightning_strike_execute
-
-    # Return empty events to pause resolution until choice is submitted
-    return []
+    spell_id = _aetherdrift_spell_id(state, "Lightning Strike")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        if not is_player:
+            obj = state.objects.get(tid)
+            if obj is None or obj.zone != ZoneType.BATTLEFIELD:
+                continue
+        events.append(Event(
+            type=EventType.DAMAGE,
+            payload={'target': tid, 'amount': 3, 'source': spell_id,
+                     'is_combat': False, 'is_player': is_player},
+            source=spell_id,
+        ))
+    return events
 
 
 # -----------------------------------------------------------------------------
@@ -1154,49 +1141,32 @@ def _bounce_off_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def bounce_off_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Bounce Off: Return target creature or Vehicle to owner's hand."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Bounce Off":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
+    """Resolve Bounce Off: Return target creature or Vehicle to owner's hand.
 
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "bounce_off_spell"
-
-    # Find valid targets: creatures and Vehicles on battlefield
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD:
-            if CardType.CREATURE in obj.characteristics.types:
-                valid_targets.append(obj.id)
-            elif "Vehicle" in obj.characteristics.subtypes:
-                valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature or Vehicle to return to its owner's hand",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _bounce_off_execute
-
-    return []
+    Phase 5b: target picking happens at cast time via ``target_requirements``.
+    """
+    spell_id = _aetherdrift_spell_id(state, "Bounce Off")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        if is_player:
+            continue
+        target = state.objects.get(tid)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            continue
+        events.append(Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': tid,
+                'from_zone_type': ZoneType.BATTLEFIELD,
+                'to_zone_type': ZoneType.HAND,
+                'to_zone_owner': target.owner,
+            },
+            source=spell_id,
+        ))
+    return events
 
 
 # -----------------------------------------------------------------------------
@@ -1221,48 +1191,27 @@ def _gallant_strike_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def gallant_strike_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Gallant Strike: Destroy target creature with toughness 4 or greater."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Gallant Strike":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
+    """Resolve Gallant Strike: Destroy target creature with toughness 4 or greater.
 
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "gallant_strike_spell"
-
-    # Find valid targets: creatures with toughness >= 4
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types:
-            toughness = get_toughness(obj, state)
-            if toughness >= 4:
-                valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature with toughness 4 or greater to destroy",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _gallant_strike_execute
-
-    return []
+    Phase 5b: target picking happens at cast time via ``target_requirements``.
+    """
+    spell_id = _aetherdrift_spell_id(state, "Gallant Strike")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        if is_player:
+            continue
+        target = state.objects.get(tid)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            continue
+        events.append(Event(
+            type=EventType.OBJECT_DESTROYED,
+            payload={'object_id': tid},
+            source=spell_id,
+        ))
+    return events
 
 
 # -----------------------------------------------------------------------------
@@ -1291,50 +1240,25 @@ def _rides_end_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def rides_end_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Ride's End: Exile target creature or Vehicle."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Ride's End":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "rides_end_spell"
-
-    # Find valid targets: creatures and Vehicles
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD:
-            if CardType.CREATURE in obj.characteristics.types:
-                valid_targets.append(obj.id)
-            elif "Vehicle" in obj.characteristics.subtypes:
-                valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature or Vehicle to exile",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _rides_end_execute
-
-    return []
-
+    """Resolve Ride's End via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Ride's End")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_rides_end_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # SPIN OUT - Destroy target creature or Vehicle
@@ -1358,50 +1282,25 @@ def _spin_out_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def spin_out_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Spin Out: Destroy target creature or Vehicle."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Spin Out":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "spin_out_spell"
-
-    # Find valid targets: creatures and Vehicles
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD:
-            if CardType.CREATURE in obj.characteristics.types:
-                valid_targets.append(obj.id)
-            elif "Vehicle" in obj.characteristics.subtypes:
-                valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature or Vehicle to destroy",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _spin_out_execute
-
-    return []
-
+    """Resolve Spin Out via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Spin Out")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_spin_out_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # SYPHON FUEL - Target creature gets -6/-6 until end of turn. You gain 2 life.
@@ -1432,47 +1331,25 @@ def _syphon_fuel_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def syphon_fuel_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Syphon Fuel: Target creature gets -6/-6. You gain 2 life."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Syphon Fuel":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "syphon_fuel_spell"
-
-    # Find valid targets: creatures
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types:
-            valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to get -6/-6",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _syphon_fuel_execute
-
-    return []
-
+    """Resolve Syphon Fuel via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Syphon Fuel")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_syphon_fuel_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # LOCUST SPRAY - Target creature gets -1/-1 until end of turn
@@ -1496,47 +1373,25 @@ def _locust_spray_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def locust_spray_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Locust Spray: Target creature gets -1/-1 until end of turn."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Locust Spray":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "locust_spray_spell"
-
-    # Find valid targets: creatures
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types:
-            valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to get -1/-1",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _locust_spray_execute
-
-    return []
-
+    """Resolve Locust Spray via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Locust Spray")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_locust_spray_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # MAXIMUM OVERDRIVE - +1/+1 counter, deathtouch, indestructible until EOT
@@ -1567,47 +1422,25 @@ def _maximum_overdrive_execute(choice, selected, state: GameState) -> list[Event
 
 
 def maximum_overdrive_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Maximum Overdrive: Put a +1/+1 counter on target creature. It gains deathtouch and indestructible until end of turn."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Maximum Overdrive":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "maximum_overdrive_spell"
-
-    # Find valid targets: creatures
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types:
-            valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to get +1/+1 counter, deathtouch and indestructible",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _maximum_overdrive_execute
-
-    return []
-
+    """Resolve Maximum Overdrive via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Maximum Overdrive")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_maximum_overdrive_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # LIGHTSHIELD PARRY - Target creature gets +2/+2 until end of turn
@@ -1631,47 +1464,25 @@ def _lightshield_parry_execute(choice, selected, state: GameState) -> list[Event
 
 
 def lightshield_parry_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Lightshield Parry: Target creature gets +2/+2 until end of turn."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Lightshield Parry":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "lightshield_parry_spell"
-
-    # Find valid targets: creatures
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types:
-            valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to get +2/+2",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _lightshield_parry_execute
-
-    return []
-
+    """Resolve Lightshield Parry via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Lightshield Parry")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_lightshield_parry_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # BESTOW GREATNESS - Target creature gets +4/+4 and trample until end of turn
@@ -1702,47 +1513,25 @@ def _bestow_greatness_execute(choice, selected, state: GameState) -> list[Event]
 
 
 def bestow_greatness_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Bestow Greatness: Target creature gets +4/+4 and gains trample until end of turn."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Bestow Greatness":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "bestow_greatness_spell"
-
-    # Find valid targets: creatures
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types:
-            valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to get +4/+4 and trample",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _bestow_greatness_execute
-
-    return []
-
+    """Resolve Bestow Greatness via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Bestow Greatness")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_bestow_greatness_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # BROKEN WINGS - Destroy target artifact, enchantment, or creature with flying
@@ -1766,57 +1555,25 @@ def _broken_wings_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def broken_wings_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Broken Wings: Destroy target artifact, enchantment, or creature with flying."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Broken Wings":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "broken_wings_spell"
-
-    # Find valid targets: artifacts, enchantments, or creatures with flying
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone != ZoneType.BATTLEFIELD:
-            continue
-        # Artifact or enchantment
-        if CardType.ARTIFACT in obj.characteristics.types or CardType.ENCHANTMENT in obj.characteristics.types:
-            valid_targets.append(obj.id)
-        # Creature with flying
-        elif CardType.CREATURE in obj.characteristics.types:
-            # Check for flying keyword in text (simplified check)
-            if hasattr(obj, 'text') and 'flying' in (obj.text or '').lower():
-                valid_targets.append(obj.id)
-            elif hasattr(obj.characteristics, 'keywords') and 'flying' in getattr(obj.characteristics, 'keywords', []):
-                valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose an artifact, enchantment, or creature with flying to destroy",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _broken_wings_execute
-
-    return []
-
+    """Resolve Broken Wings via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Broken Wings")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_broken_wings_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # SKYCRASH - Destroy target artifact
@@ -1840,47 +1597,25 @@ def _skycrash_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def skycrash_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Skycrash: Destroy target artifact."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Skycrash":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "skycrash_spell"
-
-    # Find valid targets: artifacts
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD and CardType.ARTIFACT in obj.characteristics.types:
-            valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose an artifact to destroy",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _skycrash_execute
-
-    return []
-
+    """Resolve Skycrash via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Skycrash")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_skycrash_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # ROAD RAGE - Deal X damage to target creature/planeswalker (X = 2 + mounts/vehicles)
@@ -1913,48 +1648,25 @@ def _road_rage_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def road_rage_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Road Rage: Deal X damage to target creature or planeswalker (X = 2 + Mounts/Vehicles)."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Road Rage":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "road_rage_spell"
-
-    # Find valid targets: creatures and planeswalkers
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD:
-            if CardType.CREATURE in obj.characteristics.types or CardType.PLANESWALKER in obj.characteristics.types:
-                valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature or planeswalker for Road Rage damage",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _road_rage_execute
-
-    return []
-
+    """Resolve Road Rage via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Road Rage")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_road_rage_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # BROADSIDE BARRAGE - Deal 5 damage to target creature/planeswalker, draw then discard
@@ -1990,48 +1702,25 @@ def _broadside_barrage_execute(choice, selected, state: GameState) -> list[Event
 
 
 def broadside_barrage_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Broadside Barrage: Deal 5 damage to target creature/planeswalker. Draw a card, then discard a card."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Broadside Barrage":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "broadside_barrage_spell"
-
-    # Find valid targets: creatures and planeswalkers
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD:
-            if CardType.CREATURE in obj.characteristics.types or CardType.PLANESWALKER in obj.characteristics.types:
-                valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature or planeswalker to deal 5 damage",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _broadside_barrage_execute
-
-    return []
-
+    """Resolve Broadside Barrage via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Broadside Barrage")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_broadside_barrage_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # COLLISION COURSE (Modal) - Deal X damage to creature OR destroy artifact
@@ -2332,50 +2021,25 @@ def _stall_out_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def stall_out_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Stall Out: Tap target creature or Vehicle, then put three stun counters on it."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Stall Out":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "stall_out_spell"
-
-    # Find valid targets: creatures and Vehicles
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD:
-            if CardType.CREATURE in obj.characteristics.types:
-                valid_targets.append(obj.id)
-            elif "Vehicle" in obj.characteristics.subtypes:
-                valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature or Vehicle to tap and put stun counters on",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _stall_out_execute
-
-    return []
-
+    """Resolve Stall Out via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Stall Out")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_stall_out_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # TRIP UP - Owner puts target nonland permanent on top or bottom of library
@@ -2405,47 +2069,25 @@ def _trip_up_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def trip_up_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Trip Up: Target nonland permanent's owner puts it on top or bottom of library."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Trip Up":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "trip_up_spell"
-
-    # Find valid targets: nonland permanents
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD and CardType.LAND not in obj.characteristics.types:
-            valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a nonland permanent to put on top/bottom of library",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _trip_up_execute
-
-    return []
-
+    """Resolve Trip Up via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Trip Up")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_trip_up_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # ROADSIDE BLOWOUT - Return opponent's creature/Vehicle to hand, draw a card
@@ -2481,50 +2123,25 @@ def _roadside_blowout_execute(choice, selected, state: GameState) -> list[Event]
 
 
 def roadside_blowout_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Roadside Blowout: Return target creature/Vehicle an opponent controls to hand. Draw a card."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Roadside Blowout":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "roadside_blowout_spell"
-
-    # Find valid targets: opponent's creatures and Vehicles
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD and obj.controller != caster_id:
-            if CardType.CREATURE in obj.characteristics.types:
-                valid_targets.append(obj.id)
-            elif "Vehicle" in obj.characteristics.subtypes:
-                valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose an opponent's creature or Vehicle to return to hand",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _roadside_blowout_execute
-
-    return []
-
+    """Resolve Roadside Blowout via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Roadside Blowout")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_roadside_blowout_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # HELLISH SIDESWIPE - Destroy target creature or Vehicle (requires sacrifice)
@@ -2959,50 +2576,25 @@ def _spectral_interference_execute(choice, selected, state: GameState) -> list[E
 
 
 def spectral_interference_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Spectral Interference: Counter target artifact or creature spell unless controller pays {4}."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Spectral Interference":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "spectral_interference_spell"
-
-    # Find valid targets: artifact or creature spells on the stack
-    valid_targets = []
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj_id != spell_id:
-                if CardType.ARTIFACT in obj.characteristics.types or CardType.CREATURE in obj.characteristics.types:
-                    valid_targets.append(obj_id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose an artifact or creature spell to counter unless controller pays {4}",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _spectral_interference_execute
-
-    return []
-
+    """Resolve Spectral Interference via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Spectral Interference")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_spectral_interference_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # SPELL PIERCE - Counter target noncreature spell unless controller pays {2}
@@ -3026,50 +2618,25 @@ def _spell_pierce_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def spell_pierce_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Spell Pierce: Counter target noncreature spell unless controller pays {2}."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Spell Pierce":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "spell_pierce_spell"
-
-    # Find valid targets: noncreature spells on the stack
-    valid_targets = []
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj_id != spell_id:
-                if CardType.CREATURE not in obj.characteristics.types:
-                    valid_targets.append(obj_id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a noncreature spell to counter unless controller pays {2}",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _spell_pierce_execute
-
-    return []
-
+    """Resolve Spell Pierce via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Spell Pierce")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_spell_pierce_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # FUEL THE FLAMES - Deal 2 damage to each creature
@@ -3129,51 +2696,25 @@ def _tune_up_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def tune_up_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Tune Up: Return target artifact card from your graveyard to the battlefield."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Tune Up":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "tune_up_spell"
-
-    # Find valid targets: artifact cards in your graveyard
-    graveyard_key = f"graveyard_{caster_id}"
-    graveyard = state.zones.get(graveyard_key)
-    valid_targets = []
-    if graveyard:
-        for card_id in graveyard.objects:
-            card = state.objects.get(card_id)
-            if card and CardType.ARTIFACT in card.characteristics.types:
-                valid_targets.append(card_id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose an artifact card from your graveyard to return to the battlefield",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _tune_up_execute
-
-    return []
-
+    """Resolve Tune Up via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Tune Up")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_tune_up_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # BACK ON TRACK - Return creature/Vehicle from graveyard, create Pilot token
@@ -3216,54 +2757,25 @@ def _back_on_track_execute(choice, selected, state: GameState) -> list[Event]:
 
 
 def back_on_track_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Back on Track: Return target creature or Vehicle card from graveyard to battlefield. Create Pilot token."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Back on Track":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "back_on_track_spell"
-
-    # Find valid targets: creature or Vehicle cards in your graveyard
-    graveyard_key = f"graveyard_{caster_id}"
-    graveyard = state.zones.get(graveyard_key)
-    valid_targets = []
-    if graveyard:
-        for card_id in graveyard.objects:
-            card = state.objects.get(card_id)
-            if card:
-                if CardType.CREATURE in card.characteristics.types:
-                    valid_targets.append(card_id)
-                elif "Vehicle" in card.characteristics.subtypes:
-                    valid_targets.append(card_id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature or Vehicle card from your graveyard",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _back_on_track_execute
-
-    return []
-
+    """Resolve Back on Track via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Back on Track")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    # Find caster for life-gain / loot riders.
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    # Synthetic choice so we can reuse the existing _execute logic.
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_back_on_track_execute(synth, [tid], state))
+    return events
 
 # -----------------------------------------------------------------------------
 # HAUNT THE NETWORK - Target opponent loses X life, create Thopters
@@ -3402,46 +2914,23 @@ def _pedal_to_the_metal_execute(choice, selected, state: GameState) -> list[Even
 
 
 def pedal_to_the_metal_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Pedal to the Metal: Target creature gets +X/+0 and gains first strike until end of turn."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Pedal to the Metal":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "pedal_to_the_metal_spell"
-
-    # Find valid targets: creatures
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types:
-            valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to get +X/+0 and first strike",
-        min_targets=1,
-        max_targets=1
-    )
-
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _pedal_to_the_metal_execute
-
-    return []
+    """Resolve Pedal to the Metal via Phase 5b targets[0] (engine-emitted PendingChoice)."""
+    spell_id = _aetherdrift_spell_id(state, "Pedal to the Metal")
+    events: list[Event] = []
+    if not (targets and targets[0]):
+        return events
+    caster_id = state.active_player
+    obj = state.objects.get(spell_id)
+    if obj is not None:
+        caster_id = obj.controller
+    class _SyntheticChoice:
+        source_id = spell_id
+        player = caster_id
+    synth = _SyntheticChoice()
+    for t in targets[0]:
+        tid, is_player = normalize_target(t, state)
+        events.extend(_pedal_to_the_metal_execute(synth, [tid], state))
+    return events
 
 
 # =============================================================================
@@ -3569,6 +3058,7 @@ GALLANT_STRIKE = make_instant(
     text="Destroy target creature with toughness 4 or greater.\nCycling {2} ({2}, Discard this card: Draw a card.)",
     rarity="uncommon",
     resolve=gallant_strike_resolve,
+    target_requirements=[target_creature(count=1, toughness_min=4)],
 )
 GALLANT_STRIKE.setup_in_hand = make_cycling_setup("{2}")
 
@@ -3629,6 +3119,7 @@ LIGHTSHIELD_PARRY = make_instant(
     text="Target creature gets +2/+2 until end of turn.\nCycling {2} ({2}, Discard this card: Draw a card.)",
     rarity="common",
     resolve=lightshield_parry_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 LIGHTSHIELD_PARRY.setup_in_hand = make_cycling_setup("{2}")
 
@@ -3686,6 +3177,18 @@ RIDES_END = make_instant(
     text="This spell costs {3} less to cast if it targets a tapped permanent.\nExile target creature or Vehicle.",
     rarity="common",
     resolve=rides_end_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE, CardType.ARTIFACT},
+            zones=[ZoneType.BATTLEFIELD],
+            custom_filter=lambda obj, st: (
+                CardType.CREATURE in obj.characteristics.types
+                or 'Vehicle' in obj.characteristics.subtypes
+            ),
+        ),
+        count=1,
+        label="target creature or Vehicle",
+    )],
 )
 
 ROADSIDE_ASSISTANCE = make_enchantment(
@@ -3758,6 +3261,15 @@ TUNE_UP = make_sorcery(
     text="Return target artifact card from your graveyard to the battlefield. If it's a Vehicle, it becomes an artifact creature.",
     rarity="uncommon",
     resolve=tune_up_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.ARTIFACT},
+            zones=[ZoneType.GRAVEYARD],
+            controller='you',
+        ),
+        count=1,
+        label="target artifact card from your graveyard",
+    )],
 )
 
 UNSWERVING_SLOTH = make_creature(
@@ -3813,6 +3325,22 @@ BOUNCE_OFF = make_instant(
     text="Return target creature or Vehicle to its owner's hand.",
     rarity="common",
     resolve=bounce_off_resolve,
+    # "target creature or Vehicle" — Vehicle is a subtype check we approximate
+    # by using a creature filter (most Vehicles are also creatures when crewed;
+    # uncrewed Vehicles need a custom filter, but for cast-time engine prompt
+    # the simpler creature/Vehicle subtype handling is left as a small gap).
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE, CardType.ARTIFACT},
+            zones=[ZoneType.BATTLEFIELD],
+            custom_filter=lambda obj, st: (
+                CardType.CREATURE in obj.characteristics.types
+                or 'Vehicle' in obj.characteristics.subtypes
+            ),
+        ),
+        count=1,
+        label="target creature or Vehicle",
+    )],
 )
 
 CAELORNA_CORAL_TYRANT = make_creature(
@@ -3995,6 +3523,19 @@ ROADSIDE_BLOWOUT = make_sorcery(
     text="This spell costs {2} less to cast if it targets a permanent with mana value 1.\nReturn target creature or Vehicle an opponent controls to its owner's hand.\nDraw a card.",
     rarity="uncommon",
     resolve=roadside_blowout_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE, CardType.ARTIFACT},
+            zones=[ZoneType.BATTLEFIELD],
+            controller='opponent',
+            custom_filter=lambda obj, st: (
+                CardType.CREATURE in obj.characteristics.types
+                or 'Vehicle' in obj.characteristics.subtypes
+            ),
+        ),
+        count=1,
+        label="target opponent's creature or Vehicle",
+    )],
 )
 
 SABOTAGE_STRATEGIST = make_creature(
@@ -4046,6 +3587,14 @@ SPECTRAL_INTERFERENCE = make_instant(
     text="Counter target artifact or creature spell unless its controller pays {4}.",
     rarity="common",
     resolve=spectral_interference_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.ARTIFACT, CardType.CREATURE},
+            zones=[ZoneType.STACK],
+        ),
+        count=1,
+        label="target artifact or creature spell",
+    )],
 )
 
 SPELL_PIERCE = make_instant(
@@ -4055,6 +3604,14 @@ SPELL_PIERCE = make_instant(
     text="Counter target noncreature spell unless its controller pays {2}.",
     rarity="uncommon",
     resolve=spell_pierce_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            zones=[ZoneType.STACK],
+            custom_filter=lambda obj, st: CardType.CREATURE not in obj.characteristics.types,
+        ),
+        count=1,
+        label="target noncreature spell",
+    )],
 )
 
 SPIKESHELL_HARRIER = make_artifact_creature(
@@ -4074,6 +3631,18 @@ STALL_OUT = make_sorcery(
     text="Tap target creature or Vehicle, then put three stun counters on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)\nCycling {2} ({2}, Discard this card: Draw a card.)",
     rarity="common",
     resolve=stall_out_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE, CardType.ARTIFACT},
+            zones=[ZoneType.BATTLEFIELD],
+            custom_filter=lambda obj, st: (
+                CardType.CREATURE in obj.characteristics.types
+                or 'Vehicle' in obj.characteristics.subtypes
+            ),
+        ),
+        count=1,
+        label="target creature or Vehicle",
+    )],
 )
 STALL_OUT.setup_in_hand = make_cycling_setup("{2}")
 
@@ -4119,6 +3688,14 @@ TRIP_UP = make_instant(
     text="Target nonland permanent's owner puts it on their choice of the top or bottom of their library.\nCycling {2} ({2}, Discard this card: Draw a card.)",
     rarity="common",
     resolve=trip_up_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT, CardType.PLANESWALKER},
+            zones=[ZoneType.BATTLEFIELD],
+        ),
+        count=1,
+        label="target nonland permanent",
+    )],
 )
 TRIP_UP.setup_in_hand = make_cycling_setup("{2}")
 
@@ -4167,6 +3744,19 @@ BACK_ON_TRACK = make_sorcery(
     text="Return target creature or Vehicle card from your graveyard to the battlefield. Create a 1/1 colorless Pilot creature token with \"This token saddles Mounts and crews Vehicles as though its power were 2 greater.\"",
     rarity="uncommon",
     resolve=back_on_track_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE, CardType.ARTIFACT},
+            zones=[ZoneType.GRAVEYARD],
+            controller='you',
+            custom_filter=lambda obj, st: (
+                CardType.CREATURE in obj.characteristics.types
+                or 'Vehicle' in obj.characteristics.subtypes
+            ),
+        ),
+        count=1,
+        label="target creature or Vehicle card from your graveyard",
+    )],
 )
 
 BLOODGHAST = make_creature(
@@ -4342,6 +3932,7 @@ LOCUST_SPRAY = make_instant(
     text="Target creature gets -1/-1 until end of turn.\nCycling {B} ({B}, Discard this card: Draw a card.)",
     rarity="uncommon",
     resolve=locust_spray_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 LOCUST_SPRAY.setup_in_hand = make_cycling_setup("{B}")
 
@@ -4352,6 +3943,7 @@ MAXIMUM_OVERDRIVE = make_instant(
     text="Put a +1/+1 counter on target creature. It gains deathtouch and indestructible until end of turn.",
     rarity="common",
     resolve=maximum_overdrive_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 MOMENTUM_BREAKER = make_enchantment(
@@ -4445,6 +4037,18 @@ SPIN_OUT = make_instant(
     text="Destroy target creature or Vehicle.",
     rarity="common",
     resolve=spin_out_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE, CardType.ARTIFACT},
+            zones=[ZoneType.BATTLEFIELD],
+            custom_filter=lambda obj, st: (
+                CardType.CREATURE in obj.characteristics.types
+                or 'Vehicle' in obj.characteristics.subtypes
+            ),
+        ),
+        count=1,
+        label="target creature or Vehicle",
+    )],
 )
 
 STREAKING_OILGORGER = make_creature(
@@ -4464,6 +4068,7 @@ SYPHON_FUEL = make_instant(
     text="Target creature gets -6/-6 until end of turn. You gain 2 life.",
     rarity="common",
     resolve=syphon_fuel_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 WICKERFOLK_INDOMITABLE = make_artifact_creature(
@@ -4735,6 +4340,7 @@ LIGHTNING_STRIKE = make_instant(
     text="Lightning Strike deals 3 damage to any target.",
     rarity="common",
     resolve=lightning_strike_resolve,
+    target_requirements=[target_any(count=1)],
 )
 
 MAGMAKIN_ARTILLERIST = make_creature(
@@ -4786,6 +4392,7 @@ PEDAL_TO_THE_METAL = make_instant(
     text="Target creature gets +X/+0 and gains first strike until end of turn.",
     rarity="common",
     resolve=pedal_to_the_metal_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 PROWCATCHER_SPECIALIST = make_creature(
@@ -4824,6 +4431,14 @@ ROAD_RAGE = make_instant(
     text="Road Rage deals X damage to target creature or planeswalker, where X is 2 plus the number of Mounts and Vehicles you control.",
     rarity="uncommon",
     resolve=road_rage_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE, CardType.PLANESWALKER},
+            zones=[ZoneType.BATTLEFIELD],
+        ),
+        count=1,
+        label="target creature or planeswalker",
+    )],
 )
 
 SKYCRASH = make_instant(
@@ -4833,6 +4448,11 @@ SKYCRASH = make_instant(
     text="Destroy target artifact.\nCycling {R} ({R}, Discard this card: Draw a card.)",
     rarity="uncommon",
     resolve=skycrash_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(types={CardType.ARTIFACT}, zones=[ZoneType.BATTLEFIELD]),
+        count=1,
+        label="target artifact",
+    )],
 )
 SKYCRASH.setup_in_hand = make_cycling_setup("{R}")
 
@@ -4926,6 +4546,7 @@ BESTOW_GREATNESS = make_instant(
     text="Target creature gets +4/+4 and gains trample until end of turn.",
     rarity="common",
     resolve=bestow_greatness_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 BROKEN_WINGS = make_instant(
@@ -4935,6 +4556,21 @@ BROKEN_WINGS = make_instant(
     text="Destroy target artifact, enchantment, or creature with flying.",
     rarity="common",
     resolve=broken_wings_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.ARTIFACT, CardType.ENCHANTMENT, CardType.CREATURE},
+            zones=[ZoneType.BATTLEFIELD],
+            custom_filter=lambda obj, st: (
+                CardType.ARTIFACT in obj.characteristics.types
+                or CardType.ENCHANTMENT in obj.characteristics.types
+                or (CardType.CREATURE in obj.characteristics.types
+                    and any((a.get('keyword') if isinstance(a, dict) else str(a)).lower() == 'flying'
+                            for a in (obj.characteristics.abilities or [])))
+            ),
+        ),
+        count=1,
+        label="target artifact, enchantment, or creature with flying",
+    )],
 )
 
 DEFEND_THE_RIDER = make_instant(
@@ -5280,6 +4916,14 @@ BROADSIDE_BARRAGE = make_instant(
     text="Broadside Barrage deals 5 damage to target creature or planeswalker. Draw a card, then discard a card.",
     rarity="uncommon",
     resolve=broadside_barrage_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE, CardType.PLANESWALKER},
+            zones=[ZoneType.BATTLEFIELD],
+        ),
+        count=1,
+        label="target creature or planeswalker",
+    )],
 )
 
 BROODHEART_ENGINE = make_artifact(
