@@ -10046,18 +10046,26 @@ def was_bargained(state: GameState, card_name: str) -> bool:
 # helper bundles the resolve= boilerplate so card scripts don't need to
 # write 30+ lines per spell.
 #
-# Usage::
+# Two styles are supported:
+#
+#   1. **Legacy tuple form** — ``(text, effect_fn)`` where ``effect_fn`` has
+#      signature ``(state, caster_id, spell_id)`` and returns events. Modes
+#      that need a target chain a follow-up ``create_target_choice`` inside
+#      their own ``effect_fn``.
+#
+#   2. **ModeSpec form** (Phase 5b) — declares an optional ``target_requirement``
+#      on each mode. After mode selection, the helper chains one PendingChoice
+#      per chosen-mode-with-targets, accumulates the picks, and dispatches each
+#      ``effect_fn(state, caster_id, spell_id, targets=...)`` with the targets
+#      list for that mode.
+#
+# Usage (legacy)::
 #
 #     from src.cards.interceptor_helpers import make_modal_resolve
 #
 #     def mode0_effect(state, caster_id, spell_id):
 #         return [Event(type=EventType.LIFE_CHANGE,
 #                       payload={'player': caster_id, 'amount': 3},
-#                       source=spell_id, controller=caster_id)]
-#
-#     def mode1_effect(state, caster_id, spell_id):
-#         return [Event(type=EventType.DRAW,
-#                       payload={'player': caster_id, 'count': 1},
 #                       source=spell_id, controller=caster_id)]
 #
 #     SOMETHING = make_sorcery(
@@ -10073,16 +10081,85 @@ def was_bargained(state: GameState, card_name: str) -> bool:
 #         ),
 #     )
 #
-# Each mode's ``effect_fn(state, caster_id, spell_id)`` returns the events
-# to enqueue when that mode is chosen. Modes that need a target should
-# create a follow-up ``create_target_choice`` themselves and return [] —
-# the standard chained-choice pattern.
+# Usage (ModeSpec with per-mode target requirements)::
+#
+#     from src.cards.interceptor_helpers import make_modal_resolve, ModeSpec
+#     from src.engine.targeting import target_creature, target_player
+#
+#     def bolt_mode(state, caster_id, spell_id, targets=None):
+#         tid = targets[0].id if targets else None
+#         return [Event(type=EventType.DAMAGE,
+#                       payload={'target': tid, 'amount': 3, 'source': spell_id},
+#                       source=spell_id, controller=caster_id)]
+#
+#     def life_mode(state, caster_id, spell_id, targets=None):
+#         return [Event(type=EventType.LIFE_CHANGE,
+#                       payload={'player': caster_id, 'amount': 3},
+#                       source=spell_id, controller=caster_id)]
+#
+#     SOMETHING = make_sorcery(
+#         ...,
+#         resolve=make_modal_resolve(
+#             "Something",
+#             modes=[
+#                 ModeSpec("Deal 3 damage", bolt_mode,
+#                          target_requirement=target_creature()),
+#                 ModeSpec("Gain 3 life", life_mode),  # no target
+#             ],
+#             min_modes=1, max_modes=1,
+#         ),
+#     )
 # =============================================================================
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class ModeSpec:
+    """One mode of a modal spell.
+
+    Args:
+        text: Display label, shown in the mode-selection prompt.
+        effect_fn: Resolver for this mode. Signature when
+            ``target_requirement`` is ``None``: ``(state, caster_id, spell_id)
+            -> list[Event]``. When ``target_requirement`` is set (single or
+            list): ``(state, caster_id, spell_id, targets=list[Target]) ->
+            list[Event]``. With multiple requirements, ``targets`` is the
+            flat list of one ``Target`` per requirement (in declaration order).
+        target_requirement: Optional cast-resolution target spec. May be a
+            single ``TargetRequirement`` or a list of them. If set, after
+            mode selection the resolver chains one target choice per
+            requirement and passes the picked targets to ``effect_fn`` as a
+            ``targets=`` kwarg (flat list). If ``None``, ``effect_fn`` is
+            called with the 3-arg legacy signature.
+        prompt: Optional override for the target choice prompt. Defaults to
+            each requirement's ``label``.
+    """
+    text: str
+    effect_fn: Callable[..., list[Event]]
+    target_requirement: Optional[Any] = None  # TargetRequirement or list; Any to avoid circular import
+    prompt: Optional[str] = None
+
+
+def _coerce_modes(modes) -> list[ModeSpec]:
+    """Accept legacy ``(text, effect_fn)`` tuples and normalize to ``ModeSpec``."""
+    out: list[ModeSpec] = []
+    for m in modes:
+        if isinstance(m, ModeSpec):
+            out.append(m)
+        elif isinstance(m, tuple) and len(m) == 2:
+            out.append(ModeSpec(text=m[0], effect_fn=m[1]))
+        else:
+            raise TypeError(
+                f"make_modal_resolve: each mode must be a ModeSpec or "
+                f"(text, effect_fn) tuple, got {type(m).__name__}: {m!r}"
+            )
+    return out
 
 
 def make_modal_resolve(
     card_name: str,
-    modes: list[tuple[str, Callable[[GameState, str, str], list[Event]]]],
+    modes,
     *,
     min_modes: int = 1,
     max_modes: int = 1,
@@ -10090,14 +10167,14 @@ def make_modal_resolve(
 ):
     """Build a ``resolve=`` callback for a modal spell.
 
-    ``modes`` is a list of ``(text, effect_fn)`` tuples. ``effect_fn`` is
-    invoked with ``(state, caster_id, spell_id)`` and returns the events
-    that mode produces.
+    ``modes`` is a list of ``ModeSpec`` or ``(text, effect_fn)`` tuples
+    (legacy). See module docstring for usage examples.
     """
-    if min_modes < 0 or max_modes < min_modes or max_modes > len(modes):
+    mode_specs = _coerce_modes(modes)
+    if min_modes < 0 or max_modes < min_modes or max_modes > len(mode_specs):
         raise ValueError(
             f"make_modal_resolve: bad min/max ({min_modes}/{max_modes}) for "
-            f"{len(modes)} modes"
+            f"{len(mode_specs)} modes"
         )
 
     def _resolve(targets: list, state: GameState) -> list[Event]:
@@ -10105,12 +10182,14 @@ def make_modal_resolve(
         stack_zone = state.zones.get('stack')
         spell_id = None
         caster_id = None
+        spell_obj = None
         if stack_zone:
             for cid in stack_zone.objects:
                 obj = state.objects.get(cid)
                 if obj and obj.name == card_name:
                     spell_id = obj.id
                     caster_id = obj.controller
+                    spell_obj = obj
                     break
         if caster_id is None:
             caster_id = getattr(state, 'active_player', None) or getattr(state, 'priority_player', None)
@@ -10120,8 +10199,8 @@ def make_modal_resolve(
             return []
 
         mode_options = [
-            {"index": i, "text": text}
-            for i, (text, _) in enumerate(modes)
+            {"index": i, "text": ms.text}
+            for i, ms in enumerate(mode_specs)
         ]
         choice_prompt = prompt or f"{card_name} — choose " + (
             "one" if min_modes == max_modes == 1 else
@@ -10138,21 +10217,188 @@ def make_modal_resolve(
             prompt=choice_prompt,
         )
 
-        def _handler(ch, selected_modes, st: GameState) -> list[Event]:
+        def _mode_reqs(ms: ModeSpec) -> list:
+            """Return the list of TargetRequirements for a mode (0, 1, or N)."""
+            if ms.target_requirement is None:
+                return []
+            if isinstance(ms.target_requirement, list):
+                return list(ms.target_requirement)
+            return [ms.target_requirement]
+
+        def _dispatch_modes(
+            st: GameState,
+            chosen_idx_list: list[int],
+            per_mode_targets: dict[int, list],
+        ) -> list[Event]:
+            """Run each chosen mode's effect_fn, returning aggregated events.
+
+            MTG rule: if a chosen mode requires targets and none were legal,
+            that mode's effect simply doesn't happen (the mode "does nothing").
+            We detect this via an empty targets list in ``per_mode_targets``
+            for a mode whose ``target_requirement`` has ``min_targets() >= 1``.
+            """
             events: list[Event] = []
+            for idx in chosen_idx_list:
+                if not (0 <= idx < len(mode_specs)):
+                    continue
+                ms = mode_specs[idx]
+                reqs = _mode_reqs(ms)
+                try:
+                    if reqs:
+                        picked = per_mode_targets.get(idx, [])
+                        # If any required-target slot is empty, the mode does
+                        # nothing (MTG: illegally chosen mode).
+                        if any(
+                            (not picked[i] if i < len(picked) else True)
+                            and reqs[i].min_targets() >= 1
+                            for i in range(len(reqs))
+                        ):
+                            continue
+                        new_evs = ms.effect_fn(
+                            st, caster_id, spell_id,
+                            targets=picked,
+                        ) or []
+                    else:
+                        new_evs = ms.effect_fn(st, caster_id, spell_id) or []
+                except Exception:
+                    new_evs = []
+                events.extend(new_evs)
+            return events
+
+        def _chain_target_picks(
+            st: GameState,
+            chosen_with_targets: list[int],
+            chosen_idx_list: list[int],
+            mode_cursor: int,
+            req_cursor: int,
+            per_mode_targets: dict[int, list],
+        ) -> list[Event]:
+            """Chain one PendingChoice per chosen mode/requirement pair.
+
+            Base case (``mode_cursor == len(chosen_with_targets)``): all
+            targets collected; dispatch each chosen mode's effect_fn.
+            """
+            if mode_cursor >= len(chosen_with_targets):
+                return _dispatch_modes(st, chosen_idx_list, per_mode_targets)
+
+            mode_idx = chosen_with_targets[mode_cursor]
+            ms = mode_specs[mode_idx]
+            reqs = _mode_reqs(ms)
+
+            # Advance past empty req lists or past last req.
+            if req_cursor >= len(reqs):
+                return _chain_target_picks(
+                    st, chosen_with_targets, chosen_idx_list,
+                    mode_cursor + 1, 0, per_mode_targets,
+                )
+
+            req = reqs[req_cursor]
+
+            # Re-evaluate legal targets at resolution time.
+            from src.engine.targeting import TargetingSystem, Target
+            legal_ids: list[str] = []
+            if spell_obj is not None:
+                try:
+                    ts = TargetingSystem(st)
+                    legal_ids = ts.get_legal_targets(req, spell_obj, caster_id)
+                except Exception:
+                    legal_ids = []
+            else:
+                for oid, obj in st.objects.items():
+                    try:
+                        if req.filter.matches(obj, st, None):
+                            legal_ids.append(oid)
+                    except Exception:
+                        pass
+                if getattr(req.filter, 'types', None) is None or getattr(
+                    req.filter, 'includes_players', False
+                ):
+                    for pid in st.players.keys():
+                        if req.filter.controller == 'you' and pid != caster_id:
+                            continue
+                        if req.filter.controller == 'opponent' and pid == caster_id:
+                            continue
+                        legal_ids.append(pid)
+
+            # No legal targets — this whole mode does nothing.
+            if not legal_ids:
+                per_mode_targets[mode_idx] = []
+                return _chain_target_picks(
+                    st, chosen_with_targets, chosen_idx_list,
+                    mode_cursor + 1, 0, per_mode_targets,
+                )
+
+            options = []
+            for tid in legal_ids:
+                obj = st.objects.get(tid)
+                if obj is not None:
+                    label = getattr(obj, "name", None) or tid
+                else:
+                    player = st.players.get(tid)
+                    label = getattr(player, "name", None) or f"Player {tid[:8]}"
+                options.append({"id": tid, "label": label})
+
+            def _target_handler(_ch, selected, st2: GameState) -> list[Event]:
+                picked_ids = [
+                    s.get("id") if isinstance(s, dict) else s for s in (selected or [])
+                ]
+                picks: list = []
+                for tid in picked_ids:
+                    is_player = tid in st2.players
+                    picks.append(Target(id=str(tid), is_player=is_player))
+                # Append to the per-mode bucket. The bucket is a flat list of
+                # the resolved targets across all the mode's requirements.
+                bucket = per_mode_targets.setdefault(mode_idx, [])
+                # Single-target requirements: take the first pick (most common).
+                # Multi-target (count > 1 or up_to N): bucket gets a Target per pick.
+                # We store one Target per pick (the dispatcher reads them in order).
+                if picks:
+                    bucket.append(picks[0])
+                else:
+                    bucket.append(None)
+                return _chain_target_picks(
+                    st2, chosen_with_targets, chosen_idx_list,
+                    mode_cursor, req_cursor + 1, per_mode_targets,
+                )
+
+            from src.engine.pending_choice_helpers import create_choice_and_resolve
+            max_t = req.max_targets()
+            mode_prompt = ms.prompt or req.label or f"{card_name} — choose a target"
+            return create_choice_and_resolve(
+                st,
+                choice_type="target",
+                player_id=caster_id,
+                prompt=mode_prompt,
+                options=options,
+                source_id=spell_id,
+                min_choices=req.min_targets(),
+                max_choices=int(max_t) if max_t != float('inf') else len(options),
+                handler=_target_handler,
+                heuristic_pick=[legal_ids[0]],
+            )
+
+        def _handler(ch, selected_modes, st: GameState) -> list[Event]:
+            # Normalize chosen mode indices.
+            chosen_idx_list: list[int] = []
             for mi in (selected_modes or []):
                 try:
-                    idx = int(mi)
+                    chosen_idx_list.append(int(mi))
                 except (TypeError, ValueError):
                     continue
-                if 0 <= idx < len(modes):
-                    _, effect_fn = modes[idx]
-                    try:
-                        new_evs = effect_fn(st, caster_id, spell_id) or []
-                    except Exception:
-                        new_evs = []
-                    events.extend(new_evs)
-            return events
+
+            # Which chosen modes need a target?
+            chosen_with_targets = [
+                i for i in chosen_idx_list
+                if 0 <= i < len(mode_specs) and mode_specs[i].target_requirement is not None
+            ]
+
+            # No targeted modes — fast path matches legacy behavior.
+            if not chosen_with_targets:
+                return _dispatch_modes(st, chosen_idx_list, {})
+
+            return _chain_target_picks(
+                st, chosen_with_targets, chosen_idx_list, 0, 0, {}
+            )
 
         choice.choice_type = "modal_with_callback"
         choice.callback_data['handler'] = _handler
@@ -10163,6 +10409,7 @@ def make_modal_resolve(
 
 __all_modal__ = [
     "make_modal_resolve",
+    "ModeSpec",
 ]
 
 
