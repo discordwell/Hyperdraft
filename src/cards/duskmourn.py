@@ -4275,8 +4275,31 @@ def malevolent_chandelier_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def marvin_murderous_mimic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Has all activated abilities of differently-named creatures you control."""
-    # engine gap: dynamic activated-ability copying
+    """Has all activated abilities of differently-named creatures you control.
+
+    Implemented via the ability-mirror registry (src/engine/activated.py).
+    The mirror is consulted at state-time, so creatures entering / leaving
+    the battlefield automatically expand / contract Marvin's ability set.
+    """
+    from src.engine.activated import register_ability_mirror
+
+    def _marvin_mirror_predicate(marvin: GameObject, st: GameState) -> list[GameObject]:
+        out: list[GameObject] = []
+        for c in st.objects.values():
+            if c.zone != ZoneType.BATTLEFIELD:
+                continue
+            if CardType.CREATURE not in c.characteristics.types:
+                continue
+            if c.controller != marvin.controller:
+                continue
+            if c.id == marvin.id:
+                continue
+            if c.name == marvin.name:
+                continue
+            out.append(c)
+        return out
+
+    register_ability_mirror(obj, _marvin_mirror_predicate)
     return []
 
 

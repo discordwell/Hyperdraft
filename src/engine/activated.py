@@ -98,6 +98,21 @@ class ActivatedAbility:
     # casting the main half from exile.
     is_adventure: bool = False
 
+    # Marvin-style ability mirror marker. When True, this ActivatedAbility is
+    # a *derived* view created by ``get_mirrored_abilities`` from another
+    # creature's printed ability. The descriptor lives transiently on the
+    # mirror's view list and MUST NOT be re-mirrored (otherwise an A->B->A
+    # chain would recurse forever).
+    is_mirror_derived: bool = False
+    # When ``is_mirror_derived``, points back at the source object whose
+    # ability is being mirrored. Set so the mirror's cost-pay can still tap
+    # the *mirroring* object (e.g. Marvin) while ignoring the source's tap
+    # state for legality.
+    mirror_source_obj_id: Optional[str] = None
+    # Identity of the original (printed) ability descriptor on the source.
+    # Used for de-dup / bookkeeping; not consulted by the cost-pay path.
+    mirror_source_ability_index: Optional[int] = None
+
     # OTJ Plot marker. When True, paying ``exile_self`` sets the source
     # object's ``state.plotted_turn`` to the current turn number so the
     # cast subsystem can offer casting the spell from exile on a later
@@ -811,6 +826,252 @@ def make_exhaust_reset_effect(
     )]
 
 
+# ----------------------------------------------------------------------
+# Dynamic ability mirror (Marvin, Murderous Mimic)
+# ----------------------------------------------------------------------
+#
+# Some cards copy the activated abilities of other permanents at state-time:
+# Marvin, Murderous Mimic — "Marvin has all activated abilities of creatures
+# you control that don't have the same name as this creature."
+#
+# We model this with a state-keyed registry: ``state.ability_mirrors`` maps
+# the mimic object's id -> AbilityMirror. The legal-action surface
+# (``priority._get_activatable_abilities``) calls ``get_mirrored_abilities``
+# in addition to the printed ones, and ``_handle_activate_ability`` looks up
+# the descriptor via the ``mirror:<src>:<idx>`` ability_id prefix.
+#
+# The mirror is *additive*: it never replaces or hides existing abilities.
+# Cost-pay still applies to the mimic (so Marvin taps itself when activating
+# a {T} ability from a source creature; the source creature does not tap).
+# Recursion is prevented by ``is_mirror_derived``: mirror-derived descriptors
+# on a source creature are never themselves re-mirrored.
+
+
+PredicateFn = Callable[[GameObject, GameState], list[GameObject]]
+
+
+@dataclass
+class AbilityMirror:
+    """Registry entry: mimic object copies abilities from a dynamic source set."""
+
+    source_obj_id: str
+    predicate_fn: PredicateFn
+    controller: str = ""
+
+
+def register_ability_mirror(
+    obj: GameObject,
+    predicate_fn: PredicateFn,
+    *,
+    controller: Optional[str] = None,
+) -> AbilityMirror:
+    """Register an ability mirror for ``obj``.
+
+    The mirror is consulted at state-time by the priority system when it
+    enumerates activated abilities for ``obj`` and when it dispatches a
+    ``mirror:<source_obj_id>:<idx>`` ability_id.
+
+    Stored on ``obj.state`` so the registry is bound to the GameState that
+    owns ``obj``: ``obj.state`` holds an ``ObjectState`` which is owned by
+    the same GameState whose ``ability_mirrors`` dict we mutate via the
+    GameState reference threaded through priority callers. We don't have a
+    direct state ref at registration time, so we stash on ``obj`` and
+    resolve at consumption time.
+    """
+    mirror = AbilityMirror(
+        source_obj_id=obj.id,
+        predicate_fn=predicate_fn,
+        controller=controller or obj.controller,
+    )
+    # We need a state ref to populate ``state.ability_mirrors``. Setup
+    # functions are called with ``(obj, state)`` in this codebase, but
+    # ``register_ability_mirror`` is invoked from inside the setup body
+    # where state is also in scope; helper wrappers thread the state into
+    # the object's ``_state_ref`` (see Game.create_object). Use that.
+    state = getattr(obj, "_state_ref", None)
+    if state is None:
+        # Defensive: try GameState-style lookup via priority callers later.
+        # Stash on the object for the consumer to pick up on first use.
+        if not hasattr(obj.state, "_pending_ability_mirror"):
+            obj.state._pending_ability_mirror = mirror
+        return mirror
+    if not isinstance(getattr(state, "ability_mirrors", None), dict):
+        state.ability_mirrors = {}
+    state.ability_mirrors[obj.id] = mirror
+    return mirror
+
+
+def _resolve_state_mirror(obj: GameObject, state: GameState) -> Optional[AbilityMirror]:
+    """Look up the mirror for ``obj``, lazily promoting any pending stash."""
+    if not isinstance(getattr(state, "ability_mirrors", None), dict):
+        state.ability_mirrors = {}
+    mirror = state.ability_mirrors.get(obj.id)
+    if mirror is not None:
+        return mirror
+    pending = getattr(obj.state, "_pending_ability_mirror", None)
+    if pending is not None:
+        state.ability_mirrors[obj.id] = pending
+        try:
+            delattr(obj.state, "_pending_ability_mirror")
+        except AttributeError:
+            pass
+        return pending
+    return None
+
+
+def get_mirrored_abilities(
+    obj: GameObject, state: GameState
+) -> list[ActivatedAbility]:
+    """Return the live list of ActivatedAbility descriptors mirrored onto ``obj``.
+
+    For each creature returned by the registered ``predicate_fn``, we walk
+    that creature's *printed* (non-mirror-derived) activated abilities and
+    construct a fresh ActivatedAbility view "owned" by ``obj`` but whose
+    ``effect_fn`` retains the original closure (so it still references the
+    source creature's intended effect — Marvin's tap won't double-flag the
+    source, but the source's effect_fn body runs as written).
+
+    Recursion guard: any ability with ``is_mirror_derived=True`` on a source
+    creature is skipped. Two coexisting Marvins each mirror the other's
+    printed abilities (which are none unless we add some via test setup),
+    not each other's mirror-derived views.
+
+    Returned descriptors are *transient* (built fresh on each call). Callers
+    must NOT mutate per-turn bookkeeping fields on them (those would be lost
+    when the next call returns a new descriptor); instead, when an activation
+    succeeds, the priority handler updates bookkeeping on the original source
+    descriptor too.
+    """
+    mirror = _resolve_state_mirror(obj, state)
+    if mirror is None:
+        return []
+    try:
+        sources = mirror.predicate_fn(obj, state) or []
+    except Exception:
+        return []
+    out: list[ActivatedAbility] = []
+    for src in sources:
+        src_abilities = getattr(src.state, "activated_abilities", None) or []
+        for idx, ability in enumerate(src_abilities):
+            if getattr(ability, "is_mirror_derived", False):
+                # Don't re-mirror an already-mirrored ability — prevents A->B->A
+                # cycles when two Marvins coexist.
+                continue
+            view = ActivatedAbility(
+                cost_text=ability.cost_text,
+                effect_fn=ability.effect_fn,
+                description=ability.description,
+                mana_cost=ability.mana_cost,
+                requires_tap=ability.requires_tap,
+                sac_self=ability.sac_self,
+                discard_self=ability.discard_self,
+                exile_self=ability.exile_self,
+                additional_cost_plan=ability.additional_cost_plan,
+                counter_removal=ability.counter_removal,
+                sorcery_speed=ability.sorcery_speed,
+                own_turn_only=ability.own_turn_only,
+                once_per_turn=ability.once_per_turn,
+                once_per_game=ability.once_per_game,
+                has_x_cost=ability.has_x_cost,
+                is_exhaust=ability.is_exhaust,
+                targets_required=ability.targets_required,
+                target_kind=ability.target_kind,
+                # Carry per-turn bookkeeping by reference-ish — we still
+                # update the source descriptor in ``record_activation`` to
+                # avoid bypassing once-per-turn on the source itself, but
+                # the mirror needs its own counters for once-per-turn from
+                # Marvin's perspective. We initialise to defaults and the
+                # priority handler will commit to both descriptors.
+                activations_this_turn=ability.activations_this_turn,
+                last_activation_turn=ability.last_activation_turn,
+                total_activations=ability.total_activations,
+                once_per_game_used=ability.once_per_game_used,
+                ability_index=idx,
+                is_adventure=ability.is_adventure,
+                is_plot=ability.is_plot,
+                precondition_fn=ability.precondition_fn,
+                # Mark derived + back-reference.
+                is_mirror_derived=True,
+                mirror_source_obj_id=src.id,
+                mirror_source_ability_index=idx,
+            )
+            out.append(view)
+    return out
+
+
+def find_mirrored_ability(
+    obj: GameObject,
+    state: GameState,
+    source_obj_id: str,
+    source_ability_index: int,
+) -> Optional[ActivatedAbility]:
+    """Look up a specific mirrored ability descriptor for dispatch.
+
+    Called by ``priority._handle_activate_ability`` when it sees an
+    ``ability_id`` starting with ``mirror:``.
+    """
+    mirror = _resolve_state_mirror(obj, state)
+    if mirror is None:
+        return None
+    try:
+        sources = mirror.predicate_fn(obj, state) or []
+    except Exception:
+        return None
+    for src in sources:
+        if src.id != source_obj_id:
+            continue
+        src_abilities = getattr(src.state, "activated_abilities", None) or []
+        if not (0 <= source_ability_index < len(src_abilities)):
+            return None
+        ability = src_abilities[source_ability_index]
+        if getattr(ability, "is_mirror_derived", False):
+            return None
+        # Build a fresh view (must mirror the structure produced by
+        # ``get_mirrored_abilities`` so cost-pay sees the same flags).
+        return ActivatedAbility(
+            cost_text=ability.cost_text,
+            effect_fn=ability.effect_fn,
+            description=ability.description,
+            mana_cost=ability.mana_cost,
+            requires_tap=ability.requires_tap,
+            sac_self=ability.sac_self,
+            discard_self=ability.discard_self,
+            exile_self=ability.exile_self,
+            additional_cost_plan=ability.additional_cost_plan,
+            counter_removal=ability.counter_removal,
+            sorcery_speed=ability.sorcery_speed,
+            own_turn_only=ability.own_turn_only,
+            once_per_turn=ability.once_per_turn,
+            once_per_game=ability.once_per_game,
+            has_x_cost=ability.has_x_cost,
+            is_exhaust=ability.is_exhaust,
+            targets_required=ability.targets_required,
+            target_kind=ability.target_kind,
+            activations_this_turn=ability.activations_this_turn,
+            last_activation_turn=ability.last_activation_turn,
+            total_activations=ability.total_activations,
+            once_per_game_used=ability.once_per_game_used,
+            ability_index=source_ability_index,
+            is_adventure=ability.is_adventure,
+            is_plot=ability.is_plot,
+            precondition_fn=ability.precondition_fn,
+            is_mirror_derived=True,
+            mirror_source_obj_id=src.id,
+            mirror_source_ability_index=source_ability_index,
+        )
+    return None
+
+
+def cleanup_ability_mirror(obj_id: str, state: GameState) -> None:
+    """Remove the mirror entry for ``obj_id`` (called on leaves-battlefield).
+
+    Safe to call when no entry exists. Idempotent.
+    """
+    mirrors = getattr(state, "ability_mirrors", None)
+    if isinstance(mirrors, dict) and obj_id in mirrors:
+        del mirrors[obj_id]
+
+
 __all__ = [
     "ActivatedAbility",
     "EffectFn",
@@ -823,4 +1084,11 @@ __all__ = [
     "record_activation",
     "reset_exhaust",
     "make_exhaust_reset_effect",
+    # Mirror system
+    "AbilityMirror",
+    "PredicateFn",
+    "register_ability_mirror",
+    "get_mirrored_abilities",
+    "find_mirrored_ability",
+    "cleanup_ability_mirror",
 ]

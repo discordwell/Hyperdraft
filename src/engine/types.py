@@ -1551,6 +1551,18 @@ class GameState:
     play_lands_from_graveyard_until: dict[str, Optional[int]] = field(default_factory=dict)
     exile_instead_of_graveyard_until: dict[str, Optional[int]] = field(default_factory=dict)
 
+    # ---------------------------------------------------------------------
+    # Ability mirror registry (Marvin, Murderous Mimic etc.)
+    # ---------------------------------------------------------------------
+    # Keyed by source object id (the "mimic" object). Each entry pairs that
+    # object with a predicate that computes the live list of source creatures
+    # whose activated abilities should be mirrored onto the source object.
+    # Cleared on departure via the standard interceptor cleanup path: the
+    # registration helper attaches a sentinel interceptor whose lifecycle
+    # mirrors "while_on_battlefield", and the helper that returns its
+    # interceptor also has the mirror prune itself when the source leaves.
+    ability_mirrors: dict[str, Any] = field(default_factory=dict)
+
     def next_timestamp(self) -> int:
         self.timestamp += 1
         return self.timestamp

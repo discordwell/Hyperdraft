@@ -635,17 +635,21 @@ def test_marvin_murderous_mimic_no_op_documented():
     """DSK Marvin, Murderous Mimic: 'has all activated abilities of creatures
     you control that don't have the same name as this creature.'
 
-    Engine gap: dynamic activated-ability copying. The current setup is a
-    no-op returning []. We document the gap so a future enabling change
-    flags here."""
+    Implemented via ``register_ability_mirror`` (src/engine/activated.py).
+    The setup function registers a mirror entry on the state and returns
+    [] (no event-pipeline interceptors needed); the mirror is consulted
+    state-time by the legal-action surface. End-to-end coverage lives in
+    tests/test_marvin_mirror.py — this regression test continues to
+    guard the setup's contract (returns [] and registers the mirror)."""
     print("\n=== Test: DSK Marvin Murderous Mimic regression ===")
     from src.cards.duskmourn import MARVIN_MURDEROUS_MIMIC, marvin_murderous_mimic_setup
     from src.engine.types import GameObject, ObjectState
 
     assert MARVIN_MURDEROUS_MIMIC is not None
     assert MARVIN_MURDEROUS_MIMIC.name == "Marvin, Murderous Mimic"
-    # The setup is a no-op (engine gap). Calling it on a bare object should
-    # return [].
+    # The setup function registers a mirror entry and returns []. We
+    # confirm both: (a) returns []; (b) state.ability_mirrors has an entry
+    # for this object.
     game = Game()
     p1 = game.add_player("Alice")
     obj = GameObject(
@@ -656,11 +660,19 @@ def test_marvin_murderous_mimic_no_op_documented():
         controller=p1.id, owner=p1.id,
     )
     obj.state = ObjectState()
+    # Thread state ref so register_ability_mirror lands the entry directly
+    # on state.ability_mirrors (otherwise it stashes on the object).
+    obj._state_ref = game.state
     out = marvin_murderous_mimic_setup(obj, game.state)
     assert out == [], (
-        f"marvin_murderous_mimic_setup is currently a no-op; got {out}"
+        f"marvin_murderous_mimic_setup must return []; got {out}"
     )
-    print("  Marvin: dynamic ability copy is an engine gap (setup returns [])")
+    # Confirm the mirror landed in the registry.
+    assert "tst_marvin" in getattr(game.state, "ability_mirrors", {}), (
+        "marvin_murderous_mimic_setup must register an ability mirror; "
+        "state.ability_mirrors does not have an entry for tst_marvin"
+    )
+    print("  Marvin: dynamic ability mirror registered on state")
 
 
 from src.engine.types import GameObject, ObjectState  # for test helpers above

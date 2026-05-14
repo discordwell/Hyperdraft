@@ -2027,7 +2027,7 @@ class PrioritySystem:
         actions: list[LegalAction] = []
 
         # Phase 4: registered activated abilities.
-        from .activated import can_pay_activation
+        from .activated import can_pay_activation, get_mirrored_abilities
         from .cost_query import get_effective_activation_cost
         is_active = (
             self.turn_manager is not None
@@ -2068,6 +2068,48 @@ class PrioritySystem:
                 description=f"Activate {obj.name}: {ability.description}",
                 requires_mana=bool(ability.mana_cost and not ability.mana_cost.is_free()),
                 mana_cost=effective_cost or ability.mana_cost,
+            ))
+
+        # Marvin-style ability mirror: surface activated abilities copied
+        # from other creatures (per a card-supplied predicate). The mirrored
+        # ability descriptor is a transient view "owned" by ``obj``, so
+        # legality applies to ``obj`` (e.g. {T} taps ``obj``, not the source).
+        for mirror_view in get_mirrored_abilities(obj, self.state):
+            src_obj_id = mirror_view.mirror_source_obj_id
+            src_idx = mirror_view.mirror_source_ability_index
+            if src_obj_id is None or src_idx is None:
+                continue
+            effective_cost = None
+            if mirror_view.mana_cost is not None:
+                try:
+                    effective_cost = get_effective_activation_cost(
+                        mirror_view, obj, player_id, self.state,
+                    )
+                except Exception:
+                    effective_cost = mirror_view.mana_cost
+            if not can_pay_activation(
+                mirror_view, obj, self.state, player_id,
+                mana_system=self.mana_system,
+                is_active_player=is_active,
+                is_main_phase=is_main,
+                stack_empty=stack_empty,
+                effective_mana_cost=effective_cost,
+            ):
+                continue
+            src_obj = self.state.objects.get(src_obj_id)
+            src_name = src_obj.name if src_obj is not None else "source"
+            actions.append(LegalAction(
+                type=ActionType.ACTIVATE_ABILITY,
+                source_id=obj.id,
+                ability_id=f"mirror:{src_obj_id}:{src_idx}",
+                description=(
+                    f"Activate {obj.name} (mirror of {src_name}): "
+                    f"{mirror_view.description}"
+                ),
+                requires_mana=bool(
+                    mirror_view.mana_cost and not mirror_view.mana_cost.is_free()
+                ),
+                mana_cost=effective_cost or mirror_view.mana_cost,
             ))
 
         ability_lines = self._get_activated_ability_lines(obj)
@@ -3371,6 +3413,158 @@ class PrioritySystem:
             # Phase 4: registered activated abilities (cards/interceptor_helpers.make_activated_ability).
             if action.ability_id.startswith("activated:"):
                 return self._handle_activate_registered_ability_sync(action, source)
+
+            # Marvin-style mirror dispatch: ability_id is
+            # ``mirror:<source_obj_id>:<source_ability_index>``. The
+            # mirrored ability descriptor is a transient view "owned" by
+            # ``source`` (the mimic), so cost-pay applies to ``source``
+            # (Marvin taps itself, etc.). The effect_fn closure is the
+            # original from the source creature, but it is invoked with
+            # ``source`` as the GameObject — Marvin's id, not the source's.
+            if action.ability_id.startswith("mirror:"):
+                from .activated import (
+                    can_pay_activation,
+                    pay_activation_cost,
+                    record_activation,
+                    find_mirrored_ability,
+                )
+                from .cost_query import get_effective_activation_cost
+                parts = action.ability_id.split(":")
+                if len(parts) != 3:
+                    return []
+                _, src_obj_id, src_idx_str = parts
+                try:
+                    src_idx = int(src_idx_str)
+                except ValueError:
+                    return []
+                mirror_view = find_mirrored_ability(
+                    source, self.state, src_obj_id, src_idx
+                )
+                if mirror_view is None:
+                    return []
+                _is_active = (
+                    self.turn_manager is not None
+                    and self.turn_manager.turn_state.active_player_id == action.player_id
+                )
+                _is_main = False
+                if self.turn_manager is not None:
+                    from .turn import Phase as _Phase
+                    _is_main = self.turn_manager.turn_state.phase in (
+                        _Phase.PRECOMBAT_MAIN, _Phase.POSTCOMBAT_MAIN
+                    )
+                _stack_empty = (self.stack is None) or (len(self.stack.items) == 0)
+                _x = int(getattr(action, 'x_value', 0) or 0)
+                _effective_cost = None
+                if mirror_view.mana_cost is not None:
+                    try:
+                        _effective_cost = get_effective_activation_cost(
+                            mirror_view, source, action.player_id, self.state,
+                        )
+                    except Exception:
+                        _effective_cost = mirror_view.mana_cost
+                # Legality applies to the *mimic* (source) — its tap state,
+                # its summoning sickness, its counters, its mana.
+                if not can_pay_activation(
+                    mirror_view, source, self.state, action.player_id,
+                    mana_system=self.mana_system,
+                    is_active_player=_is_active,
+                    is_main_phase=_is_main,
+                    stack_empty=_stack_empty,
+                    x_value=_x,
+                    effective_mana_cost=_effective_cost,
+                ):
+                    return []
+                # Cost-pay applies to ``source`` (Marvin taps itself; if the
+                # mirrored cost says "sacrifice this", Marvin gets sac'd).
+                events.extend(pay_activation_cost(
+                    mirror_view, source, self.state, action.player_id,
+                    mana_system=self.mana_system,
+                    x_value=_x,
+                    effective_mana_cost=_effective_cost,
+                ))
+                _src_id = source.id
+                _effect_fn = mirror_view.effect_fn
+                try:
+                    _sig = inspect.signature(_effect_fn)
+                    _accepts_x = (
+                        'x_value' in _sig.parameters
+                        or any(
+                            p.kind == inspect.Parameter.VAR_KEYWORD
+                            for p in _sig.parameters.values()
+                        )
+                    )
+                except (TypeError, ValueError):
+                    _accepts_x = False
+
+                def _resolve_mirror(targets, st: GameState) -> list[Event]:
+                    # Crucial: the mimic is the GameObject passed to the
+                    # effect_fn so the effect's "this creature" references
+                    # resolve to the mimic (Marvin), per CR 706: copied
+                    # abilities use the new object as their source.
+                    obj = st.objects.get(_src_id)
+                    if obj is None:
+                        return []
+                    flat: list = []
+                    for group in (targets or []):
+                        if isinstance(group, list):
+                            flat.extend(group)
+                        else:
+                            flat.append(group)
+                    try:
+                        if _accepts_x:
+                            return list(_effect_fn(obj, st, flat, x_value=_x) or [])
+                        return list(_effect_fn(obj, st, flat) or [])
+                    except Exception:
+                        return []
+
+                if self.stack:
+                    self.stack.push(StackItem(
+                        id="",
+                        type=StackItemType.ACTIVATED_ABILITY,
+                        source_id=source.id,
+                        controller_id=action.player_id,
+                        chosen_targets=action.targets,
+                        resolve_fn=_resolve_mirror,
+                    ))
+                    pushed_stack_item = True
+                # Record activation on BOTH descriptors:
+                # - the mimic's view tracks once-per-turn from Marvin's
+                #   perspective (mirror_view is transient but we update the
+                #   source descriptor below, so for now record there);
+                # - the *source* descriptor's counter is also bumped so the
+                #   source's own activation of the same ability still
+                #   respects once-per-turn (rare but possible).
+                src_obj = self.state.objects.get(src_obj_id)
+                if src_obj is not None:
+                    src_abilities = getattr(src_obj.state, "activated_abilities", []) or []
+                    if 0 <= src_idx < len(src_abilities):
+                        record_activation(src_abilities[src_idx], self.state)
+                from .crime import check_cast_targets_for_crime as _ccfc
+                _crime_events = _ccfc(
+                    controller_id=action.player_id,
+                    targets=action.targets,
+                    state=self.state,
+                    source_id=action.source_id,
+                )
+                events.extend(_crime_events)
+                events.append(Event(
+                    type=EventType.ACTIVATE,
+                    payload={
+                        'source_id': action.source_id,
+                        'ability_id': action.ability_id,
+                        'controller': action.player_id,
+                        'is_exhaust': bool(getattr(mirror_view, 'is_exhaust', False)),
+                        'x_value': _x,
+                        'is_mirror': True,
+                        'mirror_source_id': src_obj_id,
+                        'mirror_source_ability_index': src_idx,
+                    },
+                ))
+                if pushed_stack_item and action.targets:
+                    events.extend(build_target_chosen_events(
+                        action.source_id, action.player_id, action.targets,
+                    ))
+                return events
 
             # Graveyard activated abilities (Unearth/Embalm/Eternalize).
             if action.ability_id.startswith("graveyard:") and self.stack:

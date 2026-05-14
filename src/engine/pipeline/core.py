@@ -137,6 +137,15 @@ class EventPipeline:
                 if int_id in obj.interceptor_ids:
                     obj.interceptor_ids.remove(int_id)
 
+            # Remove any Marvin-style ability mirror registered with this
+            # object as its mimic. Additive — no-op for objects without a
+            # mirror entry.
+            try:
+                from ..activated import cleanup_ability_mirror
+                cleanup_ability_mirror(object_id, self.state)
+            except ImportError:
+                pass
+
     def _get_interceptors(self, priority: InterceptorPriority) -> list[Interceptor]:
         """
         Get interceptors of a given priority, sorted by timestamp.
