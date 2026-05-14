@@ -252,12 +252,21 @@ def _bias_jace_mental_triage(adapter, attacker, attack, state, player_id) -> flo
 def _bias_evolve_mirko(adapter, base, evolution, state, player_id) -> float:
     """Strong evolve-into-Mirko bias when the LZ archetype is starting
     to come online (we have <=5 LZ Pokemon and opp's deck is reachable
-    to mill)."""
+    to mill).
+
+    Gap-closure: previous bonus of +25 wasn't enough — the AI was always
+    routing through Rare Candy → Lazav ex as the primary win con and
+    leaving Mirklet on bench unevolved. Mirko is the *secondary* engine
+    that drives the LZ archetype's payoff (Necrosurge for Jarad, opp
+    deck mill for Mirko's own attack). Bumped to +55 so it competes
+    with Lazav ex evolution priority. Mirko on bench is a passive LZ
+    milling threat even before being promoted.
+    """
     lz = _own_lz_pokemon_count(player_id, state)
     deck = _opp_deck_size(adapter, state, player_id)
     bonus = 0.0
     if lz <= 5 and deck >= 30:
-        bonus += 25.0
+        bonus += 55.0
     elif lz >= 6:
         bonus -= 5.0  # already milled enough; Mirko less critical
     return bonus
@@ -266,13 +275,21 @@ def _bias_evolve_mirko(adapter, base, evolution, state, player_id) -> float:
 @evolution_scorer("Jarad, Golgari Lich Lord ex")
 def _bias_evolve_jarad(adapter, base, evolution, state, player_id) -> float:
     """Bias toward evolving to Jarad ex when our discard has Pokemon to
-    feed Necrosurge with."""
+    feed Necrosurge with.
+
+    Gap-closure: original thresholds (15 at 1 Pokemon, 30 at 2+) weren't
+    enough to compete with the standard MTG-style evolution path's +35
+    weakness/HP/damage bonus. Bumped baseline so Jarad evolution is
+    preferred whenever Jarad's evolves_from base is in play, even before
+    the graveyard fills up — Jarad's 280 HP body is a value Stage 2 ex
+    regardless of Necrosurge timing.
+    """
     grave_pkm = _own_discard_pokemon_count(player_id, state)
     if grave_pkm >= 2:
-        return 30.0
+        return 50.0
     if grave_pkm >= 1:
-        return 15.0
-    return 0.0  # no benefit yet; vanilla evolution score still works
+        return 35.0
+    return 20.0  # baseline: Jarad ex is a value Stage 2 ex even pre-graveyard
 
 
 @evolution_scorer("Obzedat, Ghost Council ex")

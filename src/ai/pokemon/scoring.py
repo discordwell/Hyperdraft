@@ -146,6 +146,28 @@ def _score_attacker(adapter, pokemon: 'GameObject', state: GameState,
                     if best_effective >= adapter._remaining_hp(opp):
                         score += 25.0
             score += best_effective / 4.0
+        # Gap-closure: consult ATTACK_SCORERS so utility attackers (Voidmage's
+        # Energy Drain, Jace's Mental Triage) aren't penalized for low raw
+        # damage. Take the best per-attack bonus from the spice registry and
+        # add a fraction of it to the attacker-quality score. Without this,
+        # _score_attacker only rewards raw HP+damage and never promotes
+        # support cards like Voidmage Apprentice (60 HP / 10 dmg).
+        card_name = pokemon.card_def.name
+        best_attack_bonus = 0.0
+        for atk in available_attacks:
+            atk_name = atk.get('name', '')
+            scorer = ATTACK_SCORERS.get((card_name, atk_name))
+            if scorer:
+                try:
+                    bonus = scorer(adapter, pokemon, atk, state, player_id)
+                    if bonus > best_attack_bonus:
+                        best_attack_bonus = bonus
+                except Exception:
+                    pass
+        # Weight at 0.4 so a +25 attack-scorer bump translates to +10 attacker
+        # score — enough to compete with a 30-damage vanilla but not so much
+        # that it dominates over the ex-tier core attackers.
+        score += best_attack_bonus * 0.4
     else:
         score -= 20.0  # Can't attack = bad active
         if settings.get('use_attack_pressure'):

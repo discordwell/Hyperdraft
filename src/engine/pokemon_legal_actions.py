@@ -281,6 +281,27 @@ def legal_pokemon_actions(game, player_id: str) -> list[dict[str, Any]]:
                     f"Play Item {obj.name}",
                     ["tempo"],
                 )
+            elif CardType.POKEMON_TOOL in types:
+                # Gap-closure: Pokemon Tools share the PKM_PLAY_ITEM
+                # action type (_play_trainer routes them through the
+                # is_tool branch). Without this, Tool cards like
+                # Pithing Drone never appeared in legal actions and
+                # could never be played by the heuristic AI.
+                #
+                # Only legal if there's at least one own Pokemon in
+                # play without an existing Tool — otherwise the play
+                # fizzles to graveyard inside _play_trainer.
+                holders = [
+                    p for p in own_pokemon
+                    if not getattr(p.state, "attached_tool", None)
+                ]
+                if holders:
+                    add(
+                        "PKM_PLAY_ITEM",
+                        {"card_id": obj.id},
+                        f"Attach Tool {obj.name}",
+                        ["tempo", "tool"],
+                    )
             elif CardType.SUPPORTER in types:
                 if (
                     not getattr(player, "supporter_played_this_turn", False)

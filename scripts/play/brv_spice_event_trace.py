@@ -32,15 +32,22 @@ if str(REPO_ROOT) not in sys.path:
 
 
 # Card-name → set of event-source strings that uniquely identify the card's
-# effect emitting (matches `payload.source` strings in the effect_fns).
+# effect emitting. Matchers cover three places where the card identity
+# leaks into the event log:
+#  1. `payload.source` strings (when effect_fns pass source=<card_name>)
+#  2. `payload.card_name` (in PKM_PLAY_ITEM / PKM_PLAY_SUPPORTER events)
+#  3. `payload.attack_name` (in PKM_ATTACK_DECLARE)
+# Many BRV cards source their effects by the attacker's instance ID
+# (e.g. Voidmage's discard_attached_energy_cross_ctrl uses attacker.id),
+# so we need attack-name aliases to catch those.
 SPICE_FIRE_MARKERS: dict[str, set[str]] = {
-    "Mirko Vosk, Mind Drinker": {"Mirko"},  # Lost Recall fires PKM_LOST_ZONE + PKM_REVEAL
-    "Voidmage Apprentice": {"Voidmage Apprentice"},
+    "Mirko Vosk, Mind Drinker": {"Mirko", "Lost Recall"},
+    "Voidmage Apprentice": {"Voidmage Apprentice", "Energy Drain"},
     "Dimir Interrogation": {"Dimir Interrogation"},
     "Tox-Pawpsule": {"Tox-Pawpsule"},
-    "Aurelia, the Warleader ex": {"Battalion Mark"},
+    "Aurelia, the Warleader ex": {"Battalion Mark", "Aurelia"},
     "Niv-Mizzet's Quandary": {"Niv-Mizzet's Quandary"},
-    "Jace, Memory Adept": {"Jace"},
+    "Jace, Memory Adept": {"Jace", "Mental Triage"},
     "Pithing Drone": {"Pithing Drone"},
     "Tezzy's Test": {"Tezzy's Test"},
     "Obzedat, Ghost Council ex": {"Obzedat", "Spectral Decree", "Soul's Tax"},

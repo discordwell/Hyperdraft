@@ -171,13 +171,11 @@ def _score_ultra_ball(ctx: TurnContext, state: GameState, player_id: str) -> flo
 
 @trainer_scorer("Switch")
 def _score_switch(ctx: TurnContext, state: GameState, player_id: str) -> float:
-    # v2-iter2 ENGINE BUG GUARD: Switch is broken — card consumed (discard +1,
-    # hand -1) but Active↔Bench swap does NOT execute. Pilot B's iter-2 T4 play
-    # confirmed (Aurelet stayed Active despite Switch). Hard-block at -100 so
-    # the heuristic never ranks Switch as a top action. Falls through to
-    # Retreat (which works correctly).
-    # TODO: re-enable when engine Bug 6 lands (restore body below this guard).
-    return -100.0
+    # v2-iter2 "engine bug" retracted: standalone reproducer (tests/test_brv_gap_v3.py)
+    # confirms Switch's _switch_resolve correctly swaps Active↔Bench. The pilot's
+    # T4 observation was almost certainly a stale-packet read caused by the
+    # state-file race condition that was fixed in scripts/play/pokemon_codex_match.py
+    # (atomic tempfile + os.replace). Restoring the real scorer body.
     score = 5.0
     if not ctx.my_active or not ctx.my_bench:
         return -10.0
@@ -211,13 +209,10 @@ def _score_switch(ctx: TurnContext, state: GameState, player_id: str) -> float:
 
 @trainer_scorer("Potion")
 def _score_potion(ctx: TurnContext, state: GameState, player_id: str) -> float:
-    # v2-iter2 ENGINE BUG GUARD: Potion is broken — card consumed (discard +1,
-    # hand -1) but damage counters do NOT decrease. Pilot B's iter-2 T6 play
-    # confirmed (Aurelet's 4 damage counters stayed after Potion). Hard-block at
-    # -100 so the heuristic never ranks Potion as a top action. Pokemon-specific
-    # healing (e.g. Sanguine Sacrament) still works.
-    # TODO: re-enable when engine Bug 7 lands (restore body below this guard).
-    return -100.0
+    # v2-iter2 "engine bug" retracted: standalone reproducer (tests/test_brv_gap_v3.py)
+    # confirms Potion correctly heals 30 HP (3 damage counters). Same root cause
+    # as Switch's false alarm — stale-packet read from the harness state race
+    # condition that has since been fixed. Restoring the real scorer body.
     best_value = 0.0
     for pkm_id in [ctx.my_active] + ctx.my_bench:
         if not pkm_id:

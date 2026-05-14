@@ -82,7 +82,12 @@ class PokemonAIAdapter:
             'random_factor': 0.15,
             'mistake_chance': 0.08,
             'use_context': True,
-            'use_opening_active_selection': False,
+            # Gap-closure: enabled at medium so utility Basics like Voidmage
+            # Apprentice (60 HP / 1{P} energy-denial) can win the opening
+            # Active slot over a worse stat-line Basic like Lazlet. Without
+            # this the AI defaults to deck-order, which always opens Lazlet
+            # in Dimir and Voidmage never reaches Active.
+            'use_opening_active_selection': True,
             'use_energy_commitment': False,
             'use_trainer_registry': True,
             'use_retreat_analysis': True,
@@ -250,10 +255,18 @@ class PokemonAIAdapter:
 
     def choose_setup_active(self, player_id: str, state: GameState,
                             basic_ids: list[str]) -> Optional[str]:
-        """Choose an opening Active Pokemon for stronger profiles."""
+        """Choose an opening Active Pokemon for stronger profiles.
+
+        Gap-closure: the gate was previously ``use_setup_consistency AND
+        use_opening_active_selection`` — too restrictive. The two flags
+        controlled the same downstream behavior, so requiring both meant
+        only ``ultra`` difficulty got smart opener selection. Loosened to a
+        single ``use_opening_active_selection`` gate; ``medium`` now flips
+        that True so the spice-card Basics (Voidmage Apprentice) can win
+        the opener over a worse stat-line core Basic.
+        """
         settings = self._get_settings(player_id)
-        if (not settings.get('use_setup_consistency')
-                or not settings.get('use_opening_active_selection')):
+        if not settings.get('use_opening_active_selection'):
             return None
 
         best_id = None
@@ -286,6 +299,26 @@ class PokemonAIAdapter:
             if hp <= 60 and not any(
                     attack.get('damage', 0) >= 30 for attack in attacks):
                 score -= 8.0
+
+            # Gap-closure: utility-attacker Basics that have a low-cost
+            # disruption attack (energy denial, hand reveal, etc.) score
+            # higher as openers than their raw stat line suggests. A 1-energy
+            # attack that strips opp Active's energy slows the opp's setup
+            # by 1-2 turns even though it only deals 10 damage. Without
+            # this bonus, Voidmage Apprentice never wins the opener in
+            # Dimir vs a Mirklet (70 HP / 30 dmg) or Aurelet.
+            for attack in attacks:
+                total_cost = sum(req.get('count', 0)
+                                 for req in attack.get('cost', []))
+                if total_cost > 1 or not attack.get('effect_fn'):
+                    continue
+                text = (attack.get('text', '') or '').lower()
+                if any(k in text for k in (
+                    'discard', 'energy from your opponent',
+                    'reveals their hand', 'put it into the lost zone',
+                )):
+                    score += 15.0
+                    break
 
             if score > best_score:
                 best_score = score
@@ -1471,7 +1504,12 @@ class PokemonAIAdapter:
             if not obj:
                 continue
             types = obj.characteristics.types if obj.characteristics else set()
-            if CardType.ITEM in types:
+            # Gap-closure: Pokemon Tools (POKEMON_TOOL) are played through
+            # the same _play_trainer(..., 'item') path as Items, but they
+            # don't carry CardType.ITEM. Without this check, Tools never
+            # made the candidate list and never got played by the heuristic
+            # AI. _play_trainer's is_tool branch handles attachment.
+            if CardType.ITEM in types or CardType.POKEMON_TOOL in types:
                 if setup_only and not self._is_setup_item(obj):
                     continue
                 score = self._score_trainer(obj, state, player_id)
