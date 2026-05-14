@@ -247,3 +247,4 @@ def test_pip30_build_prompt_contains_headline_and_category(tmp_path):
     assert "gouache" in prompt
     assert "backlit mechanical keyboard" in prompt
     assert "Deal 5" in prompt
+    assert "NO baked-in text" in prompt

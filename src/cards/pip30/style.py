@@ -23,7 +23,12 @@ STYLE_HEADLINE = (
     "color discipline and quiet menace of Disco Elysium's bleaker scenes. "
     "Never photoreal. Never anime. No gradients smoother than a half-loaded "
     "brush. Card art panel is 1024x1024, framed as if cropped from a larger "
-    "painting — limbs and props can run off the edge."
+    "painting — limbs and props can run off the edge. "
+    "ABSOLUTELY NO baked-in text, no title cards, no card-name labels, no "
+    "captions, no logos, no readable signage, no UI chrome of any kind in "
+    "the image — the game engine renders the card name and rules text in a "
+    "separate UI layer. In-world handwriting on sticky notes or papers is "
+    "fine if it's clearly illegible scribbles, not real letters."
 )
 
 CATEGORY_FLAVORS: dict[str, str] = {
