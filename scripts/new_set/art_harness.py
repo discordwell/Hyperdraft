@@ -31,14 +31,26 @@ A Python module whose top-level defines:
 
 Cards source
 ------------
-A `--cards <module>:<var>` arg, e.g. `--cards src.cards.minecraft:MINECRAFT_CARDS`.
-The harness imports the module and reads `<var>` (a `dict[str, CardDefinition]`).
+Either a Python module dict via ``--cards <module>:<var>``, or one or more
+JSON files via ``--cards-json <path>`` (repeatable). The JSON path is the
+escape hatch for engines whose card data isn't in the hyperdraft Python
+tree — PIP30, for example, holds its cards in Unity StreamingAssets/*.json.
 
 CLI:
     python -m scripts.new_set.art_harness \\
         --style src.cards.minecraft.style \\
         --cards src.cards.minecraft:MINECRAFT_CARDS \\
         --out-dir assets/card_art/minecraft \\
+        --mode manual
+
+    # PIP30 (JSON-driven, localized via en.json):
+    python -m scripts.new_set.art_harness \\
+        --style src.cards.pip30.style \\
+        --cards-json /path/to/PIP30/Assets/StreamingAssets/cards/starter_deck.json \\
+        --cards-json-name-key nameKey \\
+        --cards-json-text-key descriptionKey \\
+        --cards-json-text-lookup /path/to/PIP30/Assets/StreamingAssets/text/en.json \\
+        --out-dir /path/to/PIP30/Assets/StreamingAssets/card_art \\
         --mode manual
 """
 
@@ -56,6 +68,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -148,6 +161,109 @@ def load_cards(cards_arg: str) -> dict[str, Any]:
             f"{module_path}:{var_name} is not a dict; got {type(obj).__name__}"
         )
     return obj
+
+
+def _find_items_list(data: Any, items_key: str | None) -> list[dict]:
+    """Locate the list-of-dicts that holds card entries in a parsed JSON
+    document. If ``items_key`` is given, take that key verbatim. Otherwise
+    require *exactly one* top-level value to be a non-empty list of dicts —
+    raising if zero or multiple match, so a JSON file that happens to put a
+    ``metadata`` array before the real card list can't mis-load silently."""
+    if items_key:
+        if not isinstance(data, dict) or items_key not in data:
+            raise ValueError(f"--cards-json-items-key {items_key!r} not present at top level")
+        items = data[items_key]
+        if not isinstance(items, list):
+            raise ValueError(f"key {items_key!r} is {type(items).__name__}, not list")
+        return [x for x in items if isinstance(x, dict)]
+    if isinstance(data, list):
+        return [x for x in data if isinstance(x, dict)]
+    if isinstance(data, dict):
+        candidates = [
+            (k, v) for k, v in data.items()
+            if isinstance(v, list) and v and isinstance(v[0], dict)
+        ]
+        if len(candidates) == 1:
+            return [x for x in candidates[0][1] if isinstance(x, dict)]
+        if len(candidates) > 1:
+            keys = ", ".join(k for k, _ in candidates)
+            raise ValueError(
+                f"multiple list-of-dicts candidates ({keys}); pass "
+                f"--cards-json-items-key to disambiguate"
+            )
+    raise ValueError("no list-of-dicts found; pass --cards-json-items-key to disambiguate")
+
+
+def _first_str_value(entry: dict, candidates: list[str]) -> str:
+    """Return the first non-empty string value from ``entry`` matching one of
+    the ``candidates`` keys. Used so a single harness invocation can absorb
+    multiple JSON schemas — e.g. PIP30 cards use ``nameKey`` while challenges
+    in the same set use ``titleKey``."""
+    for key in candidates:
+        v = entry.get(key)
+        if isinstance(v, str) and v:
+            return v
+    return ""
+
+
+def load_cards_json(
+    paths: list[Path],
+    *,
+    name_key: str = "name",
+    text_key: str = "text",
+    text_lookup_path: Path | None = None,
+    items_key: str | None = None,
+) -> dict[str, Any]:
+    """Load card entries from one or more JSON files and return them as a
+    ``dict[name, SimpleNamespace]`` matching what ``load_cards`` produces.
+
+    ``name_key`` and ``text_key`` may each be a comma-separated list of
+    candidate field names. The loader tries them in order on each entry and
+    uses the first non-empty string. This lets one harness invocation cover
+    heterogeneous JSON shapes — e.g. PIP30's
+    ``--cards-json-name-key nameKey,titleKey`` works for both cards
+    (``nameKey``) and coding challenges (``titleKey``).
+
+    All non-name/text fields are preserved as attributes on the resulting
+    namespace so a per-set style config's ``categorize()`` can read them
+    (e.g. ``card.family``, ``card.codeText``).
+
+    If ``text_lookup_path`` is set, raw name/text values are treated as
+    translation keys and resolved through that JSON dict. Missing keys
+    fall back to the raw key string — better to surface a weird name than
+    silently drop the entry.
+
+    Duplicate names across files are not merged: later entries overwrite
+    earlier ones, mirroring how ``load_cards`` would return a single dict.
+    """
+    name_candidates = [s.strip() for s in name_key.split(",") if s.strip()]
+    text_candidates = [s.strip() for s in text_key.split(",") if s.strip()]
+    if not name_candidates:
+        raise ValueError("name_key must contain at least one field")
+
+    lookup: dict[str, str] = {}
+    if text_lookup_path is not None:
+        loaded = json.loads(Path(text_lookup_path).read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise ValueError(f"{text_lookup_path}: expected a JSON object of key→string")
+        lookup = {k: v for k, v in loaded.items() if isinstance(v, str)}
+
+    result: dict[str, Any] = {}
+    for path in paths:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        items = _find_items_list(data, items_key)
+        for entry in items:
+            raw_name = _first_str_value(entry, name_candidates)
+            if not raw_name:
+                continue
+            name = lookup.get(raw_name, raw_name) if lookup else raw_name
+            raw_text = _first_str_value(entry, text_candidates) if text_candidates else ""
+            text = (lookup.get(raw_text, raw_text) if lookup else raw_text) if raw_text else ""
+            ns_fields = dict(entry)
+            ns_fields["name"] = name
+            ns_fields["text"] = text
+            result[name] = SimpleNamespace(**ns_fields)
+    return result
 
 
 # =============================================================================
@@ -484,9 +600,34 @@ def main() -> int:
     ap.add_argument("--style", required=True,
                     help="Python module path to a style config module "
                          "(must define STYLE_HEADLINE + CATEGORY_FLAVORS).")
-    ap.add_argument("--cards", required=True,
+    ap.add_argument("--cards", default=None,
                     help="`module:var` source for the card dict, e.g. "
-                         "src.cards.minecraft:MINECRAFT_CARDS.")
+                         "src.cards.minecraft:MINECRAFT_CARDS. "
+                         "Mutually exclusive with --cards-json.")
+    ap.add_argument("--cards-json", action="append", default=[], type=Path,
+                    metavar="PATH",
+                    help="JSON file with card entries. Repeatable; later files "
+                         "merge into the same set. Use for engines whose card "
+                         "data lives outside the Python tree (e.g. PIP30's "
+                         "StreamingAssets/*.json).")
+    ap.add_argument("--cards-json-name-key", default="name", metavar="KEYS",
+                    help="Field(s) on each JSON entry to use as the card name. "
+                         "Comma-separated to try multiple in order — e.g. "
+                         "'nameKey,titleKey' to absorb PIP30 cards (nameKey) "
+                         "and challenges (titleKey) in one invocation. "
+                         "Default 'name'.")
+    ap.add_argument("--cards-json-text-key", default="text", metavar="KEYS",
+                    help="Field(s) on each JSON entry to use as card text. "
+                         "Comma-separated like --cards-json-name-key. "
+                         "Default 'text'. PIP30: 'descriptionKey,promptKey'.")
+    ap.add_argument("--cards-json-text-lookup", default=None, type=Path,
+                    metavar="PATH",
+                    help="Optional translation dict (key→string JSON). When set, "
+                         "name/text values are looked up here — e.g. PIP30's "
+                         "Assets/StreamingAssets/text/en.json.")
+    ap.add_argument("--cards-json-items-key", default=None, metavar="KEY",
+                    help="If a JSON file's items aren't at the first list-of-dicts "
+                         "top-level key, pass the key explicitly.")
     ap.add_argument("--out-dir", required=True, type=Path,
                     help="Output directory for PNGs and draw_prompts.json.")
     ap.add_argument("--mode", choices=["manual", "api", "local"], default="manual",
@@ -513,7 +654,23 @@ def main() -> int:
     _load_dotenv(PROJECT_ROOT / ".env")
 
     style = load_style(args.style)
-    cards = load_cards(args.cards)
+
+    if args.cards and args.cards_json:
+        ap.error("--cards and --cards-json are mutually exclusive")
+    if not args.cards and not args.cards_json:
+        ap.error("one of --cards or --cards-json is required")
+    if args.cards:
+        cards = load_cards(args.cards)
+        cards_src = args.cards
+    else:
+        cards = load_cards_json(
+            args.cards_json,
+            name_key=args.cards_json_name_key,
+            text_key=args.cards_json_text_key,
+            text_lookup_path=args.cards_json_text_lookup,
+            items_key=args.cards_json_items_key,
+        )
+        cards_src = ",".join(str(p) for p in args.cards_json)
 
     if args.only:
         needle = args.only.lower()
@@ -521,7 +678,7 @@ def main() -> int:
     if args.limit > 0:
         cards = dict(list(sorted(cards.items()))[:args.limit])
 
-    print(f"Targeting {len(cards)} cards from {args.cards}")
+    print(f"Targeting {len(cards)} cards from {cards_src}")
 
     if args.mode == "manual":
         run_manual_mode(cards, style, args.out_dir, force=args.force)
