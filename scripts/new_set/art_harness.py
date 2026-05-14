@@ -323,23 +323,58 @@ def run_manual_mode(
     consumes in stage 5 of the /new-set pipeline.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    pack: list[dict[str, str]] = []
+    # Resume-aware: skip cards whose id is already recorded as completed in
+    # the queue's status file. The status file lives alongside the prompts
+    # file and is written by `scripts/new_set/art_chatgpt_queue.py`.
+    # Re-running the harness after partial completion gives you a
+    # smaller prompts.json containing ONLY the remaining work; previously-
+    # completed served PNGs are untouched.
+    #
+    # Cross-set state is naturally isolated because each set lives in its
+    # own ``assets/card_art/<engine>/<set>/`` queue dir — switching from
+    # FBN to Pokemon and back never loses either set's progress.
+    status_path = out_dir / "_gen_status.json"
+    completed_ids: set[str] = set()
+    if status_path.exists() and not force:
+        try:
+            with open(status_path) as sf:
+                completed_ids = set(json.load(sf).get("completed", []))
+        except Exception:  # noqa: BLE001 — corrupt status file shouldn't block regen
+            completed_ids = set()
+
+    entries: list[dict[str, str]] = []
     skipped = 0
     for name, card in sorted(cards.items()):
-        filename = f"{to_filename(name)}.png"
-        if (out_dir / filename).exists() and not force:
+        slug = to_filename(name)
+        filename = f"{slug}.png"
+        if slug in completed_ids and not force:
             skipped += 1
             continue
-        pack.append({
+        entries.append({
+            "id": slug,
+            "card_name": name,
+            "output_file": filename,
+            # Legacy keys preserved for tools that already parsed the old shape:
             "card": name,
             "filename": filename,
             "prompt": build_prompt(card, style),
         })
+    from datetime import datetime, timezone
+    pack = {
+        "version": 2,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "entry_count": len(entries),
+        "entries": entries,
+    }
     prompt_path = out_dir / "draw_prompts.json"
     prompt_path.write_text(json.dumps(pack, indent=2), encoding="utf-8")
+    try:
+        rel = prompt_path.relative_to(PROJECT_ROOT)
+    except ValueError:
+        rel = prompt_path
     print(
-        f"manual mode: wrote {len(pack)} prompts to "
-        f"{prompt_path.relative_to(PROJECT_ROOT)}; skipped {skipped} cached."
+        f"manual mode: wrote {len(entries)} prompts to "
+        f"{rel}; skipped {skipped} already-completed (per _gen_status.json)."
     )
     return prompt_path
 
