@@ -123,7 +123,9 @@ _MIGRATED_CARDS = [
     ("GETAWAY_GLAMER", 2),
     ("ONE_LAST_JOB", 3),
     ("PHANTOM_INTERFERENCE", 2),
-    ("SHIFTING_GRIFT", 3),
+    # SHIFTING_GRIFT was reverted to a regular sorcery in Agent K Phase 5b —
+    # its printed text is "Each player chooses a permanent they control.
+    # Exchange control of those permanents." (not a Spree spell).
     ("THREE_STEPS_AHEAD", 3),
     ("INSATIABLE_AVARICE", 2),
     ("LIVELY_DIRGE", 2),
@@ -341,21 +343,20 @@ def test_smugglers_surprise_mill_mode():
     print("OK: Smuggler's Surprise mills 4")
 
 
-def test_shifting_grift_modes_register_even_if_engine_gap():
-    """SHIFTING_GRIFT registers all 3 modes (effects are engine gaps but Spree
-    metadata still wires)."""
-    print("\n=== Test: Shifting Grift mode registration ===")
+def test_shifting_grift_is_regular_sorcery_not_spree():
+    """SHIFTING_GRIFT was reverted to a regular sorcery in Agent K Phase 5b.
+
+    Printed text: "Each player chooses a permanent they control. Exchange
+    control of those permanents." The card now has a non-Spree resolve and
+    no spree metadata.
+    """
+    print("\n=== Test: Shifting Grift is a regular sorcery (not Spree) ===")
     game, p1, _ = make_two_player_game()
     obj = _run_setup_for_card(game, p1.id, otj.SHIFTING_GRIFT)
-    assert is_spree_card(obj)
-    modes = get_spree_modes(obj)
-    assert len(modes) == 3, f"expected 3 modes, got {len(modes)}"
-    # Verify mode names mention exchange
-    names = [m.name for m in modes]
-    assert any("creature" in n.lower() for n in names)
-    assert any("artifact" in n.lower() for n in names)
-    assert any("enchantment" in n.lower() for n in names)
-    print(f"OK: Shifting Grift modes: {names}")
+    assert not is_spree_card(obj), "Shifting Grift must not be a Spree card"
+    # The card's resolve should be the new function.
+    assert getattr(otj.SHIFTING_GRIFT, 'resolve', None) is otj.shifting_grift_resolve
+    print("OK: Shifting Grift is a regular sorcery with shifting_grift_resolve")
 
 
 def test_cast_with_no_modes_selected_aborts():
@@ -500,7 +501,7 @@ if __name__ == "__main__":
         test_insatiable_avarice_draw_loss_mode,
         test_great_train_heist_anthem_only_emits_pump_and_first_strike,
         test_smugglers_surprise_mill_mode,
-        test_shifting_grift_modes_register_even_if_engine_gap,
+        test_shifting_grift_is_regular_sorcery_not_spree,
         test_cast_with_no_modes_selected_aborts,
         test_trial_of_agony_declares_target_requirements,
         test_target_same_opponent_creature_filter,

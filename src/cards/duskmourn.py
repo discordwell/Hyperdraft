@@ -1789,10 +1789,51 @@ def bottomless_pool_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def central_elevator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — Door 1 search-for-Room (skipped); Promising Stairs: upkeep surveil 1 (win condition skipped)."""
-    def door1_effect(_o: GameObject, _st: GameState) -> list[Event]:
-        # SKIP: search library for a Room card with a different name -- requires
-        # complex tutoring with name-comparison filters; engine gap.
+    """Room — Door 1 search-for-Room tutor (Phase 5b Agent K).
+
+    Door 1 ("Central Elevator"): "When you unlock this door, search your
+    library for a Room card that doesn't have the same name as a Room you
+    control, reveal it, put it into your hand, then shuffle."
+
+    Door 2 ("Promising Stairs"): upkeep surveil 1. The eight-doors win clause
+    remains an engine gap (alt win conditions).
+    """
+    def door1_effect(o: GameObject, st: GameState) -> list[Event]:
+        controller_id = o.controller
+        # Collect names of Rooms the controller already has on the battlefield.
+        own_room_names: set[str] = set()
+        for other in st.objects.values():
+            if other.zone != ZoneType.BATTLEFIELD:
+                continue
+            if other.controller != controller_id:
+                continue
+            subs = other.characteristics.subtypes or set()
+            if 'Room' in subs:
+                # The Room itself counts even if no doors are unlocked.
+                own_room_names.add(other.name)
+
+        def _is_non_collision_room(cobj: GameObject, _st: GameState) -> bool:
+            if cobj is None:
+                return False
+            subs = cobj.characteristics.subtypes or set()
+            if 'Room' not in subs:
+                return False
+            return cobj.name not in own_room_names
+
+        from src.engine.library_search import create_library_search_choice
+        create_library_search_choice(
+            state=st,
+            player_id=controller_id,
+            source_id=o.id,
+            filter_fn=_is_non_collision_room,
+            min_count=0,
+            max_count=1,
+            destination='hand',
+            reveal=True,
+            shuffle_after=True,
+            optional=True,
+            prompt="Central Elevator — search your library for a Room with a different name",
+        )
         return []
 
     def door2_effect(_o: GameObject, _st: GameState) -> list[Event]:

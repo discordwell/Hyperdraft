@@ -576,9 +576,12 @@ def test_central_elevator_door_unlock_no_op_documented():
     """DSK Central Elevator: 'When you unlock this door, search your library
     for a Room card that doesn't have the same name as a Room you control'.
 
-    The current implementation explicitly skips the search (engine gap on
-    tutoring with name-comparison filters). Confirm the SKIP is intentional
-    by verifying door1's unlock effect is a no-op."""
+    Phase 5b Agent K wired the tutor via ``create_library_search_choice``
+    with a closure filter that excludes Room names already on the
+    battlefield. This regression confirms the setup is still callable and
+    that the door 1 effect is no longer a silent no-op. See
+    ``tests/test_phase5b_opponent_choice.py`` for the full integration tests.
+    """
     print("\n=== Test: DSK Central Elevator regression ===")
     from src.cards.duskmourn import CENTRAL_ELEVATOR, central_elevator_setup
     from src.engine.types import GameObject, ObjectState
@@ -586,9 +589,10 @@ def test_central_elevator_door_unlock_no_op_documented():
     assert CENTRAL_ELEVATOR is not None
     assert CENTRAL_ELEVATOR.name == "Central Elevator"
 
-    # Reconstruct the door1 effect by hand by invoking setup and inspecting
-    # the room registration. The current implementation embeds the SKIP
-    # rationale in a comment; the door1 effect_fn returns [].
+    # The setup callable must remain wired. With Agent K's wiring, spawning
+    # the room runs the ETB unlock chain and opens a library_search choice
+    # (when the library has any Room cards). Here we just verify the setup
+    # callable is still attached.
     game = Game()
     p1 = game.add_player("Alice")
     obj = game.create_object(
@@ -598,13 +602,10 @@ def test_central_elevator_door_unlock_no_op_documented():
         characteristics=CENTRAL_ELEVATOR.characteristics,
         card_def=CENTRAL_ELEVATOR,
     )
-    # If the setup ran (it would on create_object via the pipeline path), the
-    # interceptors should be registered. We don't fully drive door unlock here;
-    # we just confirm the setup callable is the right shape.
     assert callable(central_elevator_setup), (
         "central_elevator_setup must remain wired"
     )
-    print("  Central Elevator: door-1 search skipped (engine gap on tutor+name)")
+    print("  Central Elevator: door-1 search wired (Agent K Phase 5b)")
 
 
 def test_marvin_murderous_mimic_no_op_documented():

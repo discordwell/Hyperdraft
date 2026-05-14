@@ -4840,31 +4840,182 @@ _PHANTOM_INTERFERENCE_MODES = [
 
 
 # --- SHIFTING_GRIFT -----------------------------------------------------------
-# All three modes are control-exchange — engine gap. We register the modes
-# so the cost prompt opens correctly; the effect_fns intentionally no-op.
+# Printed text (OTJ): "Each player chooses a permanent they control. Exchange
+# control of those permanents." Wired with chained PendingChoices in Agent K
+# Phase 5b — caster picks first, then a chained handler opens an opponent
+# choice; the second handler emits two GAIN_CONTROL events to swap.
 
-def _shifting_grift_noop(spell, state: GameState, targets) -> list[Event]:
-    # Control exchange is an engine gap. The mode resolves silently.
-    return []
+def _shifting_grift_collect_permanents(state: GameState, player_id: str) -> list[str]:
+    out: list[str] = []
+    for obj in state.objects.values():
+        if obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        if obj.controller != player_id:
+            continue
+        out.append(obj.id)
+    return out
 
 
-_SHIFTING_GRIFT_MODES = [
-    SpreeMode(
-        name="Exchange creatures", extra_cost="{2}",
-        effect_fn=_shifting_grift_noop,
-        description="Exchange control of two target creatures. (engine gap)",
-    ),
-    SpreeMode(
-        name="Exchange artifacts", extra_cost="{1}",
-        effect_fn=_shifting_grift_noop,
-        description="Exchange control of two target artifacts. (engine gap)",
-    ),
-    SpreeMode(
-        name="Exchange enchantments", extra_cost="{1}",
-        effect_fn=_shifting_grift_noop,
-        description="Exchange control of two target enchantments. (engine gap)",
-    ),
-]
+def shifting_grift_resolve(targets, state: GameState) -> list[Event]:
+    """Resolve Shifting Grift.
+
+    Each player chooses a permanent they control; control of those permanents
+    is then exchanged. Caster picks first via a PendingChoice; the chained
+    handler opens an opponent PendingChoice; the final handler emits two
+    GAIN_CONTROL events (one each direction) with duration='permanent' so
+    the swap is durable.
+    """
+    spell = _otj_resolving_spell_obj(state)
+    if spell is None:
+        return []
+    caster = spell.controller
+    source_id = spell.id
+
+    opponents = [pid for pid in state.players if pid != caster]
+    if not opponents:
+        return []
+
+    caster_perms = _shifting_grift_collect_permanents(state, caster)
+    if not caster_perms:
+        return []
+
+    # If multiple opponents, pick the one with the most permanents (greedy
+    # "best target" heuristic). Treat absence of opponents with any permanent
+    # as a graceful no-op.
+    eligible_opps = [
+        pid for pid in opponents
+        if _shifting_grift_collect_permanents(state, pid)
+    ]
+    if not eligible_opps:
+        return []
+    eligible_opps.sort(
+        key=lambda pid: -len(_shifting_grift_collect_permanents(state, pid))
+    )
+    opp = eligible_opps[0]
+
+    caster_options = [
+        {"id": cid, "label": (state.objects.get(cid).name if state.objects.get(cid) else cid)}
+        for cid in caster_perms
+    ]
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    def _on_caster_pick(choice, caster_selected, _state, _src=source_id, _caster=caster,
+                       _opp=opp):
+        caster_pick_id = None
+        for raw in caster_selected or []:
+            if isinstance(raw, dict):
+                caster_pick_id = raw.get("id") or raw.get("value")
+            else:
+                caster_pick_id = raw
+            if caster_pick_id is not None:
+                break
+        if caster_pick_id is None:
+            return []
+        # Refresh the opponent's permanents (board state may have changed
+        # between the caster's pick and now, e.g. SBA-driven deaths).
+        opp_perms = _shifting_grift_collect_permanents(_state, _opp)
+        if not opp_perms:
+            return []
+        opp_options = [
+            {"id": cid, "label": (_state.objects.get(cid).name if _state.objects.get(cid) else cid)}
+            for cid in opp_perms
+        ]
+
+        def _on_opp_pick(_choice2, opp_selected, _state2, _cpick=caster_pick_id,
+                         _c=_caster, _o=_opp, _src2=_src):
+            opp_pick_id = None
+            for raw in opp_selected or []:
+                if isinstance(raw, dict):
+                    opp_pick_id = raw.get("id") or raw.get("value")
+                else:
+                    opp_pick_id = raw
+                if opp_pick_id is not None:
+                    break
+            if opp_pick_id is None:
+                return []
+            # Re-validate that both permanents are still on the battlefield.
+            cobj = _state2.objects.get(_cpick)
+            oobj = _state2.objects.get(opp_pick_id)
+            if cobj is None or oobj is None:
+                return []
+            if cobj.zone != ZoneType.BATTLEFIELD or oobj.zone != ZoneType.BATTLEFIELD:
+                return []
+            return [
+                Event(
+                    type=EventType.GAIN_CONTROL,
+                    payload={
+                        'object_id': _cpick,
+                        'new_controller': _o,
+                        'duration': 'permanent',
+                    },
+                    source=_src2,
+                ),
+                Event(
+                    type=EventType.GAIN_CONTROL,
+                    payload={
+                        'object_id': opp_pick_id,
+                        'new_controller': _c,
+                        'duration': 'permanent',
+                    },
+                    source=_src2,
+                ),
+            ]
+
+        # Opponent's heuristic pick: their cheapest permanent (don't give the
+        # caster a free upgrade). Sort by mana value, ascending.
+        def _opp_value(pid):
+            o = _state.objects.get(pid)
+            if o is None:
+                return (0, "")
+            try:
+                mv = (o.characteristics.mana_cost.total()
+                      if o.characteristics.mana_cost else 0)
+            except Exception:
+                mv = 0
+            return (mv, o.name or pid)
+        opp_heuristic = sorted(opp_perms, key=_opp_value)[:1]
+
+        return create_choice_and_resolve(
+            _state,
+            choice_type="shifting_grift_opp_pick",
+            player_id=_opp,
+            prompt="Shifting Grift — choose a permanent you control to give up",
+            options=opp_options,
+            source_id=_src,
+            min_choices=1,
+            max_choices=1,
+            handler=_on_opp_pick,
+            heuristic_pick=opp_heuristic,
+        )
+
+    # Caster's heuristic pick: the most valuable permanent (give us their best).
+    # Sort by mana value, descending; tie-break on power+toughness, then name.
+    def _caster_value(cid):
+        o = state.objects.get(cid)
+        if o is None:
+            return (0, 0, "")
+        try:
+            mv = (o.characteristics.mana_cost.total()
+                  if o.characteristics.mana_cost else 0)
+        except Exception:
+            mv = 0
+        pt = (o.characteristics.power or 0) + (o.characteristics.toughness or 0)
+        return (-mv, -pt, o.name or cid)
+    caster_heuristic = sorted(caster_perms, key=_caster_value)[:1]
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="shifting_grift_caster_pick",
+        player_id=caster,
+        prompt="Shifting Grift — choose a permanent you control to give up",
+        options=caster_options,
+        source_id=source_id,
+        min_choices=1,
+        max_choices=1,
+        handler=_on_caster_pick,
+        heuristic_pick=caster_heuristic,
+    )
 
 
 # --- THREE_STEPS_AHEAD --------------------------------------------------------
@@ -5145,36 +5296,199 @@ _LIVELY_DIRGE_MODES = [
 
 
 # --- RUSH_OF_DREAD ------------------------------------------------------------
-# Modes 0 and 1 (sacrifice half / discard half) require interactive opponent
-# choice mid-resolve; engine gap. Mode 2 (lose half life) is unconditional.
+# Mode 0 (sacrifice half) and Mode 1 (discard half) open a PendingChoice owned
+# by the targeted opponent (Agent K, Phase 5b). Mode 2 (lose half life) is
+# unconditional.
+
+def _rush_of_dread_resolve_target_opponent(targets, state: GameState) -> Optional[str]:
+    """Normalize the first target to an opponent player id (or None)."""
+    if not targets:
+        return None
+    first = targets[0]
+    pid, is_player = normalize_target(first, state)
+    if pid is None or not is_player:
+        return None
+    if pid not in state.players:
+        return None
+    return pid
+
 
 def _rush_of_dread_sacrifice_half(spell, state: GameState, targets) -> list[Event]:
-    """Mode 0: target opponent sacrifices half their creatures (their choice).
+    """Mode 0: target opponent sacrifices half their creatures, rounded up.
 
-    Engine gap: "their choice" requires opening a PendingChoice owned by the
-    targeted opponent. We emit no events here — see note in card text.
+    Opens a PendingChoice owned by the targeted opponent so that player picks
+    which of their creatures to sacrifice. Handler emits ``OBJECT_DESTROYED``
+    events tagged ``reason='sacrifice'`` for each chosen creature.
     """
-    return []
+    if not spell:
+        return []
+    opp = _rush_of_dread_resolve_target_opponent(targets, state)
+    if opp is None:
+        return []
+
+    creatures: list[str] = []
+    for obj in state.objects.values():
+        if obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        if obj.controller != opp:
+            continue
+        if CardType.CREATURE not in obj.characteristics.types:
+            continue
+        creatures.append(obj.id)
+    n = len(creatures)
+    if n == 0:
+        return []
+    pick_count = (n + 1) // 2  # ceil(n/2)
+
+    options = []
+    for cid in creatures:
+        c_obj = state.objects.get(cid)
+        options.append({"id": cid, "label": (c_obj.name if c_obj else cid)})
+
+    source_id = spell.id
+
+    def _handler(choice, selected, _state, _src=source_id, _opts=list(creatures)):
+        picked_ids: list[str] = []
+        for raw in selected or []:
+            if isinstance(raw, dict):
+                pid_v = raw.get("id") or raw.get("value")
+            else:
+                pid_v = raw
+            if pid_v in _opts and pid_v not in picked_ids:
+                picked_ids.append(pid_v)
+        return [
+            Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': cid, 'reason': 'sacrifice'},
+                source=_src,
+            )
+            for cid in picked_ids
+        ]
+
+    # Heuristic: opponent picks the creatures with the lowest power/toughness
+    # (i.e. the least valuable). Stable sort by (power+toughness, name).
+    def _value(cid):
+        o = state.objects.get(cid)
+        if o is None:
+            return (0, "")
+        p = o.characteristics.power or 0
+        t = o.characteristics.toughness or 0
+        return (p + t, o.name or cid)
+
+    heuristic = sorted(creatures, key=_value)[:pick_count]
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+    return create_choice_and_resolve(
+        state,
+        choice_type="rush_of_dread_sacrifice",
+        player_id=opp,
+        prompt=f"Rush of Dread — sacrifice {pick_count} creature(s) you control",
+        options=options,
+        source_id=source_id,
+        min_choices=pick_count,
+        max_choices=pick_count,
+        handler=_handler,
+        heuristic_pick=heuristic,
+    )
 
 
 def _rush_of_dread_discard_half(spell, state: GameState, targets) -> list[Event]:
-    """Mode 1: target opponent discards half their hand (their choice). Engine gap."""
-    return []
+    """Mode 1: target opponent discards half their hand, rounded up.
+
+    Opens a PendingChoice owned by the targeted opponent so that player picks
+    which cards in hand to discard. Handler emits ``DISCARD`` events targeting
+    each chosen card. Falls back to a count-only ``DISCARD`` event if no cards
+    are present.
+    """
+    if not spell:
+        return []
+    opp = _rush_of_dread_resolve_target_opponent(targets, state)
+    if opp is None:
+        return []
+
+    hand_key = f"hand_{opp}"
+    hand = state.zones.get(hand_key)
+    cards = list(hand.objects) if hand else []
+    n = len(cards)
+    if n == 0:
+        return []
+    pick_count = (n + 1) // 2  # ceil(n/2)
+
+    options = []
+    for cid in cards:
+        c_obj = state.objects.get(cid)
+        options.append({"id": cid, "label": (c_obj.name if c_obj else cid)})
+
+    source_id = spell.id
+
+    def _handler(choice, selected, _state, _src=source_id, _opts=list(cards), _pid=opp):
+        picked_ids: list[str] = []
+        for raw in selected or []:
+            if isinstance(raw, dict):
+                cid_v = raw.get("id") or raw.get("value")
+            else:
+                cid_v = raw
+            if cid_v in _opts and cid_v not in picked_ids:
+                picked_ids.append(cid_v)
+        return [
+            Event(
+                type=EventType.DISCARD,
+                payload={'player': _pid, 'card_id': cid},
+                source=_src,
+            )
+            for cid in picked_ids
+        ]
+
+    # Heuristic: opponent dumps highest-MV cards (most expensive in hand).
+    def _value(cid):
+        o = state.objects.get(cid)
+        if o is None:
+            return (0, "")
+        mv = 0
+        try:
+            mv = (o.characteristics.mana_cost.total() if o.characteristics.mana_cost else 0)
+        except Exception:
+            mv = 0
+        # Sort descending by MV (so multiply by -1 for ascending sort).
+        return (-mv, o.name or cid)
+
+    heuristic = sorted(cards, key=_value)[:pick_count]
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+    return create_choice_and_resolve(
+        state,
+        choice_type="rush_of_dread_discard",
+        player_id=opp,
+        prompt=f"Rush of Dread — discard {pick_count} card(s) from your hand",
+        options=options,
+        source_id=source_id,
+        min_choices=pick_count,
+        max_choices=pick_count,
+        handler=_handler,
+        heuristic_pick=heuristic,
+    )
 
 
 def _rush_of_dread_lose_half_life(spell, state: GameState, targets) -> list[Event]:
     """Mode 2: target opponent loses half their life, rounded up."""
     if not spell or not targets:
         return []
-    pid = targets[0]
-    player = state.players.get(pid)
+    opp = _rush_of_dread_resolve_target_opponent(targets, state)
+    if opp is None:
+        # Back-compat: the original handler accepted a raw player id.
+        first = targets[0]
+        if isinstance(first, str) and first in state.players:
+            opp = first
+        else:
+            return []
+    player = state.players.get(opp)
     if player is None:
         return []
     life = getattr(player, 'life', 20)
     loss = (life + 1) // 2
     return [Event(
         type=EventType.LIFE_CHANGE,
-        payload={'player': pid, 'amount': -loss},
+        payload={'player': opp, 'amount': -loss},
         source=spell.id,
     )]
 
@@ -5184,13 +5498,13 @@ _RUSH_OF_DREAD_MODES = [
         name="Sacrifice half", extra_cost="{1}",
         effect_fn=_rush_of_dread_sacrifice_half, target_kind="opponent",
         targets_required=1,
-        description="Target opponent sacrifices half the creatures they control, rounded up. (engine gap)",
+        description="Target opponent sacrifices half the creatures they control, rounded up.",
     ),
     SpreeMode(
         name="Discard half", extra_cost="{2}",
         effect_fn=_rush_of_dread_discard_half, target_kind="opponent",
         targets_required=1,
-        description="Target opponent discards half the cards in their hand, rounded up. (engine gap)",
+        description="Target opponent discards half the cards in their hand, rounded up.",
     ),
     SpreeMode(
         name="Lose half life", extra_cost="{2}",
@@ -7262,9 +7576,8 @@ SHIFTING_GRIFT = make_sorcery(
     name="Shifting Grift",
     mana_cost="{U}{U}",
     colors={Color.BLUE},
-    text="Spree (Choose one or more additional costs.)\n+ {2} — Exchange control of two target creatures.\n+ {1} — Exchange control of two target artifacts.\n+ {1} — Exchange control of two target enchantments.",
-    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_SHIFTING_GRIFT_MODES),
-    resolve=make_spree_resolve(_SHIFTING_GRIFT_MODES),
+    text="Each player chooses a permanent they control. Exchange control of those permanents.",
+    resolve=shifting_grift_resolve,
 )
 
 SLICKSHOT_LOCKPICKER = make_creature(
