@@ -495,8 +495,10 @@ class PrioritySystem:
             # MTG rules: "if no legal targets, the spell can't be cast".
             # For optional requirements (count_type='up_to' with min=0),
             # advance past this requirement with an empty pick list so the
-            # rest of the chain still runs.
-            if req.min_targets() == 0:
+            # rest of the chain still runs. Divide-damage requirements are
+            # NOT optional even when count_type='any_number' — a divide-X
+            # spell must allocate to at least one legal target, so abort.
+            if req.min_targets() == 0 and getattr(req, "divide_amount", None) is None:
                 return self._emit_cast_target_choice_step(
                     card, action, reqs, idx + 1, accumulated + [[]], targeting
                 )
