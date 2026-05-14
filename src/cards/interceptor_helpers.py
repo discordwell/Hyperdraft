@@ -10470,6 +10470,203 @@ __all_modal__ = [
 
 
 # =============================================================================
+# DIVIDE-DAMAGE RESOLVE HELPER (Phase 5b)
+# =============================================================================
+#
+# "Deal N damage divided as you choose among any number of target
+# creatures and/or players." MTG ships this template on burn spells like
+# Twin Bolt (2 damage, 1-2 targets), Arc Lightning (3 damage, 1-3 targets),
+# and X-cost spells like Comet Storm, Ureni, Chandra (-4).
+#
+# When the engine sees a CardDefinition declare a ``TargetRequirement``
+# with ``divide_amount=N`` (see ``src/engine/targeting.py:198``), the cast
+# pipeline emits a ``divide_allocation`` PendingChoice at cast time. The
+# choice carries ``options=[{id, label, ...}]`` for each legal target and
+# ``callback_data['total_amount']=N``; the player (or AI) submits a list
+# of ``{target_id, amount}`` dicts that must sum to N.
+#
+# The handler is then called with the normalized allocation dict, and we
+# convert it into one DAMAGE event per target. ``action.targets`` for the
+# resolving spell is set to a single list[Target] with each Target's
+# ``divided_amount`` set, so the spell's ``resolve=`` callback can simply
+# unpack ``targets[0]``.
+#
+# This helper bundles the resolve= boilerplate: it inspects the targets
+# list (which carries ``divided_amount`` per Target), and emits one DAMAGE
+# event per non-zero allocation.
+#
+# Usage::
+#
+#     from src.cards.interceptor_helpers import make_divide_damage_resolve
+#     from src.engine.targeting import TargetRequirement, any_target_filter
+#
+#     TWIN_BOLT = make_instant(
+#         name="Twin Bolt",
+#         mana_cost="{1}{R}",
+#         colors={Color.RED},
+#         text="Twin Bolt deals 2 damage divided as you choose among one "
+#              "or two targets.",
+#         resolve=make_divide_damage_resolve("Twin Bolt", total_damage=2,
+#                                             target_filter=any_target_filter(),
+#                                             min_targets=1, max_targets=2),
+#         target_requirements=[
+#             TargetRequirement(
+#                 filter=any_target_filter(),
+#                 count=2,
+#                 count_type='up_to',
+#                 label="any target",
+#                 divide_amount=2,
+#             ),
+#         ],
+#     )
+# =============================================================================
+
+
+def make_divide_damage_resolve(
+    card_name: str,
+    *,
+    total_damage,
+    target_filter=None,  # accepted for symmetry / docs; engine reads it from target_requirements
+    min_targets: int = 1,
+    max_targets=float('inf'),
+):
+    """Build a ``resolve=`` callback for 'deal N damage divided' spells.
+
+    At cast time the engine emits a ``divide_allocation`` PendingChoice
+    (see priority._emit_cast_target_choice_step). The handler stuffs each
+    target's allocation into ``Target.divided_amount`` and re-enters the
+    cast with ``action.targets = [[Target(id, divided_amount=...), ...]]``.
+
+    At resolve time we read those Target objects and emit one DAMAGE event
+    per allocation, with the printed source set to the resolving spell on
+    the stack.
+
+    Args:
+        card_name: Card name. Used to locate the resolving spell on the
+            stack so the DAMAGE event carries the correct ``source``.
+        total_damage: Either ``int`` (fixed amount like Twin Bolt's 2) or
+            a callable ``(state, caster_id) -> int`` for X-cost spells
+            (Comet Storm: X+1; Ureni: number of lands you control).
+            Stored on the resolver and used by the cast-time prompt to
+            compute the prompt-time allocation budget. The engine reads
+            this via ``divide_amount`` on the TargetRequirement; if you
+            want a callable budget, set
+            ``TargetRequirement.divide_amount = callable`` too.
+        target_filter: TargetFilter (re-stated for docs / symmetry). The
+            engine reads the actual filter from ``card.target_requirements``.
+            Pass it here so the helper docstring matches the card text;
+            it's not used directly by the resolver.
+        min_targets: Minimum target count (default 1). Currently unused at
+            resolve time — enforcement happens via the TargetRequirement.
+        max_targets: Maximum target count (default unlimited). Same as
+            min_targets.
+
+    Returns:
+        A ``resolve(targets, state) -> list[Event]`` callable suitable for
+        ``CardDefinition.resolve``.
+    """
+    def _resolve(targets: list, state: GameState) -> list[Event]:
+        # Locate the resolving spell on the stack to attach ``source``.
+        stack_zone = state.zones.get('stack')
+        source_id = None
+        caster_id = None
+        if stack_zone:
+            for cid in stack_zone.objects:
+                obj = state.objects.get(cid)
+                if obj and obj.name == card_name:
+                    source_id = obj.id
+                    caster_id = obj.controller
+                    break
+
+        # ``targets`` is the engine's standard list[list[Target]] shape.
+        # For divide-damage spells, ``targets[0]`` is a flat list of
+        # Targets, each carrying ``divided_amount`` set by the cast-time
+        # allocation handler.
+        if not targets:
+            return []
+        first_group = targets[0] if targets else []
+        if not first_group:
+            return []
+
+        events: list[Event] = []
+        # Fallback budget — used only if every Target has no
+        # ``divided_amount`` set (defensive: shouldn't happen via the
+        # standard cast path, but covers manual resolve calls in tests).
+        if callable(total_damage):
+            try:
+                fallback_budget = int(total_damage(state, caster_id) or 0)
+            except Exception:
+                fallback_budget = 0
+        else:
+            fallback_budget = int(total_damage or 0)
+
+        # Sum the per-target allocations actually present.
+        explicit_total = sum(
+            int(getattr(t, 'divided_amount', None) or 0)
+            for t in first_group
+        )
+
+        # If no explicit allocations were set, fall back to even split.
+        if explicit_total == 0 and fallback_budget > 0 and first_group:
+            per = max(1, fallback_budget // len(first_group))
+            remaining = fallback_budget
+            for t in first_group:
+                amount = min(per, remaining)
+                if amount <= 0:
+                    break
+                tid = getattr(t, 'id', None) or t
+                is_player = getattr(t, 'is_player', None)
+                if is_player is None:
+                    is_player = tid in state.players
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={
+                        'target': tid,
+                        'amount': amount,
+                        'source': source_id,
+                        'is_combat': False,
+                        'is_player': is_player,
+                    },
+                    source=source_id,
+                ))
+                remaining -= amount
+            # If we still have leftover (integer-division remainder), pile
+            # it on the first target.
+            if remaining > 0 and events:
+                events[0].payload['amount'] += remaining
+            return events
+
+        # Standard path: each Target's divided_amount is honored.
+        for t in first_group:
+            amount = int(getattr(t, 'divided_amount', None) or 0)
+            if amount <= 0:
+                continue
+            tid = getattr(t, 'id', None) or t
+            is_player = getattr(t, 'is_player', None)
+            if is_player is None:
+                is_player = tid in state.players
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={
+                    'target': tid,
+                    'amount': amount,
+                    'source': source_id,
+                    'is_combat': False,
+                    'is_player': is_player,
+                },
+                source=source_id,
+            ))
+        return events
+
+    return _resolve
+
+
+__all_divide_damage__ = [
+    "make_divide_damage_resolve",
+]
+
+
+# =============================================================================
 # COPY STACK-ITEM HELPER (Virtue of Knowledge / Peter Parker's Camera / Gogo)
 # =============================================================================
 

@@ -6,7 +6,7 @@ Supports hexproof, shroud, protection, and other targeting restrictions.
 """
 
 from dataclasses import dataclass, field
-from typing import Callable, Literal, Optional, Union
+from typing import Any, Callable, Literal, Optional, Union
 from enum import Enum, auto
 
 from .types import (
@@ -210,8 +210,13 @@ class TargetRequirement:
     # For modal spells where this target may be optional
     optional: bool = False
 
-    # For divided effects (e.g., "deal 3 damage divided among")
-    divide_amount: Optional[int] = None
+    # For divided effects (e.g., "deal 3 damage divided among").
+    # Either a literal int (fixed-damage burn like Twin Bolt's 2) or a
+    # callable ``(state, caster_id) -> int`` for X-cost spells (Comet
+    # Storm: X+1; Ureni: number of lands you control). Read by
+    # ``priority._emit_cast_target_choice_step`` to emit a
+    # ``divide_allocation`` PendingChoice at cast time.
+    divide_amount: Optional[Any] = None
 
     def min_targets(self) -> int:
         """Minimum number of targets required."""

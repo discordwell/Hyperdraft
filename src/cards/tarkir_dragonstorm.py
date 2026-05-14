@@ -35,6 +35,8 @@ from src.cards.interceptor_helpers import (
     normalize_target,
     # Modal helper + ModeSpec
     make_modal_resolve, ModeSpec,
+    # Phase 5b: divide-damage resolver (Twin Bolt et al.)
+    make_divide_damage_resolve,
 )
 
 # Phase 5b cast-time target requirements
@@ -377,68 +379,28 @@ def narsets_rebuke_resolve(targets: list, state: GameState) -> list[Event]:
 # -----------------------------------------------------------------------------
 # TWIN BOLT - Deal 2 damage divided among one or two targets
 # -----------------------------------------------------------------------------
-def _twin_bolt_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Twin Bolt - deal 2 damage divided among targets."""
-    events = []
-    if len(selected) == 1:
-        target_id = selected[0]
-        if target_id in state.players:
-            events.append(Event(
-                type=EventType.DAMAGE,
-                payload={'target': target_id, 'amount': 2, 'source': choice.source_id, 'is_combat': False},
-                source=choice.source_id
-            ))
-        else:
-            target = state.objects.get(target_id)
-            if target and target.zone == ZoneType.BATTLEFIELD:
-                events.append(Event(
-                    type=EventType.DAMAGE,
-                    payload={'target': target_id, 'amount': 2, 'source': choice.source_id, 'is_combat': False},
-                    source=choice.source_id
-                ))
-    elif len(selected) == 2:
-        for target_id in selected:
-            if target_id in state.players:
-                events.append(Event(
-                    type=EventType.DAMAGE,
-                    payload={'target': target_id, 'amount': 1, 'source': choice.source_id, 'is_combat': False},
-                    source=choice.source_id
-                ))
-            else:
-                target = state.objects.get(target_id)
-                if target and target.zone == ZoneType.BATTLEFIELD:
-                    events.append(Event(
-                        type=EventType.DAMAGE,
-                        payload={'target': target_id, 'amount': 1, 'source': choice.source_id, 'is_combat': False},
-                        source=choice.source_id
-                    ))
-    return events
+# Phase 5b: migrated to ``make_divide_damage_resolve`` + cast-time
+# ``divide_allocation`` PendingChoice. The engine emits one prompt for the
+# whole spell that lets the caster allocate the printed 2 damage across 1
+# or 2 legal targets ("any target" = creature, planeswalker, or player).
+from src.engine.targeting import any_target_filter as _any_target_filter
 
-
-def twin_bolt_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Twin Bolt: Deal 2 damage divided among one or two targets."""
-    caster_id, spell_id = _find_spell_on_stack(state, "Twin Bolt")
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD:
-            if CardType.CREATURE in obj.characteristics.types or CardType.PLANESWALKER in obj.characteristics.types:
-                valid_targets.append(obj.id)
-    for player_id in state.players:
-        valid_targets.append(player_id)
-    if not valid_targets:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose one or two targets for Twin Bolt (2 damage divided)",
-        min_targets=1,
-        max_targets=2
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _twin_bolt_execute
-    return []
+twin_bolt_resolve = make_divide_damage_resolve(
+    "Twin Bolt",
+    total_damage=2,
+    target_filter=_any_target_filter(),
+    min_targets=1,
+    max_targets=2,
+)
+_TWIN_BOLT_REQS = [
+    TargetRequirement(
+        filter=_any_target_filter(),
+        count=2,
+        count_type='up_to',
+        label="Allocate Twin Bolt's 2 damage among 1-2 targets",
+        divide_amount=2,
+    ),
+]
 
 
 # -----------------------------------------------------------------------------
@@ -3037,6 +2999,8 @@ TWIN_BOLT = make_instant(
     text="Twin Bolt deals 2 damage divided as you choose among one or two targets.",
     rarity="common",
     resolve=twin_bolt_resolve,
+    # Phase 5b: cast-time divide_allocation prompt.
+    target_requirements=_TWIN_BOLT_REQS,
 )
 
 UNDERFOOT_UNDERDOGS = make_creature(

@@ -509,14 +509,116 @@ class PrioritySystem:
             obj = self.state.objects.get(tid)
             if obj is not None:
                 label = getattr(obj, "name", None) or tid
+                # divide_allocation renderer reads ``name``/``type``/``life``
+                # to render +/- target chips. Emit them on every option so a
+                # divide-damage req gets a useful UI.
+                option = {"id": tid, "label": label, "name": label}
+                if hasattr(obj, "characteristics"):
+                    chs = obj.characteristics
+                    if chs.toughness is not None:
+                        option["life"] = (chs.toughness or 0) - int(
+                            getattr(obj.state, "damage", 0) or 0
+                        )
+                    option["type"] = (
+                        "creature"
+                        if any(
+                            t.name == "CREATURE"
+                            for t in getattr(chs, "types", set()) or set()
+                        )
+                        else "permanent"
+                    )
             else:
                 player = self.state.players.get(tid)
                 label = getattr(player, "name", None) or f"Player {tid[:8]}"
-            options.append({"id": tid, "label": label})
+                option = {
+                    "id": tid,
+                    "label": label,
+                    "name": label,
+                    "type": "player",
+                }
+                if player is not None:
+                    option["life"] = getattr(player, "life", 0)
+            options.append(option)
 
         priority_sys = self
         # Snapshot for the handler closure.
         state_snapshot = self.state
+
+        # Phase 5b: divide-damage path. When the TargetRequirement carries
+        # a ``divide_amount`` (int or callable), emit a single
+        # ``divide_allocation`` PendingChoice instead of a plain ``target``
+        # choice. Submission shape is list[{target_id, amount}]; the
+        # handler bakes each amount into the chosen ``Target.divided_amount``
+        # so the resolve callback (typically ``make_divide_damage_resolve``)
+        # can emit one DAMAGE event per allocation.
+        divide_amount = getattr(req, "divide_amount", None)
+        if divide_amount is not None:
+            # Resolve callable budgets (X-cost) at prompt time.
+            if callable(divide_amount):
+                try:
+                    total_amount = int(divide_amount(self.state, action.player_id) or 0)
+                except Exception:
+                    total_amount = 0
+            else:
+                total_amount = int(divide_amount or 0)
+
+            if total_amount <= 0:
+                # Nothing to allocate — treat as no-legal-targets (cast aborts).
+                return []
+
+            def divide_handler(choice, selected, st):
+                # Normalize selection into a list of (target_id, amount).
+                allocations: list[tuple[str, int]] = []
+                if isinstance(selected, dict):
+                    for tid, amt in selected.items():
+                        allocations.append((str(tid), int(amt or 0)))
+                elif isinstance(selected, list):
+                    for item in selected:
+                        if isinstance(item, dict):
+                            tid = item.get("target_id") or item.get("id")
+                            amt = int(item.get("amount", 0) or 0)
+                            if tid:
+                                allocations.append((str(tid), amt))
+                        elif isinstance(item, tuple) and len(item) == 2:
+                            allocations.append((str(item[0]), int(item[1] or 0)))
+
+                # Build Targets with divided_amount.
+                picked: list[Target] = []
+                for tid, amt in allocations:
+                    if amt <= 0:
+                        continue
+                    is_player = tid in state_snapshot.players
+                    picked.append(Target(
+                        id=tid,
+                        is_player=is_player,
+                        divided_amount=amt,
+                    ))
+                return priority_sys._emit_cast_target_choice_step(
+                    card, action, reqs, idx + 1, accumulated + [picked], targeting
+                )
+
+            # AI fallback heuristic for divide_allocation: pile everything
+            # on the first legal target. The real heuristic lives in
+            # ``AIEngine._make_divide_allocation_choice``, which spreads
+            # damage across opponent creatures preferentially.
+            heuristic = [{"target_id": legal_ids[0], "amount": total_amount}]
+
+            prompt = req.label or f"Allocate {total_amount} damage among targets"
+            return create_choice_and_resolve(
+                self.state,
+                choice_type="divide_allocation",
+                player_id=action.player_id,
+                prompt=prompt,
+                options=options,
+                source_id=card.id,
+                min_choices=1,
+                max_choices=len(options),
+                handler=divide_handler,
+                heuristic_pick=heuristic,
+                total_amount=total_amount,
+                effect="damage",
+                interaction_mode="overlay",
+            )
 
         def handler(choice, selected, st):
             picked_ids = [s.get("id") if isinstance(s, dict) else s for s in selected]
