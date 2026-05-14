@@ -420,20 +420,32 @@ _KNOWN_SETS: dict[str, tuple[str, str, str]] = {
     "YGO_STARTER": ("yugioh", "src.cards.yugioh.ygo_starter", "YGO_STARTER_CARDS"),
     "MNR": ("scp", "src.cards.scp.mnestic_reset", "MNR_CARDS"),
     "FBN": ("scp", "src.cards.scp.foundations_beyond", "FBN_CARDS"),
+    "SZB": ("scp", "src.cards.scp.site_zero_broken_masquerade",
+            "SITE_ZERO_BROKEN_MASQUERADE_CARDS"),
 }
 
 
-def _load_registry(set_code: str) -> tuple[str, dict]:
-    """Resolve a set code to (engine_name, card_registry_dict).
-    Tries _KNOWN_SETS first, then guesses common module-level names."""
+def _load_registry(set_code: str) -> tuple[str, dict | list]:
+    """Resolve a set code to (engine_name, card_registry).
+
+    The registry is either a ``dict[str, CardDefinition]`` (the convention
+    used by every MTG set and by SCP's MNR/FBN) or a
+    ``list[CardDefinition]`` (used by SCP's SZB). The SCP scorer accepts
+    both shapes; the MTG path requires a dict and will reject lists.
+    """
     if set_code in _KNOWN_SETS:
         engine, module, name = _KNOWN_SETS[set_code]
         import importlib
         mod = importlib.import_module(module)
         reg = getattr(mod, name, None)
-        if not isinstance(reg, dict):
-            raise RuntimeError(f"{module}.{name} is not a dict (got {type(reg).__name__})")
-        return engine, reg
+        if isinstance(reg, dict):
+            return engine, reg
+        if isinstance(reg, (list, tuple)) and engine == "scp":
+            return engine, reg
+        raise RuntimeError(
+            f"{module}.{name} is not a dict (got {type(reg).__name__}); "
+            f"only SCP-engine sets may export as a list."
+        )
     raise KeyError(
         f"Unknown set code: {set_code}. Known: {sorted(_KNOWN_SETS)}. "
         f"Pass --engine + --module + --registry directly to override."

@@ -509,3 +509,54 @@ def test_mtg_engine_does_not_route_to_scp_scorer():
         f"BLB code_diversity collapsed to {report.code_diversity:.3f} — "
         "the MTG path may have been replaced by SCP routing."
     )
+
+
+# ---------------------------------------------------------------------------
+# 8. CLI registry coverage — all SCP sets resolvable; list-shape works.
+# ---------------------------------------------------------------------------
+
+
+def test_all_three_scp_sets_registered_in_known_sets():
+    """MNR + FBN + SZB are the three SCP-engine sets that ship; each must
+    be invocable via the CLI registry. The historic gap was SZB being
+    declared in src/cards/ but absent from _KNOWN_SETS — caught on first
+    pass."""
+    from src.depth.report import _KNOWN_SETS
+
+    for code in ("MNR", "FBN", "SZB"):
+        assert code in _KNOWN_SETS, (
+            f"SCP set code {code!r} missing from _KNOWN_SETS. "
+            f"Known: {sorted(_KNOWN_SETS)}"
+        )
+        engine, module, name = _KNOWN_SETS[code]
+        assert engine == "scp", f"{code} routed to wrong engine: {engine}"
+
+
+def test_list_shape_registry_scores_through_scp_path():
+    """SZB exports as a list[CardDefinition] (not a dict). The SCP scorer
+    must accept both shapes — otherwise an entire shipping set is
+    unscorable. Regression: the first version of the scorer .items()'d
+    the registry unconditionally and crashed on SZB."""
+    from src.depth.report import score_registry, reset_calibration_cache
+    from src.cards.scp.site_zero_broken_masquerade import (
+        SITE_ZERO_BROKEN_MASQUERADE_CARDS as SZB,
+    )
+
+    assert isinstance(SZB, list), (
+        "SZB used to be a list; rewrite this test if the shape changed."
+    )
+    reset_calibration_cache()
+    report = score_registry(SZB, engine="scp", set_code="SZB")
+    assert report.total_cards == len(SZB)
+    assert report.wired_cards > 0
+
+
+def test_scp_scorer_rejects_unsupported_registry_shape():
+    """A scalar/None/string slipping through is a programmer error and
+    should fail loudly, not silently empty-score."""
+    from src.depth.scp_scorer import score_scp_registry
+    import pytest
+
+    for bad in (None, "string", 42, 3.14):
+        with pytest.raises(TypeError):
+            score_scp_registry(bad, set_code="OOPS")

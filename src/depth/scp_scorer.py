@@ -307,8 +307,12 @@ def score_scp_card(card_def) -> CardScore:
 # ---------------------------------------------------------------------------
 
 
-def score_scp_registry(registry: dict, set_code: str, top_clusters: int = 10):
+def score_scp_registry(registry, set_code: str, top_clusters: int = 10):
     """Score an SCP-engine card registry into a SetReport.
+
+    Accepts either a ``dict[str, CardDefinition]`` (the MNR/FBN convention)
+    or a ``list[CardDefinition]`` (the SZB convention). For lists the
+    per-card ``name`` falls back to ``card_def.name``.
 
     Returns the same SetReport dataclass produced by the MTG-side scorer
     so calibration, CLI summary, and JSON output work without forking.
@@ -321,10 +325,21 @@ def score_scp_registry(registry: dict, set_code: str, top_clusters: int = 10):
         load_calibration,
     )
 
+    # Normalize both supported shapes to (name, card_def) pairs.
+    if isinstance(registry, dict):
+        pairs = list(registry.items())
+    elif isinstance(registry, (list, tuple)):
+        pairs = [(getattr(c, "name", f"<card_{i}>"), c) for i, c in enumerate(registry)]
+    else:
+        raise TypeError(
+            f"SCP scorer registry must be dict or list/tuple, "
+            f"got {type(registry).__name__}"
+        )
+
     per_card: list[CardScore] = []
-    for name, card_def in registry.items():
+    for name, card_def in pairs:
         cs = score_scp_card(card_def)
-        cs.name = name  # registry key wins (matches MTG path's convention)
+        cs.name = name  # registry key wins for dicts; card_def.name for lists
         per_card.append(cs)
 
     wired = [cs for cs in per_card if not cs.is_unwired]
