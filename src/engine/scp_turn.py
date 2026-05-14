@@ -47,6 +47,10 @@ class SCPTurnManager(TurnManager):
 
         scp.ensure_scp_state(self.state, active)
         scp.reset_staff(getattr(self.state, "_game", None), active) if getattr(self.state, "_game", None) else None
+        # FBN: reset per-turn markers (Spark Containment one-shot guard etc.).
+        # Safe to call even when no FBN cards are in play — operates on
+        # state.scp_sites slots that ``ensure_scp_state`` always seeds.
+        scp.reset_fbn_turn_flags(self.state, active)
         start = Event(type=EventType.TURN_START, payload={"player": active, "turn_number": self.turn_state.turn_number})
         if self.pipeline:
             self.pipeline.emit(start)
@@ -94,6 +98,14 @@ class SCPTurnManager(TurnManager):
             # the active player's turn so it bites the player it was aimed
             # at and doesn't accidentally persist into the next round.
             scp.clear_mnr_no_reset_flag(self.state, active)
+            # FBN end-of-turn: Compleation Vector ticks counters on
+            # ``active``'s personnel under opposing Phyrexian-Strain
+            # anomalies; Leyline Saturation's bonus-hazard half is cleared
+            # for the active saturator; the Planar Rift shelf returns any
+            # unspent exile-cards to library top.
+            events.extend(scp.apply_compleation_vector(game, active))
+            scp.clear_leyline_saturation(self.state, active)
+            events.extend(scp.cleanup_rift_window(game, active))
 
         end = Event(type=EventType.TURN_END, payload={"player": active, "turn_number": self.turn_state.turn_number})
         if self.pipeline:

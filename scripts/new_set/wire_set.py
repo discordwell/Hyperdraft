@@ -266,30 +266,113 @@ def register_engine_set(
         else:
             text = import_line + text
 
-    # 2b. Merge into aggregate dict literal.
-    # Look for: `<aggregate_var>: dict = {**A, **B}` or
-    #          `<aggregate_var> = {**A, **B}`
-    # then insert `, **<registry_var>` before the closing `}`.
+    # 2b. Merge into aggregate dict.
+    # Two supported layouts:
+    #   (a) Single-line spread literal:
+    #         <aggregate_var>: dict = {**A, **B}
+    #       → insert `, **<registry_var>` before the closing `}`.
+    #   (b) Dict comprehension over a `for card in [*A.values(), *B.values()]` list:
+    #         <aggregate_var>: dict[str, X] = {
+    #             card.name: card
+    #             for card in [
+    #                 *FOO.values(),
+    #                 *BAR.values(),
+    #             ]
+    #         }
+    #       → insert `*<registry_var>.values(),` inside the bracketed source list.
+    #   This is the shape `src/cards/scp/__init__.py` uses, and a few other engines
+    #   follow it when they need post-construction mutation passes (mechanics
+    #   appliers etc.).
     # The `\b` after the var name prevents `MINECRAFT_CARDS` from also
     # matching e.g. `MINECRAFT_CARDS_LEGACY` if both exist in the file.
-    pattern = re.compile(
+    pattern_inline = re.compile(
         rf"^({re.escape(aggregate_var)}\b(?:\s*:\s*dict)?\s*=\s*\{{)([^}}]*)(\}})",
         flags=re.MULTILINE,
     )
-    m = pattern.search(text)
-    if not m:
-        raise ValueError(
-            f"aggregate dict {aggregate_var} not found or not a single-line "
-            f"dict literal in {init_path}"
-        )
-    inside = m.group(2)
+    m = pattern_inline.search(text)
     spread_token = f"**{registry_var}"
-    if spread_token not in inside:
-        if inside.strip().endswith(",") or not inside.strip():
-            new_inside = f"{inside}{spread_token}, "
-        else:
-            new_inside = f"{inside}, {spread_token}"
-        text = text[:m.start()] + m.group(1) + new_inside + m.group(3) + text[m.end():]
+    values_token = f"*{registry_var}.values(),"
+    if m:
+        inside = m.group(2)
+        if spread_token not in inside:
+            if inside.strip().endswith(",") or not inside.strip():
+                new_inside = f"{inside}{spread_token}, "
+            else:
+                new_inside = f"{inside}, {spread_token}"
+            text = text[:m.start()] + m.group(1) + new_inside + m.group(3) + text[m.end():]
+    else:
+        # Layout (b): dict comprehension over a bracketed source list.
+        # Find the `<aggregate_var>... = {` header (multi-line allowed),
+        # then locate the bracketed `for card in [...]` list inside and
+        # append a `*<registry_var>.values(),` line.
+        header = re.search(
+            rf"^{re.escape(aggregate_var)}\b[^\n]*?=\s*\{{",
+            text,
+            flags=re.MULTILINE,
+        )
+        if not header:
+            raise ValueError(
+                f"aggregate dict {aggregate_var} not found in {init_path}"
+            )
+        # Find `for ... in [` after the header, then its matching `]`.
+        body_search = re.search(r"for\s+\w+\s+in\s+\[", text[header.end():])
+        if not body_search:
+            raise ValueError(
+                f"aggregate dict {aggregate_var} is neither a {{**A, **B}} "
+                f"literal nor a `for card in [...]` comprehension; "
+                f"unsupported layout in {init_path}"
+            )
+        list_open_idx = header.end() + body_search.end()
+        # Locate matching `]` accounting for nested brackets.
+        depth = 1
+        i = list_open_idx
+        n = len(text)
+        list_close_idx: int | None = None
+        while i < n and depth > 0:
+            ch = text[i]
+            if ch == "[":
+                depth += 1
+            elif ch == "]":
+                depth -= 1
+                if depth == 0:
+                    list_close_idx = i
+                    break
+            i += 1
+        if list_close_idx is None:
+            raise ValueError(
+                f"could not find closing `]` for aggregate dict comprehension "
+                f"of {aggregate_var} in {init_path}"
+            )
+        slice_inside = text[list_open_idx:list_close_idx]
+        if values_token not in slice_inside and spread_token not in slice_inside:
+            # Insert as a new indented line right before the closing `]`.
+            # Detect the indent by looking at the previous non-empty line
+            # in slice_inside.
+            inner_lines = slice_inside.splitlines()
+            indent = "        "
+            for line in reversed(inner_lines):
+                stripped = line.lstrip()
+                if stripped and stripped != "":
+                    indent = line[: len(line) - len(stripped)]
+                    break
+            insertion = f"{indent}{values_token}\n"
+            # If the closing `]` sits on a line of its own with trailing whitespace
+            # before it, place the insertion right before that line's start.
+            # Walk backward from list_close_idx to find newline.
+            pre_close = text.rfind("\n", 0, list_close_idx)
+            if pre_close == -1:
+                text = (
+                    text[:list_close_idx]
+                    + insertion
+                    + text[list_close_idx:]
+                )
+            else:
+                # Insert insertion before the `]` line.
+                text = (
+                    text[: pre_close + 1]
+                    + insertion
+                    + text[pre_close + 1:]
+                )
 
     _write(init_path, text)
     return init_path

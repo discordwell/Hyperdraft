@@ -629,6 +629,9 @@ class EventType(Enum):
     SCP_MNESTIC_ACTIVE = auto()    # Personnel gained the Mnestic tag via Mnestic Wake
     SCP_REDACT = auto()            # Redact procedure resolved (opponent discard + event tag)
     SCP_COG_HAZARD_TICK = auto()   # Cognitive Hazard drained N cards from opposing hand
+    # FBN (Foundations Beyond) verbs. Both inert — used for analytics + frontend hooks.
+    SCP_CONTROL_SWAP = auto()              # Compleation Vector flipped a personnel's controller
+    SCP_PHYLACTERY_AUDIT_OFFER = auto()    # Phylactery Audit auto-accept / reject decision
 
 
 class EventStatus(Enum):
@@ -977,6 +980,11 @@ class ObjectState:
     # non-Mnestic personnel can become permanently Mnestic mid-game.
     scp_forget_counters: int = 0
     scp_mnestic_gained: bool = False
+    # FBN (Foundations Beyond) per-object state. ``scp_compleation`` accumulates
+    # Compleation Vector counters placed at end-of-turn by opposing Phyrexian
+    # Strain anomalies. At >=3 counters the personnel flips controller via the
+    # SCP_CONTROL_SWAP event (Mnestic personnel are skipped entirely).
+    scp_compleation: int = 0
 
     # Depths-specific (optional, unused in other modes). depth_band stores
     # an Enum from src/engine/depths.py (DepthBand). It's stored as a plain

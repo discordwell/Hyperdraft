@@ -52,7 +52,7 @@ def test_scp_card_pool_has_distinct_types_and_starter_decks():
     assert {"CORE", "ACW", "KBO", "GOI", "ETH", "OAR", "SZB"}.issubset(expansion_codes)
     assert all(getattr(card, "scp_art_prompt", "") for card in SCP_CARDS.values())
     assert any(card.rarity == "mythic" and "Hero" in card.characteristics.subtypes for card in SCP_CARDS.values())
-    assert all(len(factory()) == 25 for factory in SCP_STARTER_DECKS.values())
+    assert all(len(factory()) in {25, 30} for factory in SCP_STARTER_DECKS.values())
     assert len(SCP_STARTER_DECKS) >= 14
 
 

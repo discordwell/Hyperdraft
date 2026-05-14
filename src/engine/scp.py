@@ -53,6 +53,20 @@ def _site_defaults() -> dict:
         "briefing": 0,
         "assignment_slots": 2,
         "assignments_used": 0,
+        # FBN (Foundations Beyond) site slots. ``archives_list`` is the
+        # CardDefinition append-only log used by Dragon Hoard's ``_active_bonus``
+        # walk. ``rift_window`` is the Planar Rift exile shelf consumed by
+        # ``play_from_rift_window``. The three counters
+        # (``compleation_swaps`` / ``phylactery_audits`` / ``wurms_tamed``) feed
+        # the matching FBN alt-wins in ``check_scp_victory``.
+        "archives_list": [],
+        "rift_window": [],
+        "compleation_swaps": 0,
+        "phylactery_audits": 0,
+        "phylactery_audits_this_game": 0,
+        "wurms_tamed": 0,
+        "spark_drawn_this_turn": False,
+        "leyline_saturation_delta": {},
     }
 
 
@@ -139,6 +153,27 @@ def _active_bonus(state: GameState, player_id: str, task: str) -> int:
             continue
         bonuses = getattr(contained.card_def, "scp_contained_bonus", {}) if contained.card_def else {}
         total += int((bonuses or {}).get(task, 0) or 0)
+    # FBN Cluster 6: Dragon Hoard. Each archived CardDefinition with subtype
+    # "Dragon" AND ``scp_dragon_hoard = X`` adds X to the running total, capped
+    # at +6 contribution per test (engine guardrail to keep the design ceiling
+    # of +4 in line with the +6 sanity cap). The archive walk reads
+    # ``state.scp_sites[player_id]["archives_list"]`` — a list of CardDefinition
+    # objects appended by ``record_archived_card`` whenever ``gain_archives``
+    # fires for an anomaly source.
+    archives_list = state.scp_sites[player_id].get("archives_list", []) or []
+    dragon_bonus = 0
+    for archived in archives_list:
+        if archived is None:
+            continue
+        hoard = int(getattr(archived, "scp_dragon_hoard", 0) or 0)
+        if hoard <= 0:
+            continue
+        characteristics = getattr(archived, "characteristics", None)
+        subtypes = set(getattr(characteristics, "subtypes", set()) or set()) if characteristics else set()
+        if "Dragon" not in subtypes:
+            continue
+        dragon_bonus += hoard
+    total += min(6, dragon_bonus)
     return total
 
 
@@ -996,6 +1031,12 @@ def memory_hole(game, player_id: str, object_id: str, *, source: Optional[str] =
         controller=player_id,
     ))
     events.extend(_move(game, obj, ZoneType.EXILE, source=source))
+    # FBN Cluster 2: Phylactery Audit. If the card carries
+    # ``scp_phylactery_audit = X``, the audit fires now — on accept the card
+    # is yanked back to hand (reversing the exile) and the audit counter
+    # bumps; on reject the card is appended to ``scp_forgotten`` and stays
+    # in EXILE. Both branches emit ``SCP_PHYLACTERY_AUDIT_OFFER``.
+    events.extend(apply_phylactery_audit(state, game, obj))
     events.extend(check_scp_victory(game, source=source))
     return True, "Memory-holed", events
 
@@ -1016,6 +1057,14 @@ def gain_archives(game, player_id: str, amount: int, *, source: Optional[str] = 
     state = game.state
     ensure_scp_state(state, player_id)
     site(state, player_id)["archives"] += max(0, amount)
+    # FBN Cluster 6 wiring: if the ``source`` resolves to an anomaly GameObject
+    # whose card_def is a Dragon Hoard tag, append its CardDefinition to the
+    # site's ``archives_list`` so ``_active_bonus`` can read it. Non-anomaly
+    # sources are skipped — Dragon Hoard is by definition an anomaly mechanic.
+    if source:
+        source_obj = state.objects.get(source)
+        if source_obj and source_obj.card_def is not None:
+            record_archived_card(state, player_id, source_obj.card_def)
     events = game.emit(Event(
         type=EventType.SCP_ARCHIVE_GAINED,
         payload={"player": player_id, "amount": amount, "archives": site(state, player_id)["archives"]},
@@ -1147,6 +1196,20 @@ def check_scp_victory(game, *, source: Optional[str] = None) -> list[Event]:
                         mnestic_count += 1
                 if mnestic_count >= 4 and s["archives"] >= 4:
                     events.extend(_declare_site_win(game, player_id, "mnestic_saturation", source=mandate.id))
+            # FBN Cluster 1: Phyrexian Strain compleation overrun. Three
+            # successful Compleation Vector control-flips while a Phyrexian
+            # Strain mandate is active locks the win.
+            if alt_win == "compleation_overrun" and int(s.get("compleation_swaps", 0) or 0) >= 3:
+                events.extend(_declare_site_win(game, player_id, "compleation_overrun", source=mandate.id))
+            # FBN Cluster 2: Lich Phylactery chain. Four Phylactery Audit
+            # returns-from-forgotten over the course of the game with an
+            # active Lich Phylactery mandate wins.
+            if alt_win == "phylactery_chain" and int(s.get("phylactery_audits", 0) or 0) >= 4:
+                events.extend(_declare_site_win(game, player_id, "phylactery_chain", source=mandate.id))
+            # FBN Cluster 7: Wurm Apex tamed. Three successful Wurm Devourer
+            # taming events with an active Wurm Apex mandate wins.
+            if alt_win == "wurm_apex_tamed" and int(s.get("wurms_tamed", 0) or 0) >= 3:
+                events.extend(_declare_site_win(game, player_id, "wurm_apex_tamed", source=mandate.id))
     return events
 
 
@@ -2033,3 +2096,504 @@ def tax_own_pending(state: GameState, player_id: str, amount: int, source: Optio
             controller=player_id,
         ))
     return events
+
+
+# ---------------------------------------------------------------------------
+# FBN (Foundations Beyond) engine extensions
+#
+# Seven mechanic clusters layered atop the SCP core. Each cluster is read off a
+# card-def attribute stamped by ``src/cards/scp/foundations_beyond/helpers.py``
+# (``scp_compleation_vector``, ``scp_phylactery_audit``, ``scp_spark_containment``,
+# ``scp_leyline_saturation``, ``scp_planar_rift``, ``scp_dragon_hoard``,
+# ``scp_annihilation_wave``, ``scp_wurm_devourer``). The Dragon Hoard cluster
+# is implemented inline in ``_active_bonus`` above; the rest are public
+# functions invoked from card hooks, the turn manager, and the FBN-aware
+# memory_hole / gain_archives integrations.
+# ---------------------------------------------------------------------------
+
+
+def record_archived_card(state: GameState, player_id: str, card_def) -> None:
+    """Append ``card_def`` to ``state.scp_sites[player_id]["archives_list"]``.
+
+    Called from ``gain_archives`` whenever a player gains archives from a card
+    source. Dragon Hoard's ``_active_bonus`` walk reads this list to sum +X
+    per archived Dragon. Non-Dragon entries are no-ops at read time so this
+    helper is safe to call for every archive event.
+    """
+    if card_def is None:
+        return
+    ensure_scp_state(state, player_id)
+    archives_list = state.scp_sites[player_id].setdefault("archives_list", [])
+    archives_list.append(card_def)
+
+
+# ---------------------------------------------------------------------------
+# Cluster 1: Compleation Vector
+# ---------------------------------------------------------------------------
+
+
+def _compleation_swap(state: GameState, personnel_obj: GameObject) -> Optional[str]:
+    """Flip ``personnel_obj``'s controller to the first opposing player.
+
+    Returns the new controller ID on a successful swap, ``None`` if no
+    opposing player is available (e.g. all opponents eliminated). The
+    personnel is removed from the previous controller's ``scp_personnel``
+    registry and appended to the new controller's. The swap counter on the
+    new controller's site bumps by 1.
+    """
+    old_controller = personnel_obj.controller
+    new_controller = _first_opposing_player(state, old_controller)
+    if new_controller is None:
+        return None
+    ensure_scp_state(state, old_controller)
+    ensure_scp_state(state, new_controller)
+    old_list = state.scp_personnel.get(old_controller, [])
+    while personnel_obj.id in old_list:
+        old_list.remove(personnel_obj.id)
+    new_list = state.scp_personnel.setdefault(new_controller, [])
+    if personnel_obj.id not in new_list:
+        new_list.append(personnel_obj.id)
+    personnel_obj.controller = new_controller
+    site(state, new_controller)["compleation_swaps"] = int(
+        site(state, new_controller).get("compleation_swaps", 0) or 0,
+    ) + 1
+    return new_controller
+
+
+def apply_compleation_vector(game, player_id: str) -> list[Event]:
+    """End-of-turn hook for ``player_id``. Opposing Compleation Vector
+    anomalies place counters on ``player_id``'s strongest non-Mnestic
+    personnel.
+
+    For each opposing player O, each active anomaly O controls with
+    ``scp_compleation_vector = N`` picks the highest-skill non-Mnestic
+    personnel under ``player_id``'s control and places N ``scp_compleation``
+    counters on them. When a personnel's counter reaches >=3 the personnel's
+    controller flips via ``_compleation_swap`` and ``SCP_CONTROL_SWAP`` fires.
+
+    Mnestic personnel (printed or Mnestic-Wake-gained) are skipped — Mnestic
+    suppresses the cognitive rewrite half of Compleation Vector.
+    """
+    state = game.state
+    ensure_scp_state(state, player_id)
+    events: list[Event] = []
+    for opp_id in _opposing_players(state, player_id):
+        for anomaly_id in list(state.scp_anomalies.get(opp_id, [])):
+            anomaly = state.objects.get(anomaly_id)
+            if not anomaly or anomaly.zone != ZoneType.BATTLEFIELD:
+                continue
+            if anomaly.state.scp_status != "active":
+                continue
+            n = int(getattr(anomaly.card_def, "scp_compleation_vector", 0) or 0)
+            if n <= 0:
+                continue
+            candidates: list[tuple[int, GameObject]] = []
+            for staff_id in list(state.scp_personnel.get(player_id, [])):
+                staff = state.objects.get(staff_id)
+                if not staff or staff.zone != ZoneType.BATTLEFIELD:
+                    continue
+                if staff.state.scp_status != "active":
+                    continue
+                if bool(getattr(staff.card_def, "scp_mnestic", False)):
+                    continue
+                if bool(getattr(staff.state, "scp_mnestic_gained", False)):
+                    continue
+                skills = getattr(staff.card_def, "scp_skills", {}) if staff.card_def else {}
+                total_skill = sum(int(v or 0) for v in (skills or {}).values())
+                candidates.append((total_skill, staff))
+            if not candidates:
+                continue
+            candidates.sort(
+                key=lambda c: (-c[0], c[1].card_def.name if c[1].card_def else c[1].name),
+            )
+            target = candidates[0][1]
+            target.state.scp_compleation = int(
+                getattr(target.state, "scp_compleation", 0) or 0,
+            ) + n
+            if target.state.scp_compleation >= 3:
+                old_controller = target.controller
+                new_controller = _compleation_swap(state, target)
+                if new_controller is not None:
+                    events.extend(game.emit(Event(
+                        type=EventType.SCP_CONTROL_SWAP,
+                        payload={
+                            "object_id": target.id,
+                            "from_controller": old_controller,
+                            "to_controller": new_controller,
+                            "reason": "compleation_vector",
+                            "source_anomaly": anomaly.id,
+                        },
+                        source=anomaly.id,
+                        controller=new_controller,
+                    )))
+    events.extend(check_scp_victory(game))
+    return events
+
+
+# ---------------------------------------------------------------------------
+# Cluster 2: Phylactery Audit
+# ---------------------------------------------------------------------------
+
+
+def apply_phylactery_audit(state: GameState, game, card_obj: GameObject) -> list[Event]:
+    """Audit hook fired during ``memory_hole`` when ``card_obj`` carries
+    ``scp_phylactery_audit = X``.
+
+    Auto-accept when ``ethics_debt + X <= 8``: the card is yanked from EXILE
+    back to HAND, ``ethics_debt += X``, and ``phylactery_audits`` bumps by 1.
+    Otherwise the card is appended to ``state.scp_forgotten`` and stays in
+    EXILE. Both branches emit ``SCP_PHYLACTERY_AUDIT_OFFER`` so analytics /
+    frontend hooks can observe the decision.
+    """
+    if card_obj is None or card_obj.card_def is None:
+        return []
+    x = int(getattr(card_obj.card_def, "scp_phylactery_audit", 0) or 0)
+    if x <= 0:
+        return []
+    controller = card_obj.controller
+    ensure_scp_state(state, controller)
+    s = site(state, controller)
+    current_debt = int(s.get("ethics_debt", 0) or 0)
+    accepted = (current_debt + x) <= 8
+    if accepted:
+        exile = state.zones.get("exile")
+        hand = state.zones.get(f"hand_{controller}")
+        if exile is not None and card_obj.id in exile.objects:
+            exile.objects.remove(card_obj.id)
+        if hand is not None and card_obj.id not in hand.objects:
+            hand.objects.append(card_obj.id)
+        card_obj.zone = ZoneType.HAND
+        card_obj.state.scp_status = None
+        card_obj.state.scp_paperwork = 0
+        s["ethics_debt"] = current_debt + x
+        s["phylactery_audits"] = int(s.get("phylactery_audits", 0) or 0) + 1
+        s["phylactery_audits_this_game"] = int(
+            s.get("phylactery_audits_this_game", 0) or 0,
+        ) + 1
+    else:
+        if not hasattr(state, "scp_forgotten"):
+            state.scp_forgotten = {}
+        forgotten = state.scp_forgotten.setdefault(controller, [])
+        if card_obj.id not in forgotten:
+            forgotten.append(card_obj.id)
+    return game.emit(Event(
+        type=EventType.SCP_PHYLACTERY_AUDIT_OFFER,
+        payload={
+            "player": controller,
+            "object_id": card_obj.id,
+            "audit": x,
+            "ethics_debt_before": current_debt,
+            "accepted": accepted,
+        },
+        source=card_obj.id,
+        controller=controller,
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Cluster 3: Spark Containment
+# ---------------------------------------------------------------------------
+
+
+def apply_spark_containment(game, player_id: str, contained_event: Optional[Event] = None) -> list[Event]:
+    """Spark Containment hook. Sums each active Spark personnel's N into
+    clearance; the first crossing of clearance >= 6 each turn fires one extra
+    paperwork tick on a pending dossier the controller owns.
+
+    ``contained_event`` is accepted (and ignored) for callers wiring this
+    behind an ``SCP_CONTAINED`` event filter — the actual computation is a
+    flat sum, not per-event.
+    """
+    state = game.state
+    ensure_scp_state(state, player_id)
+    s = site(state, player_id)
+    total_bump = 0
+    for staff_id in list(state.scp_personnel.get(player_id, [])):
+        staff = state.objects.get(staff_id)
+        if not staff or staff.zone != ZoneType.BATTLEFIELD:
+            continue
+        if staff.state.scp_status != "active":
+            continue
+        n = int(getattr(staff.card_def, "scp_spark_containment", 0) or 0)
+        if n <= 0:
+            continue
+        total_bump += n
+    if total_bump <= 0:
+        return []
+    before = int(s.get("clearance", 0) or 0)
+    after = before + total_bump
+    s["clearance"] = after
+    events: list[Event] = []
+    if after >= 6 and not bool(s.get("spark_drawn_this_turn", False)):
+        s["spark_drawn_this_turn"] = True
+        for obj_id in list(state.objects):
+            obj = state.objects.get(obj_id)
+            if obj is None or obj.controller != player_id:
+                continue
+            if obj.zone != ZoneType.BATTLEFIELD or obj.state.scp_status != "pending":
+                continue
+            if obj.state.scp_paperwork <= 0:
+                continue
+            prior = obj.state.scp_paperwork
+            obj.state.scp_paperwork = max(0, prior - 1)
+            events.append(Event(
+                type=EventType.SCP_PAPERWORK_TICK,
+                payload={
+                    "object_id": obj.id,
+                    "from": prior,
+                    "to": obj.state.scp_paperwork,
+                    "reason": "spark_containment",
+                },
+                source=obj.id,
+                controller=player_id,
+            ))
+            break
+    return events
+
+
+# ---------------------------------------------------------------------------
+# Cluster 4: Leyline Saturation
+# ---------------------------------------------------------------------------
+
+
+def apply_leyline_saturation(game, opener_id: str, opened_obj: GameObject) -> list[Event]:
+    """Hook on opposing ``SCP_OPEN_DOSSIER``. When ``opened_obj`` is a
+    Procedure/Facility/Mandate (NOT an anomaly), each opposing player's
+    active anomalies tagged with ``scp_leyline_saturation = N`` drop
+    ``scp_suppressed`` by N (negative suppression = bonus hazard).
+
+    The reverse-bookkeeping needed for ``clear_leyline_saturation`` is stored
+    on the saturating player's site under ``leyline_saturation_delta`` —
+    keyed by anomaly_id so the cleanup hook can restore exactly what was
+    applied without trampling unrelated ``scp_suppressed`` adjustments.
+    """
+    if opened_obj is None or opened_obj.card_def is None:
+        return []
+    types = _card_types(opened_obj)
+    if CardType.SCP_ANOMALY in types:
+        return []
+    if (
+        CardType.SCP_PROCEDURE not in types
+        and CardType.SCP_FACILITY not in types
+        and CardType.SCP_MANDATE not in types
+    ):
+        return []
+    state = game.state
+    for saturator_id in _opposing_players(state, opener_id):
+        ensure_scp_state(state, saturator_id)
+        delta_map = site(state, saturator_id).setdefault("leyline_saturation_delta", {})
+        for anomaly_id in list(state.scp_anomalies.get(saturator_id, [])):
+            anomaly = state.objects.get(anomaly_id)
+            if not anomaly or anomaly.zone != ZoneType.BATTLEFIELD:
+                continue
+            if anomaly.state.scp_status != "active":
+                continue
+            n = int(getattr(anomaly.card_def, "scp_leyline_saturation", 0) or 0)
+            if n <= 0:
+                continue
+            anomaly.state.scp_suppressed = int(
+                getattr(anomaly.state, "scp_suppressed", 0) or 0,
+            ) - n
+            delta_map[anomaly_id] = int(delta_map.get(anomaly_id, 0) or 0) + n
+    return []
+
+
+def clear_leyline_saturation(state: GameState, player_id: str) -> None:
+    """End-of-turn cleanup. Restores every ``scp_suppressed`` delta booked into
+    ``leyline_saturation_delta`` for ``player_id`` and zeroes the bookkeeping.
+    """
+    ensure_scp_state(state, player_id)
+    s = site(state, player_id)
+    delta_map = s.get("leyline_saturation_delta", {}) or {}
+    for anomaly_id, delta in list(delta_map.items()):
+        anomaly = state.objects.get(anomaly_id)
+        if not anomaly:
+            continue
+        anomaly.state.scp_suppressed = int(
+            getattr(anomaly.state, "scp_suppressed", 0) or 0,
+        ) + int(delta or 0)
+    s["leyline_saturation_delta"] = {}
+
+
+# ---------------------------------------------------------------------------
+# Cluster 5: Planar Rift
+# ---------------------------------------------------------------------------
+
+
+def apply_planar_rift(game, player_id: str, rift_obj: GameObject) -> list[Event]:
+    """Hook on ``SCP_CONTAINED`` for rift_obj when ``scp_planar_rift = X`` is
+    set. Exiles the top X of ``player_id``'s library into the rift_window
+    shelf.
+
+    Top-of-library is the tail of ``state.zones["library_{pid}"].objects``.
+    The exiled object IDs are appended to ``site["rift_window"]`` so
+    ``play_from_rift_window`` can consume them.
+    """
+    if rift_obj is None or rift_obj.card_def is None:
+        return []
+    x = int(getattr(rift_obj.card_def, "scp_planar_rift", 0) or 0)
+    if x <= 0:
+        return []
+    state = game.state
+    ensure_scp_state(state, player_id)
+    library = state.zones.get(f"library_{player_id}")
+    exile = state.zones.get("exile")
+    window = site(state, player_id).setdefault("rift_window", [])
+    if library is None:
+        return []
+    moved = 0
+    while moved < x and library.objects:
+        obj_id = library.objects.pop()
+        obj = state.objects.get(obj_id)
+        if obj is None:
+            continue
+        obj.zone = ZoneType.EXILE
+        if exile is not None and obj.id not in exile.objects:
+            exile.objects.append(obj.id)
+        window.append(obj.id)
+        moved += 1
+    return []
+
+
+def play_from_rift_window(game, player_id: str, card_id: str) -> tuple[bool, str, list[Event]]:
+    """Play ``card_id`` from the rift_window shelf directly onto the
+    battlefield as an active anomaly. Skips the paperwork queue — Planar
+    Rift's flavor is "the entity is already here; you just point at it."
+    """
+    state = game.state
+    ensure_scp_state(state, player_id)
+    s = site(state, player_id)
+    window = s.get("rift_window", []) or []
+    if card_id not in window:
+        return False, "Card not in rift window", []
+    obj = state.objects.get(card_id)
+    if obj is None:
+        return False, "Object missing", []
+    exile = state.zones.get("exile")
+    battlefield = state.zones.get("battlefield")
+    if exile is not None and obj.id in exile.objects:
+        exile.objects.remove(obj.id)
+    if battlefield is not None and obj.id not in battlefield.objects:
+        battlefield.objects.append(obj.id)
+    obj.zone = ZoneType.BATTLEFIELD
+    obj.controller = player_id
+    while card_id in window:
+        window.remove(card_id)
+    s["rift_window"] = window
+    events = _activate_dossier(game, obj, auto_seal_default=False)
+    return True, "Played from rift window", events
+
+
+def cleanup_rift_window(game, player_id: str) -> list[Event]:
+    """End-of-turn cleanup. Anything left in the rift_window shelf returns to
+    the top of the controller's library.
+    """
+    state = game.state
+    ensure_scp_state(state, player_id)
+    s = site(state, player_id)
+    window = s.get("rift_window", []) or []
+    if not window:
+        s["rift_window"] = []
+        return []
+    library = state.zones.get(f"library_{player_id}")
+    exile = state.zones.get("exile")
+    for card_id in list(window):
+        obj = state.objects.get(card_id)
+        if obj is None:
+            continue
+        if exile is not None and obj.id in exile.objects:
+            exile.objects.remove(obj.id)
+        if library is not None and obj.id not in library.objects:
+            library.objects.append(obj.id)
+        obj.zone = ZoneType.LIBRARY
+    s["rift_window"] = []
+    return []
+
+
+# ---------------------------------------------------------------------------
+# Cluster 7: Annihilation Wave + Wurm Devourer
+# ---------------------------------------------------------------------------
+
+
+def apply_annihilation_wave(game, player_id: str, *, breach_amount: int = 1) -> list[Event]:
+    """Hook on ``SCP_BREACH_TICK`` for ``player_id``. For each active anomaly
+    ``player_id`` controls tagged ``scp_annihilation_wave = N``, redact N
+    opposing dossiers AND bump every opposing player's breach by N.
+
+    ``breach_amount`` is the breach delta currently being processed —
+    accepted for callers that want to scale the effect against a real breach
+    tick but the test surface treats N as the canonical pump amount.
+    """
+    state = game.state
+    ensure_scp_state(state, player_id)
+    events: list[Event] = []
+    for anomaly_id in list(state.scp_anomalies.get(player_id, [])):
+        anomaly = state.objects.get(anomaly_id)
+        if not anomaly or anomaly.zone != ZoneType.BATTLEFIELD:
+            continue
+        if anomaly.state.scp_status != "active":
+            continue
+        n = int(getattr(anomaly.card_def, "scp_annihilation_wave", 0) or 0)
+        if n <= 0:
+            continue
+        events.extend(redact_opposing(game, player_id, n, source=anomaly.id))
+        for opp_id in _opposing_players(state, player_id):
+            site(state, opp_id)["breach"] += n
+    events.extend(check_scp_loss(game))
+    return events
+
+
+def apply_wurm_devourer(game, anomaly_obj: GameObject) -> list[Event]:
+    """Hook called when a successful research test fires against a Wurm
+    Devourer anomaly. Reverses the curiosity tick (``scp_researched -= 1``)
+    that ``run_test`` applied, bumps ``scp_suppressed += 2`` (negative
+    suppression doesn't apply here — Wurm Devourer's flavor is "the devourer
+    is sated, less hazardous next breach"), and increments the controller's
+    ``wurms_tamed`` counter for the alt-win.
+    """
+    if anomaly_obj is None or anomaly_obj.card_def is None:
+        return []
+    if not bool(getattr(anomaly_obj.card_def, "scp_wurm_devourer", False)):
+        return []
+    controller = anomaly_obj.controller
+    state = game.state
+    ensure_scp_state(state, controller)
+    anomaly_obj.state.scp_researched = max(
+        0, int(getattr(anomaly_obj.state, "scp_researched", 0) or 0) - 1,
+    )
+    anomaly_obj.state.scp_suppressed = int(
+        getattr(anomaly_obj.state, "scp_suppressed", 0) or 0,
+    ) + 2
+    site(state, controller)["wurms_tamed"] = int(
+        site(state, controller).get("wurms_tamed", 0) or 0,
+    ) + 1
+    return [Event(
+        type=EventType.SCP_INCIDENT_RESOLVED,
+        payload={
+            "player": controller,
+            "object_id": anomaly_obj.id,
+            "reason": "wurm_taming",
+            "wurms_tamed": site(state, controller)["wurms_tamed"],
+        },
+        source=anomaly_obj.id,
+        controller=controller,
+    )]
+
+
+# ---------------------------------------------------------------------------
+# Turn-marker housekeeping
+# ---------------------------------------------------------------------------
+
+
+def reset_fbn_turn_flags(state: GameState, player_id: str) -> None:
+    """Turn-start hook. Reset per-turn FBN markers that the previous turn may
+    have left set. Currently:
+
+      * ``spark_drawn_this_turn`` — Cluster 3 one-shot guard.
+
+    Note: ``compleation_swaps`` / ``phylactery_audits`` / ``wurms_tamed`` are
+    cross-turn counters (alt-win progress) and are NOT reset here.
+    """
+    ensure_scp_state(state, player_id)
+    s = site(state, player_id)
+    s["spark_drawn_this_turn"] = False

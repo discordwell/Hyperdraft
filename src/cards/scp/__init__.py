@@ -1053,6 +1053,11 @@ from .site_zero_broken_masquerade import (  # noqa: E402
 # sub-module lists in src/cards/scp/mnestic_reset/.
 from .mnestic_reset import MNR_CARDS  # noqa: E402
 
+# Foundations Beyond (FBN) — the inverted-Universes-Beyond expansion (SCP
+# Foundation captures MTG entities). 300 cards across 10 archetypes; lives
+# in src/cards/scp/foundations_beyond/.
+from .foundations_beyond import FBN_CARDS, FBN_STARTER_DECK_FACTORIES  # noqa: E402
+
 
 SCP_CARDS: dict[str, CardDefinition] = {
     card.name: card
@@ -1065,6 +1070,7 @@ SCP_CARDS: dict[str, CardDefinition] = {
         *EXPANSION_CARDS,
         *SITE_ZERO_BROKEN_MASQUERADE_CARDS,
         *MNR_CARDS.values(),
+        *FBN_CARDS.values(),
     ]
 }
 
@@ -1387,6 +1393,7 @@ SCP_STARTER_DECKS = {
     "oneiric_archives": make_oneiric_archives_deck,
     "mnestic_reset_division": make_mnestic_reset_division_deck,
     **SITE_ZERO_DECK_FACTORIES,
+    **FBN_STARTER_DECK_FACTORIES,
 }
 
 

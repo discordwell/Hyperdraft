@@ -1,0 +1,904 @@
+# Foundations Beyond (FBN) Art Prompt Pack
+# 300 prompts, one per card. Manual generation via ChatGPT web.
+# Prepend the STYLE_HEADLINE from src/cards/scp/foundations_beyond/style.py if you want consistent house style.
+
+## Ambient Containment Site Delta-7
+SCP Foundation facility art: an exterior shot of a featureless Foundation containment building in a cleared field at night, Foundation signage SITE DELTA-7, sodium perimeter lights, faint ley-line shimmer in the sky above, dread tone.
+
+## Ambient Hazard Audit
+SCP Foundation procedure document art: a one-page hazard audit form with all containment ratings circled and marked +1 in red ink, AMBIENT HAZARD AUDIT stamp, concrete desk, dim office lighting, dread tone.
+
+## Ambient Saturation Sweep
+SCP Foundation procedure document art: a circular ley-line interference diagram printed on official Foundation letterhead, concentric hazard rings in red ink, a wax-sealed O5 approval stamp, sodium light overhead, dread-bureaucratic tone.
+
+## Ambient Specter Detention Site
+Original SCP-inspired trading card art for Ambient Specter Detention Site from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Apertures Bureau
+Original SCP-inspired trading card art for Apertures Bureau from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Apex Habitat Audit
+Original SCP-inspired trading card art for Apex Habitat Audit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Apex Megafauna Habitat
+Original SCP-inspired trading card art for Apex Megafauna Habitat from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Apex Reclamation Site
+Original SCP-inspired trading card art for Apex Reclamation Site from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Apex Sedation Protocol
+Original SCP-inspired trading card art for Apex Sedation Protocol from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Apollyon Ingress Containment Bunker
+Original SCP-inspired trading card art for Apollyon Ingress Containment Bunker: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## Apollyon Vector Sacrifice
+Original SCP-inspired trading card art for Apollyon Vector Sacrifice: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## Atraxa Specimen Containment Cell
+Original SCP-inspired trading card art for Atraxa Specimen Containment Cell: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Bottleneck the Spell-Lane
+SCP Foundation procedure document art: a Foundation interdiction memo stamped BOTTLENECK in red across the top, redacted procedure titles on a list below, a single red line drawn through one dossier entry, concrete desk under harsh light, dread tone.
+
+## Brief: Apertures Holding
+Original SCP-inspired trading card art for Brief: Apertures Holding from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Cascade Audit
+Original SCP-inspired trading card art for Cascade Audit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-A Dragonologist 'Forge'
+Original SCP-inspired trading card art for Class-A Dragonologist 'Forge' from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-A Emrakul Containment Specialist
+Original SCP-inspired trading card art for Class-A Emrakul Containment Specialist: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-A Megafauna Specialist
+Original SCP-inspired trading card art for Class-A Megafauna Specialist from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-A Mnestic Inoculation, Pattern: Yawgmoth-Resistant
+Original SCP-inspired trading card art for Class-A Mnestic Inoculation, Pattern: Yawgmoth-Resistant: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-A Multiversal Cartographer
+Original SCP-inspired trading card art for Class-A Multiversal Cartographer from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-A Necromantic Cartographer
+Original SCP-inspired trading card art for Class-A Necromantic Cartographer from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-A Operative "Detainee"
+Original SCP-inspired trading card art for Class-A Operative "Detainee" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-A Operative "Hollowing"
+Original SCP-inspired trading card art for Class-A Operative "Hollowing": a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-A Operative "Nailbiter"
+Original SCP-inspired trading card art for Class-A Operative "Nailbiter": a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-A Operative "Survey"
+SCP Foundation personnel file photo: a junior Foundation operative with a clipboard on a grey concrete site exterior, measuring tape and hazard markers visible, redacted name, no supernatural elements.
+
+## Class-A Operative 'Soul-Auditor'
+A Foundation operative in containment gear reviewing a soul-ledger document, stark interview room, no text, no logos.
+
+## Class-A Spectral Cartographer
+Original SCP-inspired trading card art for Class-A Spectral Cartographer from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-III Dracoform Sweep
+Original SCP-inspired trading card art for Class-III Dracoform Sweep from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-IV Compleation Audit
+Original SCP-inspired trading card art for Class-IV Compleation Audit: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-IV Containment Hub
+Original SCP-inspired trading card art for Class-IV Containment Hub from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-IV Rift Audit
+Original SCP-inspired trading card art for Class-IV Rift Audit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-IV Spark Suppression Protocol
+Original SCP-inspired trading card art for Class-IV Spark Suppression Protocol from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-IV Spectral Audit
+Original SCP-inspired trading card art for Class-IV Spectral Audit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-V Apex Sweep
+Original SCP-inspired trading card art for Class-V Apex Sweep from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-V Pact Sweep
+A Foundation operations room where every researcher has slumped at their desks, demon-marked ethics debt sheets pinned to every bulletin board, eerie silence, no text, no logos.
+
+## Class-V Phylactery Resurrection
+Original SCP-inspired trading card art for Class-V Phylactery Resurrection from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-V Reality-Tilt Audit
+Original SCP-inspired trading card art for Class-V Reality-Tilt Audit: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## Class-V Saturation Lockdown
+SCP Foundation procedure document art: an emergency O5 directive on heavy cream paper with five wax seals, SATURATION LOCKDOWN in red block capitals at the top, ethics_debt surcharge tables printed in fine legal text, dread bureaucratic tone.
+
+## Containment Aperture Alpha
+Original SCP-inspired trading card art for Containment Aperture Alpha from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Containment Breach Reversal: Phyresis Quarantine
+Original SCP-inspired trading card art for Containment Breach Reversal: Phyresis Quarantine: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Containment Pit Vault
+Original SCP-inspired trading card art for Containment Pit Vault from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Containment Site Ash-of-Zendikar
+Original SCP-inspired trading card art for Containment Site Ash-of-Zendikar: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## Containment Sweep: Ley Network Audit
+SCP Foundation procedure document art: an official exhaustion order posted on a site bulletin board, Foundation ID cards of twelve personnel pinned beneath it, red STAND DOWN stamps, fluorescent office lighting, dread bureaucratic tone.
+
+## Demonic Tutor Audit
+A Foundation researcher discovering a file that has found them rather than the reverse, sterile corridors, redaction stamps floating mid-air, no text, no logos.
+
+## Detention Operative "Caged"
+Original SCP-inspired trading card art for Detention Operative "Caged" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Diabolic Audit Bureau
+A Foundation bureaucratic office with demonic entity dossiers stacked everywhere, in-trays overflowing, sterile office lighting, no text, no logos.
+
+## Dr. Aaron Yeats, Ley Network Specialist
+SCP Foundation personnel file photo: a middle-aged Foundation specialist with thick-rimmed glasses surrounded by ley-line survey printouts in a cluttered office, redacted name badge, stacks of bound reports, dread tone.
+
+## Dr. Aliz Volgrim, Mnestic Necrologist
+Original SCP-inspired trading card art for Dr. Aliz Volgrim, Mnestic Necrologist from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Dr. Faust, Pact Interpreter
+Dr. Faust in Foundation dress uniform, contract in one hand, Foundation ethics ledger in the other, office with classified files floor-to-ceiling, no text, no logos.
+
+## Dr. Hedron Calibrator
+Original SCP-inspired trading card art for Dr. Hedron Calibrator: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## Dr. Heyok, Megafauna Specialist
+Original SCP-inspired trading card art for Dr. Heyok, Megafauna Specialist from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Dr. Kassandra Volkov, Mnestic Quarantine Lead
+Original SCP-inspired trading card art for Dr. Kassandra Volkov, Mnestic Quarantine Lead: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Dr. Linna Halle, Phyresis Containment
+Original SCP-inspired trading card art for Dr. Linna Halle, Phyresis Containment: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Dr. Marlowe, Containment Theologian
+Dr. Marlowe in a Foundation library, stacked with demonological texts and Foundation protocols, single reading lamp, no text, no logos.
+
+## Dr. Mira Hollis, Spectral Medium
+Original SCP-inspired trading card art for Dr. Mira Hollis, Spectral Medium from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Dr. Ojiri Kaname, Wyrmkeeper
+Original SCP-inspired trading card art for Dr. Ojiri Kaname, Wyrmkeeper from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Dr. Sarkhan Vol, Dragonologist
+Original SCP-inspired trading card art for Dr. Sarkhan Vol, Dragonologist from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Dr. Sven, Medium-Containment Lead
+Original SCP-inspired trading card art for Dr. Sven, Medium-Containment Lead from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Dr. Teferi, Rift-Stabilization Lead
+Original SCP-inspired trading card art for Dr. Teferi, Rift-Stabilization Lead from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Dr. Veska, Containment Theologian
+Original SCP-inspired trading card art for Dr. Veska, Containment Theologian from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Dr. Volker Tiede, Praetor Specialist
+Original SCP-inspired trading card art for Dr. Volker Tiede, Praetor Specialist: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Dracoform Containment Hangar
+Original SCP-inspired trading card art for Dracoform Containment Hangar from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Dragon Audit Bureau
+Original SCP-inspired trading card art for Dragon Audit Bureau from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Dragonhoard Cataclysm Audit
+Original SCP-inspired trading card art for Dragonhoard Cataclysm Audit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Dragonlord Audit Chamber
+Original SCP-inspired trading card art for Dragonlord Audit Chamber from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Eastern Wyrm Containment Bunker
+Original SCP-inspired trading card art for Eastern Wyrm Containment Bunker from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Ectoplasmic Containment Chamber
+Original SCP-inspired trading card art for Ectoplasmic Containment Chamber from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Ectoplasmic Saturation Pulse
+Original SCP-inspired trading card art for Ectoplasmic Saturation Pulse from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Faustian Containment Cell
+A Foundation containment cell with an eerie glow emanating from runes carved into the walls, reinforced glass, sodium-arc lighting, no text, no logos.
+
+## Faustian Re-Audit
+A Foundation auditor stamping a stack of ethics-debt forms, red ink everywhere, overhead fluorescent, no text, no logos.
+
+## Ghost-Mass Audit
+Original SCP-inspired trading card art for Ghost-Mass Audit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Hedron Audit
+Original SCP-inspired trading card art for Hedron Audit: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## Hedron Network Containment Grid
+Original SCP-inspired trading card art for Hedron Network Containment Grid: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## Hoard Audit
+Original SCP-inspired trading card art for Hoard Audit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Ley-Survey Bureau
+SCP Foundation facility art: a compact survey bureau crammed with ley-line printouts and wall-mounted maps, Foundation researchers at terminals, amber overhead lighting, redacted room designation placard, dread bureaucratic tone.
+
+## Leyline Containment Grid
+SCP Foundation facility blueprint art: technical schematic of a massive electromagnetic grid structure set into a containment site floor plan, ley-line interference readouts at panel stations, Foundation engineering stamps, dread-bureaucratic tone.
+
+## Lich Containment Vault
+Original SCP-inspired trading card art for Lich Containment Vault from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Lich-Chain Audit
+Original SCP-inspired trading card art for Lich-Chain Audit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Mandate FBN-AVI: Apollyon Vector Inhibition
+Original SCP-inspired trading card art for Mandate FBN-AVI: Apollyon Vector Inhibition: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## Mandate FBN-DCG: Dracoform Containment Grid
+Original SCP-inspired trading card art for Mandate FBN-DCG: Dracoform Containment Grid from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Mandate FBN-EA: Mercy Ledger Inversion
+An O5 Council chamber with a Mandate document under glass, ethics-debt figures inverted in neon red on every monitor, dread atmosphere, cosmic scale, no text, no logos.
+
+## Mandate FBN-LS: Ley Lockdown Doctrine
+SCP Foundation mandate document art: a formal O5-Council mandate printed on heavy stock with the Foundation seal, LEY LOCKDOWN DOCTRINE in capitals, five council member signatures (all redacted), a wax seal cracking under ley-line interference visible in the paper itself, dread-bureaucratic cosmic tone.
+
+## Mandate FBN-MR: Multiversal Rift Protocol
+Original SCP-inspired trading card art for Mandate FBN-MR: Multiversal Rift Protocol from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Mandate FBN-PC: Phylactery Chain Doctrine
+Original SCP-inspired trading card art for Mandate FBN-PC: Phylactery Chain Doctrine from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Mandate FBN-PCV: Compleation Containment Protocol
+Original SCP-inspired trading card art for Mandate FBN-PCV: Compleation Containment Protocol: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Mandate FBN-PD: Planeswalker Detention Doctrine
+Original SCP-inspired trading card art for Mandate FBN-PD: Planeswalker Detention Doctrine from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Mandate FBN-SAS: Spectral Ambient Saturation Doctrine
+Original SCP-inspired trading card art for Mandate FBN-SAS: Spectral Ambient Saturation Doctrine from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Mandate FBN-WAT: Wurm Apex Tamed Doctrine
+Original SCP-inspired trading card art for Mandate FBN-WAT: Wurm Apex Tamed Doctrine from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Megafauna Audit
+Original SCP-inspired trading card art for Megafauna Audit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Megafauna Audit Bureau
+Original SCP-inspired trading card art for Megafauna Audit Bureau from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Memory-Hole Counter-Audit
+Original SCP-inspired trading card art for Memory-Hole Counter-Audit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Mnestic Necromancy Audit
+Original SCP-inspired trading card art for Mnestic Necromancy Audit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Mnestic Necropolis Site
+Original SCP-inspired trading card art for Mnestic Necropolis Site from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Multiversal Containment Sweep
+Original SCP-inspired trading card art for Multiversal Containment Sweep from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Multiversal Detention Site Charlie
+Original SCP-inspired trading card art for Multiversal Detention Site Charlie from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Multiversal Detention Sweep
+Original SCP-inspired trading card art for Multiversal Detention Sweep from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Multiversal Rift Containment Array
+Original SCP-inspired trading card art for Multiversal Rift Containment Array from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Necromancer's Containment Chamber
+Original SCP-inspired trading card art for Necromancer's Containment Chamber from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Oil Reclamation Tank Gamma
+Original SCP-inspired trading card art for Oil Reclamation Tank Gamma: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative "Aperture-2"
+Original SCP-inspired trading card art for Operative "Aperture-2" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative "Bottleneck"
+SCP Foundation personnel file photo: a Foundation operative in tactical gear at the centre of faint shimmering ley-line interference visible as heat distortion, concrete corridor, amber emergency lighting, dread tone.
+
+## Operative "Cascade"
+Original SCP-inspired trading card art for Operative "Cascade" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative "Conduit-Cutter"
+SCP Foundation personnel file photo: a senior Foundation operative in reinforced containment gear holding a pulsing ley-line disruptor device, concrete site interior, dramatic Foundation emergency lighting, dread-bureaucratic tone.
+
+## Operative "Ghosthand"
+Original SCP-inspired trading card art for Operative "Ghosthand" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative "Phantom-Hand"
+Original SCP-inspired trading card art for Operative "Phantom-Hand" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative "Phylactery-Hand"
+Original SCP-inspired trading card art for Operative "Phylactery-Hand" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative "Wurmtongue"
+Original SCP-inspired trading card art for Operative "Wurmtongue" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative 'Mark,' Pact Negotiator
+Operative Mark in a negotiation room, demon on the far side of a reinforced window, Foundation ethics ledger open between them, no text, no logos.
+
+## Operative Kozilek-Liaison "Cipher"
+Original SCP-inspired trading card art for Operative Kozilek-Liaison "Cipher": a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative O5-12, Sky Patrol Coordinator
+Original SCP-inspired trading card art for Operative O5-12, Sky Patrol Coordinator from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative O5-15, Apex Asset Coordinator
+Original SCP-inspired trading card art for Operative O5-15, Apex Asset Coordinator from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative O5-3, Strain Containment Lead
+Original SCP-inspired trading card art for Operative O5-3, Strain Containment Lead: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative O5-7, Dracoform Specialist
+Original SCP-inspired trading card art for Operative O5-7, Dracoform Specialist from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative O5-9, Ethics Officer
+An O5-level operative at a Foundation ethics review desk, ethics-debt balance sheets visible, professional severity, sterile overhead lighting, no text, no logos.
+
+## Operative O5-Chandra "Hothead"
+Original SCP-inspired trading card art for Operative O5-Chandra "Hothead" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative O5-Jace "Mindwarden"
+Original SCP-inspired trading card art for Operative O5-Jace "Mindwarden" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative O5-Karn-Liaison "Walker"
+Original SCP-inspired trading card art for Operative O5-Karn-Liaison "Walker" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative O5-Liliana "Bone-Reader"
+Original SCP-inspired trading card art for Operative O5-Liliana "Bone-Reader" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative O5-Liliana "Lich-Liaison"
+Original SCP-inspired trading card art for Operative O5-Liliana "Lich-Liaison" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Operative O5-Teferi "Slow-Hand"
+Original SCP-inspired trading card art for Operative O5-Teferi "Slow-Hand" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Pact Containment Vault
+A Foundation vault with blast doors sealed by demonic-contract bonds rather than locks, research team visible through window, no text, no logos.
+
+## Pact Recall
+A Foundation file being fed into a document shredder, demonic runes glowing on the shredder teeth, the file already regenerating on the other side, no text, no logos.
+
+## Phantom Recall Audit
+Original SCP-inspired trading card art for Phantom Recall Audit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Phylactery Activation Protocol
+Original SCP-inspired trading card art for Phylactery Activation Protocol from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Phylactery Audit Bureau
+Original SCP-inspired trading card art for Phylactery Audit Bureau from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Planar Detention Protocol
+Original SCP-inspired trading card art for Planar Detention Protocol from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Planeswalker Containment Hub
+Original SCP-inspired trading card art for Planeswalker Containment Hub from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Praetor Pact Audit
+Original SCP-inspired trading card art for Praetor Pact Audit: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Protocol: Dracoform Cataloging
+Original SCP-inspired trading card art for Protocol: Dracoform Cataloging from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Protocol: Hedron Network Activation
+Original SCP-inspired trading card art for Protocol: Hedron Network Activation: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## Researcher "Aperture"
+Original SCP-inspired trading card art for Researcher "Aperture" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Researcher "Bonemark"
+Original SCP-inspired trading card art for Researcher "Bonemark" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Researcher "Knell"
+Original SCP-inspired trading card art for Researcher "Knell" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Researcher "Tamer"
+Original SCP-inspired trading card art for Researcher "Tamer" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Researcher "Veilreader"
+Original SCP-inspired trading card art for Researcher "Veilreader" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Researcher Aleko, Ecto-thaumic Surveyor
+Original SCP-inspired trading card art for Researcher Aleko, Ecto-thaumic Surveyor from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Researcher Aramis, Vector Specialist
+Original SCP-inspired trading card art for Researcher Aramis, Vector Specialist: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Researcher Bargainer 'Hand'
+A Foundation researcher extending a hand across an interview table, demon claw mirror on the other side of the glass, paperwork spilling off the desk, no text, no logos.
+
+## Researcher Belora, Dragon Cartographer
+Original SCP-inspired trading card art for Researcher Belora, Dragon Cartographer from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Researcher Cartographer "Map"
+SCP Foundation personnel file photo: a young Foundation researcher holding a rolled ley-line map over a lightbox in a sparse concrete office, redacted name tag, Foundation ID lanyard, dread-bureaucratic tone, no supernatural elements visible.
+
+## Researcher Drake-Ulamog Pact Interpreter
+Original SCP-inspired trading card art for Researcher Drake-Ulamog Pact Interpreter: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## Researcher Drei, Compleation Cartographer
+Original SCP-inspired trading card art for Researcher Drei, Compleation Cartographer: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Researcher Kram, Megafauna Veterinarian
+Original SCP-inspired trading card art for Researcher Kram, Megafauna Veterinarian from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Researcher Krell, Diabolic Linguist
+Dr. Krell at a Foundation linguistics desk surrounded by demonic-script contract pages, bifocals reflecting decoded sigils, no text, no logos.
+
+## Researcher Lin, Ambient Hazard Surveyor
+SCP Foundation personnel file photo: a Foundation researcher in a monitoring room walled with hazard-level readouts, stylus in hand, calm expression, amber status lights, redacted name badge, dread tone.
+
+## Researcher Ramoth, Hoard Auditor
+Original SCP-inspired trading card art for Researcher Ramoth, Hoard Auditor from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Researcher Rift-Walker "Drift"
+Original SCP-inspired trading card art for Researcher Rift-Walker "Drift" from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Researcher Tibalt, Junior Spark Auditor
+Original SCP-inspired trading card art for Researcher Tibalt, Junior Spark Auditor from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Researcher Voider "Drone Five"
+Original SCP-inspired trading card art for Researcher Voider "Drone Five": a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## Rift Stabilization Protocol
+Original SCP-inspired trading card art for Rift Stabilization Protocol from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Rift-Wall Containment
+Original SCP-inspired trading card art for Rift-Wall Containment from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-1138: The Compleated Liaison
+Original SCP-inspired trading card art for SCP-FBN-1138: The Compleated Liaison: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-1140: Yawgmoth-Pattern Strain
+Original SCP-inspired trading card art for SCP-FBN-1140: Yawgmoth-Pattern Strain: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-1141: Atraxa, Praetors' Conduit
+Original SCP-inspired trading card art for SCP-FBN-1141: Atraxa, Praetors' Conduit: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-1142: Sheoldred, Whispering Strain
+Original SCP-inspired trading card art for SCP-FBN-1142: Sheoldred, Whispering Strain: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-1143: Vorinclex, Bio-Engineer Specimen
+Original SCP-inspired trading card art for SCP-FBN-1143: Vorinclex, Bio-Engineer Specimen: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-1144: Jin-Gitaxias, Cognitive Vector
+Original SCP-inspired trading card art for SCP-FBN-1144: Jin-Gitaxias, Cognitive Vector: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-1145: Elesh Norn, Mother of Machines
+Original SCP-inspired trading card art for SCP-FBN-1145: Elesh Norn, Mother of Machines: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-1146: Urabrask, Combustion Vector
+Original SCP-inspired trading card art for SCP-FBN-1146: Urabrask, Combustion Vector: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-1147: Skithiryx-Class Vector Carrier
+Original SCP-inspired trading card art for SCP-FBN-1147: Skithiryx-Class Vector Carrier: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-1148: The Phyresis Engine
+Original SCP-inspired trading card art for SCP-FBN-1148: The Phyresis Engine: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-1149: Memnarch-Pattern Aberration
+Original SCP-inspired trading card art for SCP-FBN-1149: Memnarch-Pattern Aberration: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-1150: Phyrexian Negator
+Original SCP-inspired trading card art for SCP-FBN-1150: Phyrexian Negator: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-1151: Compleation Vector Spawn
+Original SCP-inspired trading card art for SCP-FBN-1151: Compleation Vector Spawn: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-2271: Apollyon-Class Void Eater (Ulamog)
+Original SCP-inspired trading card art for SCP-FBN-2271: Apollyon-Class Void Eater (Ulamog): a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-2272: Apollyon-Class Hedron-Tilt (Kozilek)
+Original SCP-inspired trading card art for SCP-FBN-2272: Apollyon-Class Hedron-Tilt (Kozilek): a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-2273: Apollyon-Class Reality-Eater (Emrakul)
+Original SCP-inspired trading card art for SCP-FBN-2273: Apollyon-Class Reality-Eater (Emrakul): a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-2274: Apollyon Vector Spawn
+Original SCP-inspired trading card art for SCP-FBN-2274: Apollyon Vector Spawn: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-2275: Eldrazi Scion Pattern
+Original SCP-inspired trading card art for SCP-FBN-2275: Eldrazi Scion Pattern: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-2276: Void Drone, Apollyon-Adjacent
+Original SCP-inspired trading card art for SCP-FBN-2276: Void Drone, Apollyon-Adjacent: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-2277: Hedron Network Fragment
+Original SCP-inspired trading card art for SCP-FBN-2277: Hedron Network Fragment: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-2278: Brood Tyrant Specimen
+Original SCP-inspired trading card art for SCP-FBN-2278: Brood Tyrant Specimen: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-2279: Void Eel
+Original SCP-inspired trading card art for SCP-FBN-2279: Void Eel: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-2280: Eldrazi Conscription Pattern
+Original SCP-inspired trading card art for SCP-FBN-2280: Eldrazi Conscription Pattern: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-2281: Hedron-Caged Titan
+Original SCP-inspired trading card art for SCP-FBN-2281: Hedron-Caged Titan: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-2282: Void Aberration
+Original SCP-inspired trading card art for SCP-FBN-2282: Void Aberration: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-2283: Apollyon-Adjacent Ingress
+Original SCP-inspired trading card art for SCP-FBN-2283: Apollyon-Adjacent Ingress: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-2284: Reality-Hole Fragment
+Original SCP-inspired trading card art for SCP-FBN-2284: Reality-Hole Fragment: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-3001: Nicol Bolas, Class-V Apex Dracoform
+Original SCP-inspired trading card art for SCP-FBN-3001: Nicol Bolas, Class-V Apex Dracoform from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-3002: Niv-Mizzet, Class-IV Conduit
+Original SCP-inspired trading card art for SCP-FBN-3002: Niv-Mizzet, Class-IV Conduit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-3003: Ugin, Class-V Spirit-Wyrm
+Original SCP-inspired trading card art for SCP-FBN-3003: Ugin, Class-V Spirit-Wyrm from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-3004: Sarkhan-Pattern Hunter
+Original SCP-inspired trading card art for SCP-FBN-3004: Sarkhan-Pattern Hunter from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-3005: Atarka, World Render
+Original SCP-inspired trading card art for SCP-FBN-3005: Atarka, World Render from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-3006: Dragonlord Silumgar
+Original SCP-inspired trading card art for SCP-FBN-3006: Dragonlord Silumgar from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-3007: Kolaghan, Storm's Fury
+Original SCP-inspired trading card art for SCP-FBN-3007: Kolaghan, Storm's Fury from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-3008: Ojutai, Soul of Winter
+Original SCP-inspired trading card art for SCP-FBN-3008: Ojutai, Soul of Winter from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-3009: Dragonlord Dromoka
+Original SCP-inspired trading card art for SCP-FBN-3009: Dragonlord Dromoka from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-3010: Ramoth-Class Drake
+Original SCP-inspired trading card art for SCP-FBN-3010: Ramoth-Class Drake from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-3011: Class-III Wyrmling
+Original SCP-inspired trading card art for SCP-FBN-3011: Class-III Wyrmling from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-3012: Ancient Class-IV Wyrm
+Original SCP-inspired trading card art for SCP-FBN-3012: Ancient Class-IV Wyrm from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-3013: Dragon-of-Korlis, Containment Specimen
+Original SCP-inspired trading card art for SCP-FBN-3013: Dragon-of-Korlis, Containment Specimen from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-4001: Jace, Class-III Cognitive Manipulator
+Original SCP-inspired trading card art for SCP-FBN-4001: Jace, Class-III Cognitive Manipulator from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-4002: Liliana, Class-IV Necromantic Conduit
+Original SCP-inspired trading card art for SCP-FBN-4002: Liliana, Class-IV Necromantic Conduit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-4003: Chandra, Class-III Thaumic Ignition
+Original SCP-inspired trading card art for SCP-FBN-4003: Chandra, Class-III Thaumic Ignition from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-4004: Teferi, Class-IV Temporal Adjuster
+Original SCP-inspired trading card art for SCP-FBN-4004: Teferi, Class-IV Temporal Adjuster from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-4005: Garruk, Class-III Beastmaster
+Original SCP-inspired trading card art for SCP-FBN-4005: Garruk, Class-III Beastmaster from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-4006: Sorin, Class-IV Necromantic Patron
+Original SCP-inspired trading card art for SCP-FBN-4006: Sorin, Class-IV Necromantic Patron from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-4007: Karn, Class-V Artifact Vector
+Original SCP-inspired trading card art for SCP-FBN-4007: Karn, Class-V Artifact Vector from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-4008: Tezzeret, Class-III Artifact Manipulator
+Original SCP-inspired trading card art for SCP-FBN-4008: Tezzeret, Class-III Artifact Manipulator from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-4009: Class-II Aspirant Spark Carrier
+Original SCP-inspired trading card art for SCP-FBN-4009: Class-II Aspirant Spark Carrier from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-4010: Vraska, Class-IV Gorgon-Spark
+Original SCP-inspired trading card art for SCP-FBN-4010: Vraska, Class-IV Gorgon-Spark from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-4011: Kaya, Class-IV Spectral Investigator
+Original SCP-inspired trading card art for SCP-FBN-4011: Kaya, Class-IV Spectral Investigator from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-4012: The Wanderer, Class-IV Multiversal Asset
+Original SCP-inspired trading card art for SCP-FBN-4012: The Wanderer, Class-IV Multiversal Asset from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-5001: Griselbrand, Class-V Diabolic Negotiator
+Griselbrand sealed inside a Foundation containment cell — seven wings pinned behind tempered glass, contract paperwork covering every pane, sodium-arc lighting, cosmic horror tone, no text, no logos.
+
+## SCP-FBN-5002: Sheoldred-Pact, Class-V Whisperer
+Sheoldred coiled in a sterile Foundation corridor, half-buried in redacted documents, her chitinous form reflecting fluorescent light, no text, no logos, cosmic dread.
+
+## SCP-FBN-5003: Bolas-Demon Variant
+Nicol Bolas as a classified Foundation dossier photograph — two-headed dragon silhouette behind blast-proof glass, facility lights flickering, cosmic horror atmosphere, no text, no logos.
+
+## SCP-FBN-5004: Razaketh, Soul-Broker Specimen
+Razaketh restrained in a Foundation summoning-circle cell — eight-winged form, soul-chains as redacted document tape, sterile brutalist architecture, no text, no logos.
+
+## SCP-FBN-5005: Liliana's Pact-Demon Variant
+A pact-demon mid-containment, shackled by Foundation paperwork chains, archival file cabinet in background, signed contract pinned to chest, dim sodium light, no text, no logos.
+
+## SCP-FBN-5006: Demon of Death's Gate
+A massive demon silhouette framed in a blast door that no longer closes, Foundation warning tape across every surface, stark shadow, no text, no logos.
+
+## SCP-FBN-5007: Lord of the Pit, Containment Specimen
+Lord of the Pit sealed behind Foundation containment wards — horns clipped, wings bound, amber hazard lighting, Foundation stamp overlaid, no text, no logos.
+
+## SCP-FBN-5008: Mephidross Vampire-Pact
+A demon-vampire hybrid in a sterile Foundation cell, pale under fluorescent lighting, blood-black contract visible through cell window, no text, no logos.
+
+## SCP-FBN-5009: Demon-Possessed Personnel File
+A glowing personnel dossier hovering in mid-air, demonic sigils visible through the paper, Foundation archival shelf in background, no text, no logos.
+
+## SCP-FBN-5010: Demonic Tutor Specimen
+A demon pointing at a wall of classified Foundation files, researcher in full hazmat recoiling in recognition, stark interrogation-room lighting, no text, no logos.
+
+## SCP-FBN-5011: Demon Lord's Audit Ledger
+An enormous leather ledger open to Foundation site records, demonic runes embedded in the binding, sealed in a Foundation evidence cage, no text, no logos.
+
+## SCP-FBN-5012: Junior Pact-Imp
+A small imp in a Foundation interview room, stacks of appeal forms higher than the table, single overhead light, no text, no logos.
+
+## SCP-FBN-5013: Soul-Broker Apprentice
+A tiny demon in a Foundation lab coat, ethics-debt tally marks scratched into the wall behind it, no text, no logos.
+
+## SCP-FBN-6001: Marit Lage, Dormant Class-V Ambient
+SCP Foundation containment file art: enormous black lake surface under sodium-arc industrial lighting in a cavernous concrete containment hangar — no visible shore on three sides, Foundation hazard tape, redacted depth markers, dim chromatic shimmer at the water's edge, dread-bureaucratic tone.
+
+## SCP-FBN-6002: Dark Depths Containment Specimen
+SCP Foundation containment file art: a sealed industrial access hatch set in a concrete floor labelled 'DARK DEPTHS SPECIMEN — DEPTH UNKNOWN', faint blue-black shimmer through the frosted porthole, Foundation documentation stamps, warning tape, dread tone.
+
+## SCP-FBN-6003: Field of the Dead, Class-IV Necrotic Site
+SCP Foundation containment file art: aerial Foundation surveillance photograph of a featureless earth field enclosed by chain-link fence with hazard lighting, shadowed humanoid shapes barely visible in the grey soil, redacted field notes pinned to the photo, dread tone.
+
+## SCP-FBN-6004: Glacial Chasm, Class-III Stasis Zone
+SCP Foundation containment file art: a deep blue-white glacial crevasse inside a climate-controlled containment bay, Foundation measurement equipment at the edge, frost on the camera lens, hazard tape, sterile clinical lighting, dread-bureaucratic tone.
+
+## SCP-FBN-6005: Maze of Ith, Class-III Spatial Distortion
+SCP Foundation containment file art: a geometrically impossible hedge maze inside a standard containment chamber, Foundation grid-overlay survey lines painted on the concrete floor, overhead sodium light, researcher silhouette disappearing into an impossible perspective, dread tone.
+
+## SCP-FBN-6006: Mishra's Workshop, Class-III Thaumic Forge
+SCP Foundation containment file art: an industrial blast furnace inside a containment hangar casting blue-white thaumic light, no visible workers, Foundation instrument panels glowing amber, slag that pulses like a heartbeat, dread-bureaucratic tone.
+
+## SCP-FBN-6007: Bazaar of Baghdad Specimen
+SCP Foundation containment file art: a sealed underground chamber containing a market stall covered in heterogeneous goods, Foundation biohazard tape around the perimeter, items that cast no shadows, overhead sodium arc light, dread tone.
+
+## SCP-FBN-6008: Tabernacle at Pendrell Vale
+SCP Foundation containment file art: a single stone building on a Foundation-cordoned woodland clearing, redacted survey markers, Foundation researchers in hazmat suits at a distance, sodium flood lights illuminating the structure, dread bureaucratic tone.
+
+## SCP-FBN-6009: Wasteland, Class-III Disruption
+SCP Foundation containment file art: aerial photograph of a perfect circle of grey dead earth surrounded by green farmland, Foundation hazard markers at cardinal points, redacted report overlay, dread tone.
+
+## SCP-FBN-6010: Eldrazi Temple, Cross-Class Vector
+SCP Foundation containment file art: vast stone temple interior under Foundation containment scaffolding, non-Euclidean archways visible through the containment structure, dim Eldrazi geometry, redacted Foundation survey, dread-bureaucratic tone.
+
+## SCP-FBN-6011: Strip Mine Specimen
+SCP Foundation containment file art: open-pit mine cordoned by Foundation barriers at night, Foundation drill equipment at impossible depths, strata labels with redacted dates, overhead hazard lighting, dread tone.
+
+## SCP-FBN-6012: Cabal Coffers, Class-IV Necrotic Geometry
+SCP Foundation containment file art: a sealed bank vault door in a brutalist Foundation containment basement, pale necrotic light seeping from the vault seam, four redacted incident logs pinned to the wall, dread bureaucratic tone.
+
+## SCP-FBN-6013: Lake of the Dead
+SCP Foundation containment file art: a black underground lake in a containment cavern, Foundation inflatable perimeter barriers, diving equipment abandoned on the stone shore, sodium emergency lighting, cold mist, dread tone.
+
+## SCP-FBN-6014: Class-IV Ley Network Knot
+SCP Foundation containment file art: a world-map overlaid with glowing ley-line network intersecting at a pulsing nexus, Foundation satellite imaging equipment, redacted geographic data, cosmic-horror chromatic aberration at the nexus point, dread tone.
+
+## SCP-FBN-7001: Karn, Class-V Multiversal Vagrant
+Original SCP-inspired trading card art for SCP-FBN-7001: Karn, Class-V Multiversal Vagrant from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-7002: Time Spiral, Class-V Temporal Cataclysm
+Original SCP-inspired trading card art for SCP-FBN-7002: Time Spiral, Class-V Temporal Cataclysm from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-7003: Apocalypse, Class-V Multiverse-Reset
+Original SCP-inspired trading card art for SCP-FBN-7003: Apocalypse, Class-V Multiverse-Reset from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-7004: Class-IV Planar Rift, Stable
+Original SCP-inspired trading card art for SCP-FBN-7004: Class-IV Planar Rift, Stable from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-7005: Class-III Rift Fragment
+Original SCP-inspired trading card art for SCP-FBN-7005: Class-III Rift Fragment from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-7006: Pre-Mending Rift Specimen
+Original SCP-inspired trading card art for SCP-FBN-7006: Pre-Mending Rift Specimen from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-7007: Phyrexian Invasion Footprint
+Original SCP-inspired trading card art for SCP-FBN-7007: Phyrexian Invasion Footprint from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-7008: Slivers (Class-III, Isolated Specimen)
+Original SCP-inspired trading card art for SCP-FBN-7008: Slivers (Class-III, Isolated Specimen) from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-7009: Class-IV Multiverse Bleed
+Original SCP-inspired trading card art for SCP-FBN-7009: Class-IV Multiverse Bleed from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-7010: Rift-Walker Specimen
+Original SCP-inspired trading card art for SCP-FBN-7010: Rift-Walker Specimen from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-7011: Cascade Pre-Echo
+Original SCP-inspired trading card art for SCP-FBN-7011: Cascade Pre-Echo from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-7012: Class-III Vagrant
+Original SCP-inspired trading card art for SCP-FBN-7012: Class-III Vagrant from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-8001: Liliana, Class-V Lich-Form
+SCP Foundation containment cell, stark sodium arc lighting, a serene woman in Foundation-gray robes surrounded by floating chains of dark necromantic runes; redacted site-document watermarks, deep black and cold gold palette, no text, no logos.
+
+## SCP-FBN-8002: Mikaeus the Unhallowed, Lich Specimen
+Original SCP-inspired trading card art for SCP-FBN-8002: Mikaeus the Unhallowed, Lich Specimen from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-8003: Endrek Sahr, Necrotic Engineer Specimen
+Original SCP-inspired trading card art for SCP-FBN-8003: Endrek Sahr, Necrotic Engineer Specimen from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-8004: Atraxa-Lich Pattern Variant
+Original SCP-inspired trading card art for SCP-FBN-8004: Atraxa-Lich Pattern Variant from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-8005: Demonic Animator-Pact Specimen
+Original SCP-inspired trading card art for SCP-FBN-8005: Demonic Animator-Pact Specimen from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-8006: Class-IV Lich-Vessel
+Original SCP-inspired trading card art for SCP-FBN-8006: Class-IV Lich-Vessel from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-8007: Class-III Phylactery-Bound Wraith
+Original SCP-inspired trading card art for SCP-FBN-8007: Class-III Phylactery-Bound Wraith from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-8008: Necropotence Specimen
+Original SCP-inspired trading card art for SCP-FBN-8008: Necropotence Specimen from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-8009: Class-III Reanimator Pattern
+Original SCP-inspired trading card art for SCP-FBN-8009: Class-III Reanimator Pattern from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-8010: Bone-Vessel, Animated
+Original SCP-inspired trading card art for SCP-FBN-8010: Bone-Vessel, Animated from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-8011: Recurring Lich-Fragment
+Original SCP-inspired trading card art for SCP-FBN-8011: Recurring Lich-Fragment from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-8012: Class-IV Wraith-Network
+Original SCP-inspired trading card art for SCP-FBN-8012: Class-IV Wraith-Network from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-8013: Death's Auditor
+Original SCP-inspired trading card art for SCP-FBN-8013: Death's Auditor from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-9001: Worldspine Wurm, Class-V Apollyon Fauna
+Original SCP-inspired trading card art for SCP-FBN-9001: Worldspine Wurm, Class-V Apollyon Fauna from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-9002: Pelakka Wurm, Class-IV Apollyon Fauna
+Original SCP-inspired trading card art for SCP-FBN-9002: Pelakka Wurm, Class-IV Apollyon Fauna from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-9003: Engulfing Slagwurm, Class-IV Containment
+Original SCP-inspired trading card art for SCP-FBN-9003: Engulfing Slagwurm, Class-IV Containment from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-9004: Penumbra Wurm, Class-III Specimen
+Original SCP-inspired trading card art for SCP-FBN-9004: Penumbra Wurm, Class-III Specimen from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-9005: Hellkite-Specimen, Class-IV
+Original SCP-inspired trading card art for SCP-FBN-9005: Hellkite-Specimen, Class-IV from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-9006: Ghalta, Primal Hunger Specimen
+Original SCP-inspired trading card art for SCP-FBN-9006: Ghalta, Primal Hunger Specimen from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-9007: Yargle, Vile Containment Subject
+Original SCP-inspired trading card art for SCP-FBN-9007: Yargle, Vile Containment Subject from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-9008: Class-III Wurmling
+Original SCP-inspired trading card art for SCP-FBN-9008: Class-III Wurmling from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-9009: Wurm Coil Engine, Class-IV Forge-Wurm
+Original SCP-inspired trading card art for SCP-FBN-9009: Wurm Coil Engine, Class-IV Forge-Wurm from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-9010: Class-V Apex Wurm
+Original SCP-inspired trading card art for SCP-FBN-9010: Class-V Apex Wurm from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-9011: Cradle Wurm Specimen
+Original SCP-inspired trading card art for SCP-FBN-9011: Cradle Wurm Specimen from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-9012: Spitting Earth Wurm
+Original SCP-inspired trading card art for SCP-FBN-9012: Spitting Earth Wurm from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-9013: Underground Wurm-Tunnel Specimen
+Original SCP-inspired trading card art for SCP-FBN-9013: Underground Wurm-Tunnel Specimen from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-9014: Apex Reclamation Wurm
+Original SCP-inspired trading card art for SCP-FBN-9014: Apex Reclamation Wurm from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-A001: Geist of Saint Traft, Class-IV Spectral Asset
+SCP Foundation containment dossier photo: a translucent armored knight hovering in a concrete cell, trailing angel-wing ectoplasm, Foundation biohazard tape in the foreground, sodium-arc lighting, cosmic horror tone, no text.
+
+## SCP-FBN-A002: Kira, Great Glass-Spinner Specimen
+Original SCP-inspired trading card art for SCP-FBN-A002: Kira, Great Glass-Spinner Specimen from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-A003: Phantasmal Image, Class-III Phantom
+Original SCP-inspired trading card art for SCP-FBN-A003: Phantasmal Image, Class-III Phantom from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-A004: Mikokoro, Center of the Sea Specimen
+Original SCP-inspired trading card art for SCP-FBN-A004: Mikokoro, Center of the Sea Specimen from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-A005: Yuriko-Pattern Ninja-Spirit
+Original SCP-inspired trading card art for SCP-FBN-A005: Yuriko-Pattern Ninja-Spirit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-A006: Phyrexian Negator, Spirit-Pattern
+Original SCP-inspired trading card art for SCP-FBN-A006: Phyrexian Negator, Spirit-Pattern from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-A007: Class-III Wraith Specimen
+Original SCP-inspired trading card art for SCP-FBN-A007: Class-III Wraith Specimen from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-A008: Class-III Memory-Wraith
+Original SCP-inspired trading card art for SCP-FBN-A008: Class-III Memory-Wraith from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-A009: Spectral Cartographer Anomaly
+Original SCP-inspired trading card art for SCP-FBN-A009: Spectral Cartographer Anomaly from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-A010: Class-IV Specter-Conduit
+Original SCP-inspired trading card art for SCP-FBN-A010: Class-IV Specter-Conduit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-A011: Ectoplasmic Resonance Pattern
+Original SCP-inspired trading card art for SCP-FBN-A011: Ectoplasmic Resonance Pattern from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-A012: Wraithform Specimen
+Original SCP-inspired trading card art for SCP-FBN-A012: Wraithform Specimen from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## SCP-FBN-A013: Class-IV Spectral Aggregation
+Original SCP-inspired trading card art for SCP-FBN-A013: Class-IV Spectral Aggregation from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Saturation Reactor Core
+SCP Foundation facility art: interior of a reactor chamber with ley-line interference visible as shimmering arcs between containment rods, Foundation instrument panels, hazard suits on hooks at the door, sodium arc lighting, dread tone.
+
+## Sector-9 Compleation Quarantine Facility
+Original SCP-inspired trading card art for Sector-9 Compleation Quarantine Facility: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Soul-Broker Audit
+A Foundation ethics auditor handing a folder across a desk, the folder labeled 'YOUR DEBT,' the auditor smiling, no text, no logos.
+
+## Soul-Reclamation Facility
+A Foundation facility with soul-energy containment vessels in racks, each labeled with a dossier number, sterile clinical aesthetic, no text, no logos.
+
+## Spark Audit
+Original SCP-inspired trading card art for Spark Audit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Spark Audit Bureau
+Original SCP-inspired trading card art for Spark Audit Bureau from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Specter Audit Bureau
+Original SCP-inspired trading card art for Specter Audit Bureau from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Spectral Containment Sweep
+Original SCP-inspired trading card art for Spectral Containment Sweep from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Spirit Containment Array
+Original SCP-inspired trading card art for Spirit Containment Array from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Tame the Giant
+Original SCP-inspired trading card art for Tame the Giant from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Temporal Stasis Cell
+Original SCP-inspired trading card art for Temporal Stasis Cell from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Thaumic Containment Grid
+Original SCP-inspired trading card art for Thaumic Containment Grid from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Vector Saturation Sweep
+Original SCP-inspired trading card art for Vector Saturation Sweep: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Vivisection Suite Vega-9
+Original SCP-inspired trading card art for Vivisection Suite Vega-9: a Phyrexian Praetor or oil-contaminated entity inside a Foundation maximum-containment cell — sterile concrete architecture under sodium-arc light, Phyrexian oil sheen and biomechanical tendrils visible, redacted dossiers and biohazard overlays, dread-bureaucratic tone, no text, no logos, no card frames, high-detail digital painting.
+
+## Void Approach Vector Suppression Site
+Original SCP-inspired trading card art for Void Approach Vector Suppression Site: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## Void Bombardment
+Original SCP-inspired trading card art for Void Bombardment: a non-Euclidean Eldrazi entity inside a Foundation maximum-containment cell — black-concrete brutalist architecture, redacted/stamped dossiers overlaid, void-geometry distortions in the background, Annihilator-scale horror at a bureaucratic remove, colorless palette with ochre sodium-arc accent light, no text, no logos, no card frames, high-detail digital painting.
+
+## Wanderer Recall Audit
+Original SCP-inspired trading card art for Wanderer Recall Audit from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+
+## Wyrmkeeper's Vault
+Original SCP-inspired trading card art for Wyrmkeeper's Vault from Foundations Beyond: a captured MTG entity inside a Foundation containment cell — sterile concrete architecture under sodium-arc light, redacted/stamped paperwork overlays, cosmic-horror tone, clear focal subject, no text, no logos, no card frames, high-detail digital painting.
+

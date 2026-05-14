@@ -11,7 +11,7 @@ You drive a multi-stage pipeline that produces a fully tested card set. **Fire-a
 
 The user invoked this with: `$ARGUMENTS`
 
-- **`engine`** (required): one of `mtg-custom`, `minecraft`, `pokemon`, `yugioh`, `hearthstone`. Determines:
+- **`engine`** (required): one of `mtg-custom`, `minecraft`, `pokemon`, `yugioh`, `hearthstone`, `scp`. Determines:
   - Where cards live (`src/cards/<engine>/<set>/` or `src/cards/custom/<set>.py` for `mtg-custom`).
   - Which engine modules to use for AI-vs-AI testing.
   - Which `__init__.py` / `set_registry.py` `wire_set.py` edits.
@@ -35,7 +35,7 @@ Pick all of the following deterministically. Print one status block, then immedi
 
 | Decision | Auto-pick rule |
 |---|---|
-| **Engine validation** | Must be one of `mtg-custom`, `minecraft`, `pokemon`, `yugioh`, `hearthstone`. If invalid, ask once for correction. |
+| **Engine validation** | Must be one of `mtg-custom`, `minecraft`, `pokemon`, `yugioh`, `hearthstone`, `scp`. If invalid, ask once for correction. |
 | **Set code** (`<CODE>`) | If `--code` provided, use it. Else: 3–4 uppercase letters derived from the theme (e.g. `"deep-sea pirates"` → `PIRT`, `"haunted carnival"` → `CARN`). Verify no collision against `src/cards/set_registry.py`'s `SETS` dict. On collision, append digit. |
 | **Set module name** | snake_case slug derived from the theme (e.g. `"deep-sea pirates"` → `deep_sea_pirates`). Used as the directory/file name. |
 | **File layout** | Determined by engine: `mtg-custom` → single file `src/cards/custom/<set_module>.py`. All others → directory `src/cards/<engine>/<set_module>/` with one file per archetype + aggregating `__init__.py`. |
@@ -190,6 +190,7 @@ This keeps fire-and-forget honest: the user gets a complete, testable, playable 
 | `pokemon`     | `src.cards.pokemon.<set_module>`               | `src.cards.pokemon.<set_module>.style`           |
 | `yugioh`      | `src.cards.yugioh.<set_module>`                | `src.cards.yugioh.<set_module>.style`            |
 | `hearthstone` | `src.cards.hearthstone.<set_module>`           | `src.cards.hearthstone.<set_module>.style`       |
+| `scp`         | `src.cards.scp.<set_module>`                   | `src.cards.scp.<set_module>.style`               |
 
 (`mtg-custom` is single-file, so its style is a sibling `<set_module>_style.py` rather than a submodule. All others use the directory-with-submodules layout from stage Pre-flight.)
 
@@ -299,6 +300,7 @@ Together they close the gap between "smoke test passed" and "the cards actually 
 | `mtg-custom`  | `scripts/play/custom_set_tournament.py` | Native shape; extend to emit `ai_action_counts` + `mechanic_triggers` if not present |
 | `minecraft`   | `scripts/play/custom_set_tournament.py` with depths-style adapter | |
 | `pokemon` / `yugioh` / `hearthstone` / new engines | `scripts/new_set/_adapters/<engine>_tournament_adapter.py` (mirror `depths_tournament_adapter.py`) | Must emit the extended JSON contract below |
+| `scp`         | `scripts/new_set/_adapters/scp_tournament_adapter.py` | Must emit extended JSON contract |
 
 #### Tournament JSON contract (extended)
 
