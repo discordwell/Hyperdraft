@@ -129,7 +129,9 @@ _MIGRATED_CARDS = [
     ("LIVELY_DIRGE", 2),
     ("RUSH_OF_DREAD", 3),
     ("GREAT_TRAIN_HEIST", 3),
-    ("RETURN_THE_FAVOR", 2),
+    # RETURN_THE_FAVOR migrated off Spree to a regular instant in Phase 5b
+    # mop-up (Agent J): copies target opposing instant/sorcery via
+    # COPY_STACK_ITEM. See ``tests/test_phase5b_spell_copy.py`` for coverage.
     ("DANCE_OF_THE_TUMBLEWEEDS", 2),
     ("SMUGGLERS_SURPRISE", 3),
     ("TRASH_THE_TOWN", 3),

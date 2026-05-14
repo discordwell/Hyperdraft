@@ -13553,11 +13553,77 @@ IMMERSTURM_PREDATOR = make_creature(
     setup_interceptors=immersturm_predator_setup,
 )
 
+def maelstrom_pulse_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Maelstrom Pulse: destroy target nonland permanent and all other
+    battlefield permanents sharing its name.
+
+    Phase 5b: ``targets`` is the engine's chosen-target shape
+    (``list[list[Target]]``). We:
+      1. Look up the chosen target object.
+      2. Read its printed name.
+      3. Iterate all battlefield objects and emit ``OBJECT_DESTROYED`` for
+         every nonland permanent matching that name (including the target
+         itself). Tokens / permanents with a different name are unaffected.
+
+    Name match is exact and case-sensitive (matches MTG name semantics —
+    "Maelstrom Pulse" destroys all copies named exactly the same).
+    """
+    tid = _first_target_id(targets, state)
+    if tid is None:
+        return []
+    target = state.objects.get(tid)
+    if target is None or target.zone != ZoneType.BATTLEFIELD:
+        return []
+    target_name = getattr(target, 'name', None)
+    if target_name is None:
+        chars = getattr(target, 'characteristics', None)
+        target_name = getattr(chars, 'name', None) if chars is not None else None
+    if not target_name:
+        return []
+
+    spell = _resolving_spell_obj(state)
+    source_id = spell.id if spell else None
+
+    events: list[Event] = []
+    seen: set[str] = set()
+    for obj in state.objects.values():
+        if obj.id in seen:
+            continue
+        if obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        # Skip lands (the spell only destroys NONland permanents). Per CR
+        # 110.4 a non-permanent type doesn't end up on the battlefield, so
+        # we don't need to filter spells/instants/etc. — just lands.
+        if CardType.LAND in obj.characteristics.types:
+            continue
+        obj_name = getattr(obj, 'name', None)
+        if obj_name is None:
+            chars = getattr(obj, 'characteristics', None)
+            obj_name = getattr(chars, 'name', None) if chars is not None else None
+        if obj_name != target_name:
+            continue
+        seen.add(obj.id)
+        events.append(Event(
+            type=EventType.OBJECT_DESTROYED,
+            payload={'object_id': obj.id},
+            source=source_id,
+        ))
+    return events
+
+
 MAELSTROM_PULSE = make_sorcery(
     name="Maelstrom Pulse",
     mana_cost="{1}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     text="Destroy target nonland permanent and all other permanents with the same name as that permanent.",
+    resolve=maelstrom_pulse_resolve,
+    target_requirements=[
+        TargetRequirement(
+            filter=permanent_filter(custom_filter=_nonland_permanent_filter),
+            count=1,
+            label="target nonland permanent",
+        ),
+    ],
 )
 
 MORTIFY = make_instant(

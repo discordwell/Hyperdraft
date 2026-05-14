@@ -549,10 +549,11 @@ def test_maelstrom_pulse_card_is_registered():
     """FDN Maelstrom Pulse: 'Destroy target nonland permanent and all other
     permanents with the same name as that permanent.'
 
-    This is a resolve-time search predicate on the battlefield. The card
-    currently has NO resolve hook wired — that's an engine gap, and the
-    point of this regression test is to lock the current state so a future
-    change either fixes it (and updates this test) or leaves it untouched.
+    Wired in Phase 5b mop-up: cast-time target_requirements + resolve_fn
+    that destroys the target and every other permanent matching the
+    target's name. Detailed end-to-end coverage lives in
+    ``tests/test_phase5b_spell_copy.py``; this regression just confirms
+    the card is correctly registered with the new resolve hook.
     """
     print("\n=== Test: FDN Maelstrom Pulse regression ===")
     from src.cards.foundations import MAELSTROM_PULSE
@@ -562,17 +563,13 @@ def test_maelstrom_pulse_card_is_registered():
     assert "with the same name as that permanent" in MAELSTROM_PULSE.text, (
         f"text changed: {MAELSTROM_PULSE.text!r}"
     )
-    # No resolve / setup wired today — engine gap. We assert the gap to
-    # detect any silent regression that pretends the card works.
-    assert MAELSTROM_PULSE.resolve is None, (
-        f"Maelstrom Pulse currently has no resolve hook; if you wired one, "
-        f"update this regression test. Got {MAELSTROM_PULSE.resolve!r}"
+    assert MAELSTROM_PULSE.resolve is not None, (
+        "Maelstrom Pulse should have a resolve_fn wired in Phase 5b mop-up"
     )
-    assert MAELSTROM_PULSE.setup_interceptors is None, (
-        f"Maelstrom Pulse currently has no setup; if you wired one, "
-        f"update this regression test. Got {MAELSTROM_PULSE.setup_interceptors!r}"
+    assert MAELSTROM_PULSE.target_requirements, (
+        "Maelstrom Pulse should declare cast-time target_requirements"
     )
-    print("  Maelstrom Pulse: engine gap preserved (no resolve/setup wired)")
+    print("  Maelstrom Pulse: resolve + target_requirements wired")
 
 
 def test_central_elevator_door_unlock_no_op_documented():

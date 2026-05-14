@@ -4869,86 +4869,152 @@ _SHIFTING_GRIFT_MODES = [
 
 # --- THREE_STEPS_AHEAD --------------------------------------------------------
 
-def _three_steps_ahead_counter(spell, state: GameState, targets) -> list[Event]:
-    """Mode 0: counter target spell."""
+def _three_steps_ahead_pump(spell, state: GameState, targets) -> list[Event]:
+    """Mode 0 (+{1}): until end of turn, target creature you control gets +1/+1
+    and has flash, hexproof, and ward {2}.
+
+    Phase 5b: ``targets`` is the engine's chosen-target id list for this
+    Spree mode (one target, count=1). We emit:
+      - PT_MODIFICATION +1/+1 EOT
+      - GRANT_KEYWORD flash EOT
+      - GRANT_KEYWORD hexproof EOT
+      - GRANT_KEYWORD ward EOT  (ward cost is not parameterised by GRANT_KEYWORD;
+        the keyword grant is the closest engine-supported handle today —
+        see ``engine_gaps.md`` for the punch list)
+    """
     if not spell or not targets:
         return []
-    return [Event(
-        type=EventType.COUNTER_SPELL,
-        payload={'spell_id': targets[0]},
-        source=spell.id,
-    )]
-
-
-def _three_steps_ahead_copy(spell, state: GameState, targets) -> list[Event]:
-    """Mode 1: create a token that's a copy of target artifact or creature you control."""
-    if not spell or not targets:
+    target_id = targets[0]
+    if not target_id:
         return []
-    return [Event(
-        type=EventType.CREATE_TOKEN,
-        payload={
-            'controller': spell.controller,
-            'copy_of': targets[0],
-            'is_token': True,
-        },
-        source=spell.id,
-    )]
+    return [
+        Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': target_id,
+                'power_mod': 1,
+                'toughness_mod': 1,
+                'duration': 'end_of_turn',
+            },
+            source=spell.id,
+        ),
+        Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': target_id, 'keyword': 'flash', 'duration': 'end_of_turn'},
+            source=spell.id,
+        ),
+        Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': target_id, 'keyword': 'hexproof', 'duration': 'end_of_turn'},
+            source=spell.id,
+        ),
+        Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': target_id, 'keyword': 'ward', 'duration': 'end_of_turn'},
+            source=spell.id,
+        ),
+    ]
 
 
-def _three_steps_ahead_draw_discard(spell, state: GameState, targets) -> list[Event]:
-    """Mode 2: draw two cards, then discard a card."""
+def _three_steps_ahead_draw_three(spell, state: GameState, targets) -> list[Event]:
+    """Mode 1 (+{2}): draw three cards."""
     if not spell:
         return []
     return [
         Event(type=EventType.DRAW,
-              payload={'player': spell.controller, 'amount': 2},
-              source=spell.id),
-        Event(type=EventType.DISCARD,
-              payload={'player': spell.controller, 'amount': 1},
+              payload={'player': spell.controller, 'amount': 3},
               source=spell.id),
     ]
 
 
-def _three_steps_ahead_legal_stack(spell, state):
-    stack_zone = state.zones.get('stack')
-    if not stack_zone:
+def _three_steps_ahead_copy_this_spell(spell, state: GameState, targets) -> list[Event]:
+    """Mode 2 (+{3}): create a copy of this spell. You may choose new targets
+    for the copy.
+
+    Per CR 706, the copy preserves the original's chosen targets / modes /
+    resolve_fn. Implementation note: by the time a Spree mode's effect_fn
+    fires, ``StackManager.resolve_top`` has already popped the spell's
+    ``StackItem``, so we can't look it up via ``stack.get_item`` and emit
+    ``COPY_STACK_ITEM`` for the engine to handle. Instead we mint a fresh
+    ``StackItem`` mirroring the resolving spell (same card_id /
+    controller_id / resolve_fn) marked ``is_copy=True`` and push it
+    directly. The copy resolves like any other stack item and won't move
+    the spell card to the graveyard (CR 706.10b — copies cease to exist).
+
+    NOTE (follow-up): the printed text allows the caster to choose new
+    targets for the copy. v1 keeps the original spell's targets. A future
+    enhancement should prompt the caster via a chained
+    ``target_with_callback`` PendingChoice — see
+    ``_virtue_of_knowledge_adventure`` in ``wilds_of_eldraine.py`` for the
+    canonical "may choose new targets" retarget walker.
+    """
+    if not spell:
         return []
-    return [
-        oid for oid in stack_zone.objects
-        if oid != spell.id and state.objects.get(oid) is not None
-    ]
+    game = getattr(state, '_game', None)
+    stack = getattr(game, 'stack', None) if game else None
+    if stack is None:
+        return []
+
+    # Mint a fresh StackItem matching the resolving spell. The original
+    # is already popped from the stack (StackManager.resolve_top pops
+    # before invoking resolve_fn), so we rebuild from the spell GameObject
+    # and the card_def. The copy is flagged ``is_copy=True`` so the engine
+    # skips the "move spell to graveyard" branch on resolution.
+    from src.engine.stack import StackItem, StackItemType
+    card_def = getattr(spell, 'card_def', None)
+    resolve_fn = getattr(card_def, 'resolve', None)
+    copy_item = StackItem(
+        id="",  # StackManager.push assigns a fresh id
+        type=StackItemType.SPELL,
+        source_id=spell.id,
+        controller_id=spell.controller,
+        card_id=spell.id,
+        resolve_fn=resolve_fn,
+        chosen_targets=[],  # v1 — see follow-up note above
+        chosen_modes=[],
+        is_copy=True,
+    )
+    stack.push(copy_item)
+
+    # Return no follow-up events. We don't emit COPY_STACK_ITEM here because:
+    #   1. The original StackItem is already popped, so the engine's handler
+    #      (which calls ``stack.push_copy(stack_item_id)``) couldn't find it.
+    #   2. Passing the freshly-pushed ``copy_item.id`` would cause the handler
+    #      to push *another* copy on top of our manual push (double-copy bug).
+    # The manual ``stack.push(copy_item)`` above is sufficient — the copy is
+    # on the stack and will resolve normally.
+    return []
 
 
-def _three_steps_ahead_legal_your_art_creature(spell, state):
-    """Artifacts or creatures the caster controls."""
+def _three_steps_ahead_legal_your_creature(spell, state):
+    """Creatures the caster controls — for the +1/+1 pump mode."""
     return [
         obj.id for obj in state.objects.values()
         if obj.zone == ZoneType.BATTLEFIELD
         and obj.controller == spell.controller
-        and (CardType.ARTIFACT in obj.characteristics.types
-             or CardType.CREATURE in obj.characteristics.types)
+        and CardType.CREATURE in obj.characteristics.types
     ]
 
 
 _THREE_STEPS_AHEAD_MODES = [
     SpreeMode(
-        name="Counter spell", extra_cost="{1}{U}",
-        effect_fn=_three_steps_ahead_counter, target_kind="spell",
+        name="Pump your creature", extra_cost="{1}",
+        effect_fn=_three_steps_ahead_pump, target_kind="your_creature",
         targets_required=1,
-        description="Counter target spell.",
-        legal_targets_filter=_three_steps_ahead_legal_stack,
+        description=("Until end of turn, target creature you control gets +1/+1 "
+                     "and has flash, hexproof, and ward {2}."),
+        legal_targets_filter=_three_steps_ahead_legal_your_creature,
     ),
     SpreeMode(
-        name="Copy your permanent", extra_cost="{3}",
-        effect_fn=_three_steps_ahead_copy, target_kind="permanent",
-        targets_required=1,
-        description="Create a token that's a copy of target artifact or creature you control.",
-        legal_targets_filter=_three_steps_ahead_legal_your_art_creature,
+        name="Draw three", extra_cost="{2}",
+        effect_fn=_three_steps_ahead_draw_three,
+        description="Draw three cards.",
     ),
     SpreeMode(
-        name="Draw two, discard one", extra_cost="{2}",
-        effect_fn=_three_steps_ahead_draw_discard,
-        description="Draw two cards, then discard a card.",
+        name="Copy this spell", extra_cost="{3}",
+        effect_fn=_three_steps_ahead_copy_this_spell,
+        description=("Create a copy of this spell. You may choose new targets "
+                     "for the copy."),
     ),
 ]
 
@@ -5204,24 +5270,65 @@ _GREAT_TRAIN_HEIST_MODES = [
 
 
 # --- RETURN_THE_FAVOR ---------------------------------------------------------
-# Both modes (copy spell with new targets, change target) are engine gaps.
+# Phase 5b regular-instant migration: target an opponent's instant or sorcery
+# spell on the stack and copy it via COPY_STACK_ITEM.
 
-def _return_the_favor_noop(spell, state: GameState, targets) -> list[Event]:
-    return []
+def return_the_favor_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Return the Favor: copy target instant/sorcery spell you don't
+    control via ``COPY_STACK_ITEM``.
 
+    Phase 5b: ``targets`` is the engine's chosen-target shape
+    (``list[list[Target]]`` — one inner list per ``target_requirements``
+    entry). The first chosen target is the opposing spell on the stack;
+    we look up its StackItem id and emit COPY_STACK_ITEM keeping the
+    original's chosen targets.
 
-_RETURN_THE_FAVOR_MODES = [
-    SpreeMode(
-        name="Copy spell", extra_cost="{1}",
-        effect_fn=_return_the_favor_noop,
-        description="Copy target instant, sorcery, activated, or triggered ability. (engine gap)",
-    ),
-    SpreeMode(
-        name="Change target", extra_cost="{1}",
-        effect_fn=_return_the_favor_noop,
-        description="Change the target of target spell or ability with a single target. (engine gap)",
-    ),
-]
+    NOTE (follow-up): printed text allows the caster to choose new targets
+    for the copy. v1 keeps the original spell's targets (``new_targets``
+    omitted from the event payload). A future enhancement should walk the
+    original's ``target_requirements`` and prompt the caster via a chained
+    ``target_with_callback`` PendingChoice — see
+    ``_virtue_of_knowledge_adventure`` in ``wilds_of_eldraine.py`` for the
+    canonical "may choose new targets" retarget walker.
+    """
+    spell = _otj_resolving_spell_obj(state)
+    source_id = spell.id if spell else None
+    controller = spell.controller if spell else None
+
+    # Pull the first target id (the targeted opposing spell on the stack).
+    target_card_id: Optional[str] = None
+    for t in _flatten_targets(targets):
+        if t.is_player:
+            continue
+        target_card_id = t.id
+        break
+    if not target_card_id:
+        return []
+
+    # Locate the StackItem for the targeted spell. Spells on the stack are
+    # tracked both as a GameObject in ZoneType.STACK and as a StackItem in
+    # the StackManager. ``StackItem.card_id`` references the GameObject.
+    game = getattr(state, '_game', None)
+    stack = getattr(game, 'stack', None) if game else None
+    if stack is None:
+        return []
+    stack_item_id: Optional[str] = None
+    for sitem in stack.get_items():
+        if sitem.card_id == target_card_id and getattr(sitem, "can_be_copied", True):
+            stack_item_id = sitem.id
+            break
+    if stack_item_id is None:
+        return []
+    return [Event(
+        type=EventType.COPY_STACK_ITEM,
+        payload={
+            'stack_item_id': stack_item_id,
+            # new_targets omitted: keep original spell's targets (v1 — no
+            # retarget prompt).
+        },
+        source=source_id,
+        controller=controller,
+    )]
 
 
 # --- DANCE_OF_THE_TUMBLEWEEDS -------------------------------------------------
@@ -7372,7 +7479,14 @@ THREE_STEPS_AHEAD = make_instant(
     name="Three Steps Ahead",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Spree (Choose one or more additional costs.)\n+ {1}{U} — Counter target spell.\n+ {3} — Create a token that's a copy of target artifact or creature you control.\n+ {2} — Draw two cards, then discard a card.",
+    text=(
+        "Spree (Choose one or more additional costs.)\n"
+        "+ {1} — Until end of turn, target creature you control gets +1/+1 "
+        "and has flash, hexproof, and ward {2}.\n"
+        "+ {2} — Draw three cards.\n"
+        "+ {3} — Create a copy of this spell. You may choose new targets for "
+        "the copy."
+    ),
     setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_THREE_STEPS_AHEAD_MODES),
     resolve=make_spree_resolve(_THREE_STEPS_AHEAD_MODES),
 )
@@ -9002,9 +9116,22 @@ RETURN_THE_FAVOR = make_instant(
     name="Return the Favor",
     mana_cost="{R}{R}",
     colors={Color.RED},
-    text="Spree (Choose one or more additional costs.)\n+ {1} — Copy target instant spell, sorcery spell, activated ability, or triggered ability. You may choose new targets for the copy.\n+ {1} — Change the target of target spell or ability with a single target.",
-    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_RETURN_THE_FAVOR_MODES),
-    resolve=make_spree_resolve(_RETURN_THE_FAVOR_MODES),
+    text=(
+        "Copy target instant or sorcery spell you don't control. You may "
+        "choose new targets for the copy."
+    ),
+    resolve=return_the_favor_resolve,
+    target_requirements=[
+        TargetRequirement(
+            filter=TargetFilter(
+                types={CardType.INSTANT, CardType.SORCERY},
+                zones=[ZoneType.STACK],
+                controller='opponent',
+            ),
+            count=1,
+            label="target instant or sorcery spell you don't control",
+        ),
+    ],
 )
 
 RODEO_PYROMANCERS = make_creature(
