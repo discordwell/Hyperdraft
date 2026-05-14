@@ -48,6 +48,11 @@ from src.cards.interceptor_helpers import (
     make_cycling_setup,
     make_modal_resolve,
 )
+from src.engine.targeting import (
+    TargetRequirement, TargetFilter,
+    target_creature, target_any, target_player, target_spell,
+    permanent_filter, creature_filter, card_in_graveyard_filter,
+)
 
 
 def _make_typecycling_setup(mana_cost: str, land_subtype):
@@ -8109,6 +8114,8 @@ NOT_ON_MY_WATCH = make_instant(
     colors={Color.WHITE},
     text="Exile target attacking creature.",
     resolve=not_on_my_watch_resolve,
+    # NOTE: filter approximates "attacking" with target_creature.
+    target_requirements=[target_creature(count=1)],
 )
 
 NOVICE_INSPECTOR = make_creature(
@@ -8459,6 +8466,11 @@ OUT_COLD = make_instant(
     colors={Color.BLUE},
     text="This spell can't be countered. (This includes by the ward ability.)\nTap up to two target creatures and put a stun counter on each of them. Investigate. (If a permanent with a stun counter would become untapped, remove one from it instead.)",
     resolve=out_cold_resolve,
+    target_requirements=[TargetRequirement(
+        filter=creature_filter(),
+        count=2, count_type='up_to',
+        label="up to two target creatures",
+    )],
 )
 
 PROFTS_EIDETIC_MEMORY = make_enchantment(
@@ -8714,6 +8726,12 @@ IT_DOESNT_ADD_UP = make_instant(
     colors={Color.BLACK},
     text="Return target creature card from your graveyard to the battlefield. Suspect it. (It has menace and can't block.)",
     resolve=it_doesnt_add_up_resolve,
+    target_requirements=[TargetRequirement(
+        filter=card_in_graveyard_filter(
+            types={CardType.CREATURE}, controller='you',
+        ),
+        count=1, label="target creature card from your graveyard",
+    )],
 )
 
 LEAD_PIPE = make_artifact(
@@ -8741,6 +8759,13 @@ LONG_GOODBYE = make_instant(
     colors={Color.BLACK},
     text="This spell can't be countered. (This includes by the ward ability.)\nDestroy target creature or planeswalker with mana value 3 or less.",
     resolve=long_goodbye_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE, CardType.PLANESWALKER},
+            mana_value_max=3,
+        ),
+        count=1, label="target creature or planeswalker with mana value 3 or less",
+    )],
 )
 
 MACABRE_RECONSTRUCTION = make_sorcery(
@@ -8749,6 +8774,13 @@ MACABRE_RECONSTRUCTION = make_sorcery(
     colors={Color.BLACK},
     text="This spell costs {2} less to cast if a creature card was put into your graveyard from anywhere this turn.\nReturn up to two target creature cards from your graveyard to your hand.",
     resolve=macabre_reconstruction_resolve,
+    target_requirements=[TargetRequirement(
+        filter=card_in_graveyard_filter(
+            types={CardType.CREATURE}, controller='you',
+        ),
+        count=2, count_type='up_to',
+        label="up to two target creature cards from your graveyard",
+    )],
 )
 
 MASSACRE_GIRL_KNOWN_KILLER = make_creature(
@@ -8768,6 +8800,7 @@ MURDER = make_instant(
     colors={Color.BLACK},
     text="Destroy target creature.",
     resolve=murder_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 NIGHTDRINKER_MOROII = make_creature(
@@ -8810,6 +8843,7 @@ PRESUMED_DEAD = make_instant(
     colors={Color.BLACK},
     text="Until end of turn, target creature gets +2/+0 and gains \"When this creature dies, return it to the battlefield under its owner's control and suspect it.\" (A suspected creature has menace and can't block.)",
     resolve=presumed_dead_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 REPEAT_OFFENDER = make_creature(
@@ -8838,6 +8872,7 @@ SLICE_FROM_THE_SHADOWS = make_instant(
     colors={Color.BLACK},
     text="This spell can't be countered. (This includes by the ward ability.)\nTarget creature gets -X/-X until end of turn.",
     resolve=slice_from_the_shadows_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 SLIMY_DUALLEECH = make_creature(
@@ -8874,6 +8909,7 @@ TOXIN_ANALYSIS = make_instant(
     colors={Color.BLACK},
     text="Target creature gains deathtouch and lifelink until end of turn. Investigate. (Create a Clue token. It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")",
     resolve=toxin_analysis_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 UNDERCITY_ELIMINATOR = make_creature(
@@ -8952,6 +8988,7 @@ CAUGHT_REDHANDED = make_instant(
     colors={Color.RED},
     text="This spell can't be countered. (This includes by the ward ability.)\nGain control of target creature until end of turn. Untap that creature. It gains haste until end of turn. Suspect it. (It has menace and can't block.)",
     resolve=caught_redhanded_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 THE_CHASE_IS_ON = make_instant(
@@ -8960,6 +8997,7 @@ THE_CHASE_IS_ON = make_instant(
     colors={Color.RED},
     text="Target creature gets +3/+0 and gains first strike until end of turn. Investigate. (Create a Clue token. It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")",
     resolve=chase_is_on_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 CONCEALED_WEAPON = make_artifact(
@@ -9035,6 +9073,7 @@ FELONIOUS_RAGE = make_instant(
     colors={Color.RED},
     text="Target creature you control gets +2/+0 and gains haste until end of turn. When that creature dies this turn, create a 2/2 white and blue Detective creature token.",
     resolve=felonious_rage_resolve,
+    target_requirements=[target_creature(controller='you')],
 )
 
 FRANTIC_SCAPEGOAT = make_creature(
@@ -9219,6 +9258,7 @@ SHOCK = make_instant(
     colors={Color.RED},
     text="Shock deals 2 damage to any target.",
     resolve=shock_resolve,
+    target_requirements=[target_any(count=1)],
 )
 
 SUSPICIOUS_DETONATION = make_sorcery(
@@ -9227,6 +9267,7 @@ SUSPICIOUS_DETONATION = make_sorcery(
     colors={Color.RED},
     text="This spell costs {3} less to cast if you've sacrificed an artifact this turn.\nThis spell can't be countered. (This includes by the ward ability.)\nSuspicious Detonation deals 4 damage to target creature.",
     resolve=suspicious_detonation_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 TORCH_THE_WITNESS = make_sorcery(
@@ -9235,6 +9276,7 @@ TORCH_THE_WITNESS = make_sorcery(
     colors={Color.RED},
     text="Torch the Witness deals twice X damage to target creature. If excess damage was dealt to that creature this way, investigate. (Create a Clue token. It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")",
     resolve=torch_the_witness_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 VENGEFUL_TRACKER = make_creature(
@@ -9458,6 +9500,7 @@ FANATICAL_STRENGTH = make_instant(
     colors={Color.GREEN},
     text="Target creature gets +3/+3 and gains trample until end of turn.",
     resolve=fanatical_strength_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 FLOURISHING_BLOOMKIN = make_creature(
@@ -9476,6 +9519,7 @@ GET_A_LEG_UP = make_instant(
     colors={Color.GREEN},
     text="Until end of turn, target creature gets +1/+1 for each creature you control and gains reach.",
     resolve=get_a_leg_up_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 GLINT_WEAVER = make_creature(
@@ -9848,6 +9892,10 @@ ASSASSINS_TROPHY = make_instant(
     colors={Color.BLACK, Color.GREEN},
     text="Destroy target permanent an opponent controls. Its controller may search their library for a basic land card, put it onto the battlefield, then shuffle.",
     resolve=assassins_trophy_resolve,
+    target_requirements=[TargetRequirement(
+        filter=permanent_filter(controller='opponent'),
+        count=1, label="target permanent an opponent controls",
+    )],
 )
 
 AURELIA_THE_LAW_ABOVE = make_creature(
@@ -10137,6 +10185,7 @@ LIGHTNING_HELIX = make_instant(
     colors={Color.RED, Color.WHITE},
     text="Lightning Helix deals 3 damage to any target and you gain 3 life.",
     resolve=lightning_helix_resolve,
+    target_requirements=[target_any(count=1)],
 )
 
 MEDDLING_YOUTHS = make_creature(
@@ -10166,6 +10215,7 @@ NO_MORE_LIES = make_instant(
     colors={Color.BLUE, Color.WHITE},
     text="Counter target spell unless its controller pays {3}. If that spell is countered this way, exile it instead of putting it into its owner's graveyard.",
     resolve=no_more_lies_resolve,
+    target_requirements=[target_spell()],
 )
 
 OFFICIOUS_INTERROGATION = make_instant(
@@ -10271,6 +10321,7 @@ SOUL_SEARCH = make_sorcery(
     colors={Color.BLACK, Color.WHITE},
     text="Target opponent reveals their hand. You choose a nonland card from it. Exile that card. If the card's mana value is 1 or less, create a 1/1 white and black Spirit creature token with flying.",
     resolve=soul_search_resolve,
+    target_requirements=[target_player(controller='opponent')],
 )
 
 SUMALA_SENTRY = make_creature(
