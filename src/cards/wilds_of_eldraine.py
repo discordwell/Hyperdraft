@@ -5539,9 +5539,100 @@ def agatha_of_the_vile_cauldron_setup(obj: GameObject, state: GameState) -> list
 def the_apprentices_folly_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Saga I,II/III with reflection token copies + sac all reflections.
 
-    I, II — Choose target nontoken creature you control; create a non-legendary copy of it that's a Reflection with haste (engine gap: target + token copy).
-    III — Sacrifice all Reflections you control."""
-    def i_ii(_o, _s): return []  # engine gap: target + non-legendary copy
+    I, II — Choose target nontoken creature you control that doesn't have
+            the same name as a token you control. Create a token that's a
+            copy of it (non-legendary, Reflection subtype, haste).
+    III — Sacrifice all Reflections you control.
+
+    Phase 5b name-constraint wiring: chapter I/II uses the engine's
+    ``_names_of_your_tokens`` snapshot at choice-emit time to exclude any
+    nontoken creature whose name matches a token the controller already
+    has. This satisfies the rule that a Reflection name-clash would prevent
+    the saga from copying that creature.
+    """
+    from src.engine.targeting import _names_of_your_tokens
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    def _copy_chosen(choice, selected, st):
+        """Handler: build a copy-token OBJECT_CREATED event for the picked target."""
+        if not selected:
+            return []
+        target_id = selected[0]
+        # Resolve raw IDs and Target dict entries.
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id") or target_id.get("target_id")
+        target = st.objects.get(target_id)
+        if target is None or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        # Build the copy-token: same characteristics as target, except it's
+        # non-legendary, gains Reflection subtype, and has haste.
+        existing_subtypes = set(target.characteristics.subtypes) | {"Reflection"}
+        existing_supertypes = set(target.characteristics.supertypes) - {"Legendary"}
+        return [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'copy_of': target_id,
+                'controller': obj.controller,
+                'is_token': True,
+                'except_name': target.name,
+                'except_add_subtypes': list(existing_subtypes - set(target.characteristics.subtypes)),
+                'except_keywords': list(set(
+                    ab.get('keyword') for ab in target.characteristics.abilities
+                    if isinstance(ab, dict) and ab.get('keyword')
+                ) | {'haste'}),
+                # The handler doesn't expose a direct "drop legendary" hook,
+                # but the OBJECT_CREATED path deep-copies supertypes and
+                # there's no override key; instead we post-fix on the copy
+                # below. We can't reach the new object here (it's emitted
+                # by the pipeline), so we settle for the copy semantics
+                # the engine provides today and document the remaining gap.
+                'supertypes': list(existing_supertypes),
+            },
+            source=obj.id,
+        )]
+
+    def i_ii(o, st):
+        # Snapshot offending names at trigger time.
+        excluded_names = _names_of_your_tokens(st, o.controller)
+        # Collect legal targets: nontoken creatures you control whose name
+        # isn't in the excluded set.
+        legal: list[str] = []
+        for cand in st.objects.values():
+            if cand.zone != ZoneType.BATTLEFIELD:
+                continue
+            if cand.controller != o.controller:
+                continue
+            if CardType.CREATURE not in cand.characteristics.types:
+                continue
+            if bool(getattr(getattr(cand, 'state', None), 'is_token', False)):
+                continue
+            if cand.name in excluded_names:
+                continue
+            legal.append(cand.id)
+        if not legal:
+            return []
+        # AI heuristic: pick the highest-power eligible creature so the copy is
+        # strongest possible. Falls back to index 0 if no power data.
+        best_idx = 0
+        best_power = -1
+        for i, tid in enumerate(legal):
+            tobj = st.objects.get(tid)
+            p = int(getattr(tobj.characteristics, 'power', 0) or 0)
+            if p > best_power:
+                best_power = p
+                best_idx = i
+        return create_choice_and_resolve(
+            st,
+            choice_type='target',
+            player_id=o.controller,
+            prompt="Choose a nontoken creature to copy (Reflection)",
+            options=legal,
+            source_id=o.id,
+            min_choices=1,
+            max_choices=1,
+            handler=_copy_chosen,
+            heuristic_pick=best_idx,
+        )
 
     def iii(o, s):
         events: list[Event] = []
@@ -5695,8 +5786,102 @@ def troyan_gutsy_explorer_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def yenna_redtooth_regent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{2},{T}: Copy enchantment you control as a token; if Aura, untap+scry."""
-    # engine gap: copy enchantment activated ability with name uniqueness.
+    """{2},{T}: Choose target enchantment you control that doesn't have the
+    same name as another permanent you control. Create a non-legendary copy
+    token; if the token is an Aura, untap Yenna and scry 2. Sorcery speed.
+
+    Phase 5b name-constraint wiring: at activation time, the effect_fn
+    snapshots ``_names_of_your_other_permanents`` (excluding Yenna herself)
+    and emits a target-choice PendingChoice with name-collision candidates
+    filtered out. The handler then queues the OBJECT_CREATED copy event
+    plus the conditional UNTAP + SCRY rider.
+    """
+    from src.engine.targeting import has_other_permanent_with_same_name
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    def _copy_chosen(choice, selected, st):
+        if not selected:
+            return []
+        target_id = selected[0]
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id") or target_id.get("target_id")
+        target = st.objects.get(target_id)
+        if target is None or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        existing_supertypes = set(target.characteristics.supertypes) - {"Legendary"}
+        events: list[Event] = [Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'copy_of': target_id,
+                'controller': obj.controller,
+                'is_token': True,
+                'supertypes': list(existing_supertypes),
+            },
+            source=obj.id,
+        )]
+        # If the chosen enchantment is an Aura, untap Yenna and scry 2.
+        if 'Aura' in target.characteristics.subtypes:
+            events.append(Event(
+                type=EventType.UNTAP,
+                payload={'object_id': obj.id},
+                source=obj.id,
+            ))
+            events.append(Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 2},
+                source=obj.id,
+            ))
+        return events
+
+    def _activated_effect(o, st, _targets):
+        # Per-candidate name-collision check: an enchantment X you control is
+        # legal iff no OTHER permanent you control (excluding X and Yenna)
+        # shares X's printed name. "Another permanent" is relative to the
+        # target, not relative to the source.
+        legal: list[str] = []
+        for cand in st.objects.values():
+            if cand.zone != ZoneType.BATTLEFIELD:
+                continue
+            if cand.controller != o.controller:
+                continue
+            if CardType.ENCHANTMENT not in cand.characteristics.types:
+                continue
+            if has_other_permanent_with_same_name(
+                cand, st, controller_id=o.controller, source_id=o.id,
+            ):
+                continue
+            legal.append(cand.id)
+        if not legal:
+            return []
+        # AI heuristic: prefer an Aura (gets the untap+scry rider).
+        best_idx = 0
+        for i, tid in enumerate(legal):
+            cand = st.objects.get(tid)
+            if cand is not None and 'Aura' in cand.characteristics.subtypes:
+                best_idx = i
+                break
+        return create_choice_and_resolve(
+            st,
+            choice_type='target',
+            player_id=o.controller,
+            prompt="Choose an enchantment to copy (no name collision)",
+            options=legal,
+            source_id=o.id,
+            min_choices=1,
+            max_choices=1,
+            handler=_copy_chosen,
+            heuristic_pick=best_idx,
+        )
+
+    make_activated_ability(
+        obj,
+        cost="{2}, {T}",
+        effect_fn=_activated_effect,
+        description="Copy target enchantment you control (no name collision)",
+        sorcery_speed=True,
+        targets_required=0,  # We pick our own target inline via PendingChoice.
+        target_kind="any",
+    )
     return []
 
 

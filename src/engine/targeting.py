@@ -74,6 +74,17 @@ class TargetFilter:
     # Exclusions
     exclude_self: bool = False  # "another target creature"
     exclude_ids: set[str] = field(default_factory=set)
+    # Phase 5b name-match: "another permanent you control with the same name"
+    # / "Room you don't already control with the same name". When populated,
+    # ``TargetFilter.matches()`` rejects any object whose printed ``name``
+    # (or characteristics.name fallback) is in the set. Used by:
+    #   - WOE The Apprentice's Folly  (Saga I/II): exclude names matching
+    #     any token the caster controls.
+    #   - WOE Yenna, Redtooth Regent  ({2},{T}): exclude names matching any
+    #     OTHER permanent the caster controls.
+    # See ``target_without_same_name_as_your_tokens`` /
+    # ``target_without_same_name_as_other_permanents`` builders below.
+    exclude_names: set[str] = field(default_factory=set)
 
     # "Any target" semantics: explicitly include players even when ``types``
     # restricts object matching to creature/planeswalker. Without this flag,
@@ -104,6 +115,19 @@ class TargetFilter:
         # Explicit exclusions
         if obj.id in self.exclude_ids:
             return False
+
+        # Name-collision exclusions ("same name as a token you control",
+        # "same name as another permanent you control"). The caller-side
+        # builder snapshots the offending names at choice-emit time, so the
+        # matcher only does the membership check here. Falls back gracefully
+        # when name is missing.
+        if self.exclude_names:
+            obj_name = getattr(obj, "name", None)
+            if obj_name is None:
+                chars = getattr(obj, "characteristics", None)
+                obj_name = getattr(chars, "name", None) if chars is not None else None
+            if obj_name is not None and obj_name in self.exclude_names:
+                return False
 
         # Type checks
         obj_types = get_types(obj, state)
@@ -801,5 +825,302 @@ def target_with_matching_mana_value(
             count=count,
             label=label or (f"target with mana value {mv}" if mv is not None
                             else "target with matching mana value"),
+        )
+    return _build
+
+
+# ---------------------------------------------------------------------------
+# Phase 5b name-collision builders
+#
+# Cards that say "target X that doesn't have the same name as Y" need their
+# legal-target list to exclude any same-name collision at choice-emit time.
+# Two patterns appear in the live card sets:
+#
+#   1. "doesn't have the same name as a token you control"      — Apprentice's Folly
+#   2. "doesn't have the same name as another permanent you control" — Yenna
+#
+# Both helpers snapshot the offending names from the casting player's board
+# state at evaluation time, then build a ``TargetRequirement`` whose
+# ``TargetFilter.exclude_names`` is populated with those names. The matcher
+# then rejects any candidate whose ``name`` is in the set. Because the
+# offending name set is captured at request time, late-arriving permanents
+# don't retroactively invalidate a target that was legal when emitted.
+#
+# These builders are designed to be drop-in callable entries inside
+# ``CardDefinition.target_requirements`` for cards that route through
+# ``priority._emit_cast_target_choice_step``. They also expose the
+# underlying name-collection helpers (``_names_of_your_tokens`` /
+# ``_names_of_your_other_permanents``) for activated-ability paths that
+# build their own PendingChoice via ``pending_choice_helpers``.
+# ---------------------------------------------------------------------------
+
+
+def _names_of_your_tokens(state: GameState, controller_id: str) -> set[str]:
+    """Return the set of printed names of tokens the controller has on the
+    battlefield. Used by the Apprentice's Folly builder."""
+    names: set[str] = set()
+    for obj in state.objects.values():
+        if obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        if obj.controller != controller_id:
+            continue
+        # Token detection: object.state.is_token OR characteristics.is_token,
+        # with fallbacks for older shapes.
+        is_token = bool(getattr(getattr(obj, "state", None), "is_token", False))
+        if not is_token:
+            is_token = bool(getattr(obj, "is_token", False))
+        if not is_token:
+            chars = getattr(obj, "characteristics", None)
+            is_token = bool(getattr(chars, "is_token", False)) if chars is not None else False
+        if not is_token:
+            continue
+        nm = getattr(obj, "name", None)
+        if nm is None:
+            chars = getattr(obj, "characteristics", None)
+            nm = getattr(chars, "name", None) if chars is not None else None
+        if nm:
+            names.add(nm)
+    return names
+
+
+def _names_of_your_other_permanents(
+    state: GameState, controller_id: str, *, source_id: Optional[str] = None,
+) -> set[str]:
+    """Return the set of printed names of permanents the controller has on
+    the battlefield, EXCLUDING ``source_id`` (the activator / the source of
+    the target requirement). Used by Yenna's builder so the activator's own
+    name doesn't poison its own target pool.
+
+    Note: this returns the UNFILTERED set of names. For per-candidate
+    "no other permanent with the same name as me" filtering, see
+    ``has_other_permanent_with_same_name`` which compares a candidate's
+    name against every other permanent (excluding the candidate itself
+    AND optionally ``source_id``) and returns True if a name-collision
+    exists.
+    """
+    names: set[str] = set()
+    for obj in state.objects.values():
+        if obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        if obj.controller != controller_id:
+            continue
+        if source_id is not None and obj.id == source_id:
+            continue
+        nm = getattr(obj, "name", None)
+        if nm is None:
+            chars = getattr(obj, "characteristics", None)
+            nm = getattr(chars, "name", None) if chars is not None else None
+        if nm:
+            names.add(nm)
+    return names
+
+
+def has_other_permanent_with_same_name(
+    candidate: GameObject,
+    state: GameState,
+    *,
+    controller_id: str,
+    source_id: Optional[str] = None,
+) -> bool:
+    """Return True if ANY permanent OTHER than ``candidate`` (and other than
+    ``source_id`` if provided) controlled by ``controller_id`` shares the
+    candidate's printed name.
+
+    This is the correct per-candidate predicate for "target X that doesn't
+    have the same name as another permanent you control" — the "another"
+    in the rule means "different from the target". So we sweep all
+    controlled permanents, skip the candidate itself (and optionally the
+    source), and check for any name match.
+
+    Used by ``target_without_same_name_as_other_permanents`` via a
+    ``custom_filter`` so the per-candidate logic runs at filter time.
+    """
+    cand_name = getattr(candidate, "name", None)
+    if cand_name is None:
+        chars = getattr(candidate, "characteristics", None)
+        cand_name = getattr(chars, "name", None) if chars is not None else None
+    if not cand_name:
+        return False
+    for obj in state.objects.values():
+        if obj.id == candidate.id:
+            continue
+        if source_id is not None and obj.id == source_id:
+            continue
+        if obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        if obj.controller != controller_id:
+            continue
+        other_name = getattr(obj, "name", None)
+        if other_name is None:
+            chars = getattr(obj, "characteristics", None)
+            other_name = getattr(chars, "name", None) if chars is not None else None
+        if other_name == cand_name:
+            return True
+    return False
+
+
+def target_without_same_name_as_your_tokens(
+    *,
+    kind: Literal['creature', 'permanent', 'enchantment', 'nontoken_creature'] = 'creature',
+    count: int = 1,
+    label: Optional[str] = None,
+    require_nontoken: bool = True,
+    **filter_kwargs,
+) -> "TargetRequirementBuilder":
+    """Builder for "target X you control that doesn't have the same name as
+    a token you control".
+
+    Used by WOE The Apprentice's Folly (Saga I/II): "Choose target nontoken
+    creature you control that doesn't have the same name as a token you
+    control."
+
+    The builder snapshots the names of the controller's tokens at emit time
+    and populates ``exclude_names`` on the resulting filter. Setting
+    ``require_nontoken=True`` (default) additionally filters out any token
+    candidate (necessary for the "nontoken" qualifier).
+
+    Args:
+        kind: Underlying filter family. ``'creature'`` for creatures only,
+            ``'enchantment'`` for enchantments only, ``'permanent'`` for any
+            permanent type, ``'nontoken_creature'`` is an alias for
+            ``'creature' + require_nontoken=True``.
+        count: Targets required (default 1).
+        label: Override the prompt label.
+        require_nontoken: If True (default), reject token candidates via a
+            ``custom_filter``. Disables the "is token" pass-through. Use
+            False for "another permanent you control with the same name"
+            patterns that don't include the nontoken qualifier.
+        **filter_kwargs: Forwarded to the underlying filter factory.
+    """
+    if kind == 'nontoken_creature':
+        kind = 'creature'
+        require_nontoken = True
+
+    def _build(state, controller_id, accumulated_ids):
+        excluded_names = _names_of_your_tokens(state, controller_id)
+        local_kwargs = dict(filter_kwargs)
+        merged = set(local_kwargs.pop('exclude_names', set())) | excluded_names
+        # Default to "you control" if the caller didn't override. The
+        # Apprentice's Folly explicitly says "target nontoken creature you
+        # control" — controller='you' is the typical wiring.
+        local_kwargs.setdefault('controller', 'you')
+
+        existing_custom = local_kwargs.pop('custom_filter', None)
+        if require_nontoken:
+            def _nontoken(obj, st, _existing=existing_custom):
+                is_token = bool(getattr(getattr(obj, "state", None), "is_token", False))
+                if not is_token:
+                    is_token = bool(getattr(obj, "is_token", False))
+                if not is_token:
+                    chars = getattr(obj, "characteristics", None)
+                    is_token = bool(getattr(chars, "is_token", False)) if chars is not None else False
+                if is_token:
+                    return False
+                if _existing is not None:
+                    return _existing(obj, st)
+                return True
+            local_kwargs['custom_filter'] = _nontoken
+        elif existing_custom is not None:
+            local_kwargs['custom_filter'] = existing_custom
+
+        if kind == 'creature':
+            tf = creature_filter(exclude_names=merged, **local_kwargs)
+        elif kind == 'enchantment':
+            ctrl = local_kwargs.pop('controller', 'any')
+            cf = local_kwargs.pop('custom_filter', None)
+            tf = TargetFilter(
+                types={CardType.ENCHANTMENT},
+                controller=ctrl,
+                exclude_names=merged,
+                custom_filter=cf,
+                **local_kwargs,
+            )
+        else:  # 'permanent'
+            tf = permanent_filter(exclude_names=merged, **local_kwargs)
+
+        return TargetRequirement(
+            filter=tf,
+            count=count,
+            label=label or (
+                f"target {kind} you control without same name as a token you control"
+            ),
+        )
+    return _build
+
+
+def target_without_same_name_as_other_permanents(
+    *,
+    kind: Literal['creature', 'permanent', 'enchantment'] = 'enchantment',
+    count: int = 1,
+    label: Optional[str] = None,
+    source_id: Optional[str] = None,
+    **filter_kwargs,
+) -> "TargetRequirementBuilder":
+    """Builder for "target X you control that doesn't have the same name as
+    another permanent you control".
+
+    Used by WOE Yenna, Redtooth Regent ({2},{T}): "Choose target enchantment
+    you control that doesn't have the same name as another permanent you
+    control."
+
+    The builder snapshots the names of every permanent the controller
+    controls (excluding ``source_id`` if provided — typically Yenna herself,
+    so she doesn't poison her own target pool with her own name) and pins
+    them on the filter's ``exclude_names`` set.
+
+    Args:
+        kind: ``'enchantment'`` (Yenna), ``'creature'``, or ``'permanent'``.
+        count: Targets required (default 1).
+        label: Override the prompt label.
+        source_id: When set, the named object is excluded from the
+            name-snapshot so the source's own name doesn't gate its target
+            pool. (Used for Yenna: Yenna is "another permanent you control"
+            relative to the chosen enchantment, but her name shouldn't make
+            an enchantment named the same as Yenna unselectable when the
+            enchantment is Yenna herself.) See builder source for details.
+        **filter_kwargs: Forwarded to the underlying filter factory.
+    """
+    def _build(state, controller_id, accumulated_ids):
+        local_kwargs = dict(filter_kwargs)
+        local_kwargs.setdefault('controller', 'you')
+        existing_custom = local_kwargs.pop('custom_filter', None)
+
+        # Per-candidate name-collision predicate: a candidate X is rejected
+        # if any OTHER permanent the controller controls (excluding X and
+        # excluding ``source_id`` if set) shares X's printed name. This
+        # matches the MTG-rule semantics of "another permanent you control"
+        # — the "another" is relative to the target, not to the source.
+        def _no_other_with_same_name(cand, st, _existing=existing_custom,
+                                     _ctrl=controller_id, _src=source_id):
+            if has_other_permanent_with_same_name(
+                cand, st, controller_id=_ctrl, source_id=_src,
+            ):
+                return False
+            if _existing is not None:
+                return _existing(cand, st)
+            return True
+
+        local_kwargs['custom_filter'] = _no_other_with_same_name
+
+        if kind == 'enchantment':
+            ctrl = local_kwargs.pop('controller', 'any')
+            cf = local_kwargs.pop('custom_filter', None)
+            tf = TargetFilter(
+                types={CardType.ENCHANTMENT},
+                controller=ctrl,
+                custom_filter=cf,
+                **local_kwargs,
+            )
+        elif kind == 'creature':
+            tf = creature_filter(**local_kwargs)
+        else:  # 'permanent'
+            tf = permanent_filter(**local_kwargs)
+
+        return TargetRequirement(
+            filter=tf,
+            count=count,
+            label=label or (
+                f"target {kind} you control without same name as another permanent you control"
+            ),
         )
     return _build
