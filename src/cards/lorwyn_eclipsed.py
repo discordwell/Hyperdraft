@@ -57,6 +57,8 @@ from src.engine.targeting import (
     target_creature, target_any, target_player, target_spell,
     TargetRequirement, TargetFilter, creature_filter, permanent_filter,
     spell_filter, card_in_graveyard_filter,
+    # Phase 5b cross-target builders (callable spec entries)
+    target_creature_different_controller,
 )
 
 
@@ -3201,13 +3203,27 @@ def riverguards_reflexes_resolve(targets: list, state: GameState) -> list[Event]
 
 
 def run_away_together_resolve(targets: list, state: GameState) -> list[Event]:
-    """Run Away Together (Phase 5b): targets[0] is 2 creatures.
-    Different-controllers constraint is checked at resolve; if violated, fizzle.
+    """Run Away Together (Phase 5b cross-target): targets[0] and targets[1] each
+    hold one creature; the cross-target builder enforces different controllers
+    at cast time, so the resolve can assume the constraint holds. Legacy shape
+    (targets[0] holding both creatures) is still supported for back-compat
+    with any pre-migration test calls.
     """
     spell_id, caster_id = _ecl_get_spell_and_caster(state, "Run Away Together")
-    if not targets or not targets[0] or len(targets[0]) < 2:
+    if not targets:
         return []
-    picks = [normalize_target(t, state)[0] for t in targets[0][:2]]
+    # Cross-target layout: two single-target requirements.
+    if len(targets) >= 2 and targets[0] and targets[1]:
+        picks = [
+            normalize_target(targets[0][0], state)[0],
+            normalize_target(targets[1][0], state)[0],
+        ]
+    elif targets[0] and len(targets[0]) >= 2:
+        # Legacy layout (single requirement with count=2).
+        picks = [normalize_target(t, state)[0] for t in targets[0][:2]]
+    else:
+        return []
+
     controllers = []
     for tid in picks:
         obj = state.objects.get(tid)
@@ -4230,13 +4246,16 @@ RUN_AWAY_TOGETHER = make_instant(
     name="Run Away Together",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
+    # Phase 5b cross-target: split the "two creatures, different controllers"
+    # set-constraint into two chained requirements. The second one is a
+    # callable builder that excludes any creature sharing the first pick's
+    # controller, so the prompt UI can't offer an invalid second target.
     text="Choose two target creatures controlled by different players. Return those creatures to their owners' hands.",
     resolve=run_away_together_resolve,
     target_requirements=[
-        TargetRequirement(
-            filter=creature_filter(),
-            count=2,
-            label="two target creatures controlled by different players",
+        target_creature(count=1, label="target creature"),
+        target_creature_different_controller(
+            label="target creature controlled by a different player",
         ),
     ],
 )

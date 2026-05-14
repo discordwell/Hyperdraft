@@ -101,6 +101,8 @@ from src.engine.targeting import (
     target_any,
     target_player,
     target_spell,
+    # Phase 5b cross-target builders
+    another_target_creature,
 )
 
 
@@ -6894,9 +6896,16 @@ MABELS_METTLE = make_instant(
     colors={Color.WHITE},
     text="Target creature gets +2/+2 until end of turn. Up to one other target creature gets +1/+1 until end of turn.",
     resolve=mabels_mettle_resolve,
+    # Phase 5b cross-target: the "other" target creature must differ from
+    # the first pick. The callable builder excludes the first pick's ID
+    # from the second requirement's legal targets. ``optional=True`` so
+    # the caster may skip the second target entirely ("up to one").
     target_requirements=[
         target_creature(count=1),
-        TargetRequirement(filter=creature_filter(), count=1, count_type='up_to', label="other target creature"),
+        another_target_creature(
+            count=1, count_type='up_to', optional=True,
+            label="up to one other target creature",
+        ),
     ],
 )
 

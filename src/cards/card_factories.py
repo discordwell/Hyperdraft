@@ -37,10 +37,14 @@ def make_instant(
     (mayhem, web-slinging, flashback, etc.) can register the necessary
     interceptors when the card object is created in graveyard/exile/etc.
 
-    `target_requirements` (Phase 5b): a list of TargetRequirement specs
-    (from src.engine.targeting). When set, the priority system emits a
-    PendingChoice at cast time if action.targets is empty — giving humans
-    a modal prompt instead of relying on the frontend drag-to-target UX.
+    `target_requirements` (Phase 5b): a list whose entries are either a
+    ``TargetRequirement`` (back-compat) or a ``TargetRequirementBuilder``
+    callable (cross-target: receives state + controller_id + prior picks
+    as ``list[list[str]]`` and returns a fresh ``TargetRequirement``).
+    Both shapes are resolved by ``priority._emit_cast_target_choice_step``.
+    When set, the priority system emits a PendingChoice at cast time if
+    action.targets is empty — giving humans a modal prompt instead of
+    relying on the frontend drag-to-target UX.
     """
     return CardDefinition(
         name=name,

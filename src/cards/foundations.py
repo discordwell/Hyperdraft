@@ -92,6 +92,9 @@ from src.engine.targeting import (
     target_any,
     target_player,
     target_spell,
+    # Phase 5b cross-target: callable builders for inter-target constraints
+    target_creature_different_controller,
+    another_target_creature,
 )
 
 
@@ -10439,9 +10442,15 @@ RUN_AWAY_TOGETHER = make_instant(
     colors={Color.BLUE},
     text="Choose two target creatures controlled by different players. Return those creatures to their owners' hands.",
     resolve=run_away_together_resolve,
+    # Phase 5b cross-target: the printed text is "controlled by different
+    # players" — not necessarily one of yours + one opponent's. In a
+    # multiplayer game both picks can be opposing players' creatures. The
+    # callable second requirement enforces the constraint exactly.
     target_requirements=[
-        target_creature(count=1, controller='you'),
-        target_creature(count=1, controller='opponent'),
+        target_creature(count=1, label="target creature"),
+        target_creature_different_controller(
+            label="target creature controlled by a different player",
+        ),
     ],
 )
 
