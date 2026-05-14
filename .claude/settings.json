@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "scripts/safety/wip_autobackup.sh --once --quiet 2>/dev/null && (nohup scripts/safety/wip_autobackup.sh --interval 60 --keep 24 --quiet >/dev/null 2>&1 &) ; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

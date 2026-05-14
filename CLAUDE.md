@@ -7,6 +7,17 @@ AI-powered deckbuilder with an event-driven MTG rules engine.
 - When spawning >5 agents in a single command, ask user if they want to use `model: "sonnet"` instead of opus to reduce cost/latency.
 - When following a skill and a turn uncovers bugs, gaps, or errors, instead of moving on to the next step first fix those bugs then move on.
 
+## Concurrent worktree safety
+
+This repo runs many parallel worktree-agents under `/semaphore`. The parent session does `git reset --hard HEAD` after merge waves, which silently wipes uncommitted work in the **main checkout** (not in agent worktrees).
+
+Two safety nets are wired up:
+
+- `scripts/safety/wip_autobackup.sh` — background daemon that snapshots tracked + untracked changes to `refs/wip/auto/<branch>/<ts>` every 60 s. Auto-started by the `SessionStart` hook in `.claude/settings.json` (singleton per repo).
+- `scripts/safety/git-reset-guarded.sh` — opt-in safer reset that snapshots to `refs/wip/manual/<branch>/<ts>` before running `git reset --hard`. Use this in any script / parent workflow that does a discretionary hard-reset.
+
+Recovery after a suspected reset wipe: `git for-each-ref refs/wip/ --sort=-creatordate | head` then `git checkout <ref> -- .`. Full details in `docs/safety/git_reset_defense.md`.
+
 ## Architecture
 
 **Core Philosophy**: Everything is an Event, everything else is an Interceptor.
