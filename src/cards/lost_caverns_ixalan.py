@@ -4417,11 +4417,12 @@ def hulking_raptor_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         return state.active_player == obj.controller
 
     def main_phase_handler(event: Event, state: GameState) -> InterceptorResult:
+        # Use the canonical handler payload (player/color/amount).
         return InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=[Event(
                 type=EventType.MANA_PRODUCED,
-                payload={'player': obj.controller, 'mana': {Color.GREEN: 2}},
+                payload={'player': obj.controller, 'color': Color.GREEN, 'amount': 2},
                 source=obj.id
             )]
         )

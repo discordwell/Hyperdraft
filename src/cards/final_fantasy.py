@@ -4372,9 +4372,10 @@ def summon_gf_ifrit_ff_setup(obj: GameObject, state: GameState) -> list[Intercep
     def i_ii(_o, _s): return []  # engine gap: optional discard prompt
 
     def iii_iv(o, s):
+        # Use the canonical handler payload (player/color/amount).
         return [Event(
             type=EventType.MANA_PRODUCED,
-            payload={'player': o.controller, 'mana': {Color.RED: 1}},
+            payload={'player': o.controller, 'color': Color.RED, 'amount': 1},
             source=o.id,
         )]
 

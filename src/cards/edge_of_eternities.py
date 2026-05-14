@@ -3391,9 +3391,10 @@ def evendo_waking_haven_setup(obj: GameObject, state: GameState) -> list[Interce
                 n += 1
         if n <= 0:
             return []
+        # Use the canonical handler payload (player/color/amount).
         return [Event(
             type=EventType.MANA_PRODUCED,
-            payload={'player': o.controller, 'mana': {'G': n}},
+            payload={'player': o.controller, 'color': Color.GREEN, 'amount': n},
             source=o.id, controller=o.controller,
         )]
 
@@ -3586,9 +3587,10 @@ def uthros_titanic_godcore_setup(obj: GameObject, state: GameState) -> list[Inte
                 n += 1
         if n <= 0:
             return []
+        # Use the canonical handler payload (player/color/amount).
         return [Event(
             type=EventType.MANA_PRODUCED,
-            payload={'player': o.controller, 'mana': {'U': n}},
+            payload={'player': o.controller, 'color': Color.BLUE, 'amount': n},
             source=o.id, controller=o.controller,
         )]
 

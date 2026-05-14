@@ -4606,14 +4606,107 @@ def reveal_top_n_with_distinct_filter(
 # wires up a Saga's ETB lore counter, draw-step lore counter, chapter
 # triggers, and final-chapter sacrifice.
 
+from dataclasses import dataclass as _dataclass  # local alias; module-level dataclass import lives later
+
+
+@_dataclass
+class SagaChapter:
+    """Declarative chapter spec for ``make_saga_setup``.
+
+    Supports the new keyword API:
+
+        make_saga_setup(
+            chapters=[
+                SagaChapter(label="I", effect_fn=ch_one),
+                SagaChapter(label="II, III", effect_fn=ch_two_three),
+                SagaChapter(label="IV", effect_fn=ch_four),
+            ],
+        )
+
+    The ``label`` may be a single roman numeral (e.g. ``"I"``) or a comma-
+    separated list (e.g. ``"I, II"``) for combined-chapter abilities. The
+    legacy ``{int: fn}`` form is still accepted by ``make_saga_setup``.
+    """
+    label: str
+    effect_fn: Callable[[GameObject, GameState], list[Event]]
+    description: str = ""
+
+
+def _saga_chapters_to_dict(
+    chapters: list,
+) -> dict[int, Callable[[GameObject, GameState], list[Event]]]:
+    """Convert a list of ``SagaChapter`` (or dict) into the legacy dict form.
+
+    Combined-chapter labels like ``"I, II"`` register the same callback for
+    each listed chapter. Labels are case-insensitive Roman numerals.
+    """
+    if isinstance(chapters, dict):
+        return dict(chapters)
+
+    result: dict[int, Callable[[GameObject, GameState], list[Event]]] = {}
+    for ch in chapters:
+        if not isinstance(ch, SagaChapter):
+            raise TypeError(
+                f"chapters must be SagaChapter or dict; got {type(ch).__name__}"
+            )
+        # Label may be "I", "II, III", or "I,II". Split on comma, strip.
+        parts = [p.strip() for p in str(ch.label).split(',') if p.strip()]
+        for part in parts:
+            try:
+                n = _roman_to_int_helper(part)
+            except Exception:
+                raise ValueError(
+                    f"SagaChapter label {part!r} is not a recognized "
+                    f"Roman numeral (full label: {ch.label!r})"
+                )
+            if n <= 0:
+                raise ValueError(
+                    f"SagaChapter label {part!r} evaluated to non-positive {n}"
+                )
+            result[n] = ch.effect_fn
+    return result
+
+
+def _roman_to_int_helper(s: str) -> int:
+    """Helper: Roman numeral to int. Mirrors ``src.engine.saga._roman_to_int``."""
+    table = {'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000}
+    total = 0
+    prev = 0
+    for ch in reversed(s.upper()):
+        v = table.get(ch, 0)
+        if v == 0:
+            raise ValueError(f"Unknown Roman digit: {ch!r}")
+        if v < prev:
+            total -= v
+        else:
+            total += v
+        prev = v
+    return total
+
 
 def make_saga_setup(
-    source_obj: GameObject,
-    chapter_handlers: dict[int, Callable[[GameObject, GameState], list[Event]]],
+    source_obj: GameObject = None,
+    chapter_handlers: dict[int, Callable[[GameObject, GameState], list[Event]]] = None,
     final_chapter: Optional[int] = None,
+    *,
+    chapters: list = None,
+    sacrifice_after_final: bool = True,
 ) -> list[Interceptor]:
     """
     Build the interceptors for a Saga enchantment.
+
+    Two calling conventions are supported:
+
+    Legacy (still used by ~30+ wired cards):
+        ``make_saga_setup(source_obj, {1: ch_i, 2: ch_ii_iii, 3: ch_ii_iii},
+                         final_chapter=3)``
+
+    Declarative (new, preferred for fresh wirings):
+        ``make_saga_setup(source_obj,
+                         chapters=[
+                             SagaChapter("I", ch_i),
+                             SagaChapter("II, III", ch_ii_iii),
+                         ])``
 
     Args:
         source_obj: The Saga ``GameObject``.
@@ -4624,6 +4717,29 @@ def make_saga_setup(
         final_chapter: Optional explicit final-chapter number. If omitted, it
             is inferred from the rules text (``"Sacrifice after <ROMAN>."``)
             and falls back to ``max(chapter_handlers)``.
+        chapters: Alternative declarative API. A list of ``SagaChapter``
+            entries; combined-chapter labels (``"I, II"``) register the same
+            ``effect_fn`` against each listed chapter. Mutually exclusive with
+            ``chapter_handlers``.
+        sacrifice_after_final: If True (default), after the final chapter
+            resolves the Saga is sacrificed (CR 714.5). Pass ``False`` for
+            Sagas that explicitly persist past the last chapter (e.g.
+            transforming Sagas where the back face replaces the Saga). The
+            framework always advances lore counters; only the sacrifice step
+            is gated.
+
+    Canonical lore-counter trigger:
+        Per CR 714.3 the lore counter is added "after your draw step." This
+        implementation reacts to ``EventType.PHASE_START`` with
+        ``payload.phase == 'draw'`` and the Saga's controller being the
+        active player. The pipeline emits this event at the *start* of the
+        draw step rather than at end — but because we react before the chapter
+        resolves on the stack, and there is currently no other code that races
+        the lore counter against the draw itself, this is functionally
+        equivalent to "after draw step" for every card wired today. The
+        alternative (an `END_PHASE` hook on draw, or a `BEGIN_MAIN_PHASE`
+        hook) would be more spec-accurate but the engine has no dedicated
+        end-of-draw event yet.
 
     Returns:
         A list of interceptors:
@@ -4633,8 +4749,8 @@ def make_saga_setup(
         2. ``REACT`` on PHASE_START phase ``'draw'`` while controller is the
            active player: emits ``SAGA_LORE_ADDED`` for the next chapter.
         3. ``REACT`` on ``SAGA_CHAPTER`` for this Saga: dispatches to the
-           registered chapter handler and queues a final-chapter SACRIFICE
-           event.
+           registered chapter handler and (if ``sacrifice_after_final``)
+           queues a final-chapter SACRIFICE event.
 
     Notes:
         * Chapter handlers may return ``[]`` for chapters whose effect is not
@@ -4643,7 +4759,25 @@ def make_saga_setup(
         * ``source_obj.card_def._saga_final_chapter`` is set to ``final_chapter``
           if provided; the engine reads that override when computing the final
           chapter for this Saga.
+        * If the Saga leaves the battlefield before the final chapter (e.g.
+          destroyed by removal), no spurious sacrifice fires — the chapter
+          interceptor's filter only matches while the Saga remains on the
+          battlefield, and ``SAGA_LORE_ADDED`` no-ops on a non-battlefield
+          Saga (see ``src/engine/saga.py::_handle_saga_lore_added``).
     """
+    # Normalize new declarative API → legacy dict form.
+    if chapters is not None:
+        if chapter_handlers is not None:
+            raise TypeError(
+                "make_saga_setup: pass either chapter_handlers or chapters, "
+                "not both"
+            )
+        chapter_handlers = _saga_chapters_to_dict(chapters)
+    if source_obj is None:
+        raise TypeError("make_saga_setup: source_obj is required")
+    if chapter_handlers is None:
+        chapter_handlers = {}
+
     saga_id = source_obj.id
     controller_id = source_obj.controller
 
@@ -4743,6 +4877,13 @@ def make_saga_setup(
         # Use the live final_chapter — _saga_final_chapter() reads from card_def.
         from src.engine.saga import _saga_final_chapter as _engine_final
         live_final = _engine_final(source_obj) if source_obj else final_chapter
+        # Confirm the Saga is still on the battlefield before dispatching the
+        # chapter effect. If a previous chapter (or some other effect) caused
+        # it to leave the battlefield mid-resolution, the chapter ability
+        # still resolves with no targets — but a sacrifice event would be a
+        # spurious double-fire.
+        live_saga = state.objects.get(saga_id)
+        on_battlefield = live_saga is not None and live_saga.zone == ZoneType.BATTLEFIELD
         new_events: list[Event] = []
         # Dispatch the chapter effect (if any).
         cb = handlers_by_chapter.get(chapter)
@@ -4752,8 +4893,11 @@ def make_saga_setup(
             except Exception:
                 produced = []
             new_events.extend(list(produced))
-        # Final chapter -> sacrifice the Saga.
-        if chapter >= int(live_final or 0):
+        # Final chapter -> sacrifice the Saga (unless the caller opted out
+        # or the Saga has already left the battlefield).
+        if (sacrifice_after_final
+                and on_battlefield
+                and chapter >= int(live_final or 0)):
             new_events.append(Event(
                 type=EventType.SACRIFICE,
                 payload={'object_id': saga_id, 'player': controller_id},
@@ -4773,6 +4917,8 @@ def make_saga_setup(
         chapter = int(event.payload.get('chapter', 0) or 0)
         from src.engine.saga import _saga_final_chapter as _engine_final
         live_final = _engine_final(source_obj) if source_obj else final_chapter
+        live_saga = state.objects.get(saga_id)
+        on_battlefield = live_saga is not None and live_saga.zone == ZoneType.BATTLEFIELD
         new_events: list[Event] = []
         cb = handlers_by_chapter.get(chapter)
         if cb is not None:
@@ -4781,7 +4927,9 @@ def make_saga_setup(
             except Exception:
                 produced = []
             new_events.extend(list(produced))
-        if chapter >= int(live_final or 0):
+        if (sacrifice_after_final
+                and on_battlefield
+                and chapter >= int(live_final or 0)):
             new_events.append(Event(
                 type=EventType.SACRIFICE,
                 payload={'object_id': saga_id, 'player': controller_id},

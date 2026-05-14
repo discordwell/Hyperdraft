@@ -2350,9 +2350,10 @@ def electro_assaulting_battery_setup(obj: GameObject, state: GameState) -> list[
 
     # Whenever you cast an instant or sorcery, add {R}.
     def add_red_effect(event: Event, state: GameState) -> list[Event]:
+        # The MANA_PRODUCED handler expects {'player', 'color', 'amount'}.
         return [Event(
             type=EventType.MANA_PRODUCED,
-            payload={'player': obj.controller, 'mana': {'R': 1}},
+            payload={'player': obj.controller, 'color': Color.RED, 'amount': 1},
             source=obj.id
         )]
 
@@ -2386,11 +2387,17 @@ def maximum_carnage_setup(obj: GameObject, state: GameState) -> list[Interceptor
     def i(_o, _s): return []  # engine gap: global goad-like restriction
 
     def ii(o, s):
-        return [Event(
-            type=EventType.MANA_PRODUCED,
-            payload={'player': o.controller, 'mana': {Color.RED: 3}},
-            source=o.id,
-        )]
+        # CR 106: produce three {R} via separate MANA_PRODUCED events.
+        # The handler in src/engine/pipeline/handlers/mana.py expects the
+        # payload `{'player', 'color', 'amount'}` shape, not `{'mana': ...}`.
+        return [
+            Event(
+                type=EventType.MANA_PRODUCED,
+                payload={'player': o.controller, 'color': Color.RED, 'amount': 1},
+                source=o.id,
+            )
+            for _ in range(3)
+        ]
 
     def iii(o, s):
         events: list[Event] = []
