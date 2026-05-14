@@ -47,6 +47,8 @@ from src.cards.interceptor_helpers import (
     make_cost_reduction,
     make_cycling_setup,
     make_modal_resolve,
+    ModeSpec,
+    normalize_target,
 )
 from src.engine.targeting import (
     TargetRequirement, TargetFilter,
@@ -5075,57 +5077,27 @@ def get_a_leg_up_resolve(targets: list, state: GameState) -> list[Event]:
     return []
 
 
-def _handle_reasonable_doubt_target(choice, selected: list, state: GameState) -> list[Event]:
-    """Handle Reasonable Doubt - counter spell unless pay 2, suspect creature."""
-    events = []
-    spell_target = choice.callback_data.get('spell_target')
-    creature_target = choice.callback_data.get('creature_target')
+def reasonable_doubt_resolve(targets: list, state: GameState) -> list[Event]:
+    """
+    Reasonable Doubt (Phase 5b): targets[0][0] is the spell to counter,
+    targets[1] may have an optional creature to suspect.
+    """
+    spell_id, caster_id = _get_spell_and_caster(state, "Reasonable Doubt")
+    events: list[Event] = []
 
-    if spell_target:
+    if targets and len(targets) >= 1 and targets[0]:
+        spell_target, _ = normalize_target(targets[0][0], state)
         events.append(Event(
             type=EventType.COUNTER,
             payload={'spell_id': spell_target, 'unless_pay': 2},
-            source=choice.source_id
+            source=spell_id, controller=caster_id,
         ))
 
-    # The "Suspect up to one target creature" mode — if a creature was
-    # passed via callback_data, suspect it. (Spell-target only casts will
-    # leave creature_target unset.)
-    if creature_target:
-        events.extend(suspect_creature(creature_target, choice.source_id, choice.player, state=state))
+    if targets and len(targets) >= 2 and targets[1]:
+        creature_target, _ = normalize_target(targets[1][0], state)
+        events.extend(suspect_creature(creature_target, spell_id, caster_id, state=state))
 
     return events
-
-
-def reasonable_doubt_resolve(targets: list, state: GameState) -> list[Event]:
-    """
-    Reasonable Doubt: Counter target spell unless its controller pays {2}.
-    Suspect up to one target creature.
-    """
-    spell_id, caster_id = _get_spell_and_caster(state, "Reasonable Doubt")
-
-    # Find spells on stack
-    stack_zone = state.zones.get('stack')
-    legal_spells = []
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            if obj_id != spell_id:
-                legal_spells.append(obj_id)
-
-    if not legal_spells:
-        return []
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=legal_spells,
-        prompt="Reasonable Doubt: Choose a spell to counter (unless controller pays {2})"
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _handle_reasonable_doubt_target
-
-    return []
 
 
 # =============================================================================
@@ -5289,90 +5261,40 @@ def analyze_the_pollen_resolve(targets: list, state: GameState) -> list[Event]:
 
 def bite_down_on_crime_resolve(targets: list, state: GameState) -> list[Event]:
     """
-    Bite Down on Crime: Target creature you control gets +2/+0 until end of
-    turn. It deals damage equal to its power to target creature you don't
-    control. (Cost-reduction-if-evidence rider is handled at cast time, which
-    is an engine gap; we always run the base mode.)
+    Bite Down on Crime (Phase 5b): targets[0][0] is your creature (+2/+0 then
+    damage source), targets[1][0] is the opposing creature receiving damage.
     """
     spell_id, caster_id = _get_spell_and_caster(state, "Bite Down on Crime")
-
-    own_creatures = [
-        oid for oid, obj in state.objects.items()
-        if obj.zone == ZoneType.BATTLEFIELD
-        and obj.controller == caster_id
-        and CardType.CREATURE in obj.characteristics.types
-    ]
-    if not own_creatures:
+    if not targets or len(targets) < 2 or not targets[0] or not targets[1]:
+        return []
+    own_tid, _ = normalize_target(targets[0][0], state)
+    opp_tid, _ = normalize_target(targets[1][0], state)
+    attacker = state.objects.get(own_tid)
+    if not attacker:
         return []
 
-    def _opp_handler(choice, selected, gs):
-        if not selected:
-            return []
-        opp_target = selected[0]
-        attacker_id = choice.callback_data.get('attacker_id')
-        attacker = gs.objects.get(attacker_id)
-        if not attacker:
-            return []
-        damage = get_power(attacker, gs)
-        return [Event(
-            type=EventType.DAMAGE,
-            payload={
-                'target': opp_target,
-                'amount': damage,
-                'source': attacker_id,
-                'is_combat': False,
-            },
-            source=attacker_id,
-        )]
-
-    def _own_handler(choice, selected, gs):
-        if not selected:
-            return []
-        attacker_id = selected[0]
-        # First emit the +2/+0 pump.
-        events: list[Event] = [Event(
-            type=EventType.PT_MODIFICATION,
-            payload={
-                'object_id': attacker_id,
-                'power_mod': 2,
-                'toughness_mod': 0,
-                'duration': 'end_of_turn',
-            },
-            source=choice.source_id,
-        )]
-
-        # Then prompt for the opponent-creature target for the damage.
-        opp_targets = []
-        for oid, obj in gs.objects.items():
-            if obj.zone != ZoneType.BATTLEFIELD:
-                continue
-            if obj.controller == caster_id:
-                continue
-            if CardType.CREATURE in obj.characteristics.types:
-                opp_targets.append(oid)
-        if opp_targets:
-            ch2 = create_target_choice(
-                state=gs,
-                player_id=caster_id,
-                source_id=spell_id,
-                legal_targets=opp_targets,
-                prompt="Bite Down on Crime: Choose creature to be dealt damage",
-            )
-            ch2.choice_type = "target_with_callback"
-            ch2.callback_data['handler'] = _opp_handler
-            ch2.callback_data['attacker_id'] = attacker_id
-        return events
-
-    ch = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=own_creatures,
-        prompt="Bite Down on Crime: Choose your creature (gets +2/+0 then deals damage)",
-    )
-    ch.choice_type = "target_with_callback"
-    ch.callback_data['handler'] = _own_handler
-    return []
+    events: list[Event] = [Event(
+        type=EventType.PT_MODIFICATION,
+        payload={
+            'object_id': own_tid,
+            'power_mod': 2, 'toughness_mod': 0,
+            'duration': 'end_of_turn',
+        },
+        source=spell_id, controller=caster_id,
+    )]
+    damage = get_power(attacker, state) + 2  # +2/+0 pump applies
+    events.append(Event(
+        type=EventType.DAMAGE,
+        payload={
+            'target': opp_tid,
+            'amount': damage,
+            'source': own_tid,
+            'is_combat': False,
+        },
+        source=own_tid,
+        controller=caster_id,
+    ))
+    return events
 
 
 def macabre_reconstruction_resolve(targets: list, state: GameState) -> list[Event]:
@@ -5530,158 +5452,54 @@ def audience_with_trostani_resolve(targets: list, state: GameState) -> list[Even
 
 def hardhitting_question_resolve(targets: list, state: GameState) -> list[Event]:
     """
-    Hard-Hitting Question: Target creature you control deals damage equal to
-    its power to target creature or planeswalker you don't control.
+    Hard-Hitting Question (Phase 5b): targets[0][0] is your creature (damage
+    source). targets[1][0] is the opposing creature/planeswalker that takes
+    damage equal to your creature's power.
     """
     spell_id, caster_id = _get_spell_and_caster(state, "Hard-Hitting Question")
-
-    # First target: creature you control
-    own_creatures = [
-        oid for oid, obj in state.objects.items()
-        if obj.zone == ZoneType.BATTLEFIELD
-        and obj.controller == caster_id
-        and CardType.CREATURE in obj.characteristics.types
-    ]
-    if not own_creatures:
+    if not targets or len(targets) < 2 or not targets[0] or not targets[1]:
         return []
-
-    def _opp_handler(choice, selected, gs):
-        if not selected:
-            return []
-        opp_target = selected[0]
-        attacker_id = choice.callback_data.get('attacker_id')
-        attacker = gs.objects.get(attacker_id)
-        if not attacker:
-            return []
-        damage = get_power(attacker, gs)
-        return [Event(
-            type=EventType.DAMAGE,
-            payload={
-                'target': opp_target,
-                'amount': damage,
-                'source': attacker_id,
-                'is_combat': False,
-            },
-            source=attacker_id,
-        )]
-
-    def _own_handler(choice, selected, gs):
-        if not selected:
-            return []
-        attacker_id = selected[0]
-        opp_targets = []
-        for oid, obj in gs.objects.items():
-            if obj.zone != ZoneType.BATTLEFIELD:
-                continue
-            if obj.controller == caster_id:
-                continue
-            if (CardType.CREATURE in obj.characteristics.types
-                    or CardType.PLANESWALKER in obj.characteristics.types):
-                opp_targets.append(oid)
-        if not opp_targets:
-            return []
-        ch2 = create_target_choice(
-            state=gs,
-            player_id=caster_id,
-            source_id=spell_id,
-            legal_targets=opp_targets,
-            prompt="Hard-Hitting Question: Choose creature or planeswalker to be dealt damage",
-        )
-        ch2.choice_type = "target_with_callback"
-        ch2.callback_data['handler'] = _opp_handler
-        ch2.callback_data['attacker_id'] = attacker_id
+    own_tid, _ = normalize_target(targets[0][0], state)
+    opp_tid, _ = normalize_target(targets[1][0], state)
+    attacker = state.objects.get(own_tid)
+    if not attacker:
         return []
-
-    ch = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=own_creatures,
-        prompt="Hard-Hitting Question: Choose your creature to deal damage",
-    )
-    ch.choice_type = "target_with_callback"
-    ch.callback_data['handler'] = _own_handler
-    return []
+    damage = get_power(attacker, state)
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={
+            'target': opp_tid,
+            'amount': damage,
+            'source': own_tid,
+            'is_combat': False,
+        },
+        source=own_tid,
+        controller=caster_id,
+    )]
 
 
 def urgent_necropsy_resolve(targets: list, state: GameState) -> list[Event]:
     """
-    Urgent Necropsy: Destroy up to one target artifact, up to one target
-    creature, up to one target enchantment, and up to one target
-    planeswalker. (Collect-evidence cost is engine-gap and ignored.)
+    Urgent Necropsy (Phase 5b): Destroy up to one target artifact (targets[0]),
+    creature (targets[1]), enchantment (targets[2]), and planeswalker (targets[3]).
+    Collect-evidence cost is engine-gap and ignored.
     """
     spell_id, caster_id = _get_spell_and_caster(state, "Urgent Necropsy")
-
-    # Build per-category target pools.
-    artifacts, creatures, enchantments, walkers = [], [], [], []
-    for oid, obj in state.objects.items():
-        if obj.zone != ZoneType.BATTLEFIELD:
+    events: list[Event] = []
+    for slot in targets or []:
+        if not slot:
             continue
-        t = obj.characteristics.types
-        if CardType.ARTIFACT in t:
-            artifacts.append(oid)
-        if CardType.CREATURE in t:
-            creatures.append(oid)
-        if CardType.ENCHANTMENT in t:
-            enchantments.append(oid)
-        if CardType.PLANESWALKER in t:
-            walkers.append(oid)
-
-    # Open a single target choice per category (each up to one), chained.
-    pools = [
-        ("artifact", artifacts),
-        ("creature", creatures),
-        ("enchantment", enchantments),
-        ("planeswalker", walkers),
-    ]
-    pools = [(label, pool) for label, pool in pools if pool]
-    if not pools:
-        return []
-
-    def _make_chained_handler(remaining):
-        def _handler(choice, selected, gs):
-            evts = []
-            for tid in (selected or []):
-                obj = gs.objects.get(tid)
-                if not obj or obj.zone != ZoneType.BATTLEFIELD:
-                    continue
-                evts.append(Event(
-                    type=EventType.OBJECT_DESTROYED,
-                    payload={'object_id': tid},
-                    source=choice.source_id,
-                ))
-            # Open the next pool, if any.
-            if remaining:
-                label, pool = remaining[0]
-                rest = remaining[1:]
-                ch2 = create_target_choice(
-                    state=gs,
-                    player_id=caster_id,
-                    source_id=spell_id,
-                    legal_targets=pool,
-                    prompt=f"Urgent Necropsy: Choose up to one {label} to destroy",
-                    min_targets=0,
-                    max_targets=1,
-                )
-                ch2.choice_type = "target_with_callback"
-                ch2.callback_data['handler'] = _make_chained_handler(rest)
-            return evts
-        return _handler
-
-    # Kick off the first prompt.
-    label, first_pool = pools[0]
-    ch = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=first_pool,
-        prompt=f"Urgent Necropsy: Choose up to one {label} to destroy",
-        min_targets=0,
-        max_targets=1,
-    )
-    ch.choice_type = "target_with_callback"
-    ch.callback_data['handler'] = _make_chained_handler(pools[1:])
-    return []
+        for entry in slot:
+            tid, _ = normalize_target(entry, state)
+            obj = state.objects.get(tid)
+            if not obj or obj.zone != ZoneType.BATTLEFIELD:
+                continue
+            events.append(Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': tid},
+                source=spell_id, controller=caster_id,
+            ))
+    return events
 
 
 # =============================================================================
@@ -8498,6 +8316,14 @@ REASONABLE_DOUBT = make_instant(
     colors={Color.BLUE},
     text="Counter target spell unless its controller pays {2}.\nSuspect up to one target creature. (A suspected creature has menace and can't block.)",
     resolve=reasonable_doubt_resolve,
+    target_requirements=[
+        target_spell(),
+        TargetRequirement(
+            filter=creature_filter(),
+            count=1, count_type='up_to', optional=True,
+            label="up to one target creature",
+        ),
+    ],
 )
 
 REENACT_THE_CRIME = make_instant(
@@ -9456,6 +9282,10 @@ BITE_DOWN_ON_CRIME = make_sorcery(
     colors={Color.GREEN},
     text="As an additional cost to cast this spell, you may collect evidence 6. This spell costs {2} less to cast if evidence was collected. (To collect evidence 6, exile cards with total mana value 6 or greater from your graveyard.)\nTarget creature you control gets +2/+0 until end of turn. It deals damage equal to its power to target creature you don't control.",
     resolve=bite_down_on_crime_resolve,
+    target_requirements=[
+        target_creature(count=1, controller='you'),
+        target_creature(count=1, controller='opponent'),
+    ],
 )
 
 CASE_OF_THE_LOCKED_HOTHOUSE = make_enchantment(
@@ -9548,6 +9378,16 @@ HARDHITTING_QUESTION = make_sorcery(
     colors={Color.GREEN},
     text="Target creature you control deals damage equal to its power to target creature or planeswalker you don't control.",
     resolve=hardhitting_question_resolve,
+    target_requirements=[
+        target_creature(count=1, controller='you'),
+        TargetRequirement(
+            filter=TargetFilter(
+                types={CardType.CREATURE, CardType.PLANESWALKER},
+                controller='opponent',
+            ),
+            count=1, label="target creature or planeswalker an opponent controls",
+        ),
+    ],
 )
 
 HEDGE_WHISPERER = make_creature(
@@ -10399,6 +10239,28 @@ URGENT_NECROPSY = make_instant(
     colors={Color.BLACK, Color.GREEN},
     text="As an additional cost to cast this spell, collect evidence X, where X is the total mana value of the permanents this spell targets.\nDestroy up to one target artifact, up to one target creature, up to one target enchantment, and up to one target planeswalker.",
     resolve=urgent_necropsy_resolve,
+    target_requirements=[
+        TargetRequirement(
+            filter=TargetFilter(types={CardType.ARTIFACT}),
+            count=1, count_type='up_to', optional=True,
+            label="up to one target artifact",
+        ),
+        TargetRequirement(
+            filter=creature_filter(),
+            count=1, count_type='up_to', optional=True,
+            label="up to one target creature",
+        ),
+        TargetRequirement(
+            filter=TargetFilter(types={CardType.ENCHANTMENT}),
+            count=1, count_type='up_to', optional=True,
+            label="up to one target enchantment",
+        ),
+        TargetRequirement(
+            filter=TargetFilter(types={CardType.PLANESWALKER}),
+            count=1, count_type='up_to', optional=True,
+            label="up to one target planeswalker",
+        ),
+    ],
 )
 
 VANNIFAR_EVOLVED_ENIGMA = make_creature(

@@ -34,6 +34,8 @@ from src.cards.interceptor_helpers import (
     make_activated_ability, becomes_creature, make_cost_reduction,
     make_cycling_setup,
     make_modal_resolve,
+    ModeSpec,
+    normalize_target,
     make_equipment_setup,
 )
 from src.engine.targeting import (
@@ -2496,112 +2498,28 @@ def ray_of_ruin_resolve(targets: list, state: GameState) -> list[Event]:
     return []
 
 
-def _abrade_creature_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Abrade creature mode."""
-    target_id = selected[0] if selected else None
-    if not target_id:
+def _abrade_creature_mode(state, caster_id, spell_id, targets=None):
+    """Abrade mode 1: 3 damage to target creature."""
+    if not targets:
         return []
-
-    target = state.objects.get(target_id)
-    if not target or target.zone != ZoneType.BATTLEFIELD:
-        return []
-
-    if CardType.CREATURE not in target.characteristics.types:
-        return []
-
+    tid = targets[0].id
     return [Event(
         type=EventType.DAMAGE,
-        payload={'target_id': target_id, 'amount': 3, 'is_combat': False},
-        source=choice.source_id
+        payload={'target_id': tid, 'amount': 3, 'is_combat': False},
+        source=spell_id, controller=caster_id,
     )]
 
 
-def _abrade_artifact_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Abrade artifact mode."""
-    target_id = selected[0] if selected else None
-    if not target_id:
+def _abrade_artifact_mode(state, caster_id, spell_id, targets=None):
+    """Abrade mode 2: destroy target artifact."""
+    if not targets:
         return []
-
-    target = state.objects.get(target_id)
-    if not target or target.zone != ZoneType.BATTLEFIELD:
-        return []
-
-    if CardType.ARTIFACT not in target.characteristics.types:
-        return []
-
+    tid = targets[0].id
     return [Event(
         type=EventType.OBJECT_DESTROYED,
-        payload={'object_id': target_id},
-        source=choice.source_id
+        payload={'object_id': tid},
+        source=spell_id, controller=caster_id,
     )]
-
-
-def abrade_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Abrade: Choose one - 3 damage to creature OR destroy artifact."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Abrade":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "abrade_spell"
-
-    # Find valid creature and artifact targets
-    creature_targets = []
-    artifact_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD:
-            if CardType.CREATURE in obj.characteristics.types:
-                creature_targets.append(obj.id)
-            if CardType.ARTIFACT in obj.characteristics.types:
-                artifact_targets.append(obj.id)
-
-    # Create modal choice
-    modes = []
-    if creature_targets:
-        modes.append({'id': 'damage', 'text': 'Deal 3 damage to target creature', 'targets': creature_targets})
-    if artifact_targets:
-        modes.append({'id': 'destroy', 'text': 'Destroy target artifact', 'targets': artifact_targets})
-
-    if not modes:
-        return []
-
-    # For simplicity, if both modes available, present creature damage first
-    # A proper implementation would use a modal choice system
-    if creature_targets:
-        choice = create_target_choice(
-            state=state,
-            player_id=caster_id,
-            source_id=spell_id,
-            legal_targets=creature_targets,
-            prompt="Choose a creature to deal 3 damage to",
-            min_targets=1,
-            max_targets=1
-        )
-        choice.choice_type = "target_with_callback"
-        choice.callback_data['handler'] = _abrade_creature_execute
-    else:
-        choice = create_target_choice(
-            state=state,
-            player_id=caster_id,
-            source_id=spell_id,
-            legal_targets=artifact_targets,
-            prompt="Choose an artifact to destroy",
-            min_targets=1,
-            max_targets=1
-        )
-        choice.choice_type = "target_with_callback"
-        choice.callback_data['handler'] = _abrade_artifact_execute
-
-    return []
 
 
 def _rumbling_rockslide_execute(choice, selected, state: GameState) -> list[Event]:
@@ -2749,34 +2667,10 @@ def triumphant_chomp_resolve(targets: list, state: GameState) -> list[Event]:
     return []
 
 
-def _huatlis_final_strike_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Huatli's Final Strike after both targets selected."""
-    if len(selected) < 2:
-        return []
-
-    your_creature_id = selected[0]
-    opponent_creature_id = selected[1]
-
-    your_creature = state.objects.get(your_creature_id)
-    opponent_creature = state.objects.get(opponent_creature_id)
-
-    if not your_creature or your_creature.zone != ZoneType.BATTLEFIELD:
-        return []
-    if not opponent_creature or opponent_creature.zone != ZoneType.BATTLEFIELD:
-        return []
-
-    # Your creature gets +1/+0, then deals damage equal to its power
-    power = (your_creature.characteristics.power or 0) + 1
-
-    return [Event(
-        type=EventType.DAMAGE,
-        payload={'target_id': opponent_creature_id, 'amount': power, 'is_combat': False},
-        source=choice.source_id
-    )]
-
-
 def huatlis_final_strike_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Huatli's Final Strike."""
+    """Resolve Huatli's Final Strike (Phase 5b):
+    targets[0][0] is your creature (+1/+0), targets[1][0] is opponent's creature
+    that takes damage equal to your creature's power."""
     stack_zone = state.zones.get('stack')
     caster_id = None
     spell_id = None
@@ -2787,45 +2681,33 @@ def huatlis_final_strike_resolve(targets: list, state: GameState) -> list[Event]
                 caster_id = obj.controller
                 spell_id = obj.id
                 break
-
     if caster_id is None:
         caster_id = state.active_player
     if spell_id is None:
         spell_id = "huatlis_final_strike_spell"
 
-    # Find creatures you control
-    your_creatures = []
-    for obj in state.objects.values():
-        if (obj.zone == ZoneType.BATTLEFIELD and
-            obj.controller == caster_id and
-            CardType.CREATURE in obj.characteristics.types):
-            your_creatures.append(obj.id)
-
-    # Find creatures opponents control
-    opponent_creatures = []
-    for obj in state.objects.values():
-        if (obj.zone == ZoneType.BATTLEFIELD and
-            obj.controller != caster_id and
-            CardType.CREATURE in obj.characteristics.types):
-            opponent_creatures.append(obj.id)
-
-    if not your_creatures or not opponent_creatures:
+    if not targets or len(targets) < 2 or not targets[0] or not targets[1]:
+        return []
+    own_tid, _ = normalize_target(targets[0][0], state)
+    opp_tid, _ = normalize_target(targets[1][0], state)
+    own = state.objects.get(own_tid)
+    if not own or own.zone != ZoneType.BATTLEFIELD:
         return []
 
-    # For simplicity, combine both target lists with first being your creature
-    # A proper implementation would have two-step targeting
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=your_creatures + opponent_creatures,
-        prompt="Choose your creature, then an opponent's creature",
-        min_targets=2,
-        max_targets=2
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _huatlis_final_strike_execute
-    return []
+    power = (own.characteristics.power or 0) + 1
+    return [
+        Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': own_tid, 'power_mod': 1, 'toughness_mod': 0,
+                     'duration': 'end_of_turn'},
+            source=spell_id, controller=caster_id,
+        ),
+        Event(
+            type=EventType.DAMAGE,
+            payload={'target_id': opp_tid, 'amount': power, 'is_combat': False},
+            source=spell_id, controller=caster_id,
+        ),
+    ]
 
 
 def _join_the_dead_execute(choice, selected, state: GameState) -> list[Event]:
@@ -5656,34 +5538,16 @@ def _confounding_riddle_mode_dig(state: GameState, caster_id: str, spell_id: str
     ]
 
 
-def _confounding_riddle_mode_counter(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+def _confounding_riddle_mode_counter(state: GameState, caster_id: str, spell_id: str, targets=None) -> list[Event]:
     """Counter target spell unless its controller pays {4}."""
-    stack = state.zones.get('stack')
-    legal = []
-    if stack:
-        for cid in stack.objects:
-            if cid != spell_id:
-                legal.append(cid)
-    if not legal:
+    if not targets:
         return []
-
-    def _on_target(ch, selected, st):
-        if not selected:
-            return []
-        return [Event(
-            type=EventType.COUNTER_SPELL_UNLESS_PAY,
-            payload={'target': selected[0], 'cost': '{4}'},
-            source=spell_id, controller=caster_id,
-        )]
-
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Confounding Riddle: choose target spell to counter unless {4}",
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
+    tid = targets[0].id
+    return [Event(
+        type=EventType.COUNTER_SPELL_UNLESS_PAY,
+        payload={'target': tid, 'cost': '{4}'},
+        source=spell_id, controller=caster_id,
+    )]
 
 
 CONFOUNDING_RIDDLE = make_instant(
@@ -5695,7 +5559,11 @@ CONFOUNDING_RIDDLE = make_instant(
         "Confounding Riddle",
         modes=[
             ("Look at the top four cards of your library", _confounding_riddle_mode_dig),
-            ("Counter target spell unless its controller pays {4}", _confounding_riddle_mode_counter),
+            ModeSpec(
+                "Counter target spell unless its controller pays {4}",
+                _confounding_riddle_mode_counter,
+                target_requirement=target_spell(),
+            ),
         ],
         min_modes=1, max_modes=1,
     ),
@@ -6524,7 +6392,25 @@ ABRADE = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Choose one —\n• Abrade deals 3 damage to target creature.\n• Destroy target artifact.",
-    resolve=abrade_resolve,
+    resolve=make_modal_resolve(
+        "Abrade",
+        modes=[
+            ModeSpec(
+                "Abrade deals 3 damage to target creature",
+                _abrade_creature_mode,
+                target_requirement=target_creature(count=1),
+            ),
+            ModeSpec(
+                "Destroy target artifact",
+                _abrade_artifact_mode,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(types={CardType.ARTIFACT}),
+                    count=1, label="target artifact",
+                ),
+            ),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 ANCESTORS_AID = make_instant(
@@ -7086,34 +6972,21 @@ def _glimpse_the_core_mode_search(state: GameState, caster_id: str, spell_id: st
     )]
 
 
-def _glimpse_the_core_mode_return(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+def _glimpse_the_core_mode_return(state: GameState, caster_id: str, spell_id: str, targets=None) -> list[Event]:
     """Return target Cave card from your graveyard to the battlefield tapped."""
-    gy_key = f"graveyard_{caster_id}"
-    gy = state.zones.get(gy_key)
-    legal = []
-    if gy:
-        for cid in gy.objects:
-            obj = state.objects.get(cid)
-            if obj and 'Cave' in obj.characteristics.subtypes:
-                legal.append(cid)
-    if not legal:
+    if not targets:
         return []
-    def _on_target(ch, selected, st):
-        if not selected:
-            return []
-        return [Event(
-            type=EventType.RETURN_FROM_GRAVEYARD,
-            payload={'card_id': selected[0], 'destination': 'battlefield', 'tapped': True},
-            source=spell_id, controller=caster_id,
-        )]
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Glimpse the Core: choose Cave card to return tapped",
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
+    tid = targets[0].id
+    return [Event(
+        type=EventType.RETURN_FROM_GRAVEYARD,
+        payload={'card_id': tid, 'destination': 'battlefield', 'tapped': True},
+        source=spell_id, controller=caster_id,
+    )]
+
+
+# Custom filter: a Cave card in YOUR graveyard.
+def _cave_in_your_graveyard(_obj: GameObject, _state: GameState) -> bool:
+    return True  # subtype + zone already enforced by the requirement below
 
 
 GLIMPSE_THE_CORE = make_sorcery(
@@ -7125,7 +6998,19 @@ GLIMPSE_THE_CORE = make_sorcery(
         "Glimpse the Core",
         modes=[
             ("Search your library for a basic Forest card", _glimpse_the_core_mode_search),
-            ("Return target Cave card from your graveyard to the battlefield tapped", _glimpse_the_core_mode_return),
+            ModeSpec(
+                "Return target Cave card from your graveyard to the battlefield tapped",
+                _glimpse_the_core_mode_return,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(
+                        subtypes={"Cave"},
+                        zones=[ZoneType.GRAVEYARD],
+                        controller='you',
+                    ),
+                    count=1,
+                    label="target Cave card from your graveyard",
+                ),
+            ),
         ],
         min_modes=1, max_modes=1,
     ),
@@ -7163,6 +7048,10 @@ HUATLIS_FINAL_STRIKE = make_instant(
     colors={Color.GREEN},
     text="Target creature you control gets +1/+0 until end of turn. It deals damage equal to its power to target creature an opponent controls.",
     resolve=huatlis_final_strike_resolve,
+    target_requirements=[
+        target_creature(count=1, controller='you'),
+        target_creature(count=1, controller='opponent'),
+    ],
 )
 
 HULKING_RAPTOR = make_creature(
@@ -7296,68 +7185,35 @@ OJER_KASLEM_DEEPEST_GROWTH = make_creature(
     text="",
 )
 
-def _over_the_edge_mode_destroy(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+def _over_the_edge_mode_destroy(state: GameState, caster_id: str, spell_id: str, targets=None) -> list[Event]:
     """Destroy target artifact or enchantment."""
-    legal = [
-        oid for oid, o in state.objects.items()
-        if (o.zone == ZoneType.BATTLEFIELD
-            and (CardType.ARTIFACT in o.characteristics.types
-                 or CardType.ENCHANTMENT in o.characteristics.types))
-    ]
-    if not legal:
+    if not targets:
         return []
-    def _on_target(ch, selected, st):
-        if not selected:
-            return []
-        return [Event(
-            type=EventType.DESTROY,
-            payload={'object_id': selected[0]},
+    tid = targets[0].id
+    return [Event(
+        type=EventType.DESTROY,
+        payload={'object_id': tid},
+        source=spell_id, controller=caster_id,
+    )]
+
+
+def _over_the_edge_mode_explore(state: GameState, caster_id: str, spell_id: str, targets=None) -> list[Event]:
+    """Target creature you control explores twice."""
+    if not targets:
+        return []
+    tid = targets[0].id
+    return [
+        Event(
+            type=EventType.EXPLORE,
+            payload={'object_id': tid, 'controller': caster_id},
             source=spell_id, controller=caster_id,
-        )]
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Over the Edge: choose artifact or enchantment to destroy",
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
-
-
-def _over_the_edge_mode_explore(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
-    """Target creature you control explores twice. Engine gap: reveal/library
-    flow; emit two EXPLORE events as a best-effort marker."""
-    own_creatures = [
-        oid for oid, o in state.objects.items()
-        if (o.zone == ZoneType.BATTLEFIELD
-            and CardType.CREATURE in o.characteristics.types
-            and o.controller == caster_id)
+        ),
+        Event(
+            type=EventType.EXPLORE,
+            payload={'object_id': tid, 'controller': caster_id},
+            source=spell_id, controller=caster_id,
+        ),
     ]
-    if not own_creatures:
-        return []
-    def _on_target(ch, selected, st):
-        if not selected:
-            return []
-        return [
-            Event(
-                type=EventType.EXPLORE,
-                payload={'object_id': selected[0], 'controller': caster_id},
-                source=spell_id, controller=caster_id,
-            ),
-            Event(
-                type=EventType.EXPLORE,
-                payload={'object_id': selected[0], 'controller': caster_id},
-                source=spell_id, controller=caster_id,
-            ),
-        ]
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=own_creatures,
-        prompt="Over the Edge: choose your creature to explore twice",
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
 
 
 OVER_THE_EDGE = make_sorcery(
@@ -7368,8 +7224,21 @@ OVER_THE_EDGE = make_sorcery(
     resolve=make_modal_resolve(
         "Over the Edge",
         modes=[
-            ("Destroy target artifact or enchantment", _over_the_edge_mode_destroy),
-            ("Target creature you control explores, then again", _over_the_edge_mode_explore),
+            ModeSpec(
+                "Destroy target artifact or enchantment",
+                _over_the_edge_mode_destroy,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(
+                        types={CardType.ARTIFACT, CardType.ENCHANTMENT}
+                    ),
+                    count=1, label="target artifact or enchantment",
+                ),
+            ),
+            ModeSpec(
+                "Target creature you control explores, then again",
+                _over_the_edge_mode_explore,
+                target_requirement=target_creature(count=1, controller='you'),
+            ),
         ],
         min_modes=1, max_modes=1,
     ),

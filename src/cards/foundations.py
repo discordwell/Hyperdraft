@@ -45,6 +45,8 @@ from src.cards.interceptor_helpers import (
     create_modal_choice,
     create_target_choice,
     make_modal_resolve,
+    ModeSpec,
+    normalize_target,
     open_library_search,
     any_card_filter,
     artifact_filter_lib,
@@ -4400,232 +4402,74 @@ def deadly_riposte_resolve(targets: list, state: GameState) -> list[Event]:
 # VALOROUS STANCE - Modal: Indestructible OR destroy creature toughness 4+
 # =============================================================================
 
-def _valorous_stance_handle_target(choice, selected: list, state: GameState) -> list[Event]:
-    """Handle target selection for Valorous Stance after mode was chosen."""
-    if not selected:
+def _valorous_stance_mode_indestructible(state, caster_id, spell_id, targets=None):
+    """Mode 1: target creature you control gains indestructible EOT."""
+    if not targets:
         return []
-
-    target_id = selected[0]
-    mode = choice.callback_data.get('mode', 0)
-
-    if mode == 0:
-        # Grant indestructible until end of turn
-        return [Event(
-            type=EventType.KEYWORD_GRANT,
-            payload={
-                'object_id': target_id,
-                'keyword': 'indestructible',
-                'duration': 'end_of_turn'
-            },
-            source=choice.source_id
-        )]
-    else:
-        # Destroy target creature with toughness 4 or greater
-        return [Event(
-            type=EventType.OBJECT_DESTROYED,
-            payload={'object_id': target_id},
-            source=choice.source_id
-        )]
+    return [Event(
+        type=EventType.KEYWORD_GRANT,
+        payload={
+            'object_id': targets[0].id,
+            'keyword': 'indestructible',
+            'duration': 'end_of_turn',
+        },
+        source=spell_id, controller=caster_id,
+    )]
 
 
-def _valorous_stance_handle_mode(choice, selected: list, state: GameState) -> list[Event]:
-    """Handle mode selection, then create target choice."""
-    if not selected:
+def _valorous_stance_mode_destroy(state, caster_id, spell_id, targets=None):
+    """Mode 2: destroy target creature with toughness 4 or greater."""
+    if not targets:
         return []
-
-    selected_mode = selected[0]
-    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
-
-    legal_targets = []
-    for obj_id, obj in state.objects.items():
-        if obj.zone != ZoneType.BATTLEFIELD:
-            continue
-        if CardType.CREATURE not in obj.characteristics.types:
-            continue
-
-        if mode_index == 0:
-            # Mode 0: Target creature you control
-            if obj.controller == choice.player:
-                legal_targets.append(obj_id)
-        else:
-            # Mode 1: Target creature with toughness 4 or greater
-            toughness = obj.characteristics.toughness or 0
-            if toughness >= 4:
-                legal_targets.append(obj_id)
-
-    if not legal_targets:
-        return []
-
-    prompt = "Choose a creature you control" if mode_index == 0 else "Choose a creature with toughness 4+"
-    target_choice = create_target_choice(
-        state=state,
-        player_id=choice.player,
-        source_id=choice.source_id,
-        legal_targets=legal_targets,
-        prompt=prompt,
-        min_targets=1,
-        max_targets=1,
-        callback_data={'handler': _valorous_stance_handle_target, 'mode': mode_index}
-    )
-
-    return []
+    return [Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': targets[0].id},
+        source=spell_id, controller=caster_id,
+    )]
 
 
-def valorous_stance_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Valorous Stance: Choose one mode."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Valorous Stance":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "valorous_stance_spell"
-
-    modes = [
-        {"index": 0, "text": "Target creature gains indestructible until end of turn."},
-        {"index": 1, "text": "Destroy target creature with toughness 4 or greater."}
-    ]
-
-    choice = create_modal_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        modes=modes,
-        prompt="Valorous Stance - Choose one:"
-    )
-
-    choice.choice_type = "modal_with_callback"
-    choice.callback_data['handler'] = _valorous_stance_handle_mode
-
-    return []
+def _toughness_4_or_greater(obj: GameObject, state: GameState) -> bool:
+    t = obj.characteristics.toughness or 0
+    return t >= 4
 
 
 # =============================================================================
 # DEADLY PLOT - Modal: Destroy creature/pw OR return Zombie from graveyard
 # =============================================================================
 
-def _deadly_plot_handle_target(choice, selected: list, state: GameState) -> list[Event]:
-    """Handle target selection for Deadly Plot."""
-    if not selected:
+def _deadly_plot_mode_destroy(state, caster_id, spell_id, targets=None):
+    """Mode 1: destroy target creature or planeswalker."""
+    if not targets:
         return []
-
-    target_id = selected[0]
-    mode = choice.callback_data.get('mode', 0)
-
-    if mode == 0:
-        # Destroy target creature or planeswalker
-        return [Event(
-            type=EventType.OBJECT_DESTROYED,
-            payload={'object_id': target_id},
-            source=choice.source_id
-        )]
-    else:
-        # Return target Zombie creature card from graveyard to battlefield tapped
-        return [Event(
-            type=EventType.ZONE_CHANGE,
-            payload={
-                'object_id': target_id,
-                'from_zone': f'graveyard_{choice.player}',
-                'from_zone_type': ZoneType.GRAVEYARD,
-                'to_zone': f'battlefield_{choice.player}',
-                'to_zone_type': ZoneType.BATTLEFIELD,
-                'enters_tapped': True,
-                'reason': 'returned'
-            },
-            source=choice.source_id
-        )]
+    return [Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': targets[0].id},
+        source=spell_id, controller=caster_id,
+    )]
 
 
-def _deadly_plot_handle_mode(choice, selected: list, state: GameState) -> list[Event]:
-    """Handle mode selection for Deadly Plot."""
-    if not selected:
+def _deadly_plot_mode_reanimate(state, caster_id, spell_id, targets=None):
+    """Mode 2: return target Zombie creature card from graveyard to battlefield tapped."""
+    if not targets:
         return []
-
-    selected_mode = selected[0]
-    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
-
-    legal_targets = []
-
-    if mode_index == 0:
-        # Destroy target creature or planeswalker
-        for obj_id, obj in state.objects.items():
-            if obj.zone != ZoneType.BATTLEFIELD:
-                continue
-            if CardType.CREATURE in obj.characteristics.types or CardType.PLANESWALKER in obj.characteristics.types:
-                legal_targets.append(obj_id)
-        prompt = "Choose a creature or planeswalker to destroy"
-    else:
-        # Return target Zombie creature card from graveyard
-        graveyard_key = f'graveyard_{choice.player}'
-        graveyard = state.zones.get(graveyard_key)
-        if graveyard:
-            for obj_id in graveyard.objects:
-                obj = state.objects.get(obj_id)
-                if obj and CardType.CREATURE in obj.characteristics.types:
-                    if "Zombie" in obj.characteristics.subtypes:
-                        legal_targets.append(obj_id)
-        prompt = "Choose a Zombie creature card to return"
-
-    if not legal_targets:
-        return []
-
-    target_choice = create_target_choice(
-        state=state,
-        player_id=choice.player,
-        source_id=choice.source_id,
-        legal_targets=legal_targets,
-        prompt=prompt,
-        min_targets=1,
-        max_targets=1,
-        callback_data={'handler': _deadly_plot_handle_target, 'mode': mode_index}
-    )
-
-    return []
+    return [Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': targets[0].id,
+            'from_zone': f'graveyard_{caster_id}',
+            'from_zone_type': ZoneType.GRAVEYARD,
+            'to_zone': f'battlefield_{caster_id}',
+            'to_zone_type': ZoneType.BATTLEFIELD,
+            'enters_tapped': True,
+            'reason': 'returned',
+        },
+        source=spell_id, controller=caster_id,
+    )]
 
 
-def deadly_plot_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Deadly Plot: Choose one mode."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Deadly Plot":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "deadly_plot_spell"
-
-    modes = [
-        {"index": 0, "text": "Destroy target creature or planeswalker."},
-        {"index": 1, "text": "Return target Zombie creature card from your graveyard to the battlefield tapped."}
-    ]
-
-    choice = create_modal_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        modes=modes,
-        prompt="Deadly Plot - Choose one:"
-    )
-
-    choice.choice_type = "modal_with_callback"
-    choice.callback_data['handler'] = _deadly_plot_handle_mode
-
-    return []
+# DEADLY_PLOT now uses make_modal_resolve(ModeSpec(...)) directly — see
+# definition below; resolve function above is replaced by the ModeSpec
+# dispatch in the card def.
 
 
 # =============================================================================
@@ -9628,27 +9472,16 @@ SANGUINE_SYPHONER = make_creature(
     setup_interceptors=sanguine_syphoner_setup
 )
 
-def _seekers_folly_mode_discard(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
-    """Target opponent discards two cards (chained target choice)."""
-    opp_ids = [pid for pid in state.players.keys() if pid != caster_id]
-    if not opp_ids:
+def _seekers_folly_mode_discard(state: GameState, caster_id: str, spell_id: str, targets=None) -> list[Event]:
+    """Target opponent discards two cards."""
+    if not targets:
         return []
-    def _on_target(ch, selected, st):
-        if not selected:
-            return []
-        return [Event(
-            type=EventType.DISCARD,
-            payload={'player': selected[0], 'amount': 2},
-            source=spell_id, controller=caster_id,
-        )]
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=opp_ids,
-        prompt="Seeker's Folly: choose target opponent",
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
+    pid = targets[0].id
+    return [Event(
+        type=EventType.DISCARD,
+        payload={'player': pid, 'amount': 2},
+        source=spell_id, controller=caster_id,
+    )]
 
 
 def _seekers_folly_mode_minus(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
@@ -9674,7 +9507,11 @@ SEEKERS_FOLLY = make_sorcery(
     resolve=make_modal_resolve(
         "Seeker's Folly",
         modes=[
-            ("Target opponent discards two cards", _seekers_folly_mode_discard),
+            ModeSpec(
+                "Target opponent discards two cards",
+                _seekers_folly_mode_discard,
+                target_requirement=target_player(controller='opponent'),
+            ),
             ("Creatures your opponents control get -1/-1 until end of turn", _seekers_folly_mode_minus),
         ],
         min_modes=1, max_modes=1,
@@ -10848,123 +10685,31 @@ ZOMBIFY = make_sorcery(
 # ABRADE - Modal damage/artifact destruction
 # =============================================================================
 
-def _abrade_handle_target(choice, selected: list, state: GameState) -> list[Event]:
-    """Handle target selection after mode was chosen."""
-    if not selected:
+def _foundations_abrade_burn(state, caster_id, spell_id, targets=None):
+    """Abrade mode 1: 3 damage to target creature."""
+    if not targets:
         return []
-
-    target_id = selected[0]
-    mode = choice.callback_data.get('mode', 0)
-
-    if mode == 0:
-        # Deal 3 damage to target creature
-        return [Event(
-            type=EventType.DAMAGE,
-            payload={
-                'target': target_id,
-                'amount': 3,
-                'source': choice.source_id,
-                'is_combat': False
-            },
-            source=choice.source_id
-        )]
-    else:
-        # Destroy target artifact
-        return [Event(
-            type=EventType.OBJECT_DESTROYED,
-            payload={'object_id': target_id},
-            source=choice.source_id
-        )]
+    tid = targets[0].id
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={
+            'target': tid, 'amount': 3,
+            'source': spell_id, 'is_combat': False,
+        },
+        source=spell_id, controller=caster_id,
+    )]
 
 
-def _abrade_handle_mode(choice, selected: list, state: GameState) -> list[Event]:
-    """Handle mode selection, then create target choice."""
-    if not selected:
+def _foundations_abrade_destroy(state, caster_id, spell_id, targets=None):
+    """Abrade mode 2: destroy target artifact."""
+    if not targets:
         return []
-
-    selected_mode = selected[0]
-    mode_index = selected_mode["index"] if isinstance(selected_mode, dict) else selected_mode
-
-    # Gather legal targets based on chosen mode
-    legal_targets = []
-    for obj_id, obj in state.objects.items():
-        if obj.zone != ZoneType.BATTLEFIELD:
-            continue
-
-        if mode_index == 0:
-            # Mode 0: Target creature
-            if CardType.CREATURE in obj.characteristics.types:
-                legal_targets.append(obj_id)
-        else:
-            # Mode 1: Target artifact
-            if CardType.ARTIFACT in obj.characteristics.types:
-                legal_targets.append(obj_id)
-
-    if not legal_targets:
-        # No legal targets, spell fizzles
-        return []
-
-    # Create target choice
-    prompt = "Choose target creature" if mode_index == 0 else "Choose target artifact"
-    target_choice = create_target_choice(
-        state=state,
-        player_id=choice.player,
-        source_id=choice.source_id,
-        legal_targets=legal_targets,
-        prompt=prompt,
-        min_targets=1,
-        max_targets=1,
-        callback_data={'handler': _abrade_handle_target, 'mode': mode_index}
-    )
-
-    return []
-
-
-def abrade_resolve(targets: list, state: GameState) -> list[Event]:
-    """
-    Resolve Abrade: Choose one —
-    - Deal 3 damage to target creature
-    - Destroy target artifact
-
-    Creates a modal choice first, then target choice based on mode.
-    """
-    # Find the spell on the stack to determine who cast it
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Abrade":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    # Fallback to active player if we can't find the spell
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "abrade_spell"
-
-    # Create modal choice
-    modes = [
-        {"index": 0, "text": "Abrade deals 3 damage to target creature."},
-        {"index": 1, "text": "Destroy target artifact."}
-    ]
-
-    choice = create_modal_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        modes=modes,
-        prompt="Abrade - Choose one:"
-    )
-
-    # Use modal_with_callback for handler support
-    choice.choice_type = "modal_with_callback"
-    choice.callback_data['handler'] = _abrade_handle_mode
-
-    return []
+    tid = targets[0].id
+    return [Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': tid},
+        source=spell_id, controller=caster_id,
+    )]
 
 
 ABRADE = make_instant(
@@ -10972,7 +10717,25 @@ ABRADE = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Choose one —\n• Abrade deals 3 damage to target creature.\n• Destroy target artifact.",
-    resolve=abrade_resolve,
+    resolve=make_modal_resolve(
+        "Abrade",
+        modes=[
+            ModeSpec(
+                "Abrade deals 3 damage to target creature",
+                _foundations_abrade_burn,
+                target_requirement=target_creature(count=1),
+            ),
+            ModeSpec(
+                "Destroy target artifact",
+                _foundations_abrade_destroy,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(types={CardType.ARTIFACT}),
+                    count=1, label="target artifact",
+                ),
+            ),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 AXGARD_CAVALRY = make_creature(
@@ -11159,18 +10922,11 @@ HIDETSUGUS_SECOND_RITE = make_instant(
 )
 
 def involuntary_employment_resolve(targets: list, state: GameState) -> list[Event]:
-    """Threaten + create Treasure token."""
+    """Threaten + create Treasure token (Phase 5b: target via target_requirements)."""
     from src.cards.interceptor_helpers import threaten_creature
     spell = _resolving_spell_obj(state)
     caster_id = _spell_caster_id(state) or ""
     spell_id = spell.id if spell is not None else "involuntary_employment"
-
-    legal: list[str] = []
-    for obj_id, obj in state.objects.items():
-        if (obj.zone == ZoneType.BATTLEFIELD
-                and CardType.CREATURE in obj.characteristics.types
-                and obj.controller != caster_id):
-            legal.append(obj_id)
 
     treasure_event = Event(
         type=EventType.OBJECT_CREATED,
@@ -11188,24 +10944,12 @@ def involuntary_employment_resolve(targets: list, state: GameState) -> list[Even
         controller=caster_id,
     )
 
-    if not legal:
-        return [treasure_event]
-
-    def _handler(choice, selected, gs):
-        events = []
-        if selected:
-            events.extend(threaten_creature(selected[0], caster_id, source_id=spell_id))
-        events.append(treasure_event)
-        return events
-
-    choice = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Involuntary Employment: choose target creature",
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _handler
-    return []
+    events: list[Event] = []
+    if targets and targets[0]:
+        tid, _ = normalize_target(targets[0][0], state)
+        events.extend(threaten_creature(tid, caster_id, source_id=spell_id))
+    events.append(treasure_event)
+    return events
 
 
 INVOLUNTARY_EMPLOYMENT = make_sorcery(
@@ -11214,6 +10958,7 @@ INVOLUNTARY_EMPLOYMENT = make_sorcery(
     colors={Color.RED},
     text="Gain control of target creature until end of turn. Untap that creature. It gains haste until end of turn. Create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")",
     resolve=involuntary_employment_resolve,
+    target_requirements=[target_creature(count=1, controller='opponent')],
 )
 
 KRENKO_MOB_BOSS = make_creature(
@@ -11367,56 +11112,17 @@ def _bushwhack_mode_search(state: GameState, caster_id: str, spell_id: str) -> l
     )]
 
 
-def _bushwhack_mode_fight(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+def _bushwhack_mode_fight(state: GameState, caster_id: str, spell_id: str, targets=None) -> list[Event]:
     """Target creature you control fights target creature you don't control."""
-    own_creatures = [
-        oid for oid, o in state.objects.items()
-        if (o.zone == ZoneType.BATTLEFIELD
-            and CardType.CREATURE in o.characteristics.types
-            and o.controller == caster_id)
-    ]
-    enemy_creatures = [
-        oid for oid, o in state.objects.items()
-        if (o.zone == ZoneType.BATTLEFIELD
-            and CardType.CREATURE in o.characteristics.types
-            and o.controller != caster_id)
-    ]
-    if not own_creatures or not enemy_creatures:
+    if not targets or len(targets) < 2:
         return []
-
-    def _on_enemy(ch2, sel_enemy, st):
-        if not sel_enemy:
-            return []
-        fighter_id = ch2.callback_data.get('_fighter_id')
-        if not fighter_id:
-            return []
-        return [Event(
-            type=EventType.FIGHT,
-            payload={'creature1': fighter_id, 'creature2': sel_enemy[0]},
-            source=spell_id, controller=caster_id,
-        )]
-
-    def _on_own(ch1, sel_own, st):
-        if not sel_own:
-            return []
-        ch2 = create_target_choice(
-            state=st, player_id=caster_id, source_id=spell_id,
-            legal_targets=enemy_creatures,
-            prompt="Bushwhack: choose enemy creature to fight",
-            callback_data={'_fighter_id': sel_own[0]},
-        )
-        ch2.choice_type = "target_with_callback"
-        ch2.callback_data['handler'] = _on_enemy
-        return []
-
-    tc1 = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=own_creatures,
-        prompt="Bushwhack: choose your creature to fight",
-    )
-    tc1.choice_type = "target_with_callback"
-    tc1.callback_data['handler'] = _on_own
-    return []
+    own_id = targets[0].id
+    enemy_id = targets[1].id
+    return [Event(
+        type=EventType.FIGHT,
+        payload={'creature1': own_id, 'creature2': enemy_id},
+        source=spell_id, controller=caster_id,
+    )]
 
 
 BUSHWHACK = make_sorcery(
@@ -11428,7 +11134,14 @@ BUSHWHACK = make_sorcery(
         "Bushwhack",
         modes=[
             ("Search your library for a basic land card", _bushwhack_mode_search),
-            ("Target creature you control fights target creature you don't control", _bushwhack_mode_fight),
+            ModeSpec(
+                "Target creature you control fights target creature you don't control",
+                _bushwhack_mode_fight,
+                target_requirement=[
+                    target_creature(controller='you'),
+                    target_creature(controller='opponent'),
+                ],
+            ),
         ],
         min_modes=1, max_modes=1,
     ),
@@ -12281,7 +11994,34 @@ DEADLY_PLOT = make_instant(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     text="Choose one —\n• Destroy target creature or planeswalker.\n• Return target Zombie creature card from your graveyard to the battlefield tapped.",
-    resolve=deadly_plot_resolve,
+    resolve=make_modal_resolve(
+        "Deadly Plot",
+        modes=[
+            ModeSpec(
+                "Destroy target creature or planeswalker",
+                _deadly_plot_mode_destroy,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(types={CardType.CREATURE, CardType.PLANESWALKER}),
+                    count=1, label="target creature or planeswalker",
+                ),
+            ),
+            ModeSpec(
+                "Return target Zombie creature card from your graveyard to the battlefield tapped",
+                _deadly_plot_mode_reanimate,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(
+                        types={CardType.CREATURE},
+                        subtypes={"Zombie"},
+                        zones=[ZoneType.GRAVEYARD],
+                        controller='you',
+                    ),
+                    count=1,
+                    label="target Zombie creature card in your graveyard",
+                ),
+            ),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 DEATH_BARON = make_creature(
@@ -12906,7 +12646,26 @@ VALOROUS_STANCE = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Choose one —\n• Target creature gains indestructible until end of turn. (Damage and effects that say \"destroy\" don't destroy it.)\n• Destroy target creature with toughness 4 or greater.",
-    resolve=valorous_stance_resolve,
+    resolve=make_modal_resolve(
+        "Valorous Stance",
+        modes=[
+            ModeSpec(
+                "Target creature gains indestructible until end of turn",
+                _valorous_stance_mode_indestructible,
+                target_requirement=target_creature(count=1, controller='you'),
+            ),
+            ModeSpec(
+                "Destroy target creature with toughness 4 or greater",
+                _valorous_stance_mode_destroy,
+                target_requirement=TargetRequirement(
+                    filter=creature_filter(custom_filter=_toughness_4_or_greater),
+                    count=1,
+                    label="target creature with toughness 4 or greater",
+                ),
+            ),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 ZETALPA_PRIMAL_DAWN = make_creature(
@@ -14271,31 +14030,15 @@ PELAKKA_WURM = make_creature(
     setup_interceptors=pelakka_wurm_setup
 )
 
-def _boros_charm_mode_burn(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
-    """4 damage to target player or planeswalker (player only — planeswalker engine gap)."""
-    legal = list(state.players.keys())
-    for oid, o in state.objects.items():
-        if (o.zone == ZoneType.BATTLEFIELD
-                and CardType.PLANESWALKER in o.characteristics.types):
-            legal.append(oid)
-    if not legal:
+def _boros_charm_mode_burn(state: GameState, caster_id: str, spell_id: str, targets=None) -> list[Event]:
+    """4 damage to target player or planeswalker."""
+    if not targets:
         return []
-    def _on_target(ch, selected, st):
-        if not selected:
-            return []
-        return [Event(
-            type=EventType.DAMAGE,
-            payload={'target': selected[0], 'amount': 4, 'source': spell_id},
-            source=spell_id, controller=caster_id,
-        )]
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Boros Charm: deal 4 damage to which target?",
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': targets[0].id, 'amount': 4, 'source': spell_id},
+        source=spell_id, controller=caster_id,
+    )]
 
 
 def _boros_charm_mode_indestructible(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
@@ -14311,30 +14054,15 @@ def _boros_charm_mode_indestructible(state: GameState, caster_id: str, spell_id:
     return events
 
 
-def _boros_charm_mode_double_strike(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+def _boros_charm_mode_double_strike(state: GameState, caster_id: str, spell_id: str, targets=None) -> list[Event]:
     """Target creature gains double strike until end of turn."""
-    legal = [
-        oid for oid, o in state.objects.items()
-        if o.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in o.characteristics.types
-    ]
-    if not legal:
+    if not targets:
         return []
-    def _on_target(ch, selected, st):
-        if not selected:
-            return []
-        return [Event(
-            type=EventType.GRANT_KEYWORD,
-            payload={'object_id': selected[0], 'keyword': 'double strike', 'duration': 'end_of_turn'},
-            source=spell_id, controller=caster_id,
-        )]
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Boros Charm: choose creature for double strike",
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
+    return [Event(
+        type=EventType.GRANT_KEYWORD,
+        payload={'object_id': targets[0].id, 'keyword': 'double strike', 'duration': 'end_of_turn'},
+        source=spell_id, controller=caster_id,
+    )]
 
 
 BOROS_CHARM = make_instant(
@@ -14345,9 +14073,23 @@ BOROS_CHARM = make_instant(
     resolve=make_modal_resolve(
         "Boros Charm",
         modes=[
-            ("Boros Charm deals 4 damage to target player or planeswalker", _boros_charm_mode_burn),
+            ModeSpec(
+                "Boros Charm deals 4 damage to target player or planeswalker",
+                _boros_charm_mode_burn,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(
+                        types={CardType.PLANESWALKER},
+                        includes_players=True,
+                    ),
+                    count=1, label="target player or planeswalker",
+                ),
+            ),
             ("Permanents you control gain indestructible until end of turn", _boros_charm_mode_indestructible),
-            ("Target creature gains double strike until end of turn", _boros_charm_mode_double_strike),
+            ModeSpec(
+                "Target creature gains double strike until end of turn",
+                _boros_charm_mode_double_strike,
+                target_requirement=target_creature(count=1),
+            ),
         ],
         min_modes=1, max_modes=1,
     ),
