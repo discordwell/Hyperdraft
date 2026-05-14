@@ -33,6 +33,8 @@ from src.cards.interceptor_helpers import (
     make_saga_setup,
     # Phase 5b: normalize Target object / raw ID inputs from resolve fns
     normalize_target,
+    # Modal helper + ModeSpec
+    make_modal_resolve, ModeSpec,
 )
 
 # Phase 5b cast-time target requirements
@@ -993,24 +995,36 @@ def _coordinated_maneuver_mode_1_execute(choice, selected, state: GameState) -> 
     )]
 
 
+def _coordinated_maneuver_mode_damage(state, caster_id, spell_id, targets=None):
+    """Mode 1: deal damage equal to your creature count."""
+    if not targets:
+        return []
+    creature_count = len([o for o in state.objects.values()
+                          if o.zone == ZoneType.BATTLEFIELD and
+                          o.controller == caster_id and
+                          CardType.CREATURE in o.characteristics.types])
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': targets[0].id, 'amount': creature_count,
+                 'source': spell_id, 'is_combat': False},
+        source=spell_id, controller=caster_id,
+    )]
+
+
+def _coordinated_maneuver_mode_destroy(state, caster_id, spell_id, targets=None):
+    """Mode 2: destroy target enchantment."""
+    if not targets:
+        return []
+    return [Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': targets[0].id},
+        source=spell_id, controller=caster_id,
+    )]
+
+
 def coordinated_maneuver_resolve(targets: list, state: GameState) -> list[Event]:
-    """Resolve Coordinated Maneuver: Modal spell."""
-    caster_id, spell_id = _find_spell_on_stack(state, "Coordinated Maneuver")
-    modes = [
-        {"index": 0, "text": "Deal damage equal to creatures you control to target creature or planeswalker."},
-        {"index": 1, "text": "Destroy target enchantment."}
-    ]
-    choice = create_modal_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        modes=modes,
-        prompt="Coordinated Maneuver - Choose one:"
-    )
-    choice.callback_data['mode_handlers'] = {
-        0: ('creature_or_planeswalker', _coordinated_maneuver_mode_0_execute),
-        1: ('enchantment', _coordinated_maneuver_mode_1_execute)
-    }
+    """Wrapper to ensure the function name is still bound (engine introspection
+    may look it up by name). The real resolver is make_modal_resolve below."""
     return []
 
 
@@ -1815,7 +1829,28 @@ COORDINATED_MANEUVER = make_instant(
     colors={Color.WHITE},
     text="Choose one —\n• Coordinated Maneuver deals damage equal to the number of creatures you control to target creature or planeswalker.\n• Destroy target enchantment.",
     rarity="common",
-    resolve=coordinated_maneuver_resolve,
+    resolve=make_modal_resolve(
+        "Coordinated Maneuver",
+        modes=[
+            ModeSpec(
+                "Deal damage equal to creatures you control to target creature or planeswalker",
+                _coordinated_maneuver_mode_damage,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(types={CardType.CREATURE, CardType.PLANESWALKER}),
+                    count=1, label="target creature or planeswalker",
+                ),
+            ),
+            ModeSpec(
+                "Destroy target enchantment",
+                _coordinated_maneuver_mode_destroy,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(types={CardType.ENCHANTMENT}),
+                    count=1, label="target enchantment",
+                ),
+            ),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 DALKOVAN_PACKBEASTS = make_creature(

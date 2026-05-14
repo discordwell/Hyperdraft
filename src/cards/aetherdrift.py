@@ -33,6 +33,8 @@ from src.cards.interceptor_helpers import (
     make_activated_ability,
     # Phase 5b: normalize Target object / raw ID inputs from resolve fns
     normalize_target,
+    # Modal helper + ModeSpec
+    make_modal_resolve, ModeSpec,
 )
 import re
 

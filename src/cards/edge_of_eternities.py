@@ -49,6 +49,7 @@ from src.cards.interceptor_helpers import (
     make_cost_reduction,
     # Modal resolve
     make_modal_resolve,
+    ModeSpec,
     # Target picker
     create_target_choice,
     # Phase 5b: normalize Target object / raw ID inputs from resolve fns
@@ -4903,100 +4904,48 @@ ALPHARAEL_STONECHOSEN = make_creature(
     setup_interceptors=alpharael_stonechosen_setup,
 )
 
-def _archenemy_charm_mode_exile(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
+def _archenemy_charm_mode_exile(state, caster_id, spell_id, targets=None):
     """Exile target creature or planeswalker."""
-    legal = [
-        oid for oid, o in state.objects.items()
-        if (o.zone == ZoneType.BATTLEFIELD
-            and (CardType.CREATURE in o.characteristics.types
-                 or CardType.PLANESWALKER in o.characteristics.types))
-    ]
-    if not legal:
+    if not targets:
         return []
-    def _on_target(ch, selected, st):
-        if not selected:
-            return []
-        return [Event(
-            type=EventType.EXILE,
-            payload={'object_id': selected[0]},
+    return [Event(
+        type=EventType.EXILE,
+        payload={'object_id': targets[0].id},
+        source=spell_id, controller=caster_id,
+    )]
+
+
+def _archenemy_charm_mode_return(state, caster_id, spell_id, targets=None):
+    """Return 1-2 creature/planeswalker cards from graveyard to hand."""
+    if not targets:
+        return []
+    return [
+        Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={'card_id': t.id, 'destination': 'hand'},
             source=spell_id, controller=caster_id,
-        )]
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Archenemy's Charm: exile creature or planeswalker",
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
-
-
-def _archenemy_charm_mode_return(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
-    """Return one or two creature/planeswalker cards from your graveyard to hand."""
-    gy_key = f"graveyard_{caster_id}"
-    gy = state.zones.get(gy_key)
-    legal = []
-    if gy:
-        for cid in gy.objects:
-            obj = state.objects.get(cid)
-            if obj and (CardType.CREATURE in obj.characteristics.types
-                        or CardType.PLANESWALKER in obj.characteristics.types):
-                legal.append(cid)
-    if not legal:
-        return []
-    def _on_target(ch, selected, st):
-        events = []
-        for cid in (selected or []):
-            events.append(Event(
-                type=EventType.RETURN_FROM_GRAVEYARD,
-                payload={'card_id': cid, 'destination': 'hand'},
-                source=spell_id, controller=caster_id,
-            ))
-        return events
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Archenemy's Charm: choose 1 or 2 cards to return from graveyard",
-        min_targets=1, max_targets=min(2, len(legal)),
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
-
-
-def _archenemy_charm_mode_counters(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
-    """Two +1/+1 counters on creature you control. It gains lifelink EOT."""
-    legal = [
-        oid for oid, o in state.objects.items()
-        if (o.zone == ZoneType.BATTLEFIELD
-            and CardType.CREATURE in o.characteristics.types
-            and o.controller == caster_id)
+        )
+        for t in targets
     ]
-    if not legal:
+
+
+def _archenemy_charm_mode_counters(state, caster_id, spell_id, targets=None):
+    """Two +1/+1 counters on creature you control + lifelink EOT."""
+    if not targets:
         return []
-    def _on_target(ch, selected, st):
-        if not selected:
-            return []
-        return [
-            Event(
-                type=EventType.COUNTER_ADDED,
-                payload={'object_id': selected[0], 'counter_type': '+1/+1', 'amount': 2},
-                source=spell_id, controller=caster_id,
-            ),
-            Event(
-                type=EventType.GRANT_KEYWORD,
-                payload={'object_id': selected[0], 'keyword': 'lifelink', 'duration': 'end_of_turn'},
-                source=spell_id, controller=caster_id,
-            ),
-        ]
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Archenemy's Charm: choose your creature for +1/+1 counters and lifelink",
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
+    tid = targets[0].id
+    return [
+        Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': tid, 'counter_type': '+1/+1', 'amount': 2},
+            source=spell_id, controller=caster_id,
+        ),
+        Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': tid, 'keyword': 'lifelink', 'duration': 'end_of_turn'},
+            source=spell_id, controller=caster_id,
+        ),
+    ]
 
 
 ARCHENEMYS_CHARM = make_instant(
@@ -5007,9 +4956,32 @@ ARCHENEMYS_CHARM = make_instant(
     resolve=make_modal_resolve(
         "Archenemy's Charm",
         modes=[
-            ("Exile target creature or planeswalker", _archenemy_charm_mode_exile),
-            ("Return one or two cards from your graveyard to your hand", _archenemy_charm_mode_return),
-            ("Two +1/+1 counters and lifelink on target creature", _archenemy_charm_mode_counters),
+            ModeSpec(
+                "Exile target creature or planeswalker",
+                _archenemy_charm_mode_exile,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(types={CardType.CREATURE, CardType.PLANESWALKER}),
+                    count=1, label="target creature or planeswalker",
+                ),
+            ),
+            ModeSpec(
+                "Return one or two cards from your graveyard to your hand",
+                _archenemy_charm_mode_return,
+                target_requirement=TargetRequirement(
+                    filter=TargetFilter(
+                        types={CardType.CREATURE, CardType.PLANESWALKER},
+                        zones=[ZoneType.GRAVEYARD],
+                        controller='you',
+                    ),
+                    count=2, count_type='up_to', optional=False,
+                    label="one or two creature/planeswalker cards in your graveyard",
+                ),
+            ),
+            ModeSpec(
+                "Two +1/+1 counters and lifelink on target creature",
+                _archenemy_charm_mode_counters,
+                target_requirement=target_creature(count=1, controller='you'),
+            ),
         ],
         min_modes=1, max_modes=1,
     ),
