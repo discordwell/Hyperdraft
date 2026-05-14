@@ -31,6 +31,8 @@ from src.cards.interceptor_helpers import (
     creatures_you_control, creatures_with_subtype, create_target_choice,
     create_modal_choice,
     make_modal_resolve,
+    ModeSpec,
+    normalize_target,
     make_saga_setup,
     make_activated_ability,
     make_loot_ability,
@@ -1689,39 +1691,12 @@ def witchstalker_frenzy_resolve(targets: list, state: GameState) -> list[Event]:
 
 
 # --- CUT IN ---
-def _cut_in_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Cut In - deal 4 damage to creature, create Young Hero Role on your creature."""
-    target_id = selected[0] if selected else None
-    role_target_id = selected[1] if len(selected) > 1 else None
-    if not target_id:
-        return []
-    target = state.objects.get(target_id)
-    if not target or target.zone != ZoneType.BATTLEFIELD:
-        return []
-
-    events = [Event(
-        type=EventType.DAMAGE,
-        payload={'target': target_id, 'amount': 4, 'source': choice.source_id, 'is_combat': False},
-        source=choice.source_id
-    )]
-    if role_target_id:
-        events.append(Event(
-            type=EventType.OBJECT_CREATED,
-            payload={
-                'name': 'Young Hero Role',
-                'controller': choice.player,
-                'attach_to': role_target_id,
-                'types': [CardType.ENCHANTMENT],
-                'subtypes': ['Aura', 'Role'],
-                'is_token': True
-            },
-            source=choice.source_id
-        ))
-    return events
-
-
 def cut_in_resolve(targets: list, state: GameState) -> list[Event]:
-    """Cut In deals 4 damage to target creature. Create a Young Hero Role attached to target creature you control."""
+    """Cut In deals 4 damage to target creature. Create a Young Hero Role attached to up to one target creature you control.
+
+    Phase 5b: targets[0] is the damage target, targets[1] is the (optional)
+    Role attach target.
+    """
     stack_zone = state.zones.get('stack')
     caster_id = None
     spell_id = None
@@ -1737,20 +1712,33 @@ def cut_in_resolve(targets: list, state: GameState) -> list[Event]:
     if spell_id is None:
         spell_id = "cut_in_spell"
 
-    # All creatures are valid damage targets
-    valid_targets = [obj.id for obj in state.objects.values()
-                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
-    if not valid_targets:
+    if not targets or not targets[0]:
         return []
+    dmg_tid, _ = normalize_target(targets[0][0], state)
 
-    choice = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=valid_targets,
-        prompt="Choose a creature to deal 4 damage to"
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _cut_in_execute
-    return []
+    events: list[Event] = [Event(
+        type=EventType.DAMAGE,
+        payload={'target': dmg_tid, 'amount': 4, 'source': spell_id, 'is_combat': False},
+        source=spell_id, controller=caster_id,
+    )]
+
+    role_target_id: Optional[str] = None
+    if len(targets) > 1 and targets[1]:
+        role_target_id, _ = normalize_target(targets[1][0], state)
+    if role_target_id:
+        events.append(Event(
+            type=EventType.OBJECT_CREATED,
+            payload={
+                'name': 'Young Hero Role',
+                'controller': caster_id,
+                'attach_to': role_target_id,
+                'types': [CardType.ENCHANTMENT],
+                'subtypes': ['Aura', 'Role'],
+                'is_token': True,
+            },
+            source=spell_id, controller=caster_id,
+        ))
+    return events
 
 
 # --- WATER WINGS ---
@@ -2633,72 +2621,26 @@ def succumb_to_the_cold_resolve(targets: list, state: GameState) -> list[Event]:
 
 
 # --- MOMENT OF VALOR ---
-def moment_of_valor_resolve(targets: list, state: GameState) -> list[Event]:
-    """Choose one: Untap and +1/+0 with indestructible; or destroy creature with power 4+."""
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Moment of Valor":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "moment_of_valor_spell"
+def _power_4_creature_filter(obj: GameObject, state: GameState) -> bool:
+    return get_power(obj, state) >= 4
 
-    modes = [
-        {"id": "pump", "label": "Untap target creature. It gets +1/+0 and gains indestructible until end of turn."},
-        {"id": "destroy", "label": "Destroy target creature with power 4 or greater."}
+
+def _moment_of_valor_pump(state, caster_id, spell_id, targets=None):
+    if not targets:
+        return []
+    t_id = targets[0].id
+    return [
+        Event(type=EventType.UNTAP, payload={'object_id': t_id}, source=spell_id),
+        Event(type=EventType.PUMP, payload={'object_id': t_id, 'power': 1, 'toughness': 0, 'duration': 'end_of_turn'}, source=spell_id),
+        Event(type=EventType.GRANT_KEYWORD, payload={'object_id': t_id, 'keyword': 'indestructible', 'duration': 'end_of_turn'}, source=spell_id),
     ]
 
-    def mode_handler(choice, selected_modes, state: GameState) -> list[Event]:
-        mode = selected_modes[0] if selected_modes else "pump"
-        if mode == "pump":
-            valid = [obj.id for obj in state.objects.values()
-                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types]
-        else:
-            valid = [obj.id for obj in state.objects.values()
-                     if obj.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in obj.characteristics.types
-                     and get_power(obj, state) >= 4]
-        if not valid:
-            return []
 
-        def execute_mode(choice2, selected2, state2: GameState) -> list[Event]:
-            t_id = selected2[0] if selected2 else None
-            if not t_id:
-                return []
-            t = state2.objects.get(t_id)
-            if not t or t.zone != ZoneType.BATTLEFIELD:
-                return []
-            if mode == "pump":
-                return [
-                    Event(type=EventType.UNTAP, payload={'object_id': t_id}, source=choice2.source_id),
-                    Event(type=EventType.PUMP, payload={'object_id': t_id, 'power': 1, 'toughness': 0, 'duration': 'end_of_turn'}, source=choice2.source_id),
-                    Event(type=EventType.GRANT_KEYWORD, payload={'object_id': t_id, 'keyword': 'indestructible', 'duration': 'end_of_turn'}, source=choice2.source_id)
-                ]
-            else:
-                return [Event(type=EventType.DESTROY, payload={'object_id': t_id}, source=choice2.source_id)]
-
-        target_choice = create_target_choice(
-            state=state, player_id=choice.player, source_id=choice.source_id,
-            legal_targets=valid,
-            prompt="Choose a target for Moment of Valor"
-        )
-        target_choice.choice_type = "target_with_callback"
-        target_choice.callback_data['handler'] = execute_mode
+def _moment_of_valor_destroy(state, caster_id, spell_id, targets=None):
+    if not targets:
         return []
-
-    choice = create_modal_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        modes=modes,
-        min_modes=1, max_modes=1
-    )
-    choice.callback_data['handler'] = mode_handler
-    return []
+    t_id = targets[0].id
+    return [Event(type=EventType.DESTROY, payload={'object_id': t_id}, source=spell_id)]
 
 
 # --- Green Cards ---
@@ -6536,7 +6478,26 @@ MOMENT_OF_VALOR = make_instant(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Choose one —\n• Untap target creature. It gets +1/+0 and gains indestructible until end of turn.\n• Destroy target creature with power 4 or greater.",
-    resolve=moment_of_valor_resolve,
+    resolve=make_modal_resolve(
+        "Moment of Valor",
+        modes=[
+            ModeSpec(
+                "Untap target creature; +1/+0 and indestructible EOT",
+                _moment_of_valor_pump,
+                target_requirement=target_creature(count=1),
+            ),
+            ModeSpec(
+                "Destroy target creature with power 4 or greater",
+                _moment_of_valor_destroy,
+                target_requirement=TargetRequirement(
+                    filter=creature_filter(custom_filter=_power_4_creature_filter),
+                    count=1,
+                    label="target creature with power 4 or greater",
+                ),
+            ),
+        ],
+        min_modes=1, max_modes=1,
+    ),
 )
 
 MOONSHAKER_CAVALRY = make_creature(
@@ -7640,6 +7601,14 @@ CUT_IN = make_sorcery(
     colors={Color.RED},
     text="Cut In deals 4 damage to target creature.\nCreate a Young Hero Role token attached to up to one target creature you control. (If you control another Role on it, put that one into the graveyard. Enchanted creature has \"Whenever this creature attacks, if its toughness is 3 or less, put a +1/+1 counter on it.\")",
     resolve=cut_in_resolve,
+    target_requirements=[
+        target_creature(count=1),
+        TargetRequirement(
+            filter=creature_filter(controller='you'),
+            count=1, count_type='up_to', optional=True,
+            label="up to one target creature you control",
+        ),
+    ],
 )
 
 EDGEWALL_PACK = make_creature(
@@ -7912,35 +7881,15 @@ TORCH_THE_TOWER = make_instant(
 )
 
 def twisted_fealty_resolve(targets: list, state: GameState) -> list[Event]:
-    """Twisted Fealty: gain control + untap + haste. Wicked Role token side
-    is an engine gap (Role tokens with attach + dies trigger).
+    """Twisted Fealty (Phase 5b): targets[0][0] is the creature to threaten.
+    Wicked Role token side is still an engine gap (Role tokens + attach).
     """
     from src.cards.interceptor_helpers import threaten_creature
     caster_id, spell_id = _phase2b_caster_and_spell(state, "Twisted Fealty")
-
-    # Pick any opposing creature.
-    legal: list[str] = []
-    for obj_id, obj in state.objects.items():
-        if (obj.zone == ZoneType.BATTLEFIELD
-                and CardType.CREATURE in obj.characteristics.types
-                and obj.controller != caster_id):
-            legal.append(obj_id)
-    if not legal:
+    if not targets or not targets[0]:
         return []
-
-    def _handler(choice, selected, gs):
-        if not selected:
-            return []
-        return threaten_creature(selected[0], caster_id, source_id=spell_id)
-
-    choice = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Twisted Fealty: choose target creature to steal",
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _handler
-    return []
+    tid, _ = normalize_target(targets[0][0], state)
+    return threaten_creature(tid, caster_id, source_id=spell_id)
 
 
 TWISTED_FEALTY = make_sorcery(
@@ -7949,6 +7898,7 @@ TWISTED_FEALTY = make_sorcery(
     colors={Color.RED},
     text="Gain control of target creature until end of turn. Untap that creature. It gains haste until end of turn.\nCreate a Wicked Role token attached to up to one target creature. (If you control another Role on it, put that one into the graveyard. Enchanted creature gets +1/+1. When this token is put into a graveyard, each opponent loses 1 life.)",
     resolve=twisted_fealty_resolve,
+    target_requirements=[target_creature(count=1, controller='opponent')],
 )
 
 TWOHEADED_HUNTER = make_creature(
