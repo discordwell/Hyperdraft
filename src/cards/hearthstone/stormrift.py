@@ -2640,6 +2640,26 @@ assert len(PYROMANCER_DECK) == 30, f"Pyromancer deck has {len(PYROMANCER_DECK)} 
 assert len(CRYOMANCER_DECK) == 30, f"Cryomancer deck has {len(CRYOMANCER_DECK)} cards, expected 30"
 
 
+# Flat registry of every distinct Stormrift CardDefinition defined at module
+# scope. Used by src/depth/calibration/hearthstone.toml as the calibration
+# reference. Keyed by card.name; first-write-wins on collisions so the
+# canonical definition is the one declared in this module.
+STORMRIFT_CARDS = {}
+for _value in list(globals().values()):
+    if hasattr(_value, "characteristics") and hasattr(_value, "name"):
+        try:
+            _name = _value.name
+            if isinstance(_name, str) and _name and _name not in STORMRIFT_CARDS:
+                STORMRIFT_CARDS[_name] = _value
+        except Exception:
+            pass
+del _value
+try:
+    del _name
+except NameError:
+    pass
+
+
 def stormrift_deck_profile(deck: list) -> dict:
     """Return compact balance metrics for a Stormrift deck."""
     import re

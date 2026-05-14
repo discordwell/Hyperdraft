@@ -31,31 +31,56 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-# Card-name → set of event-source strings that uniquely identify the card's
-# effect emitting. Matchers cover three places where the card identity
-# leaks into the event log:
-#  1. `payload.source` strings (when effect_fns pass source=<card_name>)
-#  2. `payload.card_name` (in PKM_PLAY_ITEM / PKM_PLAY_SUPPORTER events)
-#  3. `payload.attack_name` (in PKM_ATTACK_DECLARE)
-# Many BRV cards source their effects by the attacker's instance ID
-# (e.g. Voidmage's discard_attached_energy_cross_ctrl uses attacker.id),
-# so we need attack-name aliases to catch those.
-SPICE_FIRE_MARKERS: dict[str, set[str]] = {
-    "Mirko Vosk, Mind Drinker": {"Mirko", "Lost Recall"},
-    "Voidmage Apprentice": {"Voidmage Apprentice", "Energy Drain"},
-    "Dimir Interrogation": {"Dimir Interrogation"},
-    "Tox-Pawpsule": {"Tox-Pawpsule"},
-    "Aurelia, the Warleader ex": {"Battalion Mark", "Aurelia"},
-    "Niv-Mizzet's Quandary": {"Niv-Mizzet's Quandary"},
-    "Jace, Memory Adept": {"Jace", "Mental Triage"},
-    "Pithing Drone": {"Pithing Drone"},
-    "Tezzy's Test": {"Tezzy's Test"},
-    "Obzedat, Ghost Council ex": {"Obzedat", "Spectral Decree", "Soul's Tax"},
-    "Sanguine Sacrament": {"Sanguine Sacrament"},
-    "Cremate": {"Cremate"},
-    "Jarad, Golgari Lich Lord ex": {"Jarad", "Necrosurge", "Lich's Bargain"},
-    "Negate the Negation": {"Negate the Negation"},
-}
+# Spice-pack v1 card names. Markers are NOT hand-maintained here — they're
+# read off ``card_def.fire_markers`` at runtime (auto-derived by the
+# make_pokemon / make_trainer_* factories). To add or remove a spice card
+# from the trace, just edit this list.
+SPICE_CARD_NAMES: tuple[str, ...] = (
+    "Mirko Vosk, Mind Drinker",
+    "Voidmage Apprentice",
+    "Dimir Interrogation",
+    "Tox-Pawpsule",
+    "Aurelia, the Warleader ex",
+    "Niv-Mizzet's Quandary",
+    "Jace, Memory Adept",
+    "Pithing Drone",
+    "Tezzy's Test",
+    "Obzedat, Ghost Council ex",
+    "Sanguine Sacrament",
+    "Cremate",
+    "Jarad, Golgari Lich Lord ex",
+    "Negate the Negation",
+)
+
+
+def _load_spice_fire_markers() -> dict[str, frozenset[str]]:
+    """Walk the BRV registry and read ``fire_markers`` off each spice card.
+
+    Replaces the prior hand-maintained ``SPICE_FIRE_MARKERS`` dict — markers
+    are now auto-derived at card-construction time by the make_* factories,
+    so adding a new spice card with a new attack-name never silently drifts.
+
+    Raises:
+        RuntimeError if a card listed in ``SPICE_CARD_NAMES`` isn't in the
+        registry (the trace would silently 0-fire it otherwise).
+    """
+    with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
+        from src.cards.pokemon.beyond.ravnica import BEYOND_RAVNICA_CARDS
+    out: dict[str, frozenset[str]] = {}
+    missing: list[str] = []
+    for name in SPICE_CARD_NAMES:
+        card_def = BEYOND_RAVNICA_CARDS.get(name)
+        if card_def is None:
+            missing.append(name)
+            continue
+        out[name] = frozenset(card_def.fire_markers)
+    if missing:
+        raise RuntimeError(
+            f"Spice cards listed in SPICE_CARD_NAMES but not in the BRV "
+            f"registry: {missing}. Either add them to the correct guild's "
+            f"registry or remove them from SPICE_CARD_NAMES."
+        )
+    return out
 
 
 # Events the spice pack v1 introduced — we count these as "structurally new"
@@ -72,6 +97,121 @@ def _resolve_deck(name: str):
     if name not in GUILD_DECK_BUILDERS:
         raise SystemExit(f"Unknown deck: {name}. Known: {sorted(GUILD_DECK_BUILDERS)}")
     return GUILD_DECK_BUILDERS[name]()
+
+
+def _event_payload_str(event: dict) -> str:
+    return json.dumps(event.get("payload") or {}, sort_keys=True, default=str)
+
+
+def _did_card_fire(
+    event_log: list[dict],
+    markers: frozenset[str],
+) -> tuple[bool, int, list[str]]:
+    """Return (fired_at_least_once, count, example_payload_strings).
+
+    Matches the same substring-in-payload-or-source logic used before the
+    refactor so per-card firing counts remain behaviour-preserving.
+    """
+    examples: list[str] = []
+    count = 0
+    for ev in event_log:
+        payload_str = _event_payload_str(ev)
+        source_str = str(ev.get("source") or "")
+        for marker in markers:
+            if marker in payload_str or marker in source_str:
+                count += 1
+                if len(examples) < 2:
+                    examples.append(f"{ev['type']}: {payload_str[:200]}")
+                break
+    return count > 0, count, examples
+
+
+def _preflight_marker_check() -> None:
+    """Self-check that the event-trace can detect a known-firing card.
+
+    Spins up a tiny one-Charmander Pokemon game, runs one Ember attack,
+    captures the event log and asserts ``Charmander.fire_markers`` are
+    detected as fired by the same matching logic the spice trace uses.
+    If this fails we raise loudly so the operator doesn't read off a
+    bogus "0 firings" headline from a downstream broken pipeline /
+    wrongly-routed payload.
+    """
+    with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
+        from src.engine.game import Game
+        from src.engine.types import EventType, ZoneType
+        from src.cards.pokemon.sv_starter import CHARMANDER, FIRE_ENERGY
+
+    expected_attack = "Ember"
+    if expected_attack not in CHARMANDER.fire_markers:
+        raise RuntimeError(
+            f"Preflight: Charmander.fire_markers={sorted(CHARMANDER.fire_markers)} "
+            f"is missing {expected_attack!r} — the make_pokemon auto-"
+            f"derivation is broken (attack names should be auto-included)."
+        )
+
+    g = Game(mode="pokemon")
+    p1 = g.add_player("preflight-p1")
+    p2 = g.add_player("preflight-p2")
+    # Minimal field: each side gets a Charmander + 1 fire energy attached so
+    # Ember is legal. No supporters/items, no decks needed for an attack.
+    a = g.create_object(
+        name=CHARMANDER.name, owner_id=p1.id, zone=ZoneType.ACTIVE_SPOT,
+        characteristics=CHARMANDER.characteristics, card_def=CHARMANDER,
+    )
+    b = g.create_object(
+        name=CHARMANDER.name, owner_id=p2.id, zone=ZoneType.ACTIVE_SPOT,
+        characteristics=CHARMANDER.characteristics, card_def=CHARMANDER,
+    )
+    e = g.create_object(
+        name="Fire Energy", owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=FIRE_ENERGY.characteristics, card_def=FIRE_ENERGY,
+    )
+    a.state.attached_energy.append(e.id)
+    g.state.active_player = p1.id
+
+    captured: list[dict] = []
+    pipeline = getattr(g, "pipeline", None)
+    original_emit = None
+    if pipeline and hasattr(pipeline, "emit"):
+        original_emit = pipeline.emit
+
+        def trace_emit(event):
+            try:
+                captured.append({
+                    "type": event.type.name,
+                    "payload": {
+                        k: (str(v) if not isinstance(v, (int, float, str, bool, list, type(None))) else v)
+                        for k, v in (event.payload or {}).items()
+                    },
+                    "source": str(event.source) if event.source else None,
+                })
+            except Exception:
+                pass
+            return original_emit(event)
+
+        pipeline.emit = trace_emit
+
+    try:
+        # Attack by index 0 = Charmander's first attack ('Ember'). The
+        # combat manager's declare_attack emits a PKM_ATTACK_DECLARE event
+        # whose payload contains ``attack_name='Ember'`` — exactly the
+        # marker form the spice trace's matcher looks for.
+        g.combat_manager.declare_attack(a.id, 0)
+    finally:
+        if original_emit:
+            pipeline.emit = original_emit
+
+    fired, count, _ = _did_card_fire(captured, CHARMANDER.fire_markers)
+    if not fired:
+        raise RuntimeError(
+            f"Preflight marker check FAILED: expected to detect "
+            f"{expected_attack!r} as fired after Charmander attacks, but "
+            f"the matcher returned 0 firings. Either the event-trace's "
+            f"emit-hook isn't capturing events, or the matching logic is "
+            f"broken. Aborting before reporting bogus '0 firings' for "
+            f"spice cards. Captured {len(captured)} events; "
+            f"types={[ev['type'] for ev in captured]}"
+        )
 
 
 async def _run_one_traced_game(
@@ -146,28 +286,6 @@ async def _run_one_traced_game(
     return captured, summary
 
 
-def _event_payload_str(event: dict) -> str:
-    return json.dumps(event.get("payload") or {}, sort_keys=True, default=str)
-
-
-def _did_spice_fire(event_log: list[dict], card_name: str) -> tuple[bool, int, list[str]]:
-    """Return (fired_at_least_once, count, example_payload_strings)."""
-    markers = SPICE_FIRE_MARKERS.get(card_name, set())
-    examples: list[str] = []
-    count = 0
-    for ev in event_log:
-        # Inspect payload string + source for the marker substring.
-        payload_str = _event_payload_str(ev)
-        source_str = str(ev.get("source") or "")
-        for marker in markers:
-            if marker in payload_str or marker in source_str:
-                count += 1
-                if len(examples) < 2:
-                    examples.append(f"{ev['type']}: {payload_str[:200]}")
-                break
-    return count > 0, count, examples
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--p1", default="dimir")
@@ -183,6 +301,14 @@ def main() -> int:
 
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
+
+    # Preflight: fail loud if the event-trace's matching logic can't even
+    # detect a known-firing card (Charmander Scratch). Catches breakage
+    # in the emit-hook / matching code BEFORE we report bogus "0 firings".
+    _preflight_marker_check()
+    print("[preflight] event-trace matcher healthy (Charmander 'Ember' detected)")
+
+    spice_fire_markers = _load_spice_fire_markers()
 
     all_events: list[dict] = []
     summaries: list[dict] = []
@@ -214,12 +340,13 @@ def main() -> int:
 
     # Per-card firing.
     card_firings = {}
-    for card_name in SPICE_FIRE_MARKERS:
-        fired, count, examples = _did_spice_fire(all_events, card_name)
+    for card_name, markers in spice_fire_markers.items():
+        fired, count, examples = _did_card_fire(all_events, markers)
         card_firings[card_name] = {
             "fired_at_least_once": fired,
             "fire_count": count,
             "example_payloads": examples,
+            "markers": sorted(markers),
         }
 
     print(f"\n=== Event-trace summary ({args.p1} vs {args.p2}, {args.games} games, {elapsed:.1f}s) ===")

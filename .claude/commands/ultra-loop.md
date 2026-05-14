@@ -155,6 +155,23 @@ Use `Agent` tool with `subagent_type=general-purpose`. Brief:
 > Play strategically. Apply the strategy doc, watch for AI mistakes,
 > exploit documented weaknesses, take notes on anything NEW.
 >
+> **Contamination markers** (write these literally in your report if
+> they apply, so the loop's quarantine flow can flag the iteration):
+> - `CONTAMINATED` — anything weird that makes you doubt your conclusions
+> - `STATE FILE CORRUPTED` / `PICKLE TRUNCATED` — harness state was
+>   inconsistent between reads
+> - `STALE PACKET` — your `state` read returned data that contradicted
+>   the action you just took (likely a parallel-write race)
+> - `PARALLEL WRITE RACE` — multiple processes wrote the state file
+> - `PLAYED BOTH SEATS` — the harness silently fell back to a mode where
+>   you ended up controlling the opponent
+> - `MODE COLLAPSE` — requested double mode but only one pilot was active
+> - `ABORT` — you gave up before the game reached a natural end
+>
+> If any of these apply, write them at the top of your report. They
+> trigger a quarantine flow that prevents your "bug" claims from
+> landing in real code until a reproducer test exists.
+>
 > **After the game**, write `/tmp/<game>_pilot_report.md`:
 >
 > ```markdown
@@ -332,12 +349,84 @@ the same brief as §1c but sourcing from BOTH pilot reports:
 > §1c: surgical code changes to decision logic, no weight edits, tests
 > after.
 
-### 2. Save iteration outputs
+### 2. Contamination check + save iteration outputs
 
-After each iteration:
-- `logs/<game>_ultra_iter<N>_pilot<A|B>.md` — copy of pilot report(s)
-- `logs/<game>_ultra_iter<N>_coach.txt` — coach's summary
-- `logs/<game>_ultra_iter<N>_encoder.txt` — heuristic encoder's change list
+After each iteration, BEFORE the coach's edits land in real code:
+
+1. Collect the iter's artefacts:
+   - pilot report(s) from `/tmp/<game>_pilot_*_report.md`
+   - the coach's change summary
+   - the encoder's change list
+   - the harness's stdout/stderr for the iter (capture it as the agent
+     runs; tail of `logs/<game>_ultra_harness_iter<N>.log` works)
+   - the turn count the pilot played (parse from the pilot report
+     "Outcome" line, e.g. `won in 31 turns`)
+   - the requested mode and the mode actually used
+
+2. Run the contamination check via the shared module:
+
+   ```bash
+   python -c '
+   from pathlib import Path
+   from scripts.play import ultra_loop_quarantine as q
+   art = q.IterationArtifacts(
+       iteration=<N>,
+       mode="<actual-mode>",
+       requested_mode="<requested-mode>",
+       pilot_reports={"A": open("/tmp/<game>_pilot_A_report.md").read(),
+                      "B": open("/tmp/<game>_pilot_B_report.md").read()},
+       coach_output=open("/tmp/<game>_coach_iter<N>.txt").read(),
+       encoder_output=open("/tmp/<game>_encoder_iter<N>.txt").read(),
+       harness_log=open("logs/<game>_ultra_harness_iter<N>.log").read(),
+       turns_played=<int>,
+   )
+   report = q.detect_contamination(art)
+   log_dir = Path("logs/<game>_ultra_loop/")
+   if report.contaminated:
+       q.quarantine_iteration(log_dir, art, report)
+       print("QUARANTINED:", report.signals)
+   else:
+       q.apply_iteration(log_dir, art, report)
+       print("APPLIED")
+   '
+   ```
+
+   Contamination signals the module checks (see
+   `docs/methodology/quarantine.md` for full definitions):
+   - **pilot_self_report** — pilot wrote `CONTAMINATED`,
+     `STATE FILE CORRUPTED`, `STALE PACKET`, `PLAYED BOTH SEATS`, etc.
+   - **harness_error** — `EOFError`, `UnpicklingError`,
+     `pickle data was truncated`, refused active-player checks
+   - **partial_completion** — `turns_played < expected_min_turns`
+     (default 5)
+   - **mode_collapse** — requested `double` but ran `single`, so one
+     pilot played both seats and can't be cross-checked
+   - **missing_pilot_report** — double mode with only one report
+   - **orchestrator** — orchestrator-supplied signals (watchdog kill,
+     timeout, manual flag)
+
+3. **If contaminated** (`report.contaminated == True`):
+   - The coach/encoder outputs are copied into
+     `logs/<game>_ultra_loop/quarantine/iter<N>/` with a manifest JSON.
+   - **DO NOT** spawn the coach's apply step or the encoder's apply
+     step for this iter. The edits in real source files MUST NOT happen.
+   - Surface the signals to the user: "iter <N> quarantined: <signals>".
+   - Continue to the next iteration. Quarantine is not a fatal abort —
+     the loop keeps running but the bad iter doesn't poison the code.
+
+4. **If clean** (`report.contaminated == False`):
+   - The coach and encoder run normally as described in §1b/§1c/§1d/§1e.
+   - The outputs land in `logs/<game>_ultra_loop/iter<N>_*.txt`.
+
+After each iteration (clean or quarantined), persist:
+- `logs/<game>_ultra_loop/iter<N>_pilot<A|B>.md` — copy of pilot report(s)
+  (always written, even when quarantined — they're still useful for review)
+- `logs/<game>_ultra_loop/iter<N>_coach.txt` — coach's summary (clean only)
+- `logs/<game>_ultra_loop/iter<N>_encoder.txt` — heuristic encoder's
+  change list (clean only)
+- `logs/<game>_ultra_loop/quarantine/iter<N>/` — full bundle for
+  contaminated iters (coach + encoder + pilot reports + harness log
+  + manifest.json)
 
 ### 3. Final progression report
 
@@ -353,6 +442,26 @@ After all iterations:
 - **Encoder quality**: which pilot observations were encodable vs
   deferred? A high deferred rate means the adapter needs structural
   changes before weight tuning can help.
+- **Quarantine summary** (REQUIRED — always include this section,
+  even when zero iters were quarantined):
+
+  ```python
+  from pathlib import Path
+  from scripts.play import ultra_loop_quarantine as q
+  summary = q.summarize_run(Path("logs/<game>_ultra_loop/"))
+  print(q.format_summary(summary))
+  ```
+
+  Render the output verbatim in the report. If any iters were
+  quarantined, end the report with the literal line:
+
+  ```
+  N iterations completed cleanly, M quarantined for review —
+  run /quarantine-review to triage before applying their claims.
+  ```
+
+  This line is load-bearing — it's the explicit reminder that
+  contaminated iters did NOT auto-apply and need human review.
 - **Mode-specific addendum**:
   - Single: list of heuristic exploits the coach patched AND the
     decision-logic changes the encoder added.

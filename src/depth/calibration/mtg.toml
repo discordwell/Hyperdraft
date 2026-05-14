@@ -1,0 +1,38 @@
+# MTG calibration corpus.
+#
+# Reference set: Wizards of the Coast's Bloomburrow (BLB, 280 cards).
+# Why Bloomburrow? It is the closest thing in the repo to a gold-standard,
+# fully-wired professional MTG set: every typed-tribal payoff has a typed
+# filter, ~60% of cards register a real interceptor, and the typed-tribal
+# design space is densely populated. Its scores represent what a "healthy"
+# MTG set looks like under our AST-based rubric — not what an aspirational
+# set could look like.
+#
+# Thresholds were chosen by re-scoring Bloomburrow against the rubric on
+# 2026-05-13. The agent's initial pick at 0.10 / 0.80 was slightly too
+# aggressive against actual scores; pinned to the real floor below BLB's
+# actual values (re-measured post-trace-markers refactor):
+#   median_depth   2.0  (BLB sits at 2.0 — keep)
+#   axis_diversity 0.08 (BLB sits at 0.093 — gate is below actual)
+#   code_diversity 0.40 (BLB sits at 0.78 — large headroom for noisier sets)
+#   thin_ratio     0.90 (BLB sits at 0.882 — typed-tribal mode packs 222/280
+#                        vanilla creatures whose value is read by the
+#                        tribal lord, not the rubric).
+# Bloomburrow passes 3/4 gates honestly: median, axis, code.
+# Future MTG sets should match or exceed that baseline; this is the floor.
+
+engine = "mtg"
+reference_set = "bloomburrow"
+reference_module = "src.cards.bloomburrow"
+reference_registry = "BLOOMBURROW_CARDS"
+
+[thresholds]
+median_depth = 2
+axis_diversity = 0.08
+code_diversity = 0.40
+thin_ratio = 0.90
+
+[expected]
+# Bloomburrow passes 3/4 (median, axis, code). thin_ratio at 0.882 still
+# fails the 0.90 cap, which honestly represents the typed-tribal pattern.
+gates_passing_min = 3

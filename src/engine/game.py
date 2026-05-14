@@ -2112,6 +2112,44 @@ class Game:
 # Card Builder Helpers
 # =============================================================================
 
+
+def _default_fire_markers(
+    name: str,
+    attacks: list | None = None,
+    explicit: frozenset | set | None = None,
+) -> frozenset:
+    """Derive default fire_markers for a card.
+
+    Used by every make_* constructor so the event-trace can detect a card
+    firing without a hand-maintained markers dict drifting out of sync as
+    new cards ship.
+
+    Args:
+        name: Card name — always included as a marker.
+        attacks: Optional list of Pokemon attack dicts ({"name": ...}).
+            Each attack's ``name`` is also included as a marker so the
+            trace catches effects sourced by attacker-instance-ID
+            (the source UUID won't match the card name string, but the
+            attack name will appear in payloads like
+            ``{"source": "Energy Drain", ...}``).
+        explicit: If the caller supplied an explicit set/frozenset of
+            markers, return it directly (frozen). Non-destructive override.
+
+    Returns:
+        A frozenset of marker strings.
+    """
+    if explicit is not None:
+        return frozenset(explicit)
+    markers = {name}
+    if attacks:
+        for atk in attacks:
+            # Tolerate raw dicts (Pokemon attacks) and dict-like objects.
+            atk_name = (atk.get("name") if isinstance(atk, dict) else None)
+            if atk_name:
+                markers.add(atk_name)
+    return frozenset(markers)
+
+
 def make_creature(
     name: str,
     power: int,
@@ -2124,7 +2162,8 @@ def make_creature(
     text: str = "",
     rarity: str = None,
     abilities: list = None,
-    setup_interceptors = None
+    setup_interceptors = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """Helper to create creature card definitions."""
     from .types import CardDefinition, Characteristics
@@ -2144,7 +2183,8 @@ def make_creature(
         text=text,
         rarity=rarity,
         abilities=abilities or [],
-        setup_interceptors=setup_interceptors
+        setup_interceptors=setup_interceptors,
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -2158,6 +2198,7 @@ def make_instant(
     resolve = None,
     setup_interceptors = None,
     target_requirements: list = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """Helper to create instant card definitions.
 
@@ -2184,6 +2225,7 @@ def make_instant(
         resolve=resolve,
         setup_interceptors=setup_interceptors,
         target_requirements=target_requirements,
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -2194,7 +2236,8 @@ def make_spell(
     text: str = "",
     rarity: str = None,
     spell_effect = None,
-    requires_target: bool = False
+    requires_target: bool = False,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """
     Helper to create Hearthstone spell card definitions.
@@ -2222,7 +2265,8 @@ def make_spell(
         rarity=rarity,
         spell_effect=spell_effect,
         requires_target=requires_target,
-        domain="HEARTHSTONE"
+        domain="HEARTHSTONE",
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -2235,7 +2279,8 @@ def make_enchantment(
     text: str = "",
     rarity: str = None,
     abilities: list = None,
-    setup_interceptors = None
+    setup_interceptors = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """Helper to create enchantment card definitions."""
     from .types import CardDefinition, Characteristics
@@ -2253,7 +2298,8 @@ def make_enchantment(
         text=text,
         rarity=rarity,
         abilities=abilities or [],
-        setup_interceptors=setup_interceptors
+        setup_interceptors=setup_interceptors,
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -2266,6 +2312,7 @@ def make_sorcery(
     abilities: list = None,
     resolve = None,
     setup_interceptors = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """Helper to create sorcery card definitions.
 
@@ -2288,6 +2335,7 @@ def make_sorcery(
         abilities=abilities or [],
         resolve=resolve,
         setup_interceptors=setup_interceptors,
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -2302,7 +2350,8 @@ def make_artifact(
     setup_interceptors = None,
     power: int = None,
     toughness: int = None,
-    colors: set = None
+    colors: set = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """Helper to create artifact card definitions.
 
@@ -2325,7 +2374,8 @@ def make_artifact(
         text=text,
         rarity=rarity,
         abilities=abilities or [],
-        setup_interceptors=setup_interceptors
+        setup_interceptors=setup_interceptors,
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -2336,7 +2386,8 @@ def make_land(
     supertypes: set = None,
     rarity: str = None,
     abilities: list = None,
-    setup_interceptors = None
+    setup_interceptors = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """Helper to create land card definitions."""
     from .types import CardDefinition, Characteristics
@@ -2354,7 +2405,8 @@ def make_land(
         text=text,
         rarity=rarity,
         abilities=abilities or [],
-        setup_interceptors=setup_interceptors
+        setup_interceptors=setup_interceptors,
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -2367,7 +2419,8 @@ def make_planeswalker(
     subtypes: set = None,
     rarity: str = None,
     abilities: list = None,
-    setup_interceptors = None
+    setup_interceptors = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """Helper to create planeswalker card definitions."""
     from .types import CardDefinition, Characteristics
@@ -2385,7 +2438,8 @@ def make_planeswalker(
         text=text,
         rarity=rarity,
         abilities=abilities or [],
-        setup_interceptors=setup_interceptors
+        setup_interceptors=setup_interceptors,
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -2399,7 +2453,8 @@ def make_hero(
     starting_life: int = 30,
     text: str = "",
     rarity: str = None,
-    setup_interceptors = None
+    setup_interceptors = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """
     Create a Hearthstone hero card.
@@ -2426,7 +2481,8 @@ def make_hero(
         rarity=rarity,
         abilities=[],
         setup_interceptors=setup_interceptors,
-        domain="HEARTHSTONE"
+        domain="HEARTHSTONE",
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -2435,7 +2491,8 @@ def make_hero_power(
     cost: int = 2,
     text: str = "",
     effect = None,
-    setup_interceptors = None
+    setup_interceptors = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """
     Create a Hearthstone hero power card.
@@ -2507,7 +2564,8 @@ def make_hero_power(
         text=text,
         abilities=[],
         setup_interceptors=hero_power_setup,
-        domain="HEARTHSTONE"
+        domain="HEARTHSTONE",
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -2519,7 +2577,8 @@ def make_weapon(
     text: str = "",
     rarity: str = None,
     abilities: list = None,
-    setup_interceptors = None
+    setup_interceptors = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """
     Create a Hearthstone weapon card.
@@ -2618,7 +2677,8 @@ def make_weapon(
         rarity=rarity,
         abilities=abilities or [],
         setup_interceptors=weapon_setup,
-        domain="HEARTHSTONE"
+        domain="HEARTHSTONE",
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -2634,7 +2694,8 @@ def make_minion(
     keywords: set[str] = None,
     battlecry = None,
     deathrattle = None,
-    setup_interceptors = None
+    setup_interceptors = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """
     Create a Hearthstone minion card.
@@ -2723,7 +2784,8 @@ def make_minion(
         battlecry=battlecry,
         deathrattle=deathrattle,
         setup_interceptors=minion_setup if (battlecry or deathrattle or setup_interceptors or keywords) else None,
-        domain="HEARTHSTONE"
+        domain="HEARTHSTONE",
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -2736,6 +2798,7 @@ def make_secret(
     setup_interceptors = None,
     prevent_trigger_event: bool = False,
     allow_stale_turn_actor: bool = False,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """
     Create a Hearthstone secret card.
@@ -2840,7 +2903,8 @@ def make_secret(
         text=text,
         abilities=[],
         setup_interceptors=secret_setup,
-        domain="HEARTHSTONE"
+        domain="HEARTHSTONE",
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -2868,8 +2932,15 @@ def make_pokemon(
     rarity: str = None,
     setup_interceptors=None,
     image_url: str = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
-    """Helper to create Pokemon card definitions."""
+    """Helper to create Pokemon card definitions.
+
+    ``fire_markers`` defaults to ``{name} | {attack["name"] for attack in attacks}``
+    so the event-trace can detect effects sourced by either the card name
+    OR the attack name (some effects pass ``source=attacker.id`` and the
+    payload's ``source`` slot ends up holding the attack-name string).
+    """
     from .types import CardDefinition, Characteristics
 
     if prize_count is None:
@@ -2900,6 +2971,7 @@ def make_pokemon(
         is_ex=is_ex,
         rule_box=rule_box,
         image_url=image_url,
+        fire_markers=_default_fire_markers(name, attacks=attacks, explicit=fire_markers),
     )
 
 
@@ -2910,6 +2982,7 @@ def make_trainer_item(
     resolve=None,
     setup_interceptors=None,
     image_url: str = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """Helper to create Pokemon Item Trainer card definitions."""
     from .types import CardDefinition, Characteristics
@@ -2926,6 +2999,7 @@ def make_trainer_item(
         setup_interceptors=setup_interceptors,
         domain="PKM",
         image_url=image_url,
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -2935,6 +3009,7 @@ def make_trainer_supporter(
     rarity: str = None,
     resolve=None,
     image_url: str = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """Helper to create Pokemon Supporter Trainer card definitions."""
     from .types import CardDefinition, Characteristics
@@ -2950,6 +3025,7 @@ def make_trainer_supporter(
         resolve=resolve,
         domain="PKM",
         image_url=image_url,
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -2960,6 +3036,7 @@ def make_trainer_stadium(
     resolve=None,
     setup_interceptors=None,
     image_url: str = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """Helper to create Pokemon Stadium Trainer card definitions."""
     from .types import CardDefinition, Characteristics
@@ -2976,6 +3053,7 @@ def make_trainer_stadium(
         setup_interceptors=setup_interceptors,
         domain="PKM",
         image_url=image_url,
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -2985,6 +3063,7 @@ def make_pokemon_tool(
     rarity: str = None,
     setup_interceptors=None,
     image_url: str = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """Helper to create Pokemon Tool card definitions."""
     from .types import CardDefinition, Characteristics
@@ -3000,6 +3079,7 @@ def make_pokemon_tool(
         setup_interceptors=setup_interceptors,
         domain="PKM",
         image_url=image_url,
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -3007,6 +3087,7 @@ def make_basic_energy(
     name: str,
     pokemon_type: str,
     image_url: str = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """Helper to create Basic Energy card definitions."""
     from .types import CardDefinition, Characteristics
@@ -3021,6 +3102,7 @@ def make_basic_energy(
         domain="PKM",
         pokemon_type=pokemon_type,
         image_url=image_url,
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -3048,6 +3130,7 @@ def make_ygo_monster(
     link_arrows: list = None,
     pendulum_scale: int = None,
     image_url: str = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """Helper to create Yu-Gi-Oh! Monster card definitions."""
     from .types import CardDefinition, Characteristics
@@ -3077,6 +3160,7 @@ def make_ygo_monster(
         link_arrows=link_arrows or [],
         pendulum_scale=pendulum_scale,
         image_url=image_url,
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -3088,6 +3172,7 @@ def make_ygo_spell(
     setup_interceptors=None,
     resolve=None,
     image_url: str = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """Helper to create Yu-Gi-Oh! Spell card definitions."""
     from .types import CardDefinition, Characteristics
@@ -3108,6 +3193,7 @@ def make_ygo_spell(
         ygo_spell_type=ygo_spell_type,
         spell_speed=spell_speed,
         image_url=image_url,
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )
 
 
@@ -3119,6 +3205,7 @@ def make_ygo_trap(
     setup_interceptors=None,
     resolve=None,
     image_url: str = None,
+    fire_markers: frozenset | set | None = None,
 ) -> 'CardDefinition':
     """Helper to create Yu-Gi-Oh! Trap card definitions."""
     from .types import CardDefinition, Characteristics
@@ -3139,4 +3226,5 @@ def make_ygo_trap(
         ygo_trap_type=ygo_trap_type,
         spell_speed=spell_speed,
         image_url=image_url,
+        fire_markers=_default_fire_markers(name, explicit=fire_markers),
     )

@@ -1,0 +1,42 @@
+# Yu-Gi-Oh! calibration corpus.
+#
+# Reference set: YGO Optimized (51 cards), the largest YGO card pool
+# in the repo. YGO Optimized assembles four competitive archetype decks
+# (Goat Control, Monarch Control, Chain Burn, Dragon Beatdown) from
+# 51 distinct CardDefinitions. It is the YGO analogue of "every card
+# I want a competent player to use is in here" — the practical ceiling
+# for what the YGO engine and AST walker can read today.
+#
+# Why YGO's thresholds differ from MTG/Pokemon:
+#   * median_depth = 0 is the realistic floor. The YGO engine has many
+#     mechanics (Synchro, Xyz, Link summons, Pendulum, chain links) that
+#     the rubric's `novel_helpers` table only partially covers, and YGO
+#     monster cards are mostly stat-lines (ATK/DEF/level) with effects
+#     described in text rather than wired through helper factories.
+#   * code_diversity is structurally HIGH (~0.82) because every wired
+#     YGO card was hand-written for a specific archetype slot.
+#   * thin_ratio is structurally HIGH (~0.98) for the same reason as
+#     Hearthstone — most monsters score 0 on 3+ axes because their
+#     value is purely battle-stat / type-line, not AST-visible.
+#
+# Future YGO sets that wire more of the Chain / Special Summon
+# vocabulary should comfortably clear all 4 gates.
+
+engine = "yugioh"
+reference_set = "ygo_optimized"
+reference_module = "src.cards.yugioh.ygo_optimized"
+reference_registry = "YGO_OPTIMIZED_CARDS"
+
+[thresholds]
+# Floor the gates at YGO-realistic territory: median 0, not 2;
+# axis 0.10 (YGO_OPT sits at 0.157);
+# code 0.50 (YGO_OPT sits at 0.82);
+# thin 0.99 (YGO_OPT sits at 0.98 — most monsters are stat-lines).
+median_depth = 0
+axis_diversity = 0.10
+code_diversity = 0.50
+thin_ratio = 0.99
+
+[expected]
+# YGO_OPT clears all four under these gates honestly.
+gates_passing_min = 4

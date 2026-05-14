@@ -1281,6 +1281,17 @@ class CardDefinition:
     split_right: Optional[CardFace] = None    # Right half of split card
     back_face: Optional[CardFace] = None      # Back face of MDFC
 
+    # Event-trace fire markers — substrings used by event-trace tools to
+    # detect "this card fired". Defaults to a frozenset containing the card
+    # name (and, for Pokemon, the names of all attacks). Card factories
+    # auto-populate this at construction time, so the trace stays in sync
+    # with the card pool as new cards ship. Override at the call site only
+    # when an effect_fn emits events sourced by a string that isn't already
+    # captured by name / attack-name (rare — see callers of make_pokemon
+    # for examples). Must be a frozenset (mutable defaults aren't allowed
+    # in dataclasses).
+    fire_markers: frozenset = field(default_factory=frozenset)
+
 
 # =============================================================================
 # Game State (forward declaration - full impl in game_state.py)

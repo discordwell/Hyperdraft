@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import statistics
+import tomllib
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -35,26 +36,130 @@ from .axis_scorer import AxisScores, CardScore, score_card
 from .engine_profiles import EngineProfile, get_profile
 
 
-# Health-target thresholds — recalibrated 2026-05-13 against the MTG
-# baseline. The original (median 5, axis_diversity 0.5, code_diversity 0.5,
-# thin_ratio 0.20) were aspirational fictions: every professional MTG set
-# in the repo fails them too — Bloomburrow scores 1/4 (median 2.0,
-# axis 0.100, code 0.743, thin 0.811), Foundations scores 0/4. The gates
-# were calibrated against an imagined design ceiling rather than the
-# actual ceiling of well-designed TCGs.
+# ---------------------------------------------------------------------------
+# Per-engine threshold calibration.
+# ---------------------------------------------------------------------------
 #
-# These new thresholds let Bloomburrow + Wilds of Eldraine pass 3-4 gates
-# (representing healthy MTG design) while Foundations still fails most
-# (representing a starter set with extra vanilla density). BRV passes
-# all four under the new calibration, honestly: it has higher median
-# depth than Bloomburrow (4.0 vs 2.0) and lower thin_ratio (0.57 vs 0.81).
-#
-# See docs/sets/pkm_brv_spice_v1_validation.md for the recalibration
+# Each engine ships a TOML corpus under `src/depth/calibration/<engine>.toml`
+# that declares both the threshold values and a reference set whose actual
+# scores those thresholds were chosen to honor. See those files for the
 # rationale.
+#
+# These module-level constants are the FALLBACK floor for engines that
+# don't yet have a calibration corpus (e.g. brand-new TCG implementations).
+# They mirror the original MTG-baseline calibration recorded in commit
+# 7a982116: median 2, axis 0.10, code 0.40, thin 0.80. Add a corpus file
+# rather than tweaking these — these are an emergency backstop, not the
+# place to pin a new engine's gates.
 MEDIAN_DEPTH_TARGET = 2
 AXIS_DIVERSITY_TARGET = 0.10
 CODE_DIVERSITY_TARGET = 0.40
 THIN_RATIO_MAX = 0.80
+
+
+@dataclass(frozen=True)
+class CalibrationCorpus:
+    """Loaded calibration TOML for one engine.
+
+    Use `load_calibration(engine)` to populate; threshold consumers should
+    read `.thresholds_dict()` rather than the raw fields so future
+    threshold additions stay backward-compatible.
+    """
+
+    engine: str
+    reference_set: str
+    reference_module: str
+    reference_registry: str
+    median_depth: float
+    axis_diversity: float
+    code_diversity: float
+    thin_ratio: float
+    gates_passing_min: int
+    source_path: Optional[Path] = None
+
+    def thresholds_dict(self) -> dict[str, float]:
+        return {
+            "median_depth": self.median_depth,
+            "axis_diversity": self.axis_diversity,
+            "code_diversity": self.code_diversity,
+            "thin_ratio": self.thin_ratio,
+        }
+
+
+_CALIBRATION_DIR = Path(__file__).parent / "calibration"
+_CALIBRATION_CACHE: dict[str, Optional[CalibrationCorpus]] = {}
+
+
+def _fallback_corpus(engine: str) -> CalibrationCorpus:
+    """Engines without a TOML corpus use the module-level defaults."""
+    return CalibrationCorpus(
+        engine=engine,
+        reference_set="",
+        reference_module="",
+        reference_registry="",
+        median_depth=MEDIAN_DEPTH_TARGET,
+        axis_diversity=AXIS_DIVERSITY_TARGET,
+        code_diversity=CODE_DIVERSITY_TARGET,
+        thin_ratio=THIN_RATIO_MAX,
+        gates_passing_min=0,
+        source_path=None,
+    )
+
+
+def load_calibration(engine: str) -> CalibrationCorpus:
+    """Load `<engine>.toml` from `src/depth/calibration/`.
+
+    Returns a fallback corpus pinned to the module-level defaults when the
+    file is missing — this is the path a brand-new engine takes before its
+    reference set has been picked.
+    """
+    key = engine.lower()
+    if key in _CALIBRATION_CACHE:
+        cached = _CALIBRATION_CACHE[key]
+        if cached is not None:
+            return cached
+        return _fallback_corpus(key)
+
+    path = _CALIBRATION_DIR / f"{key}.toml"
+    if not path.is_file():
+        _CALIBRATION_CACHE[key] = None
+        return _fallback_corpus(key)
+
+    with path.open("rb") as f:
+        data = tomllib.load(f)
+
+    thresholds = data.get("thresholds", {})
+    expected = data.get("expected", {})
+
+    corpus = CalibrationCorpus(
+        engine=data.get("engine", key),
+        reference_set=data.get("reference_set", ""),
+        reference_module=data.get("reference_module", ""),
+        reference_registry=data.get("reference_registry", ""),
+        median_depth=float(thresholds.get("median_depth", MEDIAN_DEPTH_TARGET)),
+        axis_diversity=float(thresholds.get("axis_diversity", AXIS_DIVERSITY_TARGET)),
+        code_diversity=float(thresholds.get("code_diversity", CODE_DIVERSITY_TARGET)),
+        thin_ratio=float(thresholds.get("thin_ratio", THIN_RATIO_MAX)),
+        gates_passing_min=int(expected.get("gates_passing_min", 0)),
+        source_path=path,
+    )
+    _CALIBRATION_CACHE[key] = corpus
+    return corpus
+
+
+def list_calibrations() -> list[str]:
+    """Return the names of engines that ship a calibration TOML corpus."""
+    if not _CALIBRATION_DIR.is_dir():
+        return []
+    return sorted(
+        p.stem for p in _CALIBRATION_DIR.glob("*.toml") if p.is_file()
+    )
+
+
+def reset_calibration_cache() -> None:
+    """Drop the in-memory corpus cache. Tests use this to verify edits to
+    a calibration TOML take effect without forcing a full process reload."""
+    _CALIBRATION_CACHE.clear()
 
 
 @dataclass
@@ -243,14 +348,29 @@ def score_registry(
     report.thin_cards = sorted(thin_cards)
     report.thin_ratio = round(len(thin_cards) / max(1, len(per_card)), 3)
 
-    # Health
+    # Health — gates pulled from the per-engine calibration corpus when one
+    # exists, else from the module-level defaults.
+    corpus = load_calibration(engine)
+    median_target = corpus.median_depth
+    axis_target = corpus.axis_diversity
+    code_target = corpus.code_diversity
+    thin_max = corpus.thin_ratio
+
     def verdict(cond: bool) -> str:
         return "PASS" if cond else "FAIL"
+
+    # median_depth: render integer thresholds without ".0" so the header
+    # matches the BLB regression history ("median_depth >= 2").
+    if float(median_target).is_integer():
+        median_label = f"median_depth >= {int(median_target)}"
+    else:
+        median_label = f"median_depth >= {median_target:g}"
+
     report.health_checks = {
-        f"median_depth >= {MEDIAN_DEPTH_TARGET}": verdict(report.median_total >= MEDIAN_DEPTH_TARGET),
-        f"axis_diversity >= {AXIS_DIVERSITY_TARGET:.2f}": verdict(report.axis_diversity >= AXIS_DIVERSITY_TARGET),
-        f"code_diversity >= {CODE_DIVERSITY_TARGET:.2f}": verdict(report.code_diversity >= CODE_DIVERSITY_TARGET),
-        f"thin_ratio <= {THIN_RATIO_MAX:.2f}": verdict(report.thin_ratio <= THIN_RATIO_MAX),
+        median_label: verdict(report.median_total >= median_target),
+        f"axis_diversity >= {axis_target:.2f}": verdict(report.axis_diversity >= axis_target),
+        f"code_diversity >= {code_target:.2f}": verdict(report.code_diversity >= code_target),
+        f"thin_ratio <= {thin_max:.2f}": verdict(report.thin_ratio <= thin_max),
     }
     return report
 
@@ -285,6 +405,10 @@ _KNOWN_SETS: dict[str, tuple[str, str, str]] = {
     "MKM": ("mtg", "src.cards.murders_karlov_manor", "MURDERS_KARLOV_MANOR_CARDS"),
     "FDN": ("mtg", "src.cards.foundations", "FOUNDATIONS_CARDS"),
     "LCI": ("mtg", "src.cards.lost_caverns_ixalan", "LOST_CAVERNS_IXALAN_CARDS"),
+    "STORMRIFT": ("hearthstone", "src.cards.hearthstone.stormrift", "STORMRIFT_CARDS"),
+    "YGO_OPT": ("yugioh", "src.cards.yugioh.ygo_optimized", "YGO_OPTIMIZED_CARDS"),
+    "YGO_CLASSIC": ("yugioh", "src.cards.yugioh.ygo_classic", "YGO_CLASSIC_CARDS"),
+    "YGO_STARTER": ("yugioh", "src.cards.yugioh.ygo_starter", "YGO_STARTER_CARDS"),
 }
 
 

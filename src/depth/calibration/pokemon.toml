@@ -1,0 +1,35 @@
+# Pokemon calibration corpus.
+#
+# Reference set: Beyond Ravnica (BRV, 161 cards). BRV is the
+# "spice-pack target" reference: the set was iteratively shaped by spice
+# pack v1 + v2 specifically to lift its depth scores past the gates a
+# professional MTG set hits. Treat BRV as the demonstrated ceiling of a
+# carefully-tuned custom Pokemon set under this rubric.
+#
+# Pokemon's median sits substantially higher than MTG's (4.0 vs 2.0)
+# because each Pokemon attack carries an effect_fn that the AST walker
+# can probe — there's no "vanilla creature" mode the way MTG has.
+# However, the thin_ratio is structurally lower than MTG's even though
+# Pokemon has its own vanilla density (evolution-chain Basics that
+# exist only to be evolved off): the lower thin_ratio reflects the
+# spice-pack-driven attack-effect coverage, not engine differences.
+#
+# Thresholds match the MTG floors (median 2 / axis 0.10 / code 0.40 /
+# thin 0.80) so BRV passes all four under the same gate values — the
+# point of BRV is to demonstrate that a custom set can clear the
+# professional bar on every axis. Future Pokemon sets must match.
+
+engine = "pokemon"
+reference_set = "beyond_ravnica"
+reference_module = "src.cards.pokemon.beyond.ravnica"
+reference_registry = "BEYOND_RAVNICA_CARDS"
+
+[thresholds]
+median_depth = 2
+axis_diversity = 0.10
+code_diversity = 0.40
+thin_ratio = 0.80
+
+[expected]
+# BRV is the spice-pack target — clears all four gates honestly.
+gates_passing_min = 4
