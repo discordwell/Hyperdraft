@@ -46,6 +46,11 @@ from src.cards.interceptor_helpers import (
     make_castable_from_exile,
     make_castable_from_library_top,
 )
+from src.engine.targeting import (
+    TargetRequirement, TargetFilter,
+    target_creature, target_any, target_player, target_spell,
+    permanent_filter, creature_filter, card_in_graveyard_filter,
+)
 
 
 # =============================================================================
@@ -6366,6 +6371,7 @@ ARCHONS_GLORY = make_instant(
     colors={Color.WHITE},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nTarget creature gets +2/+2 until end of turn. If this spell was bargained, that creature also gains flying and lifelink until end of turn.",
     resolve=archons_glory_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 ARMORY_MICE = make_creature(
@@ -6392,6 +6398,10 @@ BREAK_THE_SPELL = make_instant(
     colors={Color.WHITE},
     text="Destroy target enchantment. If a permanent you controlled or a token was destroyed this way, draw a card.",
     resolve=break_the_spell_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(types={CardType.ENCHANTMENT}),
+        count=1, label="target enchantment",
+    )],
 )
 
 CHARMED_CLOTHIER = make_creature(
@@ -6506,6 +6516,9 @@ KELLANS_LIGHTBLADES = make_instant(
     colors={Color.WHITE},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nKellan's Lightblades deals 3 damage to target attacking or blocking creature. If this spell was bargained, destroy that creature instead.",
     resolve=kellans_lightblades_resolve,
+    # NOTE: filter doesn't enforce "attacking or blocking" yet — engine has no
+    # boolean for that across all phases. Approximate with target_creature.
+    target_requirements=[target_creature(count=1)],
 )
 
 KNIGHT_OF_DOVES = make_creature(
@@ -6542,6 +6555,11 @@ PLUNGE_INTO_WINTER = make_instant(
     colors={Color.WHITE},
     text="Tap up to one target creature. Scry 1, then draw a card.",
     resolve=plunge_into_winter_resolve,
+    target_requirements=[TargetRequirement(
+        filter=creature_filter(),
+        count=1, count_type='up_to', optional=True,
+        label="up to one target creature",
+    )],
 )
 
 THE_PRINCESS_TAKES_FLIGHT = make_enchantment(
@@ -6644,6 +6662,13 @@ STROKE_OF_MIDNIGHT = make_instant(
     colors={Color.WHITE},
     text="Destroy target nonland permanent. Its controller creates a 1/1 white Human creature token.",
     resolve=stroke_of_midnight_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(types={
+            CardType.CREATURE, CardType.ARTIFACT,
+            CardType.ENCHANTMENT, CardType.PLANESWALKER,
+        }),
+        count=1, label="target nonland permanent",
+    )],
 )
 
 A_TALE_FOR_THE_AGES = make_enchantment(
@@ -6803,6 +6828,7 @@ DISDAINFUL_STROKE = make_instant(
     colors={Color.BLUE},
     text="Counter target spell with mana value 4 or greater.",
     resolve=disdainful_stroke_resolve,
+    target_requirements=[target_spell(mana_value_min=4)],
 )
 
 EXTRAORDINARY_JOURNEY = make_enchantment(
@@ -6827,6 +6853,7 @@ FREEZE_IN_PLACE = make_sorcery(
     colors={Color.BLUE},
     text="Tap target creature an opponent controls and put three stun counters on it. Scry 2. (If a permanent with a stun counter would become untapped, remove one from it instead.)",
     resolve=freeze_in_place_resolve,
+    target_requirements=[target_creature(controller='opponent')],
 )
 
 GADWICKS_FIRST_DUEL = make_enchantment(
@@ -6862,6 +6889,7 @@ ICE_OUT = make_instant(
     colors={Color.BLUE},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nThis spell costs {1} less to cast if it's bargained.\nCounter target spell.",
     resolve=ice_out_resolve,
+    target_requirements=[target_spell()],
 )
 
 ICEWROUGHT_SENTRY = make_creature(
@@ -6898,6 +6926,13 @@ JOHANNS_STOPGAP = make_sorcery(
     colors={Color.BLUE},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nThis spell costs {2} less to cast if it's bargained.\nReturn target nonland permanent to its owner's hand. Draw a card.",
     resolve=johanns_stopgap_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(types={
+            CardType.CREATURE, CardType.ARTIFACT,
+            CardType.ENCHANTMENT, CardType.PLANESWALKER,
+        }),
+        count=1, label="target nonland permanent",
+    )],
 )
 
 LIVING_LECTERN = make_artifact_creature(
@@ -6926,6 +6961,7 @@ MISLEADING_MOTES = make_instant(
     colors={Color.BLUE},
     text="Target creature's owner puts it on their choice of the top or bottom of their library.",
     resolve=misleading_motes_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 MOCKING_SPRITE = make_creature(
@@ -7025,6 +7061,11 @@ SUCCUMB_TO_THE_COLD = make_instant(
     colors={Color.BLUE},
     text="Tap one or two target creatures an opponent controls. Put a stun counter on each of them. (If a permanent with a stun counter would become untapped, remove one from it instead.)",
     resolve=succumb_to_the_cold_resolve,
+    target_requirements=[TargetRequirement(
+        filter=creature_filter(controller='opponent'),
+        count=2, count_type='up_to',
+        label="one or two target creatures an opponent controls",
+    )],
 )
 
 TALIONS_MESSENGER = make_creature(
@@ -7075,6 +7116,7 @@ WATER_WINGS = make_instant(
     colors={Color.BLUE},
     text="Until end of turn, target creature you control has base power and toughness 4/4 and gains flying and hexproof. (It can't be the target of spells or abilities your opponents control.)",
     resolve=water_wings_resolve,
+    target_requirements=[target_creature(controller='you')],
 )
 
 ASHIOK_WICKED_MANIPULATOR = make_planeswalker(
@@ -7104,6 +7146,13 @@ BACK_FOR_SECONDS = make_sorcery(
     colors={Color.BLACK},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nReturn up to two target creature cards from your graveyard to your hand. If this spell was bargained, you may put one of those cards with mana value 4 or less onto the battlefield instead of putting it into your hand.",
     resolve=back_for_seconds_resolve,
+    target_requirements=[TargetRequirement(
+        filter=card_in_graveyard_filter(
+            types={CardType.CREATURE}, controller='you',
+        ),
+        count=2, count_type='up_to',
+        label="up to two target creature cards from your graveyard",
+    )],
 )
 
 BARROW_NAUGHTY = make_creature(
@@ -7130,6 +7179,7 @@ CANDY_GRAPPLE = make_instant(
     colors={Color.BLACK},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nTarget creature gets -3/-3 until end of turn. If this spell was bargained, that creature gets -5/-5 until end of turn instead.",
     resolve=candy_grapple_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 CONCEITED_WITCH = make_creature(
@@ -7157,6 +7207,7 @@ EGO_DRAIN = make_sorcery(
     colors={Color.BLACK},
     text="Target opponent reveals their hand. You choose a nonland card from it. That player discards that card. If you don't control a Faerie, exile a card from your hand.",
     resolve=ego_drain_resolve,
+    target_requirements=[target_player(controller='opponent')],
 )
 
 THE_END = make_instant(
@@ -7165,6 +7216,10 @@ THE_END = make_instant(
     colors={Color.BLACK},
     text="This spell costs {2} less to cast if your life total is 5 or less.\nExile target creature or planeswalker. Search its controller's graveyard, hand, and library for any number of cards with the same name as that permanent and exile them. That player shuffles, then draws a card for each card exiled from their hand this way.",
     resolve=the_end_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(types={CardType.CREATURE, CardType.PLANESWALKER}),
+        count=1, label="target creature or planeswalker",
+    )],
 )
 
 ERIETTES_WHISPER = make_sorcery(
@@ -7190,6 +7245,7 @@ FAERIE_FENCING = make_instant(
     colors={Color.BLACK},
     text="Target creature gets -X/-X until end of turn. That creature gets an additional -3/-3 until end of turn if you controlled a Faerie as you cast this spell.",
     resolve=faerie_fencing_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 FEED_THE_CAULDRON = make_instant(
@@ -7198,6 +7254,7 @@ FEED_THE_CAULDRON = make_instant(
     colors={Color.BLACK},
     text="Destroy target creature with mana value 3 or less. If it's your turn, create a Food token. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")",
     resolve=feed_the_cauldron_resolve,
+    target_requirements=[target_creature(mana_value_max=3)],
 )
 
 FELL_HORSEMAN = make_creature(
@@ -7288,6 +7345,7 @@ NOT_DEAD_AFTER_ALL = make_instant(
     colors={Color.BLACK},
     text="Until end of turn, target creature you control gains \"When this creature dies, return it to the battlefield tapped under its owner's control, then create a Wicked Role token attached to it.\" (Enchanted creature gets +1/+1. When this token is put into a graveyard, each opponent loses 1 life.)",
     resolve=not_dead_after_all_resolve,
+    target_requirements=[target_creature(controller='you')],
 )
 
 def _rankles_prank_mode_discard(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
@@ -7342,6 +7400,11 @@ RAT_OUT = make_instant(
     colors={Color.BLACK},
     text="Up to one target creature gets -1/-1 until end of turn. You create a 1/1 black Rat creature token with \"This token can't block.\"",
     resolve=rat_out_resolve,
+    target_requirements=[TargetRequirement(
+        filter=creature_filter(),
+        count=1, count_type='up_to', optional=True,
+        label="up to one target creature",
+    )],
 )
 
 ROWANS_GRIM_SEARCH = make_instant(
@@ -7405,6 +7468,7 @@ SUGAR_RUSH = make_instant(
     colors={Color.BLACK},
     text="Target creature gets +3/+0 until end of turn.\nDraw a card.",
     resolve=sugar_rush_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 SWEETTOOTH_WITCH = make_creature(
@@ -7423,6 +7487,7 @@ TAKEN_BY_NIGHTMARES = make_instant(
     colors={Color.BLACK},
     text="Exile target creature. If you control an enchantment, scry 2.",
     resolve=taken_by_nightmares_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 TANGLED_COLONY = make_creature(
@@ -7603,6 +7668,7 @@ FLICK_A_COIN = make_instant(
     colors={Color.RED},
     text="Flick a Coin deals 1 damage to any target. You create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")\nDraw a card.",
     resolve=flick_a_coin_resolve,
+    target_requirements=[target_any(count=1)],
 )
 
 FOOD_FIGHT = make_enchantment(
@@ -7619,6 +7685,7 @@ FRANTIC_FIREBOLT = make_instant(
     colors={Color.RED},
     text="Frantic Firebolt deals X damage to target creature, where X is 2 plus the number of cards in your graveyard that are instant cards, sorcery cards, and/or have an Adventure.",
     resolve=frantic_firebolt_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 GNAWING_CRESCENDO = make_instant(
@@ -7693,6 +7760,7 @@ KINDLED_HEROISM = make_instant(
     colors={Color.RED},
     text="Target creature gets +1/+0 and gains first strike until end of turn. Scry 1.",
     resolve=kindled_heroism_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 KORVOLD_AND_THE_NOBLE_THIEF = make_enchantment(
@@ -7729,6 +7797,7 @@ MONSTROUS_RAGE = make_instant(
     colors={Color.RED},
     text="Target creature gets +2/+0 until end of turn. Create a Monster Role token attached to it. (If you control another Role on it, put that one into the graveyard. Enchanted creature gets +1/+1 and has trample.)",
     resolve=monstrous_rage_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 RAGING_BATTLE_MOUSE = make_creature(
@@ -7814,6 +7883,10 @@ STONESPLITTER_BOLT = make_instant(
     colors={Color.RED},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nStonesplitter Bolt deals X damage to target creature or planeswalker. If this spell was bargained, it deals twice X damage to that permanent instead.",
     resolve=stonesplitter_bolt_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(types={CardType.CREATURE, CardType.PLANESWALKER}),
+        count=1, label="target creature or planeswalker",
+    )],
 )
 
 TATTERED_RATTER = make_creature(
@@ -7832,6 +7905,10 @@ TORCH_THE_TOWER = make_instant(
     colors={Color.RED},
     text="Bargain (You may sacrifice an artifact, enchantment, or token as you cast this spell.)\nTorch the Tower deals 2 damage to target creature or planeswalker. If this spell was bargained, instead it deals 3 damage to that permanent and you scry 1.\nIf a permanent dealt damage by Torch the Tower would die this turn, exile it instead.",
     resolve=torch_the_tower_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(types={CardType.CREATURE, CardType.PLANESWALKER}),
+        count=1, label="target creature or planeswalker",
+    )],
 )
 
 def twisted_fealty_resolve(targets: list, state: GameState) -> list[Event]:
@@ -7933,6 +8010,7 @@ WITCHSTALKER_FRENZY = make_instant(
     colors={Color.RED},
     text="This spell costs {1} less to cast for each creature that attacked this turn.\nWitchstalker Frenzy deals 5 damage to target creature.",
     resolve=witchstalker_frenzy_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 AGATHAS_CHAMPION = make_creature(
@@ -8138,6 +8216,7 @@ LEAPING_AMBUSH = make_instant(
     colors={Color.GREEN},
     text="Target creature gets +1/+3 and gains reach until end of turn. Untap it.",
     resolve=leaping_ambush_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 NIGHT_OF_THE_SWEETS_REVENGE = make_enchantment(
@@ -8248,6 +8327,7 @@ ROYAL_TREATMENT = make_instant(
     colors={Color.GREEN},
     text="Target creature you control gains hexproof until end of turn. Create a Royal Role token attached to that creature. (If you control another Role on it, put that one into the graveyard. Enchanted creature gets +1/+1 and has ward {1}.)",
     resolve=royal_treatment_resolve,
+    target_requirements=[target_creature(controller='you')],
 )
 
 SENTINEL_OF_LOST_LORE = make_creature(
@@ -8320,6 +8400,7 @@ TITANIC_GROWTH = make_instant(
     colors={Color.GREEN},
     text="Target creature gets +4/+4 until end of turn.",
     resolve=titanic_growth_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 TOADSTOOL_ADMIRER = make_creature(

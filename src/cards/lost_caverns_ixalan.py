@@ -36,6 +36,11 @@ from src.cards.interceptor_helpers import (
     make_modal_resolve,
     make_equipment_setup,
 )
+from src.engine.targeting import (
+    TargetRequirement, TargetFilter,
+    target_creature, target_any, target_player, target_spell,
+    permanent_filter, creature_filter, card_in_graveyard_filter,
+)
 
 
 def _make_typecycling_setup(mana_cost: str, land_subtype):
@@ -5160,6 +5165,7 @@ ACROBATIC_LEAP = make_instant(
     colors={Color.WHITE},
     text="Target creature gets +1/+3 and gains flying until end of turn. Untap it.",
     resolve=acrobatic_leap_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 ADAPTIVE_GEMGUARD = make_artifact_creature(
@@ -5203,6 +5209,8 @@ COSMIUM_BLAST = make_instant(
     colors={Color.WHITE},
     text="Cosmium Blast deals 4 damage to target attacking or blocking creature.",
     resolve=cosmium_blast_resolve,
+    # NOTE: filter approximates "attacking or blocking" with target_creature.
+    target_requirements=[target_creature(count=1)],
 )
 
 DAUNTLESS_DISMANTLER = make_creature(
@@ -5298,6 +5306,12 @@ GET_LOST = make_instant(
     colors={Color.WHITE},
     text="Destroy target creature, enchantment, or planeswalker. Its controller creates two Map tokens. (They're artifacts with \"{1}, {T}, Sacrifice this token: Target creature you control explores. Activate only as a sorcery.\")",
     resolve=get_lost_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(types={
+            CardType.CREATURE, CardType.ENCHANTMENT, CardType.PLANESWALKER,
+        }),
+        count=1, label="target creature, enchantment, or planeswalker",
+    )],
 )
 
 GLORIFIER_OF_SUFFERING = make_creature(
@@ -5459,6 +5473,7 @@ QUICKSAND_WHIRLPOOL = make_instant(
     colors={Color.WHITE},
     text="This spell costs {3} less to cast if it targets a tapped creature.\nExile target creature.",
     resolve=quicksand_whirlpool_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 RESPLENDENT_ANGEL = make_creature(
@@ -5596,6 +5611,7 @@ BRACKISH_BLUNDER = make_instant(
     colors={Color.BLUE},
     text="Return target creature to its owner's hand. If it was tapped, create a Map token. (It's an artifact with \"{1}, {T}, Sacrifice this token: Target creature you control explores. Activate only as a sorcery.\")",
     resolve=brackish_blunder_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 BRAIDED_NET = make_artifact(
@@ -5853,6 +5869,7 @@ OUT_OF_AIR = make_instant(
     colors={Color.BLUE},
     text="This spell costs {2} less to cast if it targets a creature spell.\nCounter target spell.",
     resolve=out_of_air_resolve,
+    target_requirements=[target_spell()],
 )
 
 PIRATE_HAT = make_artifact(
@@ -5869,6 +5886,10 @@ RELICS_ROAR = make_instant(
     colors={Color.BLUE},
     text="Until end of turn, target artifact or creature becomes a Dinosaur artifact creature with base power and toughness 4/3 in addition to its other types.",
     resolve=relics_roar_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(types={CardType.ARTIFACT, CardType.CREATURE}),
+        count=1, label="target artifact or creature",
+    )],
 )
 
 RIVER_HERALD_SCOUT = make_creature(
@@ -6129,6 +6150,10 @@ BITTER_TRIUMPH = make_instant(
     colors={Color.BLACK},
     text="As an additional cost to cast this spell, discard a card or pay 3 life.\nDestroy target creature or planeswalker.",
     resolve=bitter_triumph_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(types={CardType.CREATURE, CardType.PLANESWALKER}),
+        count=1, label="target creature or planeswalker",
+    )],
 )
 
 BLOODLETTER_OF_ACLAZOTZ = make_creature(
@@ -6301,6 +6326,7 @@ JOIN_THE_DEAD = make_instant(
     colors={Color.BLACK},
     text="Target creature gets -5/-5 until end of turn.\nDescend 4 — That creature gets -10/-10 until end of turn instead if there are four or more permanent cards in your graveyard.",
     resolve=join_the_dead_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 MALICIOUS_ECLIPSE = make_sorcery(
@@ -6364,6 +6390,13 @@ RAY_OF_RUIN = make_sorcery(
     colors={Color.BLACK},
     text="Exile target creature, Vehicle, or nonbasic land. Scry 1. (Look at the top card of your library. You may put that card on the bottom.)",
     resolve=ray_of_ruin_resolve,
+    # Approximation: filter accepts CREATURE or LAND. "Vehicle" is an
+    # artifact subtype, and "nonbasic" is a supertype check the engine
+    # doesn't expose; we leave the resolve to enforce the precise rule.
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(types={CardType.CREATURE, CardType.LAND, CardType.ARTIFACT}),
+        count=1, label="target creature, Vehicle, or nonbasic land",
+    )],
 )
 
 SCREAMING_PHANTOM = make_creature(
@@ -6828,6 +6861,7 @@ RUMBLING_ROCKSLIDE = make_sorcery(
     colors={Color.RED},
     text="Rumbling Rockslide deals damage to target creature equal to the number of lands you control.",
     resolve=rumbling_rockslide_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 SAHEELIS_LATTICE = make_artifact_creature(
@@ -6891,6 +6925,7 @@ TRIUMPHANT_CHOMP = make_sorcery(
     colors={Color.RED},
     text="Triumphant Chomp deals damage to target creature equal to 2 or the greatest power among Dinosaurs you control, whichever is greater.",
     resolve=triumphant_chomp_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 TRUMPETING_CARNOSAUR = make_creature(
@@ -7002,6 +7037,10 @@ DISTURBED_SLUMBER = make_instant(
     colors={Color.GREEN},
     text="Until end of turn, target land you control becomes a 4/4 Dinosaur creature with reach and haste. It's still a land. It must be blocked this turn if able.",
     resolve=disturbed_slumber_resolve,
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(types={CardType.LAND}, controller='you'),
+        count=1, label="target land you control",
+    )],
 )
 
 EARTHSHAKER_DREADMAW = make_creature(
@@ -7418,6 +7457,7 @@ STAGGERING_SIZE = make_instant(
     colors={Color.GREEN},
     text="Target creature gets +3/+3 and gains trample until end of turn.",
     resolve=staggering_size_resolve,
+    target_requirements=[target_creature(count=1)],
 )
 
 TENDRIL_OF_THE_MYCOTYRANT = make_creature(
