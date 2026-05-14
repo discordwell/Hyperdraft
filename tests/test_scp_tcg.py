@@ -2604,6 +2604,467 @@ def test_ai_heuristic_pick_drives_legacy_behavior_for_lure():
 
 
 # ---------------------------------------------------------------------------
+# Residual-migration tests: cards moved from deterministic-pick to
+# PendingChoice in this batch. Each card gets three coverage points: human
+# path (choice stays pending, returns []), AI path (heuristic preserves
+# legacy behavior 1:1), and empty-candidate short-circuit (no choice).
+# ---------------------------------------------------------------------------
+
+
+def test_carbon_copy_reveal_emits_pending_choice_for_human():
+    """SZB Carbon Copy Ghost reveal hook: human player gets a pending_choice."""
+    from src.cards.scp.mechanics.szb_bespoke import _carbon_copy_reveal
+
+    game, p1, _p2 = _setup()
+    # All three anomalies have red_tape >= 2 and no seal_default, so they
+    # stay pending after open_dossier — populating the recipient pool.
+    pending_a = _hand_card(game, p1, "Borrowed Moon")
+    pending_b = _hand_card(game, p1, "The Concrete Saint")
+    pending_c = _hand_card(game, p1, "Oracle Mold")
+    assert scp.open_dossier(game, p1.id, pending_a.id)[0]
+    assert scp.open_dossier(game, p1.id, pending_b.id)[0]
+    assert scp.open_dossier(game, p1.id, pending_c.id)[0]
+    pending_a.state.scp_paperwork = 5  # donor
+    pending_b.state.scp_paperwork = 3  # legacy recipient
+    pending_c.state.scp_paperwork = 1  # alternate recipient
+
+    ghost = _hand_card(game, p1, "SZB Carbon Copy Ghost Anomaly")
+    hook = _carbon_copy_reveal()
+    events = hook(ghost, game.state)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    # The donor (highest paperwork) is excluded from the recipient pool.
+    assert pending_a.id not in option_ids
+    assert {pending_b.id, pending_c.id}.issubset(option_ids)
+    # Heuristic preserves the legacy second-highest pick (pending_b).
+    assert pc.callback_data.get("heuristic_pick") == [pending_b.id]
+
+
+def test_carbon_copy_reveal_ai_path_matches_legacy_pick():
+    """Carbon Copy Ghost with AI registered: legacy second-highest recipient resolved."""
+    from src.cards.scp.mechanics.szb_bespoke import _carbon_copy_reveal
+
+    game, p1, _p2 = _setup()
+    game.turn_manager.set_ai_player(p1.id)
+    pending_a = _hand_card(game, p1, "Borrowed Moon")
+    pending_b = _hand_card(game, p1, "The Concrete Saint")
+    assert scp.open_dossier(game, p1.id, pending_a.id)[0]
+    assert scp.open_dossier(game, p1.id, pending_b.id)[0]
+    pending_a.state.scp_paperwork = 4
+    pending_b.state.scp_paperwork = 1
+    before_b = pending_b.state.scp_paperwork
+
+    ghost = _hand_card(game, p1, "SZB Carbon Copy Ghost Anomaly")
+    hook = _carbon_copy_reveal()
+    events = hook(ghost, game.state)
+    assert game.state.pending_choice is None
+    # The recipient (pending_b) gained the donor's paperwork count.
+    assert pending_b.state.scp_paperwork == before_b + pending_a.state.scp_paperwork
+    assert any(
+        event.type == EventType.SCP_PAPERWORK_TICK
+        and event.payload.get("donor_id") == pending_a.id
+        and event.payload.get("object_id") == pending_b.id
+        for event in events
+    )
+
+
+def test_carbon_copy_reveal_fewer_than_two_pending_short_circuits():
+    """Carbon Copy Ghost reveal with <2 pending dossiers: no choice, no events."""
+    from src.cards.scp.mechanics.szb_bespoke import _carbon_copy_reveal
+
+    game, p1, _p2 = _setup()
+    only = _hand_card(game, p1, "Borrowed Moon")
+    assert scp.open_dossier(game, p1.id, only.id)[0]
+    ghost = _hand_card(game, p1, "SZB Carbon Copy Ghost Anomaly")
+    hook = _carbon_copy_reveal()
+    events = hook(ghost, game.state)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+def test_paired_vault_test_emits_pending_choice_for_human():
+    """SZB Paired Vault test-success hook emits a pending_choice over hand mates."""
+    from src.cards.scp.mechanics.szb_bespoke import _paired_vault_test
+
+    game, p1, _p2 = _setup()
+    # The Paired Vault anomaly itself (will be the obj at test time).
+    vault = _hand_card(game, p1, "SZB Paired Vault Anomaly")
+    # Two subtype-matched hand mates and one non-match.
+    mate_a = _hand_card(game, p1, "SZB Silver Lattice Anomaly")
+    mate_b = _hand_card(game, p1, "SZB Counter-God Anomaly")
+    non_match = _hand_card(game, p1, "Borrowed Moon")
+    _force_active_status(vault, game, p1.id)
+
+    hook = _paired_vault_test()
+    events = hook(vault, game.state)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    # Both subtype matches appear; non-match is filtered out.
+    assert {mate_a.id, mate_b.id}.issubset(option_ids)
+    assert non_match.id not in option_ids
+    # Heuristic: highest curiosity (legacy auto-pick).
+    expected = max(
+        [mate_a, mate_b],
+        key=lambda x: int(getattr(x.card_def, "scp_curiosity", 0) or 0),
+    )
+    assert pc.callback_data.get("heuristic_pick") == [expected.id]
+
+
+def test_paired_vault_test_ai_path_matches_legacy_pick():
+    """Paired Vault test-success with AI registered: legacy fast-track lands on max curiosity."""
+    from src.cards.scp.mechanics.szb_bespoke import _paired_vault_test
+
+    game, p1, _p2 = _setup()
+    game.turn_manager.set_ai_player(p1.id)
+    vault = _hand_card(game, p1, "SZB Paired Vault Anomaly")
+    mate_a = _hand_card(game, p1, "SZB Silver Lattice Anomaly")
+    mate_b = _hand_card(game, p1, "SZB Counter-God Anomaly")
+    _force_active_status(vault, game, p1.id)
+
+    hook = _paired_vault_test()
+    events = hook(vault, game.state)
+    assert game.state.pending_choice is None
+    # The legacy pick wrote scp_paperwork=0 + scp_paired_vault_fast_track=True
+    # on the highest-curiosity hand mate.
+    expected = max(
+        [mate_a, mate_b],
+        key=lambda x: int(getattr(x.card_def, "scp_curiosity", 0) or 0),
+    )
+    assert expected.state.scp_paperwork == 0
+    assert getattr(expected.state, "scp_paired_vault_fast_track", False) is True
+    assert any(
+        event.type == EventType.SCP_INCIDENT_RESOLVED
+        and event.payload.get("reason") == "paired_vault_fast_track"
+        and event.payload.get("target_id") == expected.id
+        for event in events
+    )
+
+
+def test_paired_vault_test_no_candidates_short_circuits():
+    """Paired Vault test-success with no subtype-matched mates: no choice, no events."""
+    from src.cards.scp.mechanics.szb_bespoke import _paired_vault_test
+
+    game, p1, _p2 = _setup()
+    vault = _hand_card(game, p1, "SZB Paired Vault Anomaly")
+    # Only a non-matching anomaly in hand.
+    _hand_card(game, p1, "Borrowed Moon")
+    _force_active_status(vault, game, p1.id)
+
+    hook = _paired_vault_test()
+    events = hook(vault, game.state)
+    assert events == []
+    assert game.state.pending_choice is None
+
+
+def test_mnr_mnestic_quarantine_emits_pending_choice_for_human():
+    """MNR Mnestic Quarantine: human picks which opposing active anomaly is shifted to cryptic."""
+    from src.cards.scp.mnestic_reset.szb_callbacks import _mnestic_quarantine
+
+    game, p1, p2 = _setup()
+    opp_a = _hand_card(game, p2, "Moth in the Camera")
+    opp_b = _hand_card(game, p2, "SZB Counter-God Anomaly")
+    _force_active_status(opp_a, game, p2.id)
+    _force_active_status(opp_b, game, p2.id)
+
+    procedure = _hand_card(game, p1, "MNR Mnestic Quarantine")
+    events = _mnestic_quarantine(procedure, game.state, game=game)
+    # The Redact step may emit events; the mood-shift choice is still pending.
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert {opp_a.id, opp_b.id}.issubset(option_ids)
+    expected = max(
+        [opp_a, opp_b],
+        key=lambda x: int(getattr(x.card_def, "scp_hazard", 0) or 0),
+    )
+    assert pc.callback_data.get("heuristic_pick") == [expected.id]
+
+
+def test_mnr_mnestic_quarantine_ai_path_shifts_legacy_target():
+    """Mnestic Quarantine with AI: legacy max-hazard target gets mood=cryptic."""
+    from src.cards.scp.mnestic_reset.szb_callbacks import _mnestic_quarantine
+
+    game, p1, p2 = _setup()
+    game.turn_manager.set_ai_player(p1.id)
+    opp_a = _hand_card(game, p2, "Moth in the Camera")
+    opp_b = _hand_card(game, p2, "SZB Counter-God Anomaly")
+    _force_active_status(opp_a, game, p2.id)
+    _force_active_status(opp_b, game, p2.id)
+
+    procedure = _hand_card(game, p1, "MNR Mnestic Quarantine")
+    events = _mnestic_quarantine(procedure, game.state, game=game)
+    assert game.state.pending_choice is None
+    expected = max(
+        [opp_a, opp_b],
+        key=lambda x: int(getattr(x.card_def, "scp_hazard", 0) or 0),
+    )
+    assert expected.state.scp_mood == "cryptic"
+    assert any(
+        event.type == EventType.SCP_MOOD_SHIFT
+        and event.payload.get("object_id") == expected.id
+        and event.payload.get("to") == "cryptic"
+        for event in events
+    )
+
+
+def test_mnr_mnestic_quarantine_no_opposing_active_short_circuits():
+    """Mnestic Quarantine with no opposing active anomalies: no mood-shift choice."""
+    from src.cards.scp.mnestic_reset.szb_callbacks import _mnestic_quarantine
+
+    game, p1, _p2 = _setup()
+    procedure = _hand_card(game, p1, "MNR Mnestic Quarantine")
+    events = _mnestic_quarantine(procedure, game.state, game=game)
+    assert game.state.pending_choice is None
+    # The Redact step may still have emitted events but no mood-shift event.
+    assert not any(event.type == EventType.SCP_MOOD_SHIFT for event in events)
+
+
+def test_mnr_memory_holed_audit_emits_pending_choice_for_human():
+    """MNR Memory-Holed Audit: human picks which opposing pending dossier gets +2 paperwork."""
+    from src.cards.scp.mnestic_reset.szb_callbacks import _memory_holed_audit
+
+    game, p1, p2 = _setup()
+    pending_a = _hand_card(game, p2, "Borrowed Moon")
+    pending_b = _hand_card(game, p2, "Antimemetic Orchard")
+    assert scp.open_dossier(game, p2.id, pending_a.id)[0]
+    assert scp.open_dossier(game, p2.id, pending_b.id)[0]
+    pending_a.state.scp_paperwork = 4
+    pending_b.state.scp_paperwork = 2
+
+    procedure = _hand_card(game, p1, "MNR Memory-Holed Audit")
+    events = _memory_holed_audit(procedure, game.state, game=game)
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert {pending_a.id, pending_b.id}.issubset(option_ids)
+    # Heuristic: highest-paperwork pending (legacy auto-pick).
+    assert pc.callback_data.get("heuristic_pick") == [pending_a.id]
+
+
+def test_mnr_memory_holed_audit_ai_path_applies_to_legacy_target():
+    """Memory-Holed Audit with AI: legacy highest-paperwork target gets the misfile."""
+    from src.cards.scp.mnestic_reset.szb_callbacks import _memory_holed_audit
+
+    game, p1, p2 = _setup()
+    game.turn_manager.set_ai_player(p1.id)
+    pending_a = _hand_card(game, p2, "Borrowed Moon")
+    pending_b = _hand_card(game, p2, "Antimemetic Orchard")
+    assert scp.open_dossier(game, p2.id, pending_a.id)[0]
+    assert scp.open_dossier(game, p2.id, pending_b.id)[0]
+    pending_a.state.scp_paperwork = 4
+    pending_b.state.scp_paperwork = 2
+    before_a = pending_a.state.scp_paperwork
+
+    procedure = _hand_card(game, p1, "MNR Memory-Holed Audit")
+    events = _memory_holed_audit(procedure, game.state, game=game)
+    assert game.state.pending_choice is None
+    assert pending_a.state.scp_paperwork == before_a + 2
+
+
+def test_mnr_memory_holed_audit_no_opposing_pending_short_circuits():
+    """Memory-Holed Audit with no opposing pending dossiers: redact-only, no misfile choice."""
+    from src.cards.scp.mnestic_reset.szb_callbacks import _memory_holed_audit
+
+    game, p1, _p2 = _setup()
+    procedure = _hand_card(game, p1, "MNR Memory-Holed Audit")
+    _memory_holed_audit(procedure, game.state, game=game)
+    assert game.state.pending_choice is None
+
+
+def test_mnr_untrained_assignment_emits_pending_choice_for_human():
+    """MNR Untrained Assignment: human picks which Bystander to exhaust."""
+    from src.cards.scp.mnestic_reset.procedures import _bystander_exhaust_for_secrecy
+    from src.cards.scp.mnestic_reset import MNR_CARDS
+
+    game, p1, _p2 = _setup()
+    # Find two Bystander personnel cards to bring on board.
+    bystander_names = [
+        name for name, card in MNR_CARDS.items()
+        if CardType.SCP_PERSONNEL in card.characteristics.types
+        and "Bystander" in (card.characteristics.subtypes or set())
+    ]
+    assert len(bystander_names) >= 2, "MNR must have >=2 Bystander personnel for this test"
+    b1 = _hand_card(game, p1, bystander_names[0])
+    b2 = _hand_card(game, p1, bystander_names[1])
+    assert scp.open_dossier(game, p1.id, b1.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p1.id, b2.id, fast_track=True)[0]
+
+    procedure = _hand_card(game, p1, "MNR Untrained Assignment")
+    effect_fn = _bystander_exhaust_for_secrecy()
+    events = effect_fn(procedure, game.state, game=game)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert {b1.id, b2.id}.issubset(option_ids)
+    # Heuristic: first in iteration order (legacy auto-pick).
+    assert pc.callback_data.get("heuristic_pick") == [b1.id]
+
+
+def test_mnr_untrained_assignment_ai_path_exhausts_legacy_target():
+    """Untrained Assignment with AI: legacy first-in-iteration target gets exhausted."""
+    from src.cards.scp.mnestic_reset.procedures import _bystander_exhaust_for_secrecy
+    from src.cards.scp.mnestic_reset import MNR_CARDS
+
+    game, p1, _p2 = _setup()
+    game.turn_manager.set_ai_player(p1.id)
+    bystander_names = [
+        name for name, card in MNR_CARDS.items()
+        if CardType.SCP_PERSONNEL in card.characteristics.types
+        and "Bystander" in (card.characteristics.subtypes or set())
+    ]
+    b1 = _hand_card(game, p1, bystander_names[0])
+    assert scp.open_dossier(game, p1.id, b1.id, fast_track=True)[0]
+    before_secrecy = scp.site(game.state, p1.id)["secrecy"]
+
+    procedure = _hand_card(game, p1, "MNR Untrained Assignment")
+    effect_fn = _bystander_exhaust_for_secrecy()
+    effect_fn(procedure, game.state, game=game)
+    assert game.state.pending_choice is None
+    assert b1.state.scp_exhausted is True
+    assert scp.site(game.state, p1.id)["secrecy"] == before_secrecy + 1
+
+
+def test_mnr_untrained_assignment_no_bystanders_short_circuits():
+    """Untrained Assignment with no un-exhausted Bystanders: whiff event, no choice."""
+    from src.cards.scp.mnestic_reset.procedures import _bystander_exhaust_for_secrecy
+
+    game, p1, _p2 = _setup()
+    procedure = _hand_card(game, p1, "MNR Untrained Assignment")
+    effect_fn = _bystander_exhaust_for_secrecy()
+    events = effect_fn(procedure, game.state, game=game)
+    assert game.state.pending_choice is None
+    assert any(
+        event.type == EventType.SCP_INCIDENT_RESOLVED
+        and event.payload.get("reason") == "untrained_assignment_whiff"
+        for event in events
+    )
+
+
+def test_mnr_cognitive_cleanse_emits_pending_choice_for_human():
+    """MNR Cognitive Cleanse: human picks which opposing antimeme gets +2 forget."""
+    from src.cards.scp.mnestic_reset.procedures import _bump_single_opposing
+
+    game, p1, p2 = _setup()
+    opp_a = _hand_card(game, p2, "MNR Five and Three-Eighths")
+    opp_b = _hand_card(game, p2, "MNR Five and Three-Eighths")
+    assert scp.open_dossier(game, p2.id, opp_a.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p2.id, opp_b.id, fast_track=True)[0]
+    opp_a.state.scp_forget_counters = 0
+    opp_b.state.scp_forget_counters = 1
+
+    procedure = _hand_card(game, p1, "MNR Cognitive Cleanse")
+    effect_fn = _bump_single_opposing(2)
+    events = effect_fn(procedure, game.state, game=game)
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert {opp_a.id, opp_b.id}.issubset(option_ids)
+    # Heuristic: lowest-counter pick (legacy engine behavior).
+    assert pc.callback_data.get("heuristic_pick") == [opp_a.id]
+
+
+def test_mnr_cognitive_cleanse_ai_path_bumps_legacy_target():
+    """Cognitive Cleanse with AI: legacy lowest-counter target gets +amount forget."""
+    from src.cards.scp.mnestic_reset.procedures import _bump_single_opposing
+
+    game, p1, p2 = _setup()
+    game.turn_manager.set_ai_player(p1.id)
+    opp_a = _hand_card(game, p2, "MNR Five and Three-Eighths")
+    opp_b = _hand_card(game, p2, "MNR Five and Three-Eighths")
+    assert scp.open_dossier(game, p2.id, opp_a.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p2.id, opp_b.id, fast_track=True)[0]
+    opp_a.state.scp_forget_counters = 0
+    opp_b.state.scp_forget_counters = 1
+
+    procedure = _hand_card(game, p1, "MNR Cognitive Cleanse")
+    effect_fn = _bump_single_opposing(2)
+    effect_fn(procedure, game.state, game=game)
+    assert game.state.pending_choice is None
+    # Legacy lowest-counter target gained +2.
+    assert opp_a.state.scp_forget_counters == 2
+    # The other opposing anomaly is untouched.
+    assert opp_b.state.scp_forget_counters == 1
+
+
+def test_mnr_cognitive_cleanse_no_opposing_antimeme_short_circuits():
+    """Cognitive Cleanse with no opposing antimeme anomalies: no choice, whiff event."""
+    from src.cards.scp.mnestic_reset.procedures import _bump_single_opposing
+
+    game, p1, _p2 = _setup()
+    procedure = _hand_card(game, p1, "MNR Cognitive Cleanse")
+    effect_fn = _bump_single_opposing(2)
+    events = effect_fn(procedure, game.state, game=game)
+    assert game.state.pending_choice is None
+    assert any(
+        event.type == EventType.SCP_COG_HAZARD_TICK
+        and event.payload.get("reason") == "cognitive_cleanse"
+        and event.payload.get("bumped") == 0
+        for event in events
+    )
+
+
+def test_mnr_pattern_disruption_emits_pending_choice_for_human():
+    """MNR Pattern Disruption: human picks the bump target (flag plants eagerly)."""
+    from src.cards.scp.mnestic_reset.procedures import _pattern_disruption
+
+    game, p1, p2 = _setup()
+    opp_a = _hand_card(game, p2, "MNR Five and Three-Eighths")
+    opp_b = _hand_card(game, p2, "MNR Five and Three-Eighths")
+    assert scp.open_dossier(game, p2.id, opp_a.id, fast_track=True)[0]
+    assert scp.open_dossier(game, p2.id, opp_b.id, fast_track=True)[0]
+    opp_a.state.scp_forget_counters = 0
+    opp_b.state.scp_forget_counters = 1
+
+    procedure = _hand_card(game, p1, "MNR Pattern Disruption")
+    effect_fn = _pattern_disruption()
+    events = effect_fn(procedure, game.state, game=game)
+    # The flag-plant runs eagerly (before the choice) so the test is
+    # independent of choice resolution.
+    assert scp.site(game.state, p2.id).get("mnr_no_reset_this_turn") is True
+    # Human path: bump choice is pending.
+    assert events == []
+    pc = game.state.pending_choice
+    assert pc is not None
+    assert pc.player == p1.id
+    option_ids = {opt["id"] for opt in pc.options}
+    assert {opp_a.id, opp_b.id}.issubset(option_ids)
+    # Heuristic: lowest-counter target (legacy auto-pick).
+    assert pc.callback_data.get("heuristic_pick") == [opp_a.id]
+
+
+def test_mnr_pattern_disruption_no_opposing_antimeme_still_plants_flag():
+    """Pattern Disruption with no opposing antimeme: flag plants, no bump choice."""
+    from src.cards.scp.mnestic_reset.procedures import _pattern_disruption
+
+    game, p1, p2 = _setup()
+    procedure = _hand_card(game, p1, "MNR Pattern Disruption")
+    effect_fn = _pattern_disruption()
+    events = effect_fn(procedure, game.state, game=game)
+    # Flag still planted on opponent's site.
+    assert scp.site(game.state, p2.id).get("mnr_no_reset_this_turn") is True
+    assert game.state.pending_choice is None
+    # The empty-bump path emits a single COG_HAZARD_TICK with bumped=0.
+    assert any(
+        event.type == EventType.SCP_COG_HAZARD_TICK
+        and event.payload.get("reason") == "pattern_disruption"
+        and event.payload.get("bumped") == 0
+        for event in events
+    )
+
+
+# ---------------------------------------------------------------------------
 # Mnestic Reset (MNR) — sample-card smoke tests proving the five verbs wire
 # end-to-end. Card-design agents extend the MNR pool from these primitives.
 # ---------------------------------------------------------------------------
@@ -2925,6 +3386,9 @@ def test_mnr_pattern_disruption_plants_flag_and_turn_clears_it():
     cycling the opponent's end-of-turn clears it.
     """
     game, p1, p2 = _setup()
+    # Register p1 as AI so the migrated _pattern_disruption's PendingChoice
+    # resolves inline via heuristic_pick (lowest-counter opposing antimeme).
+    game.turn_manager.set_ai_player(p1.id)
     # Give p2 an antimeme anomaly so Pattern Disruption has a valid bump target.
     opp_anomaly = _hand_card(game, p2, "MNR Five and Three-Eighths")
     assert scp.open_dossier(game, p2.id, opp_anomaly.id, fast_track=True)[0]

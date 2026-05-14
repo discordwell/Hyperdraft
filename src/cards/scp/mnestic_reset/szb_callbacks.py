@@ -147,15 +147,30 @@ _ANTIMEMETIC_AUDIT = _mnr_card(
 
 
 # 1. Mnestic Quarantine — Redact 1 + set opposing anomaly mood to "cryptic".
+def _resolve_mnestic_quarantine(
+    obj: GameObject, target_id: str, state: GameState,
+) -> list[Event]:
+    """Shift ``target_id``'s mood to ``cryptic`` and emit ``SCP_MOOD_SHIFT``."""
+    target = state.objects.get(target_id)
+    if target is None:
+        return []
+    target.state.scp_mood = "cryptic"
+    return [Event(
+        type=EventType.SCP_MOOD_SHIFT,
+        payload={"object_id": target.id, "to": "cryptic", "reason": "mnestic_quarantine"},
+        source=obj.id,
+        controller=obj.controller,
+    )]
+
+
 def _mnestic_quarantine(obj: GameObject, state: GameState, game=None) -> list[Event]:
     """Redact 1, then shift one opposing active anomaly to ``cryptic``.
 
     Mood shift uses the engine's ``apply_protocol`` path when ``game`` is
     available (so the event log gets ``SCP_PROTOCOL_APPLIED``); falls back
-    to a direct state mutation in bare-test contexts. Targets the highest-
-    hazard opposing active anomaly (no PendingChoice — this card prints as
-    a one-shot procedure not a target-prompt spell, in keeping with the
-    SZB ``_quarantine_procedure`` simplifying convention).
+    to a direct state mutation in bare-test contexts. Migrated to
+    PendingChoice — was highest-hazard auto-pick. AI preserves the original
+    target via ``heuristic_pick``; humans see a prompt.
     """
     actual_game = game if game is not None else getattr(state, "_game", None)
     events = _maybe_redact(obj, state, actual_game, 1)
@@ -171,13 +186,36 @@ def _mnestic_quarantine(obj: GameObject, state: GameState, game=None) -> list[Ev
     ]
     if not candidates:
         return events
-    target = max(candidates, key=lambda a: int(getattr(a.card_def, "scp_hazard", 0) or 0))
-    target.state.scp_mood = "cryptic"
-    events.append(Event(
-        type=EventType.SCP_MOOD_SHIFT,
-        payload={"object_id": target.id, "to": "cryptic", "reason": "mnestic_quarantine"},
-        source=obj.id,
-        controller=obj.controller,
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = max(candidates, key=lambda a: int(getattr(a.card_def, "scp_hazard", 0) or 0))
+    options = [
+        {
+            "id": a.id,
+            "label": getattr(a.card_def, "name", a.id) if a.card_def else a.id,
+            "description": f"Hazard {getattr(a.card_def, 'scp_hazard', 0)} · Mood {a.state.scp_mood or 'neutral'}",
+        }
+        for a in candidates
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        target_id = selected[0] if selected else best.id
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id", best.id)
+        return _resolve_mnestic_quarantine(obj, target_id, st)
+
+    events.extend(create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=obj.controller,
+        prompt="Mnestic Quarantine: shift which opposing active anomaly to cryptic?",
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
     ))
     return events
 
@@ -355,38 +393,91 @@ _ROTATION_DRILL = _mnr_card(
 
 
 # 6. Memory-Holed Audit — paperwork sabotage + Redact 1.
+def _opposing_pending_dossiers(state: GameState, opp_id: str) -> list[GameObject]:
+    """Enumerate ``opp_id``'s pending dossiers (used by Memory-Holed Audit)."""
+    out: list[GameObject] = []
+    for cand in state.objects.values():
+        if cand.controller != opp_id:
+            continue
+        if cand.state.scp_status != "pending":
+            continue
+        out.append(cand)
+    return out
+
+
+def _resolve_memory_holed_audit(
+    obj: GameObject,
+    target_id: str,
+    state: GameState,
+    actual_game,
+) -> list[Event]:
+    """Apply 2 paperwork to ``target_id`` (engine path if game, else direct)."""
+    target = state.objects.get(target_id)
+    if target is None:
+        return []
+    if actual_game is not None:
+        ok, _msg, mis_events = scp.misfile_dossier(
+            actual_game, obj.controller, target.id, amount=2, source=obj.id,
+        )
+        if ok:
+            return list(mis_events)
+        return []
+    target.state.scp_paperwork += 2
+    return [Event(
+        type=EventType.SCP_PAPERWORK_TICK,
+        payload={
+            "object_id": target.id,
+            "to": target.state.scp_paperwork,
+            "reason": "memory_holed_audit",
+        },
+        source=obj.id,
+        controller=obj.controller,
+    )]
+
+
 def _memory_holed_audit(obj: GameObject, state: GameState, game=None) -> list[Event]:
     """Add 2 paperwork to one opposing pending dossier; Redact 1.
 
-    Blackfile-flavored variant — picks the highest-paperwork pending dossier
-    rather than the first one we find (so the audit lands on the file that
-    was already drifting toward late). Falls back to direct mutation when
-    ``game`` is unavailable.
+    Migrated to PendingChoice — was highest-paperwork auto-pick. AI keeps
+    the original target via ``heuristic_pick``; humans see a real prompt.
+    Falls back to direct mutation when ``game`` is unavailable.
     """
     actual_game = game if game is not None else getattr(state, "_game", None)
     events: list[Event] = []
     opp_id = _opponent(state, obj.controller)
     if opp_id is not None:
-        target = _highest_pending_dossier(state, opp_id)
-        if target is not None:
-            if actual_game is not None:
-                ok, _msg, mis_events = scp.misfile_dossier(
-                    actual_game, obj.controller, target.id, amount=2, source=obj.id,
-                )
-                if ok:
-                    events.extend(mis_events)
-            else:
-                target.state.scp_paperwork += 2
-                events.append(Event(
-                    type=EventType.SCP_PAPERWORK_TICK,
-                    payload={
-                        "object_id": target.id,
-                        "to": target.state.scp_paperwork,
-                        "reason": "memory_holed_audit",
-                    },
-                    source=obj.id,
-                    controller=obj.controller,
-                ))
+        candidates = _opposing_pending_dossiers(state, opp_id)
+        if candidates:
+            from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+            best = max(candidates, key=lambda p: p.state.scp_paperwork)
+            options = [
+                {
+                    "id": p.id,
+                    "label": getattr(p.card_def, "name", p.id) if p.card_def else p.id,
+                    "description": f"Paperwork {p.state.scp_paperwork}",
+                }
+                for p in candidates
+            ]
+
+            def _resolve_handler(choice, selected, st):
+                target_id = selected[0] if selected else best.id
+                if isinstance(target_id, dict):
+                    target_id = target_id.get("id", best.id)
+                return _resolve_memory_holed_audit(obj, target_id, st, actual_game)
+
+            events.extend(create_choice_and_resolve(
+                state,
+                choice_type="target",
+                player_id=obj.controller,
+                prompt="Memory-Holed Audit: which opposing pending dossier gets +2 paperwork?",
+                options=options,
+                source_id=obj.id,
+                min_choices=1,
+                max_choices=1,
+                handler=_resolve_handler,
+                heuristic_pick=[best.id],
+            ))
     events.extend(_maybe_redact(obj, state, actual_game, 1))
     return events
 

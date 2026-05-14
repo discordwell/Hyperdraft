@@ -264,13 +264,40 @@ def _borrowed_lock_reveal() -> RevealHook:
     return reveal
 
 
+def _resolve_carbon_copy(
+    obj: GameObject, donor_id: str, recipient_id: str, state: GameState,
+) -> list[Event]:
+    """Apply the donor's paperwork to ``recipient_id`` and emit a tick."""
+    donor = state.objects.get(donor_id)
+    recipient = state.objects.get(recipient_id)
+    if donor is None or recipient is None:
+        return []
+    copy_amount = max(1, donor.state.scp_paperwork)
+    before = recipient.state.scp_paperwork
+    recipient.state.scp_paperwork = before + copy_amount
+    return [Event(
+        type=EventType.SCP_PAPERWORK_TICK,
+        payload={
+            "object_id": recipient.id,
+            "from": before,
+            "to": recipient.state.scp_paperwork,
+            "reason": "carbon_copy_ghost",
+            "donor_id": donor.id,
+        },
+        source=obj.id,
+        controller=obj.controller,
+    )]
+
+
 def _carbon_copy_reveal() -> RevealHook:
     """Duplicate the highest-paperwork pending dossier's paperwork onto another pending.
 
-    The "twin" mechanic: pick the most-encumbered pending dossier and
-    re-apply its paperwork to a SECOND pending dossier. Net effect on a
-    well-stocked board is a steep delay tax on the controller's own
-    bureaucracy — a self-deferred Blackfile.
+    The "twin" mechanic: the donor is auto-picked as the most-encumbered
+    pending dossier (the obvious "worst file to copy"). The recipient
+    used to be the SECOND-highest pending; this is now a PendingChoice so
+    a human can pick a different recipient when the board context warrants
+    (e.g. a pending dossier the controller is okay deferring). AI keeps
+    the original behavior via ``heuristic_pick`` (= second-highest).
     """
 
     def reveal(obj: GameObject, state: GameState) -> list[Event]:
@@ -279,22 +306,43 @@ def _carbon_copy_reveal() -> RevealHook:
             return []
         pending.sort(key=lambda p: p.state.scp_paperwork, reverse=True)
         donor = pending[0]
-        recipient = pending[1]
-        copy_amount = max(1, donor.state.scp_paperwork)
-        before = recipient.state.scp_paperwork
-        recipient.state.scp_paperwork = before + copy_amount
-        return [Event(
-            type=EventType.SCP_PAPERWORK_TICK,
-            payload={
-                "object_id": recipient.id,
-                "from": before,
-                "to": recipient.state.scp_paperwork,
-                "reason": "carbon_copy_ghost",
-                "donor_id": donor.id,
-            },
-            source=obj.id,
-            controller=obj.controller,
-        )]
+        recipients = [p for p in pending if p.id != donor.id]
+        if not recipients:
+            return []
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        best_recipient = recipients[0]
+        options = [
+            {
+                "id": p.id,
+                "label": getattr(p.card_def, "name", p.id) if p.card_def else p.id,
+                "description": f"Paperwork {p.state.scp_paperwork}",
+            }
+            for p in recipients
+        ]
+
+        def _resolve_handler(choice, selected, st):
+            target_id = selected[0] if selected else best_recipient.id
+            if isinstance(target_id, dict):
+                target_id = target_id.get("id", best_recipient.id)
+            return _resolve_carbon_copy(obj, donor.id, target_id, st)
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="target",
+            player_id=obj.controller,
+            prompt=(
+                f"Carbon Copy Ghost: copy {donor.state.scp_paperwork} paperwork "
+                "from your most-encumbered pending onto which other pending dossier?"
+            ),
+            options=options,
+            source_id=obj.id,
+            min_choices=1,
+            max_choices=1,
+            handler=_resolve_handler,
+            heuristic_pick=[best_recipient.id],
+        )
 
     return reveal
 
@@ -492,6 +540,21 @@ def _paired_vault_test() -> TestHook:
     overreaching into engine territory.
     """
 
+    def _resolve_paired_vault(obj: GameObject, target_id: str, state: GameState) -> list[Event]:
+        target = state.objects.get(target_id)
+        if target is None:
+            return []
+        target.state.scp_paperwork = 0
+        # Sentinel marker on the OBJECT (not the def) so we don't poison shared card_def state.
+        target.state.scp_paired_vault_fast_track = True
+        return [_site_event(
+            EventType.SCP_INCIDENT_RESOLVED,
+            obj,
+            reason="paired_vault_fast_track",
+            target_id=target.id,
+            target_name=target.card_def.name if target.card_def else None,
+        )]
+
     def hook(obj: GameObject, state: GameState) -> list[Event]:
         own_subtypes = set((obj.characteristics.subtypes or set())) if obj.characteristics else set()
         candidates: list[GameObject] = []
@@ -503,18 +566,39 @@ def _paired_vault_test() -> TestHook:
                 candidates.append(hand_obj)
         if not candidates:
             return []
-        # Deterministic pick: highest curiosity (the most-rewarding research mate).
-        target = max(candidates, key=lambda a: int(getattr(a.card_def, "scp_curiosity", 0) or 0))
-        target.state.scp_paperwork = 0
-        # Sentinel marker on the OBJECT (not the def) so we don't poison shared card_def state.
-        target.state.scp_paired_vault_fast_track = True
-        return [_site_event(
-            EventType.SCP_INCIDENT_RESOLVED,
-            obj,
-            reason="paired_vault_fast_track",
-            target_id=target.id,
-            target_name=target.card_def.name if target.card_def else None,
-        )]
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        # Heuristic preserves the previous deterministic pick: highest curiosity
+        # (the most-rewarding research mate).
+        best = max(candidates, key=lambda a: int(getattr(a.card_def, "scp_curiosity", 0) or 0))
+        options = [
+            {
+                "id": a.id,
+                "label": getattr(a.card_def, "name", a.id) if a.card_def else a.id,
+                "description": f"Curiosity {getattr(a.card_def, 'scp_curiosity', 0)} · Hazard {getattr(a.card_def, 'scp_hazard', 0)}",
+            }
+            for a in candidates
+        ]
+
+        def _resolve_handler(choice, selected, st):
+            target_id = selected[0] if selected else best.id
+            if isinstance(target_id, dict):
+                target_id = target_id.get("id", best.id)
+            return _resolve_paired_vault(obj, target_id, st)
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="target",
+            player_id=obj.controller,
+            prompt="Paired Vault: fast-track which subtype-matched hand mate?",
+            options=options,
+            source_id=obj.id,
+            min_choices=1,
+            max_choices=1,
+            handler=_resolve_handler,
+            heuristic_pick=[best.id],
+        )
 
     return hook
 
