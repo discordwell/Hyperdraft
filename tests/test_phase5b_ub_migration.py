@@ -145,19 +145,66 @@ def test_spm_modal_spells_remain_unmigrated():
 # TLA (Avatar)
 # ---------------------------------------------------------------------------
 
-def test_tla_resolves_use_internal_target_choices_no_migration():
-    """All TLA resolve_fns create their own PendingChoice via
-    ``create_target_choice``; none consume the ``targets`` parameter, so
-    none qualify for Phase 5b declarative migration in this batch.
+def test_tla_migrated_spells_declare_target_requirements():
+    """The 7 TLA spells with cast-time creature/permanent targets were
+    refactored to consume ``targets`` directly in Phase 5b and declare
+    ``target_requirements`` so the engine emits the cast-time PendingChoice.
     """
     tla = _tla
-    for card in (tla.ENTER_THE_AVATAR_STATE, tla.OCTOPUS_FORM,
-                 tla.PILLAR_LAUNCH, tla.COMBUSTION_TECHNIQUE,
-                 tla.THE_LAST_AGNI_KAI, tla.ALLIES_AT_LAST,
-                 tla.ROCKY_REBUKE, tla.SPIRIT_WATER_REVIVAL,
-                 tla.HEARTLESS_ACT, tla.SEISMIC_SENSE,
-                 tla.FIRE_NATION_ATTACKS, tla.ACCUMULATE_WISDOM,
-                 tla.DAY_OF_BLACK_SUN, tla.AIRBENDERS_REVERSAL):
+    # Single-target creature.
+    _require(tla.ENTER_THE_AVATAR_STATE, count=1,
+             types={CardType.CREATURE}, controller='you')
+    _require(tla.OCTOPUS_FORM, count=1,
+             types={CardType.CREATURE}, controller='you')
+    _require(tla.COMBUSTION_TECHNIQUE, count=1,
+             types={CardType.CREATURE})
+    _require(tla.PILLAR_LAUNCH, count=1,
+             types={CardType.CREATURE})
+    # Multi-target: target creature you control + target opp creature.
+    for card in (tla.THE_LAST_AGNI_KAI, tla.ROCKY_REBUKE):
+        reqs = card.target_requirements
+        assert reqs and len(reqs) == 2, \
+            f"{card.name}: expected 2 requirements, got {reqs!r}"
+        assert reqs[0].filter.types == {CardType.CREATURE}
+        assert reqs[0].filter.controller == 'you'
+        assert reqs[0].count == 1
+        assert reqs[1].filter.types == {CardType.CREATURE}
+        assert reqs[1].filter.controller == 'opponent'
+        assert reqs[1].count == 1
+    # Allies at Last: up to two of your creatures + one opp creature.
+    reqs = tla.ALLIES_AT_LAST.target_requirements
+    assert reqs and len(reqs) == 2
+    assert reqs[0].filter.types == {CardType.CREATURE}
+    assert reqs[0].filter.controller == 'you'
+    assert reqs[0].count == 2
+    assert reqs[0].count_type == 'up_to'
+    assert reqs[1].filter.types == {CardType.CREATURE}
+    assert reqs[1].filter.controller == 'opponent'
+    assert reqs[1].count == 1
+
+
+def test_tla_skipped_spells_remain_unmigrated():
+    """TLA spells that are modal, no-target, or use exotic patterns must
+    NOT carry target_requirements.
+
+    Skipped categories (per Phase 5b migration audit):
+    - Modal: HEARTLESS_ACT, AIRBENDERS_REVERSAL (and other modal spells use
+      ``make_modal_resolve`` so the target choice happens inside the picked
+      mode, not at cast time).
+    - No-target: SPIRIT_WATER_REVIVAL (draw), SEISMIC_SENSE (library look),
+      FIRE_NATION_ATTACKS (token creation), ACCUMULATE_WISDOM (top-of-library),
+      DAY_OF_BLACK_SUN (X-cost sweeper).
+    """
+    tla = _tla
+    skipped = [
+        # Modal / internal create_modal_choice
+        tla.HEARTLESS_ACT, tla.AIRBENDERS_REVERSAL,
+        # No-target spells
+        tla.SPIRIT_WATER_REVIVAL, tla.SEISMIC_SENSE,
+        tla.FIRE_NATION_ATTACKS, tla.ACCUMULATE_WISDOM,
+        tla.DAY_OF_BLACK_SUN,
+    ]
+    for card in skipped:
         _no_requirements(card)
 
 
@@ -263,8 +310,10 @@ if __name__ == "__main__":
     print("PASS  test_spm_villainous_wrath_targets_opponent")
     test_spm_modal_spells_remain_unmigrated()
     print("PASS  test_spm_modal_spells_remain_unmigrated")
-    test_tla_resolves_use_internal_target_choices_no_migration()
-    print("PASS  test_tla_resolves_use_internal_target_choices_no_migration")
+    test_tla_migrated_spells_declare_target_requirements()
+    print("PASS  test_tla_migrated_spells_declare_target_requirements")
+    test_tla_skipped_spells_remain_unmigrated()
+    print("PASS  test_tla_skipped_spells_remain_unmigrated")
     test_fin_slash_of_light_targets_creature()
     print("PASS  test_fin_slash_of_light_targets_creature")
     test_fin_magic_damper_targets_own_creature()
