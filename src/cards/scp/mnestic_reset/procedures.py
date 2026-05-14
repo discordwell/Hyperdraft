@@ -424,10 +424,38 @@ def _bystander_roll_call():
     return effect
 
 
+def _resolve_bystander_exhaust(
+    obj: GameObject, target_id: str, state: GameState,
+) -> list[Event]:
+    """Exhaust ``target_id`` and bump secrecy +1."""
+    target = state.objects.get(target_id)
+    if target is None:
+        return [_site_event(
+            obj,
+            EventType.SCP_INCIDENT_RESOLVED,
+            reason="untrained_assignment_whiff",
+        )]
+    target.state.scp_exhausted = True
+    s = scp.site(state, obj.controller)
+    s["secrecy"] += 1
+    return [_site_event(
+        obj,
+        EventType.SCP_INCIDENT_RESOLVED,
+        reason="untrained_assignment",
+        exhausted=target.id,
+        secrecy=s["secrecy"],
+    )]
+
+
 def _bystander_exhaust_for_secrecy():
-    """Exhaust the first un-exhausted Bystander for secrecy +1."""
+    """Exhaust an un-exhausted Bystander (player chooses which) for secrecy +1.
+
+    Migrated to PendingChoice — was "first un-exhausted Bystander" iteration
+    order pick. AI preserves the original target via ``heuristic_pick``
+    (= first in iteration order); humans see a prompt.
+    """
     def effect(obj: GameObject, state: GameState, game=None) -> list[Event]:
-        target = None
+        candidates: list[GameObject] = []
         for sid in list(state.scp_personnel.get(obj.controller, [])):
             staff = state.objects.get(sid)
             if not staff or staff.zone != ZoneType.BATTLEFIELD:
@@ -440,24 +468,44 @@ def _bystander_exhaust_for_secrecy():
                 continue
             subtypes = getattr(staff.card_def.characteristics, "subtypes", set()) or set()
             if "Bystander" in subtypes:
-                target = staff
-                break
-        if target is None:
+                candidates.append(staff)
+        if not candidates:
             return [_site_event(
                 obj,
                 EventType.SCP_INCIDENT_RESOLVED,
                 reason="untrained_assignment_whiff",
             )]
-        target.state.scp_exhausted = True
-        s = scp.site(state, obj.controller)
-        s["secrecy"] += 1
-        return [_site_event(
-            obj,
-            EventType.SCP_INCIDENT_RESOLVED,
-            reason="untrained_assignment",
-            exhausted=target.id,
-            secrecy=s["secrecy"],
-        )]
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        best = candidates[0]
+        options = [
+            {
+                "id": staff.id,
+                "label": getattr(staff.card_def, "name", staff.id) if staff.card_def else staff.id,
+                "description": "Bystander · active",
+            }
+            for staff in candidates
+        ]
+
+        def _resolve_handler(choice, selected, st):
+            target_id = selected[0] if selected else best.id
+            if isinstance(target_id, dict):
+                target_id = target_id.get("id", best.id)
+            return _resolve_bystander_exhaust(obj, target_id, st)
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="target",
+            player_id=obj.controller,
+            prompt="Untrained Assignment: exhaust which active Bystander? (secrecy +1)",
+            options=options,
+            source_id=obj.id,
+            min_choices=1,
+            max_choices=1,
+            handler=_resolve_handler,
+            heuristic_pick=[best.id],
+        )
     return effect
 
 
@@ -500,18 +548,112 @@ def _bump_all_opposing_antimeme():
     return effect
 
 
+def _opposing_antimeme_candidates(state: GameState, player_id: str) -> list[GameObject]:
+    """Enumerate opposing antimeme anomalies (battlefield, threshold > 0).
+
+    Mirrors the candidate filter in ``scp.bump_opposing_antimeme_counters``
+    so the PendingChoice options match the engine's bump pool exactly.
+    """
+    opp_id = scp._first_opposing_player(state, player_id)
+    if opp_id is None:
+        return []
+    pool: list[str] = []
+    pool.extend(list(state.scp_anomalies.get(opp_id, [])))
+    pool.extend(list(state.scp_contained.get(opp_id, [])))
+    candidates: list[GameObject] = []
+    for aid in pool:
+        an = state.objects.get(aid)
+        if not an or an.zone != ZoneType.BATTLEFIELD:
+            continue
+        threshold = int(getattr(an.card_def, "scp_antimeme", 0) or 0)
+        if threshold <= 0:
+            continue
+        candidates.append(an)
+    return candidates
+
+
+def _resolve_bump_target(
+    obj: GameObject,
+    target_id: str,
+    amount: int,
+    reason: str,
+    state: GameState,
+    *,
+    extra_payload: dict | None = None,
+) -> list[Event]:
+    """Bump ``target_id``'s forget counter by ``amount`` and emit a tick."""
+    target = state.objects.get(target_id)
+    if target is None:
+        return []
+    prior = int(getattr(target.state, "scp_forget_counters", 0) or 0)
+    target.state.scp_forget_counters = prior + amount
+    payload = {
+        "reason": reason,
+        "bumped": 1,
+        "amount": amount,
+        "bumped_ids": [target.id],
+    }
+    if extra_payload:
+        payload.update(extra_payload)
+    return [_site_event(
+        obj,
+        EventType.SCP_COG_HAZARD_TICK,
+        **payload,
+    )]
+
+
 def _bump_single_opposing(amount: int):
-    """+``amount`` forget counter on one opposing antimeme anomaly (lowest first)."""
+    """+``amount`` forget counter on one opposing antimeme anomaly (player chooses).
+
+    Migrated to PendingChoice — was lowest-counter auto-pick. AI keeps the
+    original target via ``heuristic_pick``; humans see a prompt.
+    """
     def effect(obj: GameObject, state: GameState, game=None) -> list[Event]:
-        bumped = _bump_opposing_antimeme_counters(state, obj.controller, amount=amount, limit=1)
-        return [_site_event(
-            obj,
-            EventType.SCP_COG_HAZARD_TICK,
-            reason="cognitive_cleanse",
-            bumped=len(bumped),
-            amount=amount,
-            bumped_ids=[a.id for a in bumped],
-        )]
+        candidates = _opposing_antimeme_candidates(state, obj.controller)
+        if not candidates:
+            return [_site_event(
+                obj,
+                EventType.SCP_COG_HAZARD_TICK,
+                reason="cognitive_cleanse",
+                bumped=0,
+                amount=amount,
+                bumped_ids=[],
+            )]
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        # Heuristic preserves the engine helper's "lowest counter first" pick.
+        best = min(candidates, key=lambda a: int(getattr(a.state, "scp_forget_counters", 0) or 0))
+        options = [
+            {
+                "id": a.id,
+                "label": getattr(a.card_def, "name", a.id) if a.card_def else a.id,
+                "description": (
+                    f"Forget {int(getattr(a.state, 'scp_forget_counters', 0) or 0)}"
+                    f"/{int(getattr(a.card_def, 'scp_antimeme', 0) or 0)}"
+                ),
+            }
+            for a in candidates
+        ]
+
+        def _resolve_handler(choice, selected, st):
+            target_id = selected[0] if selected else best.id
+            if isinstance(target_id, dict):
+                target_id = target_id.get("id", best.id)
+            return _resolve_bump_target(obj, target_id, amount, "cognitive_cleanse", st)
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="target",
+            player_id=obj.controller,
+            prompt=f"Cognitive Cleanse: which opposing antimeme gets +{amount} forget?",
+            options=options,
+            source_id=obj.id,
+            min_choices=1,
+            max_choices=1,
+            handler=_resolve_handler,
+            heuristic_pick=[best.id],
+        )
     return effect
 
 
@@ -521,20 +663,63 @@ def _pattern_disruption():
     The marker is a state flag (``mnr_no_reset_this_turn``) on the
     opponent's site dict. ``scp.reset_forget_counters`` honors it and
     short-circuits to 0, and the SCP turn manager clears it at the end of
-    the affected player's turn.
+    the affected player's turn. Migrated to PendingChoice — was lowest-
+    counter auto-pick. AI keeps the original target via ``heuristic_pick``.
+    The flag-plant fires regardless of whether a bump target exists.
     """
     def effect(obj: GameObject, state: GameState, game=None) -> list[Event]:
-        bumped = _bump_opposing_antimeme_counters(state, obj.controller, amount=1, limit=1)
         opp_id = _opponent_id(state, obj.controller)
+        # Plant the flag eagerly — the no-reset marker is the card's primary
+        # effect and shouldn't depend on having a bump target.
         if opp_id is not None:
             scp.site(state, opp_id)["mnr_no_reset_this_turn"] = True
-        return [_site_event(
-            obj,
-            EventType.SCP_COG_HAZARD_TICK,
-            reason="pattern_disruption",
-            bumped=len(bumped),
-            target=opp_id,
-        )]
+
+        candidates = _opposing_antimeme_candidates(state, obj.controller)
+        if not candidates:
+            return [_site_event(
+                obj,
+                EventType.SCP_COG_HAZARD_TICK,
+                reason="pattern_disruption",
+                bumped=0,
+                target=opp_id,
+            )]
+
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+        best = min(candidates, key=lambda a: int(getattr(a.state, "scp_forget_counters", 0) or 0))
+        options = [
+            {
+                "id": a.id,
+                "label": getattr(a.card_def, "name", a.id) if a.card_def else a.id,
+                "description": (
+                    f"Forget {int(getattr(a.state, 'scp_forget_counters', 0) or 0)}"
+                    f"/{int(getattr(a.card_def, 'scp_antimeme', 0) or 0)}"
+                ),
+            }
+            for a in candidates
+        ]
+
+        def _resolve_handler(choice, selected, st):
+            target_id = selected[0] if selected else best.id
+            if isinstance(target_id, dict):
+                target_id = target_id.get("id", best.id)
+            return _resolve_bump_target(
+                obj, target_id, 1, "pattern_disruption", st,
+                extra_payload={"target": opp_id},
+            )
+
+        return create_choice_and_resolve(
+            state,
+            choice_type="target",
+            player_id=obj.controller,
+            prompt="Pattern Disruption: which opposing antimeme gains +1 forget?",
+            options=options,
+            source_id=obj.id,
+            min_choices=1,
+            max_choices=1,
+            handler=_resolve_handler,
+            heuristic_pick=[best.id],
+        )
     return effect
 
 
