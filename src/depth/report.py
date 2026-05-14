@@ -252,7 +252,16 @@ def score_registry(
     profile: Optional[EngineProfile] = None,
     top_clusters: int = 10,
 ) -> SetReport:
-    """Score every card in a registry, return a populated SetReport."""
+    """Score every card in a registry, return a populated SetReport.
+
+    SCP-engine sets carry their mechanics in metadata fields rather than
+    callable slots, so they route to the dedicated metadata-driven scorer
+    in :mod:`src.depth.scp_scorer` instead of the AST path used by
+    MTG/Pokemon/Hearthstone/YGO.
+    """
+    if engine.lower() == "scp":
+        from .scp_scorer import score_scp_registry
+        return score_scp_registry(registry, set_code, top_clusters=top_clusters)
     prof = profile or get_profile(engine)
 
     per_card: list[CardScore] = []
@@ -409,6 +418,8 @@ _KNOWN_SETS: dict[str, tuple[str, str, str]] = {
     "YGO_OPT": ("yugioh", "src.cards.yugioh.ygo_optimized", "YGO_OPTIMIZED_CARDS"),
     "YGO_CLASSIC": ("yugioh", "src.cards.yugioh.ygo_classic", "YGO_CLASSIC_CARDS"),
     "YGO_STARTER": ("yugioh", "src.cards.yugioh.ygo_starter", "YGO_STARTER_CARDS"),
+    "MNR": ("scp", "src.cards.scp.mnestic_reset", "MNR_CARDS"),
+    "FBN": ("scp", "src.cards.scp.foundations_beyond", "FBN_CARDS"),
 }
 
 

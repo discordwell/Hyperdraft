@@ -1,0 +1,48 @@
+# SCP-engine calibration corpus.
+#
+# Reference set: Foundations Beyond (FBN, 300 cards).
+# Why FBN? It is the largest fully-themed SCP-engine set in the repo
+# and is built end-to-end on the per-card metadata pattern used by all
+# SCP archetypes (archetype + per-archetype vector + on_reveal/on_test/
+# on_contain triggers + alt_win contribution). MNR (120 cards) is the
+# secondary reference; it ships with the same architecture but a leaner
+# trigger surface.
+#
+# SCP cards do not carry callable `setup_interceptors` — their mechanics
+# live in archetype-level handlers (`src/engine/scp.py`,
+# `src/engine/scp_turn.py`). The MTG-style AST scorer is therefore blind
+# to SCP cards. `src/depth/scp_scorer.py` reads SCP metadata fields
+# directly and emits a five-axis report whose shape matches the MTG path
+# so the same calibration, CLI, and health checks work.
+#
+# Thresholds were chosen by re-scoring FBN against the SCP rubric on
+# 2026-05-14. Pinned just below FBN's actuals so that small downstream
+# regressions still register, but the reference set ships honestly:
+#   median_depth   2.0   (FBN sits at 2.0 — keep, this is the wired card median)
+#   axis_diversity 0.08  (FBN sits at 0.097 — gate is below actual to allow
+#                         sets with tighter archetype counts to ship)
+#   code_diversity 0.50  (FBN sits at 0.535 — large headroom for sets like
+#                         MNR that pack more cards per archetype-mechanic
+#                         cluster)
+#   thin_ratio     0.80  (FBN sits at 0.780 — SCP sets carry ~75% of cards
+#                         as Anomaly/Personnel stat-lines whose value is
+#                         read by archetype-level handlers, not the rubric).
+# FBN passes 4/4 with these thresholds; MNR passes 3/4 (fails code_diversity
+# at 0.310 — its tighter set carries more reskin-clustered cards, which the
+# floor honestly flags). New SCP sets should match or exceed FBN's baseline.
+
+engine = "scp"
+reference_set = "foundations_beyond"
+reference_module = "src.cards.scp.foundations_beyond"
+reference_registry = "FBN_CARDS"
+
+[thresholds]
+median_depth = 2
+axis_diversity = 0.08
+code_diversity = 0.50
+thin_ratio = 0.80
+
+[expected]
+# FBN passes 4/4. gates_passing_min = 3 leaves the same one-gate slack the
+# MTG corpus uses, so sets that ship one regression still clear the floor.
+gates_passing_min = 3
