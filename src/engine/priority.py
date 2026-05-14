@@ -444,6 +444,7 @@ class PrioritySystem:
         """Recursive helper: emit choice for reqs[idx], chain to idx+1 on resolve."""
         import dataclasses
         from .pending_choice_helpers import create_choice_and_resolve
+        from .targeting import Target
 
         # Base case: all requirements satisfied — re-enter the cast.
         if idx >= len(reqs):
@@ -470,9 +471,19 @@ class PrioritySystem:
             options.append({"id": tid, "label": label})
 
         priority_sys = self
+        # Snapshot for the handler closure.
+        state_snapshot = self.state
 
         def handler(choice, selected, st):
-            picked = [s.get("id") if isinstance(s, dict) else s for s in selected]
+            picked_ids = [s.get("id") if isinstance(s, dict) else s for s in selected]
+            # Phase 5b: normalize chosen IDs to ``Target`` instances so the
+            # stack's ``validate_targets`` and resolve helpers (which expect
+            # ``Target`` shape) see the proper object protocol. Without this
+            # ``target.is_player`` and ``target.id`` access on resolve fails.
+            picked: list[Target] = []
+            for tid in picked_ids:
+                is_player = tid in state_snapshot.players
+                picked.append(Target(id=tid, is_player=is_player))
             return priority_sys._emit_cast_target_choice_step(
                 card, action, reqs, idx + 1, accumulated + [picked], targeting
             )

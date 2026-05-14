@@ -4,9 +4,6 @@ Engine Tests
 Test the core mechanics with our 5 test cards.
 """
 
-import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
-
 from src.engine import (
     Game, Event, EventType, ZoneType, CardType,
     get_power, get_toughness
