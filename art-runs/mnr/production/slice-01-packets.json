@@ -1,0 +1,1073 @@
+[
+  {
+    "name": "MNR Anniversary Ghost",
+    "source_index": 0,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Temporal"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-anniversary-ghost.png",
+    "composition_rotation": "Anomaly Implied",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "a small open-plan office with three desks and a half-eaten sheet cake on a side table at 7:14pm",
+    "action": "An empty rolling chair at the cake desk gently rocks itself as if someone unseen just stood up to leave a one-year-of-service party that nobody else can remember scheduling.",
+    "focus": "the chair rocking by itself next to a half-eaten cake and an unblown candle",
+    "mood": "commemorative dread, the office anniversary that no one attended",
+    "artist_reference_title": "George Tooker, Government Bureau",
+    "artist_reference_url": "https://www.metmuseum.org/art/collection/search/485874",
+    "reference_traits": "rows of identical clerks behind frosted-glass partitions in a fluorescent-lit bureaucratic interior, geometric architectural rhythm, muted institutional palette, civic anonymity, posture-of-clerks composition",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Anniversary Ghost. Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a small open-plan office with three desks and a half-eaten sheet cake on a side table at 7:14pm. Action: An empty rolling chair at the cake desk gently rocks itself as if someone unseen just stood up to leave a one-year-of-service party that nobody else can remember scheduling. Focus: the chair rocking by itself next to a half-eaten cake and an unblown candle. Composition rotation: Anomaly Implied - the strange thing is barely visible, a shadow without caster or a reflection that does not match; leave a person-shaped negative space at the chair where a figure ought to be. Mood: commemorative dread, the office anniversary that no one attended. Palette: fluorescent yellow-white over beige carpet, sheet-cake pink, and a thin antimemetic chartreuse accent on the candle wax. Reference-trait borrow only: rows of identical clerks behind frosted-glass partitions in a fluorescent-lit bureaucratic interior, geometric architectural rhythm, muted institutional palette, civic anonymity, posture-of-clerks composition. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the chair rocking reads as 'just-vacated' rather than 'malfunctioning'; the cake and candle do most of the storytelling."
+  },
+  {
+    "name": "MNR Bystander Effect",
+    "source_index": 1,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Social"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-bystander-effect.png",
+    "composition_rotation": "Witness POV",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "a cubicle interior in a non-divisional accounting office at 2:43pm on a Tuesday",
+    "action": "A middle-aged civilian in a polo shirt looks calmly toward the cubicle wall, coffee cup half-raised, completely unaware of the antimemetic event already underway in the doorway behind their right shoulder.",
+    "focus": "the bystander's calm uncomprehending face and the coffee cup mid-lift",
+    "mood": "banal pre-mortem, the moment before being forgotten",
+    "artist_reference_title": "Robert Bechtle, Alameda Gran Torino",
+    "artist_reference_url": "https://www.sfmoma.org/artwork/2005.139/",
+    "reference_traits": "harsh midday suburban light on a parked car, flat photographic-painterly realism, beige-and-asphalt palette, banal Americana made monumental",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Bystander Effect. Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a cubicle interior in a non-divisional accounting office at 2:43pm on a Tuesday. Action: A middle-aged civilian in a polo shirt looks calmly toward the cubicle wall, coffee cup half-raised, completely unaware of the antimemetic event already underway in the doorway behind their right shoulder. Focus: the bystander's calm uncomprehending face and the coffee cup mid-lift. Composition rotation: Witness POV - camera occupies an observer's position behind glass / through a door / over a shoulder; the anomaly is implied at the periphery, never centered or rendered. Mood: banal pre-mortem, the moment before being forgotten. Palette: cubicle gray, polo-shirt beige, fluorescent ceiling white, and a thin antimemetic chartreuse on the bystander's name lanyard. Reference-trait borrow only: harsh midday suburban light on a parked car, flat photographic-painterly realism, beige-and-asphalt palette, banal Americana made monumental. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the bystander reads as 'ordinary coworker about to die without knowing' rather than as a menaced victim; he must look calm and slightly bored."
+  },
+  {
+    "name": "MNR Cognitive Wedge",
+    "source_index": 2,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Cognitive"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-cognitive-wedge.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "an analyst's desk in a windowless interior office",
+    "action": "A single sheet of paper sits on a desk under fluorescent light, its center cut out in a perfect rectangle, the cut edges fresh and the missing rectangle nowhere in the room.",
+    "focus": "the paper with the rectangular hole and the pen still resting on its edge",
+    "mood": "precision absence, surgical forgetting",
+    "artist_reference_title": "Sophie Calle, The Hotel",
+    "artist_reference_url": "https://www.perrotin.com/artists/Sophie_Calle/9",
+    "reference_traits": "forensic-archival photography of a stranger's belongings, the everyday catalogued under surveillance, paper-evidence palette, quiet voyeur composition, document-as-art",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Cognitive Wedge. Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: an analyst's desk in a windowless interior office. Action: A single sheet of paper sits on a desk under fluorescent light, its center cut out in a perfect rectangle, the cut edges fresh and the missing rectangle nowhere in the room. Focus: the paper with the rectangular hole and the pen still resting on its edge. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: precision absence, surgical forgetting. Palette: desk-pine brown, paper cream, fluorescent overhead white, and a thin antimemetic chartreuse on a highlighter cap beside the page. Reference-trait borrow only: forensic-archival photography of a stranger's belongings, the everyday catalogued under surveillance, paper-evidence palette, quiet voyeur composition, document-as-art. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the cut-out hole reads as deliberate antimemetic excision rather than as a craft project; the edges are crisp, the absence is the subject."
+  },
+  {
+    "name": "MNR Cognitive Wedge (Severe)",
+    "source_index": 3,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Cognitive"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-cognitive-wedge-severe.png",
+    "composition_rotation": "Aftermath",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "the same windowless office an hour later",
+    "action": "The desk now bears five sheets of paper each missing a larger rectangle, stacked unevenly, the analyst's chair pushed back hard enough to mark the carpet, and no analyst.",
+    "focus": "the stack of progressively-emptier pages and the dragged carpet behind the chair",
+    "mood": "escalating excision, the wedge deepening",
+    "artist_reference_title": "Vilhelm Hammershoi, Interior with Young Woman Seen from Behind",
+    "artist_reference_url": "https://www.smb.museum/en/museums-institutions/nationalgalerie/collection/",
+    "reference_traits": "muted gray-on-gray interior palette, figure with back turned, doorways into more empty rooms, soft northern window light, quiet domestic gravity",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Cognitive Wedge (Severe). Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: the same windowless office an hour later. Action: The desk now bears five sheets of paper each missing a larger rectangle, stacked unevenly, the analyst's chair pushed back hard enough to mark the carpet, and no analyst. Focus: the stack of progressively-emptier pages and the dragged carpet behind the chair. Composition rotation: Aftermath - the motion is already past; the evidence remains in a still frame. Mood: escalating excision, the wedge deepening. Palette: cubicle gray, paper cream, carpet-mark beige, and a thin antimemetic chartreuse on a fallen pill bottle next to the chair leg. Reference-trait borrow only: muted gray-on-gray interior palette, figure with back turned, doorways into more empty rooms, soft northern window light, quiet domestic gravity. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the empty chair reads as 'the analyst was here ten minutes ago' rather than 'this office is closed for the day'; carpet drag is the timestamp."
+  },
+  {
+    "name": "MNR Counter-Mnestic",
+    "source_index": 4,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Memetic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-counter-mnestic.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "a Foundation infirmary station with a paper drug cup on a stainless tray",
+    "action": "A gloved hand tilts a translucent pill cup onto the palm of a senior analyst, three antimemetic-chartreuse capsules sliding out under a single overhead exam light.",
+    "focus": "the gloved hand, the pill cup, and the three chartreuse capsules mid-fall",
+    "mood": "dosed discipline, the routine of staying remembered",
+    "artist_reference_title": "Lucian Freud, Reflection (Self-Portrait)",
+    "artist_reference_url": "https://www.npg.org.uk/collections/search/portrait/",
+    "reference_traits": "fluorescent-flesh portraiture, unflattering institutional skin tones, thickly-built paint surface, exhausted under hard light, posture-as-subject",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Counter-Mnestic. Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a Foundation infirmary station with a paper drug cup on a stainless tray. Action: A gloved hand tilts a translucent pill cup onto the palm of a senior analyst, three antimemetic-chartreuse capsules sliding out under a single overhead exam light. Focus: the gloved hand, the pill cup, and the three chartreuse capsules mid-fall. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: dosed discipline, the routine of staying remembered. Palette: exam-room white, stainless-tray steel, glove-blue, and antimemetic chartreuse on the capsule shells as the dominant tell. Reference-trait borrow only: fluorescent-flesh portraiture, unflattering institutional skin tones, thickly-built paint surface, exhausted under hard light, posture-as-subject. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the capsules are recognizably pharmaceutical (gelatine seam, clear-to-yellow split) rather than abstract pills; the chartreuse must read as 'pharmacy aisle' not 'sci-fi glow'."
+  },
+  {
+    "name": "MNR Counter-Mnestic (Severe)",
+    "source_index": 5,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Memetic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-counter-mnestic-severe.png",
+    "composition_rotation": "Aftermath",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "the same infirmary an hour later, lights still on",
+    "action": "The exam tray now holds an empty IV bag and a tipped pill cup, the chair beside it pushed askew, with a single chartreuse capsule rolled into the corner under a baseboard.",
+    "focus": "the empty IV bag, the askew chair, and the lone chartreuse capsule in the corner",
+    "mood": "depleted dosage, the second-line intervention spent",
+    "artist_reference_title": "Vilhelm Hammershoi, Dust Motes Dancing in the Sunbeams",
+    "artist_reference_url": "https://www.ordrupgaard.dk/en/the-collection/",
+    "reference_traits": "diagonal sunlight across an empty floor, dust suspended in stillness, gray panelled walls, austere domestic absence, painterly hush",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Counter-Mnestic (Severe). Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: the same infirmary an hour later, lights still on. Action: The exam tray now holds an empty IV bag and a tipped pill cup, the chair beside it pushed askew, with a single chartreuse capsule rolled into the corner under a baseboard. Focus: the empty IV bag, the askew chair, and the lone chartreuse capsule in the corner. Composition rotation: Aftermath - the motion is already past; the evidence remains in a still frame. Mood: depleted dosage, the second-line intervention spent. Palette: exam-room white, sodium overhead, baseboard brown, and antimemetic chartreuse on the lone capsule and the IV-bag label. Reference-trait borrow only: diagonal sunlight across an empty floor, dust suspended in stillness, gray panelled walls, austere domestic absence, painterly hush. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the empty IV bag and tipped cup read as 'the dose was used in a hurry' rather than as a discarded medical mess; the lone capsule in the corner is the punctuation."
+  },
+  {
+    "name": "MNR Filed-Away Window",
+    "source_index": 6,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Object"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-filed-away-window.png",
+    "composition_rotation": "Anomaly Implied",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "a corner of an analyst's office where a window ought to be on an outside wall",
+    "action": "The plaster wall is unbroken and beige, but the carpet directly beneath it bears a sun-faded rectangular bleach where a window must have been for decades, with a radiator beneath the bleach as if remembering where to be.",
+    "focus": "the sun-faded carpet rectangle and the radiator under nothing",
+    "mood": "the room misses the window more than the room admits",
+    "artist_reference_title": "Vilhelm Hammershoi, Interior with Young Woman Seen from Behind",
+    "artist_reference_url": "https://www.smb.museum/en/museums-institutions/nationalgalerie/collection/",
+    "reference_traits": "muted gray-on-gray interior palette, figure with back turned, doorways into more empty rooms, soft northern window light, quiet domestic gravity",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Filed-Away Window. Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a corner of an analyst's office where a window ought to be on an outside wall. Action: The plaster wall is unbroken and beige, but the carpet directly beneath it bears a sun-faded rectangular bleach where a window must have been for decades, with a radiator beneath the bleach as if remembering where to be. Focus: the sun-faded carpet rectangle and the radiator under nothing. Composition rotation: Anomaly Implied - the strange thing is barely visible, a shadow without caster or a reflection that does not match. Mood: the room misses the window more than the room admits. Palette: plaster beige, carpet brown, radiator off-white, and a thin antimemetic chartreuse on a forgotten pill blister on the radiator top. Reference-trait borrow only: muted gray-on-gray interior palette, figure with back turned, doorways into more empty rooms, soft northern window light, quiet domestic gravity. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the absent window reads as 'always was here' rather than 'recently bricked up'; the carpet bleach is the proof, not the wall."
+  },
+  {
+    "name": "MNR Five and Three-Eighths",
+    "source_index": 7,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Recursive"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-five-and-three-eighths.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "an elevator panel in an interior lobby",
+    "action": "A finger hovers over a brass elevator panel where the buttons read 4, 5, 6, 7 normally but a thinner unmarked button sits between 5 and 6, faintly etched with the fraction five-and-three-eighths.",
+    "focus": "the hovering finger and the slim extra button between 5 and 6",
+    "mood": "impossible numbering, the floor that math admits but the building denies",
+    "artist_reference_title": "Robert Bechtle, '56 Olds",
+    "artist_reference_url": "https://collections.lacma.org/node/231458",
+    "reference_traits": "flat suburban driveway under bright daylight, photographic-painterly realism, beige-and-stucco palette, banal stillness as subject",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Five and Three-Eighths. Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: an elevator panel in an interior lobby. Action: A finger hovers over a brass elevator panel where the buttons read 4, 5, 6, 7 normally but a thinner unmarked button sits between 5 and 6, faintly etched with the fraction five-and-three-eighths. Focus: the hovering finger and the slim extra button between 5 and 6. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: impossible numbering, the floor that math admits but the building denies. Palette: brass panel, sodium-amber lobby light, dark cab carpet, and a thin antimemetic chartreuse on a building-directory sticker beside the panel. Reference-trait borrow only: flat suburban driveway under bright daylight, photographic-painterly realism, beige-and-stucco palette, banal stillness as subject. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the impossible button reads as a real-world panel ambiguity rather than a sci-fi prop; the etched fraction is the punchline, not a flashing light."
+  },
+  {
+    "name": "MNR Locked Filing Cabinet",
+    "source_index": 8,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Object"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-locked-filing-cabinet.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "a row of identical four-drawer filing cabinets in a basement records room",
+    "action": "One drawer in the center cabinet is missing entirely, leaving a perfectly square dark void at chest height, while the drawers above and below remain seated and labeled with smudged tape.",
+    "focus": "the missing drawer's perfectly square absence between two intact drawers",
+    "mood": "archival theft, the categorical excision",
+    "artist_reference_title": "Walker Evans, Penny Picture Display, Savannah",
+    "artist_reference_url": "https://www.moma.org/collection/works/49891",
+    "reference_traits": "grid-arrayed forensic photography of accumulated paper objects, documentary realism, paper-evidence palette, posture-of-record composition",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Locked Filing Cabinet. Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a row of identical four-drawer filing cabinets in a basement records room. Action: One drawer in the center cabinet is missing entirely, leaving a perfectly square dark void at chest height, while the drawers above and below remain seated and labeled with smudged tape. Focus: the missing drawer's perfectly square absence between two intact drawers. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: archival theft, the categorical excision. Palette: cabinet beige, label-tape yellow, dust-motes amber, and a thin antimemetic chartreuse on a single pill capsule sitting in the dark void where the drawer ought to be. Reference-trait borrow only: grid-arrayed forensic photography of accumulated paper objects, documentary realism, paper-evidence palette, posture-of-record composition. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the missing drawer reads as 'this drawer was never installed' rather than 'someone removed it for repair'; the chartreuse capsule inside is the antimemetic tell."
+  },
+  {
+    "name": "MNR Memory Reef",
+    "source_index": 9,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Spatial"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-memory-reef.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "a long featureless interior corridor in the antimemetic wing",
+    "action": "The corridor recedes into a wall of soft horizontal color bands that should be a far doorway, but the bands resolve into nothing concrete, a perceptual reef where memory of the geometry breaks against itself.",
+    "focus": "the corridor receding into resolved-but-unreadable color bands",
+    "mood": "perceptual ground giving way, the reef where remembering breaks",
+    "artist_reference_title": "Mark Rothko, No. 14, 1960",
+    "artist_reference_url": "https://www.sfmoma.org/artwork/98.308/",
+    "reference_traits": "stacked color fields with soft horizontal edges, ambient depth without depicted object, palette as composition, contemplative absence, monumental quiet",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Memory Reef. Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a long featureless interior corridor in the antimemetic wing. Action: The corridor recedes into a wall of soft horizontal color bands that should be a far doorway, but the bands resolve into nothing concrete, a perceptual reef where memory of the geometry breaks against itself. Focus: the corridor receding into resolved-but-unreadable color bands. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: perceptual ground giving way, the reef where remembering breaks. Palette: corridor concrete gray, ceiling-tile white, navy baseboard, and antimemetic chartreuse as a thin band in the unresolved far wall. Reference-trait borrow only: stacked color fields with soft horizontal edges, ambient depth without depicted object, palette as composition, contemplative absence, monumental quiet. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the unresolved bands read as a perceptual failure rather than a paint job; this card uses Rothko as composition, not as decoration."
+  },
+  {
+    "name": "MNR Memory Reef (Containment Critical)",
+    "source_index": 10,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Spatial"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-memory-reef-containment-critical.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "a containment-pressure corridor where the antimemetic anomaly has expanded",
+    "action": "A single figure in coveralls stands at the boundary where the corridor's geometry dissolves into bands, dwarfed by the failing perspective, with rope barriers and a chartreuse hazard placard at their feet.",
+    "focus": "the tiny figure at the boundary, the rope barrier, and the chartreuse placard",
+    "mood": "containment scale, the reef widening",
+    "artist_reference_title": "Caspar David Friedrich, The Monk by the Sea",
+    "artist_reference_url": "https://www.smb.museum/en/museums-institutions/alte-nationalgalerie/",
+    "reference_traits": "tiny single figure against an immense empty horizon, three flat horizontal bands, scale through absence, somber palette, the witness reduced to a mark",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Memory Reef (Containment Critical). Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a containment-pressure corridor where the antimemetic anomaly has expanded. Action: A single figure in coveralls stands at the boundary where the corridor's geometry dissolves into bands, dwarfed by the failing perspective, with rope barriers and a chartreuse hazard placard at their feet. Focus: the tiny figure at the boundary, the rope barrier, and the chartreuse placard. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: containment scale, the reef widening. Palette: corridor gray-on-gray, rope-orange barrier, and antimemetic chartreuse on the placard and the figure's IV-pole bag. Reference-trait borrow only: tiny single figure against an immense empty horizon, three flat horizontal bands, scale through absence, somber palette, the witness reduced to a mark. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the figure reads as 'the only thing keeping this contained' rather than as a hero pose; scale and isolation do the work."
+  },
+  {
+    "name": "MNR Missing Floor",
+    "source_index": 11,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Spatial"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-missing-floor.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "an elevator panel in a Foundation site interior",
+    "action": "A close framing of the elevator panel shows the standard column 12, 13, 14, 15 with the 14 button shallowly recessed and unlit while every other button gleams, the brass around 14 slightly burnished as if pressed for decades but never registering.",
+    "focus": "the recessed unlit 14 button surrounded by working buttons",
+    "mood": "quiet impossibility, the floor the building owns but cannot reach",
+    "artist_reference_title": "Robert Bechtle, '56 Olds",
+    "artist_reference_url": "https://collections.lacma.org/node/231458",
+    "reference_traits": "flat suburban driveway under bright daylight, photographic-painterly realism, beige-and-stucco palette, banal stillness as subject",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Missing Floor. Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: an elevator panel in a Foundation site interior. Action: A close framing of the elevator panel shows the standard column 12, 13, 14, 15 with the 14 button shallowly recessed and unlit while every other button gleams, the brass around 14 slightly burnished as if pressed for decades but never registering. Focus: the recessed unlit 14 button surrounded by working buttons. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: quiet impossibility, the floor the building owns but cannot reach. Palette: brass panel, cab steel, sodium-amber, and a thin antimemetic chartreuse on a small adhesive label below the panel. Reference-trait borrow only: flat suburban driveway under bright daylight, photographic-painterly realism, beige-and-stucco palette, banal stillness as subject. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the dead button reads as 'pressed many times, never working' rather than 'broken hardware'; the burnish around it is the tell."
+  },
+  {
+    "name": "MNR Missing Floor (Containment Critical)",
+    "source_index": 12,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Spatial"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-missing-floor-containment-critical.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "a stairwell landing at the 13/15 boundary inside a Foundation site",
+    "action": "The stairwell rises through 13 with a heavy metal fire door labeled in worn paint, then a blank concrete wall where the 14 landing should be, then the 15 landing visible above, with a single technician staring up at the seam.",
+    "focus": "the technician looking up at the concrete seam between 13 and 15",
+    "mood": "architectural amnesia, the building disowning a floor",
+    "artist_reference_title": "Rachel Whiteread, House",
+    "artist_reference_url": "https://www.tate.org.uk/art/artworks/whiteread-house-t06829",
+    "reference_traits": "cast of an empty interior as solid object, absence rendered as form, gray concrete monumentality, negative space made tangible, civic memorial silence",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Missing Floor (Containment Critical). Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a stairwell landing at the 13/15 boundary inside a Foundation site. Action: The stairwell rises through 13 with a heavy metal fire door labeled in worn paint, then a blank concrete wall where the 14 landing should be, then the 15 landing visible above, with a single technician staring up at the seam. Focus: the technician looking up at the concrete seam between 13 and 15. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: architectural amnesia, the building disowning a floor. Palette: stairwell concrete gray, fire-door rust red, sodium overhead, and antimemetic chartreuse on the technician's drug-cup taped to the railing. Reference-trait borrow only: cast of an empty interior as solid object, absence rendered as form, gray concrete monumentality, negative space made tangible, civic memorial silence. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the seam reads as 'this floor never existed in this building' rather than as construction-in-progress; the technician's drug-cup is the discipline tell."
+  },
+  {
+    "name": "MNR Personnel Drift",
+    "source_index": 13,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Memetic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-personnel-drift.png",
+    "composition_rotation": "Aftermath",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "a four-person open-plan analyst pod at end of day",
+    "action": "Three desks are still actively in use (warm coffee, open laptops, jacket on chair) but the fourth desk sits clean and dustless with a single name placard turned face-down, the chair pushed in, and no trace of the analyst who occupied it that morning.",
+    "focus": "the clean fourth desk and the face-down placard among three working desks",
+    "mood": "quiet personnel loss, the seat absented without ceremony",
+    "artist_reference_title": "George Tooker, Government Bureau",
+    "artist_reference_url": "https://www.metmuseum.org/art/collection/search/485874",
+    "reference_traits": "rows of identical clerks behind frosted-glass partitions in a fluorescent-lit bureaucratic interior, geometric architectural rhythm, muted institutional palette, civic anonymity, posture-of-clerks composition",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Personnel Drift. Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a four-person open-plan analyst pod at end of day. Action: Three desks are still actively in use (warm coffee, open laptops, jacket on chair) but the fourth desk sits clean and dustless with a single name placard turned face-down, the chair pushed in, and no trace of the analyst who occupied it that morning. Focus: the clean fourth desk and the face-down placard among three working desks. Composition rotation: Aftermath - the motion is already past; the evidence remains in a still frame. Mood: quiet personnel loss, the seat absented without ceremony. Palette: fluorescent yellow-white, desk beige, laptop-screen blue, and a thin antimemetic chartreuse on the chartreuse-tabbed badge clipped to the empty desk's monitor. Reference-trait borrow only: rows of identical clerks behind frosted-glass partitions in a fluorescent-lit bureaucratic interior, geometric architectural rhythm, muted institutional palette, civic anonymity, posture-of-clerks composition. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the empty desk reads as 'this person worked here this morning and now does not exist' rather than 'this desk is unassigned'; the face-down placard is the tell."
+  },
+  {
+    "name": "MNR Personnel Drift (Containment Critical)",
+    "source_index": 14,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Memetic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-personnel-drift-containment-critical.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "a long row of identical analyst desks in a deep antimemetic wing",
+    "action": "A wide view down the corridor of desks reveals every third or fourth desk has been cleared and abandoned, chairs pushed in, monitors dark, face-down placards, with the remaining staff working with deliberate concentration on the still-occupied desks.",
+    "focus": "the rhythm of cleared-and-occupied desks down the wide row",
+    "mood": "distributed loss, drift at scale",
+    "artist_reference_title": "Walter De Maria, The Broken Kilometer",
+    "artist_reference_url": "https://www.diaart.org/visit/visit/walter-de-maria-the-broken-kilometer",
+    "reference_traits": "repetitive identical bureaucratic objects arrayed in a long bright interior, scale through accumulation, museum-warehouse light, austere geometry, ritual repetition",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Personnel Drift (Containment Critical). Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a long row of identical analyst desks in a deep antimemetic wing. Action: A wide view down the corridor of desks reveals every third or fourth desk has been cleared and abandoned, chairs pushed in, monitors dark, face-down placards, with the remaining staff working with deliberate concentration on the still-occupied desks. Focus: the rhythm of cleared-and-occupied desks down the wide row. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: distributed loss, drift at scale. Palette: fluorescent ceiling, desk-beige rhythm, monitor-dark voids, and antimemetic chartreuse on the staff badges of the analysts still in seats. Reference-trait borrow only: repetitive identical bureaucratic objects arrayed in a long bright interior, scale through accumulation, museum-warehouse light, austere geometry, ritual repetition. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the row reads as 'every third coworker is gone' rather than 'office is downsizing'; the rhythm of cleared desks is the entire subject."
+  },
+  {
+    "name": "MNR Soft Erasure",
+    "source_index": 15,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Memetic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-soft-erasure.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "an open page in an analyst's notebook on a desk",
+    "action": "A notebook page is half-filled with ballpoint handwriting that fades smoothly from legible block letters at the top into nothing by the middle of the page, the pen still resting on the empty lower half.",
+    "focus": "the page's gradient from handwriting into nothing and the pen at the boundary",
+    "mood": "soft excision, memory dissolving along a tideline",
+    "artist_reference_title": "Mark Rothko, No. 14, 1960",
+    "artist_reference_url": "https://www.sfmoma.org/artwork/98.308/",
+    "reference_traits": "stacked color fields with soft horizontal edges, ambient depth without depicted object, palette as composition, contemplative absence, monumental quiet",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Soft Erasure. Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: an open page in an analyst's notebook on a desk. Action: A notebook page is half-filled with ballpoint handwriting that fades smoothly from legible block letters at the top into nothing by the middle of the page, the pen still resting on the empty lower half. Focus: the page's gradient from handwriting into nothing and the pen at the boundary. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: soft excision, memory dissolving along a tideline. Palette: paper cream, ballpoint blue, desk-pine brown, and a thin antimemetic chartreuse on a sticky note clipped to the notebook's edge. Reference-trait borrow only: stacked color fields with soft horizontal edges, ambient depth without depicted object, palette as composition, contemplative absence, monumental quiet. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the fade reads as antimemetic dissolution rather than as bad handwriting; the gradient must be unmistakably mid-page, not edge-bleed."
+  },
+  {
+    "name": "MNR Soft Erasure (Severe)",
+    "source_index": 16,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Memetic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-soft-erasure-severe.png",
+    "composition_rotation": "Aftermath",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "the same desk an hour later, lights still on",
+    "action": "The notebook now lies open with two facing pages both entirely blank, the pen on the floor, the chair turned ninety degrees with the analyst absent, and a thin antimemetic-chartreuse pill cup left on the page.",
+    "focus": "the blank facing pages, the floor pen, and the pill cup left on the open notebook",
+    "mood": "completed erasure, the page kept open out of habit",
+    "artist_reference_title": "Vilhelm Hammershoi, Dust Motes Dancing in the Sunbeams",
+    "artist_reference_url": "https://www.ordrupgaard.dk/en/the-collection/",
+    "reference_traits": "diagonal sunlight across an empty floor, dust suspended in stillness, gray panelled walls, austere domestic absence, painterly hush",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Soft Erasure (Severe). Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: the same desk an hour later, lights still on. Action: The notebook now lies open with two facing pages both entirely blank, the pen on the floor, the chair turned ninety degrees with the analyst absent, and a thin antimemetic-chartreuse pill cup left on the page. Focus: the blank facing pages, the floor pen, and the pill cup left on the open notebook. Composition rotation: Aftermath - the motion is already past; the evidence remains in a still frame. Mood: completed erasure, the page kept open out of habit. Palette: paper cream, fluorescent overhead, carpet beige, and antimemetic chartreuse on the pill cup as the only color in the frame. Reference-trait borrow only: diagonal sunlight across an empty floor, dust suspended in stillness, gray panelled walls, austere domestic absence, painterly hush. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the blank pages read as 'fully erased writing' rather than as a fresh notebook; the pill cup on top is the antimemetic discipline tell."
+  },
+  {
+    "name": "MNR Stripped Conference Room",
+    "source_index": 17,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Spatial"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-stripped-conference-room.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "a boardroom on an upper floor at midday",
+    "action": "A long polished conference table runs through the frame with twelve identical chairs around it, set as if for a meeting, while every wall is bare beige plaster with rectangular sun-faded marks where pictures, projectors, and whiteboards used to be, and one chair pulled out slightly.",
+    "focus": "the long table set for twelve and the sun-faded rectangles on the walls",
+    "mood": "meeting that did not happen, room kept ready out of habit",
+    "artist_reference_title": "Vilhelm Hammershoi, Interior with Young Woman Seen from Behind",
+    "artist_reference_url": "https://www.smb.museum/en/museums-institutions/nationalgalerie/collection/",
+    "reference_traits": "muted gray-on-gray interior palette, figure with back turned, doorways into more empty rooms, soft northern window light, quiet domestic gravity",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Stripped Conference Room. Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a boardroom on an upper floor at midday. Action: A long polished conference table runs through the frame with twelve identical chairs around it, set as if for a meeting, while every wall is bare beige plaster with rectangular sun-faded marks where pictures, projectors, and whiteboards used to be, and one chair pulled out slightly. Focus: the long table set for twelve and the sun-faded rectangles on the walls. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: meeting that did not happen, room kept ready out of habit. Palette: table-polish brown, chair-leather black, plaster beige, daylight from blinds, and a thin antimemetic chartreuse on a paper drug cup forgotten on the table. Reference-trait borrow only: muted gray-on-gray interior palette, figure with back turned, doorways into more empty rooms, soft northern window light, quiet domestic gravity. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the empty room reads as 'meeting that did not happen / cannot be recalled' rather than 'meeting before everyone arrives'; the faded wall rectangles are the timestamp."
+  },
+  {
+    "name": "MNR The Blank Folder",
+    "source_index": 18,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Document"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-the-blank-folder.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "an analyst's desk in a windowless reading room",
+    "action": "A manila folder lies open on a desk, the pages inside completely blank cream paper, the tab on the folder cleanly labeled with a redacted block instead of a name, with normal desk debris around it (coffee ring, ballpoint, sticky-note).",
+    "focus": "the open folder with blank pages and the redacted tab",
+    "mood": "archival void, the folder kept current out of policy",
+    "artist_reference_title": "Sophie Calle, The Hotel",
+    "artist_reference_url": "https://www.perrotin.com/artists/Sophie_Calle/9",
+    "reference_traits": "forensic-archival photography of a stranger's belongings, the everyday catalogued under surveillance, paper-evidence palette, quiet voyeur composition, document-as-art",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR The Blank Folder. Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: an analyst's desk in a windowless reading room. Action: A manila folder lies open on a desk, the pages inside completely blank cream paper, the tab on the folder cleanly labeled with a redacted block instead of a name, with normal desk debris around it (coffee ring, ballpoint, sticky-note). Focus: the open folder with blank pages and the redacted tab. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: archival void, the folder kept current out of policy. Palette: manila beige, paper cream, desk-pine, fluorescent overhead, and antimemetic chartreuse on the sticky-note color. Reference-trait borrow only: forensic-archival photography of a stranger's belongings, the everyday catalogued under surveillance, paper-evidence palette, quiet voyeur composition, document-as-art. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the blank folder reads as 'antimemetically emptied dossier' rather than 'new empty folder'; the redacted tab and normal desk debris around it sell the contrast."
+  },
+  {
+    "name": "MNR The Blank Folder (Severe)",
+    "source_index": 19,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Document"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-the-blank-folder-severe.png",
+    "composition_rotation": "Aftermath",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "a small reading room with a long table",
+    "action": "A long table is covered end-to-end with open manila folders, all of them holding blank pages, the chair pushed back, the analyst's coat draped over it, the room otherwise empty.",
+    "focus": "the long row of open blank folders covering the table",
+    "mood": "archival void at scale, the discipline taken to its conclusion",
+    "artist_reference_title": "Walter De Maria, The Broken Kilometer",
+    "artist_reference_url": "https://www.diaart.org/visit/visit/walter-de-maria-the-broken-kilometer",
+    "reference_traits": "repetitive identical bureaucratic objects arrayed in a long bright interior, scale through accumulation, museum-warehouse light, austere geometry, ritual repetition",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR The Blank Folder (Severe). Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a small reading room with a long table. Action: A long table is covered end-to-end with open manila folders, all of them holding blank pages, the chair pushed back, the analyst's coat draped over it, the room otherwise empty. Focus: the long row of open blank folders covering the table. Composition rotation: Aftermath - the motion is already past; the evidence remains in a still frame. Mood: archival void at scale, the discipline taken to its conclusion. Palette: manila beige, paper cream, table-pine, fluorescent overhead, and antimemetic chartreuse on the coat lanyard left on the chairback. Reference-trait borrow only: repetitive identical bureaucratic objects arrayed in a long bright interior, scale through accumulation, museum-warehouse light, austere geometry, ritual repetition. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the row of folders reads as 'every dossier has been antimemetically emptied' rather than 'folders prepared but not yet filled'; the coat and chair say the analyst was here moments ago."
+  },
+  {
+    "name": "MNR The Director's Note",
+    "source_index": 20,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Document"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-the-director-s-note.png",
+    "composition_rotation": "Witness POV",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "the AD's outer office at 8:11am",
+    "action": "The camera is positioned over a clerk's shoulder watching them slide a sealed manila envelope into the AD's empty in-tray on a polished desk, the AD's chair empty behind it, the office lit by a single sodium lamp.",
+    "focus": "the envelope in the tray and the empty AD chair behind it",
+    "mood": "directive arriving without the director, the office obeyed in absence",
+    "artist_reference_title": "Jeff Wall, A View from an Apartment",
+    "artist_reference_url": "https://www.tate.org.uk/art/artworks/wall-a-view-from-an-apartment-t12446",
+    "reference_traits": "ordinary interior with quiet domestic action and a window onto larger urban indifference, constructed realism, daylight palette, observed banality",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR The Director's Note. Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: the AD's outer office at 8:11am. Action: The camera is positioned over a clerk's shoulder watching them slide a sealed manila envelope into the AD's empty in-tray on a polished desk, the AD's chair empty behind it, the office lit by a single sodium lamp. Focus: the envelope in the tray and the empty AD chair behind it. Composition rotation: Witness POV - camera occupies an observer's position behind glass / through a door / over a shoulder; composition framed over the clerk's shoulder, not centered on the desk. Mood: directive arriving without the director, the office obeyed in absence. Palette: desk-pine, manila envelope beige, sodium-amber, chair-leather black, and a thin antimemetic chartreuse on the wax seal of the envelope. Reference-trait borrow only: ordinary interior with quiet domestic action and a window onto larger urban indifference, constructed realism, daylight palette, observed banality. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the AD chair stays empty and the envelope reads as the protagonist; do not generate a portrait of the Director."
+  },
+  {
+    "name": "MNR The Director's Note (Containment Critical)",
+    "source_index": 21,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Document"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-the-director-s-note-containment-critical.png",
+    "composition_rotation": "Witness POV",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "the AD's inner office in the late afternoon",
+    "action": "The camera is in the doorway looking inward as a senior clerk in shirt-sleeves carries a stack of three sealed manila envelopes to the AD's still-empty desk, the office's tall windows pouring late daylight onto the polished floor.",
+    "focus": "the clerk mid-step with three envelopes and the empty desk ahead",
+    "mood": "directives arriving in volume, the absent director's authority intensifying",
+    "artist_reference_title": "Edward Hopper, New York Office",
+    "artist_reference_url": "https://www.mfah.org/art/detail/27543",
+    "reference_traits": "tall vertical office windows framing a single figure mid-task, daylight cutting institutional interior, restrained civic palette, the city as observer, painterly stillness",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR The Director's Note (Containment Critical). Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: the AD's inner office in the late afternoon. Action: The camera is in the doorway looking inward as a senior clerk in shirt-sleeves carries a stack of three sealed manila envelopes to the AD's still-empty desk, the office's tall windows pouring late daylight onto the polished floor. Focus: the clerk mid-step with three envelopes and the empty desk ahead. Composition rotation: Witness POV - camera occupies an observer's position behind glass / through a door / over a shoulder. Mood: directives arriving in volume, the absent director's authority intensifying. Palette: desk-polish brown, window daylight, floor parquet, and antimemetic chartreuse on the lanyard around the clerk's neck. Reference-trait borrow only: tall vertical office windows framing a single figure mid-task, daylight cutting institutional interior, restrained civic palette, the city as observer, painterly stillness. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the AD desk reads as 'still empty, still authoritative' rather than 'unoccupied office'; do not generate a portrait of the Director."
+  },
+  {
+    "name": "MNR The Quiet Hour",
+    "source_index": 22,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Temporal"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-the-quiet-hour.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "an open-plan office floor at 3:14am",
+    "action": "A long view of an open-plan office at three in the morning, every chair pushed in, every monitor on idle screensaver, the only motion a slow ceiling fan, a single security camera mounted high in one corner, and no people anywhere.",
+    "focus": "the rhythm of pushed-in chairs and idle monitors under fluorescent ceiling buzz",
+    "mood": "institutional hush, the hour when the building remembers itself",
+    "artist_reference_title": "Edward Hopper, Office at Night",
+    "artist_reference_url": "https://collections.walkerart.org/object/1599",
+    "reference_traits": "single overhead lamp on a paper desk, two figures in mid-task with implied tension, austere institutional geometry, green-shaded fluorescent palette, isolation inside a working room",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR The Quiet Hour. Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: an open-plan office floor at 3:14am. Action: A long view of an open-plan office at three in the morning, every chair pushed in, every monitor on idle screensaver, the only motion a slow ceiling fan, a single security camera mounted high in one corner, and no people anywhere. Focus: the rhythm of pushed-in chairs and idle monitors under fluorescent ceiling buzz. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: institutional hush, the hour when the building remembers itself. Palette: fluorescent ceiling white, carpet navy, monitor-screen blue, and antimemetic chartreuse on a single safety vest hung over a far chairback. Reference-trait borrow only: single overhead lamp on a paper desk, two figures in mid-task with implied tension, austere institutional geometry, green-shaded fluorescent palette, isolation inside a working room. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the empty office reads as 'three a.m. when nothing is supposed to be happening' rather than 'office closed for renovation'; the ceiling fan and screensavers are the timestamp."
+  },
+  {
+    "name": "MNR White Hallway Recall",
+    "source_index": 23,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_ANOMALY"
+    ],
+    "subtypes": [
+      "Antimemetic",
+      "Spatial"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-white-hallway-recall.png",
+    "composition_rotation": "Anomaly Implied",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal",
+    "location": "a long featureless white interior corridor",
+    "action": "A single figure in coveralls is paused mid-step in a corridor of identical white walls, white ceiling, and white floor, turned slightly back over their shoulder as if they have just remembered something the corridor wants them to forget.",
+    "focus": "the paused figure looking back over their shoulder in the white corridor",
+    "mood": "recall under pressure, the corridor as antimemetic medium",
+    "artist_reference_title": "Rachel Whiteread, Ghost",
+    "artist_reference_url": "https://www.nga.gov/artworks/110341",
+    "reference_traits": "cast of a room's interior as a freestanding object, the empty space made physical, plaster monumentality, gray-white surface, absent presence",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR White Hallway Recall. Card type direction: show the anomaly's consequence or implication with antimemetic restraint, favoring absence and witness over centered monster reveal. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a long featureless white interior corridor. Action: A single figure in coveralls is paused mid-step in a corridor of identical white walls, white ceiling, and white floor, turned slightly back over their shoulder as if they have just remembered something the corridor wants them to forget. Focus: the paused figure looking back over their shoulder in the white corridor. Composition rotation: Anomaly Implied - the strange thing is barely visible, a shadow without caster or a reflection that does not match. Mood: recall under pressure, the corridor as antimemetic medium. Palette: corridor white-on-white, coverall gray, sodium amber from a single fixture, and a thin antimemetic chartreuse on a pill bottle in the figure's hand. Reference-trait borrow only: cast of a room's interior as a freestanding object, the empty space made physical, plaster monumentality, gray-white surface, absent presence. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the corridor reads as 'antimemetic blank' rather than 'unfinished construction'; the figure must look mid-recall, not mid-walk."
+  },
+  {
+    "name": "MNR Antimemetic Atlas",
+    "source_index": 24,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic",
+    "types": [
+      "SCP_FACILITY"
+    ],
+    "subtypes": [
+      "Archive",
+      "Mnestic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-antimemetic-atlas.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an institutional space doing its job, with architecture and staff scale making the operational function legible",
+    "location": "a long archive hall of cartographic cabinets and rolling map cases",
+    "action": "An immense interior is lined with shallow map drawers and rolling-rack mural cases, each rack pulled out an inch to show a beige folded map, with a single archivist on a sliding ladder reading a chartreuse-tabbed dossier.",
+    "focus": "the long rhythm of pulled-out map drawers and the archivist on the ladder",
+    "mood": "cartographic discipline, the world re-mapped to admit what cannot be remembered",
+    "artist_reference_title": "Walter De Maria, The Broken Kilometer",
+    "artist_reference_url": "https://www.diaart.org/visit/visit/walter-de-maria-the-broken-kilometer",
+    "reference_traits": "repetitive identical bureaucratic objects arrayed in a long bright interior, scale through accumulation, museum-warehouse light, austere geometry, ritual repetition",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Antimemetic Atlas. Card type direction: show an institutional space doing its job, with architecture and staff scale making the operational function legible. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a long archive hall of cartographic cabinets and rolling map cases. Action: An immense interior is lined with shallow map drawers and rolling-rack mural cases, each rack pulled out an inch to show a beige folded map, with a single archivist on a sliding ladder reading a chartreuse-tabbed dossier. Focus: the long rhythm of pulled-out map drawers and the archivist on the ladder. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: cartographic discipline, the world re-mapped to admit what cannot be remembered. Palette: cabinet beige, map-fold brown, fluorescent ceiling, and antimemetic chartreuse on the archivist's tab. Reference-trait borrow only: repetitive identical bureaucratic objects arrayed in a long bright interior, scale through accumulation, museum-warehouse light, austere geometry, ritual repetition. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the hall reads as 'maps that account for antimemetic geography' rather than as a city map library; the drawer rhythm is the architecture."
+  },
+  {
+    "name": "MNR Antimemetic Quarantine Lab",
+    "source_index": 25,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic",
+    "types": [
+      "SCP_FACILITY"
+    ],
+    "subtypes": [
+      "Lab",
+      "Mnestic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-antimemetic-quarantine-lab.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an institutional space doing its job, with architecture and staff scale making the operational function legible",
+    "location": "a containment lab with airlock antechambers and observation glass",
+    "action": "A circular observation window looks into a lab where two suited technicians lean over a small steel apparatus on a central bench, one calibrating dials while the other adjusts an IV drip on a chartreuse bag, lit by a single overhead surgical lamp.",
+    "focus": "the two suited technicians and the steel apparatus under the surgical lamp",
+    "mood": "quarantine pressure, the careful work of holding the unrememberable still",
+    "artist_reference_title": "Joseph Wright of Derby, An Experiment on a Bird in the Air Pump",
+    "artist_reference_url": "https://www.nationalgallery.org.uk/paintings/joseph-wright-of-derby-an-experiment-on-a-bird-in-the-air-pump",
+    "reference_traits": "circle of witnesses around a central scientific apparatus, single dramatic light source, faces lit from below, somber palette, civic-experiment gravity",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Antimemetic Quarantine Lab. Card type direction: show an institutional space doing its job, with architecture and staff scale making the operational function legible. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a containment lab with airlock antechambers and observation glass. Action: A circular observation window looks into a lab where two suited technicians lean over a small steel apparatus on a central bench, one calibrating dials while the other adjusts an IV drip on a chartreuse bag, lit by a single overhead surgical lamp. Focus: the two suited technicians and the steel apparatus under the surgical lamp. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: quarantine pressure, the careful work of holding the unrememberable still. Palette: lab tile gray, suit-blue, surgical lamp white, and antimemetic chartreuse on the IV bag. Reference-trait borrow only: circle of witnesses around a central scientific apparatus, single dramatic light source, faces lit from below, somber palette, civic-experiment gravity. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the lab reads as 'antimemetic quarantine in progress' rather than 'standard biolab'; the IV bag is the mnestic discipline tell."
+  },
+  {
+    "name": "MNR Black-Box Library",
+    "source_index": 26,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic",
+    "types": [
+      "SCP_FACILITY"
+    ],
+    "subtypes": [
+      "Archive"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-black-box-library.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an institutional space doing its job, with architecture and staff scale making the operational function legible",
+    "location": "a basement archive room dominated by black storage boxes",
+    "action": "A wide interior reveals floor-to-ceiling industrial shelving entirely filled with identical matte-black document boxes, each box labeled only with a redacted block, and a single archivist walking the central aisle with a clipboard.",
+    "focus": "the rhythm of black boxes and the archivist with the clipboard",
+    "mood": "bureaucratic discipline, the archive that admits only what cannot be opened",
+    "artist_reference_title": "Walter De Maria, The New York Earth Room",
+    "artist_reference_url": "https://www.diaart.org/visit/visit/walter-de-maria-the-new-york-earth-room",
+    "reference_traits": "interior space fully filled with one substance, institutional white walls disrupted by mass material presence, quiet monumental displacement, single dominant texture",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Black-Box Library. Card type direction: show an institutional space doing its job, with architecture and staff scale making the operational function legible. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a basement archive room dominated by black storage boxes. Action: A wide interior reveals floor-to-ceiling industrial shelving entirely filled with identical matte-black document boxes, each box labeled only with a redacted block, and a single archivist walking the central aisle with a clipboard. Focus: the rhythm of black boxes and the archivist with the clipboard. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: bureaucratic discipline, the archive that admits only what cannot be opened. Palette: black box matte, shelving steel, aisle concrete, fluorescent ceiling, and antimemetic chartreuse on the archivist's clipboard tab. Reference-trait borrow only: interior space fully filled with one substance, institutional white walls disrupted by mass material presence, quiet monumental displacement, single dominant texture. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the boxes read as 'antimemetic archival containment' rather than 'movie prop crates'; the rhythm and the redacted labels are the architecture."
+  },
+  {
+    "name": "MNR Bystander Briefing Hall",
+    "source_index": 27,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic",
+    "types": [
+      "SCP_FACILITY"
+    ],
+    "subtypes": [
+      "Briefing"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-bystander-briefing-hall.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an institutional space doing its job, with architecture and staff scale making the operational function legible",
+    "location": "a large pre-meeting hall with rows of folding chairs and a low stage",
+    "action": "A wide view of a fluorescent-lit hall set with three hundred empty folding chairs facing a low stage with a single podium and a folded-up screen, the side aisle holding a tray of chartreuse-labeled drug cups on a service cart.",
+    "focus": "the rows of empty chairs facing the empty stage and the chartreuse drug-cup cart",
+    "mood": "briefing readiness, the audience that has not yet arrived to be inoculated",
+    "artist_reference_title": "Stephen Shore, Meeting Room",
+    "artist_reference_url": "https://www.303gallery.com/artists/stephen-shore",
+    "reference_traits": "fluorescent meeting-room interior, banal furniture, color-photograph realism, beige-and-monitor palette, institutional emptiness",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Bystander Briefing Hall. Card type direction: show an institutional space doing its job, with architecture and staff scale making the operational function legible. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a large pre-meeting hall with rows of folding chairs and a low stage. Action: A wide view of a fluorescent-lit hall set with three hundred empty folding chairs facing a low stage with a single podium and a folded-up screen, the side aisle holding a tray of chartreuse-labeled drug cups on a service cart. Focus: the rows of empty chairs facing the empty stage and the chartreuse drug-cup cart. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: briefing readiness, the audience that has not yet arrived to be inoculated. Palette: hall fluorescent white, chair gray, stage navy, and antimemetic chartreuse on the drug-cup cart. Reference-trait borrow only: fluorescent meeting-room interior, banal furniture, color-photograph realism, beige-and-monitor palette, institutional emptiness. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the hall reads as 'pre-event mnestic briefing' rather than 'lecture room before class'; the drug-cup cart is the antimemetic tell."
+  },
+  {
+    "name": "MNR Bystander Briefing Room",
+    "source_index": 28,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_reset",
+    "types": [
+      "SCP_FACILITY"
+    ],
+    "subtypes": [
+      "Briefing"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-bystander-briefing-room.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an institutional space doing its job, with architecture and staff scale making the operational function legible",
+    "location": "a small interior briefing room with a circular table and ten chairs",
+    "action": "A small interior briefing room sits empty at end of day, the round table cleared except for ten paper drug cups, one at each seat, the projector still casting a faded slide on the back wall, the door cracked open.",
+    "focus": "the round table with ten drug cups at ten empty seats and the faded slide on the wall",
+    "mood": "briefing aftermath, the smaller hall where individual sessions are held",
+    "artist_reference_title": "John Register, Open Diner",
+    "artist_reference_url": "https://americanart.si.edu/artwork/open-diner-66935",
+    "reference_traits": "empty institutional interior under flat fluorescent light, geometric architectural quiet, restrained beige-cream palette, banal-melancholy composition",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Bystander Briefing Room. Card type direction: show an institutional space doing its job, with architecture and staff scale making the operational function legible. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a small interior briefing room with a circular table and ten chairs. Action: A small interior briefing room sits empty at end of day, the round table cleared except for ten paper drug cups, one at each seat, the projector still casting a faded slide on the back wall, the door cracked open. Focus: the round table with ten drug cups at ten empty seats and the faded slide on the wall. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: briefing aftermath, the smaller hall where individual sessions are held. Palette: table-pine brown, chair-navy, projector-blue slide light, fluorescent overhead, and antimemetic chartreuse on the ten drug cups. Reference-trait borrow only: empty institutional interior under flat fluorescent light, geometric architectural quiet, restrained beige-cream palette, banal-melancholy composition. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the room reads as 'just-vacated mnestic briefing' rather than 'meeting being set up'; the drug cups at every seat are the antimemetic tell."
+  },
+  {
+    "name": "MNR Bystander Lounge",
+    "source_index": 29,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_reset",
+    "types": [
+      "SCP_FACILITY"
+    ],
+    "subtypes": [
+      "Staff"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-bystander-lounge.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an institutional space doing its job, with architecture and staff scale making the operational function legible",
+    "location": "a Foundation breakroom with vending machines and a coffee maker",
+    "action": "A breakroom interior at midmorning shows three civilian-tier staff sitting separately at small round tables, each one with a paper drug cup in front of them and an open paperback, vending machines lit behind, no conversation passing between them.",
+    "focus": "the three separated bystanders with their drug cups in the breakroom",
+    "mood": "bureaucratic warmth, communal dosage without communal speech",
+    "artist_reference_title": "Edward Hopper, Automat",
+    "artist_reference_url": "https://desmoinesartcenter.org/explore/collection/edward-hopper-automat/",
+    "reference_traits": "single figure under a single lamp in a public-but-empty interior, paper-cup quietude, ceiling rhythm, dark window reflecting nothing, hushed urban solitude",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Bystander Lounge. Card type direction: show an institutional space doing its job, with architecture and staff scale making the operational function legible. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a Foundation breakroom with vending machines and a coffee maker. Action: A breakroom interior at midmorning shows three civilian-tier staff sitting separately at small round tables, each one with a paper drug cup in front of them and an open paperback, vending machines lit behind, no conversation passing between them. Focus: the three separated bystanders with their drug cups in the breakroom. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: bureaucratic warmth, communal dosage without communal speech. Palette: vending-machine glow, formica tabletop, coffee-maker red light, fluorescent ceiling, and antimemetic chartreuse on the drug cups. Reference-trait borrow only: single figure under a single lamp in a public-but-empty interior, paper-cup quietude, ceiling rhythm, dark window reflecting nothing, hushed urban solitude. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the breakroom reads as 'civilian-tier mnestic discipline room' rather than as a generic lunchroom; the drug cups in front of every bystander are the dominant tell."
+  },
+  {
+    "name": "MNR Cognitive Anchor Array",
+    "source_index": 30,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic",
+    "types": [
+      "SCP_FACILITY"
+    ],
+    "subtypes": [
+      "Array"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-cognitive-anchor-array.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an institutional space doing its job, with architecture and staff scale making the operational function legible",
+    "location": "a circular interior lab with a central instrument pedestal",
+    "action": "A circular lab is ringed by twelve identical waist-high steel pedestals each bearing a brass-and-glass cognitive anchor, all twelve aimed inward at a central operating chair where a technician adjusts a chartreuse IV cuff on a seated subject.",
+    "focus": "the ring of twelve anchors aimed inward and the seated subject in the central chair",
+    "mood": "instrumented saturation, the array stabilizing one mind at a time",
+    "artist_reference_title": "Rene Magritte, Time Transfixed",
+    "artist_reference_url": "https://www.artic.edu/artworks/34181/time-transfixed",
+    "reference_traits": "ordinary fireplace with an impossible object inserted as if always there, deadpan domestic-surreal, smooth illustrative surface, restrained palette",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Cognitive Anchor Array. Card type direction: show an institutional space doing its job, with architecture and staff scale making the operational function legible. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a circular interior lab with a central instrument pedestal. Action: A circular lab is ringed by twelve identical waist-high steel pedestals each bearing a brass-and-glass cognitive anchor, all twelve aimed inward at a central operating chair where a technician adjusts a chartreuse IV cuff on a seated subject. Focus: the ring of twelve anchors aimed inward and the seated subject in the central chair. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: instrumented saturation, the array stabilizing one mind at a time. Palette: lab-tile pale gray, anchor-brass, sodium overhead lamps, and antimemetic chartreuse on the IV cuff. Reference-trait borrow only: ordinary fireplace with an impossible object inserted as if always there, deadpan domestic-surreal, smooth illustrative surface, restrained palette. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the ring reads as 'mnestic instrument array' rather than 'museum of brass instruments'; the seated subject and IV cuff are the operational tell."
+  },
+  {
+    "name": "MNR Deep Memory Vault",
+    "source_index": 31,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic",
+    "types": [
+      "SCP_FACILITY"
+    ],
+    "subtypes": [
+      "Archive"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-deep-memory-vault.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an institutional space doing its job, with architecture and staff scale making the operational function legible",
+    "location": "a deep underground vault with a single massive door",
+    "action": "A wide view of a vault antechamber dominated by a single bank-vault-scale steel door at the far end, the antechamber lit by a low sodium fixture, with a small archivist's desk to the side bearing a single chartreuse-tabbed binder.",
+    "focus": "the massive vault door and the small archivist's desk to its side",
+    "mood": "deep storage, the memory kept under literal weight",
+    "artist_reference_title": "Rachel Whiteread, Ghost",
+    "artist_reference_url": "https://www.nga.gov/artworks/110341",
+    "reference_traits": "cast of a room's interior as a freestanding object, the empty space made physical, plaster monumentality, gray-white surface, absent presence",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Deep Memory Vault. Card type direction: show an institutional space doing its job, with architecture and staff scale making the operational function legible. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a deep underground vault with a single massive door. Action: A wide view of a vault antechamber dominated by a single bank-vault-scale steel door at the far end, the antechamber lit by a low sodium fixture, with a small archivist's desk to the side bearing a single chartreuse-tabbed binder. Focus: the massive vault door and the small archivist's desk to its side. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: deep storage, the memory kept under literal weight. Palette: vault-door steel, antechamber concrete, sodium amber, and antimemetic chartreuse on the archivist's binder tab. Reference-trait borrow only: cast of a room's interior as a freestanding object, the empty space made physical, plaster monumentality, gray-white surface, absent presence. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the vault reads as 'antimemetic deep storage' rather than as a bank vault; the small archivist's desk is the operational tell."
+  },
+  {
+    "name": "MNR Director's Office, AD",
+    "source_index": 32,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic",
+    "types": [
+      "SCP_FACILITY"
+    ],
+    "subtypes": [
+      "Mnestic",
+      "Office"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-director-s-office-ad.png",
+    "composition_rotation": "Witness POV",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an institutional space doing its job, with architecture and staff scale making the operational function legible",
+    "location": "the AD's inner office viewed from the doorway",
+    "action": "From the doorway, the camera sees a high-ceilinged corner office at dusk, the AD's desk angled toward two tall windows, the chair empty, a single banker's lamp on, and an open binder on the desk with a chartreuse-tabbed dossier.",
+    "focus": "the empty desk, the lit banker's lamp, and the chartreuse-tabbed dossier",
+    "mood": "absent authority, the office working on its own",
+    "artist_reference_title": "Edward Hopper, New York Office",
+    "artist_reference_url": "https://www.mfah.org/art/detail/27543",
+    "reference_traits": "tall vertical office windows framing a single figure mid-task, daylight cutting institutional interior, restrained civic palette, the city as observer, painterly stillness",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Director's Office, AD. Card type direction: show an institutional space doing its job, with architecture and staff scale making the operational function legible. Setting/faction: Mnestic Reset / The Antimemetics Division; location: the AD's inner office viewed from the doorway. Action: From the doorway, the camera sees a high-ceilinged corner office at dusk, the AD's desk angled toward two tall windows, the chair empty, a single banker's lamp on, and an open binder on the desk with a chartreuse-tabbed dossier. Focus: the empty desk, the lit banker's lamp, and the chartreuse-tabbed dossier. Composition rotation: Witness POV - camera occupies an observer's position behind glass / through a door / over a shoulder. Mood: absent authority, the office working on its own. Palette: dusk window-blue, desk-pine, banker's lamp brass-green, and antimemetic chartreuse on the dossier tab. Reference-trait borrow only: tall vertical office windows framing a single figure mid-task, daylight cutting institutional interior, restrained civic palette, the city as observer, painterly stillness. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the AD office reads as 'occupied by the work, not the person' rather than 'office between tenants'; the empty chair is mandatory."
+  },
+  {
+    "name": "MNR Inoculation Bay",
+    "source_index": 33,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic",
+    "types": [
+      "SCP_FACILITY"
+    ],
+    "subtypes": [
+      "Medical",
+      "Mnestic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-inoculation-bay.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an institutional space doing its job, with architecture and staff scale making the operational function legible",
+    "location": "a long row of medical dosing chairs in a foundation infirmary",
+    "action": "A wide view of a long inoculation bay shows fourteen reclined dosing chairs in two rows, each occupied by a Foundation staff member on a chartreuse IV drip, two technicians walking the aisle with clipboards, ceiling-mounted lights on a regular grid.",
+    "focus": "the long bay of reclined chairs on chartreuse IV drips with technicians walking the aisle",
+    "mood": "bureaucratic medical discipline, the routine of staying remembered at scale",
+    "artist_reference_title": "Rembrandt, The Anatomy Lesson of Dr Nicolaes Tulp",
+    "artist_reference_url": "https://www.mauritshuis.nl/en/our-collection/artworks/146-the-anatomy-lesson-of-dr-nicolaes-tulp",
+    "reference_traits": "ring of witnesses around a central body on an institutional table, single warm light source, somber palette, civic-medical gravity, posture of professional attention",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Inoculation Bay. Card type direction: show an institutional space doing its job, with architecture and staff scale making the operational function legible. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a long row of medical dosing chairs in a foundation infirmary. Action: A wide view of a long inoculation bay shows fourteen reclined dosing chairs in two rows, each occupied by a Foundation staff member on a chartreuse IV drip, two technicians walking the aisle with clipboards, ceiling-mounted lights on a regular grid. Focus: the long bay of reclined chairs on chartreuse IV drips with technicians walking the aisle. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: bureaucratic medical discipline, the routine of staying remembered at scale. Palette: bay-tile gray, chair-vinyl beige, lamp-white grid, and antimemetic chartreuse on every IV bag as the dominant tell. Reference-trait borrow only: ring of witnesses around a central body on an institutional table, single warm light source, somber palette, civic-medical gravity, posture of professional attention. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the bay reads as 'mass mnestic dosing routine' rather than 'emergency blood drive'; the IV bags on every chair are the dominant tell."
+  },
+  {
+    "name": "MNR Junior Coordination Office",
+    "source_index": 34,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_reset",
+    "types": [
+      "SCP_FACILITY"
+    ],
+    "subtypes": [
+      "Office"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-junior-coordination-office.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an institutional space doing its job, with architecture and staff scale making the operational function legible",
+    "location": "a small two-desk office where two coordination juniors share a phone bank",
+    "action": "A small interior office holds two desks back-to-back, each with a junior in shirt-sleeves on a desk phone with a clipboard, a wall-mounted whiteboard ruled with empty schedule grids behind them, fluorescent ceiling.",
+    "focus": "the two juniors on phones with empty schedule grids on the wall behind",
+    "mood": "entry-level bureaucratic labor, coordination as ongoing process",
+    "artist_reference_title": "Edward Hopper, Conference at Night",
+    "artist_reference_url": "https://collections.wichitaartmuseum.org/objects-1/info/85",
+    "reference_traits": "three figures in a sparsely-furnished interior under fluorescent light, geometric architectural framing, hard-edge realism, restrained civic palette, late-night working composition",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Junior Coordination Office. Card type direction: show an institutional space doing its job, with architecture and staff scale making the operational function legible. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a small two-desk office where two coordination juniors share a phone bank. Action: A small interior office holds two desks back-to-back, each with a junior in shirt-sleeves on a desk phone with a clipboard, a wall-mounted whiteboard ruled with empty schedule grids behind them, fluorescent ceiling. Focus: the two juniors on phones with empty schedule grids on the wall behind. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: entry-level bureaucratic labor, coordination as ongoing process. Palette: desk-pine, shirt-sleeve white, whiteboard pale, fluorescent ceiling, and antimemetic chartreuse on a row of tabbed binders behind one desk. Reference-trait borrow only: three figures in a sparsely-furnished interior under fluorescent light, geometric architectural framing, hard-edge realism, restrained civic palette, late-night working composition. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the office reads as 'junior coordination work-in-progress' rather than 'call center'; the whiteboard with empty grids is the bureaucratic tell."
+  },
+  {
+    "name": "MNR Mnemonic Imprint Station",
+    "source_index": 35,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic",
+    "types": [
+      "SCP_FACILITY"
+    ],
+    "subtypes": [
+      "Lab",
+      "Mnestic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-mnemonic-imprint-station.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an institutional space doing its job, with architecture and staff scale making the operational function legible",
+    "location": "a single station bench at a memory-imprint lab",
+    "action": "A close-mid view of a steel lab bench shows a single seated subject in a head-frame with twelve thin chartreuse-tipped neural leads connected to a brass-faced amplifier rack, a technician's gloved hands adjusting one lead at a time.",
+    "focus": "the head-frame, the chartreuse-tipped leads, and the technician's gloved hands",
+    "mood": "precise imprinting, memory put back by hand",
+    "artist_reference_title": "Joseph Wright of Derby, An Experiment on a Bird in the Air Pump",
+    "artist_reference_url": "https://www.nationalgallery.org.uk/paintings/joseph-wright-of-derby-an-experiment-on-a-bird-in-the-air-pump",
+    "reference_traits": "circle of witnesses around a central scientific apparatus, single dramatic light source, faces lit from below, somber palette, civic-experiment gravity",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Mnemonic Imprint Station. Card type direction: show an institutional space doing its job, with architecture and staff scale making the operational function legible. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a single station bench at a memory-imprint lab. Action: A close-mid view of a steel lab bench shows a single seated subject in a head-frame with twelve thin chartreuse-tipped neural leads connected to a brass-faced amplifier rack, a technician's gloved hands adjusting one lead at a time. Focus: the head-frame, the chartreuse-tipped leads, and the technician's gloved hands. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: precise imprinting, memory put back by hand. Palette: bench-steel, frame-brass, lab-tile pale gray, and antimemetic chartreuse on every neural-lead tip. Reference-trait borrow only: circle of witnesses around a central scientific apparatus, single dramatic light source, faces lit from below, somber palette, civic-experiment gravity. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the station reads as 'targeted mnestic imprinting' rather than as a torture device; the gloved hands and the chartreuse leads are the operational tell."
+  },
+  {
+    "name": "MNR Mnestic Ward",
+    "source_index": 36,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic",
+    "types": [
+      "SCP_FACILITY"
+    ],
+    "subtypes": [
+      "Mnestic",
+      "Site"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-mnestic-ward.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an institutional space doing its job, with architecture and staff scale making the operational function legible",
+    "location": "a long single-corridor ward with windowed patient rooms on both sides",
+    "action": "A wide view down a fluorescent-lit ward corridor reveals twenty windowed patient rooms on each side, half with their privacy blinds drawn closed, half with single occupants visible on chartreuse IV drips, an attendant walking the center of the corridor with a tray.",
+    "focus": "the long ward corridor with its rhythm of drawn and open windows and the attendant in the center",
+    "mood": "long-term mnestic discipline, the ward as residence",
+    "artist_reference_title": "Vilhelm Hammershoi, Dust Motes Dancing in the Sunbeams",
+    "artist_reference_url": "https://www.ordrupgaard.dk/en/the-collection/",
+    "reference_traits": "diagonal sunlight across an empty floor, dust suspended in stillness, gray panelled walls, austere domestic absence, painterly hush",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Mnestic Ward. Card type direction: show an institutional space doing its job, with architecture and staff scale making the operational function legible. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a long single-corridor ward with windowed patient rooms on both sides. Action: A wide view down a fluorescent-lit ward corridor reveals twenty windowed patient rooms on each side, half with their privacy blinds drawn closed, half with single occupants visible on chartreuse IV drips, an attendant walking the center of the corridor with a tray. Focus: the long ward corridor with its rhythm of drawn and open windows and the attendant in the center. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: long-term mnestic discipline, the ward as residence. Palette: ward-tile gray, blind-white, sodium amber, and antimemetic chartreuse on the visible IV bags. Reference-trait borrow only: diagonal sunlight across an empty floor, dust suspended in stillness, gray panelled walls, austere domestic absence, painterly hush. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the ward reads as 'long-term mnestic residency' rather than as a hospital ward; the IV bags are the antimemetic tell."
+  },
+  {
+    "name": "MNR Pre-Amnestic Records",
+    "source_index": 37,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic",
+    "types": [
+      "SCP_FACILITY"
+    ],
+    "subtypes": [
+      "Archive"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-pre-amnestic-records.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an institutional space doing its job, with architecture and staff scale making the operational function legible",
+    "location": "an archival hall of identical brown banker's boxes stacked floor-to-ceiling",
+    "action": "A wide interior aisle runs between two walls of identical brown banker's boxes stacked four high, each box labeled with a date-only tape strip, with a single archivist on a step ladder pulling one box halfway out.",
+    "focus": "the long aisle of identical date-only boxes and the archivist on the ladder",
+    "mood": "pre-event archival discipline, the records preserved before the amnestic kicks in",
+    "artist_reference_title": "Walter De Maria, The Broken Kilometer",
+    "artist_reference_url": "https://www.diaart.org/visit/visit/walter-de-maria-the-broken-kilometer",
+    "reference_traits": "repetitive identical bureaucratic objects arrayed in a long bright interior, scale through accumulation, museum-warehouse light, austere geometry, ritual repetition",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Pre-Amnestic Records. Card type direction: show an institutional space doing its job, with architecture and staff scale making the operational function legible. Setting/faction: Mnestic Reset / The Antimemetics Division; location: an archival hall of identical brown banker's boxes stacked floor-to-ceiling. Action: A wide interior aisle runs between two walls of identical brown banker's boxes stacked four high, each box labeled with a date-only tape strip, with a single archivist on a step ladder pulling one box halfway out. Focus: the long aisle of identical date-only boxes and the archivist on the ladder. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: pre-event archival discipline, the records preserved before the amnestic kicks in. Palette: box brown, aisle concrete, fluorescent overhead, and antimemetic chartreuse on the archivist's binder tab. Reference-trait borrow only: repetitive identical bureaucratic objects arrayed in a long bright interior, scale through accumulation, museum-warehouse light, austere geometry, ritual repetition. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the hall reads as 'records preserved against future amnestic' rather than 'tax archive'; the date-only labels are the bureaucratic tell."
+  },
+  {
+    "name": "MNR Reality Stabilization Suite",
+    "source_index": 38,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic",
+    "types": [
+      "SCP_FACILITY"
+    ],
+    "subtypes": [
+      "Array"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-reality-stabilization-suite.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an institutional space doing its job, with architecture and staff scale making the operational function legible",
+    "location": "a circular control suite ringed with monitor banks and a central reading floor",
+    "action": "A wide interior of a circular suite shows three operators at panel stations around the perimeter watching a central floor where a single freestanding brass cognitive anchor hums under sodium light, all monitors showing slow green oscilloscope traces.",
+    "focus": "the central anchor and the three operators at panel stations around it",
+    "mood": "instrumented stillness, the suite calibrated to one anomaly",
+    "artist_reference_title": "Rene Magritte, The Empire of Light",
+    "artist_reference_url": "https://www.moma.org/collection/works/78969",
+    "reference_traits": "ordinary suburban exterior under impossible simultaneous daylight and night, the surreal inserted into the banal without comment, smooth painterly surface, restrained palette, deadpan dread",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Reality Stabilization Suite. Card type direction: show an institutional space doing its job, with architecture and staff scale making the operational function legible. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a circular control suite ringed with monitor banks and a central reading floor. Action: A wide interior of a circular suite shows three operators at panel stations around the perimeter watching a central floor where a single freestanding brass cognitive anchor hums under sodium light, all monitors showing slow green oscilloscope traces. Focus: the central anchor and the three operators at panel stations around it. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: instrumented stillness, the suite calibrated to one anomaly. Palette: panel matte black, monitor green-trace, sodium overhead, and antimemetic chartreuse on the chartreuse-coded panel tabs. Reference-trait borrow only: ordinary suburban exterior under impossible simultaneous daylight and night, the surreal inserted into the banal without comment, smooth painterly surface, restrained palette, deadpan dread. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the suite reads as 'reality calibration in progress' rather than 'mission control'; the central freestanding anchor and slow green traces are the operational tell."
+  },
+  {
+    "name": "MNR Sealed Conference Room",
+    "source_index": 39,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic",
+    "types": [
+      "SCP_FACILITY"
+    ],
+    "subtypes": [
+      "Briefing",
+      "Mnestic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-sealed-conference-room.png",
+    "composition_rotation": "Witness POV",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an institutional space doing its job, with architecture and staff scale making the operational function legible",
+    "location": "a closed conference-room door with a viewport window viewed from the corridor",
+    "action": "From the corridor, the camera looks through a small wire-mesh viewport in a closed conference-room door at a dim interior with eight figures in dress shirts around a table, the room locked, a chartreuse-keyed badge reader glowing beside the door.",
+    "focus": "the wire-mesh viewport, the eight figures inside, and the chartreuse badge reader",
+    "mood": "sealed deliberation, the room kept airtight to keep what cannot be repeated inside",
+    "artist_reference_title": "Jeff Wall, A View from an Apartment",
+    "artist_reference_url": "https://www.tate.org.uk/art/artworks/wall-a-view-from-an-apartment-t12446",
+    "reference_traits": "ordinary interior with quiet domestic action and a window onto larger urban indifference, constructed realism, daylight palette, observed banality",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Sealed Conference Room. Card type direction: show an institutional space doing its job, with architecture and staff scale making the operational function legible. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a closed conference-room door with a viewport window viewed from the corridor. Action: From the corridor, the camera looks through a small wire-mesh viewport in a closed conference-room door at a dim interior with eight figures in dress shirts around a table, the room locked, a chartreuse-keyed badge reader glowing beside the door. Focus: the wire-mesh viewport, the eight figures inside, and the chartreuse badge reader. Composition rotation: Witness POV - camera occupies an observer's position behind glass / through a door / over a shoulder. Mood: sealed deliberation, the room kept airtight to keep what cannot be repeated inside. Palette: corridor sodium amber, viewport-mesh black, interior dim navy, and antimemetic chartreuse on the badge reader. Reference-trait borrow only: ordinary interior with quiet domestic action and a window onto larger urban indifference, constructed realism, daylight palette, observed banality. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the conference room reads as 'antimemetically sealed deliberation' rather than 'private meeting'; the chartreuse badge reader and wire-mesh viewport are the access tells."
+  }
+]

@@ -1,0 +1,1093 @@
+[
+  {
+    "name": "MNR Antimemetic Tactician",
+    "source_index": 40,
+    "expansion_code": "MNR",
+    "archetype": "redaction_press",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Agent",
+      "Mnestic",
+      "Security"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-antimemetic-tactician.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a briefing room corner with a tactical board",
+    "action": "A senior tactician in dress shirt and tactical vest leans over a tactical board pinned with chartreuse-tabbed cards, one hand mid-gesture marking a route, the other holding an unlit ballpoint pen.",
+    "focus": "the tactician's hands on the tactical board with the chartreuse-tabbed cards",
+    "mood": "competent operational pressure, the routes worked out before the briefing starts",
+    "artist_reference_title": "John Singer Sargent, Two Soldiers at Arras",
+    "artist_reference_url": "https://www.imperialwarmuseums.org.uk/collections/item/object/16566",
+    "reference_traits": "two figures in service uniform in a worn interior, alla prima brushwork, muted palette, posture-of-duty composition, painterly restraint",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Antimemetic Tactician. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a briefing room corner with a tactical board. Action: A senior tactician in dress shirt and tactical vest leans over a tactical board pinned with chartreuse-tabbed cards, one hand mid-gesture marking a route, the other holding an unlit ballpoint pen. Focus: the tactician's hands on the tactical board with the chartreuse-tabbed cards. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: competent operational pressure, the routes worked out before the briefing starts. Palette: board-cork brown, vest-navy, dress-shirt white, fluorescent overhead, and antimemetic chartreuse on the tab cards. Reference-trait borrow only: two figures in service uniform in a worn interior, alla prima brushwork, muted palette, posture-of-duty composition, painterly restraint. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the tactician reads as 'mid-planning, not yet briefing' rather than as a hero pose; hands and the board do the work."
+  },
+  {
+    "name": "MNR Black-Box Archivist",
+    "source_index": 41,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_core",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Archivist",
+      "Mnestic",
+      "Staff"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-black-box-archivist.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a small archivist's desk in front of the Black-Box Library shelving",
+    "action": "An archivist seated at a low desk lifts a matte-black document box onto the desk with both gloved hands, a chartreuse-tabbed binder open beside it, the shelving of identical black boxes filling the background.",
+    "focus": "the gloved hands lifting the black box and the chartreuse-tabbed binder",
+    "mood": "archival discipline, the box opened with both hands because both hands matter",
+    "artist_reference_title": "Sophie Calle, The Hotel",
+    "artist_reference_url": "https://www.perrotin.com/artists/Sophie_Calle/9",
+    "reference_traits": "forensic-archival photography of a stranger's belongings, the everyday catalogued under surveillance, paper-evidence palette, quiet voyeur composition, document-as-art",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Black-Box Archivist. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a small archivist's desk in front of the Black-Box Library shelving. Action: An archivist seated at a low desk lifts a matte-black document box onto the desk with both gloved hands, a chartreuse-tabbed binder open beside it, the shelving of identical black boxes filling the background. Focus: the gloved hands lifting the black box and the chartreuse-tabbed binder. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: archival discipline, the box opened with both hands because both hands matter. Palette: box matte black, shelving steel, fluorescent overhead, and antimemetic chartreuse on the binder tab. Reference-trait borrow only: forensic-archival photography of a stranger's belongings, the everyday catalogued under surveillance, paper-evidence palette, quiet voyeur composition, document-as-art. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the archivist reads as 'practiced handling of antimemetic archive' rather than as a museum curator; the gloved hands and the chartreuse-tabbed binder are the tells."
+  },
+  {
+    "name": "MNR Briefing-Room Listener",
+    "source_index": 42,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_wake",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Bystander",
+      "Staff"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-briefing-room-listener.png",
+    "composition_rotation": "Reaction",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a small briefing room with seven other chairs",
+    "action": "A single mid-career staff member sits forward in a briefing chair, paper drug cup beside their hand, head tilted in concentration as they listen, the room out of focus around them.",
+    "focus": "the listener's tilted-head concentration and the paper drug cup beside their hand",
+    "mood": "dosed attention, the act of listening as a job in itself",
+    "artist_reference_title": "Edward Hopper, Office at Night",
+    "artist_reference_url": "https://collections.walkerart.org/object/1599",
+    "reference_traits": "single overhead lamp on a paper desk, two figures in mid-task with implied tension, austere institutional geometry, green-shaded fluorescent palette, isolation inside a working room",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Briefing-Room Listener. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a small briefing room with seven other chairs. Action: A single mid-career staff member sits forward in a briefing chair, paper drug cup beside their hand, head tilted in concentration as they listen, the room out of focus around them. Focus: the listener's tilted-head concentration and the paper drug cup beside their hand. Composition rotation: Reaction - human posture foregrounded, the antimemetic situation read through the figure's response. Mood: dosed attention, the act of listening as a job in itself. Palette: chair-navy, dress-shirt cream, fluorescent overhead, and antimemetic chartreuse on the drug cup. Reference-trait borrow only: single overhead lamp on a paper desk, two figures in mid-task with implied tension, austere institutional geometry, green-shaded fluorescent palette, isolation inside a working room. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the listener reads as 'mid-briefing concentration' rather than as a passive crowd-extra; the drug cup is the dosage tell."
+  },
+  {
+    "name": "MNR Bystander Coordinator",
+    "source_index": 43,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_wake",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Liaison",
+      "Mnestic",
+      "Staff"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-bystander-coordinator.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a small office desk with a clipboard and an active phone line",
+    "action": "A bystander coordinator in a cardigan and lanyard stands at the corner of a desk, phone wedged between shoulder and ear, marking names on a clipboard with a chartreuse highlighter, a tray of paper drug cups in front of her.",
+    "focus": "the coordinator's posture, the clipboard, and the chartreuse highlighter mid-stroke",
+    "mood": "competent routine, the coordinator who keeps the civilians inoculated on schedule",
+    "artist_reference_title": "Edgar Degas, A Woman Ironing",
+    "artist_reference_url": "https://www.nga.gov/artworks/46640",
+    "reference_traits": "single working figure leaning into routine task, soft interior light, mid-tone palette, posture-as-subject, painterly grain of fatigue",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Bystander Coordinator. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a small office desk with a clipboard and an active phone line. Action: A bystander coordinator in a cardigan and lanyard stands at the corner of a desk, phone wedged between shoulder and ear, marking names on a clipboard with a chartreuse highlighter, a tray of paper drug cups in front of her. Focus: the coordinator's posture, the clipboard, and the chartreuse highlighter mid-stroke. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: competent routine, the coordinator who keeps the civilians inoculated on schedule. Palette: cardigan beige, lanyard navy, desk-pine, fluorescent overhead, and antimemetic chartreuse on the highlighter. Reference-trait borrow only: single working figure leaning into routine task, soft interior light, mid-tone palette, posture-as-subject, painterly grain of fatigue. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the coordinator reads as 'tracking civilian dosage by name' rather than as a receptionist; the chartreuse highlighter is the operational tell."
+  },
+  {
+    "name": "MNR Bystander Witness Pool",
+    "source_index": 44,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_reset",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Bystander",
+      "Civilian"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-bystander-witness-pool.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a holding room with rows of folding chairs and an attendant at the door",
+    "action": "A wide view of a holding room shows twenty-four civilians in everyday clothes sitting in three rows of folding chairs, each with a paper drug cup, an attendant at the door checking names off a clipboard.",
+    "focus": "the rows of civilian witnesses with their drug cups and the attendant at the door",
+    "mood": "collective bystander discipline, the pool kept ready to be debriefed and forgotten",
+    "artist_reference_title": "Kathe Kollwitz, The Survivors",
+    "artist_reference_url": "https://sammlung.staedelmuseum.de/en/work/the-survivors",
+    "reference_traits": "cluster of figures under a central protective gesture, charcoal-on-paper graphic weight, somber palette, civic grief, posture-of-protection composition",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Bystander Witness Pool. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a holding room with rows of folding chairs and an attendant at the door. Action: A wide view of a holding room shows twenty-four civilians in everyday clothes sitting in three rows of folding chairs, each with a paper drug cup, an attendant at the door checking names off a clipboard. Focus: the rows of civilian witnesses with their drug cups and the attendant at the door. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: collective bystander discipline, the pool kept ready to be debriefed and forgotten. Palette: holding-room beige, civilian-clothes earth tones, attendant-shirt navy, fluorescent overhead, and antimemetic chartreuse on every drug cup. Reference-trait borrow only: cluster of figures under a central protective gesture, charcoal-on-paper graphic weight, somber palette, civic grief, posture-of-protection composition. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the pool reads as 'civilian witnesses awaiting mnestic processing' rather than as a jury room; the rows of drug cups are the operational tell."
+  },
+  {
+    "name": "MNR Class-A Inoculated Agent",
+    "source_index": 45,
+    "expansion_code": "MNR",
+    "archetype": "redaction_press",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Agent",
+      "Mnestic",
+      "Security"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-class-a-inoculated-agent.png",
+    "composition_rotation": "Reaction",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "an operator-ready room mirror at the start of a shift",
+    "action": "An MTF agent in tactical layered clothing stands at a wall mirror in an operator-ready room, IV cuff still taped to forearm, tipping back a paper drug cup of three chartreuse capsules, eyes meeting their own reflection.",
+    "focus": "the agent's reflection, the IV cuff on the forearm, and the chartreuse drug cup mid-tip",
+    "mood": "pre-deployment mnestic discipline, the dosage that makes the next eight hours possible",
+    "artist_reference_title": "Lucian Freud, Reflection (Self-Portrait)",
+    "artist_reference_url": "https://www.npg.org.uk/collections/search/portrait/",
+    "reference_traits": "fluorescent-flesh portraiture, unflattering institutional skin tones, thickly-built paint surface, exhausted under hard light, posture-as-subject",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Class-A Inoculated Agent. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: an operator-ready room mirror at the start of a shift. Action: An MTF agent in tactical layered clothing stands at a wall mirror in an operator-ready room, IV cuff still taped to forearm, tipping back a paper drug cup of three chartreuse capsules, eyes meeting their own reflection. Focus: the agent's reflection, the IV cuff on the forearm, and the chartreuse drug cup mid-tip. Composition rotation: Reaction - human posture foregrounded, the antimemetic situation read through the figure's response. Mood: pre-deployment mnestic discipline, the dosage that makes the next eight hours possible. Palette: tactical earth tones, mirror reflection, ready-room fluorescent, and antimemetic chartreuse as the dominant tell on cup and capsules. Reference-trait borrow only: fluorescent-flesh portraiture, unflattering institutional skin tones, thickly-built paint surface, exhausted under hard light, posture-as-subject. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the agent reads as 'mid-saturation, not yet deployed' rather than as a hero pose; the IV cuff and the drug cup are the operational tells."
+  },
+  {
+    "name": "MNR Cleanup Crew Lead",
+    "source_index": 46,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_core",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Mnestic",
+      "Security"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-cleanup-crew-lead.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "the lip of a hallway being prepped for cleanup",
+    "action": "A cleanup crew lead in coveralls and respirator pulled down to neck speaks into a radio at the entrance to a side corridor, a clipboard against thigh and a chartreuse hazard placard already set down on the carpet.",
+    "focus": "the lead's hand on the radio, the clipboard, and the chartreuse placard on the carpet",
+    "mood": "practical operational command, the corridor being made safe before staff return",
+    "artist_reference_title": "Robert Bechtle, Alameda Gran Torino",
+    "artist_reference_url": "https://www.sfmoma.org/artwork/2005.139/",
+    "reference_traits": "harsh midday suburban light on a parked car, flat photographic-painterly realism, beige-and-asphalt palette, banal Americana made monumental",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Cleanup Crew Lead. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: the lip of a hallway being prepped for cleanup. Action: A cleanup crew lead in coveralls and respirator pulled down to neck speaks into a radio at the entrance to a side corridor, a clipboard against thigh and a chartreuse hazard placard already set down on the carpet. Focus: the lead's hand on the radio, the clipboard, and the chartreuse placard on the carpet. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: practical operational command, the corridor being made safe before staff return. Palette: coverall beige, respirator black, fluorescent overhead, and antimemetic chartreuse on the placard. Reference-trait borrow only: harsh midday suburban light on a parked car, flat photographic-painterly realism, beige-and-asphalt palette, banal Americana made monumental. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the lead reads as 'mid-deployment cleanup leadership' rather than as a hazmat poster; the radio, clipboard, and placard are the operational tells."
+  },
+  {
+    "name": "MNR Conference Attendee",
+    "source_index": 47,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_wake",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Bystander",
+      "Staff"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-conference-attendee.png",
+    "composition_rotation": "Reaction",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a small conference room mid-session",
+    "action": "A mid-level conference attendee sits at a table in a small session, posture politely attentive, paper drug cup at one elbow, ballpoint pen in the other hand resting on a closed manila folder, a chair beside them empty.",
+    "focus": "the attendee's polite posture, the drug cup at the elbow, and the empty adjacent chair",
+    "mood": "meeting-room dosed attention, the seat that knows the seat beside it has been emptied recently",
+    "artist_reference_title": "Edward Hopper, Office at Night",
+    "artist_reference_url": "https://collections.walkerart.org/object/1599",
+    "reference_traits": "single overhead lamp on a paper desk, two figures in mid-task with implied tension, austere institutional geometry, green-shaded fluorescent palette, isolation inside a working room",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Conference Attendee. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a small conference room mid-session. Action: A mid-level conference attendee sits at a table in a small session, posture politely attentive, paper drug cup at one elbow, ballpoint pen in the other hand resting on a closed manila folder, a chair beside them empty. Focus: the attendee's polite posture, the drug cup at the elbow, and the empty adjacent chair. Composition rotation: Reaction - human posture foregrounded, the antimemetic situation read through the figure's response. Mood: meeting-room dosed attention, the seat that knows the seat beside it has been emptied recently. Palette: conference table-pine, dress-shirt cream, fluorescent overhead, and antimemetic chartreuse on the drug cup. Reference-trait borrow only: single overhead lamp on a paper desk, two figures in mid-task with implied tension, austere institutional geometry, green-shaded fluorescent palette, isolation inside a working room. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the attendee reads as 'mid-meeting bystander' rather than as a deposition witness; the empty adjacent chair is the antimemetic tell."
+  },
+  {
+    "name": "MNR D-Class (No Recall)",
+    "source_index": 48,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_wake",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Bystander",
+      "D-Class"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-d-class-no-recall.png",
+    "composition_rotation": "Reaction",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a small interview room with a table and two chairs",
+    "action": "A D-Class subject in orange coveralls sits across from an empty chair, head turned slightly, expression patient and entirely uncomprehending, a paper drug cup of two chartreuse capsules on the table in front of them.",
+    "focus": "the D-Class subject's uncomprehending posture and the paper drug cup on the table",
+    "mood": "post-amnestic patience, the subject who no longer knows what they did or did not see",
+    "artist_reference_title": "Lucian Freud, Benefits Supervisor Sleeping",
+    "artist_reference_url": "https://www.christies.com/lot/lot-5071290/",
+    "reference_traits": "monumental interior figure under bare-bulb light, institutional weight, paint applied as worn upholstery, posture of exhaustion, civic flesh",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR D-Class (No Recall). Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a small interview room with a table and two chairs. Action: A D-Class subject in orange coveralls sits across from an empty chair, head turned slightly, expression patient and entirely uncomprehending, a paper drug cup of two chartreuse capsules on the table in front of them. Focus: the D-Class subject's uncomprehending posture and the paper drug cup on the table. Composition rotation: Reaction - human posture foregrounded, the antimemetic situation read through the figure's response. Mood: post-amnestic patience, the subject who no longer knows what they did or did not see. Palette: coverall orange, table-pine, fluorescent overhead, interview-room navy walls, and antimemetic chartreuse on the drug cup. Reference-trait borrow only: monumental interior figure under bare-bulb light, institutional weight, paint applied as worn upholstery, posture of exhaustion, civic flesh. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the D-Class reads as 'amnestically reset, calm' rather than as a prisoner; the empty chair across from them is the bureaucratic tell."
+  },
+  {
+    "name": "MNR Department Newcomer",
+    "source_index": 49,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_wake",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Bystander",
+      "Staff"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-department-newcomer.png",
+    "composition_rotation": "Reaction",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a new-staff orientation corridor",
+    "action": "A young analyst in still-creased badge and lanyard stands at the threshold of an open office, looking down a corridor of identical doors, clipboard hugged to chest, paper drug cup in the other hand.",
+    "focus": "the newcomer's posture at the threshold, the clipboard, and the drug cup",
+    "mood": "first-day disorientation, the corridor that does not introduce itself",
+    "artist_reference_title": "Andrew Wyeth, Christina's World",
+    "artist_reference_url": "https://www.moma.org/collection/works/78455",
+    "reference_traits": "single figure on dry ground looking toward a distant building, low horizon, sun-baked muted palette, the act of looking as the entire subject, anxious patience",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Department Newcomer. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a new-staff orientation corridor. Action: A young analyst in still-creased badge and lanyard stands at the threshold of an open office, looking down a corridor of identical doors, clipboard hugged to chest, paper drug cup in the other hand. Focus: the newcomer's posture at the threshold, the clipboard, and the drug cup. Composition rotation: Reaction - human posture foregrounded, the antimemetic situation read through the figure's response. Mood: first-day disorientation, the corridor that does not introduce itself. Palette: badge-lanyard navy, dress-shirt white, corridor fluorescent, carpet beige, and antimemetic chartreuse on the drug cup. Reference-trait borrow only: single figure on dry ground looking toward a distant building, low horizon, sun-baked muted palette, the act of looking as the entire subject, anxious patience. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the newcomer reads as 'first day, mnestic discipline already starting' rather than as a tourist; the drug cup and clipboard are the discipline tells."
+  },
+  {
+    "name": "MNR Director, Antimemetics Division",
+    "source_index": 50,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_core",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Antimemetics",
+      "Director",
+      "Mnestic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-director-antimemetics-division.png",
+    "composition_rotation": "Witness POV",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "the Director's inner office viewed from the doorway",
+    "action": "From the doorway, the camera sees the Director's high-backed chair turned three-quarters away from the desk toward a tall window, an arm resting on the chair-arm holding a paper drug cup, the rest of the figure obscured by the chairback.",
+    "focus": "the chair-arm hand holding the drug cup and the tall window beyond",
+    "mood": "present-but-faceless authority, the Director rendered as posture not portrait",
+    "artist_reference_title": "Edward Hopper, New York Office",
+    "artist_reference_url": "https://www.mfah.org/art/detail/27543",
+    "reference_traits": "tall vertical office windows framing a single figure mid-task, daylight cutting institutional interior, restrained civic palette, the city as observer, painterly stillness",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Director, Antimemetics Division. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: the Director's inner office viewed from the doorway. Action: From the doorway, the camera sees the Director's high-backed chair turned three-quarters away from the desk toward a tall window, an arm resting on the chair-arm holding a paper drug cup, the rest of the figure obscured by the chairback. Focus: the chair-arm hand holding the drug cup and the tall window beyond. Composition rotation: Witness POV - camera occupies an observer's position behind glass / through a door / over a shoulder; do not generate a portrait; the chairback is the face. Mood: present-but-faceless authority, the Director rendered as posture not portrait. Palette: window dusk-blue, chair-leather black, desk-pine, banker's lamp brass, and antimemetic chartreuse on the drug cup. Reference-trait borrow only: tall vertical office windows framing a single figure mid-task, daylight cutting institutional interior, restrained civic palette, the city as observer, painterly stillness. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the Director reads as 'a working director on a saturation dose' rather than as a hero portrait; the chair must obscure the face and the drug cup must dominate."
+  },
+  {
+    "name": "MNR Documents Clerk",
+    "source_index": 51,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_wake",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Bystander",
+      "Staff"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-documents-clerk.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a clerk's stand-up desk in front of a wall of pigeonhole shelves",
+    "action": "A documents clerk in dress shirt and cardigan stands at a high desk, sliding a manila envelope into a numbered pigeonhole, paper drug cup at one elbow, chartreuse-tabbed sort tray under the other hand.",
+    "focus": "the clerk's hand placing the envelope, the drug cup, and the chartreuse-tabbed sort tray",
+    "mood": "routine bureaucratic discipline, the clerk who sorts what cannot be remembered into bins",
+    "artist_reference_title": "Edgar Degas, A Woman Ironing",
+    "artist_reference_url": "https://www.nga.gov/artworks/46640",
+    "reference_traits": "single working figure leaning into routine task, soft interior light, mid-tone palette, posture-as-subject, painterly grain of fatigue",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Documents Clerk. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a clerk's stand-up desk in front of a wall of pigeonhole shelves. Action: A documents clerk in dress shirt and cardigan stands at a high desk, sliding a manila envelope into a numbered pigeonhole, paper drug cup at one elbow, chartreuse-tabbed sort tray under the other hand. Focus: the clerk's hand placing the envelope, the drug cup, and the chartreuse-tabbed sort tray. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: routine bureaucratic discipline, the clerk who sorts what cannot be remembered into bins. Palette: cardigan beige, pigeonhole-wood brown, fluorescent overhead, and antimemetic chartreuse on the sort tray tab. Reference-trait borrow only: single working figure leaning into routine task, soft interior light, mid-tone palette, posture-as-subject, painterly grain of fatigue. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the clerk reads as 'mid-sort discipline' rather than as a postal worker; the chartreuse-tabbed sort tray is the operational tell."
+  },
+  {
+    "name": "MNR Forgotten Bureau Liaison",
+    "source_index": 52,
+    "expansion_code": "MNR",
+    "archetype": "redaction_press",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Agent",
+      "Liaison",
+      "Mnestic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-forgotten-bureau-liaison.png",
+    "composition_rotation": "Reaction",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a corridor where two government departments meet, with a small visitor desk",
+    "action": "A senior liaison in a gray suit stands at a small visitor desk between two corridors, signing in with a ballpoint, a soft leather briefcase set on the floor and a chartreuse-tabbed dossier in their off hand, no one at the desk to receive them.",
+    "focus": "the liaison signing in alone at the empty visitor desk with the chartreuse-tabbed dossier",
+    "mood": "quiet diplomatic patience, the official whose department has been antimemetically misplaced",
+    "artist_reference_title": "Johannes Vermeer, The Geographer",
+    "artist_reference_url": "https://www.staedelmuseum.de/en/collection/the-geographer-1668",
+    "reference_traits": "single working figure leaning over a desk by a tall window, soft side-light, restrained palette, posture-of-thinking composition, painterly stillness",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Forgotten Bureau Liaison. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a corridor where two government departments meet, with a small visitor desk. Action: A senior liaison in a gray suit stands at a small visitor desk between two corridors, signing in with a ballpoint, a soft leather briefcase set on the floor and a chartreuse-tabbed dossier in their off hand, no one at the desk to receive them. Focus: the liaison signing in alone at the empty visitor desk with the chartreuse-tabbed dossier. Composition rotation: Reaction - human posture foregrounded, the antimemetic situation read through the figure's response. Mood: quiet diplomatic patience, the official whose department has been antimemetically misplaced. Palette: suit gray, briefcase brown, desk-pine, fluorescent overhead, and antimemetic chartreuse on the dossier tab. Reference-trait borrow only: single working figure leaning over a desk by a tall window, soft side-light, restrained palette, posture-of-thinking composition, painterly stillness. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the liaison reads as 'representing a department nobody remembers existing' rather than as a visiting executive; the unattended desk and the chartreuse-tabbed dossier are the tells."
+  },
+  {
+    "name": "MNR Hallway Runner",
+    "source_index": 53,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_wake",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Bystander",
+      "Staff"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-hallway-runner.png",
+    "composition_rotation": "Action",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a fluorescent-lit interior corridor in mid-stride",
+    "action": "A junior staff member in shirt-sleeves is caught mid-stride down a fluorescent-lit corridor, a chartreuse-tabbed envelope held flat against their chest, the corridor receding behind them.",
+    "focus": "the runner mid-stride and the chartreuse-tabbed envelope against their chest",
+    "mood": "practical bureaucratic motion, the runner whose hands carry what the network cannot",
+    "artist_reference_title": "Jeff Wall, Insomnia",
+    "artist_reference_url": "https://www.tate.org.uk/art/artworks/wall-insomnia-p20198",
+    "reference_traits": "staged-bureaucratic kitchen interior under fluorescent ceiling, figure on the floor in mid-narrative pause, large-format constructed scene, theatrical realism, banal horror",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Hallway Runner. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a fluorescent-lit interior corridor in mid-stride. Action: A junior staff member in shirt-sleeves is caught mid-stride down a fluorescent-lit corridor, a chartreuse-tabbed envelope held flat against their chest, the corridor receding behind them. Focus: the runner mid-stride and the chartreuse-tabbed envelope against their chest. Composition rotation: Action - dynamic diagonal staging, motion of bureaucratic or operational discipline readable at card size. Mood: practical bureaucratic motion, the runner whose hands carry what the network cannot. Palette: corridor fluorescent white, shirt-sleeve cream, carpet navy, and antimemetic chartreuse on the envelope tab. Reference-trait borrow only: staged-bureaucratic kitchen interior under fluorescent ceiling, figure on the floor in mid-narrative pause, large-format constructed scene, theatrical realism, banal horror. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the runner reads as 'urgent inter-office delivery in progress' rather than as a track event; the chartreuse-tabbed envelope is the operational tell."
+  },
+  {
+    "name": "MNR Inoculated D-Class",
+    "source_index": 54,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_reset",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Bystander",
+      "D-Class"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-inoculated-d-class.png",
+    "composition_rotation": "Reaction",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a recovery chair in a quiet corner of the inoculation bay",
+    "action": "A D-Class subject in orange coveralls reclines in a dosing chair, eyes half-open under bandaged forearm IV, a chartreuse bag dripping slowly, an attendant checking pulse at the wrist.",
+    "focus": "the reclined D-Class, the chartreuse IV bag, and the attendant's hand at the wrist",
+    "mood": "post-inoculation drift, the subject newly capable of remembering what they are about to be told",
+    "artist_reference_title": "Lucian Freud, Benefits Supervisor Sleeping",
+    "artist_reference_url": "https://www.christies.com/lot/lot-5071290/",
+    "reference_traits": "monumental interior figure under bare-bulb light, institutional weight, paint applied as worn upholstery, posture of exhaustion, civic flesh",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Inoculated D-Class. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a recovery chair in a quiet corner of the inoculation bay. Action: A D-Class subject in orange coveralls reclines in a dosing chair, eyes half-open under bandaged forearm IV, a chartreuse bag dripping slowly, an attendant checking pulse at the wrist. Focus: the reclined D-Class, the chartreuse IV bag, and the attendant's hand at the wrist. Composition rotation: Reaction - human posture foregrounded, the antimemetic situation read through the figure's response. Mood: post-inoculation drift, the subject newly capable of remembering what they are about to be told. Palette: coverall orange, chair-vinyl beige, lamp-white grid, and antimemetic chartreuse on the IV bag. Reference-trait borrow only: monumental interior figure under bare-bulb light, institutional weight, paint applied as worn upholstery, posture of exhaustion, civic flesh. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the D-Class reads as 'just inoculated, becoming useful' rather than as a coma patient; the attendant's hand at the wrist is the operational tell."
+  },
+  {
+    "name": "MNR Inoculated Recordkeeper",
+    "source_index": 55,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_core",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Archivist",
+      "Mnestic",
+      "Staff"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-inoculated-recordkeeper.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "an archivist's reading desk in a small annex room",
+    "action": "A senior recordkeeper in cardigan and bifocals sits at a reading desk with a yellow legal pad, mid-sentence writing, an IV-port band still on their forearm, a small chartreuse pill bottle uncapped beside the pad.",
+    "focus": "the recordkeeper's writing hand, the IV-port band, and the uncapped chartreuse pill bottle",
+    "mood": "dosed recall, the archivist whose job is to remember on chemical pension",
+    "artist_reference_title": "Sophie Calle, The Hotel",
+    "artist_reference_url": "https://www.perrotin.com/artists/Sophie_Calle/9",
+    "reference_traits": "forensic-archival photography of a stranger's belongings, the everyday catalogued under surveillance, paper-evidence palette, quiet voyeur composition, document-as-art",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Inoculated Recordkeeper. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: an archivist's reading desk in a small annex room. Action: A senior recordkeeper in cardigan and bifocals sits at a reading desk with a yellow legal pad, mid-sentence writing, an IV-port band still on their forearm, a small chartreuse pill bottle uncapped beside the pad. Focus: the recordkeeper's writing hand, the IV-port band, and the uncapped chartreuse pill bottle. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: dosed recall, the archivist whose job is to remember on chemical pension. Palette: cardigan beige, pad yellow, fluorescent overhead, and antimemetic chartreuse on the pill bottle. Reference-trait borrow only: forensic-archival photography of a stranger's belongings, the everyday catalogued under surveillance, paper-evidence palette, quiet voyeur composition, document-as-art. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the recordkeeper reads as 'mnestically inoculated for archival recall' rather than as a paperwork clerk; the IV-port band and the chartreuse pill bottle are the discipline tells."
+  },
+  {
+    "name": "MNR Mailroom Junior",
+    "source_index": 56,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_wake",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Bystander",
+      "Staff"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-mailroom-junior.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a small basement mailroom with a long sorting table",
+    "action": "A mailroom junior in shirt-sleeves sorts a stack of manila envelopes on a long table under a single fluorescent strip, paper drug cup at one elbow, a chartreuse-marked priority bin at the table's end.",
+    "focus": "the junior's hands sorting envelopes and the chartreuse-marked priority bin",
+    "mood": "entry-level discipline, the mailroom where every envelope is potentially antimemetic",
+    "artist_reference_title": "Edgar Degas, A Woman Ironing",
+    "artist_reference_url": "https://www.nga.gov/artworks/46640",
+    "reference_traits": "single working figure leaning into routine task, soft interior light, mid-tone palette, posture-as-subject, painterly grain of fatigue",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Mailroom Junior. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a small basement mailroom with a long sorting table. Action: A mailroom junior in shirt-sleeves sorts a stack of manila envelopes on a long table under a single fluorescent strip, paper drug cup at one elbow, a chartreuse-marked priority bin at the table's end. Focus: the junior's hands sorting envelopes and the chartreuse-marked priority bin. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: entry-level discipline, the mailroom where every envelope is potentially antimemetic. Palette: table-pine, envelope beige, fluorescent strip white, and antimemetic chartreuse on the priority bin. Reference-trait borrow only: single working figure leaning into routine task, soft interior light, mid-tone palette, posture-as-subject, painterly grain of fatigue. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the junior reads as 'mid-sort, lower-tier discipline' rather than as a postal stock photo; the drug cup and chartreuse priority bin are the operational tells."
+  },
+  {
+    "name": "MNR Marion Wheeler",
+    "source_index": 57,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_core",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Antimemetics",
+      "Hero",
+      "Mnestic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-marion-wheeler.png",
+    "composition_rotation": "Reaction",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a senior analyst's narrow office at 9pm, one banker's lamp on",
+    "action": "A specific woman in her forties in a worn dress shirt and lanyard sits at her desk under a single banker's lamp, one hand at her temple, the other resting on an open notebook, a small chartreuse pill bottle on the desk beside a paper drug cup.",
+    "focus": "Marion at the desk, hand at temple, with the chartreuse pill bottle and drug cup",
+    "mood": "exhausted senior discipline, the analyst who keeps remembering on schedule",
+    "artist_reference_title": "Lucian Freud, Reflection (Self-Portrait)",
+    "artist_reference_url": "https://www.npg.org.uk/collections/search/portrait/",
+    "reference_traits": "fluorescent-flesh portraiture, unflattering institutional skin tones, thickly-built paint surface, exhausted under hard light, posture-as-subject",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Marion Wheeler. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a senior analyst's narrow office at 9pm, one banker's lamp on. Action: A specific woman in her forties in a worn dress shirt and lanyard sits at her desk under a single banker's lamp, one hand at her temple, the other resting on an open notebook, a small chartreuse pill bottle on the desk beside a paper drug cup. Focus: Marion at the desk, hand at temple, with the chartreuse pill bottle and drug cup. Composition rotation: Reaction - human posture foregrounded, the antimemetic situation read through the figure's response; single specific exhausted senior analyst, not a hero pose. Mood: exhausted senior discipline, the analyst who keeps remembering on schedule. Palette: banker's lamp brass-green, desk-pine, dress-shirt cream, and antimemetic chartreuse on the pill bottle and drug cup. Reference-trait borrow only: fluorescent-flesh portraiture, unflattering institutional skin tones, thickly-built paint surface, exhausted under hard light, posture-as-subject. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify Marion reads as 'a specific senior analyst at the end of a long shift' rather than as an action-hero MTF operative; the chartreuse pill bottle and drug cup are mandatory tells."
+  },
+  {
+    "name": "MNR Memory Pattern Analyst",
+    "source_index": 58,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic_decay",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Memetics",
+      "Mnestic",
+      "Scientist"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-memory-pattern-analyst.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "an analyst's desk with two monitors and a wall of printout",
+    "action": "An analyst in dress shirt leans toward two monitors that display slow oscilloscope traces in green, a thin chartreuse highlighter mid-stroke across a printout taped to the wall, a paper drug cup on the desk corner.",
+    "focus": "the green oscilloscope traces, the chartreuse highlighter on the wall printout, and the drug cup",
+    "mood": "instrumented attention, the analyst reading patterns the way others read weather",
+    "artist_reference_title": "George Tooker, The Subway",
+    "artist_reference_url": "https://whitney.org/collection/works/3137",
+    "reference_traits": "compressed institutional interior with figures lined up under fluorescent fixtures, geometric architectural framing, muted civic palette, posture of bureaucratic compliance, painterly anonymity",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Memory Pattern Analyst. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: an analyst's desk with two monitors and a wall of printout. Action: An analyst in dress shirt leans toward two monitors that display slow oscilloscope traces in green, a thin chartreuse highlighter mid-stroke across a printout taped to the wall, a paper drug cup on the desk corner. Focus: the green oscilloscope traces, the chartreuse highlighter on the wall printout, and the drug cup. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: instrumented attention, the analyst reading patterns the way others read weather. Palette: monitor-screen green, wall-printout cream, desk-pine, fluorescent overhead, and antimemetic chartreuse on the highlighter. Reference-trait borrow only: compressed institutional interior with figures lined up under fluorescent fixtures, geometric architectural framing, muted civic palette, posture of bureaucratic compliance, painterly anonymity. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the analyst reads as 'mid-pattern-recognition' rather than as a typical sci-fi researcher; the green traces and chartreuse highlighter are the operational tells."
+  },
+  {
+    "name": "MNR Mnemonic Field Agent",
+    "source_index": 59,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_core",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Agent",
+      "Mnestic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-mnemonic-field-agent.png",
+    "composition_rotation": "Reaction",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a parking-garage stairwell exit at end of shift",
+    "action": "A field agent in tactical layered clothing stands at the open exit door of a parking garage, dosing-cup in hand, the city dim beyond, IV-port band on the forearm, a black field bag at their feet.",
+    "focus": "the agent at the open door with the dosing cup and field bag",
+    "mood": "end-of-deployment discipline, the agent dosing once more before returning to the world",
+    "artist_reference_title": "John Singer Sargent, Two Soldiers at Arras",
+    "artist_reference_url": "https://www.imperialwarmuseums.org.uk/collections/item/object/16566",
+    "reference_traits": "two figures in service uniform in a worn interior, alla prima brushwork, muted palette, posture-of-duty composition, painterly restraint",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Mnemonic Field Agent. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a parking-garage stairwell exit at end of shift. Action: A field agent in tactical layered clothing stands at the open exit door of a parking garage, dosing-cup in hand, the city dim beyond, IV-port band on the forearm, a black field bag at their feet. Focus: the agent at the open door with the dosing cup and field bag. Composition rotation: Reaction - human posture foregrounded, the antimemetic situation read through the figure's response. Mood: end-of-deployment discipline, the agent dosing once more before returning to the world. Palette: garage sodium amber, tactical earth tones, exit-door black, and antimemetic chartreuse on the dosing cup. Reference-trait borrow only: two figures in service uniform in a worn interior, alla prima brushwork, muted palette, posture-of-duty composition, painterly restraint. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the agent reads as 'end-of-shift mnestic regimen' rather than as a hero pose; the dosing cup and field bag are the operational tells."
+  },
+  {
+    "name": "MNR Mnemonic Surgeon",
+    "source_index": 60,
+    "expansion_code": "MNR",
+    "archetype": "antimemetic_decay",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Medical",
+      "Mnestic",
+      "Scientist"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-mnemonic-surgeon.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a small precise surgical station in the imprint lab",
+    "action": "A surgeon in scrubs and head-loupe leans over a seated subject in a head-frame, one hand on a chartreuse-tipped probe and the other adjusting an articulated lamp, a sterile tray of probes laid out at hand.",
+    "focus": "the surgeon's hands on the probe and lamp and the head-frame",
+    "mood": "precise discipline, the work of putting memory back by hand",
+    "artist_reference_title": "Rembrandt, The Anatomy Lesson of Dr Nicolaes Tulp",
+    "artist_reference_url": "https://www.mauritshuis.nl/en/our-collection/artworks/146-the-anatomy-lesson-of-dr-nicolaes-tulp",
+    "reference_traits": "ring of witnesses around a central body on an institutional table, single warm light source, somber palette, civic-medical gravity, posture of professional attention",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Mnemonic Surgeon. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a small precise surgical station in the imprint lab. Action: A surgeon in scrubs and head-loupe leans over a seated subject in a head-frame, one hand on a chartreuse-tipped probe and the other adjusting an articulated lamp, a sterile tray of probes laid out at hand. Focus: the surgeon's hands on the probe and lamp and the head-frame. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: precise discipline, the work of putting memory back by hand. Palette: scrub blue, head-frame steel, lamp-white, and antimemetic chartreuse on the probe tip. Reference-trait borrow only: ring of witnesses around a central body on an institutional table, single warm light source, somber palette, civic-medical gravity, posture of professional attention. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the surgeon reads as 'mnemonic precision work' rather than as a horror surgeon; the chartreuse-tipped probe and the articulated lamp are the operational tells."
+  },
+  {
+    "name": "MNR Mnestic Anchor Operative",
+    "source_index": 61,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_core",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Anchor",
+      "Mnestic",
+      "Security"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-mnestic-anchor-operative.png",
+    "composition_rotation": "Reaction",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "an operator-ready room at the cognitive anchor array",
+    "action": "An operative in tactical earth tones stands holding a small brass cognitive anchor in both hands at chest height, eyes closed in deliberate concentration, IV cuff on forearm, the anchor array faintly visible behind them.",
+    "focus": "the operative's hands cradling the brass anchor and the IV cuff on the forearm",
+    "mood": "discipline as ritual, the anchor steadied by deliberate concentration",
+    "artist_reference_title": "Lucian Freud, Reflection (Self-Portrait)",
+    "artist_reference_url": "https://www.npg.org.uk/collections/search/portrait/",
+    "reference_traits": "fluorescent-flesh portraiture, unflattering institutional skin tones, thickly-built paint surface, exhausted under hard light, posture-as-subject",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Mnestic Anchor Operative. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: an operator-ready room at the cognitive anchor array. Action: An operative in tactical earth tones stands holding a small brass cognitive anchor in both hands at chest height, eyes closed in deliberate concentration, IV cuff on forearm, the anchor array faintly visible behind them. Focus: the operative's hands cradling the brass anchor and the IV cuff on the forearm. Composition rotation: Reaction - human posture foregrounded, the antimemetic situation read through the figure's response. Mood: discipline as ritual, the anchor steadied by deliberate concentration. Palette: tactical earth tones, anchor brass, ready-room fluorescent, and antimemetic chartreuse on the IV cuff. Reference-trait borrow only: fluorescent-flesh portraiture, unflattering institutional skin tones, thickly-built paint surface, exhausted under hard light, posture-as-subject. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the operative reads as 'mid-anchor-discipline' rather than as a religious icon; the IV cuff and the brass anchor are the operational tells."
+  },
+  {
+    "name": "MNR Mnestic Cathedral Curator",
+    "source_index": 62,
+    "expansion_code": "MNR",
+    "archetype": "redaction_press",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Archivist",
+      "Mnestic",
+      "Occult"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-mnestic-cathedral-curator.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a vaulted high-ceiling archive hall with long ranks of brass anchors on plinths",
+    "action": "A curator in a tweed jacket walks the central aisle of a vaulted archive hall, dozens of brass cognitive anchors set on plinths along both sides, the curator pausing to adjust one anchor with a gloved hand.",
+    "focus": "the curator pausing to adjust one brass anchor in the long vaulted hall",
+    "mood": "curatorial discipline, the archive of memory anchors maintained one at a time",
+    "artist_reference_title": "Vilhelm Hammershoi, Interior with Young Woman Seen from Behind",
+    "artist_reference_url": "https://www.smb.museum/en/museums-institutions/nationalgalerie/collection/",
+    "reference_traits": "muted gray-on-gray interior palette, figure with back turned, doorways into more empty rooms, soft northern window light, quiet domestic gravity",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Mnestic Cathedral Curator. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a vaulted high-ceiling archive hall with long ranks of brass anchors on plinths. Action: A curator in a tweed jacket walks the central aisle of a vaulted archive hall, dozens of brass cognitive anchors set on plinths along both sides, the curator pausing to adjust one anchor with a gloved hand. Focus: the curator pausing to adjust one brass anchor in the long vaulted hall. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: curatorial discipline, the archive of memory anchors maintained one at a time. Palette: vaulted-stone gray, anchor brass, sodium overhead lamps, and antimemetic chartreuse on the curator's clipboard tag. Reference-trait borrow only: muted gray-on-gray interior palette, figure with back turned, doorways into more empty rooms, soft northern window light, quiet domestic gravity. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the curator reads as 'maintaining the anchor archive' rather than as a museum staff; the gloved hand on one anchor and the chartreuse clipboard tag are the operational tells."
+  },
+  {
+    "name": "MNR Mnestic-Coated Operative",
+    "source_index": 63,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_core",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "MTF",
+      "Mnestic",
+      "Security"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-mnestic-coated-operative.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "an operator-ready room mirror at the start of a deployment",
+    "action": "An MTF operative in full tactical gear stands at a wall mirror, both forearm IV cuffs taped, a transparent chartreuse-tinted gloss visible on bare skin at the wrist where mnestic skin-coating has been applied.",
+    "focus": "the operative's forearm with the IV cuff and the chartreuse skin-coating at the wrist",
+    "mood": "full-saturation discipline, the operative coated against forgetting",
+    "artist_reference_title": "Lucian Freud, Reflection (Self-Portrait)",
+    "artist_reference_url": "https://www.npg.org.uk/collections/search/portrait/",
+    "reference_traits": "fluorescent-flesh portraiture, unflattering institutional skin tones, thickly-built paint surface, exhausted under hard light, posture-as-subject",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Mnestic-Coated Operative. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: an operator-ready room mirror at the start of a deployment. Action: An MTF operative in full tactical gear stands at a wall mirror, both forearm IV cuffs taped, a transparent chartreuse-tinted gloss visible on bare skin at the wrist where mnestic skin-coating has been applied. Focus: the operative's forearm with the IV cuff and the chartreuse skin-coating at the wrist. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: full-saturation discipline, the operative coated against forgetting. Palette: tactical earth tones, mirror reflection, ready-room fluorescent, and antimemetic chartreuse on the skin-coating and IV cuffs as the dominant tell. Reference-trait borrow only: fluorescent-flesh portraiture, unflattering institutional skin tones, thickly-built paint surface, exhausted under hard light, posture-as-subject. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the operative reads as 'mid-coating discipline' rather than as a horror dermatology case; the chartreuse skin-gloss must read as 'pharmaceutical' not 'glow'."
+  },
+  {
+    "name": "MNR Office Temp",
+    "source_index": 64,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_wake",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Bystander"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-office-temp.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a temp's loaner desk in a corner of a divisional office",
+    "action": "A temp in business-casual sits at a borrowed desk with a temporary laptop, single coffee cup, paper drug cup the temp clearly does not yet know to take, a stack of unread orientation papers, no name placard.",
+    "focus": "the temp's posture at the borrowed desk and the unfamiliar drug cup beside the coffee",
+    "mood": "liminal staff discipline, the temp who has been assigned but not yet inoculated to the antimemes",
+    "artist_reference_title": "Edward Hopper, Automat",
+    "artist_reference_url": "https://desmoinesartcenter.org/explore/collection/edward-hopper-automat/",
+    "reference_traits": "single figure under a single lamp in a public-but-empty interior, paper-cup quietude, ceiling rhythm, dark window reflecting nothing, hushed urban solitude",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Office Temp. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a temp's loaner desk in a corner of a divisional office. Action: A temp in business-casual sits at a borrowed desk with a temporary laptop, single coffee cup, paper drug cup the temp clearly does not yet know to take, a stack of unread orientation papers, no name placard. Focus: the temp's posture at the borrowed desk and the unfamiliar drug cup beside the coffee. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: liminal staff discipline, the temp who has been assigned but not yet inoculated to the antimemes. Palette: desk-pine, dress-shirt cream, fluorescent overhead, and antimemetic chartreuse on the unfamiliar drug cup. Reference-trait borrow only: single figure under a single lamp in a public-but-empty interior, paper-cup quietude, ceiling rhythm, dark window reflecting nothing, hushed urban solitude. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the temp reads as 'borrowed-desk new hire' rather than as a permanent analyst; the missing placard and the unfamiliar drug cup are the tells."
+  },
+  {
+    "name": "MNR Reluctant Subject",
+    "source_index": 65,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_wake",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Bystander",
+      "Civilian"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-reluctant-subject.png",
+    "composition_rotation": "Reaction",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a small interview-and-dose room",
+    "action": "A civilian subject in their fifties sits in an interview chair, body tense, head turned slightly away from the proffered paper drug cup held out by a gloved attendant's hand from off-frame.",
+    "focus": "the subject's tense posture and the proffered chartreuse drug cup at the edge of the frame",
+    "mood": "reluctant compliance, the dose offered but not yet accepted",
+    "artist_reference_title": "Kathe Kollwitz, The Survivors",
+    "artist_reference_url": "https://sammlung.staedelmuseum.de/en/work/the-survivors",
+    "reference_traits": "cluster of figures under a central protective gesture, charcoal-on-paper graphic weight, somber palette, civic grief, posture-of-protection composition",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Reluctant Subject. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a small interview-and-dose room. Action: A civilian subject in their fifties sits in an interview chair, body tense, head turned slightly away from the proffered paper drug cup held out by a gloved attendant's hand from off-frame. Focus: the subject's tense posture and the proffered chartreuse drug cup at the edge of the frame. Composition rotation: Reaction - human posture foregrounded, the antimemetic situation read through the figure's response. Mood: reluctant compliance, the dose offered but not yet accepted. Palette: chair-vinyl beige, civilian-clothes navy, fluorescent overhead, and antimemetic chartreuse on the proffered drug cup. Reference-trait borrow only: cluster of figures under a central protective gesture, charcoal-on-paper graphic weight, somber palette, civic grief, posture-of-protection composition. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the subject reads as 'reluctant civilian about to comply' rather than as a torture-room victim; the off-frame gloved hand and chartreuse drug cup are the operational tells."
+  },
+  {
+    "name": "MNR SZB Liaison",
+    "source_index": 66,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_core",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Bureaucracy",
+      "Mnestic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-szb-liaison.png",
+    "composition_rotation": "Reaction",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a small inter-office meeting space between two departments",
+    "action": "An SZB-branch liaison in a dark suit and lapel pin sits across a small table from an unseen counterpart, hands folded over a chartreuse-tabbed dossier, a paper drug cup at one elbow, the room austere.",
+    "focus": "the liaison's folded hands on the chartreuse-tabbed dossier and the drug cup at the elbow",
+    "mood": "inter-bureau composure, the SZB liaison practiced in dosed diplomacy",
+    "artist_reference_title": "Honore Daumier, Two Lawyers",
+    "artist_reference_url": "https://www.artic.edu/artworks/14569/two-lawyers",
+    "reference_traits": "two robed civic figures in mid-discussion, pen-and-ink graphic shorthand, compressed institutional space, anxious bureaucratic mood",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR SZB Liaison. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a small inter-office meeting space between two departments. Action: An SZB-branch liaison in a dark suit and lapel pin sits across a small table from an unseen counterpart, hands folded over a chartreuse-tabbed dossier, a paper drug cup at one elbow, the room austere. Focus: the liaison's folded hands on the chartreuse-tabbed dossier and the drug cup at the elbow. Composition rotation: Reaction - human posture foregrounded, the antimemetic situation read through the figure's response. Mood: inter-bureau composure, the SZB liaison practiced in dosed diplomacy. Palette: suit dark navy, table-pine, dress-shirt cream, fluorescent overhead, and antimemetic chartreuse on the dossier tab and drug cup. Reference-trait borrow only: two robed civic figures in mid-discussion, pen-and-ink graphic shorthand, compressed institutional space, anxious bureaucratic mood. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the liaison reads as 'practiced inter-bureau official' rather than as a generic businessman; the chartreuse-tabbed dossier and drug cup are the discipline tells."
+  },
+  {
+    "name": "MNR Untrained Observer",
+    "source_index": 67,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_wake",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Bystander",
+      "Civilian"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-untrained-observer.png",
+    "composition_rotation": "Reaction",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "a partly-cracked door at the end of a corridor",
+    "action": "A civilian in casual clothes stands at a partly-cracked door at the end of a corridor, looking through the gap at something out of frame, one hand still on the doorknob.",
+    "focus": "the observer's posture at the cracked door and the hand still on the knob",
+    "mood": "accidental witness, the civilian who has just seen something they will not be allowed to remember",
+    "artist_reference_title": "Andrew Wyeth, Wind from the Sea",
+    "artist_reference_url": "https://www.nga.gov/artworks/52199-wind-sea",
+    "reference_traits": "thin curtain lifting at an upstairs window, dry-board interior, a glimpse of land beyond, near-monochrome cream-gray-brown palette, breath-held interior",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Untrained Observer. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a partly-cracked door at the end of a corridor. Action: A civilian in casual clothes stands at a partly-cracked door at the end of a corridor, looking through the gap at something out of frame, one hand still on the doorknob. Focus: the observer's posture at the cracked door and the hand still on the knob. Composition rotation: Reaction - human posture foregrounded, the antimemetic situation read through the figure's response. Mood: accidental witness, the civilian who has just seen something they will not be allowed to remember. Palette: corridor fluorescent, door-paint cream, civilian-clothes earth tones, and a thin antimemetic chartreuse on a building-directory placard beside the door. Reference-trait borrow only: thin curtain lifting at an upstairs window, dry-board interior, a glimpse of land beyond, near-monochrome cream-gray-brown palette, breath-held interior. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the observer reads as 'accidental civilian witness' rather than as a stalker; the cracked door and the hand on the knob are the tells."
+  },
+  {
+    "name": "MNR Walked-Out Intern",
+    "source_index": 68,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_wake",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Bystander",
+      "Staff"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-walked-out-intern.png",
+    "composition_rotation": "Aftermath",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "an intern's empty corner desk and an open door to the corridor",
+    "action": "An empty intern desk holds a half-finished coffee, a laptop still on with a screensaver, a name placard reading nothing legible, and the office door open to a corridor where no one is walking back.",
+    "focus": "the empty intern desk with the warm coffee and the open door",
+    "mood": "quiet walk-out, the intern who has just left and will not be retrieved",
+    "artist_reference_title": "Vilhelm Hammershoi, Interior with Young Woman Seen from Behind",
+    "artist_reference_url": "https://www.smb.museum/en/museums-institutions/nationalgalerie/collection/",
+    "reference_traits": "muted gray-on-gray interior palette, figure with back turned, doorways into more empty rooms, soft northern window light, quiet domestic gravity",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Walked-Out Intern. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: an intern's empty corner desk and an open door to the corridor. Action: An empty intern desk holds a half-finished coffee, a laptop still on with a screensaver, a name placard reading nothing legible, and the office door open to a corridor where no one is walking back. Focus: the empty intern desk with the warm coffee and the open door. Composition rotation: Aftermath - the motion is already past; the evidence remains in a still frame. Mood: quiet walk-out, the intern who has just left and will not be retrieved. Palette: desk-pine, coffee-cup white, laptop-screen blue, fluorescent overhead, and antimemetic chartreuse on the placard's redacted label strip. Reference-trait borrow only: muted gray-on-gray interior palette, figure with back turned, doorways into more empty rooms, soft northern window light, quiet domestic gravity. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the desk reads as 'just-vacated, walked out two minutes ago' rather than 'unassigned' or 'vacation'; the warm coffee and open door are the timestamp."
+  },
+  {
+    "name": "MNR Witness in 12-B",
+    "source_index": 69,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_wake",
+    "types": [
+      "SCP_PERSONNEL"
+    ],
+    "subtypes": [
+      "Bystander",
+      "Civilian"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-witness-in-12-b.png",
+    "composition_rotation": "Reaction",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show role under pressure through hands, posture, gear, and environment, not a passport portrait",
+    "location": "an interview room labeled 12-B at the end of a corridor",
+    "action": "A civilian in their thirties sits across an interview table in room 12-B, one hand on the table near a paper drug cup, the other in their lap, expression patient and slightly confused, the room number painted on the wall behind them.",
+    "focus": "the civilian's patient confusion and the paper drug cup at the table edge",
+    "mood": "bystander deposition, the witness whose memory will not survive the interview",
+    "artist_reference_title": "Lucian Freud, Reflection (Self-Portrait)",
+    "artist_reference_url": "https://www.npg.org.uk/collections/search/portrait/",
+    "reference_traits": "fluorescent-flesh portraiture, unflattering institutional skin tones, thickly-built paint surface, exhausted under hard light, posture-as-subject",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Witness in 12-B. Card type direction: show role under pressure through hands, posture, gear, and environment, not a passport portrait. Setting/faction: Mnestic Reset / The Antimemetics Division; location: an interview room labeled 12-B at the end of a corridor. Action: A civilian in their thirties sits across an interview table in room 12-B, one hand on the table near a paper drug cup, the other in their lap, expression patient and slightly confused, the room number painted on the wall behind them. Focus: the civilian's patient confusion and the paper drug cup at the table edge. Composition rotation: Reaction - human posture foregrounded, the antimemetic situation read through the figure's response. Mood: bystander deposition, the witness whose memory will not survive the interview. Palette: interview-room navy walls, table-pine, civilian-clothes earth tones, fluorescent overhead, and antimemetic chartreuse on the drug cup. Reference-trait borrow only: fluorescent-flesh portraiture, unflattering institutional skin tones, thickly-built paint surface, exhausted under hard light, posture-as-subject. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the civilian reads as 'mid-witness-deposition, calm' rather than as a hostile witness; the room number on the wall and the drug cup are the institutional tells."
+  },
+  {
+    "name": "MNR Anchor Reset",
+    "source_index": 70,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_reset",
+    "types": [
+      "SCP_PROCEDURE"
+    ],
+    "subtypes": [
+      "Anchor",
+      "Antimemetic"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-anchor-reset.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an operational action, procedural detail, or its consequence as a single readable moment",
+    "location": "the cognitive anchor array's central operating chair",
+    "action": "A technician's gloved hands cradle a brass cognitive anchor over the head-frame of a seated subject, mid-recalibration, with a single overhead surgical lamp throwing a sharp pool of light on the anchor.",
+    "focus": "the gloved hands cradling the brass anchor and the head-frame in the surgical pool",
+    "mood": "instrumented reset, the anchor returned to a known state",
+    "artist_reference_title": "Joseph Wright of Derby, An Experiment on a Bird in the Air Pump",
+    "artist_reference_url": "https://www.nationalgallery.org.uk/paintings/joseph-wright-of-derby-an-experiment-on-a-bird-in-the-air-pump",
+    "reference_traits": "circle of witnesses around a central scientific apparatus, single dramatic light source, faces lit from below, somber palette, civic-experiment gravity",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Anchor Reset. Card type direction: show an operational action, procedural detail, or its consequence as a single readable moment. Setting/faction: Mnestic Reset / The Antimemetics Division; location: the cognitive anchor array's central operating chair. Action: A technician's gloved hands cradle a brass cognitive anchor over the head-frame of a seated subject, mid-recalibration, with a single overhead surgical lamp throwing a sharp pool of light on the anchor. Focus: the gloved hands cradling the brass anchor and the head-frame in the surgical pool. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: instrumented reset, the anchor returned to a known state. Palette: surgical lamp white, anchor brass, frame steel, and antimemetic chartreuse on the IV line into the subject's arm. Reference-trait borrow only: circle of witnesses around a central scientific apparatus, single dramatic light source, faces lit from below, somber palette, civic-experiment gravity. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the anchor reset reads as 'mid-recalibration' rather than as a torture device; the gloved hands and the surgical lamp are the operational tells."
+  },
+  {
+    "name": "MNR Antimemetic Audit",
+    "source_index": 71,
+    "expansion_code": "MNR",
+    "archetype": "redaction_press",
+    "types": [
+      "SCP_PROCEDURE"
+    ],
+    "subtypes": [
+      "Audit",
+      "Redaction"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-antimemetic-audit.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an operational action, procedural detail, or its consequence as a single readable moment",
+    "location": "an auditor's stand-up desk in a small annex room",
+    "action": "An auditor in a dark suit ticks off a long list on a clipboard with a chartreuse pen, a column of identical brown banker's boxes pulled halfway out on a shelf behind, three boxes marked with chartreuse audit tags.",
+    "focus": "the auditor's chartreuse pen ticking the list and the three chartreuse-tagged boxes on the shelf",
+    "mood": "audit discipline, the count taken against records that may not match",
+    "artist_reference_title": "Johannes Vermeer, The Geographer",
+    "artist_reference_url": "https://www.staedelmuseum.de/en/collection/the-geographer-1668",
+    "reference_traits": "single working figure leaning over a desk by a tall window, soft side-light, restrained palette, posture-of-thinking composition, painterly stillness",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Antimemetic Audit. Card type direction: show an operational action, procedural detail, or its consequence as a single readable moment. Setting/faction: Mnestic Reset / The Antimemetics Division; location: an auditor's stand-up desk in a small annex room. Action: An auditor in a dark suit ticks off a long list on a clipboard with a chartreuse pen, a column of identical brown banker's boxes pulled halfway out on a shelf behind, three boxes marked with chartreuse audit tags. Focus: the auditor's chartreuse pen ticking the list and the three chartreuse-tagged boxes on the shelf. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: audit discipline, the count taken against records that may not match. Palette: suit dark navy, clipboard cream, shelf-box brown, fluorescent overhead, and antimemetic chartreuse on the pen and the audit tags. Reference-trait borrow only: single working figure leaning over a desk by a tall window, soft side-light, restrained palette, posture-of-thinking composition, painterly stillness. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the audit reads as 'antimemetic discrepancy audit in progress' rather than as a tax inspection; the chartreuse pen and tags are the operational tells."
+  },
+  {
+    "name": "MNR Antimemetic Brief Box",
+    "source_index": 72,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_reset",
+    "types": [
+      "SCP_PROCEDURE"
+    ],
+    "subtypes": [
+      "Archive",
+      "Research"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-antimemetic-brief-box.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an operational action, procedural detail, or its consequence as a single readable moment",
+    "location": "a clerk's desk in a small archive intake room",
+    "action": "A locked steel briefing box sits open on a desk, exposing a stack of chartreuse-tabbed dossiers inside, the lid lined with a foam grid, a clerk's gloved hand reaching for the topmost dossier.",
+    "focus": "the open steel box, the chartreuse-tabbed dossiers, and the gloved hand reaching for the top",
+    "mood": "secure-archive discipline, the box opened only with gloves and only here",
+    "artist_reference_title": "Wayne Thiebaud, Bakery Counter",
+    "artist_reference_url": "https://americanart.si.edu/artwork/bakery-counter-22789",
+    "reference_traits": "row of identical institutional objects on a flat counter under cool overhead light, thick painterly surface, restrained palette, deadpan still-life composition",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Antimemetic Brief Box. Card type direction: show an operational action, procedural detail, or its consequence as a single readable moment. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a clerk's desk in a small archive intake room. Action: A locked steel briefing box sits open on a desk, exposing a stack of chartreuse-tabbed dossiers inside, the lid lined with a foam grid, a clerk's gloved hand reaching for the topmost dossier. Focus: the open steel box, the chartreuse-tabbed dossiers, and the gloved hand reaching for the top. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: secure-archive discipline, the box opened only with gloves and only here. Palette: box steel, foam-lining gray, desk-pine, fluorescent overhead, and antimemetic chartreuse on every tab. Reference-trait borrow only: row of identical institutional objects on a flat counter under cool overhead light, thick painterly surface, restrained palette, deadpan still-life composition. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the brief box reads as 'antimemetic secure briefing kit' rather than as a generic flight case; the foam grid, gloved hand, and chartreuse tabs are the operational tells."
+  },
+  {
+    "name": "MNR Antimemetic Defense Brief",
+    "source_index": 73,
+    "expansion_code": "MNR",
+    "archetype": "antimeme_decay",
+    "types": [
+      "SCP_PROCEDURE"
+    ],
+    "subtypes": [
+      "Briefing",
+      "Memetics"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-antimemetic-defense-brief.png",
+    "composition_rotation": "Wide",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an operational action, procedural detail, or its consequence as a single readable moment",
+    "location": "a circular briefing room with seating for eight and a wall-mounted screen",
+    "action": "A wide view of a circular briefing room shows eight staff seated around the table watching a wall screen displaying a single chartreuse pattern diagram, a senior analyst at the head of the table mid-gesture, paper drug cups at every seat.",
+    "focus": "the wall screen with the chartreuse pattern, the analyst mid-gesture, and the drug cups at every seat",
+    "mood": "active briefing discipline, the defense pattern walked through one diagram at a time",
+    "artist_reference_title": "Stephen Shore, Meeting Room",
+    "artist_reference_url": "https://www.303gallery.com/artists/stephen-shore",
+    "reference_traits": "fluorescent meeting-room interior, banal furniture, color-photograph realism, beige-and-monitor palette, institutional emptiness",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Antimemetic Defense Brief. Card type direction: show an operational action, procedural detail, or its consequence as a single readable moment. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a circular briefing room with seating for eight and a wall-mounted screen. Action: A wide view of a circular briefing room shows eight staff seated around the table watching a wall screen displaying a single chartreuse pattern diagram, a senior analyst at the head of the table mid-gesture, paper drug cups at every seat. Focus: the wall screen with the chartreuse pattern, the analyst mid-gesture, and the drug cups at every seat. Composition rotation: Wide - institutional space dwarfing the human, scale tells the story. Mood: active briefing discipline, the defense pattern walked through one diagram at a time. Palette: screen-blue, table-pine, dress-shirt cream, fluorescent overhead, and antimemetic chartreuse on the screen diagram and every drug cup. Reference-trait borrow only: fluorescent meeting-room interior, banal furniture, color-photograph realism, beige-and-monitor palette, institutional emptiness. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the brief reads as 'mid-defense walkthrough' rather than as a corporate presentation; the chartreuse pattern on the screen and the drug cups at every seat are the operational tells."
+  },
+  {
+    "name": "MNR Antimemetic Tracker",
+    "source_index": 74,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_core",
+    "types": [
+      "SCP_PROCEDURE"
+    ],
+    "subtypes": [
+      "Mnemonic",
+      "Research"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-antimemetic-tracker.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an operational action, procedural detail, or its consequence as a single readable moment",
+    "location": "a single analyst's desk with two monitors and a wall pinboard",
+    "action": "A close-mid view of an analyst's desk shows two monitors displaying slow oscilloscope traces, a wall pinboard with a string-and-pin tracking network, a hand mid-pin with a chartreuse pin between fingers.",
+    "focus": "the analyst's hand mid-pin with the chartreuse pin and the string network on the board",
+    "mood": "instrumented pursuit, the antimeme tracked one node at a time",
+    "artist_reference_title": "Eric Fischl, Birthday Boy",
+    "artist_reference_url": "https://www.metmuseum.org/art/collection/search/489942",
+    "reference_traits": "interior figure under domestic-fluorescent light, painterly realism with psychological pressure, restrained color, posture-as-subject, narrative ambiguity",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Antimemetic Tracker. Card type direction: show an operational action, procedural detail, or its consequence as a single readable moment. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a single analyst's desk with two monitors and a wall pinboard. Action: A close-mid view of an analyst's desk shows two monitors displaying slow oscilloscope traces, a wall pinboard with a string-and-pin tracking network, a hand mid-pin with a chartreuse pin between fingers. Focus: the analyst's hand mid-pin with the chartreuse pin and the string network on the board. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: instrumented pursuit, the antimeme tracked one node at a time. Palette: monitor green, pinboard cork brown, string-red, fluorescent overhead, and antimemetic chartreuse on the pin. Reference-trait borrow only: interior figure under domestic-fluorescent light, painterly realism with psychological pressure, restrained color, posture-as-subject, narrative ambiguity. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the tracker reads as 'mid-pursuit pinboard' rather than as a true-crime moodboard; the chartreuse pin and oscilloscope traces are the operational tells."
+  },
+  {
+    "name": "MNR Backchannel Brief",
+    "source_index": 75,
+    "expansion_code": "MNR",
+    "archetype": "redaction_press",
+    "types": [
+      "SCP_PROCEDURE"
+    ],
+    "subtypes": [
+      "Brief",
+      "Redaction"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-backchannel-brief.png",
+    "composition_rotation": "Witness POV",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an operational action, procedural detail, or its consequence as a single readable moment",
+    "location": "a doorway looking into a small private corridor alcove",
+    "action": "From a corridor doorway, the camera sees two senior staff in dress shirts leaning toward each other in a narrow alcove, one passing a chartreuse-tabbed envelope to the other under a single sodium fixture.",
+    "focus": "the envelope mid-pass between the two figures in the alcove",
+    "mood": "off-record discipline, the brief that does not go through the system",
+    "artist_reference_title": "Jeff Wall, A View from an Apartment",
+    "artist_reference_url": "https://www.tate.org.uk/art/artworks/wall-a-view-from-an-apartment-t12446",
+    "reference_traits": "ordinary interior with quiet domestic action and a window onto larger urban indifference, constructed realism, daylight palette, observed banality",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Backchannel Brief. Card type direction: show an operational action, procedural detail, or its consequence as a single readable moment. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a doorway looking into a small private corridor alcove. Action: From a corridor doorway, the camera sees two senior staff in dress shirts leaning toward each other in a narrow alcove, one passing a chartreuse-tabbed envelope to the other under a single sodium fixture. Focus: the envelope mid-pass between the two figures in the alcove. Composition rotation: Witness POV - camera occupies an observer's position behind glass / through a door / over a shoulder. Mood: off-record discipline, the brief that does not go through the system. Palette: alcove sodium amber, dress-shirt cream, corridor fluorescent overflow, and antimemetic chartreuse on the envelope tab. Reference-trait borrow only: ordinary interior with quiet domestic action and a window onto larger urban indifference, constructed realism, daylight palette, observed banality. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the backchannel reads as 'unrecorded inter-staff exchange' rather than as a spy-thriller drop; the alcove framing and chartreuse-tabbed envelope are the operational tells."
+  },
+  {
+    "name": "MNR Black-Bag Job",
+    "source_index": 76,
+    "expansion_code": "MNR",
+    "archetype": "redaction_press",
+    "types": [
+      "SCP_PROCEDURE"
+    ],
+    "subtypes": [
+      "Operative",
+      "Redaction"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-black-bag-job.png",
+    "composition_rotation": "Action",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an operational action, procedural detail, or its consequence as a single readable moment",
+    "location": "a civilian office at night under low security lighting",
+    "action": "A black-bagged operative in dark gear lifts a single document folder from a desk drawer in a civilian office at night, a small flashlight braced under the chin, the office windows showing city lights outside.",
+    "focus": "the operative's hands on the folder and the chin-braced flashlight",
+    "mood": "covert extraction, the bag-job that will not be remembered by the office tomorrow",
+    "artist_reference_title": "Jeff Wall, Insomnia",
+    "artist_reference_url": "https://www.tate.org.uk/art/artworks/wall-insomnia-p20198",
+    "reference_traits": "staged-bureaucratic kitchen interior under fluorescent ceiling, figure on the floor in mid-narrative pause, large-format constructed scene, theatrical realism, banal horror",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Black-Bag Job. Card type direction: show an operational action, procedural detail, or its consequence as a single readable moment. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a civilian office at night under low security lighting. Action: A black-bagged operative in dark gear lifts a single document folder from a desk drawer in a civilian office at night, a small flashlight braced under the chin, the office windows showing city lights outside. Focus: the operative's hands on the folder and the chin-braced flashlight. Composition rotation: Action - dynamic diagonal staging, motion of bureaucratic or operational discipline readable at card size. Mood: covert extraction, the bag-job that will not be remembered by the office tomorrow. Palette: office-dark navy, flashlight-white pool, city-window amber, and antimemetic chartreuse on the folder's tab. Reference-trait borrow only: staged-bureaucratic kitchen interior under fluorescent ceiling, figure on the floor in mid-narrative pause, large-format constructed scene, theatrical realism, banal horror. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the job reads as 'mid-bag-job extraction' rather than as a movie-thriller pose; the chin-braced flashlight and the chartreuse folder tab are the operational tells."
+  },
+  {
+    "name": "MNR Brief and Bury",
+    "source_index": 77,
+    "expansion_code": "MNR",
+    "archetype": "redaction_press",
+    "types": [
+      "SCP_PROCEDURE"
+    ],
+    "subtypes": [
+      "Brief",
+      "Redaction"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-brief-and-bury.png",
+    "composition_rotation": "Aftermath",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an operational action, procedural detail, or its consequence as a single readable moment",
+    "location": "a debriefing room ten minutes after the brief ended",
+    "action": "A small debriefing room sits empty, eight chairs pushed in around a table that still holds the open chartreuse-tabbed dossier facedown on top of a row of unfinished drug cups, the projector still casting a blank rectangle.",
+    "focus": "the facedown chartreuse-tabbed dossier on the table and the row of unfinished drug cups",
+    "mood": "briefing-and-erasure discipline, the room kept ready to receive the next batch",
+    "artist_reference_title": "Vilhelm Hammershoi, Dust Motes Dancing in the Sunbeams",
+    "artist_reference_url": "https://www.ordrupgaard.dk/en/the-collection/",
+    "reference_traits": "diagonal sunlight across an empty floor, dust suspended in stillness, gray panelled walls, austere domestic absence, painterly hush",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Brief and Bury. Card type direction: show an operational action, procedural detail, or its consequence as a single readable moment. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a debriefing room ten minutes after the brief ended. Action: A small debriefing room sits empty, eight chairs pushed in around a table that still holds the open chartreuse-tabbed dossier facedown on top of a row of unfinished drug cups, the projector still casting a blank rectangle. Focus: the facedown chartreuse-tabbed dossier on the table and the row of unfinished drug cups. Composition rotation: Aftermath - the motion is already past; the evidence remains in a still frame. Mood: briefing-and-erasure discipline, the room kept ready to receive the next batch. Palette: table-pine, chair-navy, projector-blue rectangle, fluorescent overhead, and antimemetic chartreuse on the dossier and the cups. Reference-trait borrow only: diagonal sunlight across an empty floor, dust suspended in stillness, gray panelled walls, austere domestic absence, painterly hush. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the room reads as 'just-finished brief, audience already departed for mnestic erasure' rather than as a meeting interrupted; the facedown dossier and unfinished drug cups are the timestamp."
+  },
+  {
+    "name": "MNR Briefing Update",
+    "source_index": 78,
+    "expansion_code": "MNR",
+    "archetype": "mnestic_reset",
+    "types": [
+      "SCP_PROCEDURE"
+    ],
+    "subtypes": [
+      "Briefing"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-briefing-update.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an operational action, procedural detail, or its consequence as a single readable moment",
+    "location": "a stand-up desk at the front of an empty briefing room",
+    "action": "A senior analyst at a stand-up lectern pins a new chartreuse-tabbed slide into a binder on the lectern, the briefing room empty behind them, the projector still on the previous slide on the wall.",
+    "focus": "the analyst's hand pinning the new slide into the binder",
+    "mood": "incremental discipline, the briefing kept current one slide at a time",
+    "artist_reference_title": "Edgar Degas, A Woman Ironing",
+    "artist_reference_url": "https://www.nga.gov/artworks/46640",
+    "reference_traits": "single working figure leaning into routine task, soft interior light, mid-tone palette, posture-as-subject, painterly grain of fatigue",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Briefing Update. Card type direction: show an operational action, procedural detail, or its consequence as a single readable moment. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a stand-up desk at the front of an empty briefing room. Action: A senior analyst at a stand-up lectern pins a new chartreuse-tabbed slide into a binder on the lectern, the briefing room empty behind them, the projector still on the previous slide on the wall. Focus: the analyst's hand pinning the new slide into the binder. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: incremental discipline, the briefing kept current one slide at a time. Palette: lectern wood, slide-binder cream, projector-blue wall, fluorescent overhead, and antimemetic chartreuse on the new slide's tab. Reference-trait borrow only: single working figure leaning into routine task, soft interior light, mid-tone palette, posture-as-subject, painterly grain of fatigue. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the update reads as 'briefing being kept current' rather than as a magician's reveal; the binder, the lectern, and the chartreuse-tabbed slide are the operational tells."
+  },
+  {
+    "name": "MNR Class-A Inoculation Dose",
+    "source_index": 79,
+    "expansion_code": "MNR",
+    "archetype": "redaction_press",
+    "types": [
+      "SCP_PROCEDURE"
+    ],
+    "subtypes": [
+      "Amnestic",
+      "Redaction"
+    ],
+    "target_path": "frontend/public/scp-art/mnr/mnr-class-a-inoculation-dose.png",
+    "composition_rotation": "Detail",
+    "setting_faction": "Mnestic Reset / The Antimemetics Division",
+    "card_type_direction": "show an operational action, procedural detail, or its consequence as a single readable moment",
+    "location": "a dosing chair in the inoculation bay",
+    "action": "A close-mid view of a forearm in a reclined dosing chair shows a fresh IV line newly taped to the skin, a chartreuse drip beginning, a gloved hand still on the tape, the chair vinyl visible beneath.",
+    "focus": "the IV line, the chartreuse drip beginning, and the gloved hand on the tape",
+    "mood": "initial dose discipline, the Class-A baseline established",
+    "artist_reference_title": "Lucian Freud, Reflection (Self-Portrait)",
+    "artist_reference_url": "https://www.npg.org.uk/collections/search/portrait/",
+    "reference_traits": "fluorescent-flesh portraiture, unflattering institutional skin tones, thickly-built paint surface, exhausted under hard light, posture-as-subject",
+    "final_prompt": "Square 1024x1024 original SCP-inspired trading card illustration for MNR Class-A Inoculation Dose. Card type direction: show an operational action, procedural detail, or its consequence as a single readable moment. Setting/faction: Mnestic Reset / The Antimemetics Division; location: a dosing chair in the inoculation bay. Action: A close-mid view of a forearm in a reclined dosing chair shows a fresh IV line newly taped to the skin, a chartreuse drip beginning, a gloved hand still on the tape, the chair vinyl visible beneath. Focus: the IV line, the chartreuse drip beginning, and the gloved hand on the tape. Composition rotation: Detail - tight foreground prop or hands with the wider antimemetic context implied behind it. Mood: initial dose discipline, the Class-A baseline established. Palette: chair-vinyl beige, glove-blue, IV-line clear, sodium overhead, and antimemetic chartreuse on the drip as the dominant tell. Reference-trait borrow only: fluorescent-flesh portraiture, unflattering institutional skin tones, thickly-built paint surface, exhausted under hard light, posture-as-subject. Use painterly cinematic realism, practical concrete/steel/glass materials, readable card-size silhouette, strong value contrast, and abstract document/redaction shapes only. Illustration only, no readable text, no logos, no card frame.",
+    "negative_prompt": "No readable words, letters, numbers, official SCP logo, Magic card frame, mana symbols, stat boxes, watermark, UI overlay, caption, title text, signature, copied source composition, exact artist imitation, comic mascot tone, clean spaceship aesthetic, repeated centered hallway monster.",
+    "qa_notes": "verify the dose reads as 'baseline Class-A inoculation in progress' rather than as a generic IV; the chartreuse drip just beginning is the operational tell."
+  }
+]
