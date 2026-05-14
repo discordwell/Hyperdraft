@@ -29,12 +29,18 @@ def make_instant(
     abilities: list = None,
     resolve=None,
     setup_interceptors=None,
+    target_requirements: list = None,
 ):
     """Create an Instant card definition.
 
     `setup_interceptors` is accepted so spells with alt-cast mechanics
     (mayhem, web-slinging, flashback, etc.) can register the necessary
     interceptors when the card object is created in graveyard/exile/etc.
+
+    `target_requirements` (Phase 5b): a list of TargetRequirement specs
+    (from src.engine.targeting). When set, the priority system emits a
+    PendingChoice at cast time if action.targets is empty — giving humans
+    a modal prompt instead of relying on the frontend drag-to-target UX.
     """
     return CardDefinition(
         name=name,
@@ -51,6 +57,7 @@ def make_instant(
         abilities=abilities or [],
         resolve=resolve,
         setup_interceptors=setup_interceptors,
+        target_requirements=target_requirements,
     )
 
 
@@ -65,11 +72,14 @@ def make_sorcery(
     abilities: list = None,
     resolve=None,
     setup_interceptors=None,
+    target_requirements: list = None,
 ):
     """Create a Sorcery card definition.
 
     `setup_interceptors` lets spells with alt-cast mechanics (mayhem,
     web-slinging, flashback, plot, etc.) wire up their card-side hooks.
+
+    `target_requirements` (Phase 5b): see ``make_instant``.
     """
     return CardDefinition(
         name=name,
@@ -86,6 +96,7 @@ def make_sorcery(
         abilities=abilities or [],
         resolve=resolve,
         setup_interceptors=setup_interceptors,
+        target_requirements=target_requirements,
     )
 
 

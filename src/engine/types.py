@@ -1220,6 +1220,18 @@ class CardDefinition:
     # Function for spell/ability resolution
     resolve: Optional[Callable[['Event', 'GameState'], list[Event]]] = None
 
+    # Phase 5b: cast-time target picker via PendingChoice.
+    # When this is set, ``priority._handle_cast_spell_sync`` will emit one
+    # PendingChoice per requirement BEFORE paying mana if ``action.targets``
+    # is empty. Drag-to-target casts that pre-supply ``action.targets`` skip
+    # this path entirely (no behavioural change). AI casts that pre-supply
+    # via ``_select_targets_for_spell`` also skip it. This is purely the
+    # engine-driven prompt fallback that other engines have via
+    # ``create_choice_and_resolve``. Type: ``list[TargetRequirement]`` from
+    # ``src/engine/targeting.py`` — imported lazily inside the cast handler
+    # to avoid a circular import.
+    target_requirements: Optional[list] = None
+
     # Hearthstone-specific fields
     battlecry: Optional[Callable[['GameObject', 'GameState'], list[Event]]] = None
     deathrattle: Optional[Callable[['GameObject', 'GameState'], list[Event]]] = None

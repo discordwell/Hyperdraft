@@ -67,12 +67,17 @@ def lightning_bolt_resolve(targets: list, state: GameState) -> list[Event]:
     return events
 
 
+from src.engine.targeting import target_any  # Phase 5b cast-time prompt
+
 LIGHTNING_BOLT = make_instant(
     name="Lightning Bolt",
     mana_cost="{R}",
     colors={Color.RED},
     text="Lightning Bolt deals 3 damage to any target.",
-    resolve=lightning_bolt_resolve
+    resolve=lightning_bolt_resolve,
+    # Phase 5b: engine emits a PendingChoice for "any target" when the
+    # cast action arrives without pre-supplied targets.
+    target_requirements=[target_any(count=1)],
 )
 
 

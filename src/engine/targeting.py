@@ -75,6 +75,14 @@ class TargetFilter:
     exclude_self: bool = False  # "another target creature"
     exclude_ids: set[str] = field(default_factory=set)
 
+    # "Any target" semantics: explicitly include players even when ``types``
+    # restricts object matching to creature/planeswalker. Without this flag,
+    # ``TargetingSystem._can_target_players`` only allows players when
+    # ``types is None`` (used by ``target_player``), which incorrectly
+    # excluded players from "any target" filters before Phase 5b's
+    # engine-emitted PendingChoice exposed the gap.
+    includes_players: bool = False
+
     # Custom filter function
     custom_filter: Callable[[GameObject, GameState], bool] = None
 
@@ -344,8 +352,13 @@ class TargetingSystem:
 
     def _can_target_players(self, filter: TargetFilter) -> bool:
         """Check if a filter can target players."""
-        # If no type restrictions, can target players (e.g., "any target")
+        # If no type restrictions, can target players (e.g., target_player)
         if filter.types is None:
+            return True
+
+        # "Any target" filters explicitly opt in to player targeting even
+        # though they list permitted object types (CREATURE + PLANESWALKER).
+        if filter.includes_players:
             return True
 
         # Can't target players if specific permanent types required
@@ -462,6 +475,7 @@ def any_target_filter(**kwargs) -> TargetFilter:
     return TargetFilter(
         types={CardType.CREATURE, CardType.PLANESWALKER},
         zones=[ZoneType.BATTLEFIELD],
+        includes_players=True,
         **kwargs
     )
 
