@@ -164,37 +164,12 @@ BORBORYGMOS_EX = make_pokemon(
 # Stand-alone Basic Pokemon
 # =============================================================================
 
-def _cascade_attach_effect(attacker, state):
-    """Search deck for a basic energy and attach it to a benched Pokemon."""
-    player_id = attacker.controller
-    library = state.zones.get(f"library_{player_id}")
-    if not library or not library.objects:
-        return []
-    # Find an attachable basic energy in deck
-    energy_id = None
-    for card_id in library.objects:
-        obj = state.objects.get(card_id)
-        if not obj or not obj.characteristics:
-            continue
-        if CardType.ENERGY in obj.characteristics.types:
-            energy_id = card_id
-            break
-    if not energy_id:
-        return []
-    # Find a benched Pokemon to attach to
-    bench_zone = state.zones.get(f"bench_{player_id}")
-    bench_target_id = None
-    if bench_zone:
-        for slot_id in bench_zone.objects:
-            if slot_id:
-                bench_target_id = slot_id
-                break
-    if not bench_target_id:
-        return []
+def _cascade_apply_attach(bench_target_id: str, energy_id: str, library,
+                          state) -> list[Event]:
+    """Move ``energy_id`` (still in library) onto ``bench_target_id``."""
     bench_target = state.objects.get(bench_target_id)
-    if not bench_target:
+    if not bench_target or energy_id not in library.objects:
         return []
-    # Move energy from deck to attached_energy
     library.objects.remove(energy_id)
     bench_target.state.attached_energy.append(energy_id)
     energy_obj = state.objects.get(energy_id)
@@ -209,6 +184,78 @@ def _cascade_attach_effect(attacker, state):
             'source': 'Burning-Tree Emissary (Cascade)',
         },
     )]
+
+
+def _cascade_attach_effect(attacker, state):
+    """Search deck for a basic energy and attach it to a benched Pokemon.
+
+    Phase 4 migration: caster picks the bench destination via
+    PendingChoice. Heuristic preserves the v1 pick (first bench Pokemon,
+    matching the original `for slot_id in bench_zone.objects: break`).
+    """
+    player_id = attacker.controller
+    library = state.zones.get(f"library_{player_id}")
+    if not library or not library.objects:
+        return []
+    # Find an attachable basic energy in deck.
+    energy_id = None
+    for card_id in library.objects:
+        obj = state.objects.get(card_id)
+        if not obj or not obj.characteristics:
+            continue
+        if CardType.ENERGY in obj.characteristics.types:
+            energy_id = card_id
+            break
+    if not energy_id:
+        return []
+    bench_zone = state.zones.get(f"bench_{player_id}")
+    if not bench_zone or not bench_zone.objects:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    options: list[dict] = []
+    best_id: str | None = None
+    for bid in bench_zone.objects:
+        if not bid:
+            continue
+        obj = state.objects.get(bid)
+        if not obj or not obj.card_def:
+            continue
+        attached = len(getattr(obj.state, 'attached_energy', []))
+        ptype = obj.card_def.pokemon_type or '?'
+        options.append({
+            "id": bid,
+            "label": obj.name or obj.card_def.name or bid,
+            "description": f"{attached} Energy · Type {ptype}",
+        })
+        if best_id is None:
+            best_id = bid
+    if not options:
+        return []
+    if best_id is None:
+        best_id = options[0]["id"]
+
+    def _resolve_handler(choice, selected, st,
+                         _energy=energy_id, _library=library,
+                         _fallback=best_id):
+        target_id = selected[0] if selected else _fallback
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id", _fallback)
+        return _cascade_apply_attach(target_id, _energy, _library, st)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=player_id,
+        prompt="Attach the searched Energy to which Benched Pokemon?",
+        options=options,
+        source_id=attacker.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best_id],
+    )
 
 
 BURNING_TREE_EMISSARY = make_pokemon(

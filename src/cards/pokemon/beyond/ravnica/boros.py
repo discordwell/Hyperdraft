@@ -615,8 +615,29 @@ FENCING_ACE = make_pokemon(
 )
 
 
+def _skyknight_vanguard_apply(target_id: str, state) -> list[Event]:
+    """Place 2 damage counters on ``target_id`` (a Pokemon on opp's bench)."""
+    target = state.objects.get(target_id)
+    if not target:
+        return []
+    target.state.damage_counters += 2
+    return [Event(
+        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
+        payload={'pokemon_id': target_id, 'counters': 2,
+                 'source': 'Skyknight Vanguard'},
+    )]
+
+
 def _skyknight_vanguard_effect(attacker, state):
-    """Battalion pressure: ping the weakest opposing benched Pokemon."""
+    """Battalion pressure: pick a Benched Pokemon to ping.
+
+    Phase 4 migration: the attacker's controller now chooses which of
+    the opponent's Benched Pokemon takes the 2 damage counters. The
+    heuristic preserves the v1 pick (lowest current HP) so AI behavior
+    is unchanged. Humans get a meaningful pick — sometimes pressuring a
+    fully-healthy attacker mid-charge is better than picking off the
+    weakest body.
+    """
     bench = state.zones.get(f"bench_{attacker.controller}")
     if not bench or len(bench.objects) < 2:
         return []
@@ -627,28 +648,49 @@ def _skyknight_vanguard_effect(attacker, state):
     if not opp_bench or not opp_bench.objects:
         return []
 
-    target_id = None
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    options: list[dict] = []
+    best_id: str | None = None
     lowest_hp = 10 ** 9
     for bid in opp_bench.objects:
         target = state.objects.get(bid)
         if not target or not target.card_def:
             continue
-        remaining_hp = (target.card_def.hp or 0) - target.state.damage_counters * 10
-        if remaining_hp < lowest_hp:
-            lowest_hp = remaining_hp
-            target_id = bid
-    if not target_id:
+        max_hp = target.card_def.hp or 0
+        current_hp = max_hp - target.state.damage_counters * 10
+        ptype = target.card_def.pokemon_type or '?'
+        options.append({
+            "id": bid,
+            "label": target.name or target.card_def.name or bid,
+            "description": f"HP {current_hp}/{max_hp} · Type {ptype}",
+        })
+        if current_hp < lowest_hp:
+            lowest_hp = current_hp
+            best_id = bid
+    if not options:
         return []
+    if best_id is None:
+        best_id = options[0]["id"]
 
-    target = state.objects.get(target_id)
-    if not target:
-        return []
-    target.state.damage_counters += 2
-    return [Event(
-        type=EventType.PKM_PLACE_DAMAGE_COUNTERS,
-        payload={'pokemon_id': target_id, 'counters': 2,
-                 'source': 'Skyknight Vanguard'},
-    )]
+    def _resolve_handler(choice, selected, st):
+        target_id = selected[0] if selected else best_id
+        if isinstance(target_id, dict):
+            target_id = target_id.get("id", best_id)
+        return _skyknight_vanguard_apply(target_id, st)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=attacker.controller,
+        prompt="Place 2 damage counters on which of your opponent's Benched Pokemon?",
+        options=options,
+        source_id=attacker.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best_id],
+    )
 
 
 SKYKNIGHT_VANGUARD = make_pokemon(

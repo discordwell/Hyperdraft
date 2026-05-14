@@ -970,6 +970,195 @@ check("Vitu-Ghazi <3 bench leaves pending_choice clear",
 
 
 # =============================================================================
+# Test 11: Residual deterministic-pick cards migrated to PendingChoice
+# =============================================================================
+#
+# Migrated: Selesnya Cluestone (wide-board bench attach), Skyknight Vanguard
+# (place damage on opp bench), Burning-Tree Emissary (Cascade attach to
+# own bench).
+#
+# Same pattern as Test 10: human path leaves a pending_choice; the
+# callback_data's heuristic_pick preserves the v1 deterministic choice
+# so AI behavior is unchanged.
+
+print("\n=== Test 11: Residual deterministic-pick migrations ===")
+
+from src.cards.pokemon.beyond.ravnica.selesnya import (
+    _selesnya_cluestone_effect, SELESNYA_CLUESTONE,
+)
+from src.cards.pokemon.beyond.ravnica.boros import (
+    _skyknight_vanguard_effect, SKYKNIGHT_VANGUARD,
+)
+from src.cards.pokemon.beyond.ravnica.gruul import (
+    _cascade_attach_effect, BURNING_TREE_EMISSARY,
+)
+
+
+# --- Selesnya Cluestone --------------------------------------------------
+print("\n--- Selesnya Cluestone ---")
+game = Game(mode="pokemon")
+p1 = game.add_player("P1"); p2 = game.add_player("P2")
+game.create_object(active_def.name, p1.id, ZoneType.ACTIVE_SPOT,
+                   _copy.deepcopy(active_def.characteristics), active_def)
+game.create_object(active_def.name, p2.id, ZoneType.ACTIVE_SPOT,
+                   _copy.deepcopy(active_def.characteristics), active_def)
+# Three bench Pokemon to trigger the wide-board branch (>=3)
+b1 = _bench_pokemon(game, p1.id, "SLB1", 90, PokemonType.GRASS.value)
+b2 = _bench_pokemon(game, p1.id, "SLB2", 90, PokemonType.GRASS.value)
+b3 = _bench_pokemon(game, p1.id, "SLB3", 90, PokemonType.GRASS.value)
+# Give b2 some attached energy so b1/b3 (0 energy) are the heuristic pick
+loaded_energy = game.create_object(
+    energy_def.name, p1.id, ZoneType.BATTLEFIELD,
+    _copy.deepcopy(energy_def.characteristics), energy_def,
+)
+b2.state.attached_energy.append(loaded_energy.id)
+# Energy cards in deck: one Grass + one Fighting
+grass_e = make_basic_energy("Grass Energy", PokemonType.GRASS.value)
+fighting_e = make_basic_energy("Fighting Energy", PokemonType.FIGHTING.value)
+grass_obj = game.create_object(grass_e.name, p1.id, ZoneType.LIBRARY,
+                               _copy.deepcopy(grass_e.characteristics), grass_e)
+fighting_obj = game.create_object(fighting_e.name, p1.id, ZoneType.LIBRARY,
+                                  _copy.deepcopy(fighting_e.characteristics), fighting_e)
+library = game.state.zones[f"library_{p1.id}"]
+library.objects.extend([grass_obj.id, fighting_obj.id])
+
+events = _selesnya_cluestone_effect(
+    Event(type=EventType.PKM_PLAY_ITEM, payload={'player': p1.id}),
+    game.state,
+)
+check("Selesnya Cluestone human path returns no events", events == [])
+pc = game.state.pending_choice
+check("Selesnya Cluestone sets a pending_choice", pc is not None)
+check("Selesnya Cluestone choice belongs to caster (p1)",
+      pc is not None and pc.player == p1.id)
+opt_ids = {o["id"] for o in (pc.options if pc else [])}
+check("Selesnya Cluestone options are caster's bench",
+      b1.id in opt_ids and b2.id in opt_ids and b3.id in opt_ids)
+hp_pick = (pc.callback_data or {}).get("heuristic_pick")
+# Lowest-attached: b1 or b3 (both 0 energy); b2 has 1.
+check("Selesnya Cluestone heuristic_pick is a 0-energy bench Pokemon",
+      hp_pick is not None and hp_pick[0] in {b1.id, b3.id})
+game.state.pending_choice = None
+
+# Empty short-circuit: only 2 bench (<3) → no attach branch
+game_e = Game(mode="pokemon")
+p1e = game_e.add_player("P1"); p2e = game_e.add_player("P2")
+game_e.create_object(active_def.name, p1e.id, ZoneType.ACTIVE_SPOT,
+                     _copy.deepcopy(active_def.characteristics), active_def)
+game_e.create_object(active_def.name, p2e.id, ZoneType.ACTIVE_SPOT,
+                     _copy.deepcopy(active_def.characteristics), active_def)
+_bench_pokemon(game_e, p1e.id, "OnlyOne", 60, PokemonType.GRASS.value)
+_bench_pokemon(game_e, p1e.id, "OnlyTwo", 60, PokemonType.GRASS.value)
+grass_e2 = make_basic_energy("Grass Energy", PokemonType.GRASS.value)
+g2_obj = game_e.create_object(grass_e2.name, p1e.id, ZoneType.LIBRARY,
+                              _copy.deepcopy(grass_e2.characteristics), grass_e2)
+game_e.state.zones[f"library_{p1e.id}"].objects.append(g2_obj.id)
+events_e = _selesnya_cluestone_effect(
+    Event(type=EventType.PKM_PLAY_ITEM, payload={'player': p1e.id}),
+    game_e.state,
+)
+check("Selesnya Cluestone <3 bench leaves pending_choice clear",
+      game_e.state.pending_choice is None)
+
+
+# --- Skyknight Vanguard --------------------------------------------------
+print("\n--- Skyknight Vanguard ---")
+game, p1, p2, sky, _opp = _make_game_p1_active(SKYKNIGHT_VANGUARD)
+# Skyknight needs >=2 own bench for the trigger
+_bench_pokemon(game, p1.id, "OwnBench1", 60, PokemonType.FIRE.value)
+_bench_pokemon(game, p1.id, "OwnBench2", 60, PokemonType.FIRE.value)
+opp_weak = _bench_pokemon(game, p2.id, "OppWeak", 60, PokemonType.GRASS.value, damage=4)
+opp_strong = _bench_pokemon(game, p2.id, "OppStrong", 120, PokemonType.WATER.value)
+
+events = _skyknight_vanguard_effect(sky, game.state)
+check("Skyknight human path returns no events", events == [])
+pc = game.state.pending_choice
+check("Skyknight pending_choice set", pc is not None)
+check("Skyknight choice belongs to caster (p1)",
+      pc is not None and pc.player == p1.id)
+opt_ids = {o["id"] for o in (pc.options if pc else [])}
+check("Skyknight options are opp bench Pokemon",
+      opp_weak.id in opt_ids and opp_strong.id in opt_ids)
+hp_pick = (pc.callback_data or {}).get("heuristic_pick")
+# Lowest current HP: opp_weak (60 - 40 = 20 remaining) beats opp_strong (120).
+check("Skyknight heuristic_pick is the lowest-HP bench",
+      hp_pick == [opp_weak.id])
+# Handler smoke test
+handler = (pc.callback_data or {}).get("handler")
+if handler:
+    handler_events = handler(pc, [opp_weak.id], game.state)
+    check("Skyknight handler emits PKM_PLACE_DAMAGE_COUNTERS",
+          len(handler_events) == 1
+          and handler_events[0].type == EventType.PKM_PLACE_DAMAGE_COUNTERS)
+    check("Skyknight handler places 2 counters on the target",
+          opp_weak.state.damage_counters == 4 + 2)
+game.state.pending_choice = None
+
+# Empty: no opp bench
+game_e, _p1, _p2, sky_e, _opp_e = _make_game_p1_active(SKYKNIGHT_VANGUARD)
+_bench_pokemon(game_e, _p1.id, "OwnA", 60, PokemonType.FIRE.value)
+_bench_pokemon(game_e, _p1.id, "OwnB", 60, PokemonType.FIRE.value)
+events_e = _skyknight_vanguard_effect(sky_e, game_e.state)
+check("Skyknight empty-opp-bench short-circuit returns no events", events_e == [])
+check("Skyknight empty-opp-bench leaves pending_choice clear",
+      game_e.state.pending_choice is None)
+
+# Empty: <2 own bench → trigger blocked
+game_e2, _p1, _p2, sky_e2, _opp = _make_game_p1_active(SKYKNIGHT_VANGUARD)
+_bench_pokemon(game_e2, _p2.id, "OppB", 60, PokemonType.GRASS.value)
+events_e2 = _skyknight_vanguard_effect(sky_e2, game_e2.state)
+check("Skyknight <2 own-bench short-circuit returns no events", events_e2 == [])
+
+
+# --- Burning-Tree Emissary (Cascade) -------------------------------------
+print("\n--- Burning-Tree Emissary ---")
+game, p1, p2, btree, _opp = _make_game_p1_active(BURNING_TREE_EMISSARY)
+bench_a = _bench_pokemon(game, p1.id, "BTA", 90, PokemonType.GRASS.value)
+bench_b = _bench_pokemon(game, p1.id, "BTB", 70, PokemonType.GRASS.value)
+# Put an Energy card in the deck for Cascade to fetch
+grass_e_btree = make_basic_energy("Grass Energy", PokemonType.GRASS.value)
+btree_energy = game.create_object(
+    grass_e_btree.name, p1.id, ZoneType.LIBRARY,
+    _copy.deepcopy(grass_e_btree.characteristics), grass_e_btree,
+)
+game.state.zones[f"library_{p1.id}"].objects.append(btree_energy.id)
+
+events = _cascade_attach_effect(btree, game.state)
+check("Burning-Tree human path returns no events", events == [])
+pc = game.state.pending_choice
+check("Burning-Tree pending_choice set", pc is not None)
+check("Burning-Tree choice belongs to caster (p1)",
+      pc is not None and pc.player == p1.id)
+opt_ids = {o["id"] for o in (pc.options if pc else [])}
+check("Burning-Tree options are caster's bench",
+      bench_a.id in opt_ids and bench_b.id in opt_ids)
+hp_pick = (pc.callback_data or {}).get("heuristic_pick")
+# Heuristic: first bench Pokemon (matches v1 `break`-on-first).
+check("Burning-Tree heuristic_pick is the first bench Pokemon",
+      hp_pick == [bench_a.id])
+game.state.pending_choice = None
+
+# Empty: no bench
+game_e, _p1, _p2, btree_e, _opp = _make_game_p1_active(BURNING_TREE_EMISSARY)
+grass_e_be = make_basic_energy("Grass Energy", PokemonType.GRASS.value)
+btree_e2 = game_e.create_object(
+    grass_e_be.name, _p1.id, ZoneType.LIBRARY,
+    _copy.deepcopy(grass_e_be.characteristics), grass_e_be,
+)
+game_e.state.zones[f"library_{_p1.id}"].objects.append(btree_e2.id)
+events_e = _cascade_attach_effect(btree_e, game_e.state)
+check("Burning-Tree empty-bench short-circuit returns no events", events_e == [])
+check("Burning-Tree empty-bench leaves pending_choice clear",
+      game_e.state.pending_choice is None)
+
+# Empty: no energy in deck
+game_e2, _p1, _p2, btree_e3, _opp = _make_game_p1_active(BURNING_TREE_EMISSARY)
+_bench_pokemon(game_e2, _p1.id, "BTNoDeck", 60, PokemonType.GRASS.value)
+events_e3 = _cascade_attach_effect(btree_e3, game_e2.state)
+check("Burning-Tree no-energy-in-deck short-circuit returns no events", events_e3 == [])
+
+
+# =============================================================================
 # Results
 # =============================================================================
 
