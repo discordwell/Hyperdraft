@@ -4,8 +4,13 @@ Engine Tests
 Test the core mechanics with our 5 test cards.
 """
 
+import os
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+# Use the project root resolved from this file's location so tests work
+# from either the canonical HYPERDRAFT repo or a worktree under it.
+_THIS = os.path.abspath(__file__)
+_ROOT = os.path.dirname(os.path.dirname(_THIS))
+sys.path.insert(0, _ROOT)
 
 from src.engine import (
     Game, Event, EventType, ZoneType, CardType,

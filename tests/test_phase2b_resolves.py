@@ -195,20 +195,20 @@ def test_cerebral_confiscation_modal():
 # =============================================================================
 
 def test_blight_rot_emits_minus_counters():
-    """Blight Rot resolves to a target choice that adds 4 -1/-1 counters."""
+    """Blight Rot resolves to 4 -1/-1 counters on the pre-selected target.
+
+    Phase 5b: target picking now happens at cast time via
+    ``target_requirements``. The resolve fn consumes ``targets[0]`` directly.
+    """
     game, (p, opp) = _make_game(2)
     target = _put_creature(game, opp, "Victim", 4, 4)
 
-    BLIGHT_ROT.resolve([], game.state)
-    pc = game.state.pending_choice
-    assert pc is not None
-    assert target.id in pc.options
-    # Simulate selection.
-    handler = pc.callback_data['handler']
-    events = handler(pc, [target.id], game.state)
+    # Phase 5b: targets pre-supplied as if engine emitted PendingChoice + user picked.
+    events = BLIGHT_ROT.resolve([[target.id]], game.state)
     counter_evts = [e for e in events if e.type == EventType.COUNTER_ADDED]
     assert counter_evts and counter_evts[0].payload['amount'] == 4
     assert counter_evts[0].payload['counter_type'] == '-1/-1'
+    assert counter_evts[0].payload['object_id'] == target.id
     print("PASS: Blight Rot adds 4 -1/-1 counters")
 
 
@@ -228,19 +228,17 @@ def test_darkness_descends_blankets_battlefield():
 
 
 def test_blossoming_defense_opens_self_target_choice_and_emits_pump_keyword():
-    """Blossoming Defense pumps and grants hexproof to a caster creature."""
+    """Blossoming Defense pumps and grants hexproof to a caster creature.
+
+    Phase 5b: target picking now happens at cast time via
+    ``target_requirements``. The resolve fn consumes ``targets[0]`` directly.
+    """
     game, (p, opp) = _make_game(2)
     own = _put_creature(game, p, "Mine", 2, 2)
     _put_creature(game, opp, "Theirs", 2, 2)
 
-    BLOSSOMING_DEFENSE.resolve([], game.state)
-    pc = game.state.pending_choice
-    assert pc is not None
-    # Only own creatures should be valid targets.
-    for tid in pc.options:
-        assert game.state.objects[tid].controller == p.id
-    handler = pc.callback_data['handler']
-    events = handler(pc, [own.id], game.state)
+    # Phase 5b: targets pre-supplied as if engine emitted PendingChoice + user picked.
+    events = BLOSSOMING_DEFENSE.resolve([[own.id]], game.state)
     assert any(e.type == EventType.PT_MODIFICATION for e in events)
     assert any(e.type == EventType.KEYWORD_GRANT
                and 'hexproof' in e.payload['keywords'] for e in events)
@@ -248,15 +246,16 @@ def test_blossoming_defense_opens_self_target_choice_and_emits_pump_keyword():
 
 
 def test_riverguards_reflexes_emits_pump_keyword_untap():
-    """Riverguard's Reflexes: +2/+2 + first strike + UNTAP on selected creature."""
+    """Riverguard's Reflexes: +2/+2 + first strike + UNTAP on selected creature.
+
+    Phase 5b: target picking now happens at cast time via
+    ``target_requirements``. The resolve fn consumes ``targets[0]`` directly.
+    """
     game, (p, _opp) = _make_game(2)
     target = _put_creature(game, p, "Mine", 2, 2)
 
-    RIVERGUARDS_REFLEXES.resolve([], game.state)
-    pc = game.state.pending_choice
-    assert pc is not None
-    handler = pc.callback_data['handler']
-    events = handler(pc, [target.id], game.state)
+    # Phase 5b: targets pre-supplied as if engine emitted PendingChoice + user picked.
+    events = RIVERGUARDS_REFLEXES.resolve([[target.id]], game.state)
     types = {e.type for e in events}
     assert EventType.PT_MODIFICATION in types
     assert EventType.KEYWORD_GRANT in types
@@ -320,14 +319,15 @@ def test_thirst_for_identity_draws_three_and_opens_discard():
 
 
 def test_nameless_inversion_pump():
-    """Nameless Inversion: +3/-3 PT_MODIFICATION on a chosen creature."""
+    """Nameless Inversion: +3/-3 PT_MODIFICATION on the pre-selected creature.
+
+    Phase 5b: target picking now happens at cast time via
+    ``target_requirements``. The resolve fn consumes ``targets[0]`` directly.
+    """
     game, (p, opp) = _make_game(2)
     target = _put_creature(game, opp, "Victim", 2, 4)
 
-    NAMELESS_INVERSION.resolve([], game.state)
-    pc = game.state.pending_choice
-    handler = pc.callback_data['handler']
-    events = handler(pc, [target.id], game.state)
+    events = NAMELESS_INVERSION.resolve([[target.id]], game.state)
     assert events and events[0].type == EventType.PT_MODIFICATION
     assert events[0].payload['power_mod'] == 3
     assert events[0].payload['toughness_mod'] == -3
@@ -346,8 +346,20 @@ def test_perfect_intimidation_modal_choice_one_or_both():
 
 
 def test_wanderwine_farewell_returns_and_makes_token_when_merfolk():
-    """Wanderwine Farewell bounces nonland and creates Merfolk token if controller has Merfolk."""
+    """Wanderwine Farewell bounces nonland and creates Merfolk token if controller has Merfolk.
+
+    Phase 5b: target picking now happens at cast time via
+    ``target_requirements``. The resolve fn consumes ``targets[0]`` directly.
+    """
     game, (p, opp) = _make_game(2)
+    # Need a Wanderwine Farewell on the stack so the resolve can find the caster.
+    spell = game.create_object(
+        name="Wanderwine Farewell",
+        owner_id=p.id,
+        zone=ZoneType.STACK,
+        characteristics=Characteristics(types={CardType.SORCERY}),
+    )
+    spell.controller = p.id
     # Caster controls a Merfolk to trigger the rider.
     merfolk = game.create_object(
         name="My Merfolk",
@@ -360,11 +372,7 @@ def test_wanderwine_farewell_returns_and_makes_token_when_merfolk():
     merfolk.controller = p.id
     target = _put_creature(game, opp, "Target", 2, 2)
 
-    WANDERWINE_FAREWELL.resolve([], game.state)
-    pc = game.state.pending_choice
-    assert pc is not None
-    handler = pc.callback_data['handler']
-    events = handler(pc, [target.id], game.state)
+    events = WANDERWINE_FAREWELL.resolve([[target.id]], game.state)
     assert any(e.type == EventType.ZONE_CHANGE for e in events)
     assert any(e.type == EventType.OBJECT_CREATED
                and e.payload.get('subtypes') == ['Merfolk'] for e in events)

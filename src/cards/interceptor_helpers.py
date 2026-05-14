@@ -2038,6 +2038,32 @@ def create_surveil_choice(
     return choice
 
 
+def normalize_target(entry, state: GameState) -> tuple[str, bool]:
+    """Normalize a target entry to (target_id, is_player).
+
+    Phase 5b: cast-time target picking emits raw IDs via PendingChoice
+    handlers, whereas AI ``_select_targets_for_spell`` and the server
+    ``_coerce_action_targets`` path both pre-supply ``Target`` instances.
+    Card resolve_fns that opt into ``target_requirements`` need to handle
+    both shapes — this helper does the lookup in one place.
+
+    Returns:
+        ``(target_id, is_player)`` regardless of whether the input was a
+        ``Target`` dataclass, a ``{"id": ...}`` dict, or a raw string ID.
+    """
+    target_id = getattr(entry, "id", None)
+    if target_id is None and isinstance(entry, dict):
+        target_id = entry.get("id") or entry.get("target_id")
+    if target_id is None:
+        target_id = entry  # assume a string ID
+    target_id = str(target_id)
+
+    is_player = getattr(entry, "is_player", None)
+    if is_player is None:
+        is_player = target_id in state.players
+    return target_id, bool(is_player)
+
+
 def create_target_choice(
     state: GameState,
     player_id: str,

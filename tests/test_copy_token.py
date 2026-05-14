@@ -332,11 +332,11 @@ def test_copy_with_missing_target_is_a_noop():
 # =============================================================================
 
 def test_wired_kindle_the_inner_flame_resolve():
-    """KINDLE_THE_INNER_FLAME's resolve fn opens a target choice on cast.
+    """KINDLE_THE_INNER_FLAME emits a copy event for the pre-selected target.
 
-    We don't drive the full stack-resolution path; we just verify the resolve
-    function (a) finds legal targets when the controller has a creature, and
-    (b) opens a pending_choice that, when answered, emits a copy event.
+    Phase 5b: target picking happens at cast time via ``target_requirements``,
+    so the resolve fn consumes ``targets[0]`` directly instead of posting its
+    own PendingChoice.
     """
     print("\n=== Test: Kindle the Inner Flame wiring ===")
     from src.cards.lorwyn_eclipsed import KINDLE_THE_INNER_FLAME
@@ -354,27 +354,17 @@ def test_wired_kindle_the_inner_flame_resolve():
     # Mirror keyword onto Characteristics for the deep-copy.
     src.characteristics.abilities = [{'keyword': 'flying'}]
 
-    # Resolve fn expects a list of target groups; we pass [] and rely on the
-    # active_player fallback in _ecl_get_spell_and_caster.
     game.state.active_player = p1.id
-    KINDLE_THE_INNER_FLAME.resolve([], game.state)
-
-    # Should have opened a pending_choice prompting target selection.
-    assert game.state.pending_choice is not None, "Resolve should open a target choice"
-    assert game.state.pending_choice.choice_type == "target_with_callback"
-    assert src.id in game.state.pending_choice.options, "Source creature must be a legal target"
-
-    # Drive the callback as if the player picked the source.
-    handler = game.state.pending_choice.callback_data['handler']
-    events = handler(game.state.pending_choice, [src.id], game.state)
-    assert events, "Handler should emit a copy event"
+    # Phase 5b: targets pre-supplied as if engine emitted PendingChoice + user picked.
+    events = KINDLE_THE_INNER_FLAME.resolve([[src.id]], game.state)
+    assert events, "Resolve should emit a copy event"
     assert all(e.type == EventType.OBJECT_CREATED for e in events)
     assert events[0].payload.get('copy_of') == src.id
     # Haste should be added on top of the original's flying.
     keywords = events[0].payload.get('except_keywords') or []
     assert 'haste' in [k.lower() for k in keywords]
     assert 'flying' in [k.lower() for k in keywords]
-    print("PASSED: Kindle the Inner Flame target picker emits copy event with haste")
+    print("PASSED: Kindle the Inner Flame emits copy event with haste")
 
 
 def test_wired_mirror_room_door1_emits_copy_with_reflection():
