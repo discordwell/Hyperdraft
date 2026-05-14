@@ -1314,6 +1314,37 @@ def make_oneiric_archives_deck():
     return _expanded_deck("OAR", "oneiric")
 
 
+MNESTIC_RESET_DIVISION_NAMES = [
+    # Personnel (8): 6 Mnestic anchors + 2 Bystanders that can Mnestic Wake
+    # to scale toward the Mnestic Saturation alt-win (5 active Mnestic + 4 archives).
+    "MNR Forgotten Bureau Liaison", "MNR Forgotten Bureau Liaison",
+    "MNR Memory Pattern Analyst", "MNR Mnemonic Surgeon",
+    "MNR Class-A Inoculated Agent", "MNR Mnestic-Coated Operative",
+    "MNR Conference Attendee", "MNR D-Class (No Recall)",
+    # Facilities (4)
+    "MNR Mnestic Ward", "MNR Antimemetic Quarantine Lab",
+    "MNR Pre-Amnestic Records", "MNR Cognitive Anchor Array",
+    # Anomalies (5)
+    "MNR Memory Reef", "MNR Personnel Drift", "MNR Missing Floor",
+    "MNR Soft Erasure", "MNR The Director's Note",
+    # Procedures (6): one Redact, secrecy generation for Memory Hole,
+    # cognitive sweeper to force opposing forgets, plus recovery tools.
+    "MNR Memory Triage",
+    "MNR Class-A Inoculation Dose",
+    "MNR Mass Remembrance",
+    "MNR Found Files",
+    "MNR Cold Storage Open",
+    "MNR Class-B Inoculation Drill",
+    # Mandates (2): both MNR alt-win paths simultaneously
+    "MNR Mandate 4: Mnestic Saturation",
+    "MNR Mandate 1: Memory Hole",
+]
+
+
+def make_mnestic_reset_division_deck():
+    return [SCP_CARDS[name] for name in MNESTIC_RESET_DIVISION_NAMES]
+
+
 SCP_STARTER_DECKS = {
     "secure_contain_research": make_secure_contain_research_deck,
     "keter_risk": make_keter_risk_deck,
@@ -1324,6 +1355,7 @@ SCP_STARTER_DECKS = {
     "goi_frontline": make_goi_frontline_deck,
     "ethics_reckoning": make_ethics_reckoning_deck,
     "oneiric_archives": make_oneiric_archives_deck,
+    "mnestic_reset_division": make_mnestic_reset_division_deck,
     **SITE_ZERO_DECK_FACTORIES,
 }
 

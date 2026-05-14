@@ -1,6 +1,6 @@
 {
   "schema_version": "hyperdraft.scp_art_manifest.v1",
-  "card_count": 680,
+  "card_count": 802,
   "cards": [
     {
       "name": "ACW Absent Jury Anomaly",
@@ -1558,6 +1558,22 @@
       "target_path": "frontend/public/scp-art/core/clockwork-saint.png"
     },
     {
+      "name": "Compelling Testimony",
+      "expansion": "SCP Core",
+      "expansion_code": "CORE",
+      "archetype": "foundation",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Audit",
+        "Comeback"
+      ],
+      "prompt": "Original SCP-inspired trading card art for Compelling Testimony: cinematic classified-site containment, clear focal subject, readable silhouette, no text, no logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/core/compelling-testimony.png"
+    },
+    {
       "name": "Contain Mandate",
       "expansion": "SCP Core",
       "expansion_code": "CORE",
@@ -1616,6 +1632,22 @@
       ],
       "prompt": "Original SCP-inspired trading card art for Controlled Breach Drill: cinematic classified-site containment, clear focal subject, readable silhouette, no text, no logos, high-detail digital painting.",
       "target_path": "frontend/public/scp-art/core/controlled-breach-drill.png"
+    },
+    {
+      "name": "Crisis Reframe",
+      "expansion": "SCP Core",
+      "expansion_code": "CORE",
+      "archetype": "foundation",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Comeback",
+        "Security"
+      ],
+      "prompt": "Original SCP-inspired trading card art for Crisis Reframe: cinematic classified-site containment, clear focal subject, readable silhouette, no text, no logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/core/crisis-reframe.png"
     },
     {
       "name": "Cross-Test Proposal",
@@ -6592,6 +6624,1925 @@
       ],
       "prompt": "Original SCP-inspired TCG illustration for KBO Wild Crown Wing, facility from Keter Blackout. Subject: wild crown inside a classified containment facility. High-contrast cinematic lighting, practical horror, readable foreground silhouette, no text, no watermark.",
       "target_path": "frontend/public/scp-art/kbo/kbo-wild-crown-wing.png"
+    },
+    {
+      "name": "MNR Anchor Reset",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "rare",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Anchor",
+        "Antimemetic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Anchor Reset from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-anchor-reset.png"
+    },
+    {
+      "name": "MNR Anniversary Ghost",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Temporal"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Anniversary Ghost from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-anniversary-ghost.png"
+    },
+    {
+      "name": "MNR Antimemetic Atlas",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_FACILITY"
+      ],
+      "subtypes": [
+        "Archive",
+        "Mnestic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Antimemetic Atlas from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-antimemetic-atlas.png"
+    },
+    {
+      "name": "MNR Antimemetic Audit",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Audit",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Antimemetic Audit from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-antimemetic-audit.png"
+    },
+    {
+      "name": "MNR Antimemetic Brief Box",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Archive",
+        "Research"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Antimemetic Brief Box from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-antimemetic-brief-box.png"
+    },
+    {
+      "name": "MNR Antimemetic Defense Brief",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Briefing",
+        "Memetics"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Antimemetic Defense Brief from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-antimemetic-defense-brief.png"
+    },
+    {
+      "name": "MNR Antimemetic Quarantine Lab",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_FACILITY"
+      ],
+      "subtypes": [
+        "Lab",
+        "Mnestic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Antimemetic Quarantine Lab from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-antimemetic-quarantine-lab.png"
+    },
+    {
+      "name": "MNR Antimemetic Tactician",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Agent",
+        "Mnestic",
+        "Security"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Antimemetic Tactician from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-antimemetic-tactician.png"
+    },
+    {
+      "name": "MNR Antimemetic Tracker",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_core",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Mnemonic",
+        "Research"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Antimemetic Tracker from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-antimemetic-tracker.png"
+    },
+    {
+      "name": "MNR Backchannel Brief",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Brief",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Backchannel Brief from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-backchannel-brief.png"
+    },
+    {
+      "name": "MNR Black-Bag Job",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Operative",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Black-Bag Job from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-black-bag-job.png"
+    },
+    {
+      "name": "MNR Black-Box Archivist",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_core",
+      "rarity": "rare",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Archivist",
+        "Mnestic",
+        "Staff"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Black-Box Archivist from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-black-box-archivist.png"
+    },
+    {
+      "name": "MNR Black-Box Library",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_FACILITY"
+      ],
+      "subtypes": [
+        "Archive"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Black-Box Library from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-black-box-library.png"
+    },
+    {
+      "name": "MNR Brief and Bury",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Brief",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Brief and Bury from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-brief-and-bury.png"
+    },
+    {
+      "name": "MNR Briefing Update",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Briefing"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Briefing Update from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-briefing-update.png"
+    },
+    {
+      "name": "MNR Briefing-Room Listener",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Bystander",
+        "Staff"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Briefing-Room Listener from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-briefing-room-listener.png"
+    },
+    {
+      "name": "MNR Bystander Briefing Hall",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic",
+      "rarity": "common",
+      "types": [
+        "SCP_FACILITY"
+      ],
+      "subtypes": [
+        "Briefing"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Bystander Briefing Hall from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-bystander-briefing-hall.png"
+    },
+    {
+      "name": "MNR Bystander Briefing Room",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_FACILITY"
+      ],
+      "subtypes": [
+        "Briefing"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Bystander Briefing Room from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-bystander-briefing-room.png"
+    },
+    {
+      "name": "MNR Bystander Coordinator",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Liaison",
+        "Mnestic",
+        "Staff"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Bystander Coordinator from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-bystander-coordinator.png"
+    },
+    {
+      "name": "MNR Bystander Effect",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "common",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Social"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Bystander Effect from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-bystander-effect.png"
+    },
+    {
+      "name": "MNR Bystander Lounge",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "common",
+      "types": [
+        "SCP_FACILITY"
+      ],
+      "subtypes": [
+        "Staff"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Bystander Lounge from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-bystander-lounge.png"
+    },
+    {
+      "name": "MNR Bystander Witness Pool",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Bystander",
+        "Civilian"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Bystander Witness Pool from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-bystander-witness-pool.png"
+    },
+    {
+      "name": "MNR Class-A Inoculated Agent",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Agent",
+        "Mnestic",
+        "Security"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Class-A Inoculated Agent from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-class-a-inoculated-agent.png"
+    },
+    {
+      "name": "MNR Class-A Inoculation Dose",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Amnestic",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Class-A Inoculation Dose from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-class-a-inoculation-dose.png"
+    },
+    {
+      "name": "MNR Class-B Inoculation Drill",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "rare",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Memetics",
+        "Training"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Class-B Inoculation Drill from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-class-b-inoculation-drill.png"
+    },
+    {
+      "name": "MNR Cleanup Crew Lead",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_core",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Mnestic",
+        "Security"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Cleanup Crew Lead from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-cleanup-crew-lead.png"
+    },
+    {
+      "name": "MNR Cognitive Anchor Array",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_FACILITY"
+      ],
+      "subtypes": [
+        "Array"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Cognitive Anchor Array from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-cognitive-anchor-array.png"
+    },
+    {
+      "name": "MNR Cognitive Cleanse",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "rare",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Counter",
+        "Memetics"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Cognitive Cleanse from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-cognitive-cleanse.png"
+    },
+    {
+      "name": "MNR Cognitive Wedge",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "rare",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Cognitive"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Cognitive Wedge from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-cognitive-wedge.png"
+    },
+    {
+      "name": "MNR Cognitive Wedge (Severe)",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "rare",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Cognitive"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Cognitive Wedge (Severe) from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-cognitive-wedge-severe.png"
+    },
+    {
+      "name": "MNR Cold Storage Open",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Archive",
+        "Security"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Cold Storage Open from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-cold-storage-open.png"
+    },
+    {
+      "name": "MNR Cold Trail Reopened",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Investigation",
+        "Recovery"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Cold Trail Reopened from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-cold-trail-reopened.png"
+    },
+    {
+      "name": "MNR Conference Attendee",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Bystander",
+        "Staff"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Conference Attendee from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-conference-attendee.png"
+    },
+    {
+      "name": "MNR Conference Redaction",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "rare",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Bureaucracy",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Conference Redaction from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-conference-redaction.png"
+    },
+    {
+      "name": "MNR Counter-Mnestic",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic",
+      "rarity": "rare",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Memetic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Counter-Mnestic from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-counter-mnestic.png"
+    },
+    {
+      "name": "MNR Counter-Mnestic (Severe)",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic",
+      "rarity": "rare",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Memetic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Counter-Mnestic (Severe) from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-counter-mnestic-severe.png"
+    },
+    {
+      "name": "MNR D-Class (No Recall)",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Bystander",
+        "D-Class"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR D-Class (No Recall) from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-d-class-no-recall.png"
+    },
+    {
+      "name": "MNR Deep Memory Vault",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic",
+      "rarity": "rare",
+      "types": [
+        "SCP_FACILITY"
+      ],
+      "subtypes": [
+        "Archive"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Deep Memory Vault from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-deep-memory-vault.png"
+    },
+    {
+      "name": "MNR Department Newcomer",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Bystander",
+        "Staff"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Department Newcomer from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-department-newcomer.png"
+    },
+    {
+      "name": "MNR Department Roll Call",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "bystander_synergy",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Bureaucracy"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Department Roll Call from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-department-roll-call.png"
+    },
+    {
+      "name": "MNR Director's Memo",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "rare",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Mandate",
+        "Recovery"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Director's Memo from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-director-s-memo.png"
+    },
+    {
+      "name": "MNR Director's Office, AD",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic",
+      "rarity": "rare",
+      "types": [
+        "SCP_FACILITY"
+      ],
+      "subtypes": [
+        "Mnestic",
+        "Office"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Director's Office, AD from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-director-s-office-ad.png"
+    },
+    {
+      "name": "MNR Director, Antimemetics Division",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_core",
+      "rarity": "rare",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Antimemetics",
+        "Director",
+        "Mnestic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Director, Antimemetics Division from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-director-antimemetics-division.png"
+    },
+    {
+      "name": "MNR Documents Clerk",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Bystander",
+        "Staff"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Documents Clerk from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-documents-clerk.png"
+    },
+    {
+      "name": "MNR Filed-Away Window",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "common",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Object"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Filed-Away Window from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-filed-away-window.png"
+    },
+    {
+      "name": "MNR Five and Three-Eighths",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "rare",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Recursive"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Five and Three-Eighths from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-five-and-three-eighths.png"
+    },
+    {
+      "name": "MNR Forgotten Bureau Liaison",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Agent",
+        "Liaison",
+        "Mnestic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Forgotten Bureau Liaison from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-forgotten-bureau-liaison.png"
+    },
+    {
+      "name": "MNR Found Files",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "rare",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Archive",
+        "Recovery"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Found Files from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-found-files.png"
+    },
+    {
+      "name": "MNR Hallway Runner",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Bystander",
+        "Staff"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Hallway Runner from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-hallway-runner.png"
+    },
+    {
+      "name": "MNR Headcount Audit",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "bystander_synergy",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Audit",
+        "Bureaucracy"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Headcount Audit from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-headcount-audit.png"
+    },
+    {
+      "name": "MNR Inoculated D-Class",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Bystander",
+        "D-Class"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Inoculated D-Class from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-inoculated-d-class.png"
+    },
+    {
+      "name": "MNR Inoculated Recordkeeper",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_core",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Archivist",
+        "Mnestic",
+        "Staff"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Inoculated Recordkeeper from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-inoculated-recordkeeper.png"
+    },
+    {
+      "name": "MNR Inoculation Bay",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic",
+      "rarity": "common",
+      "types": [
+        "SCP_FACILITY"
+      ],
+      "subtypes": [
+        "Medical",
+        "Mnestic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Inoculation Bay from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-inoculation-bay.png"
+    },
+    {
+      "name": "MNR Inoculation Schedule",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Ethics",
+        "Medical"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Inoculation Schedule from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-inoculation-schedule.png"
+    },
+    {
+      "name": "MNR Inoculation Wave",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_core",
+      "rarity": "rare",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Amnestic",
+        "Mnestic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Inoculation Wave from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-inoculation-wave.png"
+    },
+    {
+      "name": "MNR Junior Coordination Office",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "common",
+      "types": [
+        "SCP_FACILITY"
+      ],
+      "subtypes": [
+        "Office"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Junior Coordination Office from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-junior-coordination-office.png"
+    },
+    {
+      "name": "MNR Locked Filing Cabinet",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "common",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Object"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Locked Filing Cabinet from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-locked-filing-cabinet.png"
+    },
+    {
+      "name": "MNR Mailroom Junior",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Bystander",
+        "Staff"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mailroom Junior from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mailroom-junior.png"
+    },
+    {
+      "name": "MNR Mandate 1: Memory Hole",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "mythic",
+      "types": [
+        "SCP_MANDATE"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Mandate"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mandate 1: Memory Hole from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mandate-1-memory-hole.png"
+    },
+    {
+      "name": "MNR Mandate 2: Total Erasure",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "rare",
+      "types": [
+        "SCP_MANDATE"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Mandate"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mandate 2: Total Erasure from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mandate-2-total-erasure.png"
+    },
+    {
+      "name": "MNR Mandate 3: Selective Forgetting",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "rare",
+      "types": [
+        "SCP_MANDATE"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Mandate"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mandate 3: Selective Forgetting from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mandate-3-selective-forgetting.png"
+    },
+    {
+      "name": "MNR Mandate 4: Mnestic Saturation",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "mythic",
+      "types": [
+        "SCP_MANDATE"
+      ],
+      "subtypes": [
+        "Mandate",
+        "Mnestic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mandate 4: Mnestic Saturation from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mandate-4-mnestic-saturation.png"
+    },
+    {
+      "name": "MNR Mandate 5: Inoculation Mandate",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "rare",
+      "types": [
+        "SCP_MANDATE"
+      ],
+      "subtypes": [
+        "Mandate",
+        "Mnestic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mandate 5: Inoculation Mandate from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mandate-5-inoculation-mandate.png"
+    },
+    {
+      "name": "MNR Mandate 6: Memory Reform",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "rare",
+      "types": [
+        "SCP_MANDATE"
+      ],
+      "subtypes": [
+        "Mandate",
+        "Mnestic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mandate 6: Memory Reform from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mandate-6-memory-reform.png"
+    },
+    {
+      "name": "MNR Mandate 7: Public Disclosure",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "rare",
+      "types": [
+        "SCP_MANDATE"
+      ],
+      "subtypes": [
+        "Mandate",
+        "Masquerade"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mandate 7: Public Disclosure from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mandate-7-public-disclosure.png"
+    },
+    {
+      "name": "MNR Mandate 8: Cold-Open Inquiry",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "rare",
+      "types": [
+        "SCP_MANDATE"
+      ],
+      "subtypes": [
+        "Mandate",
+        "Masquerade"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mandate 8: Cold-Open Inquiry from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mandate-8-cold-open-inquiry.png"
+    },
+    {
+      "name": "MNR Marion Wheeler",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_core",
+      "rarity": "rare",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Antimemetics",
+        "Hero",
+        "Mnestic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Marion Wheeler from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-marion-wheeler.png"
+    },
+    {
+      "name": "MNR Mass Remembrance",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_core",
+      "rarity": "rare",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Mnemonic",
+        "Mnestic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mass Remembrance from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mass-remembrance.png"
+    },
+    {
+      "name": "MNR Memo Disposal",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Memo Disposal from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-memo-disposal.png"
+    },
+    {
+      "name": "MNR Memory Pattern Analyst",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic_decay",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Memetics",
+        "Mnestic",
+        "Scientist"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Memory Pattern Analyst from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-memory-pattern-analyst.png"
+    },
+    {
+      "name": "MNR Memory Reef",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "rare",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Spatial"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Memory Reef from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-memory-reef.png"
+    },
+    {
+      "name": "MNR Memory Reef (Containment Critical)",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "mythic",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Spatial"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Memory Reef (Containment Critical) from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-memory-reef-containment-critical.png"
+    },
+    {
+      "name": "MNR Memory Triage",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Mnemonic",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Memory Triage from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-memory-triage.png"
+    },
+    {
+      "name": "MNR Memory-Holed Audit",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Blackfile",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Memory-Holed Audit from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-memory-holed-audit.png"
+    },
+    {
+      "name": "MNR Missing Floor",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "rare",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Spatial"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Missing Floor from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-missing-floor.png"
+    },
+    {
+      "name": "MNR Missing Floor (Containment Critical)",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "mythic",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Spatial"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Missing Floor (Containment Critical) from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-missing-floor-containment-critical.png"
+    },
+    {
+      "name": "MNR Mnemonic Field Agent",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_core",
+      "rarity": "rare",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Agent",
+        "Mnestic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mnemonic Field Agent from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mnemonic-field-agent.png"
+    },
+    {
+      "name": "MNR Mnemonic Imprint Station",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_FACILITY"
+      ],
+      "subtypes": [
+        "Lab",
+        "Mnestic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mnemonic Imprint Station from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mnemonic-imprint-station.png"
+    },
+    {
+      "name": "MNR Mnemonic Surgeon",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic_decay",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Medical",
+        "Mnestic",
+        "Scientist"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mnemonic Surgeon from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mnemonic-surgeon.png"
+    },
+    {
+      "name": "MNR Mnestic Anchor Operative",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_core",
+      "rarity": "rare",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Anchor",
+        "Mnestic",
+        "Security"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mnestic Anchor Operative from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mnestic-anchor-operative.png"
+    },
+    {
+      "name": "MNR Mnestic Cathedral Curator",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "rare",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Archivist",
+        "Mnestic",
+        "Occult"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mnestic Cathedral Curator from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mnestic-cathedral-curator.png"
+    },
+    {
+      "name": "MNR Mnestic Counter-Raid",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "GOI",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mnestic Counter-Raid from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mnestic-counter-raid.png"
+    },
+    {
+      "name": "MNR Mnestic Counter-Strike",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_core",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Mnestic",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mnestic Counter-Strike from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mnestic-counter-strike.png"
+    },
+    {
+      "name": "MNR Mnestic Dust Cloud",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_core",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Cover",
+        "Mnemonic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mnestic Dust Cloud from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mnestic-dust-cloud.png"
+    },
+    {
+      "name": "MNR Mnestic Quarantine",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Quarantine",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mnestic Quarantine from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mnestic-quarantine.png"
+    },
+    {
+      "name": "MNR Mnestic Ward",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic",
+      "rarity": "common",
+      "types": [
+        "SCP_FACILITY"
+      ],
+      "subtypes": [
+        "Mnestic",
+        "Site"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mnestic Ward from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mnestic-ward.png"
+    },
+    {
+      "name": "MNR Mnestic-Coated Operative",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_core",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "MTF",
+        "Mnestic",
+        "Security"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Mnestic-Coated Operative from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-mnestic-coated-operative.png"
+    },
+    {
+      "name": "MNR Office Memo",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "bystander_synergy",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Bureaucracy"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Office Memo from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-office-memo.png"
+    },
+    {
+      "name": "MNR Office Temp",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Bystander"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Office Temp from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-office-temp.png"
+    },
+    {
+      "name": "MNR Operative Erasure",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Cover",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Operative Erasure from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-operative-erasure.png"
+    },
+    {
+      "name": "MNR Overexposure Probe",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Overexpose",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Overexposure Probe from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-overexposure-probe.png"
+    },
+    {
+      "name": "MNR Pattern Disruption",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Counter",
+        "Memetics"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Pattern Disruption from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-pattern-disruption.png"
+    },
+    {
+      "name": "MNR Pattern Recognition Drill",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_core",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Mnemonic",
+        "Training"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Pattern Recognition Drill from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-pattern-recognition-drill.png"
+    },
+    {
+      "name": "MNR Personnel Drift",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "rare",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Memetic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Personnel Drift from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-personnel-drift.png"
+    },
+    {
+      "name": "MNR Personnel Drift (Containment Critical)",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "mythic",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Memetic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Personnel Drift (Containment Critical) from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-personnel-drift-containment-critical.png"
+    },
+    {
+      "name": "MNR Pre-Amnestic Records",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic",
+      "rarity": "rare",
+      "types": [
+        "SCP_FACILITY"
+      ],
+      "subtypes": [
+        "Archive"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Pre-Amnestic Records from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-pre-amnestic-records.png"
+    },
+    {
+      "name": "MNR Reality Stabilization Suite",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic",
+      "rarity": "rare",
+      "types": [
+        "SCP_FACILITY"
+      ],
+      "subtypes": [
+        "Array"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Reality Stabilization Suite from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-reality-stabilization-suite.png"
+    },
+    {
+      "name": "MNR Reconstruction Project",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "rare",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Archive",
+        "Mnestic",
+        "Recovery"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Reconstruction Project from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-reconstruction-project.png"
+    },
+    {
+      "name": "MNR Records Burn",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "rare",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Archive",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Records Burn from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-records-burn.png"
+    },
+    {
+      "name": "MNR Reluctant Subject",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Bystander",
+        "Civilian"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Reluctant Subject from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-reluctant-subject.png"
+    },
+    {
+      "name": "MNR Rotation Drill",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_reset",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Brief",
+        "Rotation"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Rotation Drill from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-rotation-drill.png"
+    },
+    {
+      "name": "MNR SZB Liaison",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_core",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Bureaucracy",
+        "Mnestic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR SZB Liaison from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-szb-liaison.png"
+    },
+    {
+      "name": "MNR Sealed Conference Room",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_FACILITY"
+      ],
+      "subtypes": [
+        "Briefing",
+        "Mnestic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Sealed Conference Room from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-sealed-conference-room.png"
+    },
+    {
+      "name": "MNR Selective Forgetting",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Memetics",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Selective Forgetting from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-selective-forgetting.png"
+    },
+    {
+      "name": "MNR Soft Erasure",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Memetic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Soft Erasure from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-soft-erasure.png"
+    },
+    {
+      "name": "MNR Soft Erasure (Severe)",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "rare",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Memetic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Soft Erasure (Severe) from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-soft-erasure-severe.png"
+    },
+    {
+      "name": "MNR Standard Protocol Refresh",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_core",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Bureaucracy",
+        "Mnemonic"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Standard Protocol Refresh from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-standard-protocol-refresh.png"
+    },
+    {
+      "name": "MNR Stripped Conference Room",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "common",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Spatial"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Stripped Conference Room from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-stripped-conference-room.png"
+    },
+    {
+      "name": "MNR The Blank Folder",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "rare",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Document"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR The Blank Folder from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-the-blank-folder.png"
+    },
+    {
+      "name": "MNR The Blank Folder (Severe)",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "rare",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Document"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR The Blank Folder (Severe) from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-the-blank-folder-severe.png"
+    },
+    {
+      "name": "MNR The Director's Note",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Document"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR The Director's Note from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-the-director-s-note.png"
+    },
+    {
+      "name": "MNR The Director's Note (Containment Critical)",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimemetic",
+      "rarity": "mythic",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Document"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR The Director's Note (Containment Critical) from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-the-director-s-note-containment-critical.png"
+    },
+    {
+      "name": "MNR The Quiet Hour",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "uncommon",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Temporal"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR The Quiet Hour from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-the-quiet-hour.png"
+    },
+    {
+      "name": "MNR Untrained Assignment",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "bystander_synergy",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Cover"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Untrained Assignment from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-untrained-assignment.png"
+    },
+    {
+      "name": "MNR Untrained Observer",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Bystander",
+        "Civilian"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Untrained Observer from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-untrained-observer.png"
+    },
+    {
+      "name": "MNR Walk-Out Order",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "common",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Operative",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Walk-Out Order from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-walk-out-order.png"
+    },
+    {
+      "name": "MNR Walked-Out Intern",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Bystander",
+        "Staff"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Walked-Out Intern from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-walked-out-intern.png"
+    },
+    {
+      "name": "MNR White Hallway Recall",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "antimeme_decay",
+      "rarity": "common",
+      "types": [
+        "SCP_ANOMALY"
+      ],
+      "subtypes": [
+        "Antimemetic",
+        "Spatial"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR White Hallway Recall from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-white-hallway-recall.png"
+    },
+    {
+      "name": "MNR Witness Erasure",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "redaction_press",
+      "rarity": "rare",
+      "types": [
+        "SCP_PROCEDURE"
+      ],
+      "subtypes": [
+        "Mnemonic",
+        "Redaction"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Witness Erasure from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-witness-erasure.png"
+    },
+    {
+      "name": "MNR Witness in 12-B",
+      "expansion": "Mnestic Reset",
+      "expansion_code": "MNR",
+      "archetype": "mnestic_wake",
+      "rarity": "common",
+      "types": [
+        "SCP_PERSONNEL"
+      ],
+      "subtypes": [
+        "Bystander",
+        "Civilian"
+      ],
+      "prompt": "Original SCP-inspired trading card art for MNR Witness in 12-B from Mnestic Reset: clinical antimemetic facility under fluorescent light, redacted dossier papers, clear focal subject, no text or logos, high-detail digital painting.",
+      "target_path": "frontend/public/scp-art/mnr/mnr-witness-in-12-b.png"
     },
     {
       "name": "OAR Dream Cartographer Anomaly",
