@@ -58,6 +58,8 @@ from src.engine.spm_mechanics import (
     was_discarded_this_turn,
 )
 from src.engine.library_search import _shuffle_library
+# Phase 5b: cast-time target-choice requirements.
+from src.engine.targeting import target_player
 
 
 # =============================================================================
@@ -4400,6 +4402,9 @@ VILLAINOUS_WRATH = make_sorcery(
     colors={Color.BLACK},
     text="Target opponent loses life equal to the number of creatures they control. Then destroy all creatures.",
     resolve=villainous_wrath_resolve,
+    # Phase 5b: engine emits a PendingChoice for target opponent when cast
+    # without pre-supplied targets.
+    target_requirements=[target_player(controller='opponent')],
 )
 
 ANGRY_RABBLE = make_creature(

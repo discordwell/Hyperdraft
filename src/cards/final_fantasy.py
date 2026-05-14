@@ -116,7 +116,13 @@ from src.engine.spell_resolve import (
     resolve_modal,
     resolve_pump,
 )
-from src.engine.targeting import Target
+from src.engine.targeting import (
+    Target,
+    # Phase 5b: cast-time target-choice requirements.
+    TargetFilter,
+    TargetRequirement,
+    target_creature,
+)
 
 
 # =============================================================================
@@ -6107,6 +6113,8 @@ SLASH_OF_LIGHT = make_instant(
     colors={Color.WHITE},
     text="Slash of Light deals damage equal to the number of creatures you control plus the number of Equipment you control to target creature.",
     resolve=_slash_of_light_resolve,
+    # Phase 5b: declarative target-choice requirement.
+    target_requirements=[target_creature(count=1)],
 )
 
 SNOW_VILLIERS = make_creature(
@@ -6383,6 +6391,8 @@ MAGIC_DAMPER = make_instant(
     colors={Color.BLUE},
     text="Target creature you control gets +1/+1 and gains hexproof until end of turn. Untap it.",
     resolve=_magic_damper_resolve,
+    # Phase 5b: declarative target-choice requirement.
+    target_requirements=[target_creature(count=1, controller='you')],
 )
 
 MATOYA_ARCHON_ELDER = make_creature(
@@ -6733,6 +6743,16 @@ EVIL_REAWAKENED = make_sorcery(
     colors={Color.BLACK},
     text="Return target creature card from your graveyard to the battlefield with two additional +1/+1 counters on it.",
     resolve=_evil_reawakened_resolve,
+    # Phase 5b: target creature card from caster's graveyard.
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE},
+            zones=[ZoneType.GRAVEYARD],
+            controller='you',
+        ),
+        count=1,
+        label="target creature card from your graveyard",
+    )],
 )
 
 FANG_FEARLESS_LCIE = make_creature(
@@ -6763,6 +6783,17 @@ FIGHT_ON = make_instant(
     colors={Color.BLACK},
     text="Return up to two target creature cards from your graveyard to your hand.",
     resolve=_fight_on_resolve,
+    # Phase 5b: up to two creature cards from caster's graveyard.
+    target_requirements=[TargetRequirement(
+        filter=TargetFilter(
+            types={CardType.CREATURE},
+            zones=[ZoneType.GRAVEYARD],
+            controller='you',
+        ),
+        count=2,
+        count_type='up_to',
+        label="up to two target creature cards from your graveyard",
+    )],
 )
 
 THE_FINAL_DAYS = make_sorcery(
@@ -7182,6 +7213,8 @@ HASTE_MAGIC = make_instant(
     colors={Color.RED},
     text="Target creature gets +3/+1 and gains haste until end of turn. Exile the top card of your library. You may play it until your next end step.",
     resolve=_haste_magic_resolve,
+    # Phase 5b: declarative target-choice requirement.
+    target_requirements=[target_creature(count=1)],
 )
 
 HILL_GIGAS = make_creature(
@@ -7235,6 +7268,8 @@ NIBELHEIM_AFLAME = make_sorcery(
     colors={Color.RED},
     text="Choose target creature you control. It deals damage equal to its power to each other creature. If this spell was cast from a graveyard, discard your hand and draw four cards.\nFlashback {5}{R}{R} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
     resolve=_nibelheim_aflame_resolve,
+    # Phase 5b: declarative target-choice requirement.
+    target_requirements=[target_creature(count=1, controller='you')],
 )
 
 def _opera_love_song_mode_impulse(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
@@ -7621,6 +7656,8 @@ BLITZBALL_SHOT = make_instant(
     colors={Color.GREEN},
     text="Target creature gets +3/+3 and gains trample until end of turn.",
     resolve=_blitzball_shot_resolve,
+    # Phase 5b: declarative target-choice requirement.
+    target_requirements=[target_creature(count=1)],
 )
 
 CACTUAR = make_creature(
@@ -7639,6 +7676,11 @@ CHOCOBO_KICK = make_sorcery(
     colors={Color.GREEN},
     text="Kicker—Return a land you control to its owner's hand. (You may return a land you control to its owner's hand in addition to any other costs as you cast this spell.)\nTarget creature you control deals damage equal to its power to target creature an opponent controls. If this spell was kicked, the creature you control deals twice that much damage instead.",
     resolve=_chocobo_kick_resolve,
+    # Phase 5b: two target-choice requirements (your creature, opp creature).
+    target_requirements=[
+        target_creature(count=1, controller='you'),
+        target_creature(count=1, controller='opponent'),
+    ],
 )
 
 CHOCOBO_RACETRACK = make_artifact(
