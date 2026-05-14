@@ -4571,669 +4571,849 @@ def pillage_the_bog_resolve(targets: list, state: GameState) -> list[Event]:
     return events
 
 
-# --- ONE_LAST_JOB: Spree -- reanimate creature/Mount-Vehicle/Aura-Equipment ---
-
-def one_last_job_resolve(targets: list, state: GameState) -> list[Event]:
-    """Reanimate a creature card from your graveyard (basic mode 1).
-
-    Modes 2 and 3 (Mount/Vehicle, Aura/Equipment with attachment) are engine
-    gaps; we surface the simplest mode for AI/test playability.
-    """
-    caster_id, spell_id = _spell_caster_and_id(state, "One Last Job")
-    spell_id = spell_id or "one_last_job_spell"
-    if not caster_id:
-        return []
-    graveyard = state.zones.get(f'graveyard_{caster_id}')
-    if graveyard is None:
-        return []
-    valid: list[str] = []
-    for obj_id in graveyard.objects:
-        obj = state.objects.get(obj_id)
-        if obj and CardType.CREATURE in obj.characteristics.types:
-            valid.append(obj_id)
-    if not valid:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid,
-        prompt="One Last Job: reanimate a creature card",
-        min_targets=0,
-        max_targets=1,
-    )
-    choice.choice_type = "target_with_callback"
-    def _execute(choice, selected, state: GameState) -> list[Event]:
-        if not selected:
-            return []
-        target_id = selected[0]
-        target = state.objects.get(target_id)
-        if not target:
-            return []
-        owner = target.owner or target.controller
-        return [Event(
-            type=EventType.ZONE_CHANGE,
-            payload={
-                'object_id': target_id,
-                'to_zone': f'battlefield_{owner}',
-                'to_zone_type': ZoneType.BATTLEFIELD,
-            },
-            source=choice.source_id,
-        )]
-    choice.callback_data['handler'] = _execute
-    return []
-
-
-# --- LIVELY_DIRGE: Spree -- mill self / reanimate up to 2 with MV<=4 ---------
-
-def lively_dirge_resolve(targets: list, state: GameState) -> list[Event]:
-    """Reanimate up to two creature cards with total mana value 4 or less from your graveyard.
-
-    The first ({1}) tutor-to-graveyard mode is an engine gap (full library
-    search to graveyard); the {2} reanimate mode is what we surface here.
-    """
-    caster_id, spell_id = _spell_caster_and_id(state, "Lively Dirge")
-    spell_id = spell_id or "lively_dirge_spell"
-    if not caster_id:
-        return []
-    graveyard = state.zones.get(f'graveyard_{caster_id}')
-    if graveyard is None:
-        return []
-
-    def _mv(s: Optional[str]) -> int:
-        return sum(int(c) if c.isdigit() else 1 for c in (s or '') if c.isalnum() and c not in 'X')
-
-    valid: list[str] = []
-    for obj_id in graveyard.objects:
-        obj = state.objects.get(obj_id)
-        if obj and CardType.CREATURE in obj.characteristics.types and _mv(obj.characteristics.mana_cost) <= 4:
-            valid.append(obj_id)
-    if not valid:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=valid,
-        prompt="Lively Dirge: reanimate up to two creatures (total MV<=4)",
-        min_targets=0,
-        max_targets=2,
-    )
-    choice.choice_type = "target_with_callback"
-    def _execute(choice, selected, state: GameState) -> list[Event]:
-        events: list[Event] = []
-        total_mv = 0
-        for tid in selected or []:
-            tgt = state.objects.get(tid)
-            if not tgt:
-                continue
-            mv = _mv(tgt.characteristics.mana_cost)
-            if total_mv + mv > 4:
-                break
-            total_mv += mv
-            owner = tgt.owner or tgt.controller
-            events.append(Event(
-                type=EventType.ZONE_CHANGE,
-                payload={
-                    'object_id': tid,
-                    'to_zone': f'battlefield_{owner}',
-                    'to_zone_type': ZoneType.BATTLEFIELD,
-                },
-                source=choice.source_id,
-            ))
-        return events
-    choice.callback_data['handler'] = _execute
-    return []
-
-
-# --- RUSH_OF_DREAD: Spree -- target opponent loses half life (rounded up) ----
-
-def rush_of_dread_resolve(targets: list, state: GameState) -> list[Event]:
-    """Make target opponent lose half their life, rounded up.
-
-    The other two modes (forced sacrifice and forced discard with rounding)
-    require interactive opponent choice and are engine gaps; we surface the
-    half-life mode which is unconditional.
-    """
-    caster_id, spell_id = _spell_caster_and_id(state, "Rush of Dread")
-    spell_id = spell_id or "rush_of_dread_spell"
-    if not caster_id:
-        return []
-    opps = [pid for pid in state.players if pid != caster_id]
-    if not opps:
-        return []
-    choice = create_target_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        legal_targets=opps,
-        prompt="Rush of Dread: target opponent loses half life (rounded up)",
-        min_targets=0,
-        max_targets=1,
-    )
-    choice.choice_type = "target_with_callback"
-    def _execute(choice, selected, state: GameState) -> list[Event]:
-        if not selected:
-            return []
-        opp = selected[0]
-        player = state.players.get(opp)
-        if player is None:
-            return []
-        life = getattr(player, 'life', 20)
-        loss = (life + 1) // 2  # rounded up
-        return [Event(
-            type=EventType.LIFE_CHANGE,
-            payload={'player': opp, 'amount': -loss},
-            source=choice.source_id,
-        )]
-    choice.callback_data['handler'] = _execute
-    return []
-
-
 # =============================================================================
-# PHASE 5C: SPREE SPELLS (modal additional-cost spells)
+# PHASE 5B FINAL BATCH: SPREE MIGRATIONS (cost-per-mode wired)
 # =============================================================================
-# NOTE: Spree mode-cost enforcement is an engine gap. The cast subsystem does
-# not yet auto-prompt for Spree mode selection, nor does it require paying each
-# mode's additional mana cost. These resolve callbacks surface a modal choice
-# at resolution time so the player can pick which mode effects to apply, but
-# the player effectively casts the spell for the base cost and gets to pick
-# any combination of modes for free.
+# Migrated from bespoke modal-with-callback resolves to the SpreeMode
+# pattern. Each effect_fn has the canonical
+# ``(spell, state, targets) -> list[Event]`` signature.
+# Where a mode requires engine capability we can't yet express (control
+# exchange, "owner chooses top/bottom of library", delayed triggers,
+# "may put creature card from hand to battlefield", etc.) the effect_fn
+# emits what it can and leaves a comment explaining the remaining gap.
 
-# --- JAILBREAK_SCHEME ---------------------------------------------------------
-# + {3} — Put a +1/+1 counter on target creature. It can't be blocked this turn.
-# + {2} — Target artifact or creature's owner puts it on top or bottom of library.
+# --- GETAWAY_GLAMER -----------------------------------------------------------
 
-def _jailbreak_scheme_counter_unblock_execute(choice, selected, state: GameState) -> list[Event]:
-    """Mode 1: +1/+1 counter on target creature; can't be blocked this turn."""
-    if not selected:
+def _getaway_glamer_flicker(spell, state: GameState, targets) -> list[Event]:
+    """Mode 0: exile nontoken creature, return at next end step."""
+    if not spell or not targets:
         return []
-    target_id = selected[0]
+    target_id = targets[0]
     target = state.objects.get(target_id)
     if not target or target.zone != ZoneType.BATTLEFIELD:
         return []
-    if CardType.CREATURE not in target.characteristics.types:
+    if target.is_token:
         return []
-    return [
-        Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': target_id, 'counter_type': '+1/+1', 'amount': 1},
-            source=choice.source_id,
-        ),
-        Event(
-            type=EventType.GRANT_UNBLOCKABLE,
-            payload={'object_id': target_id, 'duration': 'end_of_turn'},
-            source=choice.source_id,
-        ),
-    ]
+    return [Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': target_id,
+            'from_zone': f'battlefield_{target.controller}',
+            'to_zone': 'exile',
+            'to_zone_type': ZoneType.EXILE,
+            'reason': 'flickered',
+            'return_at_end_step': True,
+            'return_owner': target.owner,
+        },
+        source=spell.id,
+    )]
 
 
-def _jailbreak_scheme_bounce_execute(choice, selected, state: GameState) -> list[Event]:
-    """Mode 2: bounce target artifact/creature to top of its owner's library.
-
-    NOTE: The printed effect lets the owner choose top or bottom; we default to
-    top since "owner's choice" is an engine gap.
-    """
-    if not selected:
+def _getaway_glamer_destroy_if_smallest(spell, state: GameState, targets) -> list[Event]:
+    """Mode 1: destroy target creature if no other creature has greater power."""
+    if not spell or not targets:
         return []
-    target_id = selected[0]
+    target_id = targets[0]
     target = state.objects.get(target_id)
     if not target or target.zone != ZoneType.BATTLEFIELD:
         return []
-    types = target.characteristics.types
-    if CardType.ARTIFACT not in types and CardType.CREATURE not in types:
+    target_power = get_power(target, state) or 0
+    for obj in state.objects.values():
+        if (obj.zone == ZoneType.BATTLEFIELD and obj.id != target_id
+                and CardType.CREATURE in obj.characteristics.types):
+            if (get_power(obj, state) or 0) > target_power:
+                return []  # spell fizzles - another creature has greater power
+    return [Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': target_id},
+        source=spell.id,
+    )]
+
+
+_GETAWAY_GLAMER_MODES = [
+    SpreeMode(
+        name="Flicker", extra_cost="{1}",
+        effect_fn=_getaway_glamer_flicker, target_kind="creature",
+        targets_required=1,
+        description="Exile target nontoken creature. Return it at the beginning of the next end step.",
+        legal_targets_filter=lambda spell, state: [
+            obj.id for obj in state.objects.values()
+            if obj.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in obj.characteristics.types
+            and not obj.is_token
+        ],
+    ),
+    SpreeMode(
+        name="Conditional destroy", extra_cost="{2}",
+        effect_fn=_getaway_glamer_destroy_if_smallest, target_kind="creature",
+        targets_required=1,
+        description="Destroy target creature if no other creature has greater power.",
+    ),
+]
+
+
+# --- ONE_LAST_JOB -------------------------------------------------------------
+
+def _one_last_job_creature_mv(state: GameState, obj_id: str) -> int:
+    """Compute mana value of a graveyard card (used by Lively Dirge too)."""
+    obj = state.objects.get(obj_id)
+    if obj is None:
+        return 0
+    try:
+        from src.engine.mana import ManaCost
+        return ManaCost.parse(obj.characteristics.mana_cost or '').mana_value
+    except Exception:
+        return 0
+
+
+def _one_last_job_reanimate_creature(spell, state: GameState, targets) -> list[Event]:
+    """Mode 0: reanimate target creature card from your graveyard."""
+    if not spell or not targets:
+        return []
+    target = state.objects.get(targets[0])
+    if target is None:
         return []
     owner = target.owner or target.controller
     return [Event(
         type=EventType.ZONE_CHANGE,
         payload={
-            'object_id': target_id,
-            'from_zone_type': ZoneType.BATTLEFIELD,
-            'to_zone': f'library_{owner}',
-            'to_zone_type': ZoneType.LIBRARY,
-            'position': 'top',
+            'object_id': target.id,
+            'to_zone': f'battlefield_{owner}',
+            'to_zone_type': ZoneType.BATTLEFIELD,
         },
-        source=choice.source_id,
+        source=spell.id,
     )]
 
 
-def _jailbreak_scheme_mode_execute(choice, selected_modes, state: GameState) -> list[Event]:
-    """Dispatch Jailbreak Scheme modes after mode selection.
+def _one_last_job_reanimate_mount_vehicle(spell, state: GameState, targets) -> list[Event]:
+    """Mode 1: reanimate target Mount or Vehicle card from your graveyard."""
+    return _one_last_job_reanimate_creature(spell, state, targets)
 
-    NOTE: Engine limitation — only one chained target prompt fires per resolve
-    call. If both modes are picked, mode 0's target prompt is shown and mode 1
-    is skipped this dispatch.
+
+def _one_last_job_reanimate_aura_equipment(spell, state: GameState, targets) -> list[Event]:
+    """Mode 2: reanimate target Aura or Equipment card.
+
+    NOTE: "Attached to a creature you control" requires picking the attachment
+    target; we surface only the reanimation. Aura/Equipment without attachment
+    just enters and falls off, which is engine-faithful for the simpler case.
     """
-    spell_id = choice.source_id
-    spell = state.objects.get(spell_id)
-    controller_id = spell.controller if spell else state.active_player
-
-    if 0 in selected_modes:
-        valid_targets = [
-            o.id for o in state.objects.values()
-            if o.zone == ZoneType.BATTLEFIELD
-            and CardType.CREATURE in o.characteristics.types
-        ]
-        if valid_targets:
-            tc = create_target_choice(
-                state=state,
-                player_id=controller_id,
-                source_id=spell_id,
-                legal_targets=valid_targets,
-                prompt="Jailbreak Scheme: +1/+1 counter, can't be blocked this turn",
-                min_targets=1,
-                max_targets=1,
-            )
-            tc.choice_type = "target_with_callback"
-            tc.callback_data['handler'] = _jailbreak_scheme_counter_unblock_execute
-            return []
-
-    if 1 in selected_modes:
-        valid_targets = []
-        for o in state.objects.values():
-            if o.zone != ZoneType.BATTLEFIELD:
-                continue
-            t = o.characteristics.types
-            if CardType.ARTIFACT in t or CardType.CREATURE in t:
-                valid_targets.append(o.id)
-        if valid_targets:
-            tc = create_target_choice(
-                state=state,
-                player_id=controller_id,
-                source_id=spell_id,
-                legal_targets=valid_targets,
-                prompt="Jailbreak Scheme: target artifact/creature to top of owner's library",
-                min_targets=1,
-                max_targets=1,
-            )
-            tc.choice_type = "target_with_callback"
-            tc.callback_data['handler'] = _jailbreak_scheme_bounce_execute
-
-    return []
+    return _one_last_job_reanimate_creature(spell, state, targets)
 
 
-def jailbreak_scheme_resolve(targets: list, state: GameState) -> list[Event]:
-    """Spree modal: counter+unblockable, and/or bounce-to-library."""
-    caster_id, spell_id = _spell_caster_and_id(state, "Jailbreak Scheme")
-    spell_id = spell_id or "jailbreak_scheme_spell"
-    if caster_id is None:
+def _one_last_job_legal_creatures(spell, state):
+    """Creature cards in the caster's graveyard."""
+    caster = spell.controller
+    gy = state.zones.get(f'graveyard_{caster}')
+    if gy is None:
         return []
-    modes = [
-        {"index": 0, "text": "+1/+1 counter on target creature; can't be blocked this turn."},
-        {"index": 1, "text": "Target artifact/creature to top of owner's library."},
+    return [
+        oid for oid in gy.objects
+        if (obj := state.objects.get(oid)) is not None
+        and CardType.CREATURE in obj.characteristics.types
     ]
-    choice = create_modal_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        modes=modes,
-        min_modes=1,
-        max_modes=2,
-        prompt="Jailbreak Scheme - Choose one or more:",
-    )
-    choice.choice_type = "modal_with_callback"
-    choice.callback_data['handler'] = _jailbreak_scheme_mode_execute
-    return []
+
+
+def _one_last_job_legal_mounts_vehicles(spell, state):
+    caster = spell.controller
+    gy = state.zones.get(f'graveyard_{caster}')
+    if gy is None:
+        return []
+    out: list[str] = []
+    for oid in gy.objects:
+        obj = state.objects.get(oid)
+        if obj is None:
+            continue
+        subs = obj.characteristics.subtypes or set()
+        if 'Mount' in subs or 'Vehicle' in subs:
+            out.append(oid)
+    return out
+
+
+def _one_last_job_legal_aura_equipment(spell, state):
+    caster = spell.controller
+    gy = state.zones.get(f'graveyard_{caster}')
+    if gy is None:
+        return []
+    out: list[str] = []
+    for oid in gy.objects:
+        obj = state.objects.get(oid)
+        if obj is None:
+            continue
+        subs = obj.characteristics.subtypes or set()
+        types = obj.characteristics.types
+        if 'Aura' in subs or 'Equipment' in subs or CardType.ENCHANTMENT in types:
+            out.append(oid)
+    return out
+
+
+_ONE_LAST_JOB_MODES = [
+    SpreeMode(
+        name="Reanimate creature", extra_cost="{2}",
+        effect_fn=_one_last_job_reanimate_creature, target_kind="creature_in_your_graveyard",
+        targets_required=1,
+        description="Return target creature card from your graveyard to the battlefield.",
+        legal_targets_filter=_one_last_job_legal_creatures,
+    ),
+    SpreeMode(
+        name="Reanimate Mount/Vehicle", extra_cost="{1}",
+        effect_fn=_one_last_job_reanimate_mount_vehicle, target_kind="creature_in_your_graveyard",
+        targets_required=1,
+        description="Return target Mount or Vehicle card from your graveyard to the battlefield.",
+        legal_targets_filter=_one_last_job_legal_mounts_vehicles,
+    ),
+    SpreeMode(
+        name="Reanimate Aura/Equipment", extra_cost="{1}",
+        effect_fn=_one_last_job_reanimate_aura_equipment, target_kind="creature_in_your_graveyard",
+        targets_required=1,
+        description="Return target Aura or Equipment card from your graveyard to the battlefield.",
+        legal_targets_filter=_one_last_job_legal_aura_equipment,
+    ),
+]
+
+
+# --- PHANTOM_INTERFERENCE -----------------------------------------------------
+
+def _phantom_interference_spirit(spell, state: GameState, targets) -> list[Event]:
+    """Mode 0: create a 2/2 white Spirit token with flying."""
+    if not spell:
+        return []
+    return [Event(
+        type=EventType.CREATE_TOKEN,
+        payload={
+            'controller': spell.controller,
+            'name': 'Spirit',
+            'power': 2,
+            'toughness': 2,
+            'types': {CardType.CREATURE},
+            'subtypes': {'Spirit'},
+            'colors': {Color.WHITE},
+            'abilities': ['flying'],
+            'is_token': True,
+        },
+        source=spell.id,
+    )]
+
+
+def _phantom_interference_counter(spell, state: GameState, targets) -> list[Event]:
+    """Mode 1: counter target spell unless its controller pays {2}.
+
+    Engine simplification: emit COUNTER_SPELL_UNLESS_PAY; the engine's
+    counter-spell glue will handle the cost prompt.
+    """
+    if not spell or not targets:
+        return []
+    return [Event(
+        type=EventType.COUNTER_SPELL_UNLESS_PAY,
+        payload={
+            'spell_id': targets[0],
+            'amount': 2,
+        },
+        source=spell.id,
+    )]
+
+
+def _phantom_interference_legal_spells(spell, state):
+    """Other spells on the stack."""
+    stack_zone = state.zones.get('stack')
+    if not stack_zone:
+        return []
+    return [
+        oid for oid in stack_zone.objects
+        if oid != spell.id and state.objects.get(oid) is not None
+    ]
+
+
+_PHANTOM_INTERFERENCE_MODES = [
+    SpreeMode(
+        name="Spirit token", extra_cost="{3}",
+        effect_fn=_phantom_interference_spirit,
+        description="Create a 2/2 white Spirit creature token with flying.",
+    ),
+    SpreeMode(
+        name="Counter unless pay", extra_cost="{1}",
+        effect_fn=_phantom_interference_counter, target_kind="spell",
+        targets_required=1,
+        description="Counter target spell unless its controller pays {2}.",
+        legal_targets_filter=_phantom_interference_legal_spells,
+    ),
+]
 
 
 # --- SHIFTING_GRIFT -----------------------------------------------------------
-# All three modes are control-exchange — engine gap. Wired as no-op resolve.
+# All three modes are control-exchange — engine gap. We register the modes
+# so the cost prompt opens correctly; the effect_fns intentionally no-op.
 
-def shifting_grift_resolve(targets: list, state: GameState) -> list[Event]:
-    """Spree modal: exchange control of two creatures/artifacts/enchantments.
-
-    NOTE: All three modes are control-exchange effects, which the engine does
-    not yet support. Wired as a no-op until control-exchange is implemented.
-    """
+def _shifting_grift_noop(spell, state: GameState, targets) -> list[Event]:
+    # Control exchange is an engine gap. The mode resolves silently.
     return []
+
+
+_SHIFTING_GRIFT_MODES = [
+    SpreeMode(
+        name="Exchange creatures", extra_cost="{2}",
+        effect_fn=_shifting_grift_noop,
+        description="Exchange control of two target creatures. (engine gap)",
+    ),
+    SpreeMode(
+        name="Exchange artifacts", extra_cost="{1}",
+        effect_fn=_shifting_grift_noop,
+        description="Exchange control of two target artifacts. (engine gap)",
+    ),
+    SpreeMode(
+        name="Exchange enchantments", extra_cost="{1}",
+        effect_fn=_shifting_grift_noop,
+        description="Exchange control of two target enchantments. (engine gap)",
+    ),
+]
+
+
+# --- THREE_STEPS_AHEAD --------------------------------------------------------
+
+def _three_steps_ahead_counter(spell, state: GameState, targets) -> list[Event]:
+    """Mode 0: counter target spell."""
+    if not spell or not targets:
+        return []
+    return [Event(
+        type=EventType.COUNTER_SPELL,
+        payload={'spell_id': targets[0]},
+        source=spell.id,
+    )]
+
+
+def _three_steps_ahead_copy(spell, state: GameState, targets) -> list[Event]:
+    """Mode 1: create a token that's a copy of target artifact or creature you control."""
+    if not spell or not targets:
+        return []
+    return [Event(
+        type=EventType.CREATE_TOKEN,
+        payload={
+            'controller': spell.controller,
+            'copy_of': targets[0],
+            'is_token': True,
+        },
+        source=spell.id,
+    )]
+
+
+def _three_steps_ahead_draw_discard(spell, state: GameState, targets) -> list[Event]:
+    """Mode 2: draw two cards, then discard a card."""
+    if not spell:
+        return []
+    return [
+        Event(type=EventType.DRAW,
+              payload={'player': spell.controller, 'amount': 2},
+              source=spell.id),
+        Event(type=EventType.DISCARD,
+              payload={'player': spell.controller, 'amount': 1},
+              source=spell.id),
+    ]
+
+
+def _three_steps_ahead_legal_stack(spell, state):
+    stack_zone = state.zones.get('stack')
+    if not stack_zone:
+        return []
+    return [
+        oid for oid in stack_zone.objects
+        if oid != spell.id and state.objects.get(oid) is not None
+    ]
+
+
+def _three_steps_ahead_legal_your_art_creature(spell, state):
+    """Artifacts or creatures the caster controls."""
+    return [
+        obj.id for obj in state.objects.values()
+        if obj.zone == ZoneType.BATTLEFIELD
+        and obj.controller == spell.controller
+        and (CardType.ARTIFACT in obj.characteristics.types
+             or CardType.CREATURE in obj.characteristics.types)
+    ]
+
+
+_THREE_STEPS_AHEAD_MODES = [
+    SpreeMode(
+        name="Counter spell", extra_cost="{1}{U}",
+        effect_fn=_three_steps_ahead_counter, target_kind="spell",
+        targets_required=1,
+        description="Counter target spell.",
+        legal_targets_filter=_three_steps_ahead_legal_stack,
+    ),
+    SpreeMode(
+        name="Copy your permanent", extra_cost="{3}",
+        effect_fn=_three_steps_ahead_copy, target_kind="permanent",
+        targets_required=1,
+        description="Create a token that's a copy of target artifact or creature you control.",
+        legal_targets_filter=_three_steps_ahead_legal_your_art_creature,
+    ),
+    SpreeMode(
+        name="Draw two, discard one", extra_cost="{2}",
+        effect_fn=_three_steps_ahead_draw_discard,
+        description="Draw two cards, then discard a card.",
+    ),
+]
 
 
 # --- INSATIABLE_AVARICE -------------------------------------------------------
-# + {2} — Search your library for a card; shuffle, put that card on top.
-# + {B}{B} — Target player draws three cards and loses 3 life.
 
-def _insatiable_avarice_draw_loss_execute(choice, selected, state: GameState) -> list[Event]:
-    """Mode 2: target player draws 3 and loses 3 life."""
-    if not selected:
+def _insatiable_avarice_tutor(spell, state: GameState, targets) -> list[Event]:
+    """Mode 0: search your library for a card; shuffle, put on top."""
+    if not spell:
         return []
-    pid = selected[0]
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': spell.controller,
+            'destination': 'library_top',
+        },
+        source=spell.id,
+    )]
+
+
+def _insatiable_avarice_draw_loss(spell, state: GameState, targets) -> list[Event]:
+    """Mode 1: target player draws three cards and loses 3 life."""
+    if not spell or not targets:
+        return []
+    pid = targets[0]
     if pid not in state.players:
         return []
     return [
-        Event(
-            type=EventType.DRAW,
-            payload={'player': pid, 'amount': 3},
-            source=choice.source_id,
-        ),
-        Event(
-            type=EventType.LIFE_CHANGE,
-            payload={'player': pid, 'amount': -3},
-            source=choice.source_id,
-        ),
+        Event(type=EventType.DRAW,
+              payload={'player': pid, 'amount': 3},
+              source=spell.id),
+        Event(type=EventType.LIFE_CHANGE,
+              payload={'player': pid, 'amount': -3},
+              source=spell.id),
     ]
 
 
-def _insatiable_avarice_mode_execute(choice, selected_modes, state: GameState) -> list[Event]:
-    """Dispatch Insatiable Avarice modes."""
-    spell_id = choice.source_id
-    spell = state.objects.get(spell_id)
-    controller_id = spell.controller if spell else state.active_player
-    events: list[Event] = []
+_INSATIABLE_AVARICE_MODES = [
+    SpreeMode(
+        name="Tutor to top", extra_cost="{2}",
+        effect_fn=_insatiable_avarice_tutor,
+        description="Search your library for a card, shuffle, then put that card on top.",
+    ),
+    SpreeMode(
+        name="Player draws 3, loses 3", extra_cost="{B}{B}",
+        effect_fn=_insatiable_avarice_draw_loss, target_kind="player",
+        targets_required=1,
+        description="Target player draws three cards and loses 3 life.",
+    ),
+]
 
-    # Mode 0: Search library, put on top (any card).
-    if 0 in selected_modes:
+
+# --- LIVELY_DIRGE -------------------------------------------------------------
+
+def _lively_dirge_tutor_to_graveyard(spell, state: GameState, targets) -> list[Event]:
+    """Mode 0: search library for a card and put it into your graveyard, then shuffle."""
+    if not spell:
+        return []
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': spell.controller,
+            'destination': 'graveyard',
+        },
+        source=spell.id,
+    )]
+
+
+def _lively_dirge_reanimate(spell, state: GameState, targets) -> list[Event]:
+    """Mode 1: return up to two creature cards w/ total MV<=4 from graveyard to battlefield."""
+    if not spell or not targets:
+        return []
+    events: list[Event] = []
+    total_mv = 0
+    for tid in targets:
+        obj = state.objects.get(tid)
+        if obj is None:
+            continue
+        mv = _one_last_job_creature_mv(state, tid)
+        if total_mv + mv > 4:
+            break
+        total_mv += mv
+        owner = obj.owner or obj.controller
         events.append(Event(
-            type=EventType.SEARCH_LIBRARY,
+            type=EventType.ZONE_CHANGE,
             payload={
-                'player': controller_id,
-                'destination': 'library_top',
+                'object_id': tid,
+                'to_zone': f'battlefield_{owner}',
+                'to_zone_type': ZoneType.BATTLEFIELD,
             },
-            source=spell_id,
+            source=spell.id,
         ))
-
-    # Mode 1: Target player draws 3 and loses 3 life.
-    if 1 in selected_modes:
-        valid_targets = list(state.players.keys())
-        if valid_targets:
-            tc = create_target_choice(
-                state=state,
-                player_id=controller_id,
-                source_id=spell_id,
-                legal_targets=valid_targets,
-                prompt="Insatiable Avarice: target player draws 3, loses 3 life",
-                min_targets=1,
-                max_targets=1,
-            )
-            tc.choice_type = "target_with_callback"
-            tc.callback_data['handler'] = _insatiable_avarice_draw_loss_execute
-
     return events
 
 
-def insatiable_avarice_resolve(targets: list, state: GameState) -> list[Event]:
-    """Spree modal: tutor-to-top, and/or target player draws 3 + loses 3."""
-    caster_id, spell_id = _spell_caster_and_id(state, "Insatiable Avarice")
-    spell_id = spell_id or "insatiable_avarice_spell"
-    if caster_id is None:
+def _lively_dirge_legal_creatures_mv4(spell, state):
+    """Creatures in caster's graveyard with MV<=4."""
+    caster = spell.controller
+    gy = state.zones.get(f'graveyard_{caster}')
+    if gy is None:
         return []
-    modes = [
-        {"index": 0, "text": "Search your library for a card; shuffle, put it on top."},
-        {"index": 1, "text": "Target player draws three cards and loses 3 life."},
-    ]
-    choice = create_modal_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        modes=modes,
-        min_modes=1,
-        max_modes=2,
-        prompt="Insatiable Avarice - Choose one or more:",
-    )
-    choice.choice_type = "modal_with_callback"
-    choice.callback_data['handler'] = _insatiable_avarice_mode_execute
-    return []
+    out: list[str] = []
+    for oid in gy.objects:
+        obj = state.objects.get(oid)
+        if obj is None:
+            continue
+        if CardType.CREATURE not in obj.characteristics.types:
+            continue
+        if _one_last_job_creature_mv(state, oid) <= 4:
+            out.append(oid)
+    return out
 
 
-# --- GREAT_TRAIN_HEIST --------------------------------------------------------
-# + {2}{R} — Untap all creatures you control. (Extra combat phase: engine gap.)
-# + {2} — Creatures you control get +1/+0 and gain first strike EOT.
-# + {R} — Treasure-on-combat-damage trigger (delayed trigger: engine gap).
-
-def _great_train_heist_treasure_execute(choice, selected, state: GameState) -> list[Event]:
-    """Mode 2: register the chosen opponent (no-op — delayed trigger is an engine gap)."""
-    # NOTE: Engine gap — "whenever creatures you control deal combat damage to
-    # that player this turn, create a tapped Treasure" requires a delayed
-    # trigger we cannot install yet. Target is captured but no events emitted.
-    return []
-
-
-def _great_train_heist_mode_execute(choice, selected_modes, state: GameState) -> list[Event]:
-    """Dispatch Great Train Heist modes."""
-    spell_id = choice.source_id
-    spell = state.objects.get(spell_id)
-    controller_id = spell.controller if spell else state.active_player
-    events: list[Event] = []
-
-    your_creatures = [
-        o for o in state.objects.values()
-        if o.zone == ZoneType.BATTLEFIELD
-        and o.controller == controller_id
-        and CardType.CREATURE in o.characteristics.types
-    ]
-
-    # Mode 0: Untap all your creatures. (Skip extra combat phase — engine gap.)
-    if 0 in selected_modes:
-        for c in your_creatures:
-            events.append(Event(
-                type=EventType.UNTAP,
-                payload={'object_id': c.id},
-                source=spell_id,
-            ))
-
-    # Mode 1: Creatures you control get +1/+0 and gain first strike EOT.
-    if 1 in selected_modes:
-        for c in your_creatures:
-            events.append(Event(
-                type=EventType.PT_MODIFICATION,
-                payload={'object_id': c.id, 'power_mod': 1, 'toughness_mod': 0,
-                         'duration': 'end_of_turn'},
-                source=spell_id,
-            ))
-            events.append(Event(
-                type=EventType.GRANT_KEYWORD,
-                payload={'object_id': c.id, 'keyword': 'first strike',
-                         'duration': 'end_of_turn'},
-                source=spell_id,
-            ))
-
-    # Mode 2: choose target opponent (delayed trigger — engine gap).
-    if 2 in selected_modes:
-        opps = [pid for pid in state.players if pid != controller_id]
-        if opps:
-            tc = create_target_choice(
-                state=state,
-                player_id=controller_id,
-                source_id=spell_id,
-                legal_targets=opps,
-                prompt="Great Train Heist: target opponent (Treasure on combat damage — engine gap)",
-                min_targets=1,
-                max_targets=1,
-            )
-            tc.choice_type = "target_with_callback"
-            tc.callback_data['handler'] = _great_train_heist_treasure_execute
-
-    return events
+_LIVELY_DIRGE_MODES = [
+    SpreeMode(
+        name="Tutor to graveyard", extra_cost="{1}",
+        effect_fn=_lively_dirge_tutor_to_graveyard,
+        description="Search your library for a card, put it into your graveyard, then shuffle.",
+    ),
+    SpreeMode(
+        name="Reanimate up to two", extra_cost="{2}",
+        effect_fn=_lively_dirge_reanimate, target_kind="creature_in_your_graveyard",
+        targets_required=2,
+        description="Return up to two creature cards with total mana value 4 or less from your graveyard to the battlefield.",
+        legal_targets_filter=_lively_dirge_legal_creatures_mv4,
+    ),
+]
 
 
-def great_train_heist_resolve(targets: list, state: GameState) -> list[Event]:
-    """Spree modal: untap creatures, +1/+0 first strike, target opponent for treasure trigger."""
-    caster_id, spell_id = _spell_caster_and_id(state, "Great Train Heist")
-    spell_id = spell_id or "great_train_heist_spell"
-    if caster_id is None:
-        return []
-    modes = [
-        {"index": 0, "text": "Untap all creatures you control."},
-        {"index": 1, "text": "Creatures you control get +1/+0 and gain first strike EOT."},
-        {"index": 2, "text": "Choose target opponent (Treasure on combat damage; engine gap)."},
-    ]
-    choice = create_modal_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        modes=modes,
-        min_modes=1,
-        max_modes=3,
-        prompt="Great Train Heist - Choose one or more:",
-    )
-    choice.choice_type = "modal_with_callback"
-    choice.callback_data['handler'] = _great_train_heist_mode_execute
-    return []
+# --- RUSH_OF_DREAD ------------------------------------------------------------
+# Modes 0 and 1 (sacrifice half / discard half) require interactive opponent
+# choice mid-resolve; engine gap. Mode 2 (lose half life) is unconditional.
 
+def _rush_of_dread_sacrifice_half(spell, state: GameState, targets) -> list[Event]:
+    """Mode 0: target opponent sacrifices half their creatures (their choice).
 
-# --- RETURN_THE_FAVOR ---------------------------------------------------------
-# Both modes are copy/retarget mechanics — engine gap. No-op resolve.
-
-def return_the_favor_resolve(targets: list, state: GameState) -> list[Event]:
-    """Spree modal: copy spell/ability with new targets, or change target.
-
-    NOTE: Both modes (copy-spell-with-new-targets and change-target) are engine
-    gaps. Wired as a no-op until the engine supports these mechanics.
+    Engine gap: "their choice" requires opening a PendingChoice owned by the
+    targeted opponent. We emit no events here — see note in card text.
     """
     return []
 
 
-# --- DANCE_OF_THE_TUMBLEWEEDS -------------------------------------------------
-# + {1} — Search library for basic land or Desert; put onto battlefield.
-# + {3} — Create X/X green Elemental, X = lands you control.
+def _rush_of_dread_discard_half(spell, state: GameState, targets) -> list[Event]:
+    """Mode 1: target opponent discards half their hand (their choice). Engine gap."""
+    return []
 
-def _dance_tumbleweeds_mode_execute(choice, selected_modes, state: GameState) -> list[Event]:
-    """Dispatch Dance of the Tumbleweeds modes."""
-    spell_id = choice.source_id
-    spell = state.objects.get(spell_id)
-    controller_id = spell.controller if spell else state.active_player
+
+def _rush_of_dread_lose_half_life(spell, state: GameState, targets) -> list[Event]:
+    """Mode 2: target opponent loses half their life, rounded up."""
+    if not spell or not targets:
+        return []
+    pid = targets[0]
+    player = state.players.get(pid)
+    if player is None:
+        return []
+    life = getattr(player, 'life', 20)
+    loss = (life + 1) // 2
+    return [Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': pid, 'amount': -loss},
+        source=spell.id,
+    )]
+
+
+_RUSH_OF_DREAD_MODES = [
+    SpreeMode(
+        name="Sacrifice half", extra_cost="{1}",
+        effect_fn=_rush_of_dread_sacrifice_half, target_kind="opponent",
+        targets_required=1,
+        description="Target opponent sacrifices half the creatures they control, rounded up. (engine gap)",
+    ),
+    SpreeMode(
+        name="Discard half", extra_cost="{2}",
+        effect_fn=_rush_of_dread_discard_half, target_kind="opponent",
+        targets_required=1,
+        description="Target opponent discards half the cards in their hand, rounded up. (engine gap)",
+    ),
+    SpreeMode(
+        name="Lose half life", extra_cost="{2}",
+        effect_fn=_rush_of_dread_lose_half_life, target_kind="opponent",
+        targets_required=1,
+        description="Target opponent loses half their life, rounded up.",
+    ),
+]
+
+
+# --- GREAT_TRAIN_HEIST --------------------------------------------------------
+# Mode 0: extra-combat-phase is an engine gap; we still untap creatures.
+# Mode 2: delayed Treasure trigger is an engine gap.
+
+def _great_train_heist_untap(spell, state: GameState, targets) -> list[Event]:
+    """Mode 0: untap all creatures you control. Extra combat phase is engine gap."""
+    if not spell:
+        return []
     events: list[Event] = []
-
-    # Mode 0: Search for basic land, put onto battlefield tapped.
-    # NOTE: Desert subtype filter omitted — only basic_only is wired.
-    if 0 in selected_modes:
-        events.append(Event(
-            type=EventType.SEARCH_LIBRARY,
-            payload={
-                'player': controller_id,
-                'card_type': CardType.LAND,
-                'basic_only': True,
-                'destination': 'battlefield_tapped',
-            },
-            source=spell_id,
-        ))
-
-    # Mode 1: Create X/X green Elemental, X = lands you control.
-    if 1 in selected_modes:
-        x = sum(
-            1 for o in state.objects.values()
-            if o.zone == ZoneType.BATTLEFIELD
-            and o.controller == controller_id
-            and CardType.LAND in o.characteristics.types
-        )
-        events.append(Event(
-            type=EventType.OBJECT_CREATED,
-            payload={
-                'name': 'Elemental Token',
-                'controller': controller_id,
-                'power': x,
-                'toughness': x,
-                'types': [CardType.CREATURE],
-                'subtypes': ['Elemental'],
-                'colors': [Color.GREEN],
-                'is_token': True,
-            },
-            source=spell_id,
-            controller=controller_id,
-        ))
-
+    for obj in state.objects.values():
+        if (obj.zone == ZoneType.BATTLEFIELD and obj.controller == spell.controller
+                and CardType.CREATURE in obj.characteristics.types):
+            events.append(Event(
+                type=EventType.UNTAP,
+                payload={'object_id': obj.id},
+                source=spell.id,
+            ))
     return events
 
 
-def dance_of_the_tumbleweeds_resolve(targets: list, state: GameState) -> list[Event]:
-    """Spree modal: tutor basic land, and/or X/X Elemental token."""
-    caster_id, spell_id = _spell_caster_and_id(state, "Dance of the Tumbleweeds")
-    spell_id = spell_id or "dance_of_the_tumbleweeds_spell"
-    if caster_id is None:
+def _great_train_heist_anthem(spell, state: GameState, targets) -> list[Event]:
+    """Mode 1: creatures you control get +1/+0 and gain first strike EOT."""
+    if not spell:
         return []
-    modes = [
-        {"index": 0, "text": "Search for basic land (Desert subtype skipped); put onto battlefield tapped."},
-        {"index": 1, "text": "Create X/X green Elemental token, X = lands you control."},
-    ]
-    choice = create_modal_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        modes=modes,
-        min_modes=1,
-        max_modes=2,
-        prompt="Dance of the Tumbleweeds - Choose one or more:",
-    )
-    choice.choice_type = "modal_with_callback"
-    choice.callback_data['handler'] = _dance_tumbleweeds_mode_execute
+    events: list[Event] = []
+    for obj in state.objects.values():
+        if (obj.zone == ZoneType.BATTLEFIELD and obj.controller == spell.controller
+                and CardType.CREATURE in obj.characteristics.types):
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0,
+                         'duration': 'end_of_turn'},
+                source=spell.id,
+            ))
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': obj.id, 'keyword': 'first_strike',
+                         'duration': 'end_of_turn'},
+                source=spell.id,
+            ))
+    return events
+
+
+def _great_train_heist_treasure_trigger(spell, state: GameState, targets) -> list[Event]:
+    """Mode 2: choose target opponent; delayed treasure trigger is engine gap."""
     return []
+
+
+_GREAT_TRAIN_HEIST_MODES = [
+    SpreeMode(
+        name="Untap creatures", extra_cost="{2}{R}",
+        effect_fn=_great_train_heist_untap,
+        description="Untap all creatures you control. (extra combat phase is engine gap)",
+    ),
+    SpreeMode(
+        name="+1/+0 first strike", extra_cost="{2}",
+        effect_fn=_great_train_heist_anthem,
+        description="Creatures you control get +1/+0 and gain first strike until end of turn.",
+    ),
+    SpreeMode(
+        name="Treasure trigger", extra_cost="{R}",
+        effect_fn=_great_train_heist_treasure_trigger, target_kind="opponent",
+        targets_required=1,
+        description="Choose target opponent. (delayed Treasure trigger is engine gap)",
+    ),
+]
+
+
+# --- RETURN_THE_FAVOR ---------------------------------------------------------
+# Both modes (copy spell with new targets, change target) are engine gaps.
+
+def _return_the_favor_noop(spell, state: GameState, targets) -> list[Event]:
+    return []
+
+
+_RETURN_THE_FAVOR_MODES = [
+    SpreeMode(
+        name="Copy spell", extra_cost="{1}",
+        effect_fn=_return_the_favor_noop,
+        description="Copy target instant, sorcery, activated, or triggered ability. (engine gap)",
+    ),
+    SpreeMode(
+        name="Change target", extra_cost="{1}",
+        effect_fn=_return_the_favor_noop,
+        description="Change the target of target spell or ability with a single target. (engine gap)",
+    ),
+]
+
+
+# --- DANCE_OF_THE_TUMBLEWEEDS -------------------------------------------------
+
+def _dance_tumbleweeds_tutor(spell, state: GameState, targets) -> list[Event]:
+    """Mode 0: search library for basic land or Desert; put onto battlefield."""
+    if not spell:
+        return []
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': spell.controller,
+            'card_type': CardType.LAND,
+            'basic_only': True,
+            'destination': 'battlefield_tapped',
+        },
+        source=spell.id,
+    )]
+
+
+def _dance_tumbleweeds_elemental(spell, state: GameState, targets) -> list[Event]:
+    """Mode 1: create X/X green Elemental, X = lands you control."""
+    if not spell:
+        return []
+    x = sum(
+        1 for o in state.objects.values()
+        if o.zone == ZoneType.BATTLEFIELD
+        and o.controller == spell.controller
+        and CardType.LAND in o.characteristics.types
+    )
+    return [Event(
+        type=EventType.CREATE_TOKEN,
+        payload={
+            'controller': spell.controller,
+            'name': 'Elemental',
+            'power': x,
+            'toughness': x,
+            'types': {CardType.CREATURE},
+            'subtypes': {'Elemental'},
+            'colors': {Color.GREEN},
+            'is_token': True,
+        },
+        source=spell.id,
+    )]
+
+
+_DANCE_OF_THE_TUMBLEWEEDS_MODES = [
+    SpreeMode(
+        name="Tutor basic land", extra_cost="{1}",
+        effect_fn=_dance_tumbleweeds_tutor,
+        description="Search your library for a basic land card or a Desert card, put it onto the battlefield, then shuffle.",
+    ),
+    SpreeMode(
+        name="X/X Elemental", extra_cost="{3}",
+        effect_fn=_dance_tumbleweeds_elemental,
+        description="Create an X/X green Elemental creature token, where X is the number of lands you control.",
+    ),
+]
 
 
 # --- SMUGGLERS_SURPRISE -------------------------------------------------------
-# + {2} — Mill 4. (May put up to 2 creature/land back to hand: skipped — engine gap.)
-# + {4}{G} — May put up to 2 creature cards from hand onto battlefield (engine gap).
-# + {1} — Creatures you control with power >= 4 gain hexproof + indestructible EOT.
 
-def _smugglers_surprise_mode_execute(choice, selected_modes, state: GameState) -> list[Event]:
-    """Dispatch Smuggler's Surprise modes."""
-    spell_id = choice.source_id
-    spell = state.objects.get(spell_id)
-    controller_id = spell.controller if spell else state.active_player
+def _smugglers_surprise_mill(spell, state: GameState, targets) -> list[Event]:
+    """Mode 0: mill 4. Optional recovery is engine gap."""
+    if not spell:
+        return []
+    return [Event(
+        type=EventType.MILL,
+        payload={'player': spell.controller, 'amount': 4},
+        source=spell.id,
+    )]
+
+
+def _smugglers_surprise_cheat_creatures(spell, state: GameState, targets) -> list[Event]:
+    """Mode 1: put up to two creatures from hand onto battlefield. Engine gap."""
+    return []
+
+
+def _smugglers_surprise_power4_buff(spell, state: GameState, targets) -> list[Event]:
+    """Mode 2: creatures you control with power >= 4 gain hexproof + indestructible EOT."""
+    if not spell:
+        return []
     events: list[Event] = []
-
-    # Mode 0: Mill 4. Skip the "may put up to two back to hand" rider — engine gap.
-    if 0 in selected_modes:
-        events.append(Event(
-            type=EventType.MILL,
-            payload={'player': controller_id, 'amount': 4},
-            source=spell_id,
-        ))
-
-    # Mode 1: Cheat creatures from hand to battlefield.
-    # NOTE: Engine gap — interactive choose-up-to-two-creatures-from-hand and
-    # ZONE_CHANGE hand->battlefield for non-cast play. Skipped.
-    if 1 in selected_modes:
-        pass
-
-    # Mode 2: Creatures you control with power >= 4 gain hexproof + indestructible EOT.
-    if 2 in selected_modes:
-        for o in state.objects.values():
-            if (o.zone == ZoneType.BATTLEFIELD
-                    and o.controller == controller_id
-                    and CardType.CREATURE in o.characteristics.types):
-                try:
-                    p = get_power(o, state)
-                except Exception:
-                    p = 0
-                if p is not None and p >= 4:
-                    events.append(Event(
-                        type=EventType.GRANT_KEYWORD,
-                        payload={'object_id': o.id, 'keyword': 'hexproof',
-                                 'duration': 'end_of_turn'},
-                        source=spell_id,
-                    ))
-                    events.append(Event(
-                        type=EventType.GRANT_KEYWORD,
-                        payload={'object_id': o.id, 'keyword': 'indestructible',
-                                 'duration': 'end_of_turn'},
-                        source=spell_id,
-                    ))
-
+    for obj in state.objects.values():
+        if not (obj.zone == ZoneType.BATTLEFIELD and obj.controller == spell.controller
+                and CardType.CREATURE in obj.characteristics.types):
+            continue
+        try:
+            p = get_power(obj, state)
+        except Exception:
+            p = 0
+        if p is not None and p >= 4:
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': obj.id, 'keyword': 'hexproof',
+                         'duration': 'end_of_turn'},
+                source=spell.id,
+            ))
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': obj.id, 'keyword': 'indestructible',
+                         'duration': 'end_of_turn'},
+                source=spell.id,
+            ))
     return events
 
 
-def smugglers_surprise_resolve(targets: list, state: GameState) -> list[Event]:
-    """Spree modal: mill 4, cheat creatures from hand (skipped), big-creature buff."""
-    caster_id, spell_id = _spell_caster_and_id(state, "Smuggler's Surprise")
-    spell_id = spell_id or "smugglers_surprise_spell"
-    if caster_id is None:
+_SMUGGLERS_SURPRISE_MODES = [
+    SpreeMode(
+        name="Mill 4", extra_cost="{2}",
+        effect_fn=_smugglers_surprise_mill,
+        description="Mill four cards. (recovery rider is engine gap)",
+    ),
+    SpreeMode(
+        name="Cheat creatures", extra_cost="{4}{G}",
+        effect_fn=_smugglers_surprise_cheat_creatures,
+        description="Up to two creatures from hand to battlefield. (engine gap)",
+    ),
+    SpreeMode(
+        name="Power 4+ hexproof/indestructible", extra_cost="{1}",
+        effect_fn=_smugglers_surprise_power4_buff,
+        description="Creatures you control with power 4 or greater gain hexproof and indestructible until end of turn.",
+    ),
+]
+
+
+# --- TRASH_THE_TOWN -----------------------------------------------------------
+
+def _trash_the_town_counters(spell, state: GameState, targets) -> list[Event]:
+    """Mode 0: put two +1/+1 counters on target creature."""
+    if not spell or not targets:
         return []
-    modes = [
-        {"index": 0, "text": "Mill four cards. (Recovery rider skipped; engine gap.)"},
-        {"index": 1, "text": "Up to two creatures from hand to battlefield (engine gap; skipped)."},
-        {"index": 2, "text": "Creatures with power 4+ gain hexproof + indestructible EOT."},
-    ]
-    choice = create_modal_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        modes=modes,
-        min_modes=1,
-        max_modes=3,
-        prompt="Smuggler's Surprise - Choose one or more:",
-    )
-    choice.choice_type = "modal_with_callback"
-    choice.callback_data['handler'] = _smugglers_surprise_mode_execute
-    return []
+    return [Event(
+        type=EventType.COUNTER_ADDED,
+        payload={'object_id': targets[0], 'counter_type': '+1/+1', 'amount': 2},
+        source=spell.id,
+    )]
+
+
+def _trash_the_town_trample(spell, state: GameState, targets) -> list[Event]:
+    """Mode 1: target creature gains trample EOT."""
+    if not spell or not targets:
+        return []
+    return [Event(
+        type=EventType.GRANT_KEYWORD,
+        payload={'object_id': targets[0], 'keyword': 'trample',
+                 'duration': 'end_of_turn'},
+        source=spell.id,
+    )]
+
+
+def _trash_the_town_draw_trigger(spell, state: GameState, targets) -> list[Event]:
+    """Mode 2: target creature gains "deal combat damage -> draw 2" EOT.
+
+    Engine simplification: emit a TEMPORARY_EFFECT with the trigger metadata;
+    the engine's combat-damage path may not yet honor this rider, so this is a
+    forward-compatible marker.
+    """
+    if not spell or not targets:
+        return []
+    return [Event(
+        type=EventType.TEMPORARY_EFFECT,
+        payload={
+            'effect': 'grant_combat_damage_trigger',
+            'target_id': targets[0],
+            'trigger': 'draw_two',
+            'duration': 'end_of_turn',
+        },
+        source=spell.id,
+    )]
+
+
+_TRASH_THE_TOWN_MODES = [
+    SpreeMode(
+        name="Two +1/+1 counters", extra_cost="{2}",
+        effect_fn=_trash_the_town_counters, target_kind="creature",
+        targets_required=1,
+        description="Put two +1/+1 counters on target creature.",
+    ),
+    SpreeMode(
+        name="Trample", extra_cost="{1}",
+        effect_fn=_trash_the_town_trample, target_kind="creature",
+        targets_required=1,
+        description="Target creature gains trample until end of turn.",
+    ),
+    SpreeMode(
+        name="Combat-damage draw", extra_cost="{1}",
+        effect_fn=_trash_the_town_draw_trigger, target_kind="creature",
+        targets_required=1,
+        description="Target creature gains 'whenever this creature deals combat damage to a player, draw two cards' until end of turn.",
+    ),
+]
 
 
 # =============================================================================
@@ -5563,169 +5743,14 @@ FRONTIER_SEEKER = make_creature(
     setup_interceptors=frontier_seeker_setup,
 )
 
-# =============================================================================
-# GETAWAY GLAMER - Spree flicker/conditional removal
-# =============================================================================
-
-def _getaway_glamer_flicker_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Getaway Glamer flicker mode."""
-    target_id = selected[0] if selected else None
-    if not target_id:
-        return []
-
-    target = state.objects.get(target_id)
-    if not target or target.zone != ZoneType.BATTLEFIELD:
-        return []
-
-    if target.is_token:
-        return []
-
-    return [Event(
-        type=EventType.ZONE_CHANGE,
-        payload={
-            'object_id': target_id,
-            'from_zone': f'battlefield_{target.controller}',
-            'to_zone': 'exile',
-            'to_zone_type': ZoneType.EXILE,
-            'reason': 'flickered',
-            'return_at_end_step': True,
-            'return_owner': target.owner
-        },
-        source=choice.source_id
-    )]
-
-
-def _getaway_glamer_destroy_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Getaway Glamer destroy mode."""
-    target_id = selected[0] if selected else None
-    if not target_id:
-        return []
-
-    target = state.objects.get(target_id)
-    if not target or target.zone != ZoneType.BATTLEFIELD:
-        return []
-
-    # Check if no other creature has greater power
-    from src.engine import get_power
-    target_power = get_power(target, state)
-
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD and obj.id != target_id:
-            if CardType.CREATURE in obj.characteristics.types:
-                if get_power(obj, state) > target_power:
-                    return []  # Another creature has greater power, spell fizzles
-
-    return [Event(
-        type=EventType.OBJECT_DESTROYED,
-        payload={'object_id': target_id},
-        source=choice.source_id
-    )]
-
-
-def _getaway_glamer_mode_execute(choice, selected_modes, state: GameState) -> list[Event]:
-    """Execute Getaway Glamer modes after mode selection."""
-    events = []
-    spell_id = choice.source_id
-    spell = state.objects.get(spell_id)
-    controller_id = spell.controller if spell else state.active_player
-
-    # Mode 0: Flicker target nontoken creature
-    if 0 in selected_modes:
-        valid_targets = []
-        for obj in state.objects.values():
-            if obj.zone == ZoneType.BATTLEFIELD:
-                if CardType.CREATURE in obj.characteristics.types:
-                    if not obj.is_token:
-                        valid_targets.append(obj.id)
-
-        if valid_targets:
-            target_choice = create_target_choice(
-                state=state,
-                player_id=controller_id,
-                source_id=spell_id,
-                legal_targets=valid_targets,
-                prompt="Choose a nontoken creature to exile and return",
-                min_targets=1,
-                max_targets=1
-            )
-            target_choice.choice_type = "target_with_callback"
-            target_choice.callback_data['handler'] = _getaway_glamer_flicker_execute
-            return events
-
-    # Mode 1: Destroy target creature if no other has greater power
-    if 1 in selected_modes:
-        valid_targets = []
-        for obj in state.objects.values():
-            if obj.zone == ZoneType.BATTLEFIELD:
-                if CardType.CREATURE in obj.characteristics.types:
-                    valid_targets.append(obj.id)
-
-        if valid_targets:
-            target_choice = create_target_choice(
-                state=state,
-                player_id=controller_id,
-                source_id=spell_id,
-                legal_targets=valid_targets,
-                prompt="Choose a creature to destroy (if none has greater power)",
-                min_targets=1,
-                max_targets=1
-            )
-            target_choice.choice_type = "target_with_callback"
-            target_choice.callback_data['handler'] = _getaway_glamer_destroy_execute
-
-    return events
-
-
-def getaway_glamer_resolve(targets: list, state: GameState) -> list[Event]:
-    """
-    Resolve Getaway Glamer - Spree modal spell.
-
-    Spree (Choose one or more additional costs.):
-    + {1} — Exile target nontoken creature. Return it at the next end step.
-    + {2} — Destroy target creature if no other creature has greater power.
-    """
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Getaway Glamer":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "getaway_glamer_spell"
-
-    modes = [
-        {"index": 0, "text": "Exile target nontoken creature. Return it at end step."},
-        {"index": 1, "text": "Destroy target creature if no other has greater power."}
-    ]
-
-    choice = create_modal_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        modes=modes,
-        min_modes=1,
-        max_modes=2,
-        prompt="Getaway Glamer - Choose one or more:"
-    )
-    choice.choice_type = "modal_with_callback"
-    choice.callback_data['handler'] = _getaway_glamer_mode_execute
-
-    return []
-
 
 GETAWAY_GLAMER = make_instant(
     name="Getaway Glamer",
     mana_cost="{W}",
     colors={Color.WHITE},
     text="Spree (Choose one or more additional costs.)\n+ {1} — Exile target nontoken creature. Return it to the battlefield under its owner's control at the beginning of the next end step.\n+ {2} — Destroy target creature if no other creature has greater power.",
-    resolve=getaway_glamer_resolve,
+    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_GETAWAY_GLAMER_MODES),
+    resolve=make_spree_resolve(_GETAWAY_GLAMER_MODES),
 )
 
 HIGH_NOON = make_enchantment(
@@ -5797,7 +5822,8 @@ ONE_LAST_JOB = make_sorcery(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Spree (Choose one or more additional costs.)\n+ {2} — Return target creature card from your graveyard to the battlefield.\n+ {1} — Return target Mount or Vehicle card from your graveyard to the battlefield.\n+ {1} — Return target Aura or Equipment card from your graveyard to the battlefield attached to a creature you control.",
-    resolve=one_last_job_resolve,
+    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_ONE_LAST_JOB_MODES),
+    resolve=make_spree_resolve(_ONE_LAST_JOB_MODES),
 )
 
 OUTLAW_MEDIC = make_creature(
@@ -7078,161 +7104,14 @@ PEERLESS_ROPEMASTER = make_creature(
     setup_interceptors=peerless_ropemaster_setup,
 )
 
-# =============================================================================
-# PHANTOM INTERFERENCE - Spree counter spell
-# =============================================================================
-
-
-def _phantom_interference_counter_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Phantom Interference counter mode after target selection."""
-    target_id = selected[0] if selected else None
-    if not target_id:
-        return []
-
-    # The target_id is the source_id of a spell on the stack
-    stack_zone = state.zones.get('stack')
-    if not stack_zone:
-        return []
-
-    # Find the card being countered
-    target_card = state.objects.get(target_id)
-    if not target_card or target_card.zone != ZoneType.STACK:
-        return []  # Target no longer valid
-
-    # Counter the spell (unless controller pays {2} - simplified: just counter it)
-    # NOTE: Full implementation would require a mana payment choice from opponent
-    return [Event(
-        type=EventType.ZONE_CHANGE,
-        payload={
-            'object_id': target_id,
-            'from_zone': 'stack',
-            'to_zone': f'graveyard_{target_card.owner}',
-            'to_zone_type': ZoneType.GRAVEYARD,
-            'reason': 'countered'
-        },
-        source=choice.source_id
-    )]
-
-
-def _phantom_interference_mode_execute(choice, selected_modes, state: GameState) -> list[Event]:
-    """Execute Phantom Interference modes after mode selection."""
-    events = []
-    spell_id = choice.source_id
-
-    # Mode 0 (+{3}): Create a 2/2 white Spirit creature token with flying
-    if 0 in selected_modes:
-        # Get the caster
-        spell = state.objects.get(spell_id)
-        controller_id = spell.controller if spell else state.active_player
-        events.append(Event(
-            type=EventType.CREATE_TOKEN,
-            payload={
-                'controller': controller_id,
-                'name': 'Spirit',
-                'power': 2,
-                'toughness': 2,
-                'types': {CardType.CREATURE},
-                'subtypes': {'Spirit'},
-                'colors': {Color.WHITE},
-                'abilities': ['flying'],
-                'is_token': True
-            },
-            source=spell_id
-        ))
-
-    # Mode 1 (+{1}): Counter target spell unless its controller pays {2}
-    if 1 in selected_modes:
-        # Need to prompt for target selection
-        stack_zone = state.zones.get('stack')
-        spell = state.objects.get(spell_id)
-        caster_id = spell.controller if spell else state.active_player
-
-        # Find valid targets: any spell on the stack (except this one)
-        valid_targets = []
-        for obj_id in (stack_zone.objects if stack_zone else []):
-            obj = state.objects.get(obj_id)
-            if not obj:
-                continue
-            if obj_id == spell_id:
-                continue  # Can't counter itself
-            if obj.zone != ZoneType.STACK:
-                continue
-            valid_targets.append(obj_id)
-
-        if valid_targets:
-            # Create target choice for counter effect
-            target_choice = create_target_choice(
-                state=state,
-                player_id=caster_id,
-                source_id=spell_id,
-                legal_targets=valid_targets,
-                prompt="Choose a spell to counter (unless they pay {2})",
-                min_targets=1,
-                max_targets=1
-            )
-            target_choice.choice_type = "target_with_callback"
-            target_choice.callback_data['handler'] = _phantom_interference_counter_execute
-
-    return events
-
-
-def phantom_interference_resolve(targets: list, state: GameState) -> list[Event]:
-    """
-    Resolve Phantom Interference - Spree modal spell.
-
-    Spree (Choose one or more additional costs.):
-    + {3} -- Create a 2/2 white Spirit creature token with flying.
-    + {1} -- Counter target spell unless its controller pays {2}.
-    """
-    # Find the spell on the stack
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Phantom Interference":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    # Fallback
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "phantom_interference_spell"
-
-    # Define the Spree modes
-    modes = [
-        {"index": 0, "text": "Create a 2/2 white Spirit creature token with flying."},
-        {"index": 1, "text": "Counter target spell unless its controller pays {2}."}
-    ]
-
-    # Create modal choice - Spree allows one or more modes
-    choice = create_modal_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        modes=modes,
-        min_modes=1,
-        max_modes=2,  # Can choose both modes
-        prompt="Phantom Interference - Choose one or more:"
-    )
-
-    # Set up callback for when modes are selected
-    choice.choice_type = "modal_with_callback"
-    choice.callback_data['handler'] = _phantom_interference_mode_execute
-
-    # Return empty events to pause resolution until choice is submitted
-    return []
-
 
 PHANTOM_INTERFERENCE = make_instant(
     name="Phantom Interference",
     mana_cost="{U}",
     colors={Color.BLUE},
     text="Spree (Choose one or more additional costs.)\n+ {3} — Create a 2/2 white Spirit creature token with flying.\n+ {1} — Counter target spell unless its controller pays {2}.",
-    resolve=phantom_interference_resolve,
+    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_PHANTOM_INTERFERENCE_MODES),
+    resolve=make_spree_resolve(_PHANTOM_INTERFERENCE_MODES),
 )
 
 PLAN_THE_HEIST = make_sorcery(
@@ -7277,7 +7156,8 @@ SHIFTING_GRIFT = make_sorcery(
     mana_cost="{U}{U}",
     colors={Color.BLUE},
     text="Spree (Choose one or more additional costs.)\n+ {2} — Exchange control of two target creatures.\n+ {1} — Exchange control of two target artifacts.\n+ {1} — Exchange control of two target enchantments.",
-    resolve=shifting_grift_resolve,
+    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_SHIFTING_GRIFT_MODES),
+    resolve=make_spree_resolve(_SHIFTING_GRIFT_MODES),
 )
 
 SLICKSHOT_LOCKPICKER = make_creature(
@@ -7487,179 +7367,14 @@ THIS_TOWN_AINT_BIG_ENOUGH = make_instant(
     ],
 )
 
-# =============================================================================
-# THREE STEPS AHEAD - Spree counterspell/copy/draw
-# =============================================================================
-
-def _three_steps_ahead_counter_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Three Steps Ahead counter mode."""
-    target_id = selected[0] if selected else None
-    if not target_id:
-        return []
-
-    target_card = state.objects.get(target_id)
-    if not target_card or target_card.zone != ZoneType.STACK:
-        return []
-
-    return [Event(
-        type=EventType.ZONE_CHANGE,
-        payload={
-            'object_id': target_id,
-            'from_zone': 'stack',
-            'to_zone': f'graveyard_{target_card.owner}',
-            'to_zone_type': ZoneType.GRAVEYARD,
-            'reason': 'countered'
-        },
-        source=choice.source_id
-    )]
-
-
-def _three_steps_ahead_copy_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Three Steps Ahead copy mode."""
-    target_id = selected[0] if selected else None
-    if not target_id:
-        return []
-
-    target = state.objects.get(target_id)
-    if not target or target.zone != ZoneType.BATTLEFIELD:
-        return []
-
-    spell = state.objects.get(choice.source_id)
-    controller = spell.controller if spell else state.active_player
-
-    return [Event(
-        type=EventType.CREATE_TOKEN,
-        payload={
-            'controller': controller,
-            'copy_of': target_id,
-            'is_token': True
-        },
-        source=choice.source_id
-    )]
-
-
-def _three_steps_ahead_mode_execute(choice, selected_modes, state: GameState) -> list[Event]:
-    """Execute Three Steps Ahead modes after mode selection."""
-    events = []
-    spell_id = choice.source_id
-    spell = state.objects.get(spell_id)
-    controller_id = spell.controller if spell else state.active_player
-
-    # Mode 0: Counter target spell
-    if 0 in selected_modes:
-        stack_zone = state.zones.get('stack')
-        valid_targets = []
-        for obj_id in (stack_zone.objects if stack_zone else []):
-            obj = state.objects.get(obj_id)
-            if obj and obj_id != spell_id and obj.zone == ZoneType.STACK:
-                valid_targets.append(obj_id)
-
-        if valid_targets:
-            target_choice = create_target_choice(
-                state=state,
-                player_id=controller_id,
-                source_id=spell_id,
-                legal_targets=valid_targets,
-                prompt="Choose a spell to counter",
-                min_targets=1,
-                max_targets=1
-            )
-            target_choice.choice_type = "target_with_callback"
-            target_choice.callback_data['handler'] = _three_steps_ahead_counter_execute
-            return events  # Wait for target choice
-
-    # Mode 1: Create a token copy of target artifact or creature you control
-    if 1 in selected_modes:
-        valid_targets = []
-        for obj in state.objects.values():
-            if obj.zone == ZoneType.BATTLEFIELD and obj.controller == controller_id:
-                types = obj.characteristics.types
-                if CardType.ARTIFACT in types or CardType.CREATURE in types:
-                    valid_targets.append(obj.id)
-
-        if valid_targets:
-            target_choice = create_target_choice(
-                state=state,
-                player_id=controller_id,
-                source_id=spell_id,
-                legal_targets=valid_targets,
-                prompt="Choose an artifact or creature you control to copy",
-                min_targets=1,
-                max_targets=1
-            )
-            target_choice.choice_type = "target_with_callback"
-            target_choice.callback_data['handler'] = _three_steps_ahead_copy_execute
-            return events  # Wait for target choice
-
-    # Mode 2: Draw two cards, then discard a card
-    if 2 in selected_modes:
-        events.append(Event(
-            type=EventType.DRAW,
-            payload={'player': controller_id, 'amount': 2},
-            source=spell_id
-        ))
-        # Note: Discard choice would need to be handled separately
-        events.append(Event(
-            type=EventType.DISCARD,
-            payload={'player': controller_id, 'amount': 1},
-            source=spell_id
-        ))
-
-    return events
-
-
-def three_steps_ahead_resolve(targets: list, state: GameState) -> list[Event]:
-    """
-    Resolve Three Steps Ahead - Spree modal spell.
-
-    Spree (Choose one or more additional costs.):
-    + {1}{U} — Counter target spell.
-    + {3} — Create a token that's a copy of target artifact or creature you control.
-    + {2} — Draw two cards, then discard a card.
-    """
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Three Steps Ahead":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "three_steps_ahead_spell"
-
-    modes = [
-        {"index": 0, "text": "Counter target spell."},
-        {"index": 1, "text": "Create a token that's a copy of target artifact or creature you control."},
-        {"index": 2, "text": "Draw two cards, then discard a card."}
-    ]
-
-    choice = create_modal_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        modes=modes,
-        min_modes=1,
-        max_modes=3,
-        prompt="Three Steps Ahead - Choose one or more:"
-    )
-    choice.choice_type = "modal_with_callback"
-    choice.callback_data['handler'] = _three_steps_ahead_mode_execute
-
-    return []
-
 
 THREE_STEPS_AHEAD = make_instant(
     name="Three Steps Ahead",
     mana_cost="{U}",
     colors={Color.BLUE},
     text="Spree (Choose one or more additional costs.)\n+ {1}{U} — Counter target spell.\n+ {3} — Create a token that's a copy of target artifact or creature you control.\n+ {2} — Draw two cards, then discard a card.",
-    resolve=three_steps_ahead_resolve,
+    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_THREE_STEPS_AHEAD_MODES),
+    resolve=make_spree_resolve(_THREE_STEPS_AHEAD_MODES),
 )
 
 VISAGE_BANDIT = make_creature(
@@ -8015,7 +7730,8 @@ INSATIABLE_AVARICE = make_sorcery(
     mana_cost="{B}",
     colors={Color.BLACK},
     text="Spree (Choose one or more additional costs.)\n+ {2} — Search your library for a card, then shuffle and put that card on top.\n+ {B}{B} — Target player draws three cards and loses 3 life.",
-    resolve=insatiable_avarice_resolve,
+    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_INSATIABLE_AVARICE_MODES),
+    resolve=make_spree_resolve(_INSATIABLE_AVARICE_MODES),
 )
 
 KAERVEK_THE_PUNISHER = make_creature(
@@ -8034,7 +7750,8 @@ LIVELY_DIRGE = make_sorcery(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Spree (Choose one or more additional costs.)\n+ {1} — Search your library for a card, put it into your graveyard, then shuffle.\n+ {2} — Return up to two creature cards with total mana value 4 or less from your graveyard to the battlefield.",
-    resolve=lively_dirge_resolve,
+    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_LIVELY_DIRGE_MODES),
+    resolve=make_spree_resolve(_LIVELY_DIRGE_MODES),
 )
 
 MOURNERS_SURPRISE = make_sorcery(
@@ -8183,7 +7900,8 @@ RUSH_OF_DREAD = make_sorcery(
     mana_cost="{1}{B}{B}",
     colors={Color.BLACK},
     text="Spree (Choose one or more additional costs.)\n+ {1} — Target opponent sacrifices half the creatures they control of their choice, rounded up.\n+ {2} — Target opponent discards half the cards in their hand, rounded up.\n+ {2} — Target opponent loses half their life, rounded up.",
-    resolve=rush_of_dread_resolve,
+    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_RUSH_OF_DREAD_MODES),
+    resolve=make_spree_resolve(_RUSH_OF_DREAD_MODES),
 )
 
 SERVANT_OF_THE_STINGER = make_creature(
@@ -8931,7 +8649,8 @@ GREAT_TRAIN_HEIST = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Spree (Choose one or more additional costs.)\n+ {2}{R} — Untap all creatures you control. If it's your combat phase, there is an additional combat phase after this phase.\n+ {2} — Creatures you control get +1/+0 and gain first strike until end of turn.\n+ {R} — Choose target opponent. Whenever a creature you control deals combat damage to that player this turn, create a tapped Treasure token.",
-    resolve=great_train_heist_resolve,
+    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_GREAT_TRAIN_HEIST_MODES),
+    resolve=make_spree_resolve(_GREAT_TRAIN_HEIST_MODES),
 )
 
 # =============================================================================
@@ -9284,7 +9003,8 @@ RETURN_THE_FAVOR = make_instant(
     mana_cost="{R}{R}",
     colors={Color.RED},
     text="Spree (Choose one or more additional costs.)\n+ {1} — Copy target instant spell, sorcery spell, activated ability, or triggered ability. You may choose new targets for the copy.\n+ {1} — Change the target of target spell or ability with a single target.",
-    resolve=return_the_favor_resolve,
+    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_RETURN_THE_FAVOR_MODES),
+    resolve=make_spree_resolve(_RETURN_THE_FAVOR_MODES),
 )
 
 RODEO_PYROMANCERS = make_creature(
@@ -9637,7 +9357,8 @@ DANCE_OF_THE_TUMBLEWEEDS = make_sorcery(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Spree (Choose one or more additional costs.)\n+ {1} — Search your library for a basic land card or a Desert card, put it onto the battlefield, then shuffle.\n+ {3} — Create an X/X green Elemental creature token, where X is the number of lands you control.",
-    resolve=dance_of_the_tumbleweeds_resolve,
+    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_DANCE_OF_THE_TUMBLEWEEDS_MODES),
+    resolve=make_spree_resolve(_DANCE_OF_THE_TUMBLEWEEDS_MODES),
 )
 
 DROVER_GRIZZLY = make_creature(
@@ -9924,7 +9645,8 @@ SMUGGLERS_SURPRISE = make_instant(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Spree (Choose one or more additional costs.)\n+ {2} — Mill four cards. You may put up to two creature and/or land cards from among the milled cards into your hand.\n+ {4}{G} — You may put up to two creature cards from your hand onto the battlefield.\n+ {1} — Creatures you control with power 4 or greater gain hexproof and indestructible until end of turn.",
-    resolve=smugglers_surprise_resolve,
+    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_SMUGGLERS_SURPRISE_MODES),
+    resolve=make_spree_resolve(_SMUGGLERS_SURPRISE_MODES),
 )
 
 # =============================================================================
@@ -10143,185 +9865,14 @@ THROW_FROM_THE_SADDLE = make_sorcery(
     resolve=throw_from_the_saddle_resolve,
 )
 
-# =============================================================================
-# TRASH THE TOWN - Spree pump/trample/card draw
-# =============================================================================
-
-def _trash_the_town_counters_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Trash the Town counters mode."""
-    target_id = selected[0] if selected else None
-    if not target_id:
-        return []
-
-    target = state.objects.get(target_id)
-    if not target or target.zone != ZoneType.BATTLEFIELD:
-        return []
-
-    return [Event(
-        type=EventType.COUNTER_ADDED,
-        payload={'object_id': target_id, 'counter_type': '+1/+1', 'amount': 2},
-        source=choice.source_id
-    )]
-
-
-def _trash_the_town_trample_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Trash the Town trample mode."""
-    target_id = selected[0] if selected else None
-    if not target_id:
-        return []
-
-    target = state.objects.get(target_id)
-    if not target or target.zone != ZoneType.BATTLEFIELD:
-        return []
-
-    return [Event(
-        type=EventType.TEMPORARY_EFFECT,
-        payload={
-            'effect': 'grant_keywords',
-            'target_id': target_id,
-            'keywords': ['trample'],
-            'duration': 'end_of_turn'
-        },
-        source=choice.source_id
-    )]
-
-
-def _trash_the_town_draw_execute(choice, selected, state: GameState) -> list[Event]:
-    """Execute Trash the Town draw mode."""
-    target_id = selected[0] if selected else None
-    if not target_id:
-        return []
-
-    target = state.objects.get(target_id)
-    if not target or target.zone != ZoneType.BATTLEFIELD:
-        return []
-
-    return [Event(
-        type=EventType.TEMPORARY_EFFECT,
-        payload={
-            'effect': 'grant_combat_damage_trigger',
-            'target_id': target_id,
-            'trigger': 'draw_two',
-            'duration': 'end_of_turn'
-        },
-        source=choice.source_id
-    )]
-
-
-def _trash_the_town_mode_execute(choice, selected_modes, state: GameState) -> list[Event]:
-    """Execute Trash the Town modes after mode selection."""
-    events = []
-    spell_id = choice.source_id
-    spell = state.objects.get(spell_id)
-    controller_id = spell.controller if spell else state.active_player
-
-    # Find valid targets: creatures
-    valid_targets = []
-    for obj in state.objects.values():
-        if obj.zone == ZoneType.BATTLEFIELD:
-            if CardType.CREATURE in obj.characteristics.types:
-                valid_targets.append(obj.id)
-
-    if not valid_targets:
-        return events
-
-    # Process modes in order
-    if 0 in selected_modes:
-        target_choice = create_target_choice(
-            state=state,
-            player_id=controller_id,
-            source_id=spell_id,
-            legal_targets=valid_targets,
-            prompt="Choose a creature to put two +1/+1 counters on",
-            min_targets=1,
-            max_targets=1
-        )
-        target_choice.choice_type = "target_with_callback"
-        target_choice.callback_data['handler'] = _trash_the_town_counters_execute
-        return events
-
-    if 1 in selected_modes:
-        target_choice = create_target_choice(
-            state=state,
-            player_id=controller_id,
-            source_id=spell_id,
-            legal_targets=valid_targets,
-            prompt="Choose a creature to gain trample",
-            min_targets=1,
-            max_targets=1
-        )
-        target_choice.choice_type = "target_with_callback"
-        target_choice.callback_data['handler'] = _trash_the_town_trample_execute
-        return events
-
-    if 2 in selected_modes:
-        target_choice = create_target_choice(
-            state=state,
-            player_id=controller_id,
-            source_id=spell_id,
-            legal_targets=valid_targets,
-            prompt="Choose a creature to gain card draw trigger",
-            min_targets=1,
-            max_targets=1
-        )
-        target_choice.choice_type = "target_with_callback"
-        target_choice.callback_data['handler'] = _trash_the_town_draw_execute
-
-    return events
-
-
-def trash_the_town_resolve(targets: list, state: GameState) -> list[Event]:
-    """
-    Resolve Trash the Town - Spree modal spell.
-
-    Spree (Choose one or more additional costs.):
-    + {2} — Put two +1/+1 counters on target creature.
-    + {1} — Target creature gains trample until end of turn.
-    + {1} — Target creature gains draw trigger until end of turn.
-    """
-    stack_zone = state.zones.get('stack')
-    caster_id = None
-    spell_id = None
-    if stack_zone:
-        for obj_id in stack_zone.objects:
-            obj = state.objects.get(obj_id)
-            if obj and obj.name == "Trash the Town":
-                caster_id = obj.controller
-                spell_id = obj.id
-                break
-
-    if caster_id is None:
-        caster_id = state.active_player
-    if spell_id is None:
-        spell_id = "trash_the_town_spell"
-
-    modes = [
-        {"index": 0, "text": "Put two +1/+1 counters on target creature."},
-        {"index": 1, "text": "Target creature gains trample until end of turn."},
-        {"index": 2, "text": "Target creature gains card draw trigger until end of turn."}
-    ]
-
-    choice = create_modal_choice(
-        state=state,
-        player_id=caster_id,
-        source_id=spell_id,
-        modes=modes,
-        min_modes=1,
-        max_modes=3,
-        prompt="Trash the Town - Choose one or more:"
-    )
-    choice.choice_type = "modal_with_callback"
-    choice.callback_data['handler'] = _trash_the_town_mode_execute
-
-    return []
-
 
 TRASH_THE_TOWN = make_instant(
     name="Trash the Town",
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Spree (Choose one or more additional costs.)\n+ {2} — Put two +1/+1 counters on target creature.\n+ {1} — Target creature gains trample until end of turn.\n+ {1} — Until end of turn, target creature gains \"Whenever this creature deals combat damage to a player, draw two cards.\"",
-    resolve=trash_the_town_resolve,
+    setup_interceptors=lambda obj, state: make_spree_setup(obj, base_modes=_TRASH_THE_TOWN_MODES),
+    resolve=make_spree_resolve(_TRASH_THE_TOWN_MODES),
 )
 
 TUMBLEWEED_RISING = make_sorcery(

@@ -90,6 +90,8 @@ from src.engine.targeting import (
     target_any,
     target_player,
     target_spell,
+    # Phase 5b cross-target builders
+    target_same_opponent_creature,
 )
 
 
@@ -7218,11 +7220,122 @@ TICKET_BOOTH = make_enchantment(
     setup_interceptors=ticket_booth_setup,
 )
 
+# Trial of Agony: two opponent creatures, same controller. That opponent
+# chooses one to take 5 damage; the other can't block this turn.
+def trial_of_agony_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve Trial of Agony.
+
+    Cast-time provides exactly two target creature IDs (both controlled by the
+    same opponent). The controlling opponent opens a PendingChoice to pick
+    which of the two takes the damage; the other gains 'cant_block' EOT.
+    """
+    spell = _dsk_resolving_spell_obj(state)
+    source_id = spell.id if spell else None
+
+    flat = _flatten_targets(targets)
+    ids: list[str] = [t.id for t in flat if not t.is_player]
+    if len(ids) < 2:
+        return []
+    # Pick the first two unique creatures still on battlefield.
+    valid: list[str] = []
+    for tid in ids:
+        if tid in valid:
+            continue
+        obj = state.objects.get(tid)
+        if obj is None or obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.CREATURE not in obj.characteristics.types:
+            continue
+        valid.append(tid)
+        if len(valid) >= 2:
+            break
+    if len(valid) < 2:
+        return []
+
+    a_id, b_id = valid[0], valid[1]
+    obj_a = state.objects.get(a_id)
+    obj_b = state.objects.get(b_id)
+    if obj_a is None or obj_b is None:
+        return []
+    # Both creatures share a controller; that's the choosing opponent.
+    chooser = obj_a.controller
+    if chooser is None:
+        return []
+
+    # If the engine has no pending-choice helper plumbed, fall back to dealing
+    # damage to the first creature and 'can't block' to the second.
+    try:
+        from src.engine.pending_choice_helpers import create_choice_and_resolve
+    except ImportError:
+        return [
+            Event(type=EventType.DAMAGE,
+                  payload={'target': a_id, 'amount': 5, 'source': source_id,
+                           'is_combat': False, 'is_player': False},
+                  source=source_id),
+            Event(type=EventType.CANT_BLOCK,
+                  payload={'object_id': b_id, 'duration': 'end_of_turn'},
+                  source=source_id),
+        ]
+
+    options: list = [
+        {"id": a_id, "label": obj_a.name or a_id},
+        {"id": b_id, "label": obj_b.name or b_id},
+    ]
+
+    def _handler(choice, selected, st, _a=a_id, _b=b_id, _src=source_id):
+        # The chosen creature takes 5 damage; the other can't block.
+        picked = None
+        if selected:
+            raw = selected[0]
+            if isinstance(raw, dict):
+                picked = raw.get("id") or raw.get("value")
+            else:
+                picked = raw
+        if picked is None:
+            picked = _a
+        damaged = picked
+        blocked = _b if picked == _a else _a
+        return [
+            Event(type=EventType.DAMAGE,
+                  payload={'target': damaged, 'amount': 5, 'source': _src,
+                           'is_combat': False, 'is_player': False},
+                  source=_src),
+            Event(type=EventType.CANT_BLOCK,
+                  payload={'object_id': blocked, 'duration': 'end_of_turn'},
+                  source=_src),
+        ]
+
+    # The chooser is an opponent of the caster; the heuristic pick should
+    # spare their bigger creature, but a simple default (option 0 = a_id) is
+    # acceptable for AI as the engine resolves the choice from the chooser's
+    # perspective.
+    return create_choice_and_resolve(
+        state,
+        choice_type="trial_of_agony_pick",
+        player_id=chooser,
+        prompt="Trial of Agony — choose which of your creatures takes 5 damage",
+        options=options,
+        source_id=source_id or "trial_of_agony",
+        min_choices=1,
+        max_choices=1,
+        handler=_handler,
+        heuristic_pick=[a_id],
+    )
+
+
 TRIAL_OF_AGONY = make_sorcery(
     name="Trial of Agony",
     mana_cost="{R}",
     colors={Color.RED},
     text="Choose two target creatures controlled by the same opponent. That player chooses one of those creatures. Trial of Agony deals 5 damage to that creature, and the other can't block this turn.",
+    resolve=trial_of_agony_resolve,
+    target_requirements=[
+        target_creature(count=1, controller='opponent',
+                        label="target creature an opponent controls"),
+        target_same_opponent_creature(
+            label="another creature controlled by the same opponent",
+        ),
+    ],
 )
 
 def _turn_inside_out_execute(choice, selected, state: GameState) -> list[Event]:

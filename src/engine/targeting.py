@@ -704,6 +704,63 @@ def target_creature_different_controller(
     return _build
 
 
+def target_same_opponent_creature(
+    *,
+    label: Optional[str] = None,
+    prior_index: int = 0,
+    **filter_kwargs,
+) -> "TargetRequirementBuilder":
+    """Builder for "target creature controlled by the same opponent as the
+    previous target".
+
+    Used by cards like DSK ``Trial of Agony`` where the first requirement
+    picks "target creature an opponent controls" and the second requirement
+    must pick ANOTHER creature controlled by THAT SAME opponent.
+
+    Reads the prior pick's controller from state, then builds a filter that:
+      - Excludes the prior pick's ID (you need a DIFFERENT creature).
+      - Requires the matched creature's controller equals the prior pick's
+        controller (the same opponent).
+
+    Returns a ``TargetRequirementBuilder``. Place this second in the
+    ``target_requirements`` list; the first slot should use a builder or
+    plain requirement that picks one opponent creature.
+    """
+    def _build(state, controller_id, accumulated_ids):
+        prior_ids = accumulated_ids[prior_index] if prior_index < len(accumulated_ids) else []
+        # Identify the controller of the prior pick.
+        target_controller: Optional[str] = None
+        for tid in prior_ids:
+            obj = state.objects.get(tid)
+            if obj is not None and obj.controller is not None:
+                target_controller = obj.controller
+                break
+
+        local_kwargs = dict(filter_kwargs)
+        existing_custom = local_kwargs.pop('custom_filter', None)
+        merged_excludes = set(local_kwargs.pop('exclude_ids', set())) | set(prior_ids)
+
+        def _same_controller(obj, st,
+                             _wanted=target_controller,
+                             _existing=existing_custom):
+            if _wanted is not None and obj.controller != _wanted:
+                return False
+            if _existing is not None:
+                return _existing(obj, st)
+            return True
+
+        return TargetRequirement(
+            filter=creature_filter(
+                custom_filter=_same_controller,
+                exclude_ids=merged_excludes,
+                **local_kwargs,
+            ),
+            count=1,
+            label=label or "another creature controlled by the same opponent",
+        )
+    return _build
+
+
 def target_with_matching_mana_value(
     *,
     base_filter_factory: Callable[..., TargetFilter] = permanent_filter,
