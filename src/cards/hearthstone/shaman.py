@@ -87,20 +87,70 @@ ROCKBITER_WEAPON = make_spell(
 )
 
 
-def windfury_spell_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
-    """Give a friendly minion Windfury."""
-    friendly = get_friendly_minions(obj, state, exclude_self=False)
-    if not friendly:
-        return []
-
-    target_id = targets[0] if targets else random.choice(friendly)
-    if target_id not in friendly:
+def _windfury_resolve(obj: GameObject, state: GameState, target_id: str, friendly_set: set) -> list[Event]:
+    """Grant Windfury to the chosen friendly minion."""
+    if not target_id or target_id not in friendly_set:
         return []
     return [Event(
         type=EventType.KEYWORD_GRANT,
         payload={'object_id': target_id, 'keyword': 'windfury', 'duration': 'permanent'},
         source=obj.id
     )]
+
+
+def windfury_spell_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
+    """Give a friendly minion Windfury.
+
+    PendingChoice: caster picks the minion to double-tap. AI preserves the
+    highest-attack pick via ``heuristic_pick`` — the most damage scaling
+    from Windfury comes from the biggest attacker.
+    """
+    friendly = get_friendly_minions(obj, state, exclude_self=False)
+    friendly_set = set(friendly)
+    if not friendly:
+        return []
+
+    if targets:
+        explicit = targets[0]
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        if explicit in friendly_set:
+            return _windfury_resolve(obj, state, explicit, friendly_set)
+
+    friendly_objs = [state.objects[fid] for fid in friendly if fid in state.objects]
+    if not friendly_objs:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = max(friendly_objs, key=lambda m: m.characteristics.power or 0)
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in friendly_objs
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get('id', best.id)
+        return _windfury_resolve(obj, st, tid, friendly_set)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose a friendly minion to grant Windfury.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 WINDFURY_SPELL = make_spell(
@@ -157,19 +207,13 @@ FLAMETONGUE_TOTEM = make_minion(
 )
 
 
-def hex_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
-    """Transform a minion into a 0/1 Frog with Taunt."""
-    enemies = get_enemy_minions(obj, state)
-    if not enemies:
-        return []
-
-    target_id = targets[0] if targets else random.choice(enemies)
-    if target_id not in enemies:
+def _hex_resolve(obj: GameObject, state: GameState, target_id: str, enemy_set: set) -> list[Event]:
+    """Polymorph the chosen enemy minion into a 0/1 Frog with Taunt."""
+    if not target_id or target_id not in enemy_set:
         return []
     target = state.objects.get(target_id)
     if not target or target.zone != ZoneType.BATTLEFIELD:
         return []
-
     return [Event(
         type=EventType.TRANSFORM,
         payload={
@@ -191,6 +235,60 @@ def hex_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
         },
         source=obj.id
     )]
+
+
+def hex_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
+    """Transform a minion into a 0/1 Frog with Taunt.
+
+    PendingChoice: caster picks the enemy to polymorph. AI preserves the
+    highest-attack pick via ``heuristic_pick`` (biggest threat removed).
+    """
+    enemies = get_enemy_minions(obj, state)
+    enemy_set = set(enemies)
+    if not enemies:
+        return []
+
+    if targets:
+        explicit = targets[0]
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        if explicit in enemy_set:
+            return _hex_resolve(obj, state, explicit, enemy_set)
+
+    enemy_objs = [state.objects[mid] for mid in enemies if mid in state.objects]
+    if not enemy_objs:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = max(enemy_objs, key=lambda m: m.characteristics.power or 0)
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in enemy_objs
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get('id', best.id)
+        return _hex_resolve(obj, st, tid, enemy_set)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose an enemy minion to transform into a 0/1 Frog with Taunt.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 HEX = make_spell(
@@ -739,12 +837,10 @@ FAR_SIGHT = make_spell(
 )
 
 
-def ancestral_spirit_effect(obj, state, targets):
-    """Give a minion 'Deathrattle: Resummon this minion.'"""
-    friendly = get_friendly_minions(obj, state, exclude_self=False)
-    if not friendly:
+def _ancestral_spirit_resolve(obj, state, target_id):
+    """Attach the resummon deathrattle interceptor to the chosen friendly."""
+    if not target_id or target_id not in state.objects:
         return []
-    target_id = targets[0] if targets else random.choice(friendly)
     target = state.objects.get(target_id)
     if not target:
         return []
@@ -756,12 +852,12 @@ def ancestral_spirit_effect(obj, state, targets):
     stored_subtypes = set(target.characteristics.subtypes) if target.characteristics.subtypes else set()
     stored_controller = target.controller
 
-    def dr_filter(event, state):
+    def dr_filter(event, s):
         if event.type != EventType.OBJECT_DESTROYED:
             return False
         return event.payload.get('object_id') == target_id
 
-    def resummon(event, state):
+    def resummon(event, s):
         return InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=[Event(type=EventType.CREATE_TOKEN, payload={
@@ -784,6 +880,60 @@ def ancestral_spirit_effect(obj, state, targets):
     state.interceptors[interceptor.id] = interceptor
     return []
 
+
+def ancestral_spirit_effect(obj, state, targets):
+    """Give a minion 'Deathrattle: Resummon this minion.'
+
+    PendingChoice: caster picks the friendly minion to bless. AI preserves
+    the highest-attack pick via ``heuristic_pick`` — re-summoning the
+    biggest body is generally the best return on the spell slot.
+    """
+    friendly = get_friendly_minions(obj, state, exclude_self=False)
+    if not friendly:
+        return []
+
+    if targets:
+        explicit = targets[0]
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        if explicit in friendly:
+            return _ancestral_spirit_resolve(obj, state, explicit)
+
+    friendly_objs = [state.objects[fid] for fid in friendly if fid in state.objects]
+    if not friendly_objs:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = max(friendly_objs, key=lambda m: m.characteristics.power or 0)
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in friendly_objs
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get('id', best.id)
+        return _ancestral_spirit_resolve(obj, st, tid)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose a friendly minion — it will be resummoned when it dies.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
+
 ANCESTRAL_SPIRIT = make_spell(
     name="Ancestral Spirit",
     mana_cost="{2}",
@@ -792,36 +942,82 @@ ANCESTRAL_SPIRIT = make_spell(
 )
 
 
-def ancestral_healing_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
-    """Restore a minion to full Health and give it Taunt."""
-    all_minions = get_all_minions(state)
-    if not all_minions:
-        return []
-
-    target_id = targets[0] if targets else random.choice(all_minions)
-    if target_id not in all_minions:
+def _ancestral_healing_resolve(obj: GameObject, state: GameState, target_id: str, valid_set: set) -> list[Event]:
+    """Heal-to-full + grant Taunt on the chosen minion."""
+    if not target_id or target_id not in valid_set:
         return []
     target = state.objects.get(target_id)
     if not target or target.zone != ZoneType.BATTLEFIELD:
         return []
 
     events = []
-    # Heal to full.
     if target.state.damage > 0:
         events.append(Event(
             type=EventType.LIFE_CHANGE,
             payload={'object_id': target_id, 'amount': target.state.damage},
             source=obj.id
         ))
-
-    # Grant Taunt via event
     events.append(Event(
         type=EventType.KEYWORD_GRANT,
         payload={'object_id': target_id, 'keyword': 'taunt', 'duration': 'permanent'},
         source=obj.id
     ))
-
     return events
+
+
+def ancestral_healing_effect(obj: GameObject, state: GameState, targets: list) -> list[Event]:
+    """Restore a minion to full Health and give it Taunt.
+
+    PendingChoice: caster picks from ALL minions on the board (this is the
+    classic HS rule). AI preserves the highest-attack pick via
+    ``heuristic_pick`` — the biggest attacker with Taunt locks up the board.
+    """
+    all_minions = get_all_minions(state)
+    valid_set = set(all_minions)
+    if not all_minions:
+        return []
+
+    if targets:
+        explicit = targets[0]
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        if explicit in valid_set:
+            return _ancestral_healing_resolve(obj, state, explicit, valid_set)
+
+    all_objs = [state.objects[mid] for mid in all_minions if mid in state.objects]
+    if not all_objs:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = max(all_objs, key=lambda m: m.characteristics.power or 0)
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in all_objs
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get('id', best.id)
+        return _ancestral_healing_resolve(obj, st, tid, valid_set)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose a minion to fully heal and grant Taunt.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 ANCESTRAL_HEALING = make_spell(

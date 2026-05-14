@@ -33,19 +33,70 @@ BLESSING_OF_MIGHT = make_spell(
 )
 
 
-def hand_of_protection_effect(obj, state, targets):
-    """Give a friendly minion Divine Shield."""
-    friendly = get_friendly_minions(obj, state, exclude_self=False)
-    if not friendly:
-        return []
-    target = targets[0] if targets else random.choice(friendly)
-    if target not in friendly:
+def _hand_of_protection_resolve(obj, state, target_id, friendly_set):
+    """Apply Divine Shield to the chosen friendly minion."""
+    if not target_id or target_id not in friendly_set:
         return []
     return [Event(
         type=EventType.KEYWORD_GRANT,
-        payload={'object_id': target, 'keyword': 'divine_shield', 'duration': 'permanent'},
+        payload={'object_id': target_id, 'keyword': 'divine_shield', 'duration': 'permanent'},
         source=obj.id
     )]
+
+
+def hand_of_protection_effect(obj, state, targets):
+    """Give a friendly minion Divine Shield.
+
+    PendingChoice: caster picks which friendly minion gets the shield. AI
+    preserves the highest-attack pick via ``heuristic_pick`` (the biggest
+    threat is the one most worth saving).
+    """
+    friendly = get_friendly_minions(obj, state, exclude_self=False)
+    friendly_set = set(friendly)
+    if not friendly:
+        return []
+
+    if targets:
+        explicit = targets[0]
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        if explicit in friendly_set:
+            return _hand_of_protection_resolve(obj, state, explicit, friendly_set)
+
+    friendly_objs = [state.objects[fid] for fid in friendly if fid in state.objects]
+    if not friendly_objs:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = max(friendly_objs, key=lambda m: m.characteristics.power or 0)
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in friendly_objs
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get('id', best.id)
+        return _hand_of_protection_resolve(obj, st, tid, friendly_set)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose a friendly minion to shield with Divine Shield.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 HAND_OF_PROTECTION = make_spell(
     name="Hand of Protection",
@@ -148,21 +199,18 @@ GUARDIAN_OF_KINGS = make_minion(
 )
 
 
-def blessing_of_wisdom_effect(obj, state, targets):
-    """Choose a minion. Whenever it attacks, draw a card."""
-    friendly = get_friendly_minions(obj, state, exclude_self=False)
-    if not friendly:
+def _blessing_of_wisdom_resolve(obj, state, target_id):
+    """Wire the attack->draw interceptor onto the chosen friendly minion."""
+    if not target_id or target_id not in state.objects:
         return []
-    target_id = targets[0] if targets else random.choice(friendly)
-
     caster_controller = obj.controller
 
-    def attack_filter(event, state):
+    def attack_filter(event, s):
         if event.type != EventType.ATTACK_DECLARED:
             return False
         return event.payload.get('attacker_id') == target_id
 
-    def draw_card(event, state):
+    def draw_card(event, s):
         return InterceptorResult(
             action=InterceptorAction.REACT,
             new_events=[Event(type=EventType.DRAW, payload={
@@ -177,6 +225,60 @@ def blessing_of_wisdom_effect(obj, state, targets):
     )
     state.interceptors[interceptor.id] = interceptor
     return []
+
+
+def blessing_of_wisdom_effect(obj, state, targets):
+    """Choose a minion. Whenever it attacks, draw a card.
+
+    PendingChoice: caster picks the friendly minion that funnels card draw.
+    AI keeps the highest-attack pick via ``heuristic_pick`` (most attacks
+    correlate with most draws).
+    """
+    friendly = get_friendly_minions(obj, state, exclude_self=False)
+    if not friendly:
+        return []
+
+    if targets:
+        explicit = targets[0]
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        if explicit in friendly:
+            return _blessing_of_wisdom_resolve(obj, state, explicit)
+
+    friendly_objs = [state.objects[fid] for fid in friendly if fid in state.objects]
+    if not friendly_objs:
+        return []
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = max(friendly_objs, key=lambda m: m.characteristics.power or 0)
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in friendly_objs
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get('id', best.id)
+        return _blessing_of_wisdom_resolve(obj, st, tid)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose a friendly minion to bless — it will draw you a card whenever it attacks.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 BLESSING_OF_WISDOM = make_spell(
     name="Blessing of Wisdom",

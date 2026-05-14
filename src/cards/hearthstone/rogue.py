@@ -357,26 +357,72 @@ CONCEAL = make_spell(
 )
 
 # BETRAYAL - 2 mana spell, Enemy minion deals its damage to the minions next to it
-def betrayal_effect(obj, state, targets):
-    """An enemy minion deals its damage to the minions next to it."""
+def _betrayal_resolve(obj, state, target_id):
+    """Splash the chosen enemy minion's attack onto its neighbours."""
     from src.cards.interceptor_helpers import get_adjacent_enemy_minions
-    enemy_minions = get_enemy_minions(obj, state)
-    if not enemy_minions:
+    if not target_id or target_id not in state.objects:
         return []
-    target_id = targets[0] if targets else random.choice(enemy_minions)
     target = state.objects.get(target_id)
     if not target:
         return []
     adjacent = get_adjacent_enemy_minions(target_id, state)
     damage = target.characteristics.power or 0
-    events = []
-    for adj_id in adjacent:
-        events.append(Event(
-            type=EventType.DAMAGE,
-            payload={'target': adj_id, 'amount': damage, 'source': target_id},
-            source=obj.id
-        ))
-    return events
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': adj_id, 'amount': damage, 'source': target_id},
+        source=obj.id
+    ) for adj_id in adjacent]
+
+
+def betrayal_effect(obj, state, targets):
+    """An enemy minion deals its damage to the minions next to it.
+
+    PendingChoice: caster picks the enemy whose neighbours take the splash.
+    AI preserves the highest-attack pick (the most painful neighbour swing)
+    via ``heuristic_pick``.
+    """
+    enemy_minions = get_enemy_minions(obj, state)
+    enemy_objs = [state.objects[mid] for mid in enemy_minions if mid in state.objects]
+    if not enemy_objs:
+        return []
+
+    if targets:
+        explicit = targets[0]
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        if explicit in {m.id for m in enemy_objs}:
+            return _betrayal_resolve(obj, state, explicit)
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = max(enemy_objs, key=lambda m: m.characteristics.power or 0)
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in enemy_objs
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get('id', best.id)
+        return _betrayal_resolve(obj, st, tid)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose an enemy minion to lash out at its neighbours.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 BETRAYAL = make_spell(
     name="Betrayal",
@@ -386,30 +432,84 @@ BETRAYAL = make_spell(
 )
 
 # EVISCERATE - 2 mana spell, Deal 2 damage. Combo: 4 damage
+def _eviscerate_resolve(obj, state, target_id, damage):
+    """Deal the eviscerate damage to the chosen character."""
+    if not target_id or target_id not in state.objects:
+        return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': target_id, 'amount': damage, 'source': obj.id, 'from_spell': True},
+        source=obj.id
+    )]
+
+
 def eviscerate_effect(obj, state, targets):
-    """Deal 2 damage. Combo: Deal 4 damage instead"""
+    """Deal 2 damage. Combo: Deal 4 damage instead.
+
+    PendingChoice: caster picks the damage target. Options include enemy
+    minions plus the enemy hero (face). AI keeps the prior preference —
+    minions first, hero as fallback — by ``heuristic_pick`` ranking.
+    """
     player = state.players.get(obj.controller)
     combo = player and player.cards_played_this_turn > 0
     damage = 4 if combo else 2
 
-    # Use provided targets if any, otherwise select from enemy minions (prefer minions over hero)
+    # Explicit target path (e.g. frontend pre-resolves the click).
     if targets:
-        target = targets[0] if isinstance(targets, list) else targets
-    else:
-        enemy_minions = get_enemy_minions(obj, state)
-        if enemy_minions:
-            target = random.choice(enemy_minions)
-        else:
-            enemies = get_enemy_targets(obj, state)
-            target = random.choice(enemies) if enemies else None
+        explicit = targets[0] if isinstance(targets, list) else targets
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        return _eviscerate_resolve(obj, state, explicit, damage)
 
-    if target:
-        return [Event(
-            type=EventType.DAMAGE,
-            payload={'target': target, 'amount': damage, 'source': obj.id, 'from_spell': True},
-            source=obj.id
-        )]
-    return []
+    enemies = get_enemy_targets(obj, state)
+    enemy_minion_ids = set(get_enemy_minions(obj, state))
+    if not enemies:
+        return []
+
+    options = []
+    for eid in enemies:
+        ent = state.objects.get(eid)
+        if ent is None:
+            continue
+        label = getattr(ent.card_def, 'name', None) or ent.name
+        if eid in enemy_minion_ids:
+            desc = f"{ent.characteristics.power}/{ent.characteristics.toughness}"
+        else:
+            desc = "Hero"
+        options.append({'id': eid, 'label': label, 'description': desc})
+    if not options:
+        return []
+
+    # Heuristic: prefer enemy minions over hero (legacy behavior), highest attack within.
+    minion_opts = [o for o in options if o['id'] in enemy_minion_ids]
+    if minion_opts:
+        best = max(
+            minion_opts,
+            key=lambda o: state.objects[o['id']].characteristics.power or 0,
+        )['id']
+    else:
+        best = options[0]['id']
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best
+        if isinstance(tid, dict):
+            tid = tid.get('id', best)
+        return _eviscerate_resolve(obj, st, tid, damage)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose a character to eviscerate.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best],
+    )
 
 EVISCERATE = make_spell(
     name="Eviscerate",

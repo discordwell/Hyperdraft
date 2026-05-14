@@ -424,14 +424,11 @@ def sense_demons_effect(obj, state, targets):
     return events
 
 
-def corruption_effect(obj, state, targets):
-    """Choose an enemy minion. At the start of your next turn, destroy it."""
-    enemy_minions = get_enemy_minions(obj, state)
-    if not enemy_minions:
+def _corruption_resolve(obj, state, target_id):
+    """Stash the delayed-destroy interceptor on the chosen enemy minion."""
+    if not target_id or target_id not in state.objects:
         return []
-    target_id = targets[0] if targets else random.choice(enemy_minions)
 
-    # Set up a delayed destroy interceptor that fires at start of the caster's next turn
     def turn_start_filter(event, s):
         return event.type == EventType.TURN_START and event.payload.get('player') == obj.controller
 
@@ -459,6 +456,57 @@ def corruption_effect(obj, state, targets):
     )
     state.interceptors[int_obj.id] = int_obj
     return []
+
+
+def corruption_effect(obj, state, targets):
+    """Choose an enemy minion. At the start of your next turn, destroy it.
+
+    PendingChoice: caster picks the marked minion. AI preserves the
+    highest-attack pick via ``heuristic_pick`` (the biggest threat is the
+    target most worth delaying a turn for).
+    """
+    enemy_minions = get_enemy_minions(obj, state)
+    enemy_objs = [state.objects[mid] for mid in enemy_minions if mid in state.objects]
+    if not enemy_objs:
+        return []
+
+    if targets:
+        explicit = targets[0]
+        if isinstance(explicit, dict):
+            explicit = explicit.get('id')
+        if explicit in {m.id for m in enemy_objs}:
+            return _corruption_resolve(obj, state, explicit)
+
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    best = max(enemy_objs, key=lambda m: m.characteristics.power or 0)
+    options = [
+        {
+            'id': m.id,
+            'label': getattr(m.card_def, 'name', None) or m.name,
+            'description': f"{m.characteristics.power}/{m.characteristics.toughness}",
+        }
+        for m in enemy_objs
+    ]
+
+    def _resolve_handler(choice, selected, st):
+        tid = selected[0] if selected else best.id
+        if isinstance(tid, dict):
+            tid = tid.get('id', best.id)
+        return _corruption_resolve(obj, st, tid)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id=obj.controller,
+        prompt='Choose an enemy minion to corrupt — it will be destroyed at the start of your next turn.',
+        options=options,
+        source_id=obj.id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve_handler,
+        heuristic_pick=[best.id],
+    )
 
 
 # ============================================================================
