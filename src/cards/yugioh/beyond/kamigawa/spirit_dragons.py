@@ -26,7 +26,7 @@ from src.engine.yugioh_helpers import (
 )
 from ._archetype_helpers import (
     has_subtype, count_on_field, find_in_graveyard,
-    make_archetype_lord, make_soulshift,
+    make_archetype_lord, make_soulshift, soulshift_revive,
 )
 
 
@@ -291,7 +291,11 @@ def _take_control(state, target_id: str, new_controller: str,
 
 def _yosei_setup(obj, state):
     """LIGHT. On destruction: target a face-up opponent monster — it cannot attack
-    and skip opponent's next Standby Phase. Also Soulshift 9."""
+    and skip opponent's next Standby Phase. Also Soulshift 9.
+
+    Phase 4: Soulshift now emits a ``PendingChoice`` when 2+ eligible Spirits
+    exist in the GY. AI heuristic preserves the prior "first match" behavior.
+    """
     def effect_fn(o, state):
         events: list[Event] = []
         opp = _opponent_id(state, o.controller)
@@ -310,16 +314,20 @@ def _yosei_setup(obj, state):
             if opp_player is not None:
                 cur = getattr(opp_player, 'skip_standby_phases', 0) or 0
                 opp_player.skip_standby_phases = cur + 1
-        # Soulshift: revive a lower-level Spirit
-        target_id = find_in_graveyard(state, o.controller, "Spirit", max_level=8)
-        if target_id and target_id != o.id:
-            events.extend(revive_from_graveyard(state, o.controller, target_id))
+        # Soulshift 9: revive a Lv 8 or lower Spirit (now choice-driven).
+        events.extend(soulshift_revive(
+            state, o.controller, "Spirit", max_level=8,
+            source_id=o.id, exclude_id=o.id,
+        ))
         return events
     return [make_ygo_destroy_trigger(obj, effect_fn)]
 
 
 def _kokusho_setup(obj, state):
-    """DARK. On destruction: opponent loses 1500 LP, you gain 1500 LP. Soulshift 9."""
+    """DARK. On destruction: opponent loses 1500 LP, you gain 1500 LP. Soulshift 9.
+
+    Phase 4: Soulshift now choice-driven (see ``soulshift_revive``).
+    """
     def effect_fn(o, state):
         events: list[Event] = []
         opp = _opponent_id(state, o.controller)
@@ -336,26 +344,34 @@ def _kokusho_setup(obj, state):
             events.append(Event(type=EventType.YGO_LP_CHANGE,
                                 payload={'player': o.controller, 'amount': 1500,
                                          'source': 'Kokusho, the Evening Star'}))
-        target_id = find_in_graveyard(state, o.controller, "Spirit", max_level=8)
-        if target_id and target_id != o.id:
-            events.extend(revive_from_graveyard(state, o.controller, target_id))
+        events.extend(soulshift_revive(
+            state, o.controller, "Spirit", max_level=8,
+            source_id=o.id, exclude_id=o.id,
+        ))
         return events
     return [make_ygo_destroy_trigger(obj, effect_fn)]
 
 
 def _jugan_setup(obj, state):
-    """EARTH. On destruction: draw 3 cards. Soulshift 9."""
+    """EARTH. On destruction: draw 3 cards. Soulshift 9.
+
+    Phase 4: Soulshift now choice-driven (see ``soulshift_revive``).
+    """
     def effect_fn(o, state):
         events = _draw_n(state, o.controller, 3)
-        target_id = find_in_graveyard(state, o.controller, "Spirit", max_level=8)
-        if target_id and target_id != o.id:
-            events.extend(revive_from_graveyard(state, o.controller, target_id))
+        events.extend(soulshift_revive(
+            state, o.controller, "Spirit", max_level=8,
+            source_id=o.id, exclude_id=o.id,
+        ))
         return events
     return [make_ygo_destroy_trigger(obj, effect_fn)]
 
 
 def _keiga_setup(obj, state):
-    """WATER. On destruction: take control of 1 opponent monster until End Phase. Soulshift 9."""
+    """WATER. On destruction: take control of 1 opponent monster until End Phase. Soulshift 9.
+
+    Phase 4: Soulshift now choice-driven (see ``soulshift_revive``).
+    """
     def effect_fn(o, state):
         events: list[Event] = []
         opp = _opponent_id(state, o.controller)
@@ -369,16 +385,20 @@ def _keiga_setup(obj, state):
                     if target and not target.state.face_down:
                         events.extend(_take_control(state, oid, o.controller))
                         break
-        target_id = find_in_graveyard(state, o.controller, "Spirit", max_level=8)
-        if target_id and target_id != o.id:
-            events.extend(revive_from_graveyard(state, o.controller, target_id))
+        events.extend(soulshift_revive(
+            state, o.controller, "Spirit", max_level=8,
+            source_id=o.id, exclude_id=o.id,
+        ))
         return events
     return [make_ygo_destroy_trigger(obj, effect_fn)]
 
 
 def _ryusei_setup(obj, state):
     """FIRE. On destruction: deal 700 damage to all face-up opponent monsters
-    (skip Wing Beasts as flavor "fliers"). Soulshift 9."""
+    (skip Wing Beasts as flavor "fliers"). Soulshift 9.
+
+    Phase 4: Soulshift now choice-driven (see ``soulshift_revive``).
+    """
     def effect_fn(o, state):
         events: list[Event] = []
         opp = _opponent_id(state, o.controller)
@@ -415,9 +435,10 @@ def _ryusei_setup(obj, state):
                     else:
                         target.state.atk_bonus_eot = \
                             getattr(target.state, 'atk_bonus_eot', 0) - 700
-        target_id = find_in_graveyard(state, o.controller, "Spirit", max_level=8)
-        if target_id and target_id != o.id:
-            events.extend(revive_from_graveyard(state, o.controller, target_id))
+        events.extend(soulshift_revive(
+            state, o.controller, "Spirit", max_level=8,
+            source_id=o.id, exclude_id=o.id,
+        ))
         return events
     return [make_ygo_destroy_trigger(obj, effect_fn)]
 
@@ -428,7 +449,10 @@ def _ryusei_setup(obj, state):
 
 def _atsushi_setup(obj, state):
     """When destroyed: banish 1 card the opponent controls (FIRE Lv 7 toolbox).
-    On destruction: opponent banishes the top card of their deck."""
+    On destruction: opponent banishes the top card of their deck.
+
+    Phase 4: Soulshift 7 now choice-driven (see ``soulshift_revive``).
+    """
     def effect_fn(o, state):
         events: list[Event] = []
         opp = _opponent_id(state, o.controller)
@@ -444,9 +468,10 @@ def _atsushi_setup(obj, state):
             cobj = state.objects.get(cid)
             if cobj:
                 cobj.zone = ZoneType.EXILE if hasattr(ZoneType, 'EXILE') else ZoneType.GRAVEYARD
-        target_id = find_in_graveyard(state, o.controller, "Spirit", max_level=6)
-        if target_id and target_id != o.id:
-            events.extend(revive_from_graveyard(state, o.controller, target_id))
+        events.extend(soulshift_revive(
+            state, o.controller, "Spirit", max_level=6,
+            source_id=o.id, exclude_id=o.id,
+        ))
         return events
     return [make_ygo_destroy_trigger(obj, effect_fn)]
 

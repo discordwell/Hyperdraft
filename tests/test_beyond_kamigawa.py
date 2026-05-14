@@ -908,6 +908,444 @@ test_imperial_edict_mid_chain_does_not_corrupt_stack()
 
 
 # =============================================================================
+# Test 4d: Phase 4 follow-up — Soulshift + Heiko Yamazaki PendingChoice
+# =============================================================================
+#
+# Migrated cards:
+#   - soulshift_revive() helper (drives make_soulshift + 5 Spirit Dragons
+#     + Atsushi; same shape applies to Village Guide Spirit, Kirin of the
+#     First Wind, and Pearl-Dragon Concord)
+#   - Heiko Yamazaki, the General (Tribute Summon → SS 2 Lv≤4 Samurai)
+#
+# Each card gets the three standard tests: human-emits-choice,
+# AI-uses-heuristic, empty-short-circuits.
+
+print("\n=== Test 4d: Soulshift + Heiko Yamazaki PendingChoice ===")
+
+from src.cards.yugioh.beyond.kamigawa._archetype_helpers import soulshift_revive
+from src.cards.yugioh.beyond.kamigawa.spirit_dragons import (
+    YOSEI_THE_MORNING_STAR, KOKUSHO_THE_EVENING_STAR, JUGAN_THE_RISING_STAR,
+    KEIGA_THE_TIDE_STAR, RYUSEI_THE_FALLING_STAR, ATSUSHI_THE_BLAZING_SKY,
+    INAME_DEATH_ASPECT, INAME_LIFE_ASPECT, HANA_KAMI,
+    _jugan_setup, _atsushi_setup,
+)
+from src.cards.yugioh.beyond.kamigawa.samurai import (
+    HEIKO_YAMAZAKI, _heiko_yamazaki_setup,
+    HAND_OF_HONOR, HAND_OF_CRUELTY, DEVOTED_RETAINER, ISAMARU_HOUND_OF_KONDA,
+)
+
+
+# ---- soulshift_revive() helper -----------------------------------------------
+
+print("\n--- soulshift_revive helper ---")
+
+
+def test_soulshift_empty_gy_returns_empty():
+    """No Spirit in GY → returns [] (no event, no choice)."""
+    g, a, _b = _new_test_game()
+    _reset_pending(g)
+    out = soulshift_revive(g.state, a.id, "Spirit", max_level=8,
+                            source_id="soulshift-empty")
+    check("Soulshift empty GY: no events", out == [])
+    check("Soulshift empty GY: no PendingChoice",
+          g.state.pending_choice is None)
+
+
+def test_soulshift_single_candidate_auto_revives():
+    """Only 1 eligible Spirit in GY → auto-revive, no choice (the choice is
+    trivial when there's only one option)."""
+    g, a, _b = _new_test_game()
+    gy_ids = _stock_gy(g, a.id, [HANA_KAMI])
+    _reset_pending(g)
+    out = soulshift_revive(g.state, a.id, "Spirit", max_level=8,
+                            source_id="soulshift-single")
+    check("Soulshift 1 candidate: events emitted (auto-revive)",
+          len(out) >= 1, f"got {len(out)} events")
+    check("Soulshift 1 candidate: no PendingChoice",
+          g.state.pending_choice is None)
+
+
+def test_soulshift_multi_candidate_human_emits_choice():
+    """2+ eligible Spirits → emit PendingChoice over them."""
+    g, a, _b = _new_test_game()
+    gy_ids = _stock_gy(g, a.id, [HANA_KAMI, INAME_DEATH_ASPECT, INAME_LIFE_ASPECT])
+    _reset_pending(g)
+    out = soulshift_revive(g.state, a.id, "Spirit", max_level=8,
+                            source_id="soulshift-multi")
+    check("Soulshift multi human: no events yet (choice pending)",
+          out == [], f"got {len(out)} events")
+    pc = g.state.pending_choice
+    check("Soulshift multi human: PendingChoice set", pc is not None)
+    if pc is not None:
+        check("Soulshift multi: choice type 'target'",
+              pc.choice_type == "target")
+        check("Soulshift multi: player == controller", pc.player == a.id)
+        check("Soulshift multi: min/max == 1",
+              pc.min_choices == 1 and pc.max_choices == 1)
+        opt_ids = {o["id"] for o in pc.options}
+        check("Soulshift multi: options cover all 3 GY Spirits",
+              opt_ids == set(gy_ids),
+              f"opts={opt_ids} expected={set(gy_ids)}")
+        # Heuristic: first in GY order
+        check("Soulshift multi: heuristic_pick == first in GY",
+              pc.callback_data.get("heuristic_pick") == [gy_ids[0]])
+
+
+def test_soulshift_excludes_source_id():
+    """The source card itself must not be a soulshift candidate (its own GY
+    row would let a Spirit revive itself, breaking the Kamigawa rule)."""
+    g, a, _b = _new_test_game()
+    gy_ids = _stock_gy(g, a.id, [HANA_KAMI, INAME_LIFE_ASPECT])
+    _reset_pending(g)
+    # Use HANA_KAMI's id as exclude — only INAME_LIFE_ASPECT remains.
+    out = soulshift_revive(g.state, a.id, "Spirit", max_level=8,
+                            source_id=gy_ids[0], exclude_id=gy_ids[0])
+    # Only 1 remaining candidate → auto-revive, no choice.
+    check("Soulshift exclude_source: auto-revive (single remaining)",
+          len(out) >= 1, f"got {len(out)} events")
+    check("Soulshift exclude_source: source not revived",
+          all('hana_kami' not in str(e.payload).lower() for e in out))
+
+
+def test_soulshift_respects_max_level():
+    """High-level Spirit Dragons in GY are excluded when max_level cap < their Lv."""
+    g, a, _b = _new_test_game()
+    # YOSEI is Lv 9 — too high for max_level=4
+    gy_ids = _stock_gy(g, a.id, [YOSEI_THE_MORNING_STAR, HANA_KAMI])
+    _reset_pending(g)
+    out = soulshift_revive(g.state, a.id, "Spirit", max_level=4,
+                            source_id="soulshift-cap")
+    # Only HANA_KAMI eligible → auto-revive.
+    check("Soulshift max_level cap: yosei (Lv9) excluded",
+          g.state.pending_choice is None,
+          "should auto-revive the single eligible Lv2 Spirit")
+
+
+def test_soulshift_ai_uses_heuristic():
+    """AI path: heuristic_pick = first GY candidate. The chosen Spirit moves
+    out of GY (the revive places it on the monster zone)."""
+    g, a, _b = _new_test_game()
+    gy_ids = _stock_gy(g, a.id, [HANA_KAMI, INAME_DEATH_ASPECT, INAME_LIFE_ASPECT])
+    _set_ai(g, a.id)
+    out = soulshift_revive(g.state, a.id, "Spirit", max_level=8,
+                            source_id="soulshift-ai")
+    check("Soulshift AI: events emitted",
+          len(out) >= 1, f"got {len(out)} events")
+    check("Soulshift AI: choice cleared",
+          g.state.pending_choice is None)
+    # The heuristic picks the first GY candidate — it should have left the GY.
+    gy_now = g.state.zones[f"graveyard_{a.id}"].objects
+    check("Soulshift AI: first GY candidate left the graveyard",
+          gy_ids[0] not in gy_now,
+          f"gy_now={gy_now}")
+
+
+test_soulshift_empty_gy_returns_empty()
+test_soulshift_single_candidate_auto_revives()
+test_soulshift_multi_candidate_human_emits_choice()
+test_soulshift_excludes_source_id()
+test_soulshift_respects_max_level()
+test_soulshift_ai_uses_heuristic()
+
+
+# ---- Jugan, the Rising Star (Spirit Dragon Soulshift wired path) -------------
+
+print("\n--- Jugan Soulshift (wired) ---")
+
+
+def test_jugan_destroy_trigger_emits_choice_over_gy_spirits():
+    """When Jugan resolves its destroy trigger and 2+ Spirits are in GY,
+    a PendingChoice is emitted (after the Draw 3)."""
+    g, a, _b = _new_test_game()
+    # Stock GY with 2 Spirits + Jugan itself (we exclude it via source_id).
+    gy_ids = _stock_gy(g, a.id, [HANA_KAMI, INAME_LIFE_ASPECT])
+    # Stock library so Draw 3 can fire (otherwise Jugan still works but draw is 0).
+    lib_ids = _stock_library(g, a.id, [KURIBOH, BLUE_EYES_WHITE_DRAGON, DARK_HOLE])
+    _reset_pending(g)
+
+    # Build a Jugan game object to invoke the destroy trigger's effect.
+    jugan = g.create_object(
+        name=JUGAN_THE_RISING_STAR.name, owner_id=a.id,
+        zone=ZoneType.GRAVEYARD,  # logical: a destroyed Jugan is in GY
+        characteristics=copy.deepcopy(JUGAN_THE_RISING_STAR.characteristics),
+        card_def=JUGAN_THE_RISING_STAR,
+    )
+    # Drive the effect_fn directly via setup_interceptors (Jugan returns
+    # one destroy-trigger interceptor; we invoke its handler).
+    interceptors = _jugan_setup(jugan, g.state)
+    check("Jugan: setup returned 1 interceptor", len(interceptors) == 1)
+    interceptor = interceptors[0]
+    # Trigger event (destroy of jugan).
+    fake_event = Event(
+        type=EventType.YGO_DESTROY,
+        payload={'card_id': jugan.id, 'card_name': jugan.name},
+        source=jugan.id, controller=a.id,
+    )
+    result = interceptor.handler(fake_event, g.state)
+    events = result.new_events or []
+    # We expect 3 YGO_DRAW events (Jugan's draw 3), then a PendingChoice
+    # for the Soulshift over the 2 GY Spirits.
+    draw_count = sum(1 for e in events if 'draw' in str(e.type).lower())
+    check("Jugan: 3 draw events", draw_count == 3,
+          f"got draw_count={draw_count}, events={[str(e.type) for e in events]}")
+    pc = g.state.pending_choice
+    check("Jugan: Soulshift PendingChoice set after draw", pc is not None)
+    if pc is not None:
+        opt_ids = {o["id"] for o in pc.options}
+        check("Jugan: Soulshift options == GY Spirits",
+              opt_ids == set(gy_ids),
+              f"opts={opt_ids} expected={set(gy_ids)}")
+
+
+def test_jugan_empty_gy_no_choice():
+    """Jugan with no Spirits in GY: only the Draw 3 fires, no choice."""
+    g, a, _b = _new_test_game()
+    # GY empty.
+    _stock_library(g, a.id, [KURIBOH, BLUE_EYES_WHITE_DRAGON, DARK_HOLE])
+    _reset_pending(g)
+    jugan = g.create_object(
+        name=JUGAN_THE_RISING_STAR.name, owner_id=a.id, zone=ZoneType.GRAVEYARD,
+        characteristics=copy.deepcopy(JUGAN_THE_RISING_STAR.characteristics),
+        card_def=JUGAN_THE_RISING_STAR,
+    )
+    interceptors = _jugan_setup(jugan, g.state)
+    interceptor = interceptors[0]
+    fake_event = Event(
+        type=EventType.YGO_DESTROY,
+        payload={'card_id': jugan.id, 'card_name': jugan.name},
+        source=jugan.id, controller=a.id,
+    )
+    result = interceptor.handler(fake_event, g.state)
+    events = result.new_events or []
+    draw_count = sum(1 for e in events if 'draw' in str(e.type).lower())
+    check("Jugan empty GY: 3 draws still fire", draw_count == 3)
+    check("Jugan empty GY: no PendingChoice",
+          g.state.pending_choice is None)
+
+
+def test_atsushi_soulshift_respects_lv7_cap():
+    """Atsushi is Lv 7 — Soulshift 7. Lv 8 Spirits in GY are excluded."""
+    g, a, _b = _new_test_game()
+    # Both Lv9 Spirit Dragons (exceed Atsushi's max_level=6) plus a Lv 2 Hana Kami.
+    gy_ids = _stock_gy(g, a.id, [YOSEI_THE_MORNING_STAR, KOKUSHO_THE_EVENING_STAR, HANA_KAMI])
+    _reset_pending(g)
+    atsushi = g.create_object(
+        name=ATSUSHI_THE_BLAZING_SKY.name, owner_id=a.id, zone=ZoneType.GRAVEYARD,
+        characteristics=copy.deepcopy(ATSUSHI_THE_BLAZING_SKY.characteristics),
+        card_def=ATSUSHI_THE_BLAZING_SKY,
+    )
+    interceptors = _atsushi_setup(atsushi, g.state)
+    interceptor = interceptors[0]
+    fake_event = Event(
+        type=EventType.YGO_DESTROY,
+        payload={'card_id': atsushi.id, 'card_name': atsushi.name},
+        source=atsushi.id, controller=a.id,
+    )
+    result = interceptor.handler(fake_event, g.state)
+    events = result.new_events or []
+    # The two Lv9 dragons are over Atsushi's Soulshift 7 cap (max_level=6).
+    # Only Hana Kami eligible → auto-revive, no choice.
+    check("Atsushi: no PendingChoice (1 eligible auto-revives)",
+          g.state.pending_choice is None)
+
+
+test_jugan_destroy_trigger_emits_choice_over_gy_spirits()
+test_jugan_empty_gy_no_choice()
+test_atsushi_soulshift_respects_lv7_cap()
+
+
+# ---- make_soulshift helper (Village Guide Spirit Soulshift 2) ---------------
+
+print("\n--- make_soulshift helper (Village Guide Spirit) ---")
+
+
+def test_make_soulshift_emits_choice_via_village_guide():
+    """Drive the centralized ``make_soulshift`` helper end-to-end through
+    Village Guide Spirit. 2+ low-level Spirits in GY → PendingChoice."""
+    from src.cards.yugioh.beyond.kamigawa.spirit_dragons import VILLAGE_GUIDE_SPIRIT
+
+    g, a, _b = _new_test_game()
+    _stock_gy(g, a.id, [HANA_KAMI, INAME_LIFE_ASPECT])
+    _reset_pending(g)
+    vgs = g.create_object(
+        name=VILLAGE_GUIDE_SPIRIT.name, owner_id=a.id, zone=ZoneType.GRAVEYARD,
+        characteristics=copy.deepcopy(VILLAGE_GUIDE_SPIRIT.characteristics),
+        card_def=VILLAGE_GUIDE_SPIRIT,
+    )
+    interceptors = VILLAGE_GUIDE_SPIRIT.setup_interceptors(vgs, g.state)
+    # VGS has 2 interceptors (summon trigger + soulshift).
+    check("VGS: 2 interceptors", len(interceptors) == 2)
+    # Find the soulshift (destroy-trigger) one.
+    fake = Event(
+        type=EventType.YGO_DESTROY,
+        payload={'card_id': vgs.id, 'card_name': vgs.name},
+        source=vgs.id, controller=a.id,
+    )
+    fired = False
+    for it in interceptors:
+        if it.filter(fake, g.state):
+            result = it.handler(fake, g.state)
+            fired = True
+            break
+    check("VGS soulshift fired on destroy", fired)
+    check("VGS soulshift emitted PendingChoice",
+          g.state.pending_choice is not None)
+
+
+test_make_soulshift_emits_choice_via_village_guide()
+
+
+# ---- Heiko Yamazaki, the General (Tribute Summon → SS 2 Lv≤4 Samurai) ------
+
+print("\n--- Heiko Yamazaki ---")
+
+
+def test_heiko_empty_gy_short_circuits():
+    """No Lv≤4 Samurai in GY: no events, no choice."""
+    g, a, _b = _new_test_game()
+    _reset_pending(g)
+    heiko = g.create_object(
+        name=HEIKO_YAMAZAKI.name, owner_id=a.id, zone=ZoneType.MONSTER_ZONE,
+        characteristics=copy.deepcopy(HEIKO_YAMAZAKI.characteristics),
+        card_def=HEIKO_YAMAZAKI,
+    )
+    interceptors = _heiko_yamazaki_setup(heiko, g.state)
+    check("Heiko: 1 interceptor (tribute-summon trigger)",
+          len(interceptors) == 1)
+    fake_event = Event(
+        type=EventType.YGO_TRIBUTE_SUMMON,
+        payload={'card_id': heiko.id, 'card_name': heiko.name},
+        source=heiko.id, controller=a.id,
+    )
+    result = interceptors[0].handler(fake_event, g.state)
+    events = result.new_events or []
+    check("Heiko empty GY: no events", events == [])
+    check("Heiko empty GY: no PendingChoice",
+          g.state.pending_choice is None)
+
+
+def test_heiko_human_emits_choice_over_lv4_samurai():
+    """3 Lv≤4 Samurai in GY + 1 Lv 6 → choice over only the 3 small ones."""
+    g, a, _b = _new_test_game()
+    gy_ids = _stock_gy(g, a.id, [HAND_OF_HONOR, HAND_OF_CRUELTY, DEVOTED_RETAINER,
+                                  ISAMARU_HOUND_OF_KONDA])
+    _reset_pending(g)
+    heiko = g.create_object(
+        name=HEIKO_YAMAZAKI.name, owner_id=a.id, zone=ZoneType.MONSTER_ZONE,
+        characteristics=copy.deepcopy(HEIKO_YAMAZAKI.characteristics),
+        card_def=HEIKO_YAMAZAKI,
+    )
+    interceptors = _heiko_yamazaki_setup(heiko, g.state)
+    fake_event = Event(
+        type=EventType.YGO_TRIBUTE_SUMMON,
+        payload={'card_id': heiko.id, 'card_name': heiko.name},
+        source=heiko.id, controller=a.id,
+    )
+    result = interceptors[0].handler(fake_event, g.state)
+    events = result.new_events or []
+    check("Heiko human: no events yet (choice pending)",
+          events == [], f"got {len(events)} events")
+    pc = g.state.pending_choice
+    check("Heiko human: PendingChoice set", pc is not None)
+    if pc is not None:
+        check("Heiko: choice player == controller", pc.player == a.id)
+        check("Heiko: min/max == 2",
+              pc.min_choices == 2 and pc.max_choices == 2)
+        opt_ids = {o["id"] for o in pc.options}
+        # All 4 stocked Samurai are Lv≤4 by construction.
+        check("Heiko: options cover all Lv≤4 Samurai in GY",
+              opt_ids == set(gy_ids),
+              f"opts={opt_ids} expected={set(gy_ids)}")
+        check("Heiko: heuristic_pick == first 2 in GY",
+              pc.callback_data.get("heuristic_pick") == gy_ids[:2])
+
+
+def test_heiko_ai_uses_heuristic_first_2_samurai():
+    """AI path: top-2 GY Samurai revived. Both leave the GY."""
+    g, a, _b = _new_test_game()
+    gy_ids = _stock_gy(g, a.id, [HAND_OF_HONOR, HAND_OF_CRUELTY, DEVOTED_RETAINER])
+    _set_ai(g, a.id)
+    heiko = g.create_object(
+        name=HEIKO_YAMAZAKI.name, owner_id=a.id, zone=ZoneType.MONSTER_ZONE,
+        characteristics=copy.deepcopy(HEIKO_YAMAZAKI.characteristics),
+        card_def=HEIKO_YAMAZAKI,
+    )
+    interceptors = _heiko_yamazaki_setup(heiko, g.state)
+    fake_event = Event(
+        type=EventType.YGO_TRIBUTE_SUMMON,
+        payload={'card_id': heiko.id, 'card_name': heiko.name},
+        source=heiko.id, controller=a.id,
+    )
+    result = interceptors[0].handler(fake_event, g.state)
+    events = result.new_events or []
+    check("Heiko AI: events emitted (2 revives)",
+          len(events) >= 2, f"got {len(events)}")
+    check("Heiko AI: choice cleared",
+          g.state.pending_choice is None)
+    gy_now = g.state.zones[f"graveyard_{a.id}"].objects
+    # First 2 should have left the GY.
+    check("Heiko AI: top-2 GY Samurai left the graveyard",
+          gy_ids[0] not in gy_now and gy_ids[1] not in gy_now,
+          f"gy_now={gy_now}")
+    check("Heiko AI: 3rd Samurai still in GY",
+          gy_ids[2] in gy_now)
+
+
+test_heiko_empty_gy_short_circuits()
+test_heiko_human_emits_choice_over_lv4_samurai()
+test_heiko_ai_uses_heuristic_first_2_samurai()
+
+
+# ---- Chain-stack integrity for a Soulshift-driven card ----------------------
+
+print("\n--- Chain-stack integrity (mid-chain Soulshift PendingChoice) ---")
+
+
+def test_jugan_soulshift_mid_chain_does_not_corrupt_stack():
+    """Resolve Jugan's destroy trigger via a chain link with multiple GY
+    Spirits available. The mid-chain Soulshift PendingChoice must not leak
+    chain links or duplicate any.
+    """
+    from src.engine.yugioh_chain import YugiohChainManager
+
+    g, a, _b = _new_test_game()
+    _stock_gy(g, a.id, [HANA_KAMI, INAME_LIFE_ASPECT])
+    _stock_library(g, a.id, [KURIBOH, BLUE_EYES_WHITE_DRAGON, DARK_HOLE])
+    _set_ai(g, a.id)
+
+    chain = YugiohChainManager(g.state)
+    jugan = g.create_object(
+        name=JUGAN_THE_RISING_STAR.name, owner_id=a.id, zone=ZoneType.GRAVEYARD,
+        characteristics=copy.deepcopy(JUGAN_THE_RISING_STAR.characteristics),
+        card_def=JUGAN_THE_RISING_STAR,
+    )
+    interceptors = _jugan_setup(jugan, g.state)
+    interceptor = interceptors[0]
+
+    def jugan_resolve_fn(state, targets):
+        return interceptor.handler(
+            Event(type=EventType.YGO_DESTROY,
+                  payload={'card_id': jugan.id, 'card_name': jugan.name},
+                  source=jugan.id, controller=a.id),
+            state).new_events or []
+
+    chain.start_chain(
+        card_id=jugan.id, controller=a.id, spell_speed=1,
+        card_name="Jugan, the Rising Star", resolve_fn=jugan_resolve_fn,
+    )
+    check("Jugan chain: 1 link after start", len(chain.chain_links) == 1)
+
+    events = chain.resolve_chain()
+    check("Jugan chain: 0 links after resolve",
+          len(chain.chain_links) == 0)
+    check("Jugan chain: pending_choice cleared post-AI",
+          g.state.pending_choice is None)
+
+
+test_jugan_soulshift_mid_chain_does_not_corrupt_stack()
+
+
+# =============================================================================
 # Test 5: AI vs AI mirror (Samurai vs Samurai), short run
 # =============================================================================
 

@@ -156,18 +156,126 @@ def make_archetype_team_lord(obj: GameObject, atk_bonus: int = 300,
 # Soulshift (Kamigawa-block recursion)
 # =============================================================================
 
+def _eligible_soulshift_candidates(state: GameState, controller: str,
+                                    archetype: str, max_level: int,
+                                    exclude_id: str = None) -> list[str]:
+    """Return all GY card ids matching the Soulshift criteria.
+
+    Used both by ``make_soulshift`` and by inline-soulshift effects in the
+    Spirit-Dragon cycle. Filters out the destroyed source itself so a Spirit
+    can't revive itself in the same trigger.
+    """
+    gy = state.zones.get(f"graveyard_{controller}")
+    if not gy:
+        return []
+    candidates: list[str] = []
+    for cid in gy.objects:
+        if exclude_id and cid == exclude_id:
+            continue
+        obj = state.objects.get(cid)
+        if not obj or not obj.card_def:
+            continue
+        if archetype not in (obj.card_def.characteristics.subtypes or set()):
+            continue
+        lvl = getattr(obj.card_def, 'level', None) or 0
+        if max_level is not None and lvl > max_level:
+            continue
+        candidates.append(cid)
+    return candidates
+
+
+def soulshift_revive(state: GameState, controller: str, archetype: str,
+                      max_level: int, *, source_id: str,
+                      exclude_id: str = None) -> list[Event]:
+    """Choice-driven Soulshift revival.
+
+    Collects every Spirit (or other archetype) in ``controller``'s GY whose
+    Level is <= ``max_level`` and emits a ``PendingChoice`` for the human to
+    pick which one to revive. AI receives a heuristic_pick of the first
+    eligible candidate (preserving the old ``find_in_graveyard`` behavior).
+
+    Short-circuits when no candidates exist (returns ``[]``).
+
+    Returns the list of events produced by the choice resolution (typically a
+    single ``revive_from_graveyard`` payload).
+    """
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    candidates = _eligible_soulshift_candidates(
+        state, controller, archetype, max_level, exclude_id=exclude_id,
+    )
+    if not candidates:
+        return []
+    # If only one option, just auto-revive (no choice needed).
+    if len(candidates) == 1:
+        return revive_from_graveyard(state, controller, candidates[0])
+
+    options: list[dict] = []
+    for cid in candidates:
+        cobj = state.objects.get(cid)
+        if cobj is None or cobj.card_def is None:
+            continue
+        cdef = cobj.card_def
+        atk = getattr(cdef, 'atk', None) or 0
+        df = getattr(cdef, 'def_', None) if hasattr(cdef, 'def_') else getattr(cdef, 'defense', None)
+        if df is None:
+            df = 0
+        lvl = getattr(cdef, 'level', None) or 0
+        options.append({"id": cid, "label": cobj.name,
+                        "description": f"Lv{lvl} {archetype} · ATK/DEF {atk}/{df}"})
+    if not options:
+        return []
+    top_id = candidates[0]
+
+    def _resolve(choice, selected, st):
+        picked: list[str] = []
+        for entry in selected or []:
+            if isinstance(entry, dict):
+                eid = entry.get("id")
+                if eid is not None:
+                    picked.append(eid)
+            else:
+                picked.append(entry)
+        chosen = picked[0] if picked else top_id
+        # Defensive: chosen must be a current candidate (the GY could shift
+        # mid-chain in pathological cases).
+        valid_ids = {opt["id"] for opt in options}
+        if chosen not in valid_ids:
+            chosen = top_id
+        return revive_from_graveyard(st, controller, chosen)
+
+    return create_choice_and_resolve(
+        state,
+        choice_type="target",
+        player_id=controller,
+        prompt=f"Soulshift: choose 1 Lv {max_level} or lower '{archetype}' "
+               f"from your GY to Special Summon.",
+        options=options,
+        source_id=source_id,
+        min_choices=1,
+        max_choices=1,
+        handler=_resolve,
+        heuristic_pick=[top_id],
+    )
+
+
 def make_soulshift(obj: GameObject, max_level: int, archetype: str = "Spirit"):
     """
     "When this card is destroyed, you may Special Summon 1 <archetype> monster
     from your GY whose Level is <= max_level."
 
+    Phase 4 migration: when 2+ eligible Spirits exist in the GY, the controller
+    chooses which to revive via a ``PendingChoice``. With exactly 1 candidate,
+    auto-revives. AI heuristic preserves the prior "first match in GY order"
+    behavior.
+
     Returns a destroy-trigger Interceptor.
     """
     def effect_fn(o: GameObject, state: GameState):
-        target_id = find_in_graveyard(state, o.controller, archetype, max_level)
-        if not target_id or target_id == o.id:
-            return []
-        return revive_from_graveyard(state, o.controller, target_id)
+        return soulshift_revive(
+            state, o.controller, archetype, max_level,
+            source_id=o.id, exclude_id=o.id,
+        )
     return make_ygo_destroy_trigger(obj, effect_fn)
 
 
@@ -270,5 +378,6 @@ def make_bushido(obj: GameObject, atk_bonus: int = 300, archetype: str = "Samura
 __all__ = [
     "has_subtype", "count_on_field", "find_in_graveyard", "is_modified",
     "make_archetype_lord", "make_archetype_team_lord", "make_soulshift",
+    "soulshift_revive",
     "make_ninjutsu", "make_bushido",
 ]
