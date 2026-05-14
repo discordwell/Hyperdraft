@@ -7,9 +7,11 @@
  * `/match/{id}/choice`. The result of the submit replaces `gameState`.
  *
  * Used by every non-MTG GameView (SCP, HS, PKM, YGO, Finance, MC) to
- * render the same `<ChoiceModal>` overlay that MTG uses. MTG's own
- * GameView keeps its inline implementation for now (Phase 5 collapses
- * its legacy `ui.targetingMode` slice into this same path).
+ * render the same `<ChoiceModal>` overlay that MTG mounts inline. MTG's
+ * legacy `ui.targetingMode` slice (cast-time pre-target overlay) was
+ * removed in Phase 5 — cast-time targeting is now handled by
+ * `GameBoard`'s drag-to-target layer, and resolution-time choices flow
+ * through this same pending_choice path.
  */
 import { useCallback, useMemo, useState } from 'react';
 

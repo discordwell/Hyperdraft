@@ -23,10 +23,6 @@ export function useGame() {
     ui,
     selectCard,
     selectAction,
-    startTargeting,
-    addTarget,
-    cancelTargeting,
-    confirmTargets,
     toggleAttacker,
     setBlocker,
     clearCombatSelections,
@@ -188,22 +184,13 @@ export function useGame() {
 
       if (action) {
         selectAction(action);
-
-        // If requires targets, start targeting mode
-        if (action.requires_targets) {
-          // Get valid targets from battlefield and players
-          const validTargets = [
-            ...gameState!.battlefield.map((c) => c.id),
-            ...Object.keys(gameState!.players),
-          ];
-          startTargeting('single', validTargets);
-        } else {
-          // No targets needed, we can send the action directly
-          // But we need to set it first so buildActionRequest works
-        }
+        // Cast-time targeting is handled by GameBoard's drag-to-target UX
+        // (which calls handleCastSpell/handleCastMultiTargetSpell with
+        // targets already filled in); resolution-time choices come through
+        // pending_choice. We no longer pre-populate UI targeting state here.
       }
     },
-    [gameState, selectAction, startTargeting]
+    [gameState, selectAction]
   );
 
   // Play a land from hand
@@ -295,12 +282,6 @@ export function useGame() {
     // Card selection
     selectCard,
     selectAction,
-
-    // Targeting
-    startTargeting,
-    addTarget,
-    cancelTargeting,
-    confirmTargets,
 
     // Combat
     toggleAttacker,

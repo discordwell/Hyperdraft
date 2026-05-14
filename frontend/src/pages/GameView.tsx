@@ -12,7 +12,7 @@ import { useDragDropStore } from '../hooks/useDragDrop';
 import { GameBoard, GraveyardModal, PriorityPrompt } from '../components/game';
 import { GameLog } from '../components/game/GameLog';
 import { AnimationsToggle } from '../components/game/shared/AnimationsToggle';
-import { ActionMenu, TargetPicker, ChoiceModal } from '../components/actions';
+import { ActionMenu, ChoiceModal } from '../components/actions';
 import { HSGameView } from './HSGameView';
 import { PKMGameView } from './PKMGameView';
 import { YGOGameView } from './YGOGameView';
@@ -35,10 +35,6 @@ export function GameView() {
     playLand,
     selectCard,
     selectAction,
-    startTargeting,
-    addTarget,
-    cancelTargeting,
-    confirmTargets,
     toggleAttacker,
     canAct,
     canDeclareAttackers,
@@ -101,23 +97,6 @@ export function GameView() {
   // Handle card clicks
   const handleCardClick = useCallback(
     (card: CardData, zone: 'hand' | 'battlefield') => {
-      // If we're in targeting mode
-      if (ui.targetingMode !== 'none') {
-        // If clicking a valid target, add it
-        if (ui.validTargets.includes(card.id)) {
-          addTarget(card.id);
-          return;
-        }
-        // If clicking a card in hand (not a valid target), cancel targeting and allow new selection
-        if (zone === 'hand') {
-          cancelTargeting();
-          // Fall through to normal hand card handling below
-        } else {
-          // Clicking an invalid target on battlefield - do nothing
-          return;
-        }
-      }
-
       // If in declare attackers step, toggle attacker
       if (canDeclareAttackers && zone === 'battlefield') {
         toggleAttacker(card.id);
@@ -126,7 +105,10 @@ export function GameView() {
 
       // If clicking a card in hand
       if (zone === 'hand' && canAct()) {
-        // Check if it's a castable spell
+        // Check if it's a castable spell — drag-to-target is handled by
+        // GameBoard's own DnD layer (handleCastSpell). Plain clicks just
+        // queue the cast in the action menu; targets are picked there if
+        // needed.
         const castAction = gameState?.legal_actions.find(
           (a) => a.type === 'CAST_SPELL' && a.card_id === card.id
         );
@@ -149,13 +131,9 @@ export function GameView() {
       selectCard(card.id);
     },
     [
-      ui.targetingMode,
-      ui.validTargets,
       canDeclareAttackers,
       canAct,
       gameState,
-      addTarget,
-      cancelTargeting,
       toggleAttacker,
       castSpell,
       playLand,
@@ -181,22 +159,36 @@ export function GameView() {
     [playLand, gameState, selectAction, sendAction, endDrag]
   );
 
-  // Handle casting a spell via drag and drop
+  // Handle casting a spell via drag and drop. When targets are
+  // supplied by the DnD layer, bypass `selectAction` + `sendAction`
+  // (which used to route through the deleted selectedTargets slice)
+  // and submit the request directly with targets baked in.
   const handleCastSpell = useCallback(
     (cardId: string, targets?: string[]) => {
       endDrag();
-      castSpell(cardId);
-
-      // If we have targets, add them
-      if (targets && targets.length > 0) {
-        targets.forEach((t) => addTarget(t));
-        confirmTargets();
+      if (!targets || targets.length === 0) {
+        castSpell(cardId);
+        setTimeout(() => sendAction(), 0);
+        return;
       }
-
-      // Send the action
-      setTimeout(() => sendAction(), 0);
+      if (!playerId || !matchId) return;
+      const request = {
+        action_type: 'CAST_SPELL' as const,
+        player_id: playerId,
+        card_id: cardId,
+        targets: [targets],
+      };
+      matchAPI.submitAction(matchId, request).then((result) => {
+        if (result.success && result.new_state) {
+          setGameState(result.new_state);
+        } else if (!result.success) {
+          setError(result.message);
+        }
+      }).catch((err) => {
+        setError(err instanceof Error ? err.message : 'Failed to cast spell');
+      });
     },
-    [castSpell, addTarget, confirmTargets, sendAction, endDrag]
+    [castSpell, sendAction, endDrag, playerId, matchId, setGameState, setError]
   );
 
   // Handle casting a multi-target spell
@@ -231,43 +223,28 @@ export function GameView() {
     [gameState, playerId, matchId, setGameState, setError, endDrag]
   );
 
-  // Handle action selection from menu
+  // Handle action selection from menu. Cast-time targeting is now driven
+  // entirely by GameBoard's drag-to-target layer (which calls
+  // handleCastSpell/handleCastMultiTargetSpell with targets baked in) and
+  // by pending_choice for resolution-time choices — so the action menu
+  // just queues the action and sendAction() submits it.
   const handleActionSelect = useCallback(
     (action: LegalActionData) => {
       selectAction(action);
-
-      // If this action requires targets, enter targeting mode.
-      // Server will validate targets; we use a broad allow-list client-side.
-      if (action.type === 'CAST_SPELL' && action.requires_targets && gameState) {
-        const validTargets = [
-          ...gameState.battlefield.map((c) => c.id),
-          ...Object.keys(gameState.players),
-        ];
-        startTargeting('single', validTargets);
-      }
     },
-    [selectAction, startTargeting, gameState]
+    [selectAction]
   );
 
   // Handle confirm action
   const handleConfirmAction = useCallback(async () => {
-    // If we have selected targets, confirm them first
-    if (ui.selectedTargets.length > 0) {
-      confirmTargets();
-    }
-
     await sendAction();
-  }, [ui.selectedTargets, confirmTargets, sendAction]);
+  }, [sendAction]);
 
   // Handle cancel
   const handleCancel = useCallback(() => {
-    if (ui.targetingMode !== 'none') {
-      cancelTargeting();
-    } else {
-      selectAction(null);
-      selectCard(null);
-    }
-  }, [ui.targetingMode, cancelTargeting, selectAction, selectCard]);
+    selectAction(null);
+    selectCard(null);
+  }, [selectAction, selectCard]);
 
   // Handle "Respond" from the priority prompt — scroll the sidebar's
   // action menu into view so the player sees their options. v1 deliberately
@@ -344,22 +321,11 @@ export function GameView() {
     (action: LegalActionData) => {
       setIsGraveyardOpen(false);
       selectAction(action);
-
-      if (!gameState) return;
-
-      if (action.type === 'CAST_SPELL' && action.requires_targets) {
-        const validTargets = [
-          ...gameState.battlefield.map((c) => c.id),
-          ...Object.keys(gameState.players),
-        ];
-        startTargeting('single', validTargets);
-        return;
-      }
-
-      // Fire immediately for non-targeted casts (consistent with hand drag-cast).
+      // Cast-time targets come from drag-to-target or pending_choice; this
+      // path just queues the action and submits.
       setTimeout(() => sendAction(), 0);
     },
-    [gameState, selectAction, startTargeting, sendAction]
+    [selectAction, sendAction]
   );
 
   // Keyboard shortcuts for auto-pass
@@ -380,7 +346,7 @@ export function GameView() {
         setAutoPassMode('no_actions');
       }
       // Space - Quick pass (when we have priority)
-      if (e.key === ' ' && canAct() && !ui.selectedAction && ui.targetingMode === 'none') {
+      if (e.key === ' ' && canAct() && !ui.selectedAction) {
         e.preventDefault();
         pass();
       }
@@ -388,7 +354,7 @@ export function GameView() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [ui.autoPassMode, ui.selectedAction, ui.targetingMode, setAutoPassMode, enablePassUntilEndOfTurn, canAct, pass]);
+  }, [ui.autoPassMode, ui.selectedAction, setAutoPassMode, enablePassUntilEndOfTurn, canAct, pass]);
 
   // Route to HS view for hearthstone-engine games
   if (gameState?.game_mode === 'hearthstone') {
@@ -456,7 +422,6 @@ export function GameView() {
           gameState={gameState}
           playerId={playerId}
           selectedCardId={ui.selectedCardId}
-          validTargets={ui.validTargets}
           selectedAttackers={ui.selectedAttackers}
           selectedBlockers={ui.selectedBlockers}
           onCardClick={handleCardClick}
@@ -474,15 +439,6 @@ export function GameView() {
           playerId={playerId}
           onPass={pass}
           onRespond={handleRespondToPriority}
-        />
-
-        {/* Target Picker Overlay */}
-        <TargetPicker
-          isActive={ui.targetingMode !== 'none'}
-          selectedTargets={ui.selectedTargets}
-          requiredCount={ui.requiredTargetCount}
-          onConfirm={handleConfirmAction}
-          onCancel={cancelTargeting}
         />
 
         {/* Choice Modal Overlay */}

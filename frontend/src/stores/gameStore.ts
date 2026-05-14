@@ -13,9 +13,6 @@ import type {
   PlayerActionRequest,
 } from '../types';
 
-// UI State Types
-export type TargetingMode = 'none' | 'single' | 'multiple';
-
 // Auto-pass modes
 export type AutoPassMode =
   | 'off'           // Never auto-pass
@@ -27,12 +24,6 @@ export interface UIState {
   // Selected elements
   selectedCardId: string | null;
   selectedAction: LegalActionData | null;
-
-  // Targeting
-  targetingMode: TargetingMode;
-  validTargets: string[];
-  selectedTargets: string[];
-  requiredTargetCount: number;
 
   // Combat
   selectedAttackers: string[];
@@ -74,17 +65,6 @@ interface GameStore {
   selectCard: (cardId: string | null) => void;
   selectAction: (action: LegalActionData | null) => void;
 
-  // Targeting
-  startTargeting: (
-    mode: TargetingMode,
-    validTargets: string[],
-    requiredCount?: number
-  ) => void;
-  addTarget: (targetId: string) => void;
-  removeTarget: (targetId: string) => void;
-  cancelTargeting: () => void;
-  confirmTargets: () => string[];
-
   // Combat
   toggleAttacker: (creatureId: string) => void;
   setBlocker: (blockerId: string, attackerId: string | null) => void;
@@ -117,10 +97,6 @@ interface GameStore {
 const initialUIState: UIState = {
   selectedCardId: null,
   selectedAction: null,
-  targetingMode: 'none',
-  validTargets: [],
-  selectedTargets: [],
-  requiredTargetCount: 1,
   selectedAttackers: [],
   selectedBlockers: new Map(),
   autoPassMode: 'no_actions', // Default to smart auto-pass
@@ -227,77 +203,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
       },
     })),
 
-  // Targeting
-  startTargeting: (mode, validTargets, requiredCount = 1) =>
-    set((state) => ({
-      ui: {
-        ...state.ui,
-        targetingMode: mode,
-        validTargets,
-        requiredTargetCount: requiredCount,
-        selectedTargets: [],
-      },
-    })),
-
-  addTarget: (targetId) =>
-    set((state) => {
-      const { ui } = state;
-      if (!ui.validTargets.includes(targetId)) return state;
-      if (ui.selectedTargets.includes(targetId)) return state;
-
-      const newTargets = [...ui.selectedTargets, targetId];
-
-      // For single target mode, auto-confirm when we have one
-      if (ui.targetingMode === 'single' && newTargets.length >= ui.requiredTargetCount) {
-        return {
-          ui: {
-            ...ui,
-            selectedTargets: newTargets,
-          },
-        };
-      }
-
-      return {
-        ui: {
-          ...ui,
-          selectedTargets: newTargets,
-        },
-      };
-    }),
-
-  removeTarget: (targetId) =>
-    set((state) => ({
-      ui: {
-        ...state.ui,
-        selectedTargets: state.ui.selectedTargets.filter((t) => t !== targetId),
-      },
-    })),
-
-  cancelTargeting: () =>
-    set((state) => ({
-      ui: {
-        ...state.ui,
-        targetingMode: 'none',
-        validTargets: [],
-        selectedTargets: [],
-        requiredTargetCount: 1,
-        selectedAction: null,
-      },
-    })),
-
-  confirmTargets: () => {
-    const targets = get().ui.selectedTargets;
-    set((state) => ({
-      ui: {
-        ...state.ui,
-        targetingMode: 'none',
-        validTargets: [],
-        requiredTargetCount: 1,
-      },
-    }));
-    return targets;
-  },
-
   // Combat
   toggleAttacker: (creatureId) =>
     set((state) => {
@@ -341,7 +246,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   // Build action request
   buildActionRequest: () => {
     const { playerId, ui } = get();
-    const { selectedAction, selectedTargets, selectedAttackers, selectedBlockers } = ui;
+    const { selectedAction, selectedAttackers, selectedBlockers } = ui;
 
     if (!playerId || !selectedAction) return null;
 
@@ -359,11 +264,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (selectedAction.ability_id) {
       request.ability_id = selectedAction.ability_id;
       request.source_id = selectedAction.source_id || undefined;
-    }
-
-    // Add targets if we have them
-    if (selectedTargets.length > 0) {
-      request.targets = [selectedTargets];
     }
 
     // Add combat declarations
