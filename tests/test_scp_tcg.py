@@ -1020,26 +1020,33 @@ def test_public_reveal_helper_drops_secrecy_and_emits_audit():
     game, p1, _p2 = _setup()
     anomaly = _hand_card(game, p1, "Moth in the Camera")
     # Patch the card_def's reveal hook in place — mechanic modules do this too.
+    # CardDefinition is shared across all in-game copies, so we restore in finally.
+    original_hook = anomaly.card_def.scp_on_reveal
     anomaly.card_def.scp_on_reveal = scp._public_reveal(2)
-
-    ok, _msg, events = scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)
-    assert ok
-    assert scp.site(game.state, p1.id)["secrecy"] == 10 - 2  # fast_track on red_tape=0 anomaly is free
-    audit_events = [e for e in events if e.type == EventType.SCP_AUDIT and e.payload.get("reason") == "public_reveal"]
-    assert audit_events, "expected SCP_AUDIT reason=public_reveal"
+    try:
+        ok, _msg, events = scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)
+        assert ok
+        assert scp.site(game.state, p1.id)["secrecy"] == 10 - 2  # fast_track on red_tape=0 anomaly is free
+        audit_events = [e for e in events if e.type == EventType.SCP_AUDIT and e.payload.get("reason") == "public_reveal"]
+        assert audit_events, "expected SCP_AUDIT reason=public_reveal"
+    finally:
+        anomaly.card_def.scp_on_reveal = original_hook
 
 
 def test_seeded_mood_helper_sets_mood_and_protocol():
     game, p1, _p2 = _setup()
     anomaly = _hand_card(game, p1, "Moth in the Camera")
+    original_hook = anomaly.card_def.scp_on_reveal
     anomaly.card_def.scp_on_reveal = scp._seeded_mood("cryptic", protocol="ritual_diagram", briefing=1)
-
-    ok, _msg, events = scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)
-    assert ok
-    assert anomaly.state.scp_mood == "cryptic"
-    assert "ritual_diagram" in anomaly.state.scp_protocols
-    assert scp.site(game.state, p1.id)["briefing"] == 1
-    assert any(e.type == EventType.SCP_MOOD_SHIFT for e in events)
+    try:
+        ok, _msg, events = scp.open_dossier(game, p1.id, anomaly.id, fast_track=True)
+        assert ok
+        assert anomaly.state.scp_mood == "cryptic"
+        assert "ritual_diagram" in anomaly.state.scp_protocols
+        assert scp.site(game.state, p1.id)["briefing"] == 1
+        assert any(e.type == EventType.SCP_MOOD_SHIFT for e in events)
+    finally:
+        anomaly.card_def.scp_on_reveal = original_hook
 
 
 def test_tax_own_pending_taxes_only_callers_pending_dossiers():
