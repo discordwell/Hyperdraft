@@ -193,9 +193,15 @@ def test_beetle_legacy_criminal_pumps_with_flying():
 
 
 def test_undying_malice_grants_death_trigger():
-    """Resolving Undying Malice grants a death trigger that emits return + counter."""
+    """Resolving Undying Malice grants a death trigger that emits return + counter.
+
+    Phase 5b: targets are pre-chosen at cast time via ``target_requirements``.
+    The resolve_fn consumes ``targets[0]`` directly (Target instances) instead
+    of opening its own PendingChoice.
+    """
     from src.cards.foundations import UNDYING_MALICE
     from src.engine.types import CardDefinition, Characteristics
+    from src.engine.targeting import Target
     game = Game()
     p1 = game.add_player("Alice")
     p2 = game.add_player("Bob")
@@ -223,14 +229,9 @@ def test_undying_malice_grants_death_trigger():
     if stack_zone is not None and spell.id not in stack_zone.objects:
         stack_zone.objects.append(spell.id)
 
-    # Invoke resolve — sets a pending target choice.
-    UNDYING_MALICE.resolve([], game.state)
-    pc = game.state.pending_choice
-    assert pc is not None and pc.choice_type == "target_with_callback"
-    assert bear.id in (pc.options or [])
-    # Run the handler with the bear chosen — it should install a death trigger.
-    handler = pc.callback_data['handler']
-    handler(pc, [bear.id], game.state)
+    # Phase 5b: invoke resolve with pre-chosen targets (engine fills these
+    # via PendingChoice at cast time; we hand-feed them for the unit test).
+    UNDYING_MALICE.resolve([[Target(id=bear.id, is_player=False)]], game.state)
     # The grant is implemented as an interceptor that fires on OBJECT_DESTROYED.
     interceptors = [i for i in game.state.interceptors.values() if i.duration == 'end_of_turn']
     assert interceptors, "expected a granted death-trigger interceptor"
