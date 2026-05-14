@@ -60,6 +60,8 @@ from src.cards.interceptor_helpers import (
     make_cycling_setup,
     # Modal resolve
     make_modal_resolve,
+    ModeSpec,
+    normalize_target,
     # Copy-ability mechanic (Gogo, Master of Mimicry).
     make_copy_ability_event,
     # FIN: Tiered cost ("Choose one additional cost.")
@@ -703,39 +705,17 @@ def _reach_the_horizon_resolve(targets, state):
 
 
 def _unexpected_request_resolve(targets, state):
-    """Gain control of target creature until end of turn. Untap, gain haste.
-    The optional 'attach an Equipment you control' rider is left as a gap."""
+    """Phase 5b: targets[0][0] is the creature to threaten. Optional
+    Equipment attach is engine gap."""
     caster = _ff_caster_id(state)
     if caster is None:
         return []
     src_obj = _ff_top_spell_card(state, "Unexpected Request")
     src_id = src_obj.id if src_obj is not None else "unexpected_request_spell"
-
-    legal = [
-        oid for oid, ob in state.objects.items()
-        if (ob.zone == ZoneType.BATTLEFIELD
-            and CardType.CREATURE in ob.characteristics.types
-            and ob.controller != caster)
-    ]
-    if not legal:
+    if not targets or not targets[0]:
         return []
-
-    def _handler(choice, selected, gs: GameState) -> list[Event]:
-        if not selected:
-            return []
-        return threaten_creature(selected[0], caster, source_id=src_id)
-
-    choice = create_target_choice(
-        state=state,
-        player_id=caster,
-        source_id=src_id,
-        legal_targets=legal,
-        prompt="Unexpected Request: choose target creature to steal",
-        min_targets=1, max_targets=1,
-    )
-    choice.choice_type = "target_with_callback"
-    choice.callback_data['handler'] = _handler
-    return []
+    tid, _ = normalize_target(targets[0][0], state)
+    return threaten_creature(tid, caster, source_id=src_id)
 
 
 def _from_father_to_son_resolve(targets, state):
@@ -7570,6 +7550,7 @@ UNEXPECTED_REQUEST = make_sorcery(
     colors={Color.RED},
     text="Gain control of target creature until end of turn. Untap that creature. It gains haste until end of turn. You may attach an Equipment you control to that creature. If you do, unattach it at the beginning of the next end step.",
     resolve=_unexpected_request_resolve,
+    target_requirements=[target_creature(count=1, controller='opponent')],
 )
 
 VAAN_STREET_THIEF = make_creature(

@@ -52,6 +52,7 @@ from src.cards.interceptor_helpers import (
     make_cost_reduction,
     # Modal resolve.
     make_modal_resolve,
+    ModeSpec,
 )
 from src.engine.spm_mechanics import (
     is_web_slinging_cast, web_slinging_returned_mv, is_mayhem_cast,
@@ -59,7 +60,10 @@ from src.engine.spm_mechanics import (
 )
 from src.engine.library_search import _shuffle_library
 # Phase 5b: cast-time target-choice requirements.
-from src.engine.targeting import target_player
+from src.engine.targeting import (
+    target_player, target_creature, target_any, target_spell,
+    TargetRequirement, TargetFilter, creature_filter, permanent_filter,
+)
 
 
 # =============================================================================
@@ -3613,67 +3617,38 @@ SPECTACULAR_SPIDERMAN = make_creature(
     setup_interceptors=spectacular_spiderman_setup,
 )
 
-def _spectacular_tactics_mode_buff(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
-    """+1/+1 counter on creature you control; gains hexproof EOT."""
-    legal = [
-        oid for oid, o in state.objects.items()
-        if (o.zone == ZoneType.BATTLEFIELD
-            and CardType.CREATURE in o.characteristics.types
-            and o.controller == caster_id)
-    ]
-    if not legal:
+def _spectacular_tactics_mode_buff(state, caster_id, spell_id, targets=None):
+    """+1/+1 counter + hexproof on target creature you control."""
+    if not targets:
         return []
-    def _on_target(ch, selected, st):
-        if not selected:
-            return []
-        return [
-            Event(
-                type=EventType.COUNTER_ADDED,
-                payload={'object_id': selected[0], 'counter_type': '+1/+1', 'amount': 1},
-                source=spell_id, controller=caster_id,
-            ),
-            Event(
-                type=EventType.GRANT_KEYWORD,
-                payload={'object_id': selected[0], 'keyword': 'hexproof', 'duration': 'end_of_turn'},
-                source=spell_id, controller=caster_id,
-            ),
-        ]
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Spectacular Tactics: choose your creature",
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
-
-
-def _spectacular_tactics_mode_destroy(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
-    """Destroy target creature with power 4 or greater."""
-    legal = [
-        oid for oid, o in state.objects.items()
-        if (o.zone == ZoneType.BATTLEFIELD
-            and CardType.CREATURE in o.characteristics.types
-            and getattr(o.state, 'power', 0) >= 4)
-    ]
-    if not legal:
-        return []
-    def _on_target(ch, selected, st):
-        if not selected:
-            return []
-        return [Event(
-            type=EventType.DESTROY,
-            payload={'object_id': selected[0]},
+    tid = targets[0].id
+    return [
+        Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': tid, 'counter_type': '+1/+1', 'amount': 1},
             source=spell_id, controller=caster_id,
-        )]
-    tc = create_target_choice(
-        state=state, player_id=caster_id, source_id=spell_id,
-        legal_targets=legal,
-        prompt="Spectacular Tactics: destroy creature with power 4+",
-    )
-    tc.choice_type = "target_with_callback"
-    tc.callback_data['handler'] = _on_target
-    return []
+        ),
+        Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': tid, 'keyword': 'hexproof', 'duration': 'end_of_turn'},
+            source=spell_id, controller=caster_id,
+        ),
+    ]
+
+
+def _spectacular_tactics_mode_destroy(state, caster_id, spell_id, targets=None):
+    """Destroy target creature with power 4 or greater."""
+    if not targets:
+        return []
+    return [Event(
+        type=EventType.DESTROY,
+        payload={'object_id': targets[0].id},
+        source=spell_id, controller=caster_id,
+    )]
+
+
+def _power_4_plus(obj: GameObject, state: GameState) -> bool:
+    return get_power(obj, state) >= 4
 
 
 SPECTACULAR_TACTICS = make_instant(
@@ -3684,8 +3659,19 @@ SPECTACULAR_TACTICS = make_instant(
     resolve=make_modal_resolve(
         "Spectacular Tactics",
         modes=[
-            ("+1/+1 counter and hexproof on your creature", _spectacular_tactics_mode_buff),
-            ("Destroy target creature with power 4 or greater", _spectacular_tactics_mode_destroy),
+            ModeSpec(
+                "+1/+1 counter and hexproof on your creature",
+                _spectacular_tactics_mode_buff,
+                target_requirement=target_creature(count=1, controller='you'),
+            ),
+            ModeSpec(
+                "Destroy target creature with power 4 or greater",
+                _spectacular_tactics_mode_destroy,
+                target_requirement=TargetRequirement(
+                    filter=creature_filter(custom_filter=_power_4_plus),
+                    count=1, label="target creature with power 4 or greater",
+                ),
+            ),
         ],
         min_modes=1, max_modes=1,
     ),

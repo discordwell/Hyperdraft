@@ -235,9 +235,11 @@ def test_fin_skip_flags_modal_exotic_and_internal_choice():
     - Exotic / internal target choice: Self-Destruct ("another target"
       cross-exclusion not modelled), Louisoix's Sacrifice (target
       activated/triggered ability — ability targeting not supported),
-      Unexpected Request (internal target_choice + threaten),
       Reach the Horizon / From Father to Son / Commune with Beavers
       (library searches, no spell-target involved).
+
+    Note: UNEXPECTED_REQUEST was migrated in Phase 5b follow-up to use
+    ``target_requirements=[target_creature(controller='opponent')]``.
     """
     fin = _fin
     skipped = [
@@ -251,7 +253,7 @@ def test_fin_skip_flags_modal_exotic_and_internal_choice():
         fin.THUNDER_MAGIC, fin.TIFAS_LIMIT_BREAK,
         # Exotic / internal choice
         fin.SELFDESTRUCT, fin.LOUISOIXS_SACRIFICE,
-        fin.UNEXPECTED_REQUEST, fin.REACH_THE_HORIZON,
+        fin.REACH_THE_HORIZON,
         fin.FROM_FATHER_TO_SON, fin.COMMUNE_WITH_BEAVERS,
     ]
     for card in skipped:
