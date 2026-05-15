@@ -35,6 +35,28 @@
 | **Survival** (DSK) | helper-only | `make_survival_trigger(obj, effect_fn)` — fires on `PHASE_START('postcombat_main')` when source is tapped and active player matches |
 | **Eerie** (DSK) | helper-only | `make_eerie_trigger(obj, effect_fn)` — fires on enchantment-ETB controlled by source.controller OR on UNLOCK_DOOR when room is fully unlocked (both doors). 13 cards wired (incl. Fear of Infinity via `setup_in_graveyard`) |
 
+### Agent X — OTJ + TLA noop sweep (2026-05-15)
+
+7 additional noop-stub cards wired across OTJ + TLA:
+
+| Set | Card | Mechanic |
+|---|---|---|
+| OTJ | Doc Aurlock, Grizzled Genius | Cost reduction for spells you cast from your graveyard or from exile |
+| TLA | Badgermole Cub | Earthbend 1 ETB |
+| TLA | Earth Rumble Wrestlers | Conditional +1/+0 + trample (land-creature OR land-played-this-turn) |
+| TLA | Tiger-Dillo | Conditional `cant_attack` / `cant_block` via QUERY_ABILITIES grant |
+| TLA | Merchant of Many Hats | Graveyard activated `{2}{B}: Return to hand` (via `setup_in_graveyard`) |
+| TLA | Hakoda, Selfless Commander | Sacrifice activated: pump + indestructible UEOT on creatures you control |
+| TLA | Raucous Audience | Mana ability `{T}: Add {G}, or {G}{G} if power-4 helper` |
+| TLA | Watery Grasp | Aura — enchanted creature doesn't untap (PREVENT-priority interceptor on UNTAP) |
+
+Noop counts: OTJ 14 → 13, TLA 21 → 15. Remaining TLA noops are mostly
+Waterbend activated abilities (need a `make_waterbend_*` helper analogous
+to firebend/earthbend/airbend), Wolfbat (optional-cost trigger on
+second-card-drawn), Katara the Fearless (Ally trigger doubling), Trusty
+Boomerang (equipment-granted activated ability), and Zuko Conflicted
+(modal main-phase trigger w/ "choose one not chosen" history).
+
 ### Code-review followups (resolved)
 
 The following gaps were called out in the post-session code review and have
