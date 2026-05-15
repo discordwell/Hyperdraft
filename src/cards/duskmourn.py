@@ -62,6 +62,8 @@ from src.cards.interceptor_helpers import (
     reveal_top_n_with_distinct_filter,
     # Phase 5b modal helpers
     make_modal_resolve, ModeSpec, normalize_target,
+    # DSK Impending mechanic
+    make_impending_setup,
 )
 from src.engine.spell_resolve import (
     resolve_chain,
@@ -1119,11 +1121,15 @@ def victor_valgavoths_seneschal_setup(obj: GameObject, state: GameState) -> list
 # =============================================================================
 # AUTO-GENERATED SETUP STUBS (DSK)
 # =============================================================================
-# Many DSK mechanics (Survival, Rooms/UNLOCK_DOOR, manifest dread, Impending,
+# Many DSK mechanics (Survival, Rooms/UNLOCK_DOOR, manifest dread,
 # Eerie, Delirium counter checks, ward, replacement of "to graveyard" with
 # exile, life-total leylines, etc.) are partially or fully unimplemented in
 # the engine. Setup functions below register triggers wherever a clean
 # trigger pattern exists and otherwise return [] with an "engine gap" note.
+#
+# Impending is now wired via ``make_impending_setup`` (see the 5 Overlord
+# cards in this module; framework lives in ``src/engine/impending.py`` and
+# ``src/cards/interceptor_helpers.py``).
 
 def _make_simple_etb_react(obj: GameObject, effect_fn) -> list[Interceptor]:
     """Helper: register an ETB trigger that fires effect_fn when present."""
@@ -1333,7 +1339,7 @@ def lionheart_glimmer_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def overlord_of_the_mistmoors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Impending; on enter or attack, create two 2/1 white flying Insect tokens."""
+    """Impending 4—{2}{W}{W}; on enter or attack, create two 2/1 white flying Insect tokens."""
     def effect(event: Event, state: GameState) -> list[Event]:
         token = {
             'controller': obj.controller, 'name': 'Insect',
@@ -1345,7 +1351,10 @@ def overlord_of_the_mistmoors_setup(obj: GameObject, state: GameState) -> list[I
             Event(type=EventType.CREATE_TOKEN, payload=dict(token), source=obj.id),
             Event(type=EventType.CREATE_TOKEN, payload=dict(token), source=obj.id),
         ]
-    return [make_etb_trigger(obj, effect), make_attack_trigger(obj, effect)]
+    impending = make_impending_setup(
+        impending_cost="{2}{W}{W}", time_counters=4,
+    )(obj, state)
+    return impending + [make_etb_trigger(obj, effect), make_attack_trigger(obj, effect)]
 
 
 def patched_plaything_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2075,13 +2084,16 @@ def mirror_room_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def overlord_of_the_floodpits_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Impending; on enter/attack, draw 2 discard 1."""
+    """Impending 4—{1}{U}{U}; on enter/attack, draw 2 discard 1."""
     def effect(event: Event, state: GameState) -> list[Event]:
         return [
             Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 2}, source=obj.id),
             Event(type=EventType.DISCARD, payload={'player': obj.controller, 'count': 1}, source=obj.id),
         ]
-    return [make_etb_trigger(obj, effect), make_attack_trigger(obj, effect)]
+    impending = make_impending_setup(
+        impending_cost="{1}{U}{U}", time_counters=4,
+    )(obj, state)
+    return impending + [make_etb_trigger(obj, effect), make_attack_trigger(obj, effect)]
 
 
 def paranormal_analyst_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2604,10 +2616,13 @@ def osseous_sticktwister_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def overlord_of_the_balemurk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Impending; on enter/attack, mill 4 + may return creature/PW from GY."""
+    """Impending 5—{1}{B}; on enter/attack, mill 4 + may return creature/PW from GY."""
     def effect(event: Event, state: GameState) -> list[Event]:
         return [Event(type=EventType.MILL, payload={'player': obj.controller, 'count': 4}, source=obj.id)]
-    return [make_etb_trigger(obj, effect), make_attack_trigger(obj, effect)]
+    impending = make_impending_setup(
+        impending_cost="{1}{B}", time_counters=5,
+    )(obj, state)
+    return impending + [make_etb_trigger(obj, effect), make_attack_trigger(obj, effect)]
 
 
 def popular_egotist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3001,14 +3016,17 @@ def norin_swift_survivalist_setup(obj: GameObject, state: GameState) -> list[Int
 
 
 def overlord_of_the_boilerbilges_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Impending; on enter/attack, deal 4 to any target."""
+    """Impending 4—{2}{R}{R}; on enter/attack, deal 4 to any target."""
     def effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.TARGET_REQUIRED,
             payload={'source': obj.id, 'effect': 'damage', 'amount': 4, 'filter': 'any_target'},
             source=obj.id,
         )]
-    return [make_etb_trigger(obj, effect), make_attack_trigger(obj, effect)]
+    impending = make_impending_setup(
+        impending_cost="{2}{R}{R}", time_counters=4,
+    )(obj, state)
+    return impending + [make_etb_trigger(obj, effect), make_attack_trigger(obj, effect)]
 
 
 def painters_studio_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3492,7 +3510,7 @@ def moldering_gym_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def overlord_of_the_hauntwoods_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Impending; on enter/attack, create tapped omni-basic land token."""
+    """Impending 4—{1}{G}{G}; on enter/attack, create tapped omni-basic land token."""
     def effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.CREATE_TOKEN,
@@ -3503,7 +3521,10 @@ def overlord_of_the_hauntwoods_setup(obj: GameObject, state: GameState) -> list[
             },
             source=obj.id,
         )]
-    return [make_etb_trigger(obj, effect), make_attack_trigger(obj, effect)]
+    impending = make_impending_setup(
+        impending_cost="{1}{G}{G}", time_counters=4,
+    )(obj, state)
+    return impending + [make_etb_trigger(obj, effect), make_attack_trigger(obj, effect)]
 
 
 def patchwork_beastie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

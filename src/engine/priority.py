@@ -54,6 +54,12 @@ from .warp import (
     schedule_warp_exile_for_object,
     is_warp_castable_from_hand,
 )
+from .impending import (
+    parse_impending_cost,
+    mark_impending_used,
+    mark_impending_cast,
+    is_impending_castable_from_hand,
+)
 # === Spree cost-per-mode (W12) ===
 # OTJ Spree mechanic — see src/engine/spree.py. The names are aliased with
 # leading underscores so the priority module's local symbol table stays
@@ -1140,6 +1146,36 @@ class PrioritySystem:
                                 description=f"Cast {card.name} (warp {warp_cost.to_string()})",
                                 requires_mana=not warp_cost.is_free(),
                                 mana_cost=warp_cost,
+                            ))
+
+                # DSK Impending: alternate cast cost from hand. Each card may
+                # be impending-cast at most once per game (mirrors Warp). The
+                # alt cost route flags the object so its setup_interceptors
+                # installs the time-counter / type-strip on ETB.
+                if is_impending_castable_from_hand(card, self.state, player_id):
+                    parsed_imp = parse_impending_cost(
+                        getattr(getattr(card, "card_def", None), "text", None)
+                    )
+                    if parsed_imp is not None:
+                        imp_n, imp_cost = parsed_imp
+                        imp_ctx = CastCostContext(
+                            state=self.state,
+                            mana_system=self.mana_system,
+                            player_id=player_id,
+                            casting_card_id=card_id,
+                            casting_card_name=card.name,
+                            casting_zone=card.zone,
+                            base_mana_cost=imp_cost,
+                            x_value=0,
+                        )
+                        if self._can_cast(card, player_id, cost_override=imp_cost) and self._can_pay_cost_plan(std_plan, imp_ctx):
+                            actions.append(LegalAction(
+                                type=ActionType.CAST_SPELL,
+                                card_id=card_id,
+                                ability_id="hand:impending",
+                                description=f"Cast {card.name} (impending {imp_n}—{imp_cost.to_string()})",
+                                requires_mana=not imp_cost.is_free(),
+                                mana_cost=imp_cost,
                             ))
 
         # Casting from graveyard (Flashback/Harmonize/Mayhem/etc.).
@@ -2500,6 +2536,17 @@ class PrioritySystem:
                 return []
             paid_cost = warp_cost
             used_warp = True
+        elif action.ability_id == "hand:impending" and is_impending_castable_from_hand(card, self.state, action.player_id):
+            # DSK Impending: cast from hand for the impending cost. Flag the
+            # in-flight object so setup_interceptors detects the impending
+            # path on ETB; flag the card definition as used.
+            parsed_imp = parse_impending_cost(getattr(getattr(card, "card_def", None), "text", None))
+            if parsed_imp is None:
+                return []
+            paid_cost = parsed_imp[1]
+            mark_impending_cast(card)
+            if getattr(card, "card_def", None) is not None:
+                mark_impending_used(card.card_def)
         elif from_adventure_exile:
             # WOE Adventure recursion: pay the printed mana cost. The
             # ``adventure_exile`` flag is cleared once the card actually

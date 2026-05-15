@@ -11041,3 +11041,240 @@ def was_destroyed_this_turn(obj_id: str, state: GameState) -> bool:
     _ensure_destruction_tracker(state)
     destroyed: set = state.turn_data.get("destroyed_this_turn") or set()
     return obj_id in destroyed
+
+
+# =============================================================================
+# DSK Impending mechanic (CR 702.x — alt-cast with time counters)
+# =============================================================================
+#
+# Reference card text:
+#     "Impending N—{cost} (If you cast this spell for its impending cost,
+#      it enters with N time counters and isn't a creature until the last
+#      is removed. At the beginning of your end step, remove a time counter
+#      from it.)
+#      Whenever this permanent enters or attacks, <effect>."
+#
+# Three moving pieces:
+#   1. Alt-cost cast option. Surfaced in priority.py as the
+#      ``hand:impending`` ability_id. The cast site flags the in-flight
+#      object via ``mark_impending_cast`` so the ETB-installer below can
+#      detect the impending path.
+#   2. ETB-time installer. Installed as a REACT interceptor on the source.
+#      On ETB it checks ``is_impending_pending`` and, if set, emits
+#      COUNTER_ADDED events to put N time counters on the object and
+#      clears the pending flag.
+#   3. While time counters > 0:
+#      a) A QUERY_TYPES interceptor strips CardType.CREATURE from the
+#         effective types. The interceptor's filter checks the live
+#         counter count so once counters reach 0, the strip stops
+#         applying without any teardown.
+#      b) An end-step trigger emits COUNTER_REMOVED to take one off.
+#
+# The "Whenever this enters or attacks" trigger is created separately by
+# the card script (via ``make_etb_trigger`` / ``make_attack_trigger``)
+# because each card has a unique effect. Triggers fire regardless of
+# whether the permanent is currently a creature — they live on the
+# battlefield zone, not on creature-type gating.
+# =============================================================================
+
+def make_impending_setup(
+    *,
+    impending_cost: str,
+    time_counters: int,
+):
+    """Return a ``setup_interceptors`` callable that wires the Impending
+    bookkeeping for a permanent (time-counter ETB add, type strip while
+    counters > 0, end-step decrement).
+
+    Args:
+        impending_cost: The mana portion of the impending alt cost,
+            e.g. ``"{2}{W}{W}"``. Stored on the object for diagnostics /
+            UI; the actual cast-time parsing reads from the card text.
+        time_counters: N — number of time counters the permanent enters
+            with when cast for impending.
+
+    Usage:
+
+        def my_card_setup(obj, state):
+            base = make_impending_setup(
+                impending_cost="{2}{W}{W}", time_counters=4,
+            )(obj, state)
+            # Add the card's enter / attack triggered ability:
+            def effect(event, state):
+                return [...]
+            return base + [
+                make_etb_trigger(obj, effect),
+                make_attack_trigger(obj, effect),
+            ]
+
+    Returns a callable ``(obj, state) -> list[Interceptor]`` suitable for
+    direct use as a ``CardDefinition.setup_interceptors`` (in which case
+    only the impending bookkeeping is installed) or as the seed for a
+    composite setup function (in which case the caller appends their own
+    triggers).
+
+    Engine support / limitations:
+      * The QUERY_TYPES strip is implemented (the permanent is correctly
+        not a creature while time counters > 0). However, downstream
+        consumers that read ``obj.characteristics.types`` directly (rather
+        than going through ``get_types``) will not see the strip. The
+        engine consistently goes through ``get_types`` for creature
+        identification (combat, can-attack, can-block, etc.) so this is
+        correct for the engine, but custom scripts reading characteristics
+        raw may need adjustment.
+      * Casting "normally" (printed cost) does not install time counters,
+        and the printed creature type stays intact — verified by the
+        ETB-installer reading ``is_impending_pending`` only at ETB.
+      * Counter decrement fires on the controller's end step, matching
+        the printed rules (CR 702.144 / impending reminder text). The
+        decrement only happens while time counters > 0.
+    """
+    # Import locally so the engine package is fully built before the
+    # impending module is touched (this file is imported very early).
+    from src.engine.impending import (
+        is_impending_pending,
+        clear_impending_pending,
+    )
+
+    n_counters = int(time_counters)
+    if n_counters <= 0:
+        raise ValueError(
+            f"make_impending_setup: time_counters must be >= 1, got {n_counters}"
+        )
+
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        # Stash the impending cost on the object for diagnostics / UI.
+        try:
+            setattr(obj, "_impending_cost", impending_cost)
+            setattr(obj, "_impending_n", n_counters)
+        except Exception:  # pragma: no cover
+            pass
+
+        source_id = obj.id
+
+        # ----- 1) ETB-time time-counter installer -------------------------
+        # Fires once on the controller's ETB; if the in-flight object was
+        # marked impending-pending by the cast pipeline, add the N time
+        # counters and clear the marker so a re-ETB (flicker / reanimate)
+        # doesn't accidentally re-arm the impending state.
+        def etb_filter(event: Event, st: GameState, src: GameObject) -> bool:
+            if event.type == EventType.ZONE_CHANGE:
+                return (event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD and
+                        event.payload.get('object_id') == src.id)
+            if event.type == EventType.OBJECT_CREATED:
+                return (event.payload.get('object_id') == src.id and
+                        event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD)
+            return False
+
+        def etb_install_effect(event: Event, st: GameState) -> list[Event]:
+            live = st.objects.get(source_id)
+            if live is None:
+                return []
+            if not is_impending_pending(live):
+                return []
+            # Consume the pending flag so a future flicker / blink doesn't
+            # reset the time counters.
+            clear_impending_pending(live)
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={
+                    'object_id': source_id,
+                    'counter_type': 'time',
+                    'amount': n_counters,
+                },
+                source=source_id,
+                controller=live.controller,
+            )]
+
+        def etb_handler(event: Event, st: GameState) -> InterceptorResult:
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=etb_install_effect(event, st),
+            )
+
+        etb_interceptor = Interceptor(
+            id=new_id(),
+            source=source_id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=lambda e, st: etb_filter(e, st, obj),
+            handler=etb_handler,
+            duration='while_on_battlefield',
+        )
+        _mark_triggered_ability(
+            etb_interceptor, etb_install_effect,
+            description=f"Impending {n_counters} — install time counters on ETB",
+        )
+
+        # ----- 2) QUERY_TYPES strip while time counters > 0 ---------------
+        # Removes CardType.CREATURE from the effective types of this
+        # object whenever it has time counters. Implemented as a TRANSFORM
+        # interceptor on QUERY_TYPES (the standard mechanism, used by
+        # ``becomes_creature`` etc.).
+        def types_filter(event: Event, st: GameState) -> bool:
+            if event.type != EventType.QUERY_TYPES:
+                return False
+            if event.payload.get('object_id') != source_id:
+                return False
+            live = st.objects.get(source_id)
+            if live is None:
+                return False
+            # Only strip while time counters > 0; once they reach 0 this
+            # interceptor turns into a no-op without needing teardown.
+            return int(live.state.counters.get('time', 0)) > 0
+
+        def types_handler(event: Event, st: GameState) -> InterceptorResult:
+            new_event = event.copy()
+            live = st.objects.get(source_id)
+            base_types = (
+                new_event.payload.get('value')
+                or set(live.characteristics.types) if live else set()
+            )
+            stripped = {t for t in base_types if t != CardType.CREATURE}
+            new_event.payload['value'] = stripped
+            return InterceptorResult(
+                action=InterceptorAction.TRANSFORM,
+                transformed_event=new_event,
+            )
+
+        types_interceptor = Interceptor(
+            id=new_id(),
+            source=source_id,
+            controller=obj.controller,
+            priority=InterceptorPriority.QUERY,
+            filter=types_filter,
+            handler=types_handler,
+            duration='while_on_battlefield',
+        )
+
+        # ----- 3) End-step decrement of time counters ---------------------
+        def upkeep_decrement_effect(event: Event, st: GameState) -> list[Event]:
+            live = st.objects.get(source_id)
+            if live is None or live.zone != ZoneType.BATTLEFIELD:
+                return []
+            current = int(live.state.counters.get('time', 0))
+            if current <= 0:
+                return []
+            return [Event(
+                type=EventType.COUNTER_REMOVED,
+                payload={
+                    'object_id': source_id,
+                    'counter_type': 'time',
+                    'amount': 1,
+                },
+                source=source_id,
+                controller=live.controller,
+            )]
+
+        end_step_interceptor = make_end_step_trigger(
+            obj, upkeep_decrement_effect, controller_only=True,
+        )
+
+        return [etb_interceptor, types_interceptor, end_step_interceptor]
+
+    return _setup
+
+
+__all_impending__ = [
+    "make_impending_setup",
+]

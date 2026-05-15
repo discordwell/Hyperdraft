@@ -31,6 +31,7 @@
 | **Ward** | new `EventType.TARGET_CHOSEN` event | `make_ward(mana_cost/life_cost/custom_cost)` + `ward_cost` kwarg |
 | **Restricted mana** | `ManaUnit.restriction` + `ManaPool.can_pay(for_card=...)` | `produce_mana_restricted` + auto text parser |
 | **Sagas** (CR 714) | `src/engine/saga.py` + dataclass API in helpers | `make_saga_setup(chapters=[SagaChapter("I, II", fn), ...])` — 21 saga cards wired across WOE/SPM/TLA/DSK/FIN/TDM |
+| **Impending** (DSK) | `src/engine/impending.py` + priority `hand:impending` alt-cost path + QUERY_TYPES strip | `make_impending_setup(impending_cost, time_counters)` — 5 Overlord cards wired (Mistmoors / Floodpits / Balemurk / Boilerbilges / Hauntwoods) |
 
 ### Code-review followups (resolved)
 
