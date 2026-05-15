@@ -39,6 +39,8 @@ from src.cards.interceptor_helpers import (
     make_activated_ability,
     make_equipment_setup, make_aura_setup,
     make_ward,
+    make_turned_face_up_trigger,
+    make_disguise_setup,
     suspect_creature,
     collect_evidence,
     make_dynamic_pt_boost,
@@ -900,10 +902,41 @@ def person_of_interest_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def pyrotechnic_performer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this or another creature you control is turned face up: deals damage to each opponent"""
-    # Face-up triggers need special handling.
-    # Ward wired as face-up static for testing.
-    return [make_ward(obj, mana_cost="{2}")]
+    """Disguise {R}. Whenever this or another creature you control is turned face up,
+    that creature deals damage equal to its power to each opponent."""
+    from src.engine import get_power
+
+    def face_up_effect(event: Event, state: GameState) -> list[Event]:
+        flipped_id = event.payload.get('object_id')
+        flipped = state.objects.get(flipped_id)
+        if not flipped:
+            return []
+        dmg = get_power(flipped, state) or 0
+        if dmg <= 0:
+            return []
+        events: list[Event] = []
+        for p_id in state.players.keys():
+            if p_id != obj.controller:
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={
+                        'target': p_id,
+                        'amount': dmg,
+                        'source': flipped_id,
+                        'is_combat': False,
+                    },
+                    source=flipped_id,
+                ))
+        return events
+
+    # Register the Disguise face-up activation (side-effect: registers on
+    # obj.state.activated_abilities). Also keep the face-down ward {2} as a
+    # static deterrent matching the printed disguise reminder.
+    make_disguise_setup(obj, disguise_cost="{R}")
+    return [
+        make_turned_face_up_trigger(obj, face_up_effect, self_or_other_yours="both"),
+        make_ward(obj, mana_cost="{2}"),
+    ]
 
 
 def vengeful_tracker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5665,9 +5698,32 @@ def due_diligence_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def essence_of_antiquity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Disguise (ward {2} face-down placeholder). Face-up: hexproof + untap."""
-    # engine gap: turn-face-up trigger. Ward wired as face-up static for testing.
-    return [make_ward(obj, mana_cost="{2}")]
+    """Disguise {2}{W}. When turned face up: creatures you control gain hexproof
+    EOT; untap them."""
+    def face_up_effect(event: Event, state: GameState) -> list[Event]:
+        # Hexproof-EOT grant is an engine gap (per-creature temporary keyword
+        # grant via aura-style modifier). We emit untap events for every
+        # creature obj.controller controls so the "untap them" half of the
+        # printed text resolves now; the hexproof clause is recorded as a
+        # comment-only noop until that capability lands.
+        events: list[Event] = []
+        for oid, o in state.objects.items():
+            if (o.controller == obj.controller and
+                    o.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in o.characteristics.types):
+                events.append(Event(
+                    type=EventType.UNTAP_TARGET,
+                    payload={'object_id': oid},
+                    source=obj.id,
+                ))
+                # engine gap: also grant hexproof until end of turn.
+        return events
+
+    make_disguise_setup(obj, disguise_cost="{2}{W}")
+    return [
+        make_turned_face_up_trigger(obj, face_up_effect, self_or_other_yours="self"),
+        make_ward(obj, mana_cost="{2}"),
+    ]
 
 
 def forum_familiar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -7761,6 +7817,7 @@ CASE_OF_THE_UNEATEN_FEAST = make_enchantment(
 
 def defenestrated_phantom_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Flying. Disguise {4}{W}. Ward wired as face-up static for testing."""
+    make_disguise_setup(obj, disguise_cost="{4}{W}")
     return [make_ward(obj, mana_cost="{2}")]
 
 

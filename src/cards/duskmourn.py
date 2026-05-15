@@ -3922,35 +3922,28 @@ def disturbing_mirth_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def growing_dread_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flash; ETB manifest dread; on face-up flip, +1/+1 counter."""
+    """Flash; ETB manifest dread; whenever a permanent you control is turned
+    face up, put a +1/+1 counter on it."""
+    from src.cards.interceptor_helpers import make_turned_face_up_trigger
+
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(type=EventType.MANIFEST_DREAD, payload={'player': obj.controller}, source=obj.id)]
 
-    def face_up_filter(event: Event, state: GameState) -> bool:
-        return (event.type == EventType.TURN_FACE_UP and
-                event.controller == obj.controller)
-
-    def face_up_handler(event: Event, state: GameState):
+    def face_up_effect(event: Event, state: GameState) -> list[Event]:
         target_id = event.payload.get('object_id')
         if not target_id:
-            return InterceptorResult(action=InterceptorAction.PASS)
-        return InterceptorResult(
-            action=InterceptorAction.REACT,
-            new_events=[Event(type=EventType.COUNTER_ADDED,
-                              payload={'object_id': target_id, 'counter_type': '+1/+1', 'count': 1},
-                              source=obj.id)],
-        )
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': target_id, 'counter_type': '+1/+1', 'count': 1},
+            source=obj.id,
+        )]
 
     return [
         make_etb_trigger(obj, etb_effect),
-        Interceptor(
-            id=new_id(), source=obj.id, controller=obj.controller,
-            priority=InterceptorPriority.REACT,
-            filter=face_up_filter, handler=face_up_handler,
-            duration='while_on_battlefield',
-            is_triggered_ability=True,
-            effect_fn=lambda e, s: (face_up_handler(e, s).new_events or []),
-        ),
+        # "Whenever a permanent you control is turned face up" — fire for self
+        # and any other creature obj.controller controls.
+        make_turned_face_up_trigger(obj, face_up_effect, self_or_other_yours="both"),
     ]
 
 

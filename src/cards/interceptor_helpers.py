@@ -6399,6 +6399,187 @@ def make_manifest_etb_event(
 
 
 # =============================================================================
+# Phase 5b: Disguise / Cloak / face-up trigger helpers
+# =============================================================================
+#
+# Disguise (MKM) and Cloak (DSK) put a card onto the battlefield face down as a
+# 2/2 with ward {2}, then let the controller flip it face-up later for its
+# disguise / mana cost. The pipeline already supports the flip itself through
+# ``EventType.TURN_FACE_UP`` (resolved in ``src/engine/face_down.py``). What was
+# missing was an ergonomic card-author surface:
+#
+#   * ``make_turned_face_up_trigger(obj, effect_fn, *, self_or_other_yours)`` —
+#     "Whenever this creature [or another creature you control] is turned face
+#     up, …". Cards like Pyrotechnic Performer (MKM) and Growing Dread (DSK)
+#     express this pattern.
+#   * ``make_disguise_setup(*, disguise_cost)`` — register the activated ability
+#     "{disguise_cost}: Turn this face up." while the permanent is face-down.
+#
+# Both helpers are thin wrappers around the existing TURN_FACE_UP event +
+# masking machinery in ``face_down.py``.
+# =============================================================================
+
+
+def make_turned_face_up_trigger(
+    obj: GameObject,
+    effect_fn: Callable[[Event, GameState], list[Event]],
+    *,
+    self_or_other_yours: str = "self",
+    description: str = "",
+) -> Interceptor:
+    """
+    Register a triggered ability that fires when a creature is turned face up.
+
+    ``self_or_other_yours`` controls which flips fire the trigger:
+
+      * ``"self"`` (default) — only when *this* creature is turned face up
+        (i.e. the TURN_FACE_UP's ``object_id`` equals ``obj.id``).
+        Use for "When this creature is turned face up, …" wording.
+      * ``"both"`` — when this creature OR any other creature controlled by
+        ``obj.controller`` is turned face up. Use for "Whenever this creature
+        or another creature you control is turned face up, …" (e.g.
+        Pyrotechnic Performer, MKM).
+      * ``"controller"`` — any creature controlled by ``obj.controller``
+        (no requirement that the flipped object is/isn't ``obj`` itself).
+        Equivalent to ``"both"`` in practice; provided for spec clarity.
+
+    The trigger handler routes through the standard React→effect_fn path the
+    pipeline already uses for triggered abilities. Effect_fn receives the
+    TURN_FACE_UP event so the handler can inspect which creature flipped
+    (``event.payload['object_id']``) — e.g. "that creature deals damage equal
+    to its power".
+
+    Returns a single Interceptor; setup_interceptors functions typically wrap
+    this in ``[ ... ]``.
+    """
+    if self_or_other_yours not in {"self", "both", "controller"}:
+        raise ValueError(
+            f"self_or_other_yours must be 'self', 'both', or 'controller'; "
+            f"got {self_or_other_yours!r}"
+        )
+
+    def filter_fn(event: Event, state: GameState) -> bool:
+        if event.type != EventType.TURN_FACE_UP:
+            return False
+        target_id = event.payload.get('object_id')
+        if not target_id:
+            return False
+        # Self-only: only fire when this exact object flips.
+        if self_or_other_yours == "self":
+            return target_id == obj.id
+        # "both" / "controller": fire when any of obj.controller's creatures
+        # flips. (Self counts.)
+        target = state.objects.get(target_id)
+        if target is None:
+            return False
+        if target.controller != obj.controller:
+            return False
+        # Must still be on the battlefield (defensive — turn_face_up only
+        # operates on battlefield permanents but late triggers could see
+        # post-flip state).
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        return True
+
+    def handler(event: Event, state: GameState) -> InterceptorResult:
+        # ``effect_fn`` may return a list directly (preferred) or a falsy
+        # value if there's nothing to do (e.g. no legal targets).
+        new_events = effect_fn(event, state) or []
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=new_events)
+
+    interceptor = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=filter_fn,
+        handler=handler,
+        duration='while_on_battlefield',
+    )
+    return _mark_triggered_ability(interceptor, effect_fn, description=description)
+
+
+def make_disguise_setup(
+    obj: GameObject,
+    *,
+    disguise_cost: str,
+    face_up_handler: Optional[Callable[[GameObject, GameState], list[Event]]] = None,
+) -> list[Interceptor]:
+    """
+    Register Disguise on a permanent.
+
+    Disguise (MKM): "Disguise {cost} (You may cast this card face down for {3}
+    as a 2/2 creature with ward {2}. Turn it face up any time for its disguise
+    cost.)"
+
+    This helper currently focuses on the **face-up activation** side: while
+    ``obj`` is on the battlefield, register an activated ability
+    "{disguise_cost}: Turn this face up." that flips the permanent face-up by
+    emitting ``EventType.TURN_FACE_UP``. The flip path is implemented in
+    :func:`src.engine.face_down.turn_face_up` — it strips the masking
+    interceptors, restores characteristics, and fires ETB-style triggers
+    (including any ``make_turned_face_up_trigger`` registered on this card or
+    on other permanents).
+
+    The alt-cast face-down path is a CASTING-layer concern (the player
+    declares "cast face-down for {3}"); it is handled by the priority
+    subsystem via ``make_face_down_setup``. Cards that wish to register both
+    paths can compose these helpers — see the wired MKM cards below.
+
+    Args:
+        obj: the permanent (battlefield-side instance).
+        disguise_cost: the mana-string cost to flip face-up (e.g. ``"{R}"``).
+        face_up_handler: optional extra hook that runs *during* the flip
+            activation; mostly redundant since ``make_turned_face_up_trigger``
+            handles the "when turned face up" effect more cleanly.
+
+    Returns an empty list of interceptors — the disguise activated ability is
+    registered on ``obj.state.activated_abilities`` rather than as a pipeline
+    interceptor. Callers should still ``return ... + []`` or simply call this
+    for side effects.
+    """
+    if not disguise_cost:
+        raise ValueError("make_disguise_setup requires a disguise_cost")
+
+    def flip_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        # Only meaningful while face-down. (Engine quietly no-ops if the
+        # permanent is already face-up — guarded here for defensive clarity.)
+        if not is_face_down(o):
+            return []
+        events: list[Event] = [Event(
+            type=EventType.TURN_FACE_UP,
+            payload={
+                'object_id': o.id,
+                'mana_paid_cost': disguise_cost,
+                'disguise': True,
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+        if face_up_handler is not None:
+            try:
+                extra = face_up_handler(o, st) or []
+                events.extend(extra)
+            except Exception:
+                # Don't strand the flip if the optional handler misbehaves.
+                pass
+        return events
+
+    def is_face_down_precondition(o: GameObject, st: GameState) -> bool:
+        # The disguise activation is only legal while the card is face-down.
+        return is_face_down(o)
+
+    make_activated_ability(
+        obj,
+        cost=disguise_cost,
+        effect_fn=flip_effect,
+        description=f"Disguise {disguise_cost} — turn face up",
+        precondition_fn=is_face_down_precondition,
+    )
+    return []
+
+
+# =============================================================================
 # Phase 4: Activated-ability helpers
 # =============================================================================
 #
