@@ -1554,6 +1554,114 @@ def make_delayed_trigger(
 
 
 # =============================================================================
+# EERIE TRIGGER (DSK)
+# =============================================================================
+
+def make_eerie_trigger(
+    source_obj: GameObject,
+    effect_fn: Callable[[Event, GameState], list[Event]],
+) -> Interceptor:
+    """Create an Eerie trigger interceptor (Duskmourn / DSK).
+
+    Printed wording: "Eerie — Whenever an enchantment you control enters and
+    whenever you fully unlock a Room, <effect>."
+
+    The interceptor fires for either of the following events, both gated to
+    the source's controller:
+
+      1. ``EventType.ZONE_CHANGE`` where the entering object is an
+         enchantment controlled by ``source_obj.controller`` and the
+         destination is the battlefield. (The source itself entering is
+         excluded so a card with Eerie doesn't trigger its own ETB.)
+
+      2. ``EventType.UNLOCK_DOOR`` where the Room's controller equals
+         ``source_obj.controller`` AND, after the unlock has been resolved,
+         the Room has both doors unlocked. Door 1 unlocks on ETB and Door 2
+         unlocks via a sorcery-speed activated ability; in steady state the
+         second UNLOCK_DOOR event for a given room is the "fully unlocks"
+         moment.
+
+    Args:
+        source_obj: The object with the Eerie ability.
+        effect_fn: ``Function(event, state) -> list[Event]`` to emit when
+            either trigger condition fires.
+
+    Returns:
+        A REACT-priority interceptor scoped to
+        ``duration='while_on_battlefield'`` (matches Survival's lifetime
+        — when the source leaves play, the interceptor is cleaned up).
+
+    Notes:
+        Some Eerie cards (e.g. *Fear of Infinity*) have an Eerie ability
+        that triggers from the graveyard. Those cards still use this helper
+        but pass a custom ``effect_fn`` whose payload reflects the
+        graveyard-based effect; the source-on-battlefield gate in this
+        helper would *prevent* fire from graveyard, so those cards
+        intentionally roll their own (see ``fear_of_infinity_setup``).
+    """
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        # The source must still be on the battlefield.
+        current = state.objects.get(source_obj.id)
+        if current is None:
+            return False
+        if current.zone != ZoneType.BATTLEFIELD:
+            return False
+
+        # Branch 1: enchantment ETB.
+        if event.type == EventType.ZONE_CHANGE:
+            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+                return False
+            entering_id = event.payload.get('object_id')
+            if not entering_id or entering_id == source_obj.id:
+                # Don't fire on the source's own ETB.
+                return False
+            entering = state.objects.get(entering_id)
+            if entering is None:
+                return False
+            if CardType.ENCHANTMENT not in entering.characteristics.types:
+                return False
+            return entering.controller == current.controller
+
+        # Branch 2: Room fully unlocked (UNLOCK_DOOR resolves the door first,
+        # so by the time REACT runs, both doors are present in
+        # ``unlocked_doors`` for a "fully unlock" trigger).
+        if event.type == EventType.UNLOCK_DOOR:
+            room_id = event.payload.get('object_id')
+            if not room_id:
+                return False
+            room = state.objects.get(room_id)
+            if room is None:
+                return False
+            if room.controller != current.controller:
+                return False
+            doors = getattr(room.state, 'unlocked_doors', None)
+            # Treat "fully unlocked" as ≥ 2 doors unlocked. (DSK Rooms
+            # always have exactly two doors; we don't assume the engine
+            # tracks the door manifest.)
+            return isinstance(doors, list) and len(doors) >= 2
+
+        return False
+
+    def trigger_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_events = effect_fn(event, state)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events,
+        )
+
+    interceptor = Interceptor(
+        id=new_id(),
+        source=source_obj.id,
+        controller=source_obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=trigger_handler,
+        duration='while_on_battlefield',
+    )
+    return _mark_triggered_ability(interceptor, effect_fn, description="Eerie trigger")
+
+
+# =============================================================================
 # SURVIVAL TRIGGER (DSK)
 # =============================================================================
 

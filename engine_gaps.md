@@ -32,6 +32,8 @@
 | **Restricted mana** | `ManaUnit.restriction` + `ManaPool.can_pay(for_card=...)` | `produce_mana_restricted` + auto text parser |
 | **Sagas** (CR 714) | `src/engine/saga.py` + dataclass API in helpers | `make_saga_setup(chapters=[SagaChapter("I, II", fn), ...])` — 21 saga cards wired across WOE/SPM/TLA/DSK/FIN/TDM |
 | **Impending** (DSK) | `src/engine/impending.py` + priority `hand:impending` alt-cost path + QUERY_TYPES strip | `make_impending_setup(impending_cost, time_counters)` — 5 Overlord cards wired (Mistmoors / Floodpits / Balemurk / Boilerbilges / Hauntwoods) |
+| **Survival** (DSK) | helper-only | `make_survival_trigger(obj, effect_fn)` — fires on `PHASE_START('postcombat_main')` when source is tapped and active player matches |
+| **Eerie** (DSK) | helper-only | `make_eerie_trigger(obj, effect_fn)` — fires on enchantment-ETB controlled by source.controller OR on UNLOCK_DOOR when room is fully unlocked (both doors). 13 cards wired (incl. Fear of Infinity via `setup_in_graveyard`) |
 
 ### Code-review followups (resolved)
 
@@ -58,7 +60,7 @@ Patterns we do **not** yet support, in rough order of impact:
 3. **Copy-creature** — "becomes a copy of target creature". Token-copy + permanent-copy both gappy.
 4. **Replacement effects beyond ward** — only a handful of bespoke replacement interceptors via `make_replacement_interceptor`. No general framework for "if X would happen, Y instead".
 5. **Activated-ability cost reductions** — `make_cost_reduction` only reduces spell-cast costs.
-6. **Set-specific keywords** — cycling, conspire, exhaust, bending (waterbend/earthbend), survival.
+6. **Set-specific keywords** — conspire, exhaust, bending (waterbend/earthbend). (Cycling helper exists; Survival + Eerie shipped 2026-05-15.)
 7. **Type-overwrite auras** — auras that set base P/T (e.g. "Enchanted creature has base power and toughness 1/1"). Current `becomes_creature` adds the CREATURE type but only stat-overrides via QUERY interceptors when initially called; persistent type-overwrite auras aren't a clean pattern yet.
 8. **Granted activated abilities** — "Equipped creature has '{cost}: ...'". Equipment grants the activated ability to the equipped creature.
 9. **Cast-from-zone permissions** — "You may cast this from your graveyard / exile / library top".

@@ -55,6 +55,8 @@ from src.cards.interceptor_helpers import (
     make_copy_token_event,
     # Survival (DSK keyword: at second main, if tapped)
     make_survival_trigger,
+    # Eerie (DSK keyword: enchantment-ETB or fully unlock a Room)
+    make_eerie_trigger,
     # W3 — Survival per-card helpers
     make_counter_transfer_on_death,
     track_exile_with, count_exiled_with,
@@ -302,17 +304,14 @@ def _make_typecycling_setup(mana_cost: str, land_subtype):
 # =============================================================================
 
 def cult_healer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, this creature gains lifelink until end of turn."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
+    """Eerie — gains lifelink until end of turn."""
+    def eerie_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': obj.id, 'keyword': 'lifelink', 'duration': 'end_of_turn'},
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_eerie_trigger(obj, eerie_effect)]
 
 
 def fear_of_abduction_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -360,17 +359,15 @@ def living_phone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def optimistic_scavenger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, put a +1/+1 counter on target creature."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
+    """Eerie — put a +1/+1 counter on target creature (targets self as
+    best-effort; engine gap: target choice inside trigger handler)."""
+    def eerie_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_eerie_trigger(obj, eerie_effect)]
 
 
 def orphans_of_the_wheat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -426,31 +423,30 @@ def clammy_prowler_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def entity_tracker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment enters or you unlock a Room, draw a card."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
+    """Eerie — draw a card."""
+    def eerie_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_eerie_trigger(obj, eerie_effect)]
 
 
 def erratic_apparition_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, this creature gets +1/+1 until end of turn."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
+    """Eerie — this creature gets +1/+1 until end of turn."""
+    def eerie_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': 1,
+                'toughness_mod': 1,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_eerie_trigger(obj, eerie_effect)]
 
 
 def fear_of_failed_tests_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -495,17 +491,23 @@ def ghostly_keybearer_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def stalked_researcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, this creature can attack this turn."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
+    """Eerie — this creature can attack this turn as though it didn't have
+    defender. Engine gap: combat._can_attack hard-checks the ``defender``
+    keyword and we have no clean override yet, so we emit a marker
+    ``GRANT_KEYWORD`` for ``attacks_despite_defender`` (effect_fn returns
+    [] makes this trigger queueing-only; the marker keyword is set on
+    obj's abilities list so the combat helper can opt-in later)."""
+    def eerie_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': obj.id,
+                'keyword': 'attacks_despite_defender',
+                'duration': 'end_of_turn',
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_eerie_trigger(obj, eerie_effect)]
 
 
 def tunnel_surveyor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -528,7 +530,15 @@ def tunnel_surveyor_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def unwilling_vessel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature dies, create an X/X blue Spirit token with flying, where X is the number of counters on it."""
+    """Vigilance + Eerie (possession counter) + death trigger (X/X Spirit
+    token with flying where X is counters on this creature)."""
+    def eerie_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'possession', 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+
     def death_effect(event: Event, state: GameState) -> list[Event]:
         counter_count = sum(obj.state.counters.values()) if obj.state.counters else 0
         if counter_count > 0:
@@ -547,35 +557,48 @@ def unwilling_vessel_setup(obj: GameObject, state: GameState) -> list[Intercepto
                 source=obj.id
             )]
         return []
-    return [make_death_trigger(obj, death_effect)]
+    return [
+        make_eerie_trigger(obj, eerie_effect),
+        make_death_trigger(obj, death_effect),
+    ]
 
 
 def balemurk_leech_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, each opponent loses 1 life."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
+    """Eerie — each opponent loses 1 life."""
+    def eerie_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': pid, 'amount': -1},
+                source=obj.id, controller=obj.controller,
+            )
+            for pid in state.players.keys()
+            if pid != obj.controller
+        ]
+    return [make_eerie_trigger(obj, eerie_effect)]
 
 
 def dashing_bloodsucker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, this creature gets +2/+0 and gains lifelink until end of turn."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
+    """Eerie — this creature gets +2/+0 and gains lifelink until end of turn."""
+    def eerie_effect(event: Event, state: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': obj.id,
+                    'power_mod': 2,
+                    'toughness_mod': 0,
+                    'duration': 'end_of_turn',
+                },
+                source=obj.id, controller=obj.controller,
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': obj.id, 'keyword': 'lifelink', 'duration': 'end_of_turn'},
+                source=obj.id, controller=obj.controller,
+            ),
+        ]
+    return [make_eerie_trigger(obj, eerie_effect)]
 
 
 def doomsday_excruciator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -701,17 +724,39 @@ def fear_of_missing_out_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def infernal_phantom_eerie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, this creature gets +2/+0 until end of turn."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
+    """Eerie — this creature gets +2/+0 until end of turn. When this creature
+    dies, it deals damage equal to its power to any target. (Target choice
+    is an engine gap — best-effort: targets controller's opponent.)"""
+    def eerie_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': obj.id,
+                'power_mod': 2,
+                'toughness_mod': 0,
+                'duration': 'end_of_turn',
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+
+    def death_effect(event: Event, state: GameState) -> list[Event]:
+        # Damage equal to power. Best-effort target: first opponent.
+        power = get_power(obj, state) or 0
+        if power <= 0:
+            return []
+        for pid in state.players.keys():
+            if pid != obj.controller:
+                return [Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': pid, 'amount': power, 'source': obj.id},
+                    source=obj.id, controller=obj.controller,
+                )]
+        return []
+
+    return [
+        make_eerie_trigger(obj, eerie_effect),
+        make_death_trigger(obj, death_effect),
+    ]
 
 
 def most_valuable_slayer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -994,33 +1039,97 @@ def arabella_abandoned_doll_setup(obj: GameObject, state: GameState) -> list[Int
 
 
 def fear_of_infinity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, you may return this card from graveyard to hand."""
-    def eerie_filter(event: Event, state: GameState) -> bool:
-        if obj.zone != ZoneType.GRAVEYARD:
+    """Eerie — you may return this card from graveyard to hand. Triggered
+    from the graveyard so this uses a custom interceptor (the generic
+    ``make_eerie_trigger`` gates on battlefield)."""
+    return _fear_of_infinity_eerie_interceptors(obj)
+
+
+def _fear_of_infinity_eerie_interceptors(obj: GameObject) -> list[Interceptor]:
+    def trigger_filter(event: Event, state: GameState) -> bool:
+        current = state.objects.get(obj.id)
+        if current is None or current.zone != ZoneType.GRAVEYARD:
             return False
+
+        # Branch 1: enchantment ETB controlled by this card's controller.
         if event.type == EventType.ZONE_CHANGE:
             if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
                 return False
             entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == obj.controller:
-                    return True
+            if not entering_id or entering_id == obj.id:
+                return False
+            entering = state.objects.get(entering_id)
+            if entering is None:
+                return False
+            if CardType.ENCHANTMENT not in entering.characteristics.types:
+                return False
+            return entering.controller == current.controller
+
+        # Branch 2: Room fully unlocked.
+        if event.type == EventType.UNLOCK_DOOR:
+            room_id = event.payload.get('object_id')
+            if not room_id:
+                return False
+            room = state.objects.get(room_id)
+            if room is None or room.controller != current.controller:
+                return False
+            doors = getattr(room.state, 'unlocked_doors', None)
+            return isinstance(doors, list) and len(doors) >= 2
+
         return False
+
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={
+                'object_id': obj.id,
+                'from_zone_type': ZoneType.GRAVEYARD,
+                'to_zone_type': ZoneType.HAND,
+                'optional': True,  # "you may"
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+
+    def handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=effect_fn(event, state),
+        )
+
+    interceptor = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=trigger_filter,
+        handler=handler,
+        # Live for the lifetime of the graveyard residence. The duration
+        # 'while_in_graveyard' would be ideal; we use 'forever' and rely on
+        # the filter's zone gate.
+        duration='forever',
+        is_triggered_ability=True,
+        effect_fn=effect_fn,
+        description="Fear of Infinity Eerie (from graveyard)",
+    )
+    return [interceptor]
 
 
 def gremlin_tamer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Whenever an enchantment you control enters, create a 1/1 red Gremlin creature token."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
+    """Eerie — create a 1/1 red Gremlin creature token."""
+    def eerie_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'name': 'Gremlin',
+                'power': 1, 'toughness': 1,
+                'colors': {Color.RED},
+                'types': {CardType.CREATURE},
+                'subtypes': {'Gremlin'},
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_eerie_trigger(obj, eerie_effect)]
 
 
 def marina_vendrell_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1105,17 +1214,52 @@ def undead_sprinter_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def victor_valgavoths_seneschal_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eerie - Complex multi-stage trigger based on number of times resolved this turn."""
-    def eerie_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        if event.type == EventType.ZONE_CHANGE:
-            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-                return False
-            entering_id = event.payload.get('object_id')
-            entering_obj = state.objects.get(entering_id)
-            if entering_obj and CardType.ENCHANTMENT in entering_obj.characteristics.types:
-                if entering_obj.controller == source.controller:
-                    return True
-        return False
+    """Eerie — escalating effect by resolution count this turn:
+      1st: surveil 2
+      2nd: each opponent discards a card
+      3rd: return a creature card from a graveyard to the battlefield under
+           your control (engine gap: target choice / graveyard-creature
+           picker — best-effort emits a marker event)."""
+    def eerie_effect(event: Event, state: GameState) -> list[Event]:
+        # Reset the per-turn counter if the turn changed.
+        current_turn = getattr(state, 'turn_number', 0)
+        last_turn = getattr(obj.state, '_seneschal_last_turn', None)
+        if last_turn != current_turn:
+            obj.state._seneschal_last_turn = current_turn
+            obj.state._seneschal_count = 0
+        obj.state._seneschal_count = getattr(obj.state, '_seneschal_count', 0) + 1
+        n = obj.state._seneschal_count
+
+        events: list[Event] = []
+        if n == 1:
+            events.append(Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'count': 2},
+                source=obj.id, controller=obj.controller,
+            ))
+        elif n == 2:
+            for pid in state.players.keys():
+                if pid != obj.controller:
+                    events.append(Event(
+                        type=EventType.DISCARD,
+                        payload={'player': pid, 'count': 1},
+                        source=obj.id, controller=obj.controller,
+                    ))
+        else:  # n >= 3
+            # Engine gap: pick a creature card from a graveyard and bring it
+            # under controller's control. Emit a marker event so the wiring
+            # is visible in the event log.
+            events.append(Event(
+                type=EventType.TARGET_REQUIRED,
+                payload={
+                    'source': obj.id,
+                    'effect': 'reanimate_to_battlefield_under_your_control',
+                    'filter': 'creature_in_any_graveyard',
+                },
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_eerie_trigger(obj, eerie_effect)]
 
 
 # =============================================================================
@@ -8653,8 +8797,9 @@ FEAR_OF_INFINITY = make_enchantment_creature(
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Nightmare"},
     text="Flying, lifelink\nThis creature can't block.\nEerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, you may return this card from your graveyard to your hand.",
-    setup_interceptors=fear_of_infinity_setup
 )
+# Eerie fires from the graveyard for this card — see fear_of_infinity_setup.
+FEAR_OF_INFINITY.setup_in_graveyard = fear_of_infinity_setup
 
 GREMLIN_TAMER = make_creature(
     name="Gremlin Tamer",
@@ -8839,6 +8984,17 @@ SHROUDSTOMPER = make_creature(
     setup_interceptors=shroudstomper_setup
 )
 
+def skullsnap_nuisance_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Eerie — surveil 1."""
+    def eerie_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+    return [make_eerie_trigger(obj, eerie_effect)]
+
+
 SKULLSNAP_NUISANCE = make_creature(
     name="Skullsnap Nuisance",
     power=1, toughness=4,
@@ -8846,6 +9002,7 @@ SKULLSNAP_NUISANCE = make_creature(
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Insect", "Skeleton"},
     text="Flying\nEerie — Whenever an enchantment you control enters and whenever you fully unlock a Room, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+    setup_interceptors=skullsnap_nuisance_setup,
 )
 
 SMOKY_LOUNGE = make_enchantment(

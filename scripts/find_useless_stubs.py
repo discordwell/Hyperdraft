@@ -37,6 +37,8 @@ HELPER_NAMES = {
     "make_damage_trigger", "make_static_pt_boost", "make_keyword_grant",
     "make_upkeep_trigger", "make_spell_cast_trigger", "make_end_step_trigger",
     "make_tap_trigger", "make_life_gain_trigger", "make_draw_trigger",
+    # DSK Phase 5b mechanic helpers
+    "make_eerie_trigger", "make_survival_trigger",
 }
 
 
