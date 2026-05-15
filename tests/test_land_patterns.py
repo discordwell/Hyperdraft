@@ -115,40 +115,52 @@ def test_unconditional_etb_tapped_from_text():
 
 
 def test_shockland_pays_2_life_when_healthy():
+    """At life > 5 the shockland's PendingChoice auto-resolves to 'pay' for an
+    AI controller. The framework now opens the choice from the ETB trigger
+    (not inline in ``_handle_play_land``), so the LIFE_CHANGE arrives via the
+    pipeline rather than in the play-land action's return list."""
     print("\n=== Test: shockland with life>4 pays 2 life, untapped ===")
     from src.cards.lorwyn_eclipsed import BLOOD_CRYPT
 
     async def go():
         game, p1, _ = _new_game()
+        # Mark p1 as AI so the framework auto-resolves the pay/decline choice
+        # against the heuristic (life > life_cost + 3).
+        game.priority_system.set_ai_player(p1.id)
         starting_life = p1.life
         obj = _spawn_in_hand(game, p1.id, BLOOD_CRYPT)
-        events = await _play_land(game, p1.id, obj.id)
-        # Should have emitted LIFE_CHANGE -2 + ZONE_CHANGE
-        life_events = [e for e in events if e.type == EventType.LIFE_CHANGE]
-        assert life_events, f"expected LIFE_CHANGE; got {[e.type.name for e in events]}"
-        assert life_events[0].payload.get('amount') == -2
+        await _play_land(game, p1.id, obj.id)
         on_bf = game.state.objects[obj.id]
         assert on_bf.state.tapped is False, "should NOT enter tapped"
-        # Life should be reduced
+        # Life should be reduced through the resolved choice (pipeline path).
         assert p1.life == starting_life - 2, f"life {p1.life} != {starting_life - 2}"
+        # No pending choice should remain.
+        assert game.state.pending_choice is None, (
+            f"AI choice should auto-resolve; got pending_choice={game.state.pending_choice}"
+        )
 
     asyncio.run(go())
     print("  PASS: Blood Crypt at life=20 pays 2 life and enters untapped")
 
 
 def test_shockland_enters_tapped_when_low_life():
+    """At low life the AI heuristic declines payment; the framework emits a
+    TAP event on the land, no life change is applied."""
     print("\n=== Test: shockland with life<=4 enters tapped, no life loss ===")
     from src.cards.lorwyn_eclipsed import BLOOD_CRYPT
 
     async def go():
         game, p1, _ = _new_game()
-        p1.life = 4  # at threshold -> should enter tapped
+        game.priority_system.set_ai_player(p1.id)
+        p1.life = 4  # at threshold -> should enter tapped (life <= cost+3 with cost=2)
+        starting_life = p1.life
         obj = _spawn_in_hand(game, p1.id, BLOOD_CRYPT)
-        events = await _play_land(game, p1.id, obj.id)
-        life_events = [e for e in events if e.type == EventType.LIFE_CHANGE]
-        assert not life_events, "should NOT emit LIFE_CHANGE at low life"
+        await _play_land(game, p1.id, obj.id)
         on_bf = game.state.objects[obj.id]
         assert on_bf.state.tapped is True, "should ETB tapped"
+        assert p1.life == starting_life, (
+            f"low-life decline must not lose life; got {p1.life}"
+        )
 
     asyncio.run(go())
     print("  PASS: Blood Crypt at life=4 enters tapped, no life loss")

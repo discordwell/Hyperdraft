@@ -1027,6 +1027,120 @@ def make_ward(
 
 
 # =============================================================================
+# SHOCKLAND ("As this land enters, you may pay N life. Otherwise it enters tapped.")
+# =============================================================================
+
+def make_shockland_setup(*, life_cost: int = 2):
+    """Build a ``setup_interceptors`` callable for a Ravnica-style shock land.
+
+    Printed text:
+        "As this land enters, you may pay 2 life. If you don't, it enters tapped."
+
+    The returned callable wires a single ETB-trigger interceptor onto the land.
+    When the land enters the battlefield, the trigger:
+
+      1. Opens a ``PendingChoice`` (``choice_type='shockland'``) owned by the
+         land's controller. Options are ``[True, False]`` — pay / decline.
+      2. The choice's handler resolves the selection:
+           * ``[True]``  -> emit ``LIFE_CHANGE`` for ``-life_cost`` to the
+             controller. The land stays untapped.
+           * ``[False]`` -> emit ``TAP`` on the land. No life change.
+      3. For AI players, ``create_choice_and_resolve`` auto-resolves the choice
+         inline via the ``heuristic_pick`` preset: pay when controller's life is
+         comfortably above the threshold (default ``life_cost + 3``), otherwise
+         decline so we don't dip to a lethal range.
+      4. For human players, the choice is left pending on ``state.pending_choice``
+         and the session-layer surfaces it via the standard PendingChoice UI.
+
+    The mana ability itself is auto-derived from the land's basic-land subtypes
+    (``Forest``, ``Island``, etc.) by ``ManaSystem._get_land_mana_production``,
+    so this helper deliberately registers no mana interceptor.
+
+    Args:
+        life_cost: Life to pay to bypass the tap. Defaults to 2 (matches all
+            printed Ravnica shocks).
+
+    Returns:
+        ``setup(obj, state) -> list[Interceptor]`` suitable for passing to
+        ``make_land(setup_interceptors=...)``.
+
+    Example:
+        BREEDING_POOL = make_land(
+            name="Breeding Pool",
+            text="({T}: Add {G} or {U}.)\\nAs this land enters, you may pay 2 "
+                 "life. If you don't, it enters tapped.",
+            subtypes={"Forest", "Island"},
+            setup_interceptors=make_shockland_setup(life_cost=2),
+        )
+    """
+    cost = int(life_cost)
+
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        source_id = obj.id
+        controller_id = obj.controller
+
+        def _shockland_handler(choice, selected, st):
+            """Resolve the pay-or-tap selection.
+
+            ``selected`` is a single-element list whose value is ``True`` (pay)
+            or ``False`` (decline). Falsy/missing values are treated as decline
+            (safer: the player kept their life total).
+            """
+            chose_pay = bool(selected and selected[0] is True)
+            # Re-resolve the land in case the controller changed after ETB
+            # but before the choice resolved.
+            land = st.objects.get(source_id)
+            target_player = (land.controller if land is not None else controller_id)
+            if chose_pay:
+                return [Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': target_player, 'amount': -cost},
+                    source=source_id,
+                )]
+            # Decline: tap the land.
+            return [Event(
+                type=EventType.TAP,
+                payload={'object_id': source_id},
+                source=source_id,
+            )]
+
+        def _etb_effect(event: Event, st: GameState) -> list[Event]:
+            # Pick up the current controller from state at fire-time so a
+            # control-change between ETB queue-time and resolution still picks
+            # the right player. Falls back to the captured controller_id.
+            land = st.objects.get(source_id)
+            pc_player = land.controller if land is not None else controller_id
+            player = st.players.get(pc_player) if pc_player else None
+            life = getattr(player, 'life', 20) if player is not None else 20
+
+            # Heuristic: pay when comfortably above the tap-loss threshold.
+            # We require life > cost + 3 so the AI doesn't drop itself into
+            # a lethal range for a tempo-only tap. This matches the prior
+            # inline _handle_play_land heuristic (life > 4 when cost=2)
+            # while keeping the new threshold parametric on ``life_cost``.
+            heuristic = [True] if life > cost + 3 else [False]
+
+            from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+            return create_choice_and_resolve(
+                st,
+                choice_type="shockland",
+                player_id=pc_player,
+                prompt=f"Pay {cost} life to keep this land untapped?",
+                options=[True, False],
+                source_id=source_id,
+                min_choices=1,
+                max_choices=1,
+                handler=_shockland_handler,
+                heuristic_pick=heuristic,
+            )
+
+        return [make_etb_trigger(obj, _etb_effect)]
+
+    return _setup
+
+
+# =============================================================================
 # SPELL CAST TRIGGER
 # =============================================================================
 

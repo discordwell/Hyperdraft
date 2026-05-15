@@ -28,6 +28,7 @@ from src.cards.interceptor_helpers import (
     make_static_pt_boost, make_keyword_grant, make_tap_trigger,
     make_upkeep_trigger, make_spell_cast_trigger, make_end_step_trigger,
     make_damage_trigger, make_life_gain_trigger,
+    make_shockland_setup,
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, creatures_with_subtype,
     create_modal_choice, create_target_choice,
@@ -3089,8 +3090,8 @@ def stalactite_dagger_setup(obj: GameObject, state: GameState) -> list[Intercept
 # --- LANDS ---
 
 def blood_crypt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Shockland: pay 2 life or enter tapped (engine gap)."""
-    return []  # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
+    """Shockland: As this land enters, you may pay 2 life. Otherwise it enters tapped."""
+    return make_shockland_setup(life_cost=2)(obj, state)
 
 
 def evolving_wilds_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3118,23 +3119,23 @@ def evolving_wilds_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def hallowed_fountain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Shockland (engine gap)."""
-    return []  # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
+    """Shockland: As this land enters, you may pay 2 life. Otherwise it enters tapped."""
+    return make_shockland_setup(life_cost=2)(obj, state)
 
 
 def overgrown_tomb_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Shockland (engine gap)."""
-    return []  # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
+    """Shockland: As this land enters, you may pay 2 life. Otherwise it enters tapped."""
+    return make_shockland_setup(life_cost=2)(obj, state)
 
 
 def steam_vents_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Shockland (engine gap)."""
-    return []  # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
+    """Shockland: As this land enters, you may pay 2 life. Otherwise it enters tapped."""
+    return make_shockland_setup(life_cost=2)(obj, state)
 
 
 def temple_garden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Shockland (engine gap)."""
-    return []  # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
+    """Shockland: As this land enters, you may pay 2 life. Otherwise it enters tapped."""
+    return make_shockland_setup(life_cost=2)(obj, state)
 
 
 # =============================================================================

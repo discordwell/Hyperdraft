@@ -30,6 +30,7 @@ from src.cards.interceptor_helpers import (
     make_end_step_trigger, make_life_gain_trigger, make_tap_trigger,
     make_spell_cast_trigger, make_damage_trigger,
     make_leaves_battlefield_trigger,
+    make_shockland_setup,
     make_warp_setup,
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, all_opponents,
@@ -3360,9 +3361,8 @@ def adagia_windswept_bastion_setup(obj: GameObject, state: GameState) -> list[In
 
 
 def breeding_pool_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Shockland: pay 2 life or enters tapped."""
-    # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
-    return []
+    """Shockland: As this land enters, you may pay 2 life. Otherwise it enters tapped."""
+    return make_shockland_setup(life_cost=2)(obj, state)
 
 
 def command_bridge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3409,9 +3409,8 @@ def evendo_waking_haven_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def godless_shrine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Shockland: pay 2 life or enters tapped."""
-    # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
-    return []
+    """Shockland: As this land enters, you may pay 2 life. Otherwise it enters tapped."""
+    return make_shockland_setup(life_cost=2)(obj, state)
 
 
 def kavaron_memorial_world_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3477,9 +3476,8 @@ def kavaron_memorial_world_setup(obj: GameObject, state: GameState) -> list[Inte
 
 
 def sacred_foundry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Shockland: pay 2 life or enters tapped."""
-    # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
-    return []
+    """Shockland: As this land enters, you may pay 2 life. Otherwise it enters tapped."""
+    return make_shockland_setup(life_cost=2)(obj, state)
 
 
 def secluded_starforge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3514,9 +3512,8 @@ def secluded_starforge_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def stomping_ground_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Shockland: pay 2 life or enters tapped."""
-    # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
-    return []
+    """Shockland: As this land enters, you may pay 2 life. Otherwise it enters tapped."""
+    return make_shockland_setup(life_cost=2)(obj, state)
 
 
 def susur_secundi_void_altar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3605,9 +3602,8 @@ def uthros_titanic_godcore_setup(obj: GameObject, state: GameState) -> list[Inte
 
 
 def watery_grave_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Shockland: pay 2 life or enters tapped."""
-    # shockland: pay-2-life-or-tapped auto-handled in _handle_play_land
-    return []
+    """Shockland: As this land enters, you may pay 2 life. Otherwise it enters tapped."""
+    return make_shockland_setup(life_cost=2)(obj, state)
 
 
 # =============================================================================

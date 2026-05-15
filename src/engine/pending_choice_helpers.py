@@ -79,7 +79,14 @@ def resolve_pending_choice_inline(state: GameState) -> tuple[list[Event], list]:
 
     game = getattr(state, "_game", None)
     turn_mgr = getattr(game, "turn_manager", None) if game is not None else None
-    ai_players = getattr(turn_mgr, "ai_players", set()) or set()
+    ai_players = set(getattr(turn_mgr, "ai_players", set()) or set())
+    # MTG fallback: per-engine AI players live on ``priority_system.ai_players``
+    # rather than ``turn_manager.ai_players``. Without this fallback, an MTG
+    # card that calls ``create_choice_and_resolve`` for its AI controller
+    # would silently park on the human branch.
+    priority_sys = getattr(game, "priority_system", None) if game is not None else None
+    if priority_sys is not None:
+        ai_players |= set(getattr(priority_sys, "ai_players", set()) or set())
 
     if choice.player not in ai_players:
         # Human path. Session will block on this choice via _get_human_action.
@@ -143,7 +150,12 @@ def drain_pending_choices_for_ai(state: GameState, max_iterations: int = 16) -> 
             break
         game = getattr(state, "_game", None)
         turn_mgr = getattr(game, "turn_manager", None) if game is not None else None
-        ai_players = getattr(turn_mgr, "ai_players", set()) or set()
+        ai_players = set(getattr(turn_mgr, "ai_players", set()) or set())
+        # See ``resolve_pending_choice_inline`` for why we also consult the
+        # priority system's AI roster (MTG keeps AI membership there).
+        priority_sys = getattr(game, "priority_system", None) if game is not None else None
+        if priority_sys is not None:
+            ai_players |= set(getattr(priority_sys, "ai_players", set()) or set())
         if choice.player not in ai_players:
             break
         more_events, _ = resolve_pending_choice_inline(state)
