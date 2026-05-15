@@ -1062,12 +1062,47 @@ def alquist_proft_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def aurelia_the_law_above_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever a player attacks with 3+ creatures: draw. With 5+: deal 3 to opponents, gain 3."""
-    def attack_filter(event: Event, state: GameState) -> bool:
-        # Would need to track attack declaration with creature counts
-        return False
+    """Whenever a player attacks with 3+ creatures: draw. With 5+: deal 3 to each opp + gain 3.
 
-    return []  # Complex tracking needed
+    Uses COMBAT_DECLARED attacker count to gate the two payoffs. The "any
+    player" half is satisfied by not constraining attacking_player (so a
+    multiplayer table would fire on every player's attack)."""
+    def combat_filter(event: Event, state: GameState) -> bool:
+        return event.type == EventType.COMBAT_DECLARED
+
+    def handler(event: Event, state: GameState) -> InterceptorResult:
+        attackers = event.payload.get('attackers') or []
+        n = len(attackers)
+        events: list[Event] = []
+        if n >= 3:
+            events.append(Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'count': 1},
+                source=obj.id, controller=obj.controller,
+            ))
+        if n >= 5:
+            for p_id in state.players.keys():
+                if p_id != obj.controller:
+                    events.append(Event(
+                        type=EventType.DAMAGE,
+                        payload={'source': obj.id, 'target': p_id, 'amount': 3, 'is_combat': False},
+                        source=obj.id, controller=obj.controller,
+                    ))
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 3},
+                source=obj.id, controller=obj.controller,
+            ))
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_filter, handler=handler,
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (handler(e, s).new_events or []),
+    )]
 
 
 def blood_spatter_analysis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -6892,9 +6927,28 @@ def pompous_gadabout_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def the_pride_of_hull_clade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Cost reduction by team toughness. Defender. Activated pump+can-attack."""
-    # engine gap: cost reduction + activated grant attack-ignoring-defender
-    return []
+    """This spell costs {X} less to cast, where X is the total toughness of
+    creatures you control. Activated pump + attack-ignoring-defender stays an
+    engine gap (granted-triggered-ability + restriction lift)."""
+    def amount_fn(card: GameObject, st: GameState) -> int:
+        # Sum toughness of creatures the prospective caster controls.
+        controller = obj.controller
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        total = 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if (o and o.controller == controller
+                    and CardType.CREATURE in o.characteristics.types):
+                try:
+                    total += get_toughness(o, st) or 0
+                except Exception:
+                    total += o.characteristics.toughness or 0
+        return max(0, total)
+
+    return [make_cost_reduction(obj, applies_to=lambda c, p, s: True,
+                                amount=amount_fn, self_only=True)]
 
 
 def rope_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

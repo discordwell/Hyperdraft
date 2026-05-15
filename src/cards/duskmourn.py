@@ -337,14 +337,16 @@ def friendly_ghost_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def ghostly_dancers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When this creature enters, return an enchantment card from your graveyard to your hand.
-    Eerie - create a 3/1 white Spirit creature token with flying."""
+    """When this creature enters, return an enchantment card from your graveyard to your hand
+    (or unlock a locked door of a Room you control).
+    Eerie portion (token on enchantment-enters / room-unlock) remains an engine gap; handled by Eerie agent."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.RETURN_FROM_GRAVEYARD,
             payload={'player': obj.controller, 'filter': 'enchantment', 'to': 'hand', 'optional': True},
             source=obj.id
         )]
+    return [make_etb_trigger(obj, etb_effect)]
 
 
 def living_phone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -760,24 +762,108 @@ def infernal_phantom_eerie_setup(obj: GameObject, state: GameState) -> list[Inte
 
 
 def most_valuable_slayer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you attack, target attacking creature gets +1/+0 and gains first strike until end of turn."""
-    def attack_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        return (event.type == EventType.ATTACK_DECLARED and
-                event.payload.get('attacking_player') == source.controller)
+    """Whenever you attack, target attacking creature gets +1/+0 and gains
+    first strike until end of turn. Best-effort target selection picks the
+    first attacker (engine gap: in-attack target choice)."""
+    def attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.COMBAT_DECLARED:
+            return False
+        return event.payload.get('attacking_player') == obj.controller
+
+    def handler(event: Event, state: GameState) -> InterceptorResult:
+        attackers = list(event.payload.get('attackers') or [])
+        if not attackers:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        target_id = attackers[0]
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[
+                Event(type=EventType.PT_MODIFICATION,
+                      payload={'object_id': target_id, 'power_mod': 1,
+                               'toughness_mod': 0, 'duration': 'end_of_turn'},
+                      source=obj.id, controller=obj.controller),
+                Event(type=EventType.GRANT_KEYWORD,
+                      payload={'object_id': target_id, 'keyword': 'first strike',
+                               'duration': 'end_of_turn'},
+                      source=obj.id, controller=obj.controller),
+            ],
+        )
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter, handler=handler,
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (handler(e, s).new_events or []),
+    )]
 
 
 def razorkin_hordecaller_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever you attack, create a 1/1 red Gremlin creature token."""
-    def attack_filter(event: Event, state: GameState, source: GameObject) -> bool:
-        return (event.type == EventType.ATTACK_DECLARED and
-                event.payload.get('attacking_player') == source.controller)
+    def attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.COMBAT_DECLARED:
+            return False
+        return event.payload.get('attacking_player') == obj.controller
+
+    def handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.OBJECT_CREATED,
+                payload={
+                    'controller': obj.controller,
+                    'name': 'Gremlin Token',
+                    'power': 1, 'toughness': 1,
+                    'colors': {Color.RED},
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Gremlin'},
+                    'is_token': True,
+                    'to_zone_type': ZoneType.BATTLEFIELD,
+                },
+                source=obj.id, controller=obj.controller,
+            )],
+        )
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter, handler=handler,
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (handler(e, s).new_events or []),
+    )]
 
 
 def razorkin_needlehead_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever an opponent draws a card, this creature deals 1 damage to them."""
     def draw_filter(event: Event, state: GameState) -> bool:
-        return (event.type == EventType.DRAW and
-                event.payload.get('player') != obj.controller)
+        if event.type != EventType.DRAW:
+            return False
+        player = event.payload.get('player')
+        return bool(player and player != obj.controller)
+
+    def handler(event: Event, state: GameState) -> InterceptorResult:
+        opp = event.payload.get('player')
+        if not opp:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.DAMAGE,
+                payload={'source': obj.id, 'target': opp, 'amount': 1, 'is_combat': False},
+                source=obj.id, controller=obj.controller,
+            )],
+        )
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=draw_filter, handler=handler,
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (handler(e, s).new_events or []),
+    )]
 
 
 def screaming_nemesis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -875,23 +961,46 @@ def screaming_nemesis_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 def vicious_clown_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Whenever another creature you control with power 2 or less enters, this creature gets +2/+0 until end of turn."""
-    def enter_filter(event: Event, state: GameState, source: GameObject) -> bool:
+    def enter_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.ZONE_CHANGE:
             return False
         if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
             return False
         entering_id = event.payload.get('object_id')
-        if entering_id == source.id:
+        if entering_id == obj.id:
             return False
         entering_obj = state.objects.get(entering_id)
         if not entering_obj:
             return False
         if CardType.CREATURE not in entering_obj.characteristics.types:
             return False
-        if entering_obj.controller != source.controller:
+        if entering_obj.controller != obj.controller:
             return False
-        power = get_power(entering_obj, state)
-        return power <= 2
+        try:
+            power = get_power(entering_obj, state)
+        except Exception:
+            power = entering_obj.characteristics.power or 0
+        return power is not None and power <= 2
+
+    def handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': obj.id, 'power_mod': 2, 'toughness_mod': 0,
+                         'duration': 'end_of_turn'},
+                source=obj.id, controller=obj.controller,
+            )],
+        )
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=enter_filter, handler=handler,
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (handler(e, s).new_events or []),
+    )]
 
 
 def anthropede_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -922,6 +1031,25 @@ def cryptid_inspector_setup(obj: GameObject, state: GameState) -> list[Intercept
             if target_obj and target_obj.controller == obj.controller:
                 return True
         return False
+
+    def handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id, controller=obj.controller,
+            )],
+        )
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=face_down_filter, handler=handler,
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: (handler(e, s).new_events or []),
+    )]
 
 
 def flesh_burrower_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1305,9 +1433,82 @@ def dazzling_theater_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def dollmakers_shop_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — Toy token on attack / base P/T equals number of creatures."""
-    # engine gap: Room unlock, base P/T setting, "non-Toy attacks player" trigger
-    return []
+    """Room — Door 1 "Dollmaker's Shop": whenever non-Toy creatures you control
+    attack a player, create a 1/1 white Toy artifact creature token.
+    Door 2 "Porcelain Gallery": base P/T overwrite (engine gap)."""
+    def door1_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 1 is a recurring trigger; unlocking it doesn't do anything itself.
+        return []
+
+    def door2_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Engine gap: base P/T overwrite + dynamic count.
+        return []
+
+    def dollmakers_shop_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        # Whenever one or more non-Toy creatures you control attack a player,
+        # create a 1/1 white Toy artifact creature token.
+        FIRED_KEY = "_dollmakers_shop_fired_combat"
+
+        def filt(event: Event, state: GameState) -> bool:
+            if event.type != EventType.COMBAT_DECLARED:
+                return False
+            current = state.objects.get(o.id)
+            if current is None or not is_door_unlocked(current, "Dollmaker's Shop"):
+                return False
+            if event.payload.get('attacking_player') != o.controller:
+                return False
+            attackers = list(event.payload.get('attackers') or [])
+            if not attackers:
+                return False
+            # At least one non-Toy attacker required.
+            for aid in attackers:
+                ao = state.objects.get(aid)
+                if ao is None:
+                    continue
+                subs = ao.characteristics.subtypes or set()
+                if 'Toy' not in subs:
+                    return True
+            return False
+
+        def handler(event: Event, state: GameState) -> InterceptorResult:
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[Event(
+                    type=EventType.OBJECT_CREATED,
+                    payload={
+                        'controller': o.controller,
+                        'name': 'Toy Token',
+                        'power': 1, 'toughness': 1,
+                        'colors': {Color.WHITE},
+                        'types': {CardType.ARTIFACT, CardType.CREATURE},
+                        'subtypes': {'Toy'},
+                        'is_token': True,
+                        'to_zone_type': ZoneType.BATTLEFIELD,
+                    },
+                    source=o.id, controller=o.controller,
+                )],
+            )
+
+        return [Interceptor(
+            id=new_id(),
+            source=o.id,
+            controller=o.controller,
+            priority=InterceptorPriority.REACT,
+            filter=filt,
+            handler=handler,
+            duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
+        )]
+
+    return make_room_setup(
+        door1_name="Dollmaker's Shop",
+        door1_unlock_effect=door1_effect,
+        door2_name="Porcelain Gallery",
+        door2_cost="{4}{W}{W}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=dollmakers_shop_extra,
+    )(obj, state)
 
 
 def fear_of_immobility_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3963,8 +4164,39 @@ def inquisitive_glimmer_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def the_jolly_balloon_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Haste; activated copy-creature-as-1/1-Balloon."""
-    # engine gap: activated abilities
+    """Haste; {1}, {T}: Create a token that's a copy of another target creature
+    you control, except it's a 1/1 red Balloon creature in addition to its
+    other colors and types and it has flying and haste. Sacrifice it at the
+    beginning of the next end step. Activate only as a sorcery.
+
+    Wires the copy-token activated ability. The delayed end-of-next-turn
+    sacrifice is an engine gap (delayed-trigger cleanup), so the token
+    persists past the end step but the copy itself is correctly created."""
+    def _copy_token(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        if not target_id or target_id not in st.objects:
+            return []
+        # Build the copy with the Balloon subtype + flying/haste add-ons.
+        # The card adds Balloon as a subtype (in addition to copied subtypes)
+        # and changes the copy to a 1/1 red. flying/haste keywords get layered on.
+        return make_copy_token_event(
+            target_id=target_id,
+            controller=o.controller,
+            source_id=o.id,
+            add_subtypes={"Balloon"},
+            except_power=1, except_toughness=1,
+            except_keywords=["flying", "haste"],
+        )
+
+    make_activated_ability(
+        obj, cost="{1}, {T}", effect_fn=_copy_token,
+        description="Copy target creature as a 1/1 red Balloon with flying and haste",
+        sorcery_speed=True,
+        targets_required=1, target_kind="other_creature_you_control",
+    )
     return []
 
 
