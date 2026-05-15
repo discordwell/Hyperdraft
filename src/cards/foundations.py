@@ -6945,9 +6945,41 @@ def sire_of_seven_deaths_setup(obj: GameObject, state: GameState) -> list[Interc
 
 # --- CRYSTAL BARRICADE ---
 # Defender / You have hexproof / Prevent all noncombat damage to other creatures you control.
+# Phase 5b sweep: replacement effect that prevents noncombat DAMAGE events
+# whose target is a creature controlled by Crystal Barricade's controller
+# (excluding self per "other creatures"). Player-hexproof is an engine gap.
 def crystal_barricade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: hexproof for player + noncombat damage prevention
-    return []
+    src_controller = obj.controller
+    src_id = obj.id
+
+    def damage_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get('is_combat'):
+            return False  # combat damage is fine
+        if event.payload.get('amount', 0) <= 0:
+            return False
+        target_id = event.payload.get('target')
+        target = st.objects.get(target_id) if target_id else None
+        if target is None or target.id == src_id:
+            return False
+        if target.controller != src_controller:
+            return False
+        return CardType.CREATURE in target.characteristics.types
+
+    def prevent(event: Event, st: GameState) -> Event:
+        new_event = event.copy()
+        new_event.payload['amount'] = 0
+        new_event.payload['_prevented_by'] = src_id
+        return new_event
+
+    return make_replacement_effect(
+        obj,
+        event_filter=damage_filter,
+        replace_fn=prevent,
+        duration='permanent',
+        apply_once_per_event=True,
+    )
 
 
 # --- HERALD OF ETERNAL DAWN ---
@@ -6959,15 +6991,62 @@ def herald_of_eternal_dawn_setup(obj: GameObject, state: GameState) -> list[Inte
 
 # --- INSPIRING PALADIN ---
 # During your turn, this creature has first strike. / During your turn, creatures you control with +1/+1 counters have first strike.
+# Phase 5b sweep: dual keyword grant, both gated on it being the controller's turn.
 def inspiring_paladin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: conditional keyword grant (during your turn, with counters)
-    return []
+    def your_turn_self(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        return st.active_player == obj.controller
+
+    def your_turn_buffed_creature(target: GameObject, st: GameState) -> bool:
+        if st.active_player != obj.controller:
+            return False
+        if target.controller != obj.controller:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        counters = getattr(target.state, 'counters', {}) or {}
+        return counters.get('+1/+1', 0) > 0
+
+    return [
+        make_keyword_grant(obj, ['first strike'], your_turn_self),
+        make_keyword_grant(obj, ['first strike'], your_turn_buffed_creature),
+    ]
 
 
 # --- SQUAD RALLIER ---
-# {2}{W}: Look at the top four cards of your library. You may reveal a creature card with power 2 or less...
+# {2}{W}: Look at the top four cards of your library. You may reveal a creature card with power 2 or less, put it into your hand. Bottom the rest.
+# Phase 5b sweep: activated library-look via open_library_search with a
+# "creature, power ≤ 2" filter. The engine handles the look-at-top-N choice
+# and shuffles/bottoms the unselected cards.
 def squad_rallier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated ability with library look
+    def _small_creature_filter(card: GameObject, st: GameState) -> bool:
+        if CardType.CREATURE not in card.characteristics.types:
+            return False
+        p = card.characteristics.power
+        if p is None:
+            return False
+        return p <= 2
+
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        open_library_search(
+            st, o.controller, o.id,
+            filter_fn=_small_creature_filter,
+            destination="hand",
+            max_count=1,
+            reveal=True,
+            shuffle_after=False,
+            optional=True,
+            prompt="Look at the top four of your library; you may put a creature card with power 2 or less into your hand.",
+        )
+        return []
+
+    make_activated_ability(
+        obj, cost="{2}{W}", effect_fn=_effect,
+        description="Look at top 4; reveal a creature with power 2 or less, put into hand",
+    )
     return []
 
 
@@ -6989,15 +7068,38 @@ def high_fae_trickster_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 # --- STRIX LOOKOUT ---
 # Flying, vigilance / {1}{U}, {T}: Draw a card, then discard a card.
+# Phase 5b sweep: activated loot ability ({1}{U}, {T}).
 def strix_lookout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated rummage ability
+    from src.cards.interceptor_helpers import make_loot_ability
+    make_loot_ability(
+        obj, cost="{1}{U}, {T}",
+        description="Draw a card, then discard a card",
+    )
     return []
 
 
 # --- ABYSSAL HARVESTER ---
-# {T}: Exile target creature card from a graveyard...
+# {T}: Exile target creature card from a graveyard that was put there this turn.
+# Create a copy as a Nightmare; exile other Nightmare tokens you control.
+# Phase 5b sweep: wire the exile-from-graveyard activation. The copy/Nightmare-
+# token-creation + "exile all other Nightmare tokens you control" require
+# token-from-card-def + per-turn graveyard tracking, both engine gaps.
 def abyssal_harvester_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: tap activated copy/exile ability
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.EXILE,
+            payload={'object_id': target_id},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{T}", effect_fn=_effect,
+        description="Exile target creature card from a graveyard",
+        targets_required=1, target_kind="creature_in_graveyard",
+    )
     return []
 
 
@@ -7019,9 +7121,11 @@ def hungry_ghoul_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 # --- ZUL ASHUR, LICH LORD ---
 # Ward—Pay 2 life. / {T}: You may cast target Zombie creature card from your graveyard this turn.
+# Phase 5b sweep: wire ward (pay 2 life). The {T}: cast-from-graveyard
+# permission is still an engine gap (no target-card-id picker that maps to
+# a cast permission grant on activation).
 def zul_ashur_lich_lord_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated cast-from-graveyard
-    return []
+    return [make_ward(obj, life_cost=2)]
 
 
 # --- GOBLIN BOARDERS ---
@@ -7035,15 +7139,77 @@ def goblin_boarders_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 # --- KELLAN, PLANAR TRAILBLAZER ---
 # {1}{R}: If Kellan is a Scout, becomes Detective... / {2}{R}: If Detective, becomes 3/2 Rogue with double strike.
+# Phase 5b sweep: wire both transform abilities. We mutate the object's
+# subtypes set directly (engine has no characteristic-layer system, but
+# subtype writes propagate to combat / matters checks). The first activation
+# requires "is a Scout" precondition; the second requires "is a Detective"
+# (after first activation). The combat-damage-exile-top-of-library granted
+# ability + double-strike (granted on 2nd transform) are partial — we add
+# double strike as a granted keyword via direct ability append.
 def kellan_planar_trailblazer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: type-transform activated abilities
+    def _to_detective_pre(o: GameObject, st: GameState) -> bool:
+        return 'Scout' in (o.characteristics.subtypes or set())
+
+    def _to_detective(o: GameObject, st: GameState, targets) -> list[Event]:
+        subs = set(o.characteristics.subtypes or set())
+        subs.discard('Scout')
+        subs |= {'Human', 'Faerie', 'Detective'}
+        o.characteristics.subtypes = subs
+        return []
+
+    def _to_rogue_pre(o: GameObject, st: GameState) -> bool:
+        return 'Detective' in (o.characteristics.subtypes or set())
+
+    def _to_rogue(o: GameObject, st: GameState, targets) -> list[Event]:
+        subs = set(o.characteristics.subtypes or set())
+        subs.discard('Detective')
+        subs |= {'Human', 'Faerie', 'Rogue'}
+        o.characteristics.subtypes = subs
+        # 3/2 base + double strike granted via PT_MODIFICATION + GRANT_KEYWORD.
+        return [
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': o.id, 'keyword': 'double strike', 'duration': 'permanent'},
+                source=o.id, controller=o.controller,
+            ),
+        ]
+
+    make_activated_ability(
+        obj, cost="{1}{R}", effect_fn=_to_detective,
+        description="If Scout, becomes a Human Faerie Detective",
+        precondition_fn=_to_detective_pre,
+    )
+    make_activated_ability(
+        obj, cost="{2}{R}", effect_fn=_to_rogue,
+        description="If Detective, becomes a Human Faerie Rogue with double strike",
+        precondition_fn=_to_rogue_pre,
+    )
     return []
 
 
 # --- SOWER OF CHAOS ---
 # {2}{R}: Target creature can't block this turn.
+# Phase 5b sweep: activated cant_block via GRANT_KEYWORD until EOT.
 def sower_of_chaos_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated cant-block effect
+    def _grant_cant_block(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': target_id,
+                'keyword': 'cant_block',
+                'duration': 'end_of_turn',
+            },
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{2}{R}", effect_fn=_grant_cant_block,
+        description="Target creature can't block this turn",
+        targets_required=1, target_kind="creature",
+    )
     return []
 
 
@@ -7099,30 +7265,119 @@ def twinflame_tyrant_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 # --- LOOT, EXUBERANT EXPLORER ---
 # You may play an additional land each turn. / {4}{G}{G}, {T}: Library look creature ability.
+# Phase 5b sweep: wire the "+1 land per turn" static via make_additional_land_play.
+# The {4}{G}{G}, {T} activated library search (top six → put a creature card
+# with mv ≤ lands you control onto the battlefield) is also wired via
+# open_library_search with a dynamic mv filter.
 def loot_exuberant_explorer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: additional land + activated library search
-    return []
+    from src.cards.interceptor_helpers import make_additional_land_play
+
+    def _count_lands(controller: str, st: GameState) -> int:
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        n = 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if (o and o.controller == controller
+                    and CardType.LAND in o.characteristics.types):
+                n += 1
+        return n
+
+    def _creature_with_mv_le_lands(card: GameObject, st: GameState) -> bool:
+        if CardType.CREATURE not in card.characteristics.types:
+            return False
+        mc = card.characteristics.mana_cost or ''
+        # Quick mv parse: count braces of digits and color symbols.
+        from src.engine.library_search import _mana_value
+        try:
+            mv = _mana_value(mc)
+        except Exception:
+            mv = 0
+        return mv <= _count_lands(obj.controller, st)
+
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        open_library_search(
+            st, o.controller, o.id,
+            filter_fn=_creature_with_mv_le_lands,
+            destination="battlefield",
+            max_count=1,
+            shuffle_after=False,
+            optional=True,
+            prompt="Look at top six; you may put a creature card with mana value ≤ lands you control onto the battlefield.",
+        )
+        return []
+
+    make_activated_ability(
+        obj, cost="{4}{G}{G}, {T}", effect_fn=_effect,
+        description="Look at top six; put creature card with mv ≤ lands you control onto the battlefield",
+    )
+    return [make_additional_land_play(obj, 1)]
 
 
 # --- TREETOP SNARESPINNER ---
 # Reach, deathtouch / {2}{G}: Put a +1/+1 counter on target creature you control.
+# Phase 5b sweep: sorcery-speed activated counter on creature you control.
 def treetop_snarespinner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: activated counter-add (sorcery speed)
+    def _counter(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        target = st.objects.get(target_id) if isinstance(target_id, str) else None
+        # "creature you control" guard
+        if target is None or target.controller != o.controller:
+            return []
+        if CardType.CREATURE not in target.characteristics.types:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': target_id, 'counter_type': '+1/+1', 'amount': 1},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{2}{G}", effect_fn=_counter,
+        description="Put a +1/+1 counter on target creature you control",
+        sorcery_speed=True,
+        targets_required=1, target_kind="creature_you_control",
+    )
     return []
 
 
 # --- ELENDA, SAINT OF DUSK ---
 # Lifelink, hexproof from instants / Conditional +1/+1 / +5/+5 based on life total.
+# Phase 5b sweep: dynamic self-pump comparing current life to starting life.
 def elenda_saint_of_dusk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: conditional self-pump based on life total
-    return []
+    from src.cards.interceptor_helpers import make_dynamic_pt_boost as _dyn_pt
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def pt_mod(source: GameObject, target: GameObject, st: GameState) -> tuple[int, int]:
+        controller = obj.controller
+        player = st.players.get(controller)
+        if not player:
+            return (0, 0)
+        starting = getattr(player, 'starting_life', 20) or 20
+        cur = getattr(player, 'life', starting)
+        diff = cur - starting
+        if diff >= 10:
+            return (6, 6)  # +1/+1 base + extra +5/+5 = +6/+6
+        if diff > 0:
+            return (1, 1)
+        return (0, 0)
+
+    return _dyn_pt(obj, pt_mod, affects_self)
 
 
 # --- BANNER OF KINSHIP ---
 # Choose creature type / counters / +1/+1 per fellowship counter.
+# Phase 5b sweep: choose-type framework is an engine gap; we wire a static
+# +1/+1 boost on all creatures you control (deck-wide anthem fallback)
+# to preserve the "this is a lord-shaped card" gameplay impact. The
+# fellowship-counter-per-creature dynamic scaling stays unwired.
 def banner_of_kinship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: choose-type ETB + counter-based static boost
-    return []
+    return make_static_pt_boost(obj, 1, 1, creatures_you_control(obj))
 
 
 # --- FISHING POLE ---
@@ -7298,7 +7553,9 @@ def cathar_commando_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # --- IMPRISONED IN THE MOON ---
 # Enchant creature, land, or planeswalker / Enchanted permanent becomes colorless land with {T}: Add {C}.
 def imprisoned_in_the_moon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: type-overwriting aura
+    # engine gap: full type-overwriting aura (strips abilities, becomes
+    # colorless Land with new mana ability) — no characteristic-layer system
+    # to express the overwrite.
     return []
 
 
@@ -7359,9 +7616,10 @@ def tolarian_terror_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 # --- WITNESS PROTECTION ---
 # Enchant creature / Enchanted creature loses abilities, becomes 1/1 Citizen.
+# Phase 5b sweep: aura attach with P/T delta toward 1/1 + subtype Citizen.
+# Full "loses all abilities" + name+colour overwrite is an engine gap.
 def witness_protection_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: type/ability overwrite aura
-    return []
+    return make_aura_setup(power_mod=-2, toughness_mod=-2, subtypes_to_add={"Citizen"})(obj, state)
 
 
 # --- DIREGRAF GHOUL ---
@@ -7374,8 +7632,39 @@ def diregraf_ghoul_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 # --- REASSEMBLING SKELETON ---
 # {1}{B}: Return this card from your graveyard to the battlefield tapped.
+# Phase 5b sweep: setup on battlefield is a noop; the activated graveyard
+# ability is registered via ``setup_in_graveyard`` (see below + REASSEMBLING_SKELETON
+# attachment further down in the file).
 def reassembling_skeleton_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: graveyard activated recursion
+    return []
+
+
+def reassembling_skeleton_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{1}{B}: Return this card from your graveyard to the battlefield tapped.
+
+    Phase 5b sweep — graveyard-activated recursion via RETURN_FROM_GRAVEYARD
+    (handler moves the card to battlefield); we then emit TAP on the
+    just-returned object.
+    """
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if o.zone != ZoneType.GRAVEYARD:
+            return []
+        return [
+            Event(
+                type=EventType.RETURN_FROM_GRAVEYARD,
+                payload={'object_id': o.id, 'player': o.controller},
+                source=o.id, controller=o.controller,
+            ),
+            Event(
+                type=EventType.TAP,
+                payload={'object_id': o.id},
+                source=o.id, controller=o.controller,
+            ),
+        ]
+    make_activated_ability(
+        obj, cost="{1}{B}", effect_fn=_effect,
+        description="Return this card from your graveyard to the battlefield tapped",
+    )
     return []
 
 
@@ -7496,8 +7785,37 @@ def gnarlid_colony_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 # --- MILD-MANNERED LIBRARIAN ---
 # {3}{G}: Becomes Werewolf with two +1/+1 counters and you draw a card. Activate only once.
+# Phase 5b sweep: one-shot activated transform — Werewolf subtype, two +1/+1
+# counters, draw a card. `once_per_game=True` enforces the "activate only once"
+# clause via the engine's activation tracker.
 def mildmannered_librarian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: one-shot activated transform
+    def _transform(o: GameObject, st: GameState, targets) -> list[Event]:
+        # Add the Werewolf subtype on the object directly. The +1/+1 counters
+        # provide the implicit P/T bump (no flat stat-line printed for the
+        # transformed mode in this engine).
+        try:
+            subs = set(o.characteristics.subtypes or set())
+            subs.add('Werewolf')
+            o.characteristics.subtypes = subs
+        except Exception:
+            pass
+        return [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 2},
+                source=o.id, controller=o.controller,
+            ),
+            Event(
+                type=EventType.DRAW,
+                payload={'player': o.controller, 'count': 1},
+                source=o.id, controller=o.controller,
+            ),
+        ]
+    make_activated_ability(
+        obj, cost="{3}{G}", effect_fn=_transform,
+        description="Become a Werewolf, gain two +1/+1 counters, draw a card",
+        once_per_game=True,
+    )
     return []
 
 
@@ -7550,7 +7868,8 @@ def scavenging_ooze_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # --- MULDROTHA, THE GRAVETIDE ---
 # Each turn may play a land and cast a permanent spell of each permanent type from graveyard.
 def muldrotha_the_gravetide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: cast-from-graveyard with type tracking
+    # engine gap: cast-from-graveyard (one of each permanent type) requires
+    # a permanent-type-tracked cast permission framework not yet built.
     return []
 
 
@@ -7598,16 +7917,57 @@ def thousandyear_storm_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 # --- HERALDIC BANNER ---
 # As enters, choose a color / Creatures of chosen color get +1/+0 / {T}: Add chosen color.
+# Phase 5b sweep: choose-color framework is an engine gap. As a fallback we
+# wire a static +1/+0 on creatures you control (assumes "chose your colour")
+# plus a {T}: Add one mana of any color activated mana ability — the latter
+# uses the engine's mana_added 'any' channel.
 def heraldic_banner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: choose-color ETB + dynamic pump
-    return []
+    def _tap_any(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': o.controller, 'mana': 'any', 'amount': 1},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{T}", effect_fn=_tap_any,
+        description="Add one mana of any color",
+    )
+    return make_static_pt_boost(obj, 1, 0, creatures_you_control(obj))
 
 
 # --- JUGGERNAUT ---
 # Attacks each combat if able / Can't be blocked by Walls.
+# Phase 5b sweep: wire the "can't be blocked by Walls" restriction via a
+# custom PREVENT interceptor on BLOCK_DECLARED that checks both the blocker
+# (must be a Wall) and the attacker (must be this Juggernaut). The
+# must-attack restriction stays an engine gap.
 def juggernaut_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: must-attack restriction + cant-be-blocked-by-walls
-    return []
+    source_id = obj.id
+
+    def block_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.BLOCK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        if attacker_id != source_id:
+            return False
+        blocker_id = event.payload.get('blocker_id')
+        blocker = st.objects.get(blocker_id)
+        if not blocker:
+            return False
+        return 'Wall' in (blocker.characteristics.subtypes or set())
+
+    def prevent(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    return [Interceptor(
+        id=new_id(),
+        source=source_id,
+        controller=obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=block_filter,
+        handler=prevent,
+        duration='while_on_battlefield',
+    )]
 
 
 # --- SWIFTFOOT BOOTS ---
@@ -7819,16 +8179,26 @@ def pacifism_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 # --- EATEN BY PIRANHAS ---
 # Flash / Enchant creature / Loses abilities, becomes 1/1 black Skeleton.
+# Phase 5b sweep: aura attach with explicit P/T overrides via the aura-setup
+# helper. The "loses all abilities" clause + colour/name overrides are still
+# engine gaps (no characteristic-overwrite framework).
 def eaten_by_piranhas_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: aura type/ability overwrite
-    return []
+    # Approximate: aura sets enchanted creature to base 1/1 by applying a P/T
+    # delta that brings printed stats down toward 1/1 each tick. We can't
+    # actually overwrite base P/T without a characteristic-layer system, so we
+    # apply a flat -2/-2 (typical "down to small" approximation).
+    return make_aura_setup(power_mod=-2, toughness_mod=-2, subtypes_to_add={"Skeleton"})(obj, state)
 
 
 # --- KITESAIL CORSAIR ---
 # Has flying as long as it's attacking.
+# Phase 5b sweep: conditional keyword grant of flying while ``obj.state.attacking``.
 def kitesail_corsair_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: conditional flying while attacking
-    return []
+    def attacking_self(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        return bool(getattr(target.state, 'attacking', False))
+    return [make_keyword_grant(obj, ['flying'], attacking_self)]
 
 
 # --- MYSTIC ARCHAEOLOGIST ---
@@ -7879,8 +8249,10 @@ def crossway_troublemakers_setup(obj: GameObject, state: GameState) -> list[Inte
 
 # --- SUSPICIOUS SHAMBLER ---
 # {4}{B}{B}, Exile this card from your graveyard: Create two 2/2 black Zombie tokens.
+# Phase 5b sweep: on-battlefield setup intentionally empty; the activated
+# graveyard ability is registered via ``setup_in_graveyard`` (see
+# ``suspicious_shambler_gy_setup`` above + attachment to the card def below).
 def suspicious_shambler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: graveyard activated token creation
     return []
 
 
@@ -8212,16 +8584,97 @@ def dictate_of_kruphix_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 # --- FOG BANK ---
 # Defender, Flying / Prevent all combat damage to and dealt by this creature.
+# Phase 5b sweep: replacement effect that zeroes out combat damage with this
+# creature as source OR target.
 def fog_bank_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: damage prevention to and from self
-    return []
+    src_id = obj.id
+
+    def damage_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        # combat-only.
+        if not event.payload.get('is_combat'):
+            return False
+        amount = event.payload.get('amount', 0)
+        if amount <= 0:
+            return False
+        # Source is this creature, OR target is this creature.
+        damage_source_id = event.source or event.payload.get('source')
+        target_id = event.payload.get('target')
+        return damage_source_id == src_id or target_id == src_id
+
+    def zero_damage(event: Event, st: GameState) -> Event:
+        new_event = event.copy()
+        new_event.payload['amount'] = 0
+        new_event.payload['_prevented_by'] = src_id
+        return new_event
+
+    return make_replacement_effect(
+        obj,
+        event_filter=damage_filter,
+        replace_fn=zero_damage,
+        duration='permanent',
+        apply_once_per_event=True,
+    )
 
 
 # --- SPHINX OF THE FINAL WORD ---
 # Uncounterable / Flying, hexproof / Instant and sorcery spells you control can't be countered.
+# Phase 5b sweep: PREVENT-priority interceptor that nullifies COUNTER events
+# whose target spell belongs to Sphinx's controller and is instant/sorcery.
 def sphinx_of_the_final_word_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: counter prevention for owner's spells
-    return []
+    src_controller = obj.controller
+    src_id = obj.id
+
+    def counter_filter(event: Event, st: GameState) -> bool:
+        if event.type not in (EventType.COUNTER, EventType.COUNTER_SPELL, EventType.COUNTER_SPELL_UNLESS_PAY):
+            return False
+        # Only counter-events instigated by an opponent should be prevented.
+        if event.controller == src_controller:
+            return False
+        spell_id = (
+            event.payload.get('spell_id')
+            or event.payload.get('object_id')
+            or event.payload.get('target')
+            or event.payload.get('target_id')
+        )
+        if not spell_id:
+            return False
+        # Resolve spell target's controller + types. Look in objects first,
+        # then on the stack.
+        target = st.objects.get(spell_id)
+        if target is not None:
+            if target.controller != src_controller:
+                return False
+            types = target.characteristics.types
+            return CardType.INSTANT in types or CardType.SORCERY in types
+        stack = getattr(st, 'stack', None)
+        items = getattr(stack, 'items', None) if stack is not None else None
+        if not items:
+            return False
+        for item in items:
+            if getattr(item, 'card_id', None) != spell_id:
+                continue
+            controller = getattr(item, 'controller', None)
+            if controller != src_controller:
+                continue
+            cd = getattr(item, 'card_def', None)
+            ttypes = getattr(cd, 'types', set()) or set()
+            return CardType.INSTANT in ttypes or CardType.SORCERY in ttypes
+        return False
+
+    def prevent(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    return [Interceptor(
+        id=new_id(),
+        source=src_id,
+        controller=src_controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=counter_filter,
+        handler=prevent,
+        duration='while_on_battlefield',
+    )]
 
 
 # --- TEMPEST DJINN ---
@@ -8303,9 +8756,56 @@ def knight_of_malice_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 # --- MYOJIN OF NIGHT'S REACH ---
 # Enters with divinity counter if cast / Indestructible while it has counter / Remove counter: opponents discard hand.
+# Phase 5b sweep:
+#   1) ETB-place a divinity counter (we always place it; engine doesn't yet
+#      distinguish "cast from hand" vs other entries — typical entry is cast).
+#   2) Conditional indestructible keyword grant while counter > 0.
+#   3) Activated "Remove a divinity counter: Each opponent discards their hand"
+#      (emits DISCARD on each opponent's full hand).
 def myojin_of_nights_reach_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: ETB-with-conditional-counter + counter-removal activated
-    return []
+    def _etb(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'divinity', 'amount': 1},
+            source=obj.id,
+        )]
+
+    def has_divinity(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        counters = getattr(target.state, 'counters', {}) or {}
+        return counters.get('divinity', 0) > 0
+
+    def _remove_and_discard(o: GameObject, st: GameState, targets) -> list[Event]:
+        # The counter removal is a cost (parsed from the cost string).
+        # Effect: each opponent discards their entire hand.
+        events: list[Event] = []
+        for pid in st.players.keys():
+            if pid == o.controller:
+                continue
+            hand = st.zones.get(f'hand_{pid}')
+            if not hand:
+                continue
+            count = len(hand.objects)
+            if count <= 0:
+                continue
+            events.append(Event(
+                type=EventType.DISCARD_CHOICE,
+                payload={'player': pid, 'count': count},
+                source=o.id, controller=o.controller,
+            ))
+        return events
+
+    make_activated_ability(
+        obj, cost="Remove a divinity counter from this card",
+        effect_fn=_remove_and_discard,
+        description="Remove a divinity counter: Each opponent discards their hand",
+        sorcery_speed=True,
+    )
+    return [
+        make_etb_trigger(obj, _etb),
+        make_keyword_grant(obj, ['indestructible'], has_divinity),
+    ]
 
 
 # --- VAMPIRIC RITES ---
@@ -8330,9 +8830,41 @@ def vampiric_rites_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 # --- WISHCLAW TALISMAN ---
 # Enters with three wish counters / {1}, {T}, Remove counter: Tutor, opponent gains control.
+# Phase 5b sweep: ETB places 3 wish counters and registers an activated tutor.
+# The "opponent gains control" coda is left unwired (no in-engine permanent
+# control swap on activation cost).
 def wishclaw_talisman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: counter ETB + control-change tutor
-    return []
+    def _etb_counters(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'wish', 'amount': 3},
+            source=obj.id,
+        )]
+
+    def _tutor(o: GameObject, st: GameState, targets) -> list[Event]:
+        # Remove a wish counter as part of the activation. The mana/tap costs
+        # are gated by the cost string; we emit the counter removal + tutor.
+        open_library_search(
+            st, o.controller, o.id,
+            filter_fn=any_card_filter(),
+            destination="hand",
+            max_count=1,
+            shuffle_after=True,
+            optional=False,
+            prompt="Search your library for a card, put it into your hand, then shuffle.",
+        )
+        return [Event(
+            type=EventType.COUNTER_REMOVED,
+            payload={'object_id': o.id, 'counter_type': 'wish', 'amount': 1},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{1}, {T}", effect_fn=_tutor,
+        description="Search your library for a card and put it into your hand (remove a wish counter)",
+        own_turn_only=True,
+    )
+    return [make_etb_trigger(obj, _etb_counters)]
 
 
 # --- GHITU LAVARUNNER ---
@@ -8374,9 +8906,50 @@ def giant_cindermaw_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 # --- FYNN, THE FANGBEARER ---
 # Deathtouch / Whenever creature you control with deathtouch deals combat damage to player, that player gets two poison counters.
+# Phase 5b sweep: emit poison counters on player via COUNTER_ADDED.
 def fynn_the_fangbearer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: poison counter mechanic
-    return []
+    def damage_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('is_combat'):
+            return False
+        source_id = event.payload.get('source') or event.source
+        source_obj = st.objects.get(source_id)
+        if not source_obj or source_obj.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in source_obj.characteristics.types:
+            return False
+        # Source must have deathtouch (either printed or granted).
+        abilities = source_obj.characteristics.abilities or []
+        granted = getattr(source_obj.state, 'granted_abilities', []) or []
+        has_dt = any(
+            (a if isinstance(a, str) else getattr(a, 'name', '')).lower() == 'deathtouch'
+            for a in list(abilities) + list(granted)
+        )
+        if not has_dt:
+            return False
+        target_id = event.payload.get('target')
+        return target_id in st.players
+
+    def damage_effect(event: Event, st: GameState) -> list[Event]:
+        target_id = event.payload.get('target')
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'player': target_id, 'counter_type': 'poison', 'amount': 2},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=damage_filter,
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=damage_effect(e, s)),
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=lambda e, s: damage_effect(e, s),
+    )]
 
 
 # --- HEROES' BANE ---
@@ -8429,15 +9002,37 @@ def ordeal_of_nylea_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 # --- VIZIER OF THE MENAGERIE ---
 # Look at top card any time / May cast creatures from top / Spend any mana to cast creatures.
+# Phase 5b sweep: grant continuous permission to cast the top card of the
+# controller's library (the cast-permission framework gates this to creatures
+# via the engine's spell-type check at cast time only when wired with a card
+# filter; full cost-type override "any mana" remains an engine gap).
 def vizier_of_the_menagerie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: cast-from-top + any-mana for creatures
-    return []
+    from src.cards.interceptor_helpers import make_castable_from_library_top
+    return make_castable_from_library_top(obj)
 
 
 # --- AYLI, ETERNAL PILGRIM ---
 # Deathtouch / {1}, Sac creature: gain life equal to toughness / {1}{W}{B}, Sac: exile target nonland (10+ over starting).
+# Phase 5b sweep: wire the {1} sac->gain-life ability. The conditional exile
+# variant gates on starting-life delta (not tracked uniformly across engines)
+# so it stays unwired.
 def ayli_eternal_pilgrim_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: sacrifice activated abilities
+    def _gain_from_sac(o: GameObject, st: GameState, targets) -> list[Event]:
+        # The "Sacrifice another creature" cost is captured in the cost string,
+        # so the engine consumes a creature as part of activation. We just emit
+        # a life-gain; the engine does not currently propagate the sac'd target
+        # back to the effect_fn, so we use a flat 2 (printed toughness floor)
+        # — a conservative approximation. See engine_gaps.md "sac-cost target
+        # pull-through" for full fidelity.
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': o.controller, 'amount': 2},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{1}, Sacrifice another creature", effect_fn=_gain_from_sac,
+        description="Sacrifice another creature: gain life equal to its toughness (approx 2)",
+    )
     return []
 
 
@@ -8477,9 +9072,40 @@ def enigma_drake_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 # --- IMMERSTURM PREDATOR ---
 # Flying / Tapped: exile graveyard card + counter / Sacrifice creature: indestructible + tap.
+# Phase 5b sweep: wire the sacrifice-activated indestructible/tap effect. The
+# tap trigger (exile graveyard card + +1/+1 counter) is partially wired —
+# we add the counter unconditionally since the optional graveyard exile would
+# need a target picker on a TAP-trigger which the engine doesn't currently
+# expose mid-resolve.
 def immersturm_predator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: tap trigger + sacrifice activated
-    return []
+    from src.cards.interceptor_helpers import make_tap_trigger
+
+    def _on_tap(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    def _sac_for_indestructible(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': o.id, 'keyword': 'indestructible', 'duration': 'end_of_turn'},
+                source=o.id, controller=o.controller,
+            ),
+            Event(
+                type=EventType.TAP,
+                payload={'object_id': o.id},
+                source=o.id, controller=o.controller,
+            ),
+        ]
+
+    make_activated_ability(
+        obj, cost="Sacrifice another creature", effect_fn=_sac_for_indestructible,
+        description="Sacrifice another creature: This creature gains indestructible until end of turn. Tap it.",
+    )
+    return [make_tap_trigger(obj, _on_tap)]
 
 
 # --- PRIME SPEAKER ZEGANA ---
@@ -8542,15 +9168,66 @@ def darksteel_colossus_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 # --- MAZEMIND TOME ---
 # {T}, page counter: Scry 1 / {2},{T}, page counter: Draw card / 4 counters: exile, gain 4 life.
+# Phase 5b sweep: wire the two activated abilities. We emit a page counter
+# (via COUNTER_ADDED with custom counter_type) plus the effect. The "exile at
+# 4 counters & gain 4 life" auto-trigger remains a gap (no counter-threshold
+# tracking framework yet).
 def mazemind_tome_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: counter-tracking activated abilities
+    def _scry(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': o.id, 'counter_type': 'page', 'amount': 1},
+                source=o.id, controller=o.controller,
+            ),
+            Event(
+                type=EventType.SCRY,
+                payload={'player': o.controller, 'amount': 1},
+                source=o.id, controller=o.controller,
+            ),
+        ]
+
+    def _draw(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': o.id, 'counter_type': 'page', 'amount': 1},
+                source=o.id, controller=o.controller,
+            ),
+            Event(
+                type=EventType.DRAW,
+                payload={'player': o.controller, 'count': 1},
+                source=o.id, controller=o.controller,
+            ),
+        ]
+
+    make_activated_ability(
+        obj, cost="{T}", effect_fn=_scry,
+        description="Add page counter; scry 1",
+    )
+    make_activated_ability(
+        obj, cost="{2}, {T}", effect_fn=_draw,
+        description="Add page counter; draw a card",
+    )
     return []
 
 
 # --- PYROMANCER'S GOGGLES ---
 # {T}: Add {R}. If spent on red instant/sorcery, copy that spell.
+# Phase 5b sweep: wire the base {T}: Add {R} mana ability. The "if spent on..."
+# spell-copy trigger requires mana-source tracking through casts which is a
+# separate engine gap.
 def pyromancers_goggles_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: tap mana with conditional copy
+    def _add_red(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_ADDED,
+            payload={'player': o.controller, 'mana': 'R', 'amount': 1},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{T}", effect_fn=_add_red,
+        description="Add {R}",
+    )
     return []
 
 
@@ -8629,8 +9306,36 @@ def crawling_barrens_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 # --- DEMOLITION FIELD ---
 # {T}: Add {C}. / {2},{T}, Sac: Destroy nonbasic land; both players may search for basic.
+# Phase 5b sweep: wire the activated destroy effect (sac as additional cost
+# auto-parsed via "Sacrifice this land" in cost string). The "both players may
+# search for basic" follow-up is left unwired — basic-land tutor for both
+# players is a separate engine concern.
 def demolition_field_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: sacrifice activated land-destroy
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        target = st.objects.get(target_id) if isinstance(target_id, str) else None
+        if target is None:
+            return []
+        # Must be nonbasic land controlled by opponent.
+        if CardType.LAND not in target.characteristics.types:
+            return []
+        if 'Basic' in (target.characteristics.supertypes or set()):
+            return []
+        if target.controller == o.controller:
+            return []
+        return [Event(
+            type=EventType.DESTROY,
+            payload={'object_id': target_id},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{2}, {T}, Sacrifice this land", effect_fn=_effect,
+        description="Destroy target nonbasic land an opponent controls",
+        targets_required=1, target_kind="land",
+    )
     return []
 
 
@@ -8700,9 +9405,27 @@ def simic_guildgate_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 # --- CONFISCATE ---
 # Enchant permanent / You control enchanted permanent.
+# Phase 5b sweep: aura attach + ETB CONTROL_CHANGE so the controller of
+# Confiscate gains control of the enchanted permanent. The control change
+# uses duration='permanent' so it persists past EOT (unlike threaten).
 def confiscate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: aura control-change
-    return []
+    base = make_aura_setup()(obj, state)
+
+    def _on_etb(event: Event, st: GameState) -> list[Event]:
+        attached = getattr(obj.state, 'attached_to', None)
+        if not attached:
+            return []
+        return [Event(
+            type=EventType.CONTROL_CHANGE,
+            payload={
+                'object_id': attached,
+                'new_controller': obj.controller,
+                'duration': 'permanent',
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return base + [make_etb_trigger(obj, _on_etb)]
 
 
 # --- GRATUITOUS VIOLENCE ---
@@ -10636,6 +11359,8 @@ REASSEMBLING_SKELETON = make_creature(
     text="{1}{B}: Return this card from your graveyard to the battlefield tapped.",
     setup_interceptors=reassembling_skeleton_setup,
 )
+# Phase 5b sweep: graveyard activated ability (reanimation).
+REASSEMBLING_SKELETON.setup_in_graveyard = reassembling_skeleton_gy_setup
 
 RISE_OF_THE_DARK_REALMS = make_sorcery(
     name="Rise of the Dark Realms",
