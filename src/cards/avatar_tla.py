@@ -1456,9 +1456,10 @@ def badgermole_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def badgermole_cub_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you tap a creature for mana, add an additional {G}."""
-    # Simplified - mana ability triggers would require additional event types
-    return []
+    """When this creature enters, earthbend 1. (Second ability — tap-for-mana
+    rider that adds {G} — is an engine gap requiring a MANA_ABILITY_ACTIVATED
+    event hook the engine doesn't surface yet.)"""
+    return [make_earthbend_etb_trigger(obj, x_amount=1)]
 
 
 def diligent_zookeeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2058,8 +2059,37 @@ def glider_staff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def hakoda_selfless_commander_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Vigilance, look at top, cast Allies from top, sac for +0/+5 + indestructible (engine gap)."""
-    # engine gap: peek at top, cast from library, modal sacrifice activated ability
+    """Vigilance (keyword on stat-line). Sacrifice Hakoda: Creatures you
+    control get +0/+5 and gain indestructible until end of turn.
+
+    Skipped (engine gap): the two top-of-library abilities (look at top of
+    library + cast Ally spells from top) need ``zone_visibility`` and
+    cast-from-library hooks the engine doesn't expose yet.
+    """
+    def _sac_effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        events: list[Event] = []
+        for other in st.objects.values():
+            if other.zone != ZoneType.BATTLEFIELD or other.controller != o.controller:
+                continue
+            if CardType.CREATURE not in other.characteristics.types:
+                continue
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': other.id, 'power_mod': 0, 'toughness_mod': 5,
+                         'duration': 'end_of_turn'},
+                source=o.id, controller=o.controller,
+            ))
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': other.id, 'keyword': 'indestructible',
+                         'duration': 'end_of_turn'},
+                source=o.id, controller=o.controller,
+            ))
+        return events
+    make_activated_ability(
+        obj, cost="Sacrifice this creature", effect_fn=_sac_effect,
+        description="Creatures you control get +0/+5 and gain indestructible until end of turn",
+    )
     return []
 
 
@@ -2643,9 +2673,38 @@ def waterbending_scroll_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def watery_grasp_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Aura: enchanted creature doesn't untap (engine gap). Waterbend {5}: shuffle (engine gap)."""
-    # engine gap: aura untap-skip + waterbend activated ability
-    return []
+    """Aura — enchanted creature doesn't untap during its controller's
+    untap step. (Waterbend {5} shuffle clause is an engine gap pending
+    waterbend activated abilities.)
+
+    The "doesn't untap" piece is wired as a PREVENT-priority interceptor on
+    UNTAP events whose target is the enchanted creature, returning
+    ``InterceptorAction.PREVENT`` so the turn manager's untap step
+    no-ops for that creature.
+    """
+    base = make_aura_setup()(obj, state)
+
+    def _untap_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.UNTAP:
+            return False
+        attached_to = getattr(obj.state, 'attached_to', None)
+        if not attached_to:
+            return False
+        return event.payload.get('object_id') == attached_to
+
+    def _prevent(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    prevent_untap = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=_untap_filter,
+        handler=_prevent,
+        duration='while_on_battlefield',
+    )
+    return base + [prevent_untap]
 
 
 def yue_the_moon_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2923,8 +2982,30 @@ def lo_and_li_twin_tutors_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def merchant_of_many_hats_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{2}{B}: Return this from your graveyard to your hand (activated, engine gap)."""
-    # engine gap: graveyard-zone activated ability
+    """Battlefield-side has no abilities; activated ability lives in the
+    graveyard. See ``merchant_of_many_hats_gy_setup`` and the
+    ``setup_in_graveyard`` assignment below the card definition.
+    """
+    return []
+
+
+def merchant_of_many_hats_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{B}: Return this card from your graveyard to your hand.
+
+    Registers an activated ability live while the card is in graveyard.
+    """
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if o.zone != ZoneType.GRAVEYARD:
+            return []
+        return [Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={'object_id': o.id, 'player': o.controller, 'to': 'hand'},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{2}{B}", effect_fn=_effect,
+        description="Return this card from your graveyard to your hand",
+    )
     return []
 
 
@@ -3390,9 +3471,32 @@ def rough_rhino_cavalry_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def tigerdillo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Can't attack/block unless you control another creature with power 4+ (engine gap)."""
-    # engine gap: conditional attack/block restriction
-    return []
+    """This creature can't attack or block unless you control another
+    creature with power 4 or greater.
+
+    Implemented as two conditional keyword grants (``cant_attack`` /
+    ``cant_block``) read by ``combat.CombatManager._can_attack`` /
+    ``_get_legal_blockers``. The grant is self-targeting and only fires
+    when the condition is NOT met (i.e. you lack a power-4+ helper).
+    """
+    def _no_power4_helper(target: GameObject, state: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        for other in state.objects.values():
+            if other.id == obj.id:
+                continue
+            if other.zone != ZoneType.BATTLEFIELD or other.controller != obj.controller:
+                continue
+            if CardType.CREATURE not in other.characteristics.types:
+                continue
+            if get_power(other, state) >= 4:
+                return False
+        return True
+
+    return [
+        make_keyword_grant(obj, ['cant_attack'], _no_power4_helper),
+        make_keyword_grant(obj, ['cant_block'], _no_power4_helper),
+    ]
 
 
 def twin_blades_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3665,8 +3769,29 @@ def leaves_from_the_vine_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def raucous_audience_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: Add {G}; if you control a power-4+ creature, add {G}{G} instead (engine gap)."""
-    # engine gap: conditional mana ability
+    """{T}: Add {G}. If you control a creature with power 4 or greater,
+    add {G}{G} instead."""
+    def _has_power_4(o: GameObject, st: GameState) -> bool:
+        for other in st.objects.values():
+            if other.zone != ZoneType.BATTLEFIELD or other.controller != o.controller:
+                continue
+            if CardType.CREATURE not in other.characteristics.types:
+                continue
+            if get_power(other, st) >= 4:
+                return True
+        return False
+
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        amount = 2 if _has_power_4(o, st) else 1
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': o.controller, 'color': Color.GREEN, 'amount': amount},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{T}", effect_fn=_effect,
+        description="Add {G}, or {G}{G} if you control a power-4 creature",
+    )
     return []
 
 
@@ -3838,9 +3963,41 @@ def dragonfly_swarm_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def earth_rumble_wrestlers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Reach. +1/+0 trample as long as you control a land creature or had land enter this turn (engine gap)."""
-    # engine gap: conditional pump based on land creature/land-this-turn detection
-    return []
+    """Reach. +1/+0 and has trample as long as you control a land creature
+    OR a land entered the battlefield under your control this turn.
+
+    "Land creature" is detected by walking the battlefield for objects with both
+    CardType.LAND and CardType.CREATURE (covers earthbend / animation outputs).
+    "Land entered this turn" uses ``state.lands_played_this_turn`` — accurate on
+    the controller's own turn, falls back to off-turn=False (engine gap: the
+    field isn't tracked per-player, so off-turn we trust False; the more
+    common case of controller-turn-landfall is covered).
+    """
+    def _condition(state: GameState) -> bool:
+        # Check for a land creature you control.
+        for o in state.objects.values():
+            if o.zone != ZoneType.BATTLEFIELD or o.controller != obj.controller:
+                continue
+            types = o.characteristics.types
+            if CardType.LAND in types and CardType.CREATURE in types:
+                return True
+        # Approximation: lands_played_this_turn > 0 AND active player == controller.
+        active = getattr(state, 'active_player', None)
+        if active == obj.controller and getattr(state, 'lands_played_this_turn', 0) > 0:
+            return True
+        return False
+
+    def _affects_self_when_active(target: GameObject, state: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        return _condition(state)
+
+    interceptors = make_static_pt_boost(
+        obj, power_mod=1, toughness_mod=0,
+        affects_filter=_affects_self_when_active,
+    )
+    interceptors.append(make_keyword_grant(obj, ['trample'], _affects_self_when_active))
+    return interceptors
 
 
 def fire_lord_azula_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5988,6 +6145,7 @@ MERCHANT_OF_MANY_HATS = make_creature(
     text="{2}{B}: Return this card from your graveyard to your hand.",
     setup_interceptors=merchant_of_many_hats_setup,
 )
+MERCHANT_OF_MANY_HATS.setup_in_graveyard = merchant_of_many_hats_gy_setup
 
 NORTHERN_AIR_TEMPLE = make_enchantment(
     name="Northern Air Temple",

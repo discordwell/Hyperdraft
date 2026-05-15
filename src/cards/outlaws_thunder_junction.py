@@ -3450,9 +3450,16 @@ def congregation_gryff_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def doc_aurlock_grizzled_genius_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Cost-down for graveyard/exile spells and plot."""
-    # engine gap: zone-of-cast cost reduction + plot cost reduction not engine-tracked
-    return []
+    """Spells you cast from your graveyard or from exile cost {2} less.
+
+    Plot-cost reduction is engine-side (priority handler checks plot cost at
+    cast time); we wire just the graveyard/exile zone-of-cast reduction here.
+    """
+    def applies(card: GameObject, pid: str, state: GameState) -> bool:
+        if card is None or pid != obj.controller:
+            return False
+        return card.zone in (ZoneType.GRAVEYARD, ZoneType.EXILE)
+    return [make_cost_reduction(obj, applies_to=applies, amount=2)]
 
 
 def eriette_the_beguiler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
