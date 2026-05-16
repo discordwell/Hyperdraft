@@ -1497,9 +1497,72 @@ def acrobatic_cheerleader_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def dazzling_theater_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room (Dazzling Theater / Prop Room) — convoke grant + untap-on-other-untap."""
-    # engine gap: Room/Door unlock state, convoke grant, multi-player untap step
-    return []
+    """Room — Dazzling Theater: creature spells you cast have convoke (engine
+    gap: cost-time convoke grant). Prop Room: untap each creature you control
+    during each other player's untap step (wired via PHASE_START on the
+    UNTAP step where active_player != your controller).
+    """
+    def door1_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 1's static is "your creature spells have convoke" — a cost-time
+        # grant. The engine doesn't yet model granted convoke on the cast path,
+        # so the unlock itself is a no-op.
+        return []
+
+    def door2_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 2 is a recurring opponent-untap trigger; the unlock itself does
+        # nothing — the trigger is registered via extra_setup.
+        return []
+
+    def prop_room_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        def filt(event: Event, state: GameState) -> bool:
+            if event.type != EventType.PHASE_START:
+                return False
+            if event.payload.get('phase') != 'untap':
+                return False
+            # Only on OPPONENTS' untap steps.
+            if state.active_player == o.controller:
+                return False
+            current = state.objects.get(o.id)
+            return current is not None and is_door_unlocked(current, "Prop Room")
+
+        def handler(event: Event, state: GameState) -> InterceptorResult:
+            events: list[Event] = []
+            for cid, gobj in state.objects.items():
+                if gobj.zone != ZoneType.BATTLEFIELD:
+                    continue
+                if gobj.controller != o.controller:
+                    continue
+                if CardType.CREATURE not in gobj.characteristics.types:
+                    continue
+                if not getattr(gobj.state, 'tapped', False):
+                    continue
+                events.append(Event(
+                    type=EventType.UNTAP,
+                    payload={'object_id': cid},
+                    source=o.id, controller=o.controller,
+                ))
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+
+        return [Interceptor(
+            id=new_id(),
+            source=o.id,
+            controller=o.controller,
+            priority=InterceptorPriority.REACT,
+            filter=filt,
+            handler=handler,
+            duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
+        )]
+
+    return make_room_setup(
+        door1_name="Dazzling Theater",
+        door1_unlock_effect=door1_effect,
+        door2_name="Prop Room",
+        door2_cost="{2}{W}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=prop_room_extra,
+    )(obj, state)
 
 
 def dollmakers_shop_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2421,8 +2484,20 @@ def central_elevator_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def creeping_peeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}: Add {U}, restricted-use mana for enchantments / unlock / face-up."""
-    # engine gap: restricted mana production
+    """{T}: Add {U}. (Restricted-use "spend only on enchantment / unlock /
+    face-up" rider is an engine gap — wire the bare mana production.)
+    """
+    def add_blue(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': o.controller, 'color': Color.BLUE, 'amount': 1},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_activated_ability(
+        obj, cost="{T}", effect_fn=add_blue,
+        description="{T}: Add {U}.",
+    )
     return []
 
 
@@ -3241,9 +3316,67 @@ def nowhere_to_run_setup(obj: GameObject, state: GameState) -> list[Interceptor]
 
 
 def osseous_sticktwister_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Lifelink + Delirium end-step: each opp may sac/discard or take damage = power."""
-    # engine gap: Delirium card-type-count check + complex modal opponent choice
-    return []
+    """Lifelink (printed). Delirium — At the beginning of your end step, if
+    there are four or more card types among cards in your graveyard, each
+    opponent may sacrifice a nonland permanent of their choice OR discard a
+    card. Then this creature deals damage equal to its power to each opponent
+    who didn't sacrifice a permanent or discard a card this way.
+
+    The per-opponent modal "sac OR discard, else take damage" choice is an
+    engine gap. We wire the simpler approximation: when delirium is active,
+    deal damage = power to each opponent. This will over-fire (no opt-out)
+    but preserves the threat profile and is dominant-strategy correct for
+    most game states (drainers / lifelink-payoff)."""
+    DELIRIUM_TYPES = {
+        CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT,
+        CardType.LAND, CardType.PLANESWALKER, CardType.INSTANT,
+        CardType.SORCERY,
+    }
+    tribal = getattr(CardType, 'TRIBAL', None)
+    if tribal is not None:
+        DELIRIUM_TYPES.add(tribal)
+    battle = getattr(CardType, 'BATTLE', None)
+    if battle is not None:
+        DELIRIUM_TYPES.add(battle)
+
+    def _has_delirium(st: GameState, player_id: str) -> bool:
+        gy = st.zones.get(f"graveyard_{player_id}")
+        if not gy:
+            return False
+        seen: set = set()
+        for oid in gy.objects:
+            o = st.objects.get(oid)
+            if not o:
+                continue
+            for t in o.characteristics.types:
+                if t in DELIRIUM_TYPES:
+                    seen.add(t)
+                    if len(seen) >= 4:
+                        return True
+        return len(seen) >= 4
+
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        if not _has_delirium(state, obj.controller):
+            return []
+        try:
+            power = int(get_power(obj, state))
+        except Exception:
+            power = obj.characteristics.power or 0
+        if power <= 0:
+            return []
+        return [
+            Event(
+                type=EventType.DAMAGE,
+                payload={
+                    'source': obj.id, 'target': pid,
+                    'amount': power, 'is_combat': False,
+                },
+                source=obj.id, controller=obj.controller,
+            )
+            for pid in state.players.keys() if pid != obj.controller
+        ]
+
+    return [make_end_step_trigger(obj, end_step_effect)]
 
 
 def overlord_of_the_balemurk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
