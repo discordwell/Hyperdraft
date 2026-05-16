@@ -5,6 +5,50 @@
 > further down are now resolved. See **Status snapshot 2026-05-02** for
 > the current state.
 
+## Strict noop audit — 2026-05-16
+
+The earlier "604 bare `return []` stubs" / "573 noop" numbers cited in this
+file and elsewhere were inflated by a stale `HELPER_NAMES` allow-list in
+`scripts/find_useless_stubs.py`. After refreshing the allow-list and
+running a structural cross-check (`scripts/strict_noop_audit.py`), the
+real numbers are:
+
+| Audit                                  | Total noops |
+|----------------------------------------|------------:|
+| `find_useless_stubs.py` (pre-fix)      | 573         |
+| `find_useless_stubs.py` (post-fix)     | 192         |
+| `strict_noop_audit.py` (bare return [])| 169         |
+
+Per-set strict-noop counts (of 2421 wired setups across 12 sets):
+
+| Set | strict-noop | Set | strict-noop |
+|-----|------------:|-----|------------:|
+| WOE | 12 | DSK | 32 |
+| LCI |  0 | FDN | 10 |
+| MKM | 15 | EOE | 12 |
+| OTJ | 13 | ECL | 24 |
+| BLB | 10 | SPM | 13 |
+| FIN | 13 | TLA | 15 |
+
+**169 of 2421 wired setups (7.0%) are bare `return []` stubs.** Of those,
+the top mechanic blockers are:
+
+| Category | Cards |
+|----------|------:|
+| Activated abilities (various — graveyard, discard cost, sac cost, tap-multi) | ~50 |
+| Cycling / typecycling | 7 |
+| Replacement effects (game-result, cast-as-flash, free-cast, draw, mill, etc.) | ~20 |
+| Type-overwrite / control-transfer auras | 6 |
+| Planeswalkers | 3 |
+| Vehicle / Saga / Mount remnants | 4 |
+| Keyword-only / vanilla (printed in card text, no extra setup needed) | 8 |
+| Mechanic-specific (face-down, infinity-stone, descend, gift, blight, …) | ~30 |
+| Uncategorized / one-offs (mostly modal / triggers needing engine work) | ~50 |
+
+Full categorized list + next-wave wirable candidates:
+[`docs/audits/strict_noop_audit_2026-05-16.md`](docs/audits/strict_noop_audit_2026-05-16.md).
+
+
 ## Status snapshot — 2026-05-02
 
 ### Frameworks shipped this session
