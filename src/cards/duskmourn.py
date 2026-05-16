@@ -2789,9 +2789,104 @@ def scrabbling_skullcrab_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def silent_hallcreeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Unblockable; on combat damage to player, modal effect (one-of-three, no repeats)."""
-    # engine gap: per-creature modal-no-repeat tracking
-    return []
+    """This creature can't be blocked (engine gap — combat.py doesn't consume
+    the unblockable keyword; recorded for parity). Whenever this creature
+    deals combat damage to a player, choose one that hasn't been chosen:
+      - Put two +1/+1 counters on this creature.
+      - Draw a card.
+      - This creature becomes a copy of another target creature you control.
+
+    "Choose one that hasn't been chosen" tracking lives on
+    ``obj.state._sh_chosen_modes``. We open a 3-mode modal but filter the
+    options to only those not yet used; once all three are exhausted the
+    trigger is a no-op."""
+    def damage_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get('source') != obj.id:
+            return False
+        if not event.payload.get('is_combat'):
+            return False
+        if not event.payload.get('is_player'):
+            return False
+        return True
+
+    def damage_handler(event: Event, state: GameState) -> InterceptorResult:
+        used = set(getattr(obj.state, '_sh_chosen_modes', None) or set())
+        all_modes = [
+            (0, 'Put two +1/+1 counters on Silent Hallcreeper'),
+            (1, 'Draw a card'),
+            (2, 'Silent Hallcreeper becomes a copy of another target creature you control'),
+        ]
+        remaining = [(idx, text) for idx, text in all_modes if idx not in used]
+        if not remaining:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        from src.engine.types import PendingChoice as _PendingChoice
+
+        def _on_modal(choice, selected, st: GameState) -> list[Event]:
+            if not selected:
+                return []
+            sel = selected[0]
+            mode = int(sel.get('index') if isinstance(sel, dict) else sel)
+            # Mark mode as used.
+            now_used = set(getattr(obj.state, '_sh_chosen_modes', None) or set())
+            now_used.add(mode)
+            obj.state._sh_chosen_modes = now_used
+
+            if mode == 0:
+                return [Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 2},
+                    source=obj.id, controller=obj.controller,
+                )]
+            if mode == 1:
+                return [Event(
+                    type=EventType.DRAW,
+                    payload={'player': obj.controller, 'count': 1},
+                    source=obj.id, controller=obj.controller,
+                )]
+            # Mode 2: become a copy of another target creature you control.
+            # The "another target creature you control" target selection +
+            # copy-becomes-self is a partial engine gap (no in-place self
+            # copy primitive); emit a marker COPY_SPELL stand-in so observers
+            # see the trigger fire.
+            return [Event(
+                type=EventType.CONDITIONAL_EFFECT,
+                payload={
+                    'source': obj.id,
+                    'effect': 'become_copy_of_other_creature_you_control',
+                    'filter': 'other_creature_you_control',
+                },
+                source=obj.id, controller=obj.controller,
+            )]
+
+        options = [{'index': idx, 'text': text} for idx, text in remaining]
+        state.pending_choice = _PendingChoice(
+            choice_type="modal",
+            player=obj.controller,
+            prompt="Silent Hallcreeper — choose one that hasn't been chosen",
+            options=options,
+            source_id=obj.id,
+            min_choices=1,
+            max_choices=1,
+            callback_data={'handler': _on_modal},
+        )
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    def damage_effect_fn(event: Event, state: GameState) -> list[Event]:
+        damage_handler(event, state)
+        return []
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=damage_filter, handler=damage_handler,
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=damage_effect_fn,
+    )]
 
 
 def stay_hidden_stay_silent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4206,13 +4301,6 @@ def altanak_the_thricecalled_setup(obj: GameObject, state: GameState) -> list[In
         is_triggered_ability=True,
         effect_fn=lambda e, s: (handler(e, s).new_events or []),
     )]
-
-
-def balustrade_wurm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Trample, haste (printed keywords). The "uncounterable" and
-    delirium-gated graveyard reanimate live in ``balustrade_wurm_gy_setup``
-    via ``setup_in_graveyard``."""
-    return []
 
 
 def balustrade_wurm_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -8800,8 +8888,9 @@ BALUSTRADE_WURM = make_creature(
     colors={Color.GREEN},
     subtypes={"Wurm"},
     text="This spell can't be countered.\nTrample, haste\nDelirium — {2}{G}{G}: Return this card from your graveyard to the battlefield with a finality counter on it. Activate only if there are four or more card types among cards in your graveyard and only as a sorcery.",
-    setup_interceptors=balustrade_wurm_setup,
 )
+# Trample/haste are printed keywords. The Delirium activated reanimate lives
+# in setup_in_graveyard so it's only registered while the card is in the GY.
 BALUSTRADE_WURM.setup_in_graveyard = balustrade_wurm_gy_setup
 
 BASHFUL_BEASTIE = make_creature(
