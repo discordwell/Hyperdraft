@@ -1773,9 +1773,64 @@ def overlord_of_the_mistmoors_setup(obj: GameObject, state: GameState) -> list[I
 
 
 def patched_plaything_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Enters with two -1/-1 counters if cast from hand."""
-    # engine gap: 'cast from hand' detection at ETB
-    return []
+    """Enters with two -1/-1 counters if cast from hand.
+
+    Reads the per-object marker ``_pp_cast_from_hand`` set by the
+    ``setup_in_hand`` cast-listener below. The marker is True when the
+    card flowed through the standard hand-cast path (CAST event with no
+    alt-cost flag), False if put onto the battlefield directly by an
+    effect, returned from graveyard, etc.
+    """
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        if not bool(getattr(obj.state, '_pp_cast_from_hand', False)):
+            return []
+        # Consume the marker so a later flicker / return won't double-fire.
+        try:
+            obj.state._pp_cast_from_hand = False
+        except Exception:
+            pass
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '-1/-1', 'amount': 2},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def _patched_plaything_hand_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """While in HAND, listen for our own CAST event; mark ``_pp_cast_from_hand``
+    so the BATTLEFIELD setup's ETB trigger can read it on the next ZONE_CHANGE.
+    """
+    def cast_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.CAST:
+            return False
+        if event.payload.get('spell_id') != obj.id:
+            return False
+        if event.payload.get('from_graveyard'):
+            return False
+        for flag in ('flashback', 'harmonize', 'mayhem', 'warp'):
+            if event.payload.get(flag):
+                return False
+        return True
+
+    def cast_handler(event: Event, state: GameState) -> InterceptorResult:
+        try:
+            obj.state._pp_cast_from_hand = True
+        except Exception:
+            pass
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    cast_marker = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.RESOLVE,
+        filter=cast_filter,
+        handler=cast_handler,
+        duration='forever',
+    )
+    return [cast_marker]
 
 
 def possessed_goat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2173,9 +2228,22 @@ def veteran_survivor_setup(obj: GameObject, state: GameState) -> list[Intercepto
 
 
 def the_wandering_rescuer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flash + Convoke + Double strike + 'other tapped you control have hexproof'."""
-    # engine gap: dynamic-hexproof grant to tapped creatures
-    return []
+    """Flash + Convoke + Double strike are printed keywords. "Other tapped
+    creatures you control have hexproof" is wireable as a conditional
+    keyword grant. (Convoke as a cost-time mechanic remains an engine
+    gap.)"""
+    def hexproof_filter(target: GameObject, st: GameState) -> bool:
+        if target.id == obj.id:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        if target.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in target.characteristics.types:
+            return False
+        return bool(getattr(target.state, 'tapped', False))
+
+    return [make_keyword_grant(obj, ['hexproof'], hexproof_filter)]
 
 
 def abhorrent_oculus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2374,9 +2442,33 @@ def daggermaw_megalodon_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def duskmourns_domination_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Aura — control + -3/-0 + lose abilities on enchanted."""
-    # engine gap: control transfer + ability removal aura
-    return []
+    """Aura — you control enchanted creature; it gets -3/-0; it loses all
+    abilities.
+
+    Wires the -3/-0 piece via ``make_aura_setup`` and emits a one-shot
+    GAIN_CONTROL on ETB with duration='permanent' (engine doesn't yet
+    model an attach-bound control swap; this is the best approximation,
+    and matches what eriette_the_beguiler_setup-style cards expect).
+    The "loses all abilities" rider is an engine gap (would require
+    continuous QUERY_ABILITIES override).
+    """
+    base = make_aura_setup(power_mod=-3, toughness_mod=0)(obj, state)
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        target_id = getattr(obj.state, 'attached_to', None)
+        if not target_id:
+            return []
+        return [Event(
+            type=EventType.GAIN_CONTROL,
+            payload={
+                'object_id': target_id,
+                'new_controller': obj.controller,
+                'duration': 'permanent',
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return base + [make_etb_trigger(obj, etb_effect)]
 
 
 def fear_of_impostors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3593,15 +3685,131 @@ def irreverent_gremlin_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def leyline_of_resonance_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Spell-copy on cast targeting single own creature."""
-    # engine gap: free spell copy with new targets
-    return []
+    """Whenever you cast an instant or sorcery spell that targets only a
+    single creature you control, copy that spell. You may choose new targets
+    for the copy.
+
+    Reads the spell's stack item to inspect chosen targets. If exactly one
+    target was chosen and it's a creature you control, emit COPY_SPELL.
+    (Opening-hand-on-battlefield is the Leyline static — engine gap.)
+    """
+    def cast_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.CAST:
+            return False
+        if event.payload.get('caster') != obj.controller:
+            return False
+        spell_id = event.payload.get('spell_id') or event.payload.get('card_id')
+        spell = state.objects.get(spell_id)
+        if spell is None:
+            return False
+        types = spell.characteristics.types or set()
+        if not (CardType.INSTANT in types or CardType.SORCERY in types):
+            return False
+        # Look up chosen targets on the stack item.
+        stack_item = None
+        for it in (state.stack.items if getattr(state, 'stack', None) else []):
+            if getattr(it, 'card_id', None) == spell_id:
+                stack_item = it
+                break
+        if stack_item is None:
+            return False
+        chosen = list(getattr(stack_item, 'chosen_targets', None) or [])
+        if len(chosen) != 1:
+            return False
+        target = chosen[0]
+        target_id = target if isinstance(target, str) else getattr(target, 'id', None)
+        target_obj = state.objects.get(target_id) if target_id else None
+        if target_obj is None:
+            return False
+        if CardType.CREATURE not in target_obj.characteristics.types:
+            return False
+        return target_obj.controller == obj.controller
+
+    def copy_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COPY_SPELL,
+            payload={
+                'spell_id': event.payload.get('spell_id'),
+                'choose_new_targets': True,
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=cast_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT, new_events=copy_effect(e, s),
+        ),
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=copy_effect,
+    )]
 
 
 def aleyline_of_resonance_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """A-version: pay {1} to copy."""
-    # engine gap: optional pay-to-copy
-    return []
+    """A-Leyline of Resonance — same trigger as Leyline of Resonance with an
+    optional {1} cost. The "may pay" mana checkpoint is an engine gap
+    (no PAY_MANA-or-skip mid-trigger primitive), so we always emit the
+    COPY_SPELL today; the cost-gate is the planned upgrade once optional
+    payment lands.
+    """
+    def cast_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.CAST:
+            return False
+        if event.payload.get('caster') != obj.controller:
+            return False
+        spell_id = event.payload.get('spell_id') or event.payload.get('card_id')
+        spell = state.objects.get(spell_id)
+        if spell is None:
+            return False
+        types = spell.characteristics.types or set()
+        if not (CardType.INSTANT in types or CardType.SORCERY in types):
+            return False
+        stack_item = None
+        for it in (state.stack.items if getattr(state, 'stack', None) else []):
+            if getattr(it, 'card_id', None) == spell_id:
+                stack_item = it
+                break
+        if stack_item is None:
+            return False
+        chosen = list(getattr(stack_item, 'chosen_targets', None) or [])
+        if len(chosen) != 1:
+            return False
+        target = chosen[0]
+        target_id = target if isinstance(target, str) else getattr(target, 'id', None)
+        target_obj = state.objects.get(target_id) if target_id else None
+        if target_obj is None:
+            return False
+        if CardType.CREATURE not in target_obj.characteristics.types:
+            return False
+        return target_obj.controller == obj.controller
+
+    def copy_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COPY_SPELL,
+            payload={
+                'spell_id': event.payload.get('spell_id'),
+                'choose_new_targets': True,
+                'optional_cost': '{1}',
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=cast_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT, new_events=copy_effect(e, s),
+        ),
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=copy_effect,
+    )]
 
 
 def norin_swift_survivalist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5555,6 +5763,7 @@ PATCHED_PLAYTHING = make_artifact_creature(
     text="Double strike\nThis creature enters with two -1/-1 counters on it if you cast it from your hand.",
     setup_interceptors=patched_plaything_setup,
 )
+PATCHED_PLAYTHING.setup_in_hand = _patched_plaything_hand_setup
 
 def possessed_goat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """{3}, Discard a card: Put three +1/+1 counters on this creature... Activate only once.
