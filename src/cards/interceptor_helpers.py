@@ -7420,6 +7420,21 @@ def make_counter_ability(
     )
 
 
+# -----------------------------------------------------------------------------
+# TLA Waterbend activated ability — re-exported from src/engine/bending.py so
+# avatar_tla.py setups can import it from the same module as other helpers.
+# The framework's docstring lives on the canonical definition; this is a thin
+# alias matching the pattern other bending helpers follow (firebend/earthbend
+# are imported directly from src.engine.bending in avatar_tla.py — we re-export
+# waterbend here because it composes with make_activated_ability's family and
+# benefits from co-location).
+# -----------------------------------------------------------------------------
+from src.engine.bending import (
+    make_waterbend_activated_ability,
+    emit_waterbend_marker,
+)
+
+
 def make_token_creation_ability(
     obj: GameObject,
     cost: str,

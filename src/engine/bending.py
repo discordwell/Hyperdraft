@@ -513,6 +513,124 @@ def emit_waterbend_marker(
     )
 
 
+def _parse_waterbend_amount(waterbend_cost: str) -> int:
+    """Extract the numeric portion of a waterbend cost string for the marker.
+
+    The marker carries an ``amount`` field used by trackers (e.g. Avatar Aang's
+    transform). For "{4}" this is 4; for "{4}{U}" it's 4 (only the generic
+    portion counts toward the waterbend amount paid). For "{X}" it's 0 — the
+    actual X value is unknown at activation-effect time without engine
+    plumbing, so trackers reading the marker need to consult the activation
+    descriptor for {X} amounts (engine gap).
+    """
+    if not waterbend_cost:
+        return 0
+    total = 0
+    i = 0
+    s = waterbend_cost
+    while i < len(s):
+        if s[i] == '{':
+            j = s.find('}', i + 1)
+            if j == -1:
+                break
+            sym = s[i + 1:j].strip()
+            try:
+                total += int(sym)
+            except ValueError:
+                pass  # colored mana / {X} / {T} contribute 0 to the amount marker
+            i = j + 1
+        else:
+            i += 1
+    return total
+
+
+def make_waterbend_activated_ability(
+    obj: GameObject,
+    waterbend_cost: str,
+    effect_fn: Callable,
+    *,
+    description: str = "",
+    sorcery_speed: bool = False,
+    own_turn_only: bool = False,
+    targets_required: int = 0,
+    target_kind: str = "any",
+    target_requirements: Optional[list] = None,
+    once_per_turn: bool = False,
+    precondition_fn: Optional[Callable] = None,
+):
+    """Register a "Waterbend {X}: <effect>" activated ability on ``obj``.
+
+    Waterbend is the TLA water-tribe activated cost. The card text reads::
+
+        Waterbend {X}: <effect>. (While paying a waterbend cost, you can
+        tap your artifacts and creatures to help. Each one pays for {1}.)
+
+    Functionally this is a plain activated ability whose mana cost is
+    ``{X}``. The "tap artifacts/creatures to help" cost-payment hook is
+    not yet wired (engine gap — pending a real "alternate payment with
+    tap-helpers" subsystem), so the ability behaves like a vanilla mana
+    activation for now and the marker reports the printed cost.
+
+    After the user-supplied ``effect_fn`` runs, this helper appends a
+    ``BENDING_WATERBEND`` marker event so trackers (e.g. Avatar Aang's
+    transform) observe the action.
+
+    Args:
+        obj: the source permanent.
+        waterbend_cost: cost string fragment such as ``"{3}"``, ``"{4}{U}"``.
+            Note: card text writes "Waterbend {3}: <effect>" — pass the
+            ``{3}`` portion; the helper handles the rest.
+        effect_fn: ``(obj, state, targets) -> list[Event]``. Standard
+            activated-ability effect signature.
+        description: human-readable description for the ability surface.
+            Defaults to ``"Waterbend {cost}: ..."``.
+        sorcery_speed / own_turn_only / once_per_turn / precondition_fn:
+            forwarded to ``register_activated_ability`` (same semantics).
+        targets_required / target_kind / target_requirements: target picker
+            shape, matching ``make_activated_ability``.
+
+    Returns the ``ActivatedAbility`` descriptor (same as
+    ``register_activated_ability``). The setup function should return
+    ``[]`` (or any other interceptors it wants) since the ability is
+    consulted via ``obj.state.activated_abilities``.
+    """
+    from .activated import register_activated_ability
+
+    # The marker amount reflects the printed generic mana — colored / {X}
+    # symbols contribute 0. TODO(engine-gap): once the tap-helper cost
+    # subsystem lands, the marker should reflect the actual amount paid
+    # (printed cost minus helpers) and {X} announcements should be
+    # forwarded so trackers can see the resolved value.
+    marker_amount = _parse_waterbend_amount(waterbend_cost)
+
+    user_effect_fn = effect_fn
+
+    def _wrapped_effect(o: GameObject, state: GameState, targets) -> list[Event]:
+        try:
+            events = list(user_effect_fn(o, state, targets) or [])
+        except TypeError:
+            # Tolerate legacy zero-arg effect_fns for transition.
+            events = list(user_effect_fn(o, state) or [])
+        events.append(emit_waterbend_marker(o, marker_amount))
+        return events
+
+    desc = description or f"Waterbend {waterbend_cost}: ..."
+
+    return register_activated_ability(
+        obj,
+        cost=waterbend_cost,
+        effect_fn=_wrapped_effect,
+        description=desc,
+        sorcery_speed=sorcery_speed,
+        own_turn_only=own_turn_only,
+        once_per_turn=once_per_turn,
+        targets_required=targets_required,
+        target_kind=target_kind,
+        target_requirements=target_requirements,
+        precondition_fn=precondition_fn,
+    )
+
+
 # Convenience: build all four "an X-bend happened on attack" wrappers from a
 # single attacker. Useful for cards with combined bending riders.
 def make_combined_bend_attack_trigger(
