@@ -35,15 +35,18 @@ the top mechanic blockers are:
 
 | Category | Cards |
 |----------|------:|
-| Activated abilities (various — graveyard, discard cost, sac cost, tap-multi) | ~50 |
-| Cycling / typecycling | 7 |
-| Replacement effects (game-result, cast-as-flash, free-cast, draw, mill, etc.) | ~20 |
-| Type-overwrite / control-transfer auras | 6 |
-| Planeswalkers | 3 |
-| Vehicle / Saga / Mount remnants | 4 |
-| Keyword-only / vanilla (printed in card text, no extra setup needed) | 8 |
-| Mechanic-specific (face-down, infinity-stone, descend, gift, blight, …) | ~30 |
-| Uncategorized / one-offs (mostly modal / triggers needing engine work) | ~50 |
+| Uncategorized / static / tribal / one-offs (mostly modal triggers needing engine work) | 55 |
+| Activated-misc (waterbend, sac-cost, tap-multi, mana-ability, animate, etc.) | 36 |
+| Modal mid-resolve / choose-a-type | 11 |
+| Cycling / typecycling / landcycling | 9 |
+| Activated-from-graveyard | 8 |
+| Replacement effects (game-result, cast-as-flash, free-cast, draw, mill, etc.) | 7 |
+| Keyword-only / vanilla (printed in text, no extra setup needed) | 4 |
+| Planeswalkers | 4 |
+| Cast-from-other-zone / impulse | 3 |
+| Type-overwrite auras | 3 |
+| Pair-with-2 (additional-cost, alt-cost, combat-damage-swap, convoke, discard-cost-activated, face-down-manifest, gain-control, ward) | 16 |
+| One-offs (ability-removal, as-enters-choice, collect-evidence-cost, control-transfer-aura, delirium, dream-counter, gift, infinity-stone, legend-rule, offspring, spell-copy, tap-multi-creature, vehicle) | 13 |
 
 Full categorized list + next-wave wirable candidates:
 [`docs/audits/strict_noop_audit_2026-05-16.md`](docs/audits/strict_noop_audit_2026-05-16.md).
