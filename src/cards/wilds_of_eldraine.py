@@ -29,6 +29,7 @@ from src.cards.interceptor_helpers import (
     make_upkeep_trigger, make_end_step_trigger, make_damage_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_you_control, creatures_with_subtype, create_target_choice,
+    create_may_choice,
     create_modal_choice,
     make_modal_resolve,
     ModeSpec,
@@ -4310,8 +4311,86 @@ def cooped_up_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def dutiful_griffin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Activated ability from graveyard to return self to hand."""
-    # engine gap: activated abilities from graveyard with sacrifice-enchantments cost.
+    """Battlefield-side is just Flying (printed keyword). The graveyard-
+    activated return-to-hand ability is registered via ``setup_in_graveyard``
+    below the card definition."""
+    return []
+
+
+def dutiful_griffin_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{W}, Sacrifice two enchantments: Return this card from your
+    graveyard to your hand.
+
+    Registers an activated ability live while the card is in graveyard.
+    Mana cost is parsed by ``parse_activation_cost`` ({2}{W}); the
+    "Sacrifice two enchantments" portion is enforced manually in
+    ``precondition_fn`` (gates legal activation on having >=2 enchantments)
+    and in ``effect_fn`` (opens a target choice for two enchantments,
+    sacrifices them, then returns this card to hand).
+    """
+    def _has_two_enchantments(o: GameObject, st: GameState) -> bool:
+        if o.zone != ZoneType.GRAVEYARD:
+            return False
+        n = 0
+        for cand in st.objects.values():
+            if (cand.zone == ZoneType.BATTLEFIELD
+                    and cand.controller == o.controller
+                    and CardType.ENCHANTMENT in cand.characteristics.types):
+                n += 1
+                if n >= 2:
+                    return True
+        return False
+
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if o.zone != ZoneType.GRAVEYARD:
+            return []
+        legal: list[str] = []
+        for cand in st.objects.values():
+            if (cand.zone == ZoneType.BATTLEFIELD
+                    and cand.controller == o.controller
+                    and CardType.ENCHANTMENT in cand.characteristics.types):
+                legal.append(cand.id)
+        if len(legal) < 2:
+            return []
+
+        def _handler(_choice, selected, gs: GameState) -> list[Event]:
+            if not selected or len(selected) < 2:
+                return []
+            return [
+                Event(
+                    type=EventType.SACRIFICE,
+                    payload={'object_id': selected[0], 'player': o.controller},
+                    source=o.id, controller=o.controller,
+                ),
+                Event(
+                    type=EventType.SACRIFICE,
+                    payload={'object_id': selected[1], 'player': o.controller},
+                    source=o.id, controller=o.controller,
+                ),
+                Event(
+                    type=EventType.RETURN_FROM_GRAVEYARD,
+                    payload={'object_id': o.id, 'player': o.controller, 'to': 'hand'},
+                    source=o.id, controller=o.controller,
+                ),
+            ]
+
+        choice = create_target_choice(
+            state=st,
+            player_id=o.controller,
+            source_id=o.id,
+            legal_targets=legal,
+            prompt="Dutiful Griffin: sacrifice two enchantments",
+            min_targets=2, max_targets=2,
+        )
+        choice.choice_type = "target_with_callback"
+        choice.callback_data['handler'] = _handler
+        return []
+
+    make_activated_ability(
+        obj, cost="{2}{W}", effect_fn=_effect,
+        description="Sacrifice two enchantments: Return this card from your graveyard to your hand",
+        precondition_fn=_has_two_enchantments,
+    )
     return []
 
 
@@ -5463,9 +5542,85 @@ def the_huntsmans_redemption_setup(obj: GameObject, state: GameState) -> list[In
 
 
 def redtooth_vanguard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever an enchantment you control enters, optional pay to return self from gy to hand."""
-    # engine gap: trigger fires from graveyard + optional pay + return.
+    """Battlefield-side has trample (printed keyword); the graveyard
+    trigger is registered in ``setup_in_graveyard`` below."""
     return []
+
+
+def redtooth_vanguard_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever an enchantment you control enters, you may pay {2}. If
+    you do, return this card from your graveyard to your hand.
+
+    Trigger fires while the card is in its owner's graveyard. We use
+    ``duration='forever'`` with ``_cleanup_on_zone_change=True`` so the
+    interceptor evicts itself when the card leaves the graveyard (returns
+    to hand, gets exiled, etc.). The filter also defensively re-checks
+    ``obj.zone == GRAVEYARD`` to no-op if the cleanup fires late.
+    """
+    def _enchantment_etb_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        # Defensive: only fire while still in graveyard.
+        live = st.objects.get(obj.id)
+        if live is None or live.zone != ZoneType.GRAVEYARD:
+            return False
+        entering = st.objects.get(event.payload.get('object_id'))
+        if entering is None:
+            return False
+        if entering.controller != obj.controller:
+            return False
+        if CardType.ENCHANTMENT not in entering.characteristics.types:
+            return False
+        return True
+
+    def _trigger_handler(event: Event, st: GameState) -> InterceptorResult:
+        def _yes(_choice, gs: GameState) -> list[Event]:
+            # Charge {2} from the controller's mana pool — sum across colors.
+            player = gs.players.get(obj.controller)
+            if player is None:
+                return []
+            paid = 0
+            for color in list(player.mana_pool.keys()):
+                if paid >= 2:
+                    break
+                avail = int(player.mana_pool.get(color, 0))
+                take = min(avail, 2 - paid)
+                if take > 0:
+                    player.mana_pool[color] = avail - take
+                    paid += take
+            if paid < 2:
+                # Player chose Yes but cannot actually pay; abort.
+                return []
+            return [Event(
+                type=EventType.RETURN_FROM_GRAVEYARD,
+                payload={'object_id': obj.id, 'player': obj.controller, 'to': 'hand'},
+                source=obj.id, controller=obj.controller,
+            )]
+
+        # Open the optional-pay choice. Resolution callback handles the
+        # mana deduction and return event emission.
+        create_may_choice(
+            state=st,
+            player_id=obj.controller,
+            source_id=obj.id,
+            prompt="Redtooth Vanguard: pay {2} to return from your graveyard?",
+            yes_handler=_yes,
+        )
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+    interceptor = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=_enchantment_etb_filter,
+        handler=_trigger_handler,
+        duration='forever',
+    )
+    setattr(interceptor, '_cleanup_on_zone_change', True)
+    return [interceptor]
 
 
 def toadstool_admirer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -6552,6 +6707,7 @@ DUTIFUL_GRIFFIN = make_creature(
     text="Flying\n{2}{W}, Sacrifice two enchantments: Return this card from your graveyard to your hand.",
     setup_interceptors=dutiful_griffin_setup,
 )
+DUTIFUL_GRIFFIN.setup_in_graveyard = dutiful_griffin_gy_setup
 
 EERIE_INTERFERENCE = make_instant(
     name="Eerie Interference",
@@ -8358,6 +8514,7 @@ REDTOOTH_VANGUARD = make_creature(
     text="Trample\nWhenever an enchantment you control enters, you may pay {2}. If you do, return this card from your graveyard to your hand.",
     setup_interceptors=redtooth_vanguard_setup,
 )
+REDTOOTH_VANGUARD.setup_in_graveyard = redtooth_vanguard_gy_setup
 
 def _return_wilds_mode_search(state: GameState, caster_id: str, spell_id: str) -> list[Event]:
     """Search library for basic land, put it onto the battlefield tapped."""
