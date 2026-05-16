@@ -2804,8 +2804,26 @@ def waterspout_warden_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def wishing_well_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: chained {T}: counter -> gy-cast (mana-value-matching) + grave-to-exile replacement
-    # SKIPPED in Phase 4 — cannot model the conditional cast-from-graveyard with X-cost match yet.
+    """{T}: Put a coin counter on this artifact. When you do, you may
+    cast target instant/sorcery card with mana value == # coin counters
+    from your graveyard without paying its cost. Replacement: if that
+    spell would be put into your graveyard, exile it instead.
+
+    Deferred — Phase 5b "activated-from-graveyard" sweep (Agent G1).
+
+    Engine gap:
+      1. The "when you do" reflex trigger off the {T} tap needs a
+         reflex-trigger primitive (engine has trigger primitives, but
+         not "when this activation resolves").
+      2. The graveyard-cast permission is per-activation and gated on a
+         live mana-value match against the artifact's coin counter
+         count — a one-shot ``make_castable_from_zone`` with a custom
+         filter would work but only after the reflex trigger fires, and
+         that fire-site doesn't yet exist.
+      3. The "grave-to-exile" replacement effect on the cast spell only
+         applies to THAT spell (not generally), which would need a
+         per-spell replacement-effect tag we don't yet emit.
+    """
     return []
 
 

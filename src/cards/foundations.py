@@ -7914,8 +7914,26 @@ def scavenging_ooze_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # --- MULDROTHA, THE GRAVETIDE ---
 # Each turn may play a land and cast a permanent spell of each permanent type from graveyard.
 def muldrotha_the_gravetide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: cast-from-graveyard (one of each permanent type) requires
-    # a permanent-type-tracked cast permission framework not yet built.
+    """During each of your turns, you may play a land and cast a
+    permanent spell of each permanent type from your graveyard.
+
+    Deferred — Phase 5b "activated-from-graveyard" sweep (Agent G1).
+
+    Engine gap: requires per-turn, per-permanent-type cast tracking
+    against the controller's graveyard. ``make_castable_from_graveyard``
+    grants per-card permission, not per-type, and there is no hook to
+    consume the "type-slot" after a cast resolves. Properly wiring this
+    needs:
+      1. A per-turn ledger ``state.turn_data[f"muldrotha_used_<player>_<type>"]``
+         set when a cast resolves; the cast-permission filter rejects
+         further casts of the same permanent type that turn.
+      2. The conditional must also account for cards with multiple
+         permanent types (e.g. an artifact creature consumes the
+         creature OR the artifact slot, the controller chooses).
+      3. The land-play half mirrors the existing land-from-graveyard
+         tracking (``play_lands_from_graveyard_until``) but again the
+         per-type slot doesn't exist there.
+    """
     return []
 
 

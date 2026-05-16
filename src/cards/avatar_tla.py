@@ -3374,9 +3374,101 @@ def tundra_tank_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def wolfbat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you draw second card each turn, may pay {B} to return this from GY (engine gap)."""
-    # engine gap: graveyard-zone ability + per-turn second-draw tracker + finality counter
+    """Battlefield-side has flying (printed keyword). The graveyard-zone
+    "2nd card drawn" trigger is registered in ``setup_in_graveyard`` below.
+    """
     return []
+
+
+def wolfbat_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you draw your second card each turn, you may pay {B}. If
+    you do, return this card from your graveyard to the battlefield with
+    a finality counter on it.
+
+    Implementation:
+      - REACT-priority interceptor with ``duration='forever'`` plus
+        ``_cleanup_on_zone_change=True`` so the interceptor self-evicts
+        when the card leaves the graveyard.
+      - Filter fires on DRAW events for the card's controller when the
+        cumulative ``cards_drawn_this_turn`` reaches exactly 2 (after the
+        system tracker has updated the counter — system trackers register
+        earlier so they have lower timestamps and fire first).
+      - Effect opens a may-pay {B} choice; the yes_handler deducts B from
+        the pool and emits RETURN_FROM_GRAVEYARD with a finality counter
+        in the payload.
+
+    Finality counter semantics ("if a creature with a finality counter
+    would die, exile it instead") are not implemented; we emit the
+    counter on the payload so any future replacement effect can read it.
+    """
+    from src.cards.interceptor_helpers import create_may_choice
+    from src.engine.turn_state import cards_drawn_this_turn
+
+    # Per-turn fire guard. The card text says "Whenever you draw your
+    # second card each turn" — we only want to fire once per turn (on the
+    # 2nd draw), not on every subsequent draw.
+    fire_guard_key = f"_wolfbat_fired_{obj.id}"
+
+    def _draw_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.DRAW:
+            return False
+        # Defensive: only fire while still in graveyard.
+        live = st.objects.get(obj.id)
+        if live is None or live.zone != ZoneType.GRAVEYARD:
+            return False
+        player_id = event.payload.get('player')
+        if player_id != obj.controller:
+            return False
+        # Check the count AFTER the system tracker has updated it.
+        if cards_drawn_this_turn(obj.controller, st) != 2:
+            return False
+        td = getattr(st, 'turn_data', None) or {}
+        if td.get(fire_guard_key):
+            return False
+        return True
+
+    def _trigger_handler(event: Event, st: GameState) -> InterceptorResult:
+        td = getattr(st, 'turn_data', None) or {}
+        td[fire_guard_key] = True
+
+        def _yes(_choice, gs: GameState) -> list[Event]:
+            player = gs.players.get(obj.controller)
+            if player is None:
+                return []
+            avail = int(player.mana_pool.get(Color.BLACK, 0))
+            if avail < 1:
+                return []
+            player.mana_pool[Color.BLACK] = avail - 1
+            return [Event(
+                type=EventType.RETURN_FROM_GRAVEYARD,
+                payload={
+                    'object_id': obj.id,
+                    'player': obj.controller,
+                    'counters': {'finality': 1},
+                },
+                source=obj.id, controller=obj.controller,
+            )]
+
+        create_may_choice(
+            state=st,
+            player_id=obj.controller,
+            source_id=obj.id,
+            prompt="Wolfbat: pay {B} to return from your graveyard with a finality counter?",
+            yes_handler=_yes,
+        )
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+    interceptor = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=_draw_filter,
+        handler=_trigger_handler,
+        duration='forever',
+    )
+    setattr(interceptor, '_cleanup_on_zone_change', True)
+    return [interceptor]
 
 
 # --- RED ---
@@ -6606,6 +6698,7 @@ WOLFBAT = make_creature(
     text="Flying\nWhenever you draw your second card each turn, you may pay {B}. If you do, return this card from your graveyard to the battlefield with a finality counter on it. (If a creature with a finality counter on it would die, exile it instead.)",
     setup_interceptors=wolfbat_setup,
 )
+WOLFBAT.setup_in_graveyard = wolfbat_gy_setup
 
 ZUKOS_CONVICTION = make_instant(
     name="Zuko's Conviction",

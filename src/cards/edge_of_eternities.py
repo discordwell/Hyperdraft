@@ -2670,8 +2670,26 @@ def sunset_saboteur_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def timeline_culler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Haste; warp from graveyard."""
-    # engine gap: warp casting from graveyard
+    """Haste is a printed keyword. The card grants itself "you may cast
+    this card from your graveyard using its warp ability" (Warp—{B}, Pay
+    2 life).
+
+    Deferred — Phase 5b "activated-from-graveyard" sweep (Agent G1).
+
+    Engine gap: ``parse_warp_cost`` extracts only the mana portion (``{B}``)
+    of a Warp cost — the ``Pay 2 life`` rider is not captured. And the
+    cast-machinery in priority.py only surfaces Warp from HAND
+    (``is_warp_castable_from_hand``); there is no symmetric graveyard
+    path. Wiring this card properly requires:
+      1. Extending ``parse_warp_cost`` (or adding a sibling parser) that
+         captures the full additional-cost plan, including life.
+      2. Adding a warp-from-graveyard cast option to
+         ``_get_graveyard_cast_options`` parallel to Flashback/Mayhem,
+         marking the card with the printed ``warp_used`` flag on cast.
+      3. Re-triggering the warp end-step-exile bookkeeping so the cast
+         creature is exiled at the next end step even when it came from
+         the graveyard route.
+    """
     return []
 
 
