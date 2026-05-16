@@ -167,12 +167,13 @@ Categorization is heuristic, applied by string-matching the strict-audit descrip
 - **EOE** `timeline_culler_setup` (L2672, edge_of_eternities.py) — Haste; warp from graveyard.
 - **TLA** `wolfbat_setup` (L3102, avatar_tla.py) — Whenever you draw second card each turn, may pay {B} to return this from GY (engine gap).
 
-### cycling-typecycling (8 cards)
+### cycling-typecycling (9 cards)
 
 - **MKM** `topiary_panther_setup` (L6970, murders_karlov_manor.py) — Trample. Basic landcycling {1}{G}.
 - **DSK** `shepherding_spirits_setup` (L1819, duskmourn.py) — Flying + plainscycling — only static keywords, no triggered ability.
 - **DSK** `daggermaw_megalodon_setup` (L2257, duskmourn.py) — Vigilance + islandcycling 2 — keyword-only.
 - **DSK** `spectral_snatcher_setup` (L3002, duskmourn.py) — Ward — discard a card. Swampcycling 2 — keyword-only.
+- **DSK** `bedhead_beastie_setup` (L3149, duskmourn.py) — Menace + mountaincycling 2 — keyword-only.
 - **DSK** `slavering_branchsnapper_setup` (L3945, duskmourn.py) — Trample; forestcycling 2 — keyword-only.
 - **TLA** `giant_koi_setup` (L2365, avatar_tla.py) — Waterbend {3}: unblockable EOT (engine gap). Islandcycling {2} (engine gap).
 - **TLA** `sabertooth_mooselion_setup` (L3816, avatar_tla.py) — Reach. Forestcycling {2} (engine gap cycling activated ability).
@@ -290,10 +291,6 @@ Categorization is heuristic, applied by string-matching the strict-audit descrip
 
 - **SPM** `spiderverse_setup` (L2479, spider_man.py) — Spiders ignore legend rule; copy spells cast from non-hand. Once per turn.
 
-### mount-saddle (1 cards)
-
-- **DSK** `bedhead_beastie_setup` (L3149, duskmourn.py) — Menace + mountaincycling 2 — keyword-only.
-
 ### offspring (1 cards)
 
 - **BLB** `rustshield_rampager_setup` (L4111, bloomburrow.py) — engine gap: Offspring + power<=2 unblockability
@@ -332,19 +329,24 @@ Cards that are currently strict-noop but where the engine already exposes everyt
 
 | # | set | card | mechanic | unblocking helper |
 |---|-----|------|----------|-------------------|
-| 1 | DSK | Spectral Snatcher | Ward — discard a card. Swampcycling 2. | `make_ward(obj, custom_cost='Discard a card')` + `make_cycling_setup` with `typecycling='Swamp'` |
-| 2 | DSK | Daggermaw Megalodon | Vigilance + islandcycling 2 — keyword-only. | `make_cycling_setup('{2}', typecycling='Island')` |
-| 3 | DSK | Shepherding Spirits | Flying + plainscycling. | `make_cycling_setup` with `typecycling='Plains'` |
-| 4 | DSK | Bedhead Beastie | Menace + mountaincycling 2. | `make_cycling_setup` with `typecycling='Mountain'` |
-| 5 | DSK | Slavering Branchsnapper | Trample + forestcycling 2. | `make_cycling_setup` with `typecycling='Forest'` |
-| 6 | TLA | Sabertooth Mooselion | Reach. Forestcycling {2}. | `make_cycling_setup('{2}', typecycling='Forest')` |
-| 7 | DSK | Piranha Fly | Flying; enters tapped. | Set `enters_tapped=True` on the card def (no interceptor needed). Setup should be removed entirely or kept as a noop with a comment. |
-| 8 | FDN | Omniscience | Cast spells from hand without paying. | `make_cost_reduction(obj, applies_to='spell-cast', amount=999, self_only=False)` — self-only=False applies to controller-only spells; existing cost_query infra supports this. |
-| 9 | FDN | Fishing Pole | Equipment with granted activated ability + untap trigger. | `make_equipment_setup` accepts keywords/subtypes; combine with `make_granted_activated_ability`. |
-| 10 | MKM | Axebane Ferox | Deathtouch, haste, ward(collect evidence 4). | Existing `make_ward(custom_cost='Collect evidence 4')` — `collect_evidence` helper exists; thread it through ward custom-cost. |
+| 1 | DSK | Daggermaw Megalodon | Vigilance + Islandcycling 2 — keyword-only. | `card_def.setup_in_hand = make_cycling_setup('{2}', typecycling='Island')` (cycling.py:259 already supports typecycling) |
+| 2 | DSK | Shepherding Spirits | Flying + Plainscycling. | `make_cycling_setup` with `typecycling='Plains'` |
+| 3 | DSK | Bedhead Beastie | Menace + Mountaincycling 2. | `make_cycling_setup` with `typecycling='Mountain'` |
+| 4 | DSK | Slavering Branchsnapper | Trample + Forestcycling 2. | `make_cycling_setup` with `typecycling='Forest'` |
+| 5 | TLA | Sabertooth Mooselion | Reach + Forestcycling {2}. | `make_cycling_setup('{2}', typecycling='Forest')` |
+| 6 | MKM | Topiary Panther | Trample + basic landcycling {1}{G}. | `make_cycling_setup('{1}{G}', landcycling=['Plains','Island','Swamp','Mountain','Forest'])` |
+| 7 | DSK | Spectral Snatcher | Ward — discard a card. Swampcycling 2. | `make_ward(obj, custom_cost='Discard a card')` + cycling setup as above |
+| 8 | DSK | Piranha Fly | Flying; enters tapped (no extra interceptor needed). | Setup should just be removed; ETB-tapped is a state set at create time. |
+| 9 | FIN | Hill Gigas FF | Trample/haste keywords already on stat; cycling stub. | Just remove the noop or wire a vanilla `make_cycling_setup`. |
+| 10 | TLA | Giant Koi | Waterbend {3}: unblockable EOT + Islandcycling {2}. | Cycling half is `make_cycling_setup('{2}', typecycling='Island')`; the waterbend half is a separate engine gap (waterbend activated). Worth wiring the cycling-only half now. |
 
 Notes on lower-confidence candidates (not in top 10):
 
+- **DSK** `fear_of_being_hunted_setup` — "Haste; must-be-blocked. Keyword-only." Haste is already on the card text; "must-be-blocked" needs an interceptor — *partially* wirable.
+- **OTJ** `akul_the_unrepentant_setup` — Flying/trample already printed; the activated 3-sac is a `make_sac_destroy_ability` candidate but needs target-from-hand. Sac-from-hand isn't currently a registered cost form.
+- **MKM** `axebane_ferox_setup` — Deathtouch/haste already printed; ward(collect evidence 4) — `make_ward(custom_cost='Collect evidence 4')` + thread `collect_evidence` into the ward custom-cost handler. Feasible but requires verifying the ward custom-cost path actually runs the cost-fn.
+- **FDN** `omniscience_setup` — needs `applies_to_cast` reduction equal to the *full* mana cost. `make_cost_reduction` only reduces generic mana; would need engine extension to support reducing colour pips too. Not a 1-helper fix.
+- **FDN** `fishing_pole_setup` — Equipment with granted activated ability needs `make_equipment_setup` + `make_granted_activated_ability` integration. The grant-on-attach path exists (`grant_activated_ability_on_attach`) but hasn't been combined with equipment yet. Medium effort.
 - **ECL** lots of `make_pump_self_ability` + `_make_main_phase_trigger` side-effect setups — already wired via side-effects, but counted as find-noops because they `return []` after a side-effect helper. The post-fix `find_useless_stubs.py` now correctly excludes these. (Examples: `flamechain_mauler`, `timid_shieldbearer`.)
 - **SPM** `kravens_cats`, `inner_demons_gangsters`, `merciless_enforcers` — same pattern, side-effect `make_pump_self_ability` / `make_activated_ability`. The post-fix classifier correctly counts these as real.
 - **EOE** `ragost_deft_gastronaut` — uses `type_grant_interceptor` (not in our allowlist) — could be wired with `register_*` helper or moved to a recognised shape.
