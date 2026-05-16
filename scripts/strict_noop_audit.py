@@ -112,6 +112,34 @@ def collect_wired_setup_names(tree: ast.AST) -> set[str]:
     return names
 
 
+def grab_inline_marker(src_lines: list[str], fn_start_line: int,
+                        fn_end_line: int) -> str:
+    """Pull the most informative comment from the function body.
+
+    Strategy: scan lines from fn definition through end of body, capture
+    the first ``# engine gap:`` or ``# Phase`` or just ``# ...`` line.
+    Returns an empty string if nothing useful found. Used as fallback
+    descriptor for noops that lack a docstring but carry an inline comment.
+    """
+    # AST line numbers are 1-indexed. src_lines is 0-indexed.
+    candidates: list[str] = []
+    end = min(fn_end_line, len(src_lines))
+    for i in range(fn_start_line - 1, end):
+        line = src_lines[i].strip()
+        if line.startswith("#"):
+            # Drop leading '#' and any whitespace
+            txt = line.lstrip("#").strip()
+            if not txt:
+                continue
+            candidates.append(txt)
+    # Prefer "engine gap" markers
+    for c in candidates:
+        cl = c.lower()
+        if "engine gap" in cl or "phase 5b" in cl or "skipped" in cl:
+            return c[:200]
+    return candidates[0][:200] if candidates else ""
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--json", metavar="PATH",
@@ -130,16 +158,35 @@ def main() -> int:
         if not path.is_file():
             print(f"[skip] {fname} not found", file=sys.stderr)
             continue
-        tree = ast.parse(path.read_text())
+        src_text = path.read_text()
+        src_lines = src_text.splitlines()
+        tree = ast.parse(src_text)
         wired = collect_wired_setup_names(tree)
         grand_wired += len(wired)
 
-        strict: list[tuple[str, int, str]] = []  # (name, lineno, docstring_head)
+        strict: list[tuple[str, int, str]] = []  # (name, lineno, descriptor)
         delegated: list[tuple[str, int, str]] = []
         for n in ast.walk(tree):
             if isinstance(n, ast.FunctionDef) and n.name in wired:
                 doc = ast.get_docstring(n) or ""
-                doc_head = doc.split("\n", 1)[0][:160]
+                doc_head = doc.split("\n", 1)[0][:200]
+                if not doc_head:
+                    # Look for an inline engine-gap marker first, then fall
+                    # back to the preceding banner comment.
+                    end_line = getattr(n, "end_lineno", n.lineno + 5) or n.lineno + 5
+                    inline = grab_inline_marker(src_lines, n.lineno, end_line)
+                    above = ""
+                    for j in range(max(0, n.lineno - 4), n.lineno - 1):
+                        if j < len(src_lines) and src_lines[j].strip().startswith("#"):
+                            cand = src_lines[j].strip().lstrip("#").strip()
+                            # Skip the title banner if we can find something
+                            # more informative below.
+                            if cand.startswith("---") and cand.endswith("---"):
+                                continue
+                            above = cand
+                            break
+                    # Prefer the inline engine-gap; fall back to anything else
+                    doc_head = inline or above
                 if is_strict_noop(n):
                     strict.append((n.name, n.lineno, doc_head))
                     grand_strict_noops.append((fname, n.name, n.lineno, doc_head))
