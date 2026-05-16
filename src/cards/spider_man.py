@@ -40,6 +40,8 @@ from src.cards.interceptor_helpers import (
     make_surveil_ability,
     # Phase 3: Equipment / Aura attach statics.
     make_equipment_setup, make_aura_setup,
+    # Phase 5b: granted activated abilities ("Equipped/Enchanted X has '<cost>: <effect>'").
+    make_equipment_granted_ability,
     # Ward.
     make_ward,
     # Dynamic P/T helpers.
@@ -1637,7 +1639,48 @@ def flash_thompson_spiderfan_setup(obj: GameObject, state: GameState) -> list[In
 
 # --- Friendly Neighborhood ---
 # "Enchant land. ETB: create three 1/1 G/W Human Citizen tokens. Enchanted land has activated ability."
+def _friendly_neighborhood_pump(o: GameObject, state: GameState, targets) -> list[Event]:
+    """Granted ability effect: target creature gets +1/+1 EOT for each
+    creature you control.
+
+    ``o`` is the *enchanted land* (where the granted ability lives). We
+    count creatures controlled by the land's controller and emit a
+    PT_MODIFICATION event on the chosen target, scaled by the count.
+    """
+    if not targets:
+        return []
+    t = targets[0]
+    target_id = getattr(t, "id", None) or getattr(t, "object_id", None) or t
+    if not isinstance(target_id, str):
+        return []
+    n = 0
+    for cand in state.objects.values():
+        if cand.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.CREATURE not in cand.characteristics.types:
+            continue
+        if cand.controller != o.controller:
+            continue
+        n += 1
+    if n <= 0:
+        return []
+    return [Event(
+        type=EventType.PT_MODIFICATION,
+        payload={
+            "object_id": target_id,
+            "power_mod": n,
+            "toughness_mod": n,
+            "duration": "end_of_turn",
+        },
+        source=o.id,
+        controller=o.controller,
+    )]
+
+
 def friendly_neighborhood_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Enchant land. ETB creates three 1/1 Human Citizen tokens. Enchanted
+    land has '{1}, {T}: Target creature gets +1/+1 until end of turn for
+    each creature you control. Activate only as a sorcery.'"""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         events = []
         for _ in range(3):
@@ -1655,8 +1698,21 @@ def friendly_neighborhood_setup(obj: GameObject, state: GameState) -> list[Inter
                 source=obj.id
             ))
         return events
-    # engine gap: enchanted-land-grants-activated-ability not wired
-    return [make_etb_trigger(obj, etb_effect)]
+
+    interceptors = [make_etb_trigger(obj, etb_effect)]
+    interceptors.extend(make_equipment_granted_ability(
+        obj,
+        cost="{1}, {T}",
+        effect_fn=_friendly_neighborhood_pump,
+        description=(
+            "Target creature gets +1/+1 until end of turn for each "
+            "creature you control."
+        ),
+        sorcery_speed=True,
+        targets_required=1,
+        target_kind="creature",
+    ))
+    return interceptors
 
 
 # --- Origin of Spider-Man ---
