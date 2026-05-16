@@ -48,6 +48,9 @@ from src.cards.interceptor_helpers import (
     make_token_creation_ability,
     make_sac_destroy_ability,
     make_aura_setup,
+    make_equipment_setup,
+    # Phase 5b: granted activated abilities ("Equipped creature has '<cost>: <effect>'").
+    make_equipment_granted_ability,
     # Dynamic P/T helpers.
     make_attached_dynamic_pt_boost,
     count_cards_in_graveyard,
@@ -4556,10 +4559,71 @@ def planetarium_of_wan_shi_tong_setup(obj: GameObject, state: GameState) -> list
     return []
 
 
-def trusty_boomerang_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipped creature has {1}, {T}: tap creature, return Boomerang (engine gap granted activated)."""
-    # engine gap: granting activated abilities to equipped creature
-    return []
+def _trusty_boomerang_bounce(o: GameObject, state: GameState, targets) -> list[Event]:
+    """Granted ability effect: tap target creature, then return Trusty Boomerang
+    (the equipment) to its owner's hand.
+
+    ``o`` is the *equipped creature* (the granted ability lives there). We
+    look up the boomerang via the equipped creature's attachments — it's
+    the artifact Equipment currently attached to ``o``.
+    """
+    if not targets:
+        return []
+    t = targets[0]
+    target_id = getattr(t, "id", None) or getattr(t, "object_id", None) or t
+    if not isinstance(target_id, str):
+        return []
+    target_obj = state.objects.get(target_id)
+    if target_obj is None:
+        return []
+
+    events: list[Event] = [Event(
+        type=EventType.TAP,
+        payload={"object_id": target_id},
+        source=o.id,
+        controller=o.controller,
+    )]
+
+    # Find the Trusty Boomerang attached to o (the equipped creature).
+    boomerang_id: Optional[str] = None
+    for attached_id in getattr(o.state, "attachments", []) or []:
+        attached = state.objects.get(attached_id)
+        if attached is None:
+            continue
+        if attached.name == "Trusty Boomerang":
+            boomerang_id = attached_id
+            break
+
+    if boomerang_id is not None:
+        boomerang = state.objects.get(boomerang_id)
+        if boomerang is not None:
+            events.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    "object_id": boomerang_id,
+                    "from_zone": "battlefield",
+                    "from_zone_type": ZoneType.BATTLEFIELD,
+                    "to_zone": f"hand_{boomerang.owner}",
+                    "to_zone_type": ZoneType.HAND,
+                    "to_zone_owner": boomerang.owner,
+                    "reason": "bounce_to_hand",
+                },
+                source=o.id,
+                controller=o.controller,
+            ))
+    return events
+
+
+trusty_boomerang_setup = make_equipment_setup(
+    equip_cost="{1}",
+    granted_activated_abilities={
+        "cost": "{1}, {T}",
+        "effect_fn": _trusty_boomerang_bounce,
+        "description": "Tap target creature. Return Trusty Boomerang to its owner's hand.",
+        "targets_required": 1,
+        "target_kind": "creature",
+    },
+)
 
 
 # --- LANDS ---
