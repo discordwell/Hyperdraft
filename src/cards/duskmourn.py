@@ -5351,7 +5351,7 @@ SHEPHERDING_SPIRITS = make_creature(
     text="Flying\nPlainscycling {2} ({2}, Discard this card: Search your library for a Plains card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=shepherding_spirits_setup,
 )
-SHEPHERDING_SPIRITS.setup_in_hand = _make_typecycling_setup("{2}", "Plains")
+SHEPHERDING_SPIRITS.setup_in_hand = make_cycling_setup("{2}", typecycling="Plains")
 
 def _split_up_execute_mode(choice, selected, state: GameState) -> list[Event]:
     """
@@ -5604,7 +5604,7 @@ DAGGERMAW_MEGALODON = make_creature(
     text="Vigilance\nIslandcycling {2} ({2}, Discard this card: Search your library for an Island card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=daggermaw_megalodon_setup,
 )
-DAGGERMAW_MEGALODON.setup_in_hand = _make_typecycling_setup("{2}", "Island")
+DAGGERMAW_MEGALODON.setup_in_hand = make_cycling_setup("{2}", typecycling="Island")
 
 DONT_MAKE_A_SOUND = make_instant(
     name="Don't Make a Sound",
@@ -7124,7 +7124,7 @@ BEDHEAD_BEASTIE = make_creature(
     text="Menace (This creature can't be blocked except by two or more creatures.)\nMountaincycling {2} ({2}, Discard this card: Search your library for a Mountain card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=bedhead_beastie_setup,
 )
-BEDHEAD_BEASTIE.setup_in_hand = _make_typecycling_setup("{2}", "Mountain")
+BEDHEAD_BEASTIE.setup_in_hand = make_cycling_setup("{2}", typecycling="Mountain")
 
 def _betrayers_bargain_execute(choice, selected, state: GameState) -> list[Event]:
     """Execute Betrayer's Bargain after target selection."""
@@ -8854,7 +8854,7 @@ SLAVERING_BRANCHSNAPPER = make_creature(
     text="Trample\nForestcycling {2} ({2}, Discard this card: Search your library for a Forest card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=slavering_branchsnapper_setup,
 )
-SLAVERING_BRANCHSNAPPER.setup_in_hand = _make_typecycling_setup("{2}", "Forest")
+SLAVERING_BRANCHSNAPPER.setup_in_hand = make_cycling_setup("{2}", typecycling="Forest")
 
 SPINESEEKER_CENTIPEDE = make_creature(
     name="Spineseeker Centipede",

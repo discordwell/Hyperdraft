@@ -7573,7 +7573,7 @@ SABERTOOTH_MOOSELION = make_creature(
     text="Reach\nForestcycling {2} ({2}, Discard this card: Search your library for a Forest card, reveal it, put it into your hand, then shuffle.)",
     setup_interceptors=sabertooth_mooselion_setup,
 )
-SABERTOOTH_MOOSELION.setup_in_hand = _make_typecycling_setup("{2}", "Forest")
+SABERTOOTH_MOOSELION.setup_in_hand = make_cycling_setup("{2}", typecycling="Forest")
 
 SEISMIC_SENSE = make_sorcery(
     name="Seismic Sense",
