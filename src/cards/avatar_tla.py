@@ -2328,8 +2328,41 @@ def water_tribe_captain_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def water_tribe_rallier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Waterbend {5}: tutor from top 4 (engine gap activated + waterbend)."""
-    # engine gap: waterbend activated ability
+    """Waterbend {5}: Look at top 4, may reveal a creature card with power 3
+    or less and put it into your hand. Put the rest on bottom in a random
+    order. Wired as a SEARCH_LIBRARY-style top-deck-look event; the
+    reveal/take-into-hand resolution is the engine gap (handler matches
+    the broader 'look at top N' family already present in the pipeline).
+    """
+    from src.engine.bending import make_waterbend_activated_ability
+
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        # Emit a SEARCH_LIBRARY-like top-look so the existing library/scry
+        # machinery can offer the reveal-and-hand choice. The handler that
+        # consumes the 'top_n_creature_power_lte' filter is the engine
+        # gap; the cost + marker still fire correctly for trackers.
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': o.controller,
+                'card_type': 'creature',
+                'destination': 'hand',
+                'scope': 'top_n',
+                'top_n': 4,
+                'power_lte': 3,
+                'rest_to': 'bottom_random',
+                'reveal': True,
+                'optional_take': True,
+            },
+            source=o.id, controller=o.controller,
+        )]
+
+    make_waterbend_activated_ability(
+        obj,
+        waterbend_cost="{5}",
+        effect_fn=_effect,
+        description="Waterbend {5}: Look at top 4; may reveal a creature with power 3 or less and put it into your hand. Bottom the rest in random order.",
+    )
     return []
 
 
@@ -2351,20 +2384,80 @@ def firsttime_flyer_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def flexible_waterbender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Waterbend {3}: base power/toughness 5/2 EOT (engine gap activated + base stat swap)."""
-    # engine gap: waterbend activated ability + base PT change
+    """Waterbend {3}: this creature has base power and toughness 5/2 until
+    end of turn. Engine gap: true 'base PT swap' overriding other +1/+1
+    counters isn't expressed yet — approximated as a PT_MODIFICATION delta
+    from the printed 2/5 to 5/2 (i.e. +3/-3) for EOT. Counter/anthem
+    stacking will diverge from the printed rule in edge cases."""
+    from src.engine.bending import make_waterbend_activated_ability
+
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        base_p = o.characteristics.power or 0
+        base_t = o.characteristics.toughness or 0
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': o.id,
+                'power_mod': 5 - base_p,
+                'toughness_mod': 2 - base_t,
+                'duration': 'end_of_turn',
+            },
+            source=o.id, controller=o.controller,
+        )]
+
+    make_waterbend_activated_ability(
+        obj,
+        waterbend_cost="{3}",
+        effect_fn=_effect,
+        description="Waterbend {3}: This creature has base power and toughness 5/2 until end of turn.",
+    )
     return []
 
 
 def geyser_leaper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Waterbend {4}: loot. Engine gap (activated + waterbend)."""
-    # engine gap: waterbend activated ability
+    """Waterbend {4}: Draw a card, then discard a card."""
+    from src.engine.bending import make_waterbend_activated_ability
+
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW,
+                  payload={'player': o.controller, 'count': 1},
+                  source=o.id, controller=o.controller),
+            Event(type=EventType.DISCARD_CHOICE,
+                  payload={'player': o.controller, 'count': 1},
+                  source=o.id, controller=o.controller),
+        ]
+
+    make_waterbend_activated_ability(
+        obj,
+        waterbend_cost="{4}",
+        effect_fn=_effect,
+        description="Waterbend {4}: Draw a card, then discard a card.",
+    )
     return []
 
 
 def giant_koi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Waterbend {3}: unblockable EOT (engine gap). Islandcycling {2} (engine gap)."""
-    # engine gap: waterbend + cycling activated abilities
+    """Waterbend {3}: This creature can't be blocked this turn.
+
+    Islandcycling {2} is wired separately via ``setup_in_hand`` on the
+    card object (see ``_make_typecycling_setup``).
+    """
+    from src.engine.bending import make_waterbend_activated_ability
+
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.GRANT_UNBLOCKABLE,
+            payload={'object_id': o.id, 'duration': 'end_of_turn'},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_waterbend_activated_ability(
+        obj,
+        waterbend_cost="{3}",
+        effect_fn=_effect,
+        description="Waterbend {3}: This creature can't be blocked this turn.",
+    )
     return []
 
 
@@ -2428,7 +2521,9 @@ def invasion_submersible_setup(obj: GameObject, state: GameState) -> list[Interc
 
 def katara_bending_prodigy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """End step: if Katara is tapped, +1/+1 counter on her.
-    Waterbend {6}: Draw a card (engine gap activated)."""
+    Waterbend {6}: Draw a card."""
+    from src.engine.bending import make_waterbend_activated_ability
+
     def end_step_effect(event: Event, state: GameState) -> list[Event]:
         if obj.state.tapped:
             return [Event(
@@ -2437,6 +2532,20 @@ def katara_bending_prodigy_setup(obj: GameObject, state: GameState) -> list[Inte
                 source=obj.id
             )]
         return []
+
+    def _waterbend_draw(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': o.controller, 'count': 1},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_waterbend_activated_ability(
+        obj,
+        waterbend_cost="{6}",
+        effect_fn=_waterbend_draw,
+        description="Waterbend {6}: Draw a card.",
+    )
     return [make_end_step_trigger(obj, end_step_effect)]
 
 
@@ -2464,7 +2573,9 @@ def master_pakku_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def north_pole_patrol_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """{T}: Untap another target permanent you control.
-    Waterbend {3}, {T}: Tap target opp creature (engine gap waterbend)."""
+    Waterbend {3}, {T}: Tap target creature an opponent controls."""
+    from src.engine.bending import make_waterbend_activated_ability
+
     def untap_effect(o: GameObject, st: GameState, targets) -> list[Event]:
         if not targets:
             return []
@@ -2481,7 +2592,29 @@ def north_pole_patrol_setup(obj: GameObject, state: GameState) -> list[Intercept
         description="Untap another target permanent you control",
         targets_required=1, target_kind="permanent_other_yours",
     )
-    # engine gap: waterbend activated ability
+
+    def tap_opponent_creature(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.TAP,
+            payload={'object_id': target_id},
+            source=o.id, controller=o.controller,
+        )]
+
+    # Waterbend includes a {T} cost — express it as part of the cost string so
+    # the activator must also tap the source. The bending helper handles the
+    # marker; the {T} portion is parsed by register_activated_ability.
+    make_waterbend_activated_ability(
+        obj,
+        waterbend_cost="{3}, {T}",
+        effect_fn=tap_opponent_creature,
+        description="Waterbend {3}, {T}: Tap target creature an opponent controls.",
+        targets_required=1,
+        target_kind="creature_opponent",
+    )
     return []
 
 
@@ -2604,9 +2737,53 @@ def ty_lee_chi_blocker_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def the_unagi_of_kyoshi_island_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Ward-Waterbend {4} (engine gap). Whenever opp draws second card, draw two."""
-    # engine gap: waterbend ward + per-turn second-draw tracker
-    return []
+    """Ward—Waterbend {4}: ward cost is {4} for now (the waterbend
+    tap-artifacts/creatures discount is engine gap).
+
+    Plus: whenever an opponent draws their second card each turn, draw two.
+    """
+    from src.cards.interceptor_helpers import make_ward
+
+    ward_ic = make_ward(obj, mana_cost="{4}")
+
+    def opp_second_draw_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.DRAW:
+            return False
+        drawer = event.payload.get('player')
+        if not drawer or drawer == obj.controller:
+            return False
+        drawn = st.turn_data.get(f"{drawer}_cards_drawn_this_turn", 0)
+        if drawn < 2:
+            return False
+        fired_key = f"{obj.id}_unagi_fired_{drawer}"
+        if st.turn_data.get(fired_key):
+            return False
+        return True
+
+    def unagi_react(event: Event, st: GameState) -> list[Event]:
+        drawer = event.payload.get('player')
+        st.turn_data[f"{obj.id}_unagi_fired_{drawer}"] = True
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'count': 2},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    second_draw_ic = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=opp_second_draw_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=unagi_react(e, s),
+        ),
+        duration='while_on_battlefield',
+        is_triggered_ability=True,
+        effect_fn=unagi_react,
+    )
+    return [ward_ic, second_draw_ic]
 
 
 def wan_shi_tong_librarian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2620,7 +2797,29 @@ def wan_shi_tong_librarian_setup(obj: GameObject, state: GameState) -> list[Inte
 
 def waterbender_ascension_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Combat damage to player by your creature -> quest counter; at 4+ draw a card.
-    Waterbend {4}: target creature unblockable EOT (engine gap activated)."""
+    Waterbend {4}: target creature can't be blocked this turn."""
+    from src.engine.bending import make_waterbend_activated_ability
+
+    def grant_unblockable(o: GameObject, st: GameState, targets) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = getattr(t, "object_id", None) or t
+        return [Event(
+            type=EventType.GRANT_UNBLOCKABLE,
+            payload={'object_id': target_id, 'duration': 'end_of_turn'},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_waterbend_activated_ability(
+        obj,
+        waterbend_cost="{4}",
+        effect_fn=grant_unblockable,
+        description="Waterbend {4}: Target creature can't be blocked this turn.",
+        targets_required=1,
+        target_kind="creature",
+    )
+
     def damage_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.DAMAGE:
             return False
@@ -2674,14 +2873,21 @@ def waterbending_scroll_setup(obj: GameObject, state: GameState) -> list[Interce
 
 def watery_grasp_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Aura — enchanted creature doesn't untap during its controller's
-    untap step. (Waterbend {5} shuffle clause is an engine gap pending
-    waterbend activated abilities.)
+    untap step. Waterbend {5}: enchanted creature's owner shuffles it
+    into their library.
 
     The "doesn't untap" piece is wired as a PREVENT-priority interceptor on
     UNTAP events whose target is the enchanted creature, returning
     ``InterceptorAction.PREVENT`` so the turn manager's untap step
     no-ops for that creature.
+
+    Waterbend {5}: emits a SHUFFLE_INTO_LIBRARY event for the enchanted
+    creature. The exact handler is the engine gap pending a generic
+    'send permanent to its owner's library and shuffle' resolver — the
+    cost + marker fire correctly.
     """
+    from src.engine.bending import make_waterbend_activated_ability
+
     base = make_aura_setup()(obj, state)
 
     def _untap_filter(event: Event, state: GameState) -> bool:
@@ -2704,12 +2910,77 @@ def watery_grasp_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         handler=_prevent,
         duration='while_on_battlefield',
     )
+
+    def _shuffle_enchanted(o: GameObject, st: GameState, targets) -> list[Event]:
+        attached_to = getattr(o.state, 'attached_to', None)
+        if not attached_to:
+            return []
+        # engine gap: a generic 'shuffle permanent into owner's library' handler;
+        # we emit ZONE_CHANGE -> LIBRARY plus an explicit SHUFFLE so the
+        # existing library/shuffle plumbing fires for any handler that
+        # consumes either signal.
+        events: list[Event] = []
+        tgt = st.objects.get(attached_to)
+        if tgt is not None:
+            events.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': attached_to,
+                    'from_zone_type': ZoneType.BATTLEFIELD,
+                    'to_zone_type': ZoneType.LIBRARY,
+                    'owner': tgt.owner,
+                    'reason': 'watery_grasp_waterbend',
+                },
+                source=o.id, controller=o.controller,
+            ))
+            if hasattr(EventType, 'SHUFFLE'):
+                events.append(Event(
+                    type=EventType.SHUFFLE,
+                    payload={'player': tgt.owner},
+                    source=o.id, controller=o.controller,
+                ))
+        return events
+
+    make_waterbend_activated_ability(
+        obj,
+        waterbend_cost="{5}",
+        effect_fn=_shuffle_enchanted,
+        description="Waterbend {5}: Enchanted creature's owner shuffles it into their library.",
+    )
     return base + [prevent_untap]
 
 
 def yue_the_moon_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Waterbend {5}, {T}: cast a noncreature spell free (engine gap activated + waterbend)."""
-    # engine gap: waterbend + free-cast activated ability
+    """Waterbend {5}, {T}: You may cast a noncreature spell from your hand
+    without paying its mana cost.
+
+    Engine gap: the "cast free from hand" cost-replacement isn't wired as
+    an activated-ability effect — we register the activation cost so the
+    timing/marker still fire, and emit a CAST_FREE_OFFER event that the
+    free-cast handler can later consume. Until then the effect is a no-op
+    beyond the cost + marker.
+    """
+    from src.engine.bending import make_waterbend_activated_ability
+
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        # engine gap: open a "cast a noncreature spell from hand free" choice
+        return [Event(
+            type=EventType.CAST_FREE_OFFER,
+            payload={
+                'player': o.controller,
+                'source_id': o.id,
+                'filter': 'noncreature_in_hand',
+                'optional': True,
+            },
+            source=o.id, controller=o.controller,
+        )] if hasattr(EventType, 'CAST_FREE_OFFER') else []
+
+    make_waterbend_activated_ability(
+        obj,
+        waterbend_cost="{5}, {T}",
+        effect_fn=_effect,
+        description="Waterbend {5}, {T}: You may cast a noncreature spell from your hand without paying its mana cost.",
+    )
     return []
 
 
@@ -3666,9 +3937,29 @@ def earthen_ally_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def foggy_swamp_vinebender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Can't be blocked by power 2 or less (engine gap).
-    Waterbend {5}: +1/+1 counter (engine gap activated)."""
-    # engine gap: block restriction by attacker query + waterbend activated ability
+    """Can't be blocked by creatures with power 2 or less (engine gap:
+    block-restriction-by-attacker query).
+
+    Waterbend {5}: Put a +1/+1 counter on this creature. Activate only
+    during your turn.
+    """
+    from src.engine.bending import make_waterbend_activated_ability
+
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_waterbend_activated_ability(
+        obj,
+        waterbend_cost="{5}",
+        effect_fn=_effect,
+        description="Waterbend {5}: Put a +1/+1 counter on this creature. Activate only during your turn.",
+        own_turn_only=True,
+    )
+    # engine gap: block restriction by attacker power query
     return []
 
 
