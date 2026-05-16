@@ -1,0 +1,20 @@
+app = "hyperdraft-lfs"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+# Giftless has no health endpoint; Fly's TCP-level check is enough.
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1

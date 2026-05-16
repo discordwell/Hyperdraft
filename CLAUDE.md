@@ -18,6 +18,21 @@ Two safety nets are wired up:
 
 Recovery after a suspected reset wipe: `git for-each-ref refs/wip/ --sort=-creatordate | head` then `git checkout <ref> -- .`. Full details in `docs/safety/git_reset_defense.md`.
 
+## Worktree sparse-checkout (disk space)
+
+Tracked binary art (`assets/card_art/`, `frontend/public/scp-art/`) is ~2.7GB. Each worktree materializes its own copy, so 18 concurrent worktrees costs ~50GB of disk.
+
+**If you start work inside a `.claude/worktrees/agent-*/` directory, run this before any task work:**
+
+```bash
+git sparse-checkout init --cone
+git sparse-checkout set src tests frontend/src frontend/public/sounds scripts docs data prompts art-runs codex-pokemon-strategy
+```
+
+This drops the worktree from ~2.9GB to ~150MB. Skip only if your task explicitly involves card art or SCP art — in that case re-include with `git sparse-checkout add assets/card_art` (or `frontend/public/scp-art`).
+
+If `git status` shows files missing that you need, the include list above is incomplete for your task — add the dir and continue.
+
 ## Architecture
 
 **Core Philosophy**: Everything is an Event, everything else is an Interceptor.
