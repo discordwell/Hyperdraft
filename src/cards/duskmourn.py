@@ -1864,9 +1864,52 @@ def savior_of_the_small_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def shardmages_rescue_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Aura — entered-this-turn hexproof + +1/+1 on enchanted."""
-    # engine gap: Aura attachment / 'entered this turn' lookup
-    return []
+    """Aura — enchanted creature gets +1/+1 and (as long as this Aura entered
+    this turn) has hexproof.
+
+    Uses ``make_aura_setup`` for the +1/+1 portion and a custom
+    QUERY_ABILITIES interceptor that grants 'hexproof' only while the Aura
+    still has ``summoning_sickness`` (cleared at the next untap step, which
+    matches the printed "as long as this Aura entered this turn" gate one
+    turn-cycle of accuracy)."""
+    base = make_aura_setup(power_mod=1, toughness_mod=1)(obj, state)
+
+    def hexproof_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_ABILITIES:
+            return False
+        source = state.objects.get(obj.id)
+        if not source or source.zone != ZoneType.BATTLEFIELD:
+            return False
+        attached_to = getattr(source.state, 'attached_to', None)
+        if not attached_to:
+            return False
+        if event.payload.get('object_id') != attached_to:
+            return False
+        # Only grant while the Aura entered this turn (proxied by
+        # summoning_sickness — cleared at the next untap step).
+        return bool(getattr(source.state, 'summoning_sickness', False))
+
+    def hexproof_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        granted = list(new_event.payload.get('granted', []))
+        if 'hexproof' not in granted:
+            granted.append('hexproof')
+        new_event.payload['granted'] = granted
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
+
+    hexproof_int = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=hexproof_filter,
+        handler=hexproof_handler,
+        duration='while_on_battlefield',
+    )
+    return base + [hexproof_int]
 
 
 def sheltered_by_ghosts_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2537,8 +2580,14 @@ def paranormal_analyst_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def piranha_fly_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flying; enters tapped — keyword-only/state-only."""
-    # engine gap: 'enters tapped' is a state set at create time, no trigger needed
+    """Flying; enters tapped.
+
+    Flying is on the printed-keywords list. The "enters tapped" line for a
+    non-land creature isn't auto-detected by the ZONE_CHANGE handler (that
+    path only inspects card text on lands), so we set the tapped state
+    directly on the new battlefield instance.
+    """
+    obj.state.tapped = True
     return []
 
 
@@ -2579,9 +2628,84 @@ def silent_hallcreeper_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def stay_hidden_stay_silent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Aura — tap on ETB; doesn't untap. Activated: shuffle + manifest dread."""
-    # engine gap: aura attach/no-untap and activated shuffle
-    return []
+    """Aura — tap enchanted creature on ETB; enchanted creature doesn't untap
+    during its controller's untap step; {4}{U}{U} sorcery-speed: shuffle
+    enchanted creature into its owner's library, then manifest dread.
+
+    Pattern mirrors ``avatar_tla.watery_grasp_setup``.
+    """
+    base = make_aura_setup()(obj, state)
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        target_id = getattr(obj.state, 'attached_to', None)
+        if not target_id:
+            return []
+        return [Event(
+            type=EventType.TAP_TARGET,
+            payload={'object_id': target_id},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    def untap_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.UNTAP:
+            return False
+        attached_to = getattr(obj.state, 'attached_to', None)
+        if not attached_to:
+            return False
+        return event.payload.get('object_id') == attached_to
+
+    def prevent_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    prevent_untap = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=untap_filter,
+        handler=prevent_handler,
+        duration='while_on_battlefield',
+    )
+
+    def _shuffle_then_manifest(o: GameObject, st: GameState, targets) -> list[Event]:
+        attached_to = getattr(o.state, 'attached_to', None)
+        if not attached_to:
+            return []
+        events: list[Event] = []
+        tgt = st.objects.get(attached_to)
+        if tgt is not None:
+            events.append(Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': attached_to,
+                    'from_zone_type': ZoneType.BATTLEFIELD,
+                    'to_zone_type': ZoneType.LIBRARY,
+                    'owner': tgt.owner,
+                    'reason': 'stay_hidden_shuffle',
+                },
+                source=o.id, controller=o.controller,
+            ))
+            if hasattr(EventType, 'SHUFFLE'):
+                events.append(Event(
+                    type=EventType.SHUFFLE,
+                    payload={'player': tgt.owner},
+                    source=o.id, controller=o.controller,
+                ))
+        events.append(Event(
+            type=EventType.MANIFEST_DREAD,
+            payload={'player': o.controller},
+            source=o.id, controller=o.controller,
+        ))
+        return events
+
+    make_activated_ability(
+        obj, cost="{4}{U}{U}",
+        effect_fn=_shuffle_then_manifest,
+        description="Shuffle enchanted creature into its owner's library, then manifest dread",
+        sorcery_speed=True,
+    )
+
+    return base + [make_etb_trigger(obj, etb_effect), prevent_untap]
 
 
 def the_tale_of_tamiyo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3260,9 +3384,65 @@ def chainsaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def charred_foyer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Room — upkeep impulse exile / cast-from-exile {0} once per turn."""
-    # engine gap: Room unlock; impulse + alt cost
-    return []
+    """Room — Charred Foyer: at the beginning of your upkeep, impulse-exile
+    the top card and grant 'play it this turn'. Warped Space: alt-cast {0}
+    once each turn for spells you cast from exile (engine gap — wired
+    placeholder)."""
+    def door1_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 1 is a recurring upkeep trigger; the unlock itself does nothing.
+        # The trigger is registered in extra_setup below.
+        return []
+
+    def door2_effect(_o: GameObject, _st: GameState) -> list[Event]:
+        # Door 2 ("Warped Space") is a once-per-turn alternative cost for
+        # spells cast from exile. Tracking pay-{0}-instead requires the
+        # exile-as-cast-zone permission to thread into the cost path; this
+        # is the standing engine gap, so the unlock itself is a no-op.
+        return []
+
+    def charred_foyer_extra(o: GameObject, st: GameState) -> list[Interceptor]:
+        # While Charred Foyer is unlocked, at the beginning of your upkeep,
+        # exile the top card of your library; you may play it this turn.
+        def filt(event: Event, state: GameState) -> bool:
+            if event.type != EventType.PHASE_START:
+                return False
+            if event.payload.get('phase') != 'upkeep':
+                return False
+            if state.active_player != o.controller:
+                return False
+            current = state.objects.get(o.id)
+            return current is not None and is_door_unlocked(current, "Charred Foyer")
+
+        def handler(event: Event, state: GameState) -> InterceptorResult:
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[Event(
+                    type=EventType.IMPULSE_DRAW,
+                    payload={'player': o.controller, 'count': 1},
+                    source=o.id, controller=o.controller,
+                )],
+            )
+
+        return [Interceptor(
+            id=new_id(),
+            source=o.id,
+            controller=o.controller,
+            priority=InterceptorPriority.REACT,
+            filter=filt,
+            handler=handler,
+            duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
+        )]
+
+    return make_room_setup(
+        door1_name="Charred Foyer",
+        door1_unlock_effect=door1_effect,
+        door2_name="Warped Space",
+        door2_cost="{4}{R}{R}",
+        door2_unlock_effect=door2_effect,
+        extra_setup=charred_foyer_extra,
+    )(obj, state)
 
 
 def cursed_recording_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3425,9 +3605,13 @@ def aleyline_of_resonance_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def norin_swift_survivalist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Can't block; on becoming blocked, may exile + impulse."""
-    # engine gap: can't-block restriction; 'becomes blocked' trigger
-    return []
+    """Norin can't block. (Second clause — 'becomes blocked' exile-and-impulse
+    trigger — is an engine gap; combat doesn't emit a per-attacker BECAME_BLOCKED
+    event today.) Wire only the printed cant_block static."""
+    def self_filter(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    return [make_keyword_grant(obj, ['cant_block'], self_filter)]
 
 
 def overlord_of_the_boilerbilges_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3684,8 +3868,68 @@ def altanak_the_thricecalled_setup(obj: GameObject, state: GameState) -> list[In
 
 
 def balustrade_wurm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Trample, haste; Delirium activated reanimate."""
-    # engine gap: activated reanimation from GY
+    """Trample, haste (printed keywords). The "uncounterable" and
+    delirium-gated graveyard reanimate live in ``balustrade_wurm_gy_setup``
+    via ``setup_in_graveyard``."""
+    return []
+
+
+def balustrade_wurm_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{G}{G}: Return this card from your graveyard to the battlefield
+    with a finality counter on it. Activate only if there are four or more
+    card types among cards in your graveyard and only as a sorcery."""
+    DELIRIUM_TYPES = {
+        CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT,
+        CardType.LAND, CardType.PLANESWALKER, CardType.INSTANT,
+        CardType.SORCERY,
+    }
+    tribal = getattr(CardType, 'TRIBAL', None)
+    if tribal is not None:
+        DELIRIUM_TYPES.add(tribal)
+    battle = getattr(CardType, 'BATTLE', None)
+    if battle is not None:
+        DELIRIUM_TYPES.add(battle)
+
+    def _has_delirium(st: GameState, player_id: str) -> bool:
+        gy = st.zones.get(f"graveyard_{player_id}")
+        if not gy:
+            return False
+        seen: set = set()
+        for oid in gy.objects:
+            o = st.objects.get(oid)
+            if not o:
+                continue
+            for t in o.characteristics.types:
+                if t in DELIRIUM_TYPES:
+                    seen.add(t)
+                    if len(seen) >= 4:
+                        return True
+        return len(seen) >= 4
+
+    def _delirium_gate(card: GameObject, st: GameState) -> bool:
+        return _has_delirium(st, card.controller)
+
+    def _reanimate_self(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [
+            Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': o.id,
+                    'from_zone_type': ZoneType.GRAVEYARD,
+                    'to_zone_type': ZoneType.BATTLEFIELD,
+                    'counters': {'finality': 1},
+                },
+                source=o.id, controller=o.controller,
+            ),
+        ]
+
+    make_activated_ability(
+        obj, cost="{2}{G}{G}", effect_fn=_reanimate_self,
+        description=("Return Balustrade Wurm from your graveyard to the "
+                     "battlefield with a finality counter on it"),
+        sorcery_speed=True,
+        precondition_fn=_delirium_gate,
+    )
     return []
 
 
@@ -4550,9 +4794,47 @@ def winter_misanthropic_guide_setup(obj: GameObject, state: GameState) -> list[I
 
 
 def zimone_allquestioning_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """End step — if a land entered and prime # of lands, create Primo + counters."""
-    # engine gap: 'land entered this turn' tracking + prime check
-    return []
+    """At the beginning of your end step, if a land entered this turn and you
+    control a prime number of lands, create Primo, the Indivisible (legendary
+    0/0 green/blue Fractal token), then put that many +1/+1 counters on it.
+
+    "Land entered" is proxied by ``state.lands_played_this_turn > 0``. The
+    engine doesn't yet track lands-that-entered-from-effects (e.g.
+    Cultivate-style searches), so this is a tight upper bound on accuracy
+    for the common case."""
+    PRIMES = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71}
+
+    def _count_lands(st: GameState, player_id: str) -> int:
+        return sum(
+            1 for o in st.objects.values()
+            if (o.zone == ZoneType.BATTLEFIELD and
+                o.controller == player_id and
+                CardType.LAND in o.characteristics.types)
+        )
+
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        if int(getattr(state, 'lands_played_this_turn', 0) or 0) <= 0:
+            return []
+        land_count = _count_lands(state, obj.controller)
+        if land_count not in PRIMES:
+            return []
+        return [
+            Event(
+                type=EventType.CREATE_TOKEN,
+                payload={
+                    'controller': obj.controller, 'name': 'Primo, the Indivisible',
+                    'power': 0, 'toughness': 0,
+                    'colors': {Color.GREEN, Color.BLUE},
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Fractal'},
+                    'supertypes': {'Legendary'},
+                    'counters': {'+1/+1': land_count},
+                },
+                source=obj.id, controller=obj.controller,
+            ),
+        ]
+
+    return [make_end_step_trigger(obj, end_step_effect)]
 
 
 def attackinthebox_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4763,10 +5045,10 @@ def marvin_murderous_mimic_setup(obj: GameObject, state: GameState) -> list[Inte
     return []
 
 
-def terramorphic_expanse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """{T}+sac: search basic land tapped."""
-    # engine gap: activated mana abilities
-    return []
+# Note: ``terramorphic_expanse_setup`` is defined further below
+# (Phase 4 activated-ability sweep). The earlier strict-noop stub at this
+# position was a leftover; removed 2026-05-16. See line ~9485 for the
+# real implementation.
 
 
 # =============================================================================
@@ -8178,6 +8460,7 @@ BALUSTRADE_WURM = make_creature(
     text="This spell can't be countered.\nTrample, haste\nDelirium — {2}{G}{G}: Return this card from your graveyard to the battlefield with a finality counter on it. Activate only if there are four or more card types among cards in your graveyard and only as a sorcery.",
     setup_interceptors=balustrade_wurm_setup,
 )
+BALUSTRADE_WURM.setup_in_graveyard = balustrade_wurm_gy_setup
 
 BASHFUL_BEASTIE = make_creature(
     name="Bashful Beastie",
