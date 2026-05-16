@@ -7382,9 +7382,55 @@ def banner_of_kinship_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 # --- FISHING POLE ---
 # Equipment - bait counters & untap creates fish token.
-def fishing_pole_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # engine gap: equipment with granted ability and untap trigger
-    return []
+def _fishing_pole_bait_counter(o: GameObject, state: GameState, targets) -> list[Event]:
+    """Granted ability effect: put a bait counter on Fishing Pole and tap it.
+
+    The printed cost is ``{1}, {T}, Tap Fishing Pole`` — the {T} taps the
+    equipped creature (where this ability lives) and "Tap Fishing Pole"
+    taps the equipment. The activated-cost parser doesn't model
+    ``Tap <named>`` as a cost step, so we fold the equipment-tap into the
+    resolved effect: emit a TAP event for the boomerang plus a
+    COUNTER_ADDED for the bait counter. Functionally equivalent for the
+    once-per-untap cadence the card cares about.
+    """
+    bait_target_id: Optional[str] = None
+    for attached_id in getattr(o.state, "attachments", []) or []:
+        attached = state.objects.get(attached_id)
+        if attached is None:
+            continue
+        if attached.name == "Fishing Pole":
+            bait_target_id = attached_id
+            break
+
+    events: list[Event] = []
+    if bait_target_id is not None:
+        events.append(Event(
+            type=EventType.TAP,
+            payload={"object_id": bait_target_id},
+            source=o.id,
+            controller=o.controller,
+        ))
+        events.append(Event(
+            type=EventType.COUNTER_ADDED,
+            payload={
+                "object_id": bait_target_id,
+                "counter_type": "bait",
+                "amount": 1,
+            },
+            source=o.id,
+            controller=o.controller,
+        ))
+    return events
+
+
+fishing_pole_setup = make_equipment_setup(
+    equip_cost="{2}",
+    granted_activated_abilities={
+        "cost": "{1}, {T}",
+        "effect_fn": _fishing_pole_bait_counter,
+        "description": "Put a bait counter on Fishing Pole.",
+    },
+)
 
 
 # --- LEYLINE AXE ---
