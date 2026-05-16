@@ -488,10 +488,18 @@ def test_dsk_noop_count_regression_pin():
         return n_noops
 
     dsk_noops = count_noops("duskmourn.py")
-    print(f"  DSK strict noops: {dsk_noops} (expected <= 10)")
-    # Pre-Agent-DS the value was 32. After this sweep we land at <= 10.
-    assert dsk_noops <= 10, (
-        f"DSK noop count regressed to {dsk_noops} (expected <= 10)"
+    print(f"  DSK strict noops: {dsk_noops} (expected <= 5)")
+    # Pre-Agent-DS the value was 32. After this sweep we land at <= 5:
+    # the 5 remaining are undead_sprinter (claimed by graveyard-activated
+    # agent G1) and four typecycling creatures (shepherding_spirits,
+    # daggermaw_megalodon, bedhead_beastie, slavering_branchsnapper) whose
+    # typecycling lives in setup_in_hand. Other audit entries from the
+    # original 32 either landed concrete wirings or had their
+    # setup_interceptors= removed entirely because no part of the card text
+    # is wireable today (those engine gaps are documented inline near each
+    # card definition).
+    assert dsk_noops <= 5, (
+        f"DSK noop count regressed to {dsk_noops} (expected <= 5)"
     )
     print("  PASS")
 

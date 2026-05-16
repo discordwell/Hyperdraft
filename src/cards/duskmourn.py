@@ -2563,10 +2563,9 @@ def fear_of_impostors_setup(obj: GameObject, state: GameState) -> list[Intercept
 # FEAR_OF_ISOLATION below. Flying is printed; additional cost is engine gap.
 
 
-def leyline_of_transformation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Choose a creature type; all your creatures (and creature spells, hand cards) gain it."""
-    # engine gap: continuous typeshift across hidden zones
-    return []
+# Note: ``leyline_of_transformation_setup`` was removed 2026-05-16.
+# Continuous type-shift across battlefield + stack + hidden zones is an
+# engine gap; LEYLINE_OF_TRANSFORMATION declares no setup_interceptors.
 
 
 def marina_vendrells_grimoire_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2647,10 +2646,9 @@ def meat_locker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     )(obj, state)
 
 
-def the_mindskinner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Unblockable + replace damage to opponents with mill."""
-    # engine gap: damage-prevent-and-replace-with-mill
-    return []
+# Note: ``the_mindskinner_setup`` was removed 2026-05-16. Unblockable +
+# damage-prevent-and-replace-with-mill is an engine gap; THE_MINDSKINNER
+# declares no setup_interceptors.
 
 
 def mirror_room_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2987,10 +2985,9 @@ def the_tale_of_tamiyo_setup(obj: GameObject, state: GameState) -> list[Intercep
     return make_saga_setup(obj, {1: i_ii_iii, 2: i_ii_iii, 3: i_ii_iii, 4: iv})
 
 
-def unable_to_scream_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Aura — enchanted is 0/2 Toy artifact, can't be turned face up if face down."""
-    # engine gap: type/P/T overwrite aura, face-up restriction
-    return []
+# Note: ``unable_to_scream_setup`` was removed 2026-05-16. Type/P-T overwrite
+# Aura + face-up restriction is an engine gap; UNABLE_TO_SCREAM declares no
+# setup_interceptors.
 
 
 def underwater_tunnel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3354,10 +3351,9 @@ def funeral_room_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     )(obj, state)
 
 
-def grievous_wound_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Enchant player — can't gain life, half-life-on-damage."""
-    # engine gap: enchant-player auras and half-life damage replacement
-    return []
+# Note: ``grievous_wound_setup`` was removed 2026-05-16. Enchant-player
+# auras + half-life damage replacement are engine gaps; GRIEVOUS_WOUND
+# declares no setup_interceptors.
 
 
 def innocuous_rat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4563,10 +4559,9 @@ def kona_rescue_beastie_setup(obj: GameObject, state: GameState) -> list[Interce
     return [make_survival_trigger(obj, survival_effect)]
 
 
-def leyline_of_mutation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Alt cost WUBRG for any spell."""
-    # engine gap: alternative casting cost
-    return []
+# Note: ``leyline_of_mutation_setup`` was removed 2026-05-16. Alternative
+# cast cost {W}{U}{B}{R}{G} for any spell is an engine gap; LEYLINE_OF_MUTATION
+# declares no setup_interceptors.
 
 
 def moldering_gym_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -6604,8 +6599,9 @@ LEYLINE_OF_TRANSFORMATION = make_enchantment(
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     text="If this card is in your opening hand, you may begin the game with it on the battlefield.\nAs this enchantment enters, choose a creature type.\nCreatures you control are the chosen type in addition to their other types. The same is true for creature spells you control and creature cards you own that aren't on the battlefield.",
-    setup_interceptors=leyline_of_transformation_setup,
 )
+# Engine gap: choose-a-type at cast + continuous type-shift across battlefield,
+# stack, and hidden zones. No battlefield setup is wireable today.
 
 MARINA_VENDRELLS_GRIMOIRE = make_artifact(
     name="Marina Vendrell's Grimoire",
@@ -6632,8 +6628,10 @@ THE_MINDSKINNER = make_enchantment_creature(
     subtypes={"Nightmare"},
     supertypes={"Legendary"},
     text="The Mindskinner can't be blocked.\nIf a source you control would deal damage to an opponent, prevent that damage and each opponent mills that many cards.",
-    setup_interceptors=the_mindskinner_setup,
 )
+# Engine gap: prevent-damage-and-replace-with-mill replacement effect; the
+# unblockable keyword is also not honored by combat.py today. No
+# battlefield setup is wireable.
 
 MIRROR_ROOM = make_enchantment(
     name="Mirror Room",
@@ -6844,8 +6842,9 @@ UNABLE_TO_SCREAM = make_enchantment(
     colors={Color.BLUE},
     text="Enchant creature\nEnchanted creature loses all abilities and is a Toy artifact creature with base power and toughness 0/2 in addition to its other types.\nAs long as enchanted creature is face down, it can't be turned face up.",
     subtypes={"Aura"},
-    setup_interceptors=unable_to_scream_setup,
 )
+# Engine gap: full type/P-T overwrite aura (strips abilities, sets base P/T,
+# adds types) + face-up-restriction. No battlefield setup is wireable today.
 
 UNDERWATER_TUNNEL = make_enchantment(
     name="Underwater Tunnel",
@@ -7401,8 +7400,9 @@ GRIEVOUS_WOUND = make_enchantment(
     colors={Color.BLACK},
     text="Enchant player\nEnchanted player can't gain life.\nWhenever enchanted player is dealt damage, they lose half their life, rounded up.",
     subtypes={"Aura"},
-    setup_interceptors=grievous_wound_setup,
 )
+# Engine gap: enchant-player auras (no attached_to_player) + half-life damage
+# replacement. No battlefield setup is wireable today.
 
 INNOCUOUS_RAT = make_creature(
     name="Innocuous Rat",
@@ -9464,8 +9464,9 @@ LEYLINE_OF_MUTATION = make_enchantment(
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     text="If this card is in your opening hand, you may begin the game with it on the battlefield.\nYou may pay {W}{U}{B}{R}{G} rather than pay the mana cost for spells you cast.",
-    setup_interceptors=leyline_of_mutation_setup,
 )
+# Engine gap: alternative casting cost (cast-time mana-cost replacement) for
+# any spell you cast. No battlefield setup is wireable today.
 
 def _manifest_dread_resolve(event: Event, state: GameState) -> list[Event]:
     """Resolve Manifest Dread: top card of library becomes a face-down 2/2."""
