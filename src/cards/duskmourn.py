@@ -1335,10 +1335,80 @@ def the_swarmweaver_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def undead_sprinter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Can be cast from graveyard if a non-Zombie creature died this turn."""
-    # engine gap: cast-from-graveyard permission with per-turn condition;
-    # ETB-with-counter rider on alt-cast.
+    """Trample + haste are printed keywords. The cast-from-graveyard
+    permission is registered via ``setup_in_graveyard`` below.
+
+    Phase 5b — the alt-cast +1/+1 counter rider is still an engine gap:
+    casting from graveyard goes through the standard cast path and we have
+    no hook to detect the alt-route here. Wired the gate-permission half;
+    counter rider deferred with a TODO.
+    """
     return []
+
+
+def undead_sprinter_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Cast-from-graveyard permission gated on "a non-Zombie creature died
+    this turn".
+
+    Registers a QUERY-priority interceptor on ``QUERY_CAST_LEGALITY`` that
+    flips ``allowed=True`` when:
+      - the card_id matches this object,
+      - the object is in its owner's graveyard,
+      - at least one non-Zombie creature has died this turn (scans the
+        ``turn_data['_died_counted_this_turn']`` set populated by the
+        engine's system-level death tracker).
+
+    The "enters with a +1/+1 counter when cast this way" rider is not
+    wired — requires plumbing the cast-route metadata through to
+    setup_interceptors, which is not in scope for the Phase 5b sweep.
+    """
+    from src.engine.cast_permission import ALLOWED_KEY
+
+    def _non_zombie_died_this_turn(st: GameState) -> bool:
+        td = getattr(st, 'turn_data', None) or {}
+        died_ids = td.get('_died_counted_this_turn')
+        if not died_ids:
+            return False
+        for cid in died_ids:
+            cobj = st.objects.get(cid)
+            if cobj is None:
+                continue
+            if CardType.CREATURE not in cobj.characteristics.types:
+                continue
+            if 'Zombie' in (cobj.characteristics.subtypes or set()):
+                continue
+            return True
+        return False
+
+    def cast_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.QUERY_CAST_LEGALITY:
+            return False
+        if event.payload.get('card_id') != obj.id:
+            return False
+        candidate = st.objects.get(obj.id)
+        if candidate is None or candidate.zone != ZoneType.GRAVEYARD:
+            return False
+        return _non_zombie_died_this_turn(st)
+
+    def cast_handler(event: Event, st: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        new_event.payload[ALLOWED_KEY] = True
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
+
+    interceptor = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=cast_filter,
+        handler=cast_handler,
+        duration='forever',
+    )
+    setattr(interceptor, '_cleanup_on_zone_change', True)
+    return [interceptor]
 
 
 def victor_valgavoths_seneschal_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -9259,6 +9329,7 @@ UNDEAD_SPRINTER = make_creature(
     text="Trample, haste\nYou may cast this card from your graveyard if a non-Zombie creature died this turn. If you do, this creature enters with a +1/+1 counter on it.",
     setup_interceptors=undead_sprinter_setup
 )
+UNDEAD_SPRINTER.setup_in_graveyard = undead_sprinter_gy_setup
 
 VICTOR_VALGAVOTHS_SENESCHAL = make_creature(
     name="Victor, Valgavoth's Seneschal",
