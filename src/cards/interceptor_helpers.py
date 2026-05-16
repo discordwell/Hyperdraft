@@ -8068,6 +8068,76 @@ def make_granted_activated_ability(
     return None
 
 
+def make_equipment_granted_ability(
+    obj: GameObject,
+    cost: str,
+    effect_fn: Callable[[GameObject, GameState, list], list[Event]],
+    *,
+    description: str = "",
+    sorcery_speed: bool = False,
+    own_turn_only: bool = False,
+    once_per_turn: bool = False,
+    once_per_game: bool = False,
+    targets_required: int = 0,
+    target_kind: str = "any",
+    target_requirements: Optional[list] = None,
+) -> list[Interceptor]:
+    """Equipment-side helper: grant ``"<cost>: <effect>"`` to the equipped
+    creature for as long as ``obj`` (the Equipment / Aura) is attached.
+
+    The granted ability is registered on the equipped creature (not on the
+    Equipment) so the priority system surfaces it like any other activated
+    ability. The cost is paid by the equipped creature (a ``{T}`` tap-cost
+    taps the creature, not the Equipment). When the Equipment unattaches
+    or leaves the battlefield, the granted ability is cleaned up by the
+    standard attach-listener cleanup path.
+
+    Returns a list containing a single ATTACH/UNATTACH listener interceptor
+    that wires the grant/revoke. Append the result to the setup function's
+    return list. Designed for cards where ``make_equipment_setup`` isn't
+    convenient — e.g. cards that mix granted abilities with custom triggers
+    in a hand-rolled setup function. For boilerplate Equipment, prefer
+    ``make_equipment_setup(granted_activated_abilities=...)``.
+
+    Example::
+
+        def trusty_boomerang_setup(obj, state):
+            def _bounce(o, st, targets):
+                # tap target, bounce boomerang
+                ...
+            ics = make_equipment_granted_ability(
+                obj,
+                cost="{1}, {T}",
+                effect_fn=_bounce,
+                description="Tap target creature. Return Boomerang.",
+                targets_required=1,
+                target_kind="creature",
+            )
+            _make_equip_activated_ability(obj, "{1}")
+            return ics
+
+    The Equipment-side equip cost is still registered via
+    ``_make_equip_activated_ability`` (or the ``equip_cost`` parameter on
+    ``make_equipment_setup``).
+    """
+    from src.engine.attach import make_granted_abilities_listener
+    spec = {
+        "cost": cost,
+        "effect_fn": effect_fn,
+        "description": description or f"{cost}: ...",
+        "sorcery_speed": sorcery_speed,
+        "own_turn_only": own_turn_only,
+        "once_per_turn": once_per_turn,
+        "once_per_game": once_per_game,
+        "targets_required": targets_required,
+        "target_kind": target_kind,
+    }
+    if target_requirements is not None:
+        spec["target_requirements"] = target_requirements
+    interceptor = make_granted_abilities_listener(obj, spec)
+    return [interceptor] if interceptor is not None else []
+
+
 def _make_equip_activated_ability(obj: GameObject, equip_cost: str) -> None:
     """Register the standard ``{equip_cost}: Attach to target creature you
     control. Activate only as a sorcery.`` activated ability on ``obj``.
@@ -8120,6 +8190,7 @@ __all_phase3__ = [
     "make_aura_setup",
     "attach_aura_to_target",
     "make_granted_activated_ability",
+    "make_equipment_granted_ability",
 ]
 
 

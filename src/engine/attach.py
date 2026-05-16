@@ -369,6 +369,7 @@ def grant_activated_ability_on_attach(
     once_per_game = spec.get("once_per_game", False)
     targets_required = spec.get("targets_required", 0)
     target_kind = spec.get("target_kind", "any")
+    target_requirements = spec.get("target_requirements", None)
 
     if effect_fn is None:
         return
@@ -392,6 +393,7 @@ def grant_activated_ability_on_attach(
         once_per_game=once_per_game,
         targets_required=targets_required,
         target_kind=target_kind,
+        target_requirements=target_requirements,
     )
     setattr(ability, "_granted_by", source_id)
 
