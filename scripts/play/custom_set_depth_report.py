@@ -210,11 +210,17 @@ def _load_cards(spec: DepthSet) -> tuple[list, Optional[dict]]:
 # ---------------------------------------------------------------------------
 
 
-def card_depth(card, profile) -> dict:
+def card_depth(card, profile=None) -> dict:
     """Score one card with the v2 rubric, with legacy fields appended.
 
     Returns a dict with primary `depth_v2_score`, `axis_scores`,
-    `axis_fingerprint`, `code_fingerprint`, plus legacy_*."""
+    `axis_fingerprint`, `code_fingerprint`, plus legacy_*.
+
+    Back-compat (v1): also exposes `score`, `wired_hooks` aliases mapping
+    onto the legacy fields, so existing depth-gate tests keep working.
+    Calling without `profile` defaults to the MTG profile."""
+    if profile is None:
+        profile = get_profile("mtg")
     legacy = _legacy_card_depth(card)
     cs = score_card(card, profile)
     s = cs.scores
@@ -237,14 +243,21 @@ def card_depth(card, profile) -> dict:
         "is_unwired": cs.is_unwired,
         # legacy fields (one cycle)
         **legacy,
+        # v1 back-compat aliases
+        "score": legacy["legacy_score"],
+        "wired_hooks": legacy["legacy_wired_hooks"],
         "text": _legacy_text_blob(card),
     }
 
 
-def summarize_set(cards: list, *, engine: str, registry: Optional[dict] = None,
+def summarize_set(cards: list, *, engine: str = "mtg", registry: Optional[dict] = None,
                   thin_threshold: int = 28) -> dict:
     """Score a card list. When `registry` (a name→card dict) is provided, also
-    run the full v2 set-level diversity report (reskin clusters etc.)."""
+    run the full v2 set-level diversity report (reskin clusters etc.).
+
+    Back-compat (v1): also exposes `avg_score`, `thin_count`, `thin_pct`,
+    `wired_pct` aliases mapping onto the legacy fields, so existing
+    depth-gate tests keep working. `engine` defaults to 'mtg'."""
     profile = get_profile(engine)
     rows = [card_depth(card, profile) for card in cards if getattr(card, "name", None)]
     if not rows:
@@ -264,6 +277,11 @@ def summarize_set(cards: list, *, engine: str, registry: Optional[dict] = None,
             "legacy_thin_count": 0,
             "legacy_thin_pct": 0,
             "legacy_wired_pct": 0,
+            # v1 back-compat aliases
+            "avg_score": 0,
+            "thin_count": 0,
+            "thin_pct": 0,
+            "wired_pct": 0,
         }
     totals_v2 = [r["depth_v2_score"] for r in rows]
     legacy_scores = [r["legacy_score"] for r in rows]
@@ -299,6 +317,12 @@ def summarize_set(cards: list, *, engine: str, registry: Optional[dict] = None,
             },
         }
 
+    legacy_avg = round(statistics.mean(legacy_scores), 2)
+    legacy_thin_count = len(legacy_thin)
+    legacy_thin_pct = round(legacy_thin_count / len(rows) * 100, 1)
+    legacy_wired_pct = round(
+        sum(1 for r in rows if r["legacy_wired_hooks"] > 0) / len(rows) * 100, 1,
+    )
     return {
         "card_count": len(rows),
         # v2 primary
@@ -309,27 +333,36 @@ def summarize_set(cards: list, *, engine: str, registry: Optional[dict] = None,
         "v2_thin_ratio": round(len(thin_v2) / len(rows), 3),
         **diversity,
         # legacy (one cycle)
-        "legacy_avg_score": round(statistics.mean(legacy_scores), 2),
+        "legacy_avg_score": legacy_avg,
         "legacy_median_score": round(statistics.median(legacy_scores), 2),
         "legacy_avg_words": round(statistics.mean(r["legacy_words"] for r in rows), 2),
         "legacy_thin_threshold": thin_threshold,
-        "legacy_thin_count": len(legacy_thin),
-        "legacy_thin_pct": round(len(legacy_thin) / len(rows) * 100, 1),
-        "legacy_wired_pct": round(
-            sum(1 for r in rows if r["legacy_wired_hooks"] > 0) / len(rows) * 100, 1,
-        ),
+        "legacy_thin_count": legacy_thin_count,
+        "legacy_thin_pct": legacy_thin_pct,
+        "legacy_wired_pct": legacy_wired_pct,
+        # v1 back-compat aliases (depth-gate tests, build_report consumers)
+        "avg_score": legacy_avg,
+        "thin_count": legacy_thin_count,
+        "thin_pct": legacy_thin_pct,
+        "wired_pct": legacy_wired_pct,
+        # Sort thinnest by legacy_score first (v1 semantics — this is the
+        # historical "thinnest cards" list), then v2 as tiebreaker.
         "thinnest": [
             {"name": r["name"], "depth_v2_score": r["depth_v2_score"],
              "axis_scores": r["axis_scores"], "legacy_score": r["legacy_score"],
              "text": r["text"][:180]}
-            for r in sorted(rows, key=lambda r: (r["depth_v2_score"], r["name"]))[:12]
+            for r in sorted(rows, key=lambda r: (r["legacy_score"], r["depth_v2_score"], r["name"]))[:12]
         ],
     }
 
 
 def build_report(set_names: list[str], thin_threshold: int) -> dict:
+    # schema_version stays at v1 for back-compat with existing report
+    # consumers (depth-gate tests, compare_custom_set_depth_reports). The v2
+    # axis-scorer + diversity report ride alongside as extra keys.
     report = {
-        "schema_version": "hyperdraft.custom_set_depth_report.v2",
+        "schema_version": "hyperdraft.custom_set_depth_report.v1",
+        "schema_version_v2": "hyperdraft.custom_set_depth_report.v2",
         "thin_threshold": thin_threshold,
         "sets": {},
     }
@@ -353,9 +386,12 @@ def build_report(set_names: list[str], thin_threshold: int) -> dict:
         for summary in report["sets"].values():
             summary["v2_benchmark_ratio"] = round(summary["depth_v2_mean"] / max(benchmark_v2_mean, 0.01), 3)
             if benchmark_legacy_avg:
-                summary["legacy_benchmark_ratio"] = round(
+                ratio = round(
                     summary["legacy_avg_score"] / max(benchmark_legacy_avg, 0.01), 3
                 )
+                summary["legacy_benchmark_ratio"] = ratio
+                # v1 back-compat alias
+                summary["benchmark_ratio"] = ratio
     return report
 
 
