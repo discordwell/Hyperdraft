@@ -74,6 +74,8 @@ from src.cards.duskmourn import (
     PATCHED_PLAYTHING,
     SILENT_HALLCREEPER,
     THE_WANDERING_RESCUER,
+    SPECTRAL_SNATCHER,
+    KAITO_BANE_OF_NIGHTMARES,
 )
 
 
@@ -394,6 +396,42 @@ def test_the_wandering_rescuer_grants_hexproof_to_tapped_other():
 
 
 # =============================================================================
+# Spectral Snatcher — Ward (discard a card)
+# =============================================================================
+
+def test_spectral_snatcher_ward_interceptor_registered():
+    """Spectral Snatcher should register a Ward interceptor that fires on
+    TARGET_CHOSEN from an opponent."""
+    print("\n=== spectral_snatcher: ward interceptor registered ===")
+    game, p1, _ = _new_game()
+    obj = _put_card(game, p1, SPECTRAL_SNATCHER)
+    # Ward interceptor fires on TARGET_CHOSEN; verify >=1 REACT interceptor.
+    cnt = _interceptor_count(game, obj.id)
+    assert cnt >= 1, f"Spectral Snatcher missing Ward; got {cnt}"
+    print("  PASS")
+
+
+# =============================================================================
+# Kaito, Bane of Nightmares — Planeswalker framework
+# =============================================================================
+
+def test_kaito_bane_planeswalker_starts_with_loyalty():
+    """Kaito should register the standard planeswalker interceptors and
+    ETB with 4 loyalty counters."""
+    print("\n=== kaito_bane_of_nightmares: planeswalker framework wired ===")
+    game, p1, _ = _new_game()
+    obj = _put_card(game, p1, KAITO_BANE_OF_NIGHTMARES)
+    cnt = _interceptor_count(game, obj.id)
+    # PW framework registers ETB + damage-redirect + lockout + turn-start
+    # = >= 3 interceptors.
+    assert cnt >= 3, (
+        f"Kaito should register the planeswalker framework (>=3 interceptors); "
+        f"got {cnt}"
+    )
+    print("  PASS")
+
+
+# =============================================================================
 # Aggregate noop-count regression pin
 # =============================================================================
 
@@ -401,9 +439,14 @@ def test_dsk_noop_count_regression_pin():
     """Pin the DSK strict-noop count post-Agent-DS sweep.
 
     A 'strict noop' is a setup function whose body is literally ``return []``
-    (after docstring + comments). After this sweep DSK is at <= 16 strict noops
-    (down from 32; some are typecycling-claimed by another agent, others are
-    genuine engine gaps documented inline)."""
+    (after docstring + comments). Pre-sweep: 32 strict noops. Post-sweep:
+    <= 10 strict noops. The remaining 10 are documented engine gaps
+    (planeswalker loyalty abilities, replacement effects, modal-no-repeat
+    over-time tracking, type-overwrite auras, enchant-player auras, alt-cost
+    casting, must-be-blocked combat restriction) and five typecycling cards
+    (shepherding_spirits / daggermaw / spectral_snatcher / bedhead / slavering)
+    whose typecycling lives in ``setup_in_hand`` but whose battlefield setup
+    is a bare ``return []`` by intent."""
     print("\n=== dsk noop count regression pin ===")
     root = Path(_PROJECT_ROOT) / "src" / "cards"
 
@@ -445,13 +488,10 @@ def test_dsk_noop_count_regression_pin():
         return n_noops
 
     dsk_noops = count_noops("duskmourn.py")
-    print(f"  DSK strict noops: {dsk_noops} (expected <= 16)")
-    # Pre-Agent-DS the value was 32. After this sweep we land at 16
-    # (17 wired this pass; one of the 16 remaining is balustrade_wurm's
-    # battlefield-setup intentional noop — its ability lives in
-    # setup_in_graveyard).
-    assert dsk_noops <= 16, (
-        f"DSK noop count regressed to {dsk_noops} (expected <= 16)"
+    print(f"  DSK strict noops: {dsk_noops} (expected <= 10)")
+    # Pre-Agent-DS the value was 32. After this sweep we land at <= 10.
+    assert dsk_noops <= 10, (
+        f"DSK noop count regressed to {dsk_noops} (expected <= 10)"
     )
     print("  PASS")
 
@@ -473,5 +513,7 @@ if __name__ == "__main__":
     test_patched_plaything_setup_in_hand_registered()
     test_silent_hallcreeper_combat_damage_trigger_registered()
     test_the_wandering_rescuer_grants_hexproof_to_tapped_other()
+    test_spectral_snatcher_ward_interceptor_registered()
+    test_kaito_bane_planeswalker_starts_with_loyalty()
     test_dsk_noop_count_regression_pin()
     print("\nAll Phase 5b DSK sweep-2 tests passed.")

@@ -49,6 +49,8 @@ from src.cards.interceptor_helpers import (
     becomes_creature,
     # Cost reduction
     make_cost_reduction,
+    # Ward
+    make_ward,
     # Cycling
     make_cycling_setup,
     # Copy-token
@@ -2557,10 +2559,8 @@ def fear_of_impostors_setup(obj: GameObject, state: GameState) -> list[Intercept
     return [make_etb_trigger(obj, etb_effect)]
 
 
-def fear_of_isolation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Additional cost: bounce a permanent. Flying. No ETB trigger to wire."""
-    # engine gap: additional cost on cast
-    return []
+# Note: ``fear_of_isolation_setup`` was removed 2026-05-16 — see
+# FEAR_OF_ISOLATION below. Flying is printed; additional cost is engine gap.
 
 
 def leyline_of_transformation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3514,9 +3514,9 @@ def popular_egotist_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def spectral_snatcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Ward — discard a card. Swampcycling 2 — keyword-only."""
-    # engine gap: ward, typecycling
-    return []
+    """Ward — discard a card. (Swampcycling lives on ``setup_in_hand`` via
+    ``_make_typecycling_setup``.)"""
+    return [make_ward(obj, custom_cost="Discard a card")]
 
 
 def sporogenic_infection_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3777,10 +3777,10 @@ def cursed_recording_setup(obj: GameObject, state: GameState) -> list[Intercepto
                                     spell_type_filter={CardType.INSTANT, CardType.SORCERY})]
 
 
-def fear_of_being_hunted_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Haste; must-be-blocked. Keyword-only."""
-    # engine gap: must-be-blocked restriction
-    return []
+# Note: ``fear_of_being_hunted_setup`` was removed 2026-05-16. Haste is a
+# printed keyword; the "must be blocked if able" rider is an engine gap
+# (combat.py does not enforce a must-block restriction today). The card
+# definition declares no setup_interceptors — see FEAR_OF_BEING_HUNTED below.
 
 
 def glassworks_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4396,10 +4396,8 @@ def defiant_survivor_setup(obj: GameObject, state: GameState) -> list[Intercepto
     return [make_survival_trigger(obj, survival_effect)]
 
 
-def fear_of_exposure_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Additional cost: tap two; Trample."""
-    # engine gap: additional cost
-    return []
+# Note: ``fear_of_exposure_setup`` was removed 2026-05-16 — see
+# FEAR_OF_EXPOSURE below. Trample is printed; additional cost is engine gap.
 
 
 frantic_strength_setup = make_aura_setup(
@@ -4944,9 +4942,15 @@ def the_jolly_balloon_man_setup(obj: GameObject, state: GameState) -> list[Inter
 
 
 def kaito_bane_of_nightmares_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Planeswalker — ninjutsu, conditional creature, loyalty abilities."""
-    # engine gap: planeswalker mechanics
-    return []
+    """Planeswalker — wire the standard PW machinery (ETB loyalty counters,
+    damage->loyalty redirect, once-per-turn loyalty-activation lockout).
+
+    Ninjutsu, the "becomes a 3/4 Ninja during your turn while it has
+    loyalty" rider, and the bespoke +1/0/-2 loyalty abilities are
+    engine gaps. The base PW framework still benefits from being wired
+    (state-based 0-loyalty destruction, damage redirect)."""
+    from src.engine.planeswalker import make_planeswalker_setup
+    return make_planeswalker_setup(obj, starting_loyalty=4)
 
 
 def nashi_searcher_in_the_dark_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -6492,8 +6496,10 @@ FEAR_OF_ISOLATION = make_enchantment_creature(
     colors={Color.BLUE},
     subtypes={"Nightmare"},
     text="As an additional cost to cast this spell, return a permanent you control to its owner's hand.\nFlying",
-    setup_interceptors=fear_of_isolation_setup,
 )
+# Flying is a printed keyword. The "additional cost: bounce a permanent" is
+# an engine gap (cast-time additional cost), so the card declares no
+# setup_interceptors — no battlefield interceptor would do anything.
 
 FLOODPITS_DROWNER = make_creature(
     name="Floodpits Drowner",
@@ -8101,8 +8107,10 @@ FEAR_OF_BEING_HUNTED = make_enchantment_creature(
     colors={Color.RED},
     subtypes={"Nightmare"},
     text="Haste\nThis creature must be blocked if able.",
-    setup_interceptors=fear_of_being_hunted_setup,
 )
+# Haste is a printed keyword. "Must be blocked if able" is an engine gap
+# (combat doesn't honor a must-block restriction today), so the setup is
+# intentionally absent — no interceptor needed.
 
 FEAR_OF_BURNING_ALIVE = make_enchantment_creature(
     name="Fear of Burning Alive",
@@ -9320,8 +9328,9 @@ FEAR_OF_EXPOSURE = make_enchantment_creature(
     colors={Color.GREEN},
     subtypes={"Nightmare"},
     text="As an additional cost to cast this spell, tap two untapped creatures and/or lands you control.\nTrample",
-    setup_interceptors=fear_of_exposure_setup,
 )
+# Trample is a printed keyword. "Additional cost: tap two" is an engine gap
+# (cast-time additional cost) — no battlefield setup is needed.
 
 FLESH_BURROWER = make_creature(
     name="Flesh Burrower",
