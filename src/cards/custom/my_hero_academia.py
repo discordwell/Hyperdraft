@@ -4861,6 +4861,498 @@ ERI_REWIND = make_creature(
 
 
 # =============================================================================
+# PHASE A1 SPICE PASS — format-defining picks (2026-05-18)
+# See spice-pass.md. Targets: low axis_diversity (0.035) + thin_ratio (0.953).
+# Each card distinct fingerprint shape so code_diversity also moves.
+# =============================================================================
+
+# --- One For All (the assembly enchantment) ----------------------------------
+# Pattern 11: build-around. ETB puts a "Quirk Shard" +1/+1 counter on a Hero you
+# control. Upkeep adds another shard. Whenever a Hero you control with 3+
+# Quirk Shards attacks, gain double strike EOT (the inheritance manifests).
+# Engine note: we use +1/+1 counters as the shard substrate (already in engine).
+
+def _one_for_all_setup(obj, state):
+    """ETB: shard a Hero. Upkeep: shard a Hero. Attack-of-shard-3+ Hero -> grant double strike EOT."""
+    def heroes(st: GameState) -> list[GameObject]:
+        return [
+            o for o in st.objects.values()
+            if o.controller == obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in (o.characteristics.types or set())
+            and 'Hero' in (o.characteristics.subtypes or set())
+        ]
+
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        candidates = heroes(st)
+        if not candidates:
+            return []
+        target = max(candidates, key=lambda o: get_power(o, st))
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': target.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    def upkeep_effect(event: Event, st: GameState) -> list[Event]:
+        candidates = heroes(st)
+        if not candidates:
+            return []
+        target = max(candidates, key=lambda o: get_power(o, st))
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': target.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    def attack_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        att_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        att = st.objects.get(att_id) if att_id else None
+        if not att or att.controller != obj.controller:
+            return False
+        if 'Hero' not in (att.characteristics.subtypes or set()):
+            return False
+        if not getattr(att, 'state', None):
+            return False
+        return att.state.counters.get('+1/+1', 0) >= 3
+
+    def attack_handler(event: Event, st: GameState) -> InterceptorResult:
+        att_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': att_id,
+                'keyword': 'double_strike',
+                'duration': 'end_of_turn',
+            },
+            source=obj.id,
+            controller=obj.controller,
+        )])
+
+    itcs: list[Interceptor] = [
+        _ih.make_etb_trigger(obj, etb_effect),
+        _ih.make_upkeep_trigger(obj, upkeep_effect),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=attack_filter,
+            handler=attack_handler,
+            duration='while_on_battlefield',
+        ),
+    ]
+    return itcs
+
+ONE_FOR_ALL_ENCHANTMENT = make_enchantment(
+    name="One For All, Inherited Quirk",
+    mana_cost="{2}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    supertypes={"Legendary"},
+    text=(
+        "When One For All enters and at the beginning of your upkeep, put a "
+        "+1/+1 counter on a Hero you control with the greatest power. "
+        "Whenever a Hero you control with three or more +1/+1 counters "
+        "attacks, it gains double strike until end of turn."
+    ),
+    setup_interceptors=_one_for_all_setup,
+)
+
+
+# --- Sports Festival, U.A. Tradition (saga) ----------------------------------
+# 3-chapter saga. I: tutor a Student creature with MV<=3. II: 2 1/1 Student
+# tokens. III: anthem +1/+1 on Students you control EOT.
+
+def _sports_festival_chapter_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Search your library for a Student creature card with MV<=3, put it
+    onto the battlefield."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': saga_obj.controller,
+            'subtypes_any': ['Student'],
+            'card_type': 'creature',
+            'destination': 'battlefield',
+            'min_count': 0,
+            'max_count': 1,
+            'mana_value_max': 3,
+            'reveal': True,
+        },
+        source=saga_obj.id,
+    )]
+
+
+def _sports_festival_chapter_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Create two 1/1 white Student creature tokens."""
+    token_spec = {
+        'name': 'Hero Course Cadet',
+        'types': {CardType.CREATURE},
+        'subtypes': {'Human', 'Student'},
+        'power': 1,
+        'toughness': 1,
+        'colors': {Color.WHITE},
+    }
+    return [
+        Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': saga_obj.controller, 'token': dict(token_spec)},
+            source=saga_obj.id,
+        )
+        for _ in range(2)
+    ]
+
+
+def _sports_festival_chapter_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Students you control get +2/+1 until end of turn."""
+    events: list[Event] = []
+    for o in list(state.objects.values()):
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if o.controller != saga_obj.controller:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        if 'Student' not in (o.characteristics.subtypes or set()):
+            continue
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': o.id,
+                'power_mod': 2,
+                'toughness_mod': 1,
+                'duration': 'end_of_turn',
+            },
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def sports_festival_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Sports Festival 3-chapter saga: tutor Student -> 2 Student tokens -> anthem."""
+    from src.cards.interceptor_helpers import make_saga_setup
+    return make_saga_setup(
+        obj,
+        {
+            1: _sports_festival_chapter_i,
+            2: _sports_festival_chapter_ii,
+            3: _sports_festival_chapter_iii,
+        },
+    )
+
+
+SPORTS_FESTIVAL = make_enchantment(
+    name="Sports Festival, U.A. Tradition",
+    mana_cost="{2}{W}",
+    colors={Color.WHITE},
+    subtypes={"Saga"},
+    text=(
+        "I — Search your library for a Student creature card with mana value "
+        "3 or less, put it onto the battlefield, then shuffle.\n"
+        "II — Create two 1/1 white Human Student creature tokens.\n"
+        "III — Students you control get +2/+1 until end of turn."
+    ),
+    setup_interceptors=sports_festival_setup,
+)
+
+
+# --- Deku, One For All Awakened (build-around mythic) -----------------------
+# Pattern 11 build-around. Self ETB places 2 shards on himself; whenever he
+# attacks he distributes 1 +1/+1 counter to each other Hero you control.
+# Synergizes with Eri (counter doubling) and ONE_FOR_ALL_ENCHANTMENT (shard
+# adder + attack payoff).
+
+def _deku_awakened_setup(obj, state):
+    """ETB: 2 shards onto self. Attack: spread 1 +1/+1 counter to each other Hero you control."""
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 2},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    def attack_effect(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        for o in st.objects.values():
+            if o.id == obj.id:
+                continue
+            if o.controller != obj.controller:
+                continue
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            if CardType.CREATURE not in (o.characteristics.types or set()):
+                continue
+            if 'Hero' not in (o.characteristics.subtypes or set()):
+                continue
+            events.append(Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [
+        _ih.make_keyword_grant(obj, ['trample', 'haste'], self_filter),
+        _ih.make_etb_trigger(obj, etb_effect),
+        _ih.make_attack_trigger(obj, attack_effect),
+    ]
+
+
+DEKU_AWAKENED = make_creature(
+    name="Deku, One For All Awakened",
+    power=3, toughness=3,
+    mana_cost="{2}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    subtypes={"Human", "Student", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample, haste. When Deku enters the battlefield, put two +1/+1 "
+        "counters on him. Whenever Deku attacks, put a +1/+1 counter on each "
+        "other Hero you control."
+    ),
+    setup_interceptors=_deku_awakened_setup,
+)
+
+
+# --- Mei Hatsume's Battle Suit (equipment with granted ability) -------------
+# Equipment granting +2/+2 + first strike to wearer; equipped creature has
+# "{R}: deal 1 damage to any target" (granted activated ability).
+
+def _hatsume_suit_grant_zap(o: GameObject, st: GameState, targets: list) -> list[Event]:
+    """Granted activated effect: deal 1 dmg to any target."""
+    if not targets:
+        return []
+    t = targets[0]
+    if isinstance(t, list):
+        t = t[0] if t else None
+    if t is None:
+        return []
+    if isinstance(t, str):
+        target_id = t
+    elif hasattr(t, 'object_id'):
+        target_id = t.object_id
+    elif hasattr(t, 'id'):
+        target_id = t.id
+    else:
+        return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': target_id, 'amount': 1, 'source': o.id},
+        source=o.id,
+        controller=o.controller,
+    )]
+
+
+HATSUME_BATTLE_SUIT = make_equipment(
+    name="Hatsume's Battle Suit",
+    mana_cost="{2}",
+    equip_cost="{1}",
+    text=(
+        "Equipped creature gets +2/+2 and has first strike. "
+        "Equipped creature has \"{R}: This creature deals 1 damage to any target.\""
+    ),
+    setup_interceptors=_ih.make_equipment_setup(
+        power_mod=2, toughness_mod=2,
+        keywords=['first_strike'],
+        equip_cost="{1}",
+        granted_activated_abilities={
+            'cost': '{R}',
+            'effect_fn': _hatsume_suit_grant_zap,
+            'description': 'Deal 1 damage to any target',
+            'targets_required': 1,
+            'target_kind': 'any',
+        },
+    ),
+)
+
+
+# --- Momo, Creation Hero (REWIRE) -------------------------------------------
+# Was vanilla. Now: ETB create a Trinket token (artifact creature with the
+# Equipment subtype). Doubles as ramp + equipment-density for Hatsume Suit.
+
+def _momo_creation_setup(obj, state):
+    """ETB: create a 0/2 colorless Artifact Creature - Hero Gear token with Equipment."""
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        token_spec = {
+            'name': 'Hero Gear',
+            'types': {CardType.ARTIFACT, CardType.CREATURE},
+            'subtypes': {'Construct'},
+            'power': 0,
+            'toughness': 2,
+            'colors': set(),
+        }
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': obj.controller, 'token': token_spec},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    def cast_filter(event: Event, st: GameState) -> bool:
+        # Whenever YOU cast a spell, gain 1 life.
+        if event.type != EventType.SPELL_CAST:
+            return False
+        return event.payload.get('caster') == obj.controller
+
+    def cast_handler(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )])
+
+    return [
+        _ih.make_etb_trigger(obj, etb_effect),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=cast_filter,
+            handler=cast_handler,
+            duration='while_on_battlefield',
+        ),
+    ]
+
+
+MOMO_CREATION = make_creature(
+    name="Momo, Creation Hero",
+    power=2, toughness=3,
+    mana_cost="{2}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    subtypes={"Human", "Student", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "When Momo enters the battlefield, create a 0/2 colorless Construct "
+        "artifact creature token. Whenever you cast a spell, you gain 1 life."
+    ),
+    setup_interceptors=_momo_creation_setup,
+)
+
+
+# --- Midnight, R-Rated Hero (REWIRE) ----------------------------------------
+# Was unwired. Now: ETB taps each creature an opponent controls. Asymmetric
+# tempo. Sets up for an alpha strike turn.
+
+def _midnight_setup(obj, state):
+    """ETB: tap each creature opponents control."""
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        for o in st.objects.values():
+            if o.controller == obj.controller:
+                continue
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            if CardType.CREATURE not in (o.characteristics.types or set()):
+                continue
+            events.append(Event(
+                type=EventType.TAP,
+                payload={'object_id': o.id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    def self_filter(target: GameObject, state: GameState) -> bool:
+        return target.id == obj.id
+
+    return [
+        _ih.make_keyword_grant(obj, ['flash'], self_filter),
+        _ih.make_etb_trigger(obj, etb_effect),
+    ]
+
+
+MIDNIGHT_REWIRE = make_creature(
+    name="Midnight, R-Rated Hero",
+    power=3, toughness=2,
+    mana_cost="{2}{W}{B}",
+    colors={Color.WHITE, Color.BLACK},
+    subtypes={"Human", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "Flash. When Midnight enters the battlefield, tap each creature your "
+        "opponents control."
+    ),
+    setup_interceptors=_midnight_setup,
+)
+
+
+# --- Koda, Anima (REWIRE) ----------------------------------------------------
+# Was unwired. Now: ETB creates a Bird token; attack pumps each Bird you
+# control.
+
+def _koda_anima_setup(obj, state):
+    """ETB: create 1/1 flying Bird token. Attack: each Bird you control gets +1/+0 EOT."""
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        token_spec = {
+            'name': 'Summoned Bird',
+            'types': {CardType.CREATURE},
+            'subtypes': {'Bird'},
+            'power': 1,
+            'toughness': 1,
+            'colors': {Color.GREEN},
+            'keywords': ['flying'],
+        }
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': obj.controller, 'token': token_spec},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    def attack_effect(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        for o in st.objects.values():
+            if o.controller != obj.controller:
+                continue
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            if 'Bird' not in (o.characteristics.subtypes or set()):
+                continue
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': o.id,
+                    'power_mod': 1, 'toughness_mod': 0,
+                    'duration': 'end_of_turn',
+                },
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [
+        _ih.make_etb_trigger(obj, etb_effect),
+        _ih.make_attack_trigger(obj, attack_effect),
+    ]
+
+
+KODA_REWIRE = make_creature(
+    name="Koda, Anima",
+    power=2, toughness=2,
+    mana_cost="{1}{G}",
+    colors={Color.GREEN},
+    subtypes={"Human", "Student", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "When Koda enters the battlefield, create a 1/1 green Bird creature "
+        "token with flying. Whenever Koda attacks, each Bird you control gets "
+        "+1/+0 until end of turn."
+    ),
+    setup_interceptors=_koda_anima_setup,
+)
+
+
+# =============================================================================
 # CARD DICTIONARY EXPORT
 # =============================================================================
 
@@ -5145,6 +5637,15 @@ MY_HERO_ACADEMIA_CARDS = {
     "Flashfire Fist": FLASHFIRE_FIST,
     "Prominence Burn": PROMINENCE_BURN,
     "Fierce Wings": FIERCE_WINGS,
+
+    # PHASE A1 SPICE PASS — format-defining picks (2026-05-18)
+    "One For All, Inherited Quirk": ONE_FOR_ALL_ENCHANTMENT,
+    "Sports Festival, U.A. Tradition": SPORTS_FESTIVAL,
+    "Deku, One For All Awakened": DEKU_AWAKENED,
+    "Hatsume's Battle Suit": HATSUME_BATTLE_SUIT,
+    "Momo, Creation Hero": MOMO_CREATION,  # REWIRE (overrides earlier vanilla MOMO)
+    "Midnight, R-Rated Hero": MIDNIGHT_REWIRE,  # REWIRE
+    "Koda, Anima": KODA_REWIRE,  # REWIRE
 }
 
 print(f"Loaded {len(MY_HERO_ACADEMIA_CARDS)} My Hero Academia: Heroes Rising cards")
@@ -5406,5 +5907,13 @@ CARDS = [
     DARK_SHADOW_STRIKE,
     FLASHFIRE_FIST,
     PROMINENCE_BURN,
-    FIERCE_WINGS
+    FIERCE_WINGS,
+    # PHASE A1 SPICE PASS
+    ONE_FOR_ALL_ENCHANTMENT,
+    SPORTS_FESTIVAL,
+    DEKU_AWAKENED,
+    HATSUME_BATTLE_SUIT,
+    MOMO_CREATION,
+    MIDNIGHT_REWIRE,
+    KODA_REWIRE,
 ]
