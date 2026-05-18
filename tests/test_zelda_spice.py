@@ -12,8 +12,15 @@ Cards covered:
 - Link, Hero of the Wild (NEW — Stoneforge-style Equipment tutor on a body)
 """
 
+import os
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/HYPERDRAFT')
+# Compute repo root from this file's location so the test runs from any
+# checkout (main or a `.claude/worktrees/agent-*/` worktree). Hardcoding
+# the main-checkout path bit all three parallel-agent worktrees during
+# the HPW/FINC/MVL rollout — see spice-pass.md gotcha #18.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 from src.engine import (
     Game, Event, EventType, ZoneType, CardType, Color,

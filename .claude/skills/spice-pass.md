@@ -306,6 +306,8 @@ in-place — power, toughness, name, subtypes, types).
 
 17. **The `_playable_from_exile_*` flags written by `EXILE_TOP_PLAY` are not consumed anywhere yet** (as of 2026-05-18). Cards like Boba Fett HoH, Ghirahim, Master Kohga, and any "exile top, may play this turn" effect ship the correct event shape (`{caster, player, amount, until: 'end_of_turn'}`) but the "may play" branch is effectively a no-op at the engine level — the card lands in exile and just sits there. Don't conclude your card is broken; this is a pending engine consumer. Worth filing in `engine_gaps.md` if you trip on it.
 
+18. **Worktree-portable `sys.path` in test files**: don't hardcode the main checkout path. The Star Wars / Lorwyn spice tests originally wrote `sys.path.insert(0, '/Users/discordwell/Projects/HYPERDRAFT')`, which silently loads the *main checkout's* version of the card module from inside an `isolation: "worktree"` agent. Symptom: your fresh card defs (committed in the worktree) aren't visible — `KeyError: 'Your New Card'` or stale card counts. Always compute repo root from `__file__`: `_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))` then `sys.path.insert(0, _REPO_ROOT)`. Caught during the W22+ HPW/FINC/MVL parallel rollout — all three agents independently rediscovered the bug.
+
 ## Testing patterns
 
 Mirror `tests/test_star_wars_spice.py` shape. The standard helper:
