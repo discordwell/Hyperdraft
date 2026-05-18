@@ -298,6 +298,14 @@ in-place — power, toughness, name, subtypes, types).
 
 13. **`ATTACH` payload uses `object_id` / `target_id` — not `source` / `target` and not `equipment_id`.** The canonical event is `Event(type=EventType.ATTACH, payload={'object_id': equipment.id, 'target_id': creature.id}, source=equipment.id)`. The subtypes-add listener (`_make_attached_subtypes_listener`, used by `make_equipment_setup(subtypes_to_add=...)`) filters on `payload['object_id']`. Tests that emit a fake ATTACH with `{'source': ..., 'target': ...}` will silently no-op for any equipment-static built through `make_equipment_setup` — the test passes the load check and fails the behavior check. Independent: some card-side triggers in the wild (e.g. DBZ's Trunks) read `payload.get('target')` directly via custom filters; if you copy that pattern blindly into a test for an `make_equipment_setup` card, you'll get a false-passing test. Always use the canonical keys.
 
+14. **`DESTROY` is rewritten to `OBJECT_DESTROYED` in the TRANSFORM phase**, similar to gotcha #5 for SACRIFICE→ZONE_CHANGE. Tests asserting "this card got destroyed" should either grep the log for `EventType.OBJECT_DESTROYED` with the right `object_id`, or — simpler and more stable — read the post-trigger zone of the test creature (`assert fairy.zone == ZoneType.GRAVEYARD`). Asserting on raw `DESTROY` events that never reach REACT will fail with `destroys == set()` despite the mechanic working correctly. Caught during the ZLD Phase A3 Demise sweeper test.
+
+15. **Engine emits ONE `DRAW` event per multi-card batch, not N events.** If your card text says "Whenever you draw a card", a 3-card draw will only fire your trigger once. Reword to "When you draw one or more cards" to match engine semantics, or accept the divergence and document. The `make_draw_trigger` helper already gates on `controller_only=True` (default) — don't add a redundant inline `event.payload.get('player') != obj.controller` filter in your effect_fn; it's covered.
+
+16. **`QUERY_KEYWORDS` doesn't exist — the event is `QUERY_ABILITIES`, payload key `'granted'` (a list, not a set)**, not `'value'`. To check if a creature has a keyword in tests, don't emit `QUERY_KEYWORDS` manually — call `has_ability(obj, "vigilance", state)` from `src.engine.queries`. Similarly use `get_power(obj, state)` / `get_toughness(obj, state)` instead of emitting raw `QUERY_POWER` events; the helpers run the full QUERY-interceptor aggregation, while a raw emit returns the un-transformed event in the log.
+
+17. **The `_playable_from_exile_*` flags written by `EXILE_TOP_PLAY` are not consumed anywhere yet** (as of 2026-05-18). Cards like Boba Fett HoH, Ghirahim, Master Kohga, and any "exile top, may play this turn" effect ship the correct event shape (`{caster, player, amount, until: 'end_of_turn'}`) but the "may play" branch is effectively a no-op at the engine level — the card lands in exile and just sits there. Don't conclude your card is broken; this is a pending engine consumer. Worth filing in `engine_gaps.md` if you trip on it.
+
 ## Testing patterns
 
 Mirror `tests/test_star_wars_spice.py` shape. The standard helper:
@@ -456,6 +464,69 @@ For reference, the SW pilot's full arc:
 
 Set: 275 → 289 cards. Tests: 0 → 50. Tournament: 60% WR (Modern-staple
 tier confirmed). Same shape repeats for any set.
+
+## Worked example — Legend of Zelda (the cluster-cleanup pattern)
+
+The ZLD pilot (May 2026) was the first spice pass guided by the v2 depth
+audit. The set entered with median_depth=0, axis_diversity=0.019,
+code_diversity=0.128 — worst across all 19 custom sets in `src/cards/custom/`.
+The depth report flagged a 34-card "unwired legendary" cluster sharing one
+code-fingerprint. The pilot did 12 spice picks + 3 reskin-cluster cleanups
+across three phases:
+
+| Phase | Cards | Notes |
+|---|---|---|
+| A1 | Triforce of Power/Wisdom/Courage (rewires), Hylian Shield (rewire), Master Kohga (rewire), Link Hero of the Wild | The Triforce trio was the highest-leverage move: 3 cards that turned 6 existing Triforce-gated cards (Zelda Princess, Ganondorf King of Evil, Link Hero of Time, etc.) from "rules text references something that doesn't work" into "this assembly package is real." |
+| A2 | Zelda Sage of Wisdom, Ganondorf Dark Lord Ascendant, Wolf Link, Hyrule Castle saga, Link Champion of Hyrule (rewire) | Ganondorf is the headline mythic that depends on the assembled Triforce — pattern 11 build-around mounted on top of the A1 foundation. Hyrule Castle was the saga (uses `make_saga_setup`, no new engine). |
+| A3 | Skyward Sword, Time Travel Sonata (simplified), Zant Twilight Usurper (rewire), Demise Demon King (rewire) + 3 reviewer fixes | Mix of new spice + cluster cleanup. Time Travel Sonata was simplified from the printed "counter unless you control Ocarina of Time" to flat-cost extra-turn at {3}{U}{U}{U} (the cast-time conditional countering is Phase B-3). |
+
+Set: 207 → 214 cards. Tests: 0 → 36. Depth movement:
+
+- `depth_v2_mean`: 0.05 → 0.14 (+180%)
+- `axis_diversity`: 0.019 → 0.037 (+95%)
+- `code_diversity`: 0.128 → 0.333 (+160%, from worst-in-catalog to within
+  striking distance of the 0.40 gate — would clear with one more 6-card
+  pass)
+- `legacy_wired_pct`: 18.8 → 25.2
+- Distinct code fingerprints: 5 → 18 (tripled)
+
+Still 0/4 health gates — but with 15 cards moving cd from 0.128 to 0.333,
+the trajectory shows the methodology is doing exactly what the v2 rubric
+is calibrated for. ZLD's next pass (B-1: Sheikah Eye of Truth, Ballad of
+the Goddess saga, Master Sword + 4-5 more reskins) should clear the
+code_diversity gate and bring axis_diversity within striking distance of
+its 0.08 gate.
+
+### The reskin-cluster cleanup methodology
+
+This is the third workflow path next to standard 15-pick spice and PKH-
+style build-around mythic redesign. It applies whenever the depth audit
+surfaces a single cluster of >=10 cards sharing one code-fingerprint —
+the "your set is one template wearing N flavors" failure mode.
+
+1. Pull the cluster member list from `top_reskin_clusters` in the depth
+   report JSON.
+2. Group thematically — for ZLD, 34 unwired legendaries grouped into
+   Champion / Antagonist / Royalty / Support / Artifact / Land / Vanilla
+   buckets. Each bucket suggests a distinct mechanical role.
+3. Pick 6-10 cards across buckets and assign each a DISTINCT effect
+   shape. Distinct = different helpers, different events, different axes.
+   The depth-report's code-fingerprint hash is the success metric: 6
+   cluster-cleanup picks should land 6 different fingerprints.
+4. Do these alongside (not separately from) the 12-15 new spice picks.
+   The cluster cleanup is the cheap-payoff axis — it moves code_diversity
+   the most per card because each cleanup card breaks one fingerprint out
+   of the cluster.
+5. Pair build-around mythics (pattern 11) with cluster-cleanup cards
+   that ARE the build-around support package. ZLD example: Ganondorf is
+   the mythic; the Triforce trio cleanup is the support package. The
+   mythic only works because the cleanup made the support real.
+
+The pattern crystallized during the ZLD pilot but applies to any set
+where the depth audit flags a >=10-card cluster. Pokemon Horizons
+(`mtg_pkh`) has a 233-card cluster — same shape on a much bigger scale,
+likely needing 3-4 passes of 8-10 cards each, paired with a chassis
+overhaul of the dominant ETB pattern.
 
 ## Lessons from PKH v1 → v2 (the build-around pivot)
 
