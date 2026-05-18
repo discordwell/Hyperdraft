@@ -800,6 +800,34 @@ INO_YAMANAKA = make_creature(
 )
 
 
+def _tenten_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """REWIRE (spice-pass W23 Phase A1). Tenten was unwired.
+
+    Self-grant first strike, plus cost-reduction on Equipment spells (-{1})
+    you cast. Equip-cost reduction is engine Phase B-3; v1 ships the spell
+    cost reducer only — that's the load-bearing half (equipment ramp)."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['first strike'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def applies_to_equipment(card: GameObject, pid: str, state: GameState) -> bool:
+        if card is None:
+            return False
+        if pid != obj.controller:
+            return False
+        chars = getattr(card, 'characteristics', None)
+        if chars is None:
+            return False
+        subs = chars.subtypes or set()
+        return 'Equipment' in subs
+
+    return [
+        self_kw,
+        ih.make_cost_reduction(obj, applies_to=applies_to_equipment, amount=1),
+    ]
+
+
 TENTEN = make_creature(
     name="Tenten, Weapons Master",
     power=3, toughness=2,
@@ -807,7 +835,8 @@ TENTEN = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Ninja"},
     supertypes={"Legendary"},
-    text="First strike. Equipment spells you cast cost {1} less to cast. Equip costs you pay cost {1} less."
+    text="First strike. Equipment spells you cast cost {1} less to cast. Equip costs you pay cost {1} less.",
+    setup_interceptors=_tenten_setup,
 )
 
 
@@ -2640,6 +2669,51 @@ GAARA = make_creature(
 )
 
 
+def _a_fourth_raikage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """REWIRE (spice-pass W23 Phase A1). A, Fourth Raikage was unwired.
+
+    Self-grant haste + first strike (always), plus Lightning Armor: gain
+    hexproof on your turn (active_player == controller). Conditional
+    QUERY_ABILITIES intercept gates the hexproof grant on state-time
+    active player — pattern 2 (hard to interact with on your turn).
+    """
+    self_kw_always = ih.make_keyword_grant(
+        obj, ['haste', 'first strike'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def lightning_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.QUERY_ABILITIES:
+            return False
+        if event.payload.get('object_id') != obj.id:
+            return False
+        # Only grant hexproof while it's your turn.
+        return state.active_player == obj.controller
+
+    def lightning_handler(event: Event, state: GameState) -> InterceptorResult:
+        new_event = event.copy()
+        granted = list(new_event.payload.get('granted', []))
+        if 'hexproof' not in granted:
+            granted.append('hexproof')
+        new_event.payload['granted'] = granted
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
+
+    lightning_armor = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=lightning_filter,
+        handler=lightning_handler,
+        duration='while_on_battlefield',
+    )
+
+    return [self_kw_always, lightning_armor]
+
+
 A_FOURTH_RAIKAGE = make_creature(
     name="A, Fourth Raikage",
     power=5, toughness=4,
@@ -2647,8 +2721,37 @@ A_FOURTH_RAIKAGE = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Ninja", "Raikage"},
     supertypes={"Legendary"},
-    text="Haste, first strike. Lightning Armor - A has hexproof as long as it's your turn."
+    text="Haste, first strike. Lightning Armor - A has hexproof as long as it's your turn.",
+    setup_interceptors=_a_fourth_raikage_setup,
 )
+
+
+def _mei_terumi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """REWIRE (spice-pass W23 Phase A1). Mei Terumi was unwired.
+
+    Boil Style attack trigger: 2 damage to each creature the defending
+    player controls (auto-resolves on defending side = each opponent's
+    creatures, since the engine doesn't pick a defending player until
+    later resolution). v1 ships the simpler "each creature each opponent
+    controls" shape, which matches the flavor (asymmetric board wipe-lite)
+    and is testable.
+    """
+    def boil_style(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        opp_ids = set(ih.all_opponents(obj, state))
+        for target in list(state.objects.values()):
+            if (target.zone == ZoneType.BATTLEFIELD and
+                    target.controller in opp_ids and
+                    CardType.CREATURE in target.characteristics.types):
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': target.id, 'amount': 2, 'source': obj.id},
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return events
+
+    return [ih.make_attack_trigger(obj, boil_style)]
 
 
 MEI_TERUMI = make_creature(
@@ -2658,7 +2761,8 @@ MEI_TERUMI = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Human", "Ninja", "Mizukage"},
     supertypes={"Legendary"},
-    text="When Mei attacks, she deals 2 damage to each creature defending player controls. {U}{R}: Target creature gets -2/-0 until end of turn."
+    text="When Mei attacks, she deals 2 damage to each creature defending player controls. {U}{R}: Target creature gets -2/-0 until end of turn.",
+    setup_interceptors=_mei_terumi_setup,
 )
 
 
@@ -4402,6 +4506,444 @@ SHADOW_CLONE_NARUTO = make_creature(
 
 
 # =============================================================================
+# SPICE PASS W23 — PHASE A1 (2026-05-18)
+# 5 new cards + 3 rewires (Tenten, A Fourth Raikage, Mei Terumi above).
+# Targets: build-around mythic (pattern 11), assembly mythic on Tailed Beast
+# count (pattern 11), equipment (Sharingan Eye), saga (Chunin Exams), and a
+# build-around Uchiha (compression + ping engine).
+# =============================================================================
+
+
+# --- Sharingan Eye (NEW, Phase A1 — equipment, pattern 4 compression) ---
+# {2} Legendary Equipment, Mythic. Equip {2}. Equipped creature gets +2/+2,
+# has lifelink and ward {1}. Mechanically a Sharingan stand-in: vision +
+# self-defense + sustain. The +2/+2 / lifelink / ward {1} stack is a real
+# threat-and-answer compression on whichever creature carries it.
+SHARINGAN_EYE_EQUIPMENT = CardDefinition(
+    name="Sharingan Eye",
+    mana_cost="{2}",
+    characteristics=Characteristics(
+        types={CardType.ARTIFACT},
+        subtypes={"Equipment"},
+        colors=set(),
+        supertypes={"Legendary"},
+        mana_cost="{2}",
+    ),
+    text=(
+        "Equipped creature gets +2/+2, has lifelink and ward {1}. "
+        "Equip {2}."
+    ),
+    setup_interceptors=ih.make_equipment_setup(
+        power_mod=2, toughness_mod=2,
+        keywords=["lifelink"],
+        ward_cost="{1}",
+        equip_cost="{2}",
+    ),
+)
+
+
+# --- Naruto, Sage of Six Paths (NEW, Phase A1 — build-around mythic, pattern 11) ---
+# {3}{R}{G}{W} 5/5 Legendary Human Ninja Uzumaki Sage. Trample, haste.
+# ETB: untap each Tailed Beast permanent you control.
+# Whenever ANOTHER Tailed Beast you control enters or attacks, draw a card.
+# Build-around: the more Tailed Beasts you assemble, the more this card
+# does. Vanilla 5/5 without the Tailed Beast support. With it, an engine.
+def _naruto_six_paths_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Build-around mythic — synergy hook on Tailed Beast subtype."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['trample', 'haste'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def untap_tailed_beasts(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for target in list(state.objects.values()):
+            if target.id == obj.id:
+                continue
+            if target.controller != obj.controller:
+                continue
+            if target.zone != ZoneType.BATTLEFIELD:
+                continue
+            if 'Tailed Beast' in (target.characteristics.subtypes or set()):
+                events.append(Event(
+                    type=EventType.UNTAP,
+                    payload={'object_id': target.id},
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return events
+
+    # Trigger on Tailed Beasts entering. We use a custom filter on
+    # ZONE_CHANGE / OBJECT_CREATED to catch ETB of *other* TB permanents
+    # under our control.
+    def tb_etb_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type == EventType.ZONE_CHANGE:
+            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+                return False
+            target_id = event.payload.get('object_id')
+        elif event.type == EventType.OBJECT_CREATED:
+            if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+                return False
+            target_id = event.payload.get('object_id')
+        else:
+            return False
+        if target_id == source.id:
+            return False
+        target = state.objects.get(target_id)
+        if not target:
+            return False
+        if target.controller != source.controller:
+            return False
+        return 'Tailed Beast' in (target.characteristics.subtypes or set())
+
+    def draw_one(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    tb_etb_trig = ih.make_etb_trigger(
+        obj, draw_one, filter_fn=tb_etb_filter,
+    )
+
+    # Attack trigger: when ANOTHER Tailed Beast you control attacks, draw.
+    def tb_attack_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        if attacker_id == obj.id:
+            return False
+        attacker = state.objects.get(attacker_id)
+        if not attacker:
+            return False
+        if attacker.controller != obj.controller:
+            return False
+        return 'Tailed Beast' in (attacker.characteristics.subtypes or set())
+
+    def tb_attack_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller},
+                source=obj.id,
+                controller=obj.controller,
+            )],
+        )
+
+    tb_attack_trig = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=tb_attack_filter,
+        handler=tb_attack_handler,
+        duration='while_on_battlefield',
+    )
+
+    return [
+        self_kw,
+        ih.make_etb_trigger(obj, untap_tailed_beasts),
+        tb_etb_trig,
+        tb_attack_trig,
+    ]
+
+
+NARUTO_SIX_PATHS = make_creature(
+    name="Naruto, Sage of Six Paths",
+    power=5, toughness=5,
+    mana_cost="{3}{R}{G}{W}",
+    colors={Color.RED, Color.GREEN, Color.WHITE},
+    subtypes={"Human", "Ninja", "Uzumaki", "Sage"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample, haste. When Naruto, Sage of Six Paths enters the "
+        "battlefield, untap each Tailed Beast you control. Whenever "
+        "another Tailed Beast you control enters the battlefield or "
+        "attacks, draw a card."
+    ),
+    setup_interceptors=_naruto_six_paths_setup,
+)
+
+
+# --- Kurama Sealed, Nine-Tail Avatar (NEW, Phase A1 — assembly mythic gated on
+# Tailed Beast count; pattern 11 build-around). ---
+# {6}{R}{R}{G} 0/0 Legendary Spirit Tailed Beast.
+# Trample, haste.
+# As Kurama Sealed enters, it gets +2/+2 counters for each other Tailed Beast
+# you control.
+# Whenever Kurama Sealed attacks, if you control 3 or more Tailed Beast
+# permanents (including this one), it deals damage equal to its power to
+# each opponent.
+def _kurama_sealed_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Tailed Beast assembly mythic — payoff scales with TB count."""
+    self_kw = ih.make_keyword_grant(
+        obj, ['trample', 'haste'],
+        lambda target, st: target.id == obj.id and target.zone == ZoneType.BATTLEFIELD,
+    )
+
+    def etb_counters(event: Event, state: GameState) -> list[Event]:
+        # Count OTHER Tailed Beasts you control.
+        count = 0
+        for target in state.objects.values():
+            if target.id == obj.id:
+                continue
+            if target.controller != obj.controller:
+                continue
+            if target.zone != ZoneType.BATTLEFIELD:
+                continue
+            if 'Tailed Beast' in (target.characteristics.subtypes or set()):
+                count += 1
+        if count <= 0:
+            return []
+        # Add 2 * count +1/+1 counters.
+        return [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+                source=obj.id,
+                controller=obj.controller,
+            )
+            for _ in range(2 * count)
+        ]
+
+    def beast_storm(event: Event, state: GameState) -> list[Event]:
+        # Count Tailed Beasts you control (including self).
+        tb_count = 0
+        for target in state.objects.values():
+            if target.controller != obj.controller:
+                continue
+            if target.zone != ZoneType.BATTLEFIELD:
+                continue
+            if 'Tailed Beast' in (target.characteristics.subtypes or set()):
+                tb_count += 1
+        if tb_count < 3:
+            return []
+        # Deal current power damage to each opponent.
+        power = get_power(obj, state)
+        if power <= 0:
+            return []
+        events: list[Event] = []
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': power, 'source': obj.id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [
+        self_kw,
+        ih.make_etb_trigger(obj, etb_counters),
+        ih.make_attack_trigger(obj, beast_storm),
+    ]
+
+
+KURAMA_SEALED = make_creature(
+    name="Kurama Sealed, Nine-Tail Avatar",
+    power=0, toughness=0,
+    mana_cost="{6}{R}{R}{G}",
+    colors={Color.RED, Color.GREEN},
+    subtypes={"Spirit", "Tailed Beast", "Avatar"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample, haste. As Kurama Sealed enters the battlefield, put two "
+        "+1/+1 counters on it for each other Tailed Beast you control. "
+        "Whenever Kurama Sealed attacks, if you control three or more "
+        "Tailed Beast permanents, it deals damage equal to its power to "
+        "each opponent."
+    ),
+    setup_interceptors=_kurama_sealed_setup,
+)
+
+
+# --- Sasuke Uchiha, Eternal Mangekyo (NEW, Phase A1 — compression / pattern 4) ---
+# {3}{U}{B} 4/4 Legendary Human Ninja Uchiha. ETB: deal 3 damage to target
+# creature an opponent controls (auto-targets biggest opposing creature).
+# Whenever you cast a noncreature spell, Sasuke deals 1 damage to each
+# opponent. Compression: removal + recurring ping engine on one body —
+# threat-and-answer in one card.
+def _sasuke_mangekyo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Pattern-4 compression: ETB removal + ongoing ping engine."""
+    def etb_removal(event: Event, state: GameState) -> list[Event]:
+        opp_ids = set(ih.all_opponents(obj, state))
+        candidates = [t for t in state.objects.values()
+                      if t.controller in opp_ids and
+                      t.zone == ZoneType.BATTLEFIELD and
+                      CardType.CREATURE in t.characteristics.types]
+        if not candidates:
+            return []
+        target = max(candidates, key=lambda t: get_power(t, state))
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': target.id, 'amount': 3, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    def amaterasu_ping(event: Event, state: GameState) -> list[Event]:
+        # Only ping when WE cast a noncreature.
+        caster = (event.payload.get('caster') or
+                  event.payload.get('controller') or
+                  event.controller)
+        if caster != obj.controller:
+            return []
+        spell_types = set(event.payload.get('types', []))
+        if not spell_types:
+            st = event.payload.get('spell_type')
+            if st is not None:
+                spell_types = {st}
+        if CardType.CREATURE in spell_types:
+            return []
+        if not spell_types:
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': opp_id, 'amount': 1, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        ) for opp_id in ih.all_opponents(obj, state)]
+
+    return [
+        ih.make_etb_trigger(obj, etb_removal),
+        ih.make_spell_cast_trigger(
+            obj, amaterasu_ping,
+            spell_type_filter={CardType.INSTANT, CardType.SORCERY,
+                               CardType.ARTIFACT, CardType.ENCHANTMENT},
+        ),
+    ]
+
+
+SASUKE_MANGEKYO = make_creature(
+    name="Sasuke Uchiha, Eternal Mangekyo",
+    power=4, toughness=4,
+    mana_cost="{3}{U}{B}",
+    colors={Color.BLUE, Color.BLACK},
+    subtypes={"Human", "Ninja", "Uchiha"},
+    supertypes={"Legendary"},
+    text=(
+        "When Sasuke Uchiha, Eternal Mangekyo enters the battlefield, it "
+        "deals 3 damage to target creature an opponent controls. Whenever "
+        "you cast a noncreature spell, Sasuke deals 1 damage to each "
+        "opponent."
+    ),
+    setup_interceptors=_sasuke_mangekyo_setup,
+)
+
+
+# --- Chunin Exam Tournament (NEW, Phase A1 — saga, pattern 11 build-around) ---
+# {2}{R}{W} Legendary Enchantment - Saga, Mythic.
+# I — Create two 1/1 white Ninja creature tokens.
+# II — Other Ninja creatures you control get +1/+1 until end of turn.
+# III — Search your library for a Ninja creature card with mana value 3 or
+#       less, put it onto the battlefield tapped, then shuffle.
+# Saga payoff is a complete Ninja-tribal package: bodies, anthem, tutor.
+def _chunin_exams_chapter_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Create two 1/1 white Ninja creature tokens."""
+    token_spec = {
+        'name': 'Ninja',
+        'types': {CardType.CREATURE},
+        'subtypes': {'Ninja'},
+        'power': 1,
+        'toughness': 1,
+        'colors': {Color.WHITE},
+    }
+    return [
+        Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': saga_obj.controller, 'token': dict(token_spec)},
+            source=saga_obj.id,
+        )
+        for _ in range(2)
+    ]
+
+
+def _chunin_exams_chapter_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Other Ninja creatures you control get +1/+1 until end of turn."""
+    events: list[Event] = []
+    for target in list(state.objects.values()):
+        if target.id == saga_obj.id:
+            continue
+        if target.controller != saga_obj.controller:
+            continue
+        if target.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.CREATURE not in (target.characteristics.types or set()):
+            continue
+        if 'Ninja' not in (target.characteristics.subtypes or set()):
+            continue
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': target.id,
+                'power_mod': 1,
+                'toughness_mod': 1,
+                'duration': 'end_of_turn',
+            },
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def _chunin_exams_chapter_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Search your library for a Ninja creature card with mana value
+    3 or less, put it onto the battlefield tapped."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': saga_obj.controller,
+            'subtype': 'Ninja',
+            'card_type': 'creature',
+            'destination': 'battlefield',
+            'min_count': 0,
+            'max_count': 1,
+            'mana_value_max': 3,
+            'enters_tapped': True,
+            'reveal': True,
+        },
+        source=saga_obj.id,
+    )]
+
+
+def chunin_exams_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """3-chapter Ninja-tribal saga."""
+    from src.cards.interceptor_helpers import make_saga_setup
+    return make_saga_setup(
+        obj,
+        {
+            1: _chunin_exams_chapter_i,
+            2: _chunin_exams_chapter_ii,
+            3: _chunin_exams_chapter_iii,
+        },
+    )
+
+
+CHUNIN_EXAMS_TOURNAMENT = CardDefinition(
+    name="Chunin Exams Tournament",
+    mana_cost="{2}{R}{W}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Saga"},
+        colors={Color.RED, Color.WHITE},
+        supertypes={"Legendary"},
+        mana_cost="{2}{R}{W}",
+    ),
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Create two 1/1 white Ninja creature tokens.\n"
+        "II — Other Ninja creatures you control get +1/+1 until end of turn.\n"
+        "III — Search your library for a Ninja creature card with mana "
+        "value 3 or less, put it onto the battlefield tapped, then shuffle."
+    ),
+    setup_interceptors=chunin_exams_setup,
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -4649,6 +5191,13 @@ NARUTO_CARDS = {
     "Hagoromo Otsutsuki, Sage of Six Paths": HAGOROMO_OTSUTSUKI,
     "Isshiki Otsutsuki, Karma Reborn": ISSHIKI_OTSUTSUKI,
     "Naruto, Multi Shadow Clone": SHADOW_CLONE_NARUTO,
+
+    # SPICE PASS W23 — PHASE A1 (2026-05-18) — 5 new cards
+    "Sharingan Eye": SHARINGAN_EYE_EQUIPMENT,
+    "Naruto, Sage of Six Paths": NARUTO_SIX_PATHS,
+    "Kurama Sealed, Nine-Tail Avatar": KURAMA_SEALED,
+    "Sasuke Uchiha, Eternal Mangekyo": SASUKE_MANGEKYO,
+    "Chunin Exams Tournament": CHUNIN_EXAMS_TOURNAMENT,
 }
 
 
@@ -4882,4 +5431,10 @@ CARDS = [
     HAGOROMO_OTSUTSUKI,
     ISSHIKI_OTSUTSUKI,
     SHADOW_CLONE_NARUTO,
+    # SPICE PASS W23 — PHASE A1 (2026-05-18)
+    SHARINGAN_EYE_EQUIPMENT,
+    NARUTO_SIX_PATHS,
+    KURAMA_SEALED,
+    SASUKE_MANGEKYO,
+    CHUNIN_EXAMS_TOURNAMENT,
 ]
