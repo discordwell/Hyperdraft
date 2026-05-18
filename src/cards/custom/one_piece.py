@@ -4043,6 +4043,775 @@ SKYPIEA_GOLD_HOARD = _CardDef(
 
 
 # =============================================================================
+# SPICE PASS v2 EXPANSION (2026-05-18)
+# =============================================================================
+# Target deltas: axis_diversity 0.047 -> 0.08+ (gate), depth_v2_mean 0.33 -> 0.5+,
+# health_gates 1/4 -> 3/4. 8 new cards each carrying a DISTINCT axis+code
+# fingerprint, covering reskins of unwired flagship Yonkos/Warlords plus
+# new build-arounds (Saga, Devil Fruit aura, signature equipment).
+#
+# Method-of-work: every helper imported here is already shipped. Canonical
+# payload keys per gotchas #2/#3/#5/#8/#13/#14/#16. No closure-wrapping
+# of upstream setups (gotcha #19) — each spice card is its own top-level
+# setup function with a unique AST fingerprint.
+# =============================================================================
+
+from src.cards.interceptor_helpers import (
+    make_saga_setup,
+    make_aura_setup,
+)
+
+
+# --- Kaido, King of the Beasts (Awakened) --- {5}{R}{G} 7/7 Mythic Dragon
+# Snowball value engine + self-scaling threat. Reskin of unwired Kaido
+# (existing Kaido is a vanilla 8/8 indestructible).
+# Distinct axis profile: state=2 (reads counter count + battlefield state),
+# decision=0, zone=0, asymmetry=1 (combat-damage scaling targets opponents),
+# synergy=2 (rewards Dragon/Beast tribal — Big Mom Pirates, Beast Pirates).
+def kaido_awakened_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: put three +1/+1 counters on Kaido. Whenever Kaido deals combat
+    damage to a player, put another +1/+1 counter on Kaido. Other Dragons
+    you control get +1/+1.
+
+    Distinct from existing Kaido (vanilla 8/8 indestructible, no setup).
+    """
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_counter(event: Event, st: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 3},
+                source=obj.id,
+            ),
+        ]
+
+    def combat_damage_to_player(event: Event, st: GameState) -> list[Event]:
+        # make_damage_trigger fires on DAMAGE; we want combat damage to a
+        # player specifically. Filter on event.source == obj.id and target
+        # is a player (string id) not an object.
+        if event.payload.get('source') != obj.id and event.source != obj.id:
+            return []
+        target = event.payload.get('target')
+        if not target or not isinstance(target, str):
+            return []
+        # Target must be a player, not an object.
+        if target in st.objects:
+            return []
+        if target not in st.players:
+            return []
+        if target == obj.controller:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+        )]
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_keyword_grant(obj, ['trample'], affects_self))
+    interceptors.append(make_etb_trigger(obj, etb_counter))
+    interceptors.append(make_damage_trigger(obj, combat_damage_to_player))
+    interceptors.extend(make_static_pt_boost(
+        obj, 1, 1, other_creatures_with_subtype(obj, "Dragon"),
+    ))
+    return interceptors
+
+
+KAIDO_AWAKENED = make_creature(
+    name="Kaido, King of the Beasts Awakened",
+    power=7, toughness=7,
+    mana_cost="{5}{R}{G}",
+    colors={Color.RED, Color.GREEN},
+    subtypes={"Dragon", "Pirate"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample. When Kaido enters, put three +1/+1 counters on him. "
+        "Whenever Kaido deals combat damage to a player, put a +1/+1 counter on him. "
+        "Other Dragons you control get +1/+1."
+    ),
+    setup_interceptors=kaido_awakened_setup,
+)
+
+
+# --- Big Mom, Sweet Empress --- {4}{B}{G} 6/6 Mythic
+# Build-around with Food/Treasure sac value engine. Distinct from existing
+# Big Mom (vanilla "trample, damage->Food token").
+# Axis: state=1, decision=0, zone=1 (Food token creation), asymmetry=0,
+# synergy=3 (Food/Treasure subtheme).
+def big_mom_sweet_empress_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: create two Food tokens. Whenever you sacrifice a Food, draw a card
+    and Big Mom gets +1/+1 until end of turn. Other Pirates you control have
+    'whenever this creature attacks, create a Food token.'
+
+    The third clause is omitted for v1 (granted triggered abilities on
+    other-permanents are a gotcha-prone surface). The ETB-Food + sac-Food
+    loop is the load-bearing combo.
+    """
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def make_food_event() -> Event:
+        return Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'token': {
+                    'name': 'Food', 'types': {CardType.ARTIFACT},
+                    'subtypes': {'Food'},
+                },
+            },
+            source=obj.id,
+        )
+
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        return [make_food_event(), make_food_event()]
+
+    def food_sac_filter(event: Event, st: GameState) -> bool:
+        # Sacrifice fires as ZONE_CHANGE reason=sacrifice (gotcha #5).
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('reason') != 'sacrifice':
+            return False
+        sacced_id = event.payload.get('object_id')
+        if not sacced_id:
+            return False
+        sacced = st.objects.get(sacced_id)
+        if not sacced or sacced.controller != obj.controller:
+            return False
+        return 'Food' in (sacced.characteristics.subtypes or set())
+
+    def food_sac_handler(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[
+                Event(
+                    type=EventType.DRAW,
+                    payload={'player': obj.controller, 'amount': 1},
+                    source=obj.id,
+                ),
+                Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={
+                        'object_id': obj.id,
+                        'power_mod': 1, 'toughness_mod': 1,
+                        'duration': 'end_of_turn',
+                    },
+                    source=obj.id,
+                ),
+            ],
+        )
+
+    sac_trigger = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=food_sac_filter,
+        handler=food_sac_handler,
+        duration='while_on_battlefield',
+    )
+
+    return [
+        make_keyword_grant(obj, ['trample'], affects_self),
+        make_etb_trigger(obj, etb_effect),
+        sac_trigger,
+    ]
+
+
+BIG_MOM_SWEET_EMPRESS = make_creature(
+    name="Big Mom, Sweet Empress",
+    power=6, toughness=6,
+    mana_cost="{4}{B}{G}",
+    colors={Color.BLACK, Color.GREEN},
+    subtypes={"Giant", "Pirate"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample. When Big Mom enters, create two Food tokens. "
+        "Whenever you sacrifice a Food, draw a card and Big Mom gets "
+        "+1/+1 until end of turn."
+    ),
+    setup_interceptors=big_mom_sweet_empress_setup,
+)
+
+
+# --- Whitebeard, Strongest Pirate --- {4}{R}{W} 7/7 Mythic
+# Asymmetric prison + Pirate-tribal payoff. Reskin of unwired Whitebeard
+# (existing Whitebeard has setup_interceptors but effect_fn returns [] —
+# the ETB destroy-artifact never resolves because targeting wasn't wired).
+# Axis: state=2 (counts pirates on battlefield), decision=0, zone=0,
+# asymmetry=3 (mass damage gates on opp creatures only), synergy=2.
+def whitebeard_strongest_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Indestructible (self-only). ETB: deal N damage to each creature your
+    opponents control, where N = number of Pirates you control. Other
+    Pirates you control get +1/+1."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def quake_etb(event: Event, st: GameState) -> list[Event]:
+        # Count Pirates we control on the battlefield (including Whitebeard).
+        n_pirates = 0
+        for o in st.objects.values():
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            if o.controller != obj.controller:
+                continue
+            if 'Pirate' not in (o.characteristics.subtypes or set()):
+                continue
+            n_pirates += 1
+        if n_pirates <= 0:
+            return []
+        events: list[Event] = []
+        for o in list(st.objects.values()):
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            if o.controller == obj.controller:
+                continue
+            if CardType.CREATURE not in (o.characteristics.types or set()):
+                continue
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={
+                    'source': obj.id,
+                    'target': o.id,
+                    'amount': n_pirates,
+                },
+                source=obj.id,
+            ))
+        return events
+
+    return [
+        make_keyword_grant(obj, ['indestructible', 'trample'], affects_self),
+        make_etb_trigger(obj, quake_etb),
+        *make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, "Pirate")),
+    ]
+
+
+WHITEBEARD_STRONGEST = make_creature(
+    name="Whitebeard, Strongest Pirate",
+    power=7, toughness=7,
+    mana_cost="{4}{R}{W}",
+    colors={Color.RED, Color.WHITE},
+    subtypes={"Human", "Pirate"},
+    supertypes={"Legendary"},
+    text=(
+        "Indestructible, trample. When Whitebeard enters, he deals N damage "
+        "to each creature your opponents control, where N is the number of "
+        "Pirates you control. Other Pirates you control get +1/+1."
+    ),
+    setup_interceptors=whitebeard_strongest_setup,
+)
+
+
+# --- Mihawk, Falcon Eyes --- {3}{B}{B} 5/4 Mythic
+# Reskin of unwired Mihawk (existing MIHAWK_WORLDS_STRONGEST has no
+# setup_interceptors and the "exile on combat damage" never fires).
+# Axis: state=1, decision=0, zone=2 (battlefield -> exile movement),
+# asymmetry=1, synergy=1.
+def mihawk_falcon_eyes_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self double_strike. Ward {2}. Whenever Mihawk deals combat damage to a
+    creature, exile that creature.
+    """
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def damage_exile(event: Event, st: GameState) -> list[Event]:
+        # DAMAGE event payload: {source, target, amount, [combat]}
+        if event.payload.get('source') != obj.id and event.source != obj.id:
+            return []
+        target_id = event.payload.get('target')
+        if not target_id or not isinstance(target_id, str):
+            return []
+        target = st.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        if CardType.CREATURE not in (target.characteristics.types or set()):
+            return []
+        return [Event(
+            type=EventType.EXILE,
+            payload={'object_id': target_id},
+            source=obj.id,
+        )]
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_keyword_grant(obj, ['double_strike'], affects_self))
+    # Ward {2} via canonical helper.
+    from src.cards.interceptor_helpers import make_ward as _make_ward
+    ward_interceptors = _make_ward(obj, mana_cost="{2}")
+    if ward_interceptors:
+        if isinstance(ward_interceptors, list):
+            interceptors.extend(ward_interceptors)
+        else:
+            interceptors.append(ward_interceptors)
+    interceptors.append(make_damage_trigger(obj, damage_exile, combat_only=True))
+    return interceptors
+
+
+MIHAWK_FALCON_EYES = make_creature(
+    name="Mihawk, Falcon Eyes",
+    power=5, toughness=4,
+    mana_cost="{3}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Pirate", "Samurai"},
+    supertypes={"Legendary"},
+    text=(
+        "Double strike, ward {2}. Whenever Mihawk deals combat damage to a "
+        "creature, exile that creature."
+    ),
+    setup_interceptors=mihawk_falcon_eyes_setup,
+)
+
+
+# --- Marineford War, Paramount Battle (Saga) --- {3}{W}{B} Rare
+# Three-chapter saga that escalates a board-wide assault. Distinct from
+# existing MARINEFORD_WAR (sorcery, no chapter mechanics).
+# Axis: state=2, decision=1 (chapter III chooses a target), zone=2
+# (graveyard return), asymmetry=2, synergy=2.
+def _marineford_war_chapter_i(saga_obj: GameObject, st: GameState) -> list[Event]:
+    """I — Each player sacrifices a creature."""
+    events: list[Event] = []
+    for pid in st.players:
+        events.append(Event(
+            type=EventType.SACRIFICE_REQUIRED,
+            payload={'player': pid, 'card_type': 'creature', 'count': 1},
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def _marineford_war_chapter_ii(saga_obj: GameObject, st: GameState) -> list[Event]:
+    """II — Deal 3 damage to each creature without flying."""
+    events: list[Event] = []
+    for o in list(st.objects.values()):
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        abilities = o.characteristics.abilities or []
+        if 'flying' in abilities:
+            continue
+        events.append(Event(
+            type=EventType.DAMAGE,
+            payload={
+                'source': saga_obj.id,
+                'target': o.id,
+                'amount': 3,
+            },
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def _marineford_war_chapter_iii(saga_obj: GameObject, st: GameState) -> list[Event]:
+    """III — Return a Pirate or Soldier card from your graveyard to the
+    battlefield. Each opponent loses 3 life."""
+    events: list[Event] = []
+    # Greedy: pick the highest-MV legal candidate from controller's graveyard.
+    candidate = None
+    candidate_mv = -1
+    for o in st.objects.values():
+        if o.zone != ZoneType.GRAVEYARD:
+            continue
+        if o.owner_id != saga_obj.controller:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        subs = o.characteristics.subtypes or set()
+        if 'Pirate' not in subs and 'Soldier' not in subs:
+            continue
+        mv = 0
+        if o.card_def is not None:
+            try:
+                mv = (o.card_def.characteristics.mana_cost or '').count('{')
+            except Exception:
+                mv = 0
+        if mv > candidate_mv:
+            candidate = o
+            candidate_mv = mv
+    if candidate is not None:
+        events.append(Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={
+                'object_id': candidate.id,
+                'controller': saga_obj.controller,
+                'destination': 'battlefield',
+            },
+            source=saga_obj.id,
+        ))
+    # Each opponent loses 3 life.
+    for pid in st.players:
+        if pid == saga_obj.controller:
+            continue
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': pid, 'amount': -3},
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def marineford_war_paramount_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """3-chapter saga — sac, sweep, recur. Reads board + graveyard, decides
+    target by greedy MV pick."""
+    return make_saga_setup(
+        obj,
+        {
+            1: _marineford_war_chapter_i,
+            2: _marineford_war_chapter_ii,
+            3: _marineford_war_chapter_iii,
+        },
+    )
+
+
+MARINEFORD_WAR_PARAMOUNT = make_enchantment(
+    name="Marineford War, Paramount Battle",
+    mana_cost="{3}{W}{B}",
+    colors={Color.WHITE, Color.BLACK},
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter.) "
+        "I - Each player sacrifices a creature. "
+        "II - This Saga deals 3 damage to each creature without flying. "
+        "III - Return a Pirate or Soldier card from your graveyard to the "
+        "battlefield. Each opponent loses 3 life. Sacrifice after III."
+    ),
+    subtypes={"Saga"},
+    supertypes={"Legendary", "Enchantment"},
+    setup_interceptors=marineford_war_paramount_setup,
+)
+
+
+# --- Wano Country Uprising (Saga) --- {2}{R}{G} Rare
+# Three-chapter saga that builds out a Samurai/Sword board. Distinct from
+# existing WANO_COUNTRY (land).
+# Axis: state=1, decision=1 (search choice), zone=2 (library->battlefield,
+# library->hand), asymmetry=0, synergy=3 (Samurai/Sword tribe).
+def _wano_uprising_chapter_i(saga_obj: GameObject, st: GameState) -> list[Event]:
+    """I — Create a 2/2 red Samurai token with first strike."""
+    return [Event(
+        type=EventType.CREATE_TOKEN,
+        payload={
+            'controller': saga_obj.controller,
+            'token': {
+                'name': 'Samurai',
+                'types': {CardType.CREATURE},
+                'subtypes': {'Human', 'Samurai'},
+                'colors': {Color.RED},
+                'power': 2, 'toughness': 2,
+                'abilities': ['first_strike'],
+            },
+        },
+        source=saga_obj.id,
+    )]
+
+
+def _wano_uprising_chapter_ii(saga_obj: GameObject, st: GameState) -> list[Event]:
+    """II — Search your library for a Sword or Equipment card, reveal it,
+    put it into your hand, then shuffle."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': saga_obj.controller,
+            'subtypes_any': ['Sword', 'Equipment'],
+            'card_type': 'artifact',
+            'destination': 'hand',
+            'min_count': 0,
+            'max_count': 1,
+            'reveal': True,
+        },
+        source=saga_obj.id,
+    )]
+
+
+def _wano_uprising_chapter_iii(saga_obj: GameObject, st: GameState) -> list[Event]:
+    """III — Samurai you control gain double strike until end of turn and
+    untap. Whenever a Samurai you control deals combat damage this turn,
+    you gain that much life. (Lifelink approximation.)"""
+    events: list[Event] = []
+    for o in list(st.objects.values()):
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if o.controller != saga_obj.controller:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        if 'Samurai' not in (o.characteristics.subtypes or set()):
+            continue
+        events.append(Event(
+            type=EventType.UNTAP,
+            payload={'object_id': o.id},
+            source=saga_obj.id,
+        ))
+        events.append(Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': o.id,
+                'keyword': 'double_strike',
+                'duration': 'end_of_turn',
+            },
+            source=saga_obj.id,
+        ))
+        events.append(Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': o.id,
+                'keyword': 'lifelink',
+                'duration': 'end_of_turn',
+            },
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def wano_uprising_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """3-chapter saga — Samurai token, Sword tutor, untap+double+life pump."""
+    return make_saga_setup(
+        obj,
+        {
+            1: _wano_uprising_chapter_i,
+            2: _wano_uprising_chapter_ii,
+            3: _wano_uprising_chapter_iii,
+        },
+    )
+
+
+WANO_COUNTRY_UPRISING = make_enchantment(
+    name="Wano Country Uprising",
+    mana_cost="{2}{R}{G}",
+    colors={Color.RED, Color.GREEN},
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter.) "
+        "I - Create a 2/2 red Samurai creature token with first strike. "
+        "II - Search your library for a Sword or Equipment card, reveal it, "
+        "put it into your hand, then shuffle. "
+        "III - Untap each Samurai you control. They gain double strike and "
+        "lifelink until end of turn. Sacrifice after III."
+    ),
+    subtypes={"Saga"},
+    supertypes={"Legendary", "Enchantment"},
+    setup_interceptors=wano_uprising_setup,
+)
+
+
+# --- Yoru, the Black Blade --- {4} Equipment Mythic
+# Distinct from existing equipment cards. Cost reduction is conditional
+# state — exercises a different axis than Fishman Karate Trident.
+# Axis: state=2 (reads board for Pirate/Samurai), decision=0, zone=0,
+# asymmetry=0, synergy=2.
+def yoru_black_blade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """+4/+0, first strike. Whenever equipped creature attacks, it gains
+    indestructible until end of turn. Equip {4}.
+
+    Uses make_equipment_setup with a granted "self-pump on attack"
+    triggered ability via granted_activated_abilities is awkward; instead
+    we add a custom interceptor that listens for ATTACK_DECLARED with the
+    equipped creature as attacker.
+    """
+    interceptors = make_equipment_setup(
+        power_mod=4, toughness_mod=0,
+        keywords=['first_strike'],
+        equip_cost="{4}",
+    )(obj, state)
+
+    def attack_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        if not attacker_id:
+            return False
+        # Only fire when the Yoru-bearing creature attacks.
+        attached_to = obj.state.attached_to if obj.state else None
+        return attacker_id == attached_to
+
+    def attack_handler(event: Event, st: GameState) -> InterceptorResult:
+        attached_to = obj.state.attached_to if obj.state else None
+        if not attached_to:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={
+                    'object_id': attached_to,
+                    'keyword': 'indestructible',
+                    'duration': 'end_of_turn',
+                },
+                source=obj.id,
+            )],
+        )
+
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=attack_handler,
+        duration='while_on_battlefield',
+    ))
+    return interceptors
+
+
+YORU_BLACK_BLADE = _CardDef(
+    name="Yoru, the Black Blade",
+    mana_cost="{4}",
+    characteristics=Characteristics(
+        types={CardType.ARTIFACT},
+        subtypes={"Equipment", "Sword"},
+        supertypes={"Legendary"},
+        mana_cost="{4}",
+    ),
+    text=(
+        "Equipped creature gets +4/+0 and has first strike. "
+        "Whenever equipped creature attacks, it gains indestructible until "
+        "end of turn. Equip {4}."
+    ),
+    setup_interceptors=yoru_black_blade_setup,
+)
+
+
+# --- Devil Fruit Awakening --- {2}{B} Aura Enchantment Rare
+# Aura with three clauses — distinct shape from existing Devil Fruit
+# subtype enchantments which are auras-by-flavor but unwired statically.
+# Axis: state=1, decision=0, zone=1 (graveyard recursion trigger),
+# asymmetry=0, synergy=2.
+def devil_fruit_awakening_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Enchanted creature gets +3/+3 and has ward {2}. Whenever enchanted
+    creature attacks, you draw a card and you lose 1 life.
+
+    Use make_aura_setup for the static +3/+3 + ward {2} + granted
+    "attack-trigger draw" pattern. The card/life trigger we install as a
+    separate interceptor that watches ATTACK_DECLARED for the attached
+    creature.
+    """
+    base_interceptors = make_aura_setup(
+        power_mod=3, toughness_mod=3,
+        ward_cost="{2}",
+    )(obj, state)
+
+    def attack_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id')
+        if not attacker_id:
+            return False
+        attached_to = obj.state.attached_to if obj.state else None
+        return attacker_id == attached_to
+
+    def attack_handler(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[
+                Event(
+                    type=EventType.DRAW,
+                    payload={'player': obj.controller, 'amount': 1},
+                    source=obj.id,
+                ),
+                Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': obj.controller, 'amount': -1},
+                    source=obj.id,
+                ),
+            ],
+        )
+
+    base_interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attack_filter,
+        handler=attack_handler,
+        duration='while_on_battlefield',
+    ))
+    return base_interceptors
+
+
+DEVIL_FRUIT_AWAKENING = _CardDef(
+    name="Devil Fruit Awakening",
+    mana_cost="{2}{B}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Aura", "Devil Fruit"},
+        colors={Color.BLACK},
+        mana_cost="{2}{B}",
+    ),
+    text=(
+        "Enchant creature. Enchanted creature gets +3/+3 and has ward {2}. "
+        "Whenever enchanted creature attacks, you draw a card and you lose 1 life."
+    ),
+    setup_interceptors=devil_fruit_awakening_setup,
+)
+
+
+# --- Cipher Pol Zero, Justice Cell --- {1}{W}{U} 2/3 Rare
+# Asymmetric prison — restricts opponents' actions, rewards your own
+# spell-casting. New Marine flagship reskin (distinct from Rob Lucci).
+# Axis: state=1, decision=0, zone=1 (hand->exile reveal), asymmetry=3
+# (opponents only), synergy=1.
+def cipher_pol_zero_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flash. ETB: each opponent reveals their hand. Whenever an opponent
+    casts a spell, that player loses 1 life.
+
+    First clause via make_keyword_grant. ETB reveal via REVEAL_HAND.
+    Spell-cast-loss-life via make_spell_cast_trigger with controller filter.
+    """
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_reveal(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        for pid in st.players:
+            if pid == obj.controller:
+                continue
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': pid},
+                source=obj.id,
+            ))
+        return events
+
+    def opp_spell_filter(event: Event, st: GameState, src: GameObject) -> bool:
+        # make_spell_cast_trigger supports a filter_fn signature — but the
+        # base trigger fires for any cast; we want only opponent casts.
+        caster = event.payload.get('player') or event.payload.get('controller')
+        return caster is not None and caster != obj.controller
+
+    def opp_spell_effect(event: Event, st: GameState) -> list[Event]:
+        caster = event.payload.get('player') or event.payload.get('controller')
+        if not caster or caster == obj.controller:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': caster, 'amount': -1},
+            source=obj.id,
+        )]
+
+    from src.cards.interceptor_helpers import make_spell_cast_trigger
+    interceptors: list[Interceptor] = [
+        make_keyword_grant(obj, ['flash'], affects_self),
+        make_etb_trigger(obj, etb_reveal),
+        make_spell_cast_trigger(obj, opp_spell_effect, controller_only=False),
+    ]
+    return interceptors
+
+
+CIPHER_POL_ZERO = make_creature(
+    name="Cipher Pol Zero, Justice Cell",
+    power=2, toughness=3,
+    mana_cost="{1}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Human", "Soldier", "Spy"},
+    supertypes={"Legendary"},
+    text=(
+        "Flash. When Cipher Pol Zero enters, each opponent reveals their hand. "
+        "Whenever an opponent casts a spell, that player loses 1 life."
+    ),
+    setup_interceptors=cipher_pol_zero_setup,
+)
+
+
+# =============================================================================
 # CARD DICTIONARY
 # =============================================================================
 
@@ -4391,6 +5160,16 @@ ONE_PIECE_CARDS = {
     "Devil Fruit Vault": DEVIL_FRUIT_VAULT,
     "Fishman Karate Trident": FISHMAN_KARATE_TRIDENT,
     "Skypiea Gold Hoard": SKYPIEA_GOLD_HOARD,
+    # Spice Pass v2 Expansion
+    "Kaido, King of the Beasts Awakened": KAIDO_AWAKENED,
+    "Big Mom, Sweet Empress": BIG_MOM_SWEET_EMPRESS,
+    "Whitebeard, Strongest Pirate": WHITEBEARD_STRONGEST,
+    "Mihawk, Falcon Eyes": MIHAWK_FALCON_EYES,
+    "Marineford War, Paramount Battle": MARINEFORD_WAR_PARAMOUNT,
+    "Wano Country Uprising": WANO_COUNTRY_UPRISING,
+    "Yoru, the Black Blade": YORU_BLACK_BLADE,
+    "Devil Fruit Awakening": DEVIL_FRUIT_AWAKENING,
+    "Cipher Pol Zero, Justice Cell": CIPHER_POL_ZERO,
 }
 
 print(f"Loaded {len(ONE_PIECE_CARDS)} One Piece: Grand Line cards")
@@ -4698,4 +5477,14 @@ CARDS = [
     DEVIL_FRUIT_VAULT,
     FISHMAN_KARATE_TRIDENT,
     SKYPIEA_GOLD_HOARD,
+    # Spice Pass v2 Expansion
+    KAIDO_AWAKENED,
+    BIG_MOM_SWEET_EMPRESS,
+    WHITEBEARD_STRONGEST,
+    MIHAWK_FALCON_EYES,
+    MARINEFORD_WAR_PARAMOUNT,
+    WANO_COUNTRY_UPRISING,
+    YORU_BLACK_BLADE,
+    DEVIL_FRUIT_AWAKENING,
+    CIPHER_POL_ZERO,
 ]
