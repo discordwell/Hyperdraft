@@ -115,3 +115,48 @@ Pilot deliverables:
 4. Tournament validation against the existing custom-set tournament
    harness.
 5. Notes on every skill friction point → feed back into `spice-pass.md`.
+
+## Addendum — 2026-05-18 PM — closure-walking scorer fix invalidates PKH baseline
+
+While piloting the reskin-cluster cleanup on `mtg_pkh`, surfaced that
+PKH's 233-card "cluster" was a measurement artifact. Every Pokemon
+Horizons card has its `setup_interceptors` wrapped by
+`_pass5_compose_setup(old_setup, added_setup)`, which produces a closure
+named `setup`. The AST scorer's `_func_source_for_callable` looked up
+`fn.__name__` ("setup") in the module's top-level functions — found
+nothing — and returned an empty FeatureBag. Every wrapped card
+fingerprinted as `helpers=[]` despite being mechanically distinct.
+
+Fix landed in `src/depth/ast_fingerprint.py::extract_features_from_callable`:
+when a callable is a closure (no top-level fdef OR a recognized wrapper),
+walk its closure cells via `inspect.getclosurevars` and merge the
+captured callables' FeatureBags into the wrapper's bag. Bounded recursion
+depth (4), identity-tracked to prevent cycles.
+
+**PKH true depth after the scorer fix (no card changes):**
+
+| metric | original (buggy) | post-fix | Δ |
+|---|---:|---:|---:|
+| depth_v2_median | 0 | 5 | +5 |
+| depth_v2_mean | 0.11 | 3.81 | **+3.70** (35× undermeasured) |
+| axis_diversity | 0.028 | 0.080 | +0.052 |
+| code_diversity | 0.045 | 0.272 | +0.227 |
+| v2_thin_ratio | 0.984 | 0.474 | −0.510 |
+| Health gates | 0/4 | **3/4** | +3 (only code_diversity still fails) |
+
+PKH was the second-best custom set all along — the spice pass that
+already happened (per `.claude/skills/spice-pass.md`'s "Lessons from
+PKH v1 → v2" section) was producing real depth; the metric just couldn't
+see it. Code_diversity is the only remaining failing gate (0.272 vs
+0.40 target), reachable with one cleanup pass on the residual 73-card
+truly-empty cluster.
+
+**Other sets**: the scorer fix isolated to PKH. No other custom set
+uses a closure-wrapper composition pattern, so all 18 other sets show
+identical scores before/after the fix (verified by
+`logs/custom_set_depth_after_scorer_fix.json`).
+
+**Methodology takeaway**: before running a spice pass, sanity-check the
+scorer can see the existing cards. The PKH "233-card cluster" was a
+known-broken measurement that almost cost a misallocated spice pass.
+Gotcha #19 added to `.claude/skills/spice-pass.md`.

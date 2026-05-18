@@ -131,6 +131,40 @@ def test_ast_walker_descends_into_mtg_setup_closures():
     )
 
 
+def test_ast_walker_unwraps_pkh_pass5_compose_setup():
+    """PKH (Pokemon Horizons) cards have their setup_interceptors wrapped by
+    `_pass5_compose_setup`, which captures `old_setup` and `added_setup`
+    closures. The wrapper's AST body only mentions those captured names —
+    so without closure-cell walking, every wrapped PKH card fingerprints
+    as `helpers=[]` and gets clustered together.
+
+    This test guards the closure-walking branch in
+    `extract_features_from_callable`. If the walk regresses, PKH drops
+    from 3/4 health gates back to 0/4 silently."""
+    from src.cards.custom.pokemon_horizons import POKEMON_HORIZONS_CARDS
+    mtg = get_profile("mtg")
+
+    # Absol is the canonical pass5-wrapped card. Its inner setup calls
+    # make_keyword_grant + _react_interceptor + emits LIFE_CHANGE + DRAW.
+    absol = POKEMON_HORIZONS_CARDS["Absol, Disaster Pokemon"]
+    cs = score_card(absol, mtg)
+    feats = cs.features
+    assert "make_keyword_grant" in feats.helpers_called, (
+        f"Closure walk should surface make_keyword_grant from absol_setup; "
+        f"got helpers={sorted(feats.helpers_called)}"
+    )
+    assert "_react_interceptor" in feats.helpers_called, (
+        f"Closure walk should surface _react_interceptor; "
+        f"got helpers={sorted(feats.helpers_called)}"
+    )
+    # Without the closure walk, depth_v2_score collapses to 0; with it,
+    # Absol scores at least 1 (likely 2-3 from cross-controller + asymmetric
+    # event types). Sanity-check the depth jumped above the empty baseline.
+    assert cs.scores.total >= 1, (
+        f"Wrapped PKH card should score >= 1 after closure walk; got total={cs.scores.total}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Axis scoring rules
 # ---------------------------------------------------------------------------

@@ -332,6 +332,8 @@ def extract_features_from_callable(
     filter_factories: frozenset[str] = frozenset(),
     novel_helpers: frozenset[str] = frozenset(),
     cross_controller_helpers: frozenset[str] = frozenset(),
+    _closure_depth: int = 0,
+    _closure_visited: Optional[set[int]] = None,
 ) -> FeatureBag:
     """Parse `fn`'s source module, walk its AST, return a FeatureBag.
 
@@ -341,17 +343,75 @@ def extract_features_from_callable(
     `cross_controller_helpers` is the set of helper names whose call
     implies cross-controller interaction (the `!=` comparator lives in
     a different module the walker doesn't descend into). Any call site
-    matching this set flips `bag.cross_controller=True` post-walk."""
+    matching this set flips `bag.cross_controller=True` post-walk.
+
+    Closure-walking (gotcha #19 from spice-pass.md): when `fn` is a
+    closure produced by a wrapper-factory like `_pass5_compose_setup`,
+    its AST body only mentions the captured names (`old_setup(...)`,
+    `added_setup(...)`) — it has no visibility into the wrapped functions.
+    To surface the real mechanical diversity, this function also walks
+    callables captured in `fn`'s closure cells via `inspect.getclosurevars`
+    and merges their FeatureBags into the wrapper's. Depth is capped at
+    4 to bound recursion, and same-object identities are tracked across
+    the chain to break cycles. This is the fix for PKH's 233-card
+    "wired-but-wrapped" measurement gap (every Pokemon goes through
+    `_pass5_compose_setup`, so without this walk every card fingerprints
+    as `helpers=[]`)."""
     bag = FeatureBag()
     path, fdef, funcs = _func_source_for_callable(fn)
-    if fdef is None:
-        return bag
-    bag.is_trivially_empty = _is_trivially_empty(fdef)
-    visited: set[str] = {fn.__name__}
-    collector = _FeatureCollector(
-        funcs, bag, visited, modal_helpers, filter_factories, novel_helpers
-    )
-    collector.generic_visit(fdef)
+    if fdef is not None:
+        bag.is_trivially_empty = _is_trivially_empty(fdef)
+        visited: set[str] = {fn.__name__}
+        collector = _FeatureCollector(
+            funcs, bag, visited, modal_helpers, filter_factories, novel_helpers
+        )
+        collector.generic_visit(fdef)
+    # else: fn is a closure with no top-level fdef (e.g. wrapper produced by
+    # a factory like `_pass5_compose_setup`). The closure walk below picks
+    # up the captured wrapped functions, so we don't early-return.
+
+    # Walk closure cells if fn is a wrapper-style closure. Bounded depth
+    # so a chain of wrappers can't recurse forever, and identity-tracked
+    # so cycles can't either.
+    MAX_CLOSURE_DEPTH = 4
+    if _closure_visited is None:
+        _closure_visited = set()
+    _closure_visited.add(id(fn))
+    if _closure_depth < MAX_CLOSURE_DEPTH:
+        try:
+            closurevars = inspect.getclosurevars(fn)
+            nonlocal_callables = [
+                val for val in closurevars.nonlocals.values()
+                if callable(val)
+                and hasattr(val, '__name__')
+                and id(val) not in _closure_visited
+            ]
+        except (TypeError, ValueError):
+            nonlocal_callables = []
+        # Track the number of closure-walked callables — if any are
+        # non-trivial we override the initial is_trivially_empty default.
+        walked_any = False
+        for inner_fn in nonlocal_callables:
+            inner_bag = extract_features_from_callable(
+                inner_fn,
+                modal_helpers=modal_helpers,
+                filter_factories=filter_factories,
+                novel_helpers=novel_helpers,
+                cross_controller_helpers=cross_controller_helpers,
+                _closure_depth=_closure_depth + 1,
+                _closure_visited=_closure_visited,
+            )
+            bag.merge(inner_bag)
+            walked_any = True
+        # If fdef was None (closure wrapper) AND we walked at least one
+        # non-empty captured callable, the merged bag is no longer
+        # "trivially empty" — flip to False to reflect the captured logic.
+        if fdef is None and walked_any:
+            bag.is_trivially_empty = bag.is_trivially_empty  # merge already
+            # handled the conjunction; nothing to override here. The default
+            # FeatureBag value is False so the bag arrives with the merged
+            # value already set correctly. (Kept this block for the comment.)
+
     if cross_controller_helpers and bag.helpers_called & cross_controller_helpers:
         bag.cross_controller = True
     return bag
