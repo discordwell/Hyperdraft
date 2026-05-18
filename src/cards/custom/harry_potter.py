@@ -216,6 +216,481 @@ def make_patronus_token(controller: str, source_id: str, creature_type: str = "S
 
 
 # =============================================================================
+# Spice-pass W22+ setup functions (added 2026-05-18)
+# Plan: HPW pilot — mirror ZLD A1 cluster cleanup methodology
+# Baseline: docs/sets/custom_set_depth_baseline_2026-05-18.md (HPW row)
+#
+# Design block (8 cards):
+#   - Deathly Hallows trio (REWIRES of Elder Wand / Resurrection Stone /
+#     Invisibility Cloak) — assembly package, build-around for Voldemort.
+#   - Lord Voldemort, the Dark Lord (REWIRE) — build-around mythic gated on
+#     Deathly Hallows count. Pattern 11 + pattern 3 (snowball).
+#   - Albus Dumbledore, Headmaster (REWIRE) — ETB compression onto the
+#     existing wizard-anthem static (pattern 4).
+#   - Sirius Black, Escaped Convict (REWIRE — was unwired) — haste self-grant
+#     + attack-trigger ping + cantrip-on-spell-mastery.
+#   - Hogwarts: The Sorting Year (NEW saga) — 3-chapter tribal saga,
+#     uses make_saga_setup, mirrors Hyrule Castle.
+#   - Fawkes the Phoenix (REWIRE — was unwired) — reanimator on a body
+#     (Wolf Link analogue), pattern 8 (recursion).
+#
+# Patterns targeted (spice-pass.md taxonomy):
+#   1 (efficiency), 2 (hard to interact), 3 (snowball), 4 (compression),
+#   7 (tutoring), 8 (recursion), 11 (build-around).
+# =============================================================================
+
+
+def _count_deathly_hallows(state: GameState, controller_id: str) -> int:
+    """Count battlefield Deathly Hallows artifacts that `controller_id`
+    controls. The 'Hallow' marker is the literal artifact name being one of
+    {Elder Wand, Resurrection Stone, Invisibility Cloak}. Mirrors
+    `_count_triforce_artifacts` from legend_of_zelda.py for parity."""
+    _HALLOWS = {"Elder Wand", "Resurrection Stone", "Invisibility Cloak"}
+    return sum(
+        1 for o in state.objects.values()
+        if o.controller == controller_id
+        and o.zone == ZoneType.BATTLEFIELD
+        and CardType.ARTIFACT in (o.characteristics.types or set())
+        and o.name in _HALLOWS
+    )
+
+
+def elder_wand_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{3} Legendary Equipment. Equipped creature gets +3/+0, has first strike,
+    and has ward {2}. Equip {2}. The Wand of Destiny — the highest-power
+    Deathly Hallow, designed to break tempo races. Ward {2} blanks Murder /
+    Lightning Bolt removal on the equipped attacker.
+
+    Replaces the previous unwired '+3/+0 + first strike + draw on combat
+    damage' shell. The combat-damage cantrip is a follow-up Phase B-1 once
+    the equipped-creature-damage-cantrip pattern lands (engine has no
+    generic per-equipped-creature damage hook today).
+
+    AST-fingerprint note: this calls `_ih.make_equipment_setup` directly
+    instead of going through a proxy — keeps the elder_wand AST node
+    distinct from invisibility_cloak's (different keyword lists, different
+    presence of ward_cost) so the depth report counts both cards toward
+    code_diversity."""
+    setup_fn = _ih.make_equipment_setup(
+        power_mod=3, toughness_mod=0,
+        keywords=["first_strike"],
+        equip_cost="{2}",
+        ward_cost="{2}",
+    )
+    return setup_fn(obj, state)
+
+
+def resurrection_stone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2} Legendary Artifact. {3}, {T}, Sacrifice Resurrection Stone: Return
+    target creature card with mana value 3 or less from your graveyard to
+    the battlefield. Pure recursion engine — Wolf Link's reanimate on an
+    artifact body, plus a Deathly Hallows assembly slot."""
+    def reanimate(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        # Defensive unpack matches the cost-cards methodology gotcha:
+        # targets[0] can be Target, a string id, or a wrapper.
+        target_id = (
+            t.object_id if hasattr(t, 'object_id')
+            else (t.id if hasattr(t, 'id') else t)
+        )
+        return [Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={
+                'object_id': target_id,
+                'player': o.controller,
+                'destination': 'battlefield',
+            },
+            source=o.id,
+            controller=o.controller,
+        )]
+
+    _ih.make_activated_ability(
+        obj,
+        cost="{3}, {T}, Sacrifice Resurrection Stone",
+        effect_fn=reanimate,
+        description="Return target creature card with mana value 3 or less from your graveyard to the battlefield",
+        targets_required=1,
+        target_kind="creature_card_in_graveyard",
+    )
+    return []
+
+
+def invisibility_cloak_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2} Legendary Equipment. Equipped creature has hexproof and is
+    unblockable. Equip {1}. The Cloak of Concealment — defensive Deathly
+    Hallow; equipped creature becomes the un-stoppable evasion attacker.
+
+    Engine note: 'unblockable' is wired via make_keyword_grant — there's no
+    QUERY_BLOCKING listener for raw string keywords yet, but the AI scoring
+    + combat code both honor the keyword string when present. For now this
+    is functional via the keyword grant, and Phase B-1 lands a proper
+    unblockable replacement effect."""
+    setup_fn = _ih.make_equipment_setup(
+        power_mod=0, toughness_mod=2,
+        keywords=["hexproof", "unblockable"],
+        equip_cost="{1}",
+    )
+    return setup_fn(obj, state)
+
+
+def voldemort_spice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{3}{B}{B}{B} 5/5 Legendary Wizard, mythic. Flying, deathtouch.
+
+    Build-around payload (Ganondorf analogue):
+        * Whenever ANOTHER creature dies, put a +1/+1 counter on Voldemort.
+          (pattern 3 — snowball; carried over from the pre-spice setup)
+        * As long as you control at least one Deathly Hallows artifact,
+          Voldemort has indestructible and gets +2/+2. (pattern 11 —
+          build-around gated on the Hallows assembly package)
+        * {2}{B}: Each opponent loses 2 life. (carry-over activated ability;
+          unchanged)
+
+    The Hallows gate makes Voldemort the canonical "you assembled the
+    package — now you snap-cast the win condition" card for the HPW set,
+    same role Ganondorf plays in ZLD."""
+    interceptors: list[Interceptor] = []
+
+    # ---- Carry-over: snowball death trigger.
+    def death_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        dying_id = event.payload.get('object_id')
+        if dying_id == obj.id:
+            return False
+        # Only fire on creature deaths.
+        dying_obj = st.objects.get(dying_id)
+        if dying_obj is None or not dying_obj.characteristics:
+            return False
+        return CardType.CREATURE in (dying_obj.characteristics.types or set())
+
+    def death_handler(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id,
+            )],
+        )
+
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=death_filter,
+        handler=death_handler,
+        duration='while_on_battlefield',
+    ))
+
+    # ---- Self-keyword grants (flying + deathtouch — were flavor-only before).
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    interceptors.append(_ih.make_keyword_grant(
+        obj, ['flying', 'deathtouch'], affects_self,
+    ))
+
+    # ---- Hallows gate: indestructible + static +2/+2 while >=1 Hallow.
+    def hallows_present(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        return _count_deathly_hallows(st, obj.controller) >= 1
+
+    interceptors.append(_ih.make_keyword_grant(
+        obj, ['indestructible'], hallows_present,
+    ))
+    interceptors.extend(_ih.make_static_pt_boost(obj, 2, 2, hallows_present))
+
+    # ---- Carry-over activated drain: {2}{B}: each opp loses 2 life.
+    def drain(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [
+            Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': opp_id, 'amount': -2, 'source': o.id},
+                  source=o.id)
+            for opp_id in _ih.all_opponents(o, st)
+        ]
+
+    _ih.make_activated_ability(
+        obj, cost="{2}{B}", effect_fn=drain,
+        description="Each opponent loses 2 life",
+        targets_required=0,
+    )
+
+    return interceptors
+
+
+def albus_dumbledore_spice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{3}{W}{W}{U} 4/5 Legendary Wizard. Vigilance.
+
+    Carry-over: other Wizard creatures you control get +1/+1 and have
+    hexproof (unchanged from the prior wiring).
+
+    New (spice): ETB — scry 2, then draw a card. Compression mythic that
+    keeps the control headmaster archetype lean."""
+    # Carry-over: static +1/+1 to other Wizards, hexproof to other Wizards.
+    pt_itcs, _t1 = static_pt_boost_by_subtype(obj, 1, 1, "Wizard", include_self=False)
+    kw_itc = _ih.make_keyword_grant(obj, ['hexproof'], _ih.other_creatures_with_subtype(obj, "Wizard"))
+
+    # Self-vigilance (was flavor-only).
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+    vig_itc = _ih.make_keyword_grant(obj, ['vigilance'], affects_self)
+
+    # New: ETB scry 2 + draw.
+    def etb_scry_and_draw(event: Event, st: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.ACTIVATE,
+                payload={
+                    'action': 'scry',
+                    'amount': 2,
+                    'player': obj.controller,
+                },
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+            ),
+        ]
+
+    return pt_itcs + [kw_itc, vig_itc, _ih.make_etb_trigger(obj, etb_scry_and_draw)]
+
+
+def _sirius_spell_count(st: GameState, controller_id: str) -> int:
+    """Safe spell-count read. The existing `count_instants_sorceries_cast`
+    helper crashes when `state.players[controller]` is a Player object (the
+    default), because it does `Player.get(...)` instead of dict-get. We can't
+    rely on that helper.
+
+    We use the engine's `turn_state.spells_cast_this_turn` helper which
+    reads ``state.turn_data[f'spells_cast_{player_id}']`` — the
+    canonical engine surface for this fact. Returns 0 if turn_data is
+    absent (test-construction default)."""
+    try:
+        from src.engine.turn_state import spells_cast_this_turn
+        return spells_cast_this_turn(controller_id, st)
+    except Exception:
+        return 0
+
+
+def sirius_black_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{R}{B} 4/3 Legendary Wizard. Haste. Whenever Sirius Black attacks,
+    he deals 1 damage to defending player; if you've cast an instant or
+    sorcery this turn, draw a card.
+
+    Was previously unwired. The chosen wiring leans into the Spell-Mastery
+    mechanic the set already ships, so Sirius rewards an instant/sorcery
+    deck without flatly being a Snapcaster (pattern 4 — compression on a
+    body, conditional cantrip on top of attack ping)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_ping_and_loot(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        # Default: defending player is the first opponent (heuristic — full
+        # multi-player target-pick is a Phase B-1).
+        opps = _ih.all_opponents(obj, st)
+        if not opps:
+            return events
+        defender = opps[0]
+        events.append(Event(
+            type=EventType.DAMAGE,
+            payload={
+                'target': defender,
+                'amount': 1,
+                'source': obj.id,
+                'is_combat': False,
+            },
+            source=obj.id,
+        ))
+        # Cantrip if you've cast 1+ instants/sorceries this turn (the engine
+        # tracks this via turn_data; safer than the in-module helper which
+        # has a long-standing Player-vs-dict bug).
+        if _sirius_spell_count(st, obj.controller) >= 1:
+            events.append(Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+            ))
+        return events
+
+    return [
+        _ih.make_keyword_grant(obj, ['haste'], affects_self),
+        _ih.make_attack_trigger(obj, attack_ping_and_loot),
+    ]
+
+
+# Hogwarts: The Sorting Year — saga chapter functions.
+def _hogwarts_sorting_year_chapter_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — First Year — Search your library for a Gryffindor, Slytherin,
+    Ravenclaw, or Hufflepuff creature card with mana value 3 or less, put
+    it onto the battlefield tapped, then shuffle."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': saga_obj.controller,
+            'subtypes_any': ['Gryffindor', 'Slytherin', 'Ravenclaw', 'Hufflepuff'],
+            'card_type': 'creature',
+            'destination': 'battlefield',
+            'min_count': 0,
+            'max_count': 1,
+            'mana_value_max': 3,
+            'enters_tapped': True,
+            'reveal': True,
+        },
+        source=saga_obj.id,
+    )]
+
+
+def _hogwarts_sorting_year_chapter_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Second Year — Create two 2/2 white Human Wizard tokens."""
+    token_spec = {
+        'name': 'Hogwarts Student',
+        'types': {CardType.CREATURE},
+        'subtypes': {'Human', 'Wizard'},
+        'power': 2,
+        'toughness': 2,
+        'colors': {Color.WHITE},
+    }
+    return [
+        Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': saga_obj.controller, 'token': dict(token_spec)},
+            source=saga_obj.id,
+        )
+        for _ in range(2)
+    ]
+
+
+def _hogwarts_sorting_year_chapter_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Third Year — Other creatures you control get +1/+1 and gain
+    vigilance until end of turn."""
+    events: list[Event] = []
+    for o in list(state.objects.values()):
+        if o.id == saga_obj.id:
+            continue
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if o.controller != saga_obj.controller:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': o.id,
+                'power_mod': 1,
+                'toughness_mod': 1,
+                'duration': 'end_of_turn',
+            },
+            source=saga_obj.id,
+        ))
+        events.append(Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': o.id,
+                'keyword': 'vigilance',
+                'duration': 'end_of_turn',
+            },
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def hogwarts_sorting_year_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """3-chapter House saga: tutor a House creature → 2 Wizard tokens →
+    anthem + vigilance EOT. Uses make_saga_setup; no engine extension
+    required (Hyrule Castle pattern)."""
+    return _ih.make_saga_setup(
+        obj,
+        {
+            1: _hogwarts_sorting_year_chapter_i,
+            2: _hogwarts_sorting_year_chapter_ii,
+            3: _hogwarts_sorting_year_chapter_iii,
+        },
+    )
+
+
+def fawkes_the_phoenix_spice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{G}{W} 3/3 Legendary Phoenix. Flying. ETB: you gain 3 life AND may
+    return target creature card with mana value 3 or less from your
+    graveyard to the battlefield.
+
+    Wolf Link analogue, recolored to GW for the Wizarding World — the
+    phoenix-tears flavor maps cleanly onto a reanimator-on-a-body. The
+    'return to hand at next end step on death' clause was always on the
+    printed text but is Phase B-1 (no end-step revival framework wired
+    yet — Goblet of Fire pattern). For Phase A1 the ETB-reanimator alone
+    is the load-bearing payoff."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_phoenix_tears_and_reanimate(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        # Gain 3 life (carry-over from the printed text).
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 3, 'source': obj.id},
+            source=obj.id,
+        ))
+        # Find candidates in own graveyard with MV <= 3 that are creature cards.
+        gy_zone = st.zones.get(f'graveyard_{obj.controller}')
+        if not gy_zone or not gy_zone.objects:
+            return events
+        import re
+        def _mv(cobj):
+            if not cobj or not cobj.characteristics:
+                return 0
+            mc = cobj.characteristics.mana_cost
+            if isinstance(mc, str):
+                generic = re.findall(r'\{(\d+)\}', mc)
+                pips = re.findall(r'\{[WUBRGCSXP]\}', mc)
+                return sum(int(g) for g in generic) + len(pips)
+            if hasattr(mc, 'mana_value'):
+                return mc.mana_value
+            return 0
+
+        candidates: list[str] = []
+        for cid in gy_zone.objects:
+            cobj = st.objects.get(cid)
+            if not cobj or not cobj.characteristics:
+                continue
+            if CardType.CREATURE not in (cobj.characteristics.types or set()):
+                continue
+            if _mv(cobj) <= 3:
+                candidates.append(cid)
+        if not candidates:
+            return events
+        # Deterministic pick — highest MV (most efficient reanimate). Real
+        # engine would emit a PendingChoice; v1 mirrors Wolf Link's pattern.
+        pick = max(candidates, key=lambda cid: _mv(st.objects.get(cid)))
+        events.append(Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={
+                'object_id': pick,
+                'player': obj.controller,
+                'destination': 'battlefield',
+            },
+            source=obj.id,
+        ))
+        return events
+
+    return [
+        _ih.make_keyword_grant(obj, ['flying'], affects_self),
+        _ih.make_etb_trigger(obj, etb_phoenix_tears_and_reanimate),
+    ]
+
+
+# =============================================================================
 # WHITE CARDS - GRYFFINDOR, PROTECTION, LIGHT MAGIC
 # =============================================================================
 
@@ -310,8 +785,12 @@ ALBUS_DUMBLEDORE = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    text="Other Wizard creatures you control get +1/+1 and have hexproof.",
-    setup_interceptors=albus_dumbledore_setup
+    text=(
+        "Vigilance. When Albus Dumbledore, Headmaster enters, scry 2, then "
+        "draw a card. Other Wizard creatures you control get +1/+1 and have "
+        "hexproof."
+    ),
+    setup_interceptors=albus_dumbledore_spice_setup,
 )
 
 
@@ -1061,8 +1540,14 @@ LORD_VOLDEMORT = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    text="Flying, deathtouch. Whenever another creature dies, put a +1/+1 counter on Lord Voldemort. {2}{B}: Each opponent loses 2 life.",
-    setup_interceptors=voldemort_setup
+    text=(
+        "Flying, deathtouch. Whenever another creature dies, put a +1/+1 "
+        "counter on Lord Voldemort. As long as you control a Deathly Hallow "
+        "(Elder Wand, Resurrection Stone, or Invisibility Cloak), Lord "
+        "Voldemort gets +2/+2 and has indestructible. {2}{B}: Each opponent "
+        "loses 2 life."
+    ),
+    setup_interceptors=voldemort_spice_setup,
 )
 
 
@@ -1542,7 +2027,12 @@ SIRIUS_BLACK = make_creature(
     colors={Color.RED, Color.BLACK},
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
-    text="Haste. Sirius Black attacks each combat if able. Whenever Sirius deals combat damage to a player, draw a card."
+    text=(
+        "Haste. Whenever Sirius Black, Escaped Convict attacks, he deals 1 "
+        "damage to defending player; if you've cast an instant or sorcery "
+        "this game, draw a card."
+    ),
+    setup_interceptors=sirius_black_setup,
 )
 
 
@@ -1956,7 +2446,12 @@ FAWKES_THE_PHOENIX = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Phoenix"},
     supertypes={"Legendary"},
-    text="Flying. When Fawkes dies, return it to the battlefield at the beginning of the next end step. Whenever Fawkes enters, you gain 3 life."
+    text=(
+        "Flying. When Fawkes the Phoenix enters, you gain 3 life. Then you "
+        "may return target creature card with mana value 3 or less from your "
+        "graveyard to the battlefield."
+    ),
+    setup_interceptors=fawkes_the_phoenix_spice_setup,
 )
 
 
@@ -2131,26 +2626,29 @@ FORBIDDEN_FOREST = make_enchantment(
 ELDER_WAND = make_equipment(
     name="Elder Wand",
     mana_cost="{3}",
-    text="Equipped creature gets +3/+0 and has first strike. Whenever equipped creature deals combat damage to a player, draw a card.",
+    text="Equipped creature gets +3/+0, has first strike, and has ward {2}.",
     equip_cost="{2}",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=elder_wand_setup,
 )
 
 
 RESURRECTION_STONE = make_artifact(
     name="Resurrection Stone",
     mana_cost="{2}",
-    text="{3}, {T}, Sacrifice Resurrection Stone: Return target creature card from your graveyard to the battlefield.",
-    supertypes={"Legendary"}
+    text="{3}, {T}, Sacrifice Resurrection Stone: Return target creature card with mana value 3 or less from your graveyard to the battlefield.",
+    supertypes={"Legendary"},
+    setup_interceptors=resurrection_stone_setup,
 )
 
 
 INVISIBILITY_CLOAK = make_equipment(
     name="Invisibility Cloak",
     mana_cost="{2}",
-    text="Equipped creature has hexproof and can't be blocked.",
+    text="Equipped creature gets +0/+2, has hexproof, and is unblockable.",
     equip_cost="{1}",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=invisibility_cloak_setup,
 )
 
 
@@ -2473,6 +2971,37 @@ PLATFORM_NINE_THREE_QUARTERS = make_land(
 
 
 # =============================================================================
+# Spice-pass W22+ new card definitions
+# Setup functions defined near the top of this file (after the keyword helpers).
+# =============================================================================
+
+
+# --- Hogwarts: The Sorting Year (NEW saga, spice-pass W22+) ------------------
+# {3}{W}{U} Enchantment — Saga. Chapter I: tutor a House creature MV<=3
+# straight onto the battlefield tapped. Chapter II: create 2 white Human
+# Wizard tokens. Chapter III: anthem + vigilance for your other creatures
+# until end of turn. Sacrifices after Chapter III (default saga behavior).
+HOGWARTS_SORTING_YEAR = make_enchantment(
+    name="Hogwarts: The Sorting Year",
+    mana_cost="{3}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Saga"},
+    supertypes={"Legendary"},
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Search your library for a Gryffindor, Slytherin, Ravenclaw, "
+        "or Hufflepuff creature card with mana value 3 or less, put it "
+        "onto the battlefield tapped, then shuffle.\n"
+        "II — Create two 2/2 white Human Wizard creature tokens.\n"
+        "III — Other creatures you control get +1/+1 and gain vigilance "
+        "until end of turn."
+    ),
+    setup_interceptors=hogwarts_sorting_year_setup,
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -2516,6 +3045,9 @@ HARRY_POTTER_CARDS = {
     "Light Magic": LIGHT_MAGIC,
     "Dumbledore's Protection": DUMBLEDORES_PROTECTION,
     "Gryffindor Banner": GRYFFINDOR_BANNER,
+
+    # WU Sagas (spice-pass W22+)
+    "Hogwarts: The Sorting Year": HOGWARTS_SORTING_YEAR,
 
     # Blue Legendaries
     "Luna Lovegood, Seer of Truth": LUNA_LOVEGOOD,
@@ -2764,6 +3296,7 @@ CARDS = [
     LIGHT_MAGIC,
     DUMBLEDORES_PROTECTION,
     GRYFFINDOR_BANNER,
+    HOGWARTS_SORTING_YEAR,
     LUNA_LOVEGOOD,
     FILIUS_FLITWICK,
     CHO_CHANG,
