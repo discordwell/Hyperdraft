@@ -3031,6 +3031,604 @@ HYPERBOLIC_TIME_CHAMBER_REFURBISHED = CardDefinition(
 
 
 # =============================================================================
+# SPICE PASS v2 EXPANSION — 7 NEW format-defining picks
+# =============================================================================
+# Builds on Phase A/B above. Targets the gaps surfaced by the 2026-05-18
+# depth audit: missing Dragon Balls assembly payoff, unwired flagship
+# mythics (Shenron / Bardock / Future Trunks / Goku UI), and a saga slot.
+# All names are NEW (no collision with existing DBZ legendaries — the
+# originals stay untouched).
+
+
+# --- Shenron, Wish Granter --- {4}{G}{U}{B} 7/7 Mythic Legendary Dragon
+# The Dragon Ball assembly payoff. ETB scales with Dragon Ball count.
+# Pattern 11 (build-around) + pattern 3 (snowball value).
+def shenron_wish_granter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: count Dragon Balls you control. If 7+, take an extra turn and draw
+    7. Else draw cards = number of Dragon Balls you control + scry 3."""
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def _count_dragon_balls(ctrl_id: str, st: GameState) -> int:
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        n = 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if not o or o.controller != ctrl_id:
+                continue
+            nm = (o.card_def.name if o.card_def else o.characteristics.name or "")
+            if "Dragon Ball" in nm and CardType.ARTIFACT in (o.characteristics.types or set()):
+                n += 1
+        return n
+
+    def etb_wish(event: Event, st: GameState) -> list[Event]:
+        n_balls = _count_dragon_balls(obj.controller, st)
+        events: list[Event] = []
+        if n_balls >= 7:
+            # Wish granted: draw 7, take an extra turn.
+            events.append(Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 7},
+                source=obj.id,
+            ))
+            events.append(Event(
+                type=EventType.EXTRA_TURN,
+                payload={'player': obj.controller},
+                source=obj.id,
+            ))
+        else:
+            # Partial wish: draw N + scry 3.
+            if n_balls > 0:
+                events.append(Event(
+                    type=EventType.DRAW,
+                    payload={'player': obj.controller, 'amount': n_balls},
+                    source=obj.id,
+                ))
+            events.append(Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 3},
+                source=obj.id,
+            ))
+        return events
+
+    return [
+        ih.make_keyword_grant(obj, ['flying', 'trample'], affects_self),
+        ih.make_etb_trigger(obj, etb_wish),
+    ]
+
+SHENRON_WISH_GRANTER = make_creature(
+    name="Shenron, Wish Granter",
+    power=7, toughness=7,
+    mana_cost="{4}{G}{U}{B}",
+    colors={Color.GREEN, Color.BLUE, Color.BLACK},
+    subtypes={"Dragon", "God"},
+    supertypes={"Legendary"},
+    text=(
+        "Flying, trample. When Shenron enters, count the Dragon Ball artifacts "
+        "you control. If seven or more, draw seven cards and take an extra turn "
+        "after this one. Otherwise, draw a card for each Dragon Ball you "
+        "control, then scry 3."
+    ),
+    setup_interceptors=shenron_wish_granter_setup,
+)
+
+
+# --- Eternal Dragon's Wish --- {2}{U}{B}{G} Sorcery, Mythic
+# Win-the-game card / Dragon Ball assembly tutor. Pattern 1+11.
+def eternal_dragons_wish_resolve(targets: list, state: GameState) -> list[Event]:
+    """If you control seven Dragon Balls, sacrifice them and win the game.
+    Otherwise, search your library for a Dragon Ball artifact card and put it
+    onto the battlefield."""
+    caster = None
+    for o in state.objects.values():
+        if (getattr(o.card_def, 'name', None) == "Eternal Dragon's Wish"
+                and o.zone in (ZoneType.STACK, ZoneType.GRAVEYARD)):
+            caster = o.controller
+            break
+    if not caster:
+        return []
+
+    # Count Dragon Balls.
+    bf = state.zones.get('battlefield')
+    ball_ids: list[str] = []
+    if bf:
+        for oid in bf.objects:
+            o = state.objects.get(oid)
+            if not o or o.controller != caster:
+                continue
+            nm = (o.card_def.name if o.card_def else o.characteristics.name or "")
+            if "Dragon Ball" in nm and CardType.ARTIFACT in (o.characteristics.types or set()):
+                ball_ids.append(oid)
+
+    if len(ball_ids) >= 7:
+        # Wish: sacrifice all balls + win.
+        events: list[Event] = []
+        for ball_id in ball_ids[:7]:
+            events.append(Event(
+                type=EventType.SACRIFICE,
+                payload={'object_id': ball_id, 'player': caster},
+                source='eternal_dragons_wish',
+            ))
+        events.append(Event(
+            type=EventType.PLAYER_WINS,
+            payload={'player': caster, 'reason': "Eternal Dragon's Wish granted"},
+            source='eternal_dragons_wish',
+        ))
+        return events
+
+    # Tutor a Dragon Ball.
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': caster,
+            'name_contains': 'Dragon Ball',
+            'card_type': 'artifact',
+            'destination': 'battlefield',
+            'min_count': 0,
+            'max_count': 1,
+            'reveal': True,
+        },
+        source='eternal_dragons_wish',
+    )]
+
+ETERNAL_DRAGONS_WISH = make_sorcery(
+    name="Eternal Dragon's Wish",
+    mana_cost="{2}{U}{B}{G}",
+    colors={Color.BLUE, Color.BLACK, Color.GREEN},
+    text=(
+        "If you control seven Dragon Ball artifacts, sacrifice them — you win "
+        "the game. Otherwise, search your library for a Dragon Ball artifact "
+        "card, put it onto the battlefield, then shuffle."
+    ),
+    resolve=eternal_dragons_wish_resolve,
+)
+
+
+# --- The Saiyan Saga --- {1}{R}{R} Saga, Rare
+# 3-chapter tribal payoff for Saiyan/Z-Fighter package. Pattern 4 + 11.
+def _saiyan_saga_ch_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Tutor a Saiyan creature card with mana value 3 or less."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': saga_obj.controller,
+            'subtype': 'Saiyan',
+            'card_type': 'creature',
+            'destination': 'hand',
+            'min_count': 0,
+            'max_count': 1,
+            'reveal': True,
+        },
+        source=saga_obj.id,
+    )]
+
+
+def _saiyan_saga_ch_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Put a +1/+1 counter on each Saiyan you control."""
+    events: list[Event] = []
+    for o in list(state.objects.values()):
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if o.controller != saga_obj.controller:
+            continue
+        if 'Saiyan' not in (o.characteristics.subtypes or set()):
+            continue
+        events.append(Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': o.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def _saiyan_saga_ch_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Each opponent loses life equal to the number of Saiyans you
+    control. You gain that much life."""
+    n_saiyans = 0
+    for o in state.objects.values():
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if o.controller != saga_obj.controller:
+            continue
+        if 'Saiyan' not in (o.characteristics.subtypes or set()):
+            continue
+        n_saiyans += 1
+    if n_saiyans <= 0:
+        return []
+    events: list[Event] = []
+    for pid in state.players:
+        if pid == saga_obj.controller:
+            continue
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': pid, 'amount': -n_saiyans},
+            source=saga_obj.id,
+        ))
+    events.append(Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': saga_obj.controller, 'amount': n_saiyans},
+        source=saga_obj.id,
+    ))
+    return events
+
+
+def saiyan_saga_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return ih.make_saga_setup(
+        obj,
+        {
+            1: _saiyan_saga_ch_i,
+            2: _saiyan_saga_ch_ii,
+            3: _saiyan_saga_ch_iii,
+        },
+    )
+
+THE_SAIYAN_SAGA = CardDefinition(
+    name="The Saiyan Saga",
+    mana_cost="{1}{R}{R}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Saga"},
+        colors={Color.RED},
+        mana_cost="{1}{R}{R}",
+    ),
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Search your library for a Saiyan creature card, reveal it, put "
+        "it into your hand, then shuffle.\n"
+        "II — Put a +1/+1 counter on each Saiyan you control.\n"
+        "III — Each opponent loses life equal to the number of Saiyans you "
+        "control. You gain that much life."
+    ),
+    setup_interceptors=saiyan_saga_setup,
+)
+
+
+# --- Bardock, Father of Saiyans --- {2}{R}{R} 4/3 Rare Legendary Saiyan Seer
+# Prescient seer that scries on every Saiyan ETB. Snowball draw on combat
+# damage. Pattern 3 (snowball value engine) + 11 (tribal payoff).
+def bardock_father_of_saiyans_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 3, reveal Saiyan from top to hand. Other Saiyan ETB: scry 1.
+    Whenever Bardock deals combat damage to a player, draw a card."""
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_self_effect(event: Event, st: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 3},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.SEARCH_LIBRARY,
+                payload={
+                    'player': obj.controller,
+                    'subtype': 'Saiyan',
+                    'card_type': 'creature',
+                    'destination': 'hand',
+                    'min_count': 0,
+                    'max_count': 1,
+                    'reveal': True,
+                },
+                source=obj.id,
+            ),
+        ]
+
+    def other_saiyan_etb_filter(event: Event, st: GameState, src: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering_id = event.payload.get('object_id')
+        if not entering_id or entering_id == src.id:
+            return False
+        entering = st.objects.get(entering_id)
+        if not entering or entering.controller != src.controller:
+            return False
+        return 'Saiyan' in (entering.characteristics.subtypes or set())
+
+    def scry_one(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        )]
+
+    def combat_damage_draw(event: Event, st: GameState) -> list[Event]:
+        target = event.payload.get('target')
+        if not target or target not in st.players:
+            return []
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        )]
+
+    return [
+        ih.make_etb_trigger(obj, etb_self_effect),
+        ih.make_etb_trigger(obj, scry_one, filter_fn=other_saiyan_etb_filter),
+        ih.make_damage_trigger(obj, combat_damage_draw, combat_only=True),
+    ]
+
+BARDOCK_FATHER_OF_SAIYANS = make_creature(
+    name="Bardock, Father of Saiyans",
+    power=4, toughness=3,
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    subtypes={"Saiyan", "Warrior", "Seer"},
+    supertypes={"Legendary"},
+    text=(
+        "When Bardock enters, scry 3, then search your library for a Saiyan "
+        "creature card, reveal it, put it into your hand, then shuffle. "
+        "Whenever another Saiyan you control enters, scry 1. "
+        "Whenever Bardock deals combat damage to a player, draw a card."
+    ),
+    setup_interceptors=bardock_father_of_saiyans_setup,
+)
+
+
+# --- Future Trunks, Tomorrow's Hope --- {2}{U}{R} 3/3 Rare Legendary
+# Saiyan Time Traveler. Tutoring + selective recursion. Pattern 7 + 8.
+def future_trunks_tomorrow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Haste self. ETB: tutor any sorcery card ≤MV4 to hand. Whenever Trunks
+    attacks, return target creature with mana value 3 or less from your
+    graveyard to your hand."""
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_tutor_sorcery(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': obj.controller,
+                'card_type': 'sorcery',
+                'max_mana_value': 4,
+                'destination': 'hand',
+                'min_count': 0,
+                'max_count': 1,
+                'reveal': True,
+            },
+            source=obj.id,
+        )]
+
+    def attack_recur_effect(event: Event, st: GameState) -> list[Event]:
+        # Find smallest creature in own graveyard with MV ≤ 3 and return it.
+        gy = st.zones.get(f'graveyard_{obj.controller}')
+        if not gy:
+            return []
+        candidates: list[tuple[int, str]] = []
+        for cid in gy.objects:
+            c = st.objects.get(cid)
+            if not c:
+                continue
+            if CardType.CREATURE not in (c.characteristics.types or set()):
+                continue
+            cost_str = (
+                c.characteristics.mana_cost
+                or (c.card_def.mana_cost if c.card_def else "")
+                or "{0}"
+            )
+            try:
+                from src.engine import ManaCost
+                mv = ManaCost.parse(cost_str).mana_value
+            except Exception:
+                mv = 0
+            if mv > 3:
+                continue
+            candidates.append((mv, cid))
+        if not candidates:
+            return []
+        # Pick the lowest-MV candidate deterministically.
+        candidates.sort(key=lambda kv: kv[0])
+        _, picked = candidates[0]
+        return [Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={
+                'object_id': picked,
+                'destination': 'hand',
+                'controller': obj.controller,
+            },
+            source=obj.id,
+        )]
+
+    return [
+        ih.make_keyword_grant(obj, ['haste'], affects_self),
+        ih.make_etb_trigger(obj, etb_tutor_sorcery),
+        ih.make_attack_trigger(obj, attack_recur_effect),
+    ]
+
+FUTURE_TRUNKS_TOMORROW = make_creature(
+    name="Future Trunks, Tomorrow's Hope",
+    power=3, toughness=3,
+    mana_cost="{2}{U}{R}",
+    colors={Color.BLUE, Color.RED},
+    subtypes={"Saiyan", "Z-Fighter", "Warrior"},
+    supertypes={"Legendary"},
+    text=(
+        "Haste. When Future Trunks enters, search your library for a sorcery "
+        "card with mana value 4 or less, reveal it, put it into your hand, "
+        "then shuffle. Whenever Future Trunks attacks, you may return a "
+        "creature card with mana value 3 or less from your graveyard to your "
+        "hand."
+    ),
+    setup_interceptors=future_trunks_tomorrow_setup,
+)
+
+
+# --- Goku, Ultra Instinct Sign --- {3}{W}{U} 4/5 Mythic Legendary Saiyan God
+# Endgame board-controlling mythic. Pattern 2 (hard to interact) + 9 (tempo
+# theft). Static ward + own-turn-end untap + counters from being targeted.
+def goku_ultra_instinct_sign_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying, vigilance, ward {2}. Whenever Goku becomes the target of a
+    spell or ability, put a +1/+1 counter on him and untap him. At the
+    beginning of your end step, if Goku has 4+ +1/+1 counters, take an
+    extra turn (one-shot per game)."""
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    # ward {2}: counter targeting unless paid.
+    ward_iceptor = ih.make_ward(obj, mana_cost="{2}")
+
+    # Targeting trigger: when Goku is targeted, +1/+1 counter + untap him.
+    def targeting_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.TARGET_CHOSEN:
+            return False
+        if event.payload.get('target_id') != obj.id:
+            return False
+        return True
+
+    def targeting_handler(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[
+                Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                    source=obj.id,
+                ),
+                Event(type=EventType.UNTAP, payload={'object_id': obj.id}, source=obj.id),
+            ],
+        )
+
+    target_trigger = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=targeting_filter,
+        handler=targeting_handler,
+        duration='while_on_battlefield',
+    )
+
+    # End step extra-turn trigger (one-shot, gated by counters).
+    def end_step_effect(event: Event, st: GameState) -> list[Event]:
+        if getattr(obj.state, '_ui_sign_extra_turn_fired', False):
+            return []
+        if obj.state.counters.get('+1/+1', 0) < 4:
+            return []
+        # Mark fired (one-shot).
+        setattr(obj.state, '_ui_sign_extra_turn_fired', True)
+        return [Event(
+            type=EventType.EXTRA_TURN,
+            payload={'player': obj.controller},
+            source=obj.id,
+        )]
+
+    return [
+        ih.make_keyword_grant(obj, ['flying', 'vigilance'], affects_self),
+        ward_iceptor,
+        target_trigger,
+        ih.make_end_step_trigger(obj, end_step_effect),
+    ]
+
+GOKU_ULTRA_INSTINCT_SIGN = make_creature(
+    name="Goku, Ultra Instinct Sign",
+    power=4, toughness=5,
+    mana_cost="{3}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Saiyan", "Z-Fighter", "God"},
+    supertypes={"Legendary"},
+    text=(
+        "Flying, vigilance, ward {2}. Whenever Goku becomes the target of a "
+        "spell or ability, put a +1/+1 counter on him and untap him. "
+        "At the beginning of your end step, if Goku has four or more +1/+1 "
+        "counters, take an extra turn after this one. (This ability triggers "
+        "only once each game.)"
+    ),
+    setup_interceptors=goku_ultra_instinct_sign_setup,
+)
+
+
+# --- Kame House, Master's Refuge --- Legendary Land
+# Z-Fighter tutor with gated activation. Pattern 7 (tutoring) + 11.
+def kame_house_refuge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: Add {W} or {U}. {2}, {T}: Search your library for a Z-Fighter
+    creature card with mana value 3 or less, reveal it, put it into your
+    hand, then shuffle. Activate only if you control a Z-Fighter."""
+
+    def mana_w(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': o.controller, 'mana': {'W': 1}},
+            source=o.id,
+        )]
+
+    def mana_u(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': o.controller, 'mana': {'U': 1}},
+            source=o.id,
+        )]
+
+    ih.make_activated_ability(
+        obj,
+        cost="{T}",
+        effect_fn=mana_w,
+        description="Tap: Add {W}.",
+    )
+    ih.make_activated_ability(
+        obj,
+        cost="{T}",
+        effect_fn=mana_u,
+        description="Tap: Add {U}.",
+    )
+
+    def gate_has_z_fighter(o: GameObject, st: GameState) -> bool:
+        for x in st.objects.values():
+            if x.zone != ZoneType.BATTLEFIELD:
+                continue
+            if x.controller != o.controller:
+                continue
+            if 'Z-Fighter' in (x.characteristics.subtypes or set()):
+                return True
+        return False
+
+    def tutor_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': o.controller,
+                'subtype': 'Z-Fighter',
+                'card_type': 'creature',
+                'max_mana_value': 3,
+                'destination': 'hand',
+                'min_count': 0,
+                'max_count': 1,
+                'reveal': True,
+            },
+            source=o.id,
+        )]
+
+    ih.make_activated_ability(
+        obj,
+        cost="{2}, {T}",
+        effect_fn=tutor_effect,
+        description="{2}, {T}: Tutor a Z-Fighter creature ≤MV3.",
+        precondition_fn=gate_has_z_fighter,
+    )
+    return []
+
+KAME_HOUSE_MASTERS_REFUGE = make_land(
+    name="Kame House, Master's Refuge",
+    text=(
+        "{T}: Add {W} or {U}. "
+        "{2}, {T}: Search your library for a Z-Fighter creature card with "
+        "mana value 3 or less, reveal it, put it into your hand, then "
+        "shuffle. Activate this ability only if you control a Z-Fighter."
+    ),
+    supertypes={"Legendary"},
+    setup_interceptors=kame_house_refuge_setup,
+)
+
+
+# =============================================================================
 # CARD REGISTRY
 # =============================================================================
 
@@ -3282,6 +3880,15 @@ DRAGON_BALL_CARDS = {
     # SPICE PASS Phase B
     "Senzu Bean Reanimator": SENZU_BEAN_REANIMATOR,
     "Hyperbolic Time Chamber, Refurbished": HYPERBOLIC_TIME_CHAMBER_REFURBISHED,
+    # SPICE PASS v2 EXPANSION (2026-05-18) — Dragon Balls assembly payoff,
+    # saga, and reskinned flagship mythics.
+    "Shenron, Wish Granter": SHENRON_WISH_GRANTER,
+    "Eternal Dragon's Wish": ETERNAL_DRAGONS_WISH,
+    "The Saiyan Saga": THE_SAIYAN_SAGA,
+    "Bardock, Father of Saiyans": BARDOCK_FATHER_OF_SAIYANS,
+    "Future Trunks, Tomorrow's Hope": FUTURE_TRUNKS_TOMORROW,
+    "Goku, Ultra Instinct Sign": GOKU_ULTRA_INSTINCT_SIGN,
+    "Kame House, Master's Refuge": KAME_HOUSE_MASTERS_REFUGE,
 }
 
 print(f"Loaded {len(DRAGON_BALL_CARDS)} Dragon Ball Z cards")
@@ -3519,4 +4126,12 @@ CARDS = [
     # SPICE PASS Phase B
     SENZU_BEAN_REANIMATOR,
     HYPERBOLIC_TIME_CHAMBER_REFURBISHED,
+    # SPICE PASS v2 EXPANSION
+    SHENRON_WISH_GRANTER,
+    ETERNAL_DRAGONS_WISH,
+    THE_SAIYAN_SAGA,
+    BARDOCK_FATHER_OF_SAIYANS,
+    FUTURE_TRUNKS_TOMORROW,
+    GOKU_ULTRA_INSTINCT_SIGN,
+    KAME_HOUSE_MASTERS_REFUGE,
 ]
