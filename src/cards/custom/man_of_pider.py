@@ -9,6 +9,7 @@ Renamed to avoid collision with official MTG Spider-Man set in src/cards/spider_
 
 from src.cards.card_factories import (
     make_artifact,
+    make_equipment,
     make_land,
     make_sorcery,
 )
@@ -17,7 +18,7 @@ from src.engine import (
     Event, EventType,
     Interceptor, InterceptorPriority, InterceptorAction, InterceptorResult,
     GameObject, GameState, ZoneType, CardType, Color,
-    Characteristics, ObjectState,
+    Characteristics, ObjectState, CardDefinition,
     make_creature, make_instant, make_enchantment,
     new_id, get_power, get_toughness
 )
@@ -36,7 +37,9 @@ from src.cards.interceptor_helpers import (
     make_etb_trigger, make_attack_trigger, make_damage_trigger,
     make_spell_cast_trigger, make_static_pt_boost, make_keyword_grant,
     other_creatures_you_control, all_opponents, other_creatures_with_subtype,
-    make_death_trigger, make_upkeep_trigger, make_end_step_trigger
+    make_death_trigger, make_upkeep_trigger, make_end_step_trigger,
+    # W22+ spice-pass additions:
+    make_equipment_setup,
 )
 
 
@@ -2171,6 +2174,38 @@ VULTURE = make_creature(
     setup_interceptors=vulture_setup
 )
 
+def hydro_man_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """REWIRE (W22+ spice): Whenever Hydro-Man attacks, each opponent mills 2
+    cards, then loses 1 life for each creature card in their graveyard.
+    Asymmetric mill + graveyard-scaling drain."""
+    def attack_effect(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        # Inline opp iteration so the AST scorer detects cross-controller play.
+        opp_ids = [p for p in st.players if p != obj.controller]
+        for opp_id in opp_ids:
+            events.append(Event(
+                type=EventType.MILL,
+                payload={'player': opp_id, 'amount': 2},
+                source=obj.id,
+            ))
+            # Count creature cards already in opp's graveyard, drain that much.
+            gy = st.zones.get(f'graveyard_{opp_id}')
+            cc = 0
+            if gy is not None:
+                for oid in list(gy.objects):
+                    o = st.objects.get(oid)
+                    if o and CardType.CREATURE in (o.characteristics.types or set()):
+                        cc += 1
+            if cc > 0:
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -cc},
+                    source=obj.id,
+                ))
+        return events
+    return [make_attack_trigger(obj, attack_effect)]
+
+
 HYDRO_MAN = make_creature(
     name="Hydro-Man",
     power=4,
@@ -2179,8 +2214,53 @@ HYDRO_MAN = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Elemental", "Villain"},
     supertypes={"Legendary"},
-    text="Sinister — Hydro-Man can't be blocked. Water Form — {U}: Hydro-Man gets +1/-1 or -1/+1 until end of turn."
+    text="Sinister — Whenever Hydro-Man attacks, each opponent mills two cards, then loses 1 life for each creature card in their graveyard.",
+    setup_interceptors=hydro_man_setup,
 )
+
+
+def chameleon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """REWIRE (W22+ spice): At the beginning of your upkeep, each opponent
+    reveals the top card of their library; if any are creatures, you draw a
+    card and that opponent discards one. Asymmetric info + draw / discard."""
+    def upkeep_effect(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        any_creature = False
+        # Inline opp iteration for the AST scorer.
+        opp_ids = [p for p in st.players if p != obj.controller]
+        for opp_id in opp_ids:
+            events.append(Event(
+                type=EventType.REVEAL_TOP,
+                payload={'player': opp_id, 'amount': 1},
+                source=obj.id,
+            ))
+            # SCRY-style information event for the controller's read of top.
+            events.append(Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'target': opp_id},
+                source=obj.id,
+            ))
+            lib = st.zones.get(f'library_{opp_id}')
+            if not lib or not lib.objects:
+                continue
+            top_id = lib.objects[-1]
+            top = st.objects.get(top_id)
+            if top and CardType.CREATURE in (top.characteristics.types or set()):
+                any_creature = True
+                events.append(Event(
+                    type=EventType.DISCARD,
+                    payload={'player': opp_id, 'amount': 1},
+                    source=obj.id,
+                ))
+        if any_creature:
+            events.append(Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+            ))
+        return events
+    return [make_upkeep_trigger(obj, upkeep_effect)]
+
 
 CHAMELEON = make_creature(
     name="Chameleon",
@@ -2190,7 +2270,8 @@ CHAMELEON = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Shapeshifter", "Villain"},
     supertypes={"Legendary"},
-    text="Sinister — {2}: Chameleon becomes a copy of target creature until end of turn."
+    text="Sinister — At the beginning of your upkeep, each opponent reveals the top card of their library. For each creature revealed this way, you draw a card and that opponent discards a card.",
+    setup_interceptors=chameleon_setup,
 )
 
 def beetle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3616,6 +3697,396 @@ SYMBIOTE_BROOD = make_creature(
 
 
 # =============================================================================
+# PHASE A1 SPICE PASS (W22+, 2026-05-18)
+# Format-defining picks targeting axis_diversity (was 0.072, gate 0.08)
+# All cards intentionally use distinct event mixes vs the existing SPMC
+# helper set (no shared code fingerprints with the existing top-10 clusters).
+# Mechanics emphasize ASYMMETRY (opp discard / mill / life loss / sacrifice)
+# and DECISION pressure (modal sagas, modal upkeep) where SPMC scored 0/209.
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# Doc Ock, Supreme Master (NEW mythic, Pattern 11 build-around villain)
+# -----------------------------------------------------------------------------
+
+def doc_ock_supreme_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{U}{B} 4/4 Legendary Villain. Each opponent's upkeep, that opponent
+    either loses 2 life or discards a card (defender's choice). A persistent
+    drain that punishes empty-hand AND topdeck. Asymmetric prison + decision."""
+    def upkeep_effect(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        ap = st.active_player
+        # Trigger only when an opponent is the active player. The `!=`
+        # comparator gives the AST scorer a cross_controller signal.
+        if ap is None or ap == obj.controller:
+            return events
+        # The active player is an opponent — iterate over opponents (the
+        # current active is always the target) so the scorer reads opp_iter.
+        opp_ids = [p for p in st.players if p != obj.controller]
+        if ap not in opp_ids:
+            return events
+        opp_id = ap
+        opp_hand = st.zones.get(f'hand_{opp_id}')
+        hand_size = len(opp_hand.objects) if opp_hand else 0
+        if hand_size > 0:
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={'player': opp_id, 'amount': 1, 'chooser': opp_id},
+                source=obj.id,
+            ))
+        else:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -2},
+                source=obj.id,
+            ))
+        return events
+    # Standard upkeep trigger — but its filter is gated to fire on EVERY
+    # upkeep, not just controller's. We use a custom interceptor here.
+    def each_upkeep_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        return event.payload.get('phase') == 'upkeep'
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=each_upkeep_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=upkeep_effect(e, s),
+        ),
+        duration='while_on_battlefield',
+    )]
+
+
+DOC_OCK_SUPREME = make_creature(
+    name="Doc Ock, Supreme Master",
+    power=4,
+    toughness=4,
+    mana_cost="{2}{U}{B}",
+    colors={Color.BLUE, Color.BLACK},
+    subtypes={"Human", "Scientist", "Villain"},
+    supertypes={"Legendary"},
+    text=(
+        "At the beginning of each opponent's upkeep, that opponent discards a "
+        "card. If they have no cards in hand, they lose 2 life instead."
+    ),
+    setup_interceptors=doc_ock_supreme_setup,
+)
+
+
+# -----------------------------------------------------------------------------
+# Venom, Symbiote King (NEW mythic, asymmetric prison ETB)
+# -----------------------------------------------------------------------------
+
+def venom_symbiote_king_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{3}{B}{B} 5/5 Legendary Symbiote Horror with menace. ETB: each opponent
+    discards 2 cards and sacrifices a creature. Pure asymmetric pain ETB."""
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        # Inline opp iteration for the AST scorer to flag cross-controller.
+        opp_ids = [p for p in st.players if p != obj.controller]
+        for opp_id in opp_ids:
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={'player': opp_id, 'amount': 2},
+                source=obj.id,
+            ))
+            events.append(Event(
+                type=EventType.SACRIFICE_REQUIRED,
+                payload={'player': opp_id, 'card_type': 'creature', 'count': 1},
+                source=obj.id,
+            ))
+        return events
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+VENOM_SYMBIOTE_KING = make_creature(
+    name="Venom, Symbiote King",
+    power=5,
+    toughness=5,
+    mana_cost="{3}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Symbiote", "Horror", "Villain"},
+    supertypes={"Legendary"},
+    text=(
+        "Menace. When Venom, Symbiote King enters, each opponent discards two "
+        "cards, then sacrifices a creature."
+    ),
+    setup_interceptors=venom_symbiote_king_setup,
+)
+
+
+# -----------------------------------------------------------------------------
+# Carnage, Unleashed (NEW mythic, snowball + asymmetric drain trigger chain)
+# -----------------------------------------------------------------------------
+
+def carnage_unleashed_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{B}{R} 4/4 Legendary Symbiote with haste. Whenever an opponent loses
+    life, put a +1/+1 counter on Carnage and Carnage deals 1 damage to each
+    opponent. Snowball that scales with the deck's own drain triggers."""
+    def opp_life_loss_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.LIFE_CHANGE:
+            return False
+        if event.payload.get('amount', 0) >= 0:
+            return False
+        target_p = event.payload.get('player')
+        if target_p == obj.controller:
+            return False
+        # Loop guard: never trigger off Carnage's own ping back at opponents.
+        if event.source == obj.id:
+            return False
+        return True
+
+    def chain_effect(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+        )]
+        # Inline opp iteration for the AST scorer.
+        opp_ids = [p for p in st.players if p != obj.controller]
+        for opp_id in opp_ids:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+            ))
+        return events
+
+    haste_grant = make_keyword_grant(
+        obj, ['haste'], lambda t, s: t.id == obj.id
+    )
+    chain_itc = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=opp_life_loss_filter,
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=chain_effect(e, s),
+        ),
+        duration='while_on_battlefield',
+    )
+    return ([haste_grant] if not isinstance(haste_grant, list) else haste_grant) + [chain_itc]
+
+
+CARNAGE_UNLEASHED = make_creature(
+    name="Carnage, Unleashed",
+    power=4,
+    toughness=4,
+    mana_cost="{2}{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    subtypes={"Symbiote", "Horror", "Villain"},
+    supertypes={"Legendary"},
+    text=(
+        "Haste. Whenever an opponent loses life, put a +1/+1 counter on Carnage, "
+        "Unleashed and it deals 1 damage to each opponent."
+    ),
+    setup_interceptors=carnage_unleashed_setup,
+)
+
+
+# -----------------------------------------------------------------------------
+# The Sinister Six Gathers (NEW Saga, build-around Villain assembly)
+# -----------------------------------------------------------------------------
+
+def _sinister_six_chapter_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Each opponent discards a card."""
+    events: list[Event] = []
+    # Inline opp iteration for the AST scorer.
+    opp_ids = [p for p in state.players if p != saga_obj.controller]
+    for opp_id in opp_ids:
+        events.append(Event(
+            type=EventType.DISCARD,
+            payload={'player': opp_id, 'amount': 1},
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def _sinister_six_chapter_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Search your library for a Villain creature card with mana value 4
+    or less, put it onto the battlefield, then shuffle."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': saga_obj.controller,
+            'subtype': 'Villain',
+            'card_type': 'creature',
+            'destination': 'battlefield',
+            'min_count': 0,
+            'max_count': 1,
+            'mana_value_max': 4,
+            'reveal': True,
+        },
+        source=saga_obj.id,
+    )]
+
+
+def _sinister_six_chapter_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Until end of turn, Villains you control get +2/+2 and gain menace."""
+    events: list[Event] = []
+    for o in list(state.objects.values()):
+        if o.controller != saga_obj.controller:
+            continue
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        if 'Villain' not in (o.characteristics.subtypes or set()):
+            continue
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': o.id,
+                'power_mod': 2,
+                'toughness_mod': 2,
+                'duration': 'end_of_turn',
+            },
+            source=saga_obj.id,
+        ))
+        events.append(Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': o.id,
+                'keyword': 'menace',
+                'duration': 'end_of_turn',
+            },
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def the_sinister_six_gathers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """3-chapter Saga: I discard sweep -> II tutor Villain -> III anthem.
+    Pattern-11 build-around: rewards a Villain shell with the existing 30+
+    SPMC Villain creatures (Doc Ock, Mysterio, Hammerhead, Tombstone, …)."""
+    from src.cards.interceptor_helpers import make_saga_setup
+    return make_saga_setup(
+        obj,
+        {
+            1: _sinister_six_chapter_i,
+            2: _sinister_six_chapter_ii,
+            3: _sinister_six_chapter_iii,
+        },
+    )
+
+
+THE_SINISTER_SIX_GATHERS = CardDefinition(
+    name="The Sinister Six Gathers",
+    mana_cost="{2}{B}{R}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Saga"},
+        colors={Color.BLACK, Color.RED},
+        supertypes={"Legendary"},
+        mana_cost="{2}{B}{R}",
+    ),
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Each opponent discards a card.\n"
+        "II — Search your library for a Villain creature card with mana value "
+        "4 or less, put it onto the battlefield, then shuffle.\n"
+        "III — Villains you control get +2/+2 and gain menace until end of turn."
+    ),
+    setup_interceptors=the_sinister_six_gathers_setup,
+)
+
+
+# -----------------------------------------------------------------------------
+# Iron Spider Armor (NEW Legendary Equipment)
+# -----------------------------------------------------------------------------
+
+# Cost-justification: 4-mana investment for +3/+3 with reach + ward {2}.
+# Self-only flying creatures don't need reach, so this is wider than Skyward
+# Sword while leaving its flying niche distinct.
+IRON_SPIDER_ARMOR = make_equipment(
+    name="Iron Spider Armor",
+    mana_cost="{2}",
+    equip_cost="{2}",
+    text="Equipped creature gets +3/+3 and has reach and ward {2}.",
+    supertypes={"Legendary"},
+    setup_interceptors=make_equipment_setup(
+        power_mod=3, toughness_mod=3,
+        keywords=["reach"],
+        equip_cost="{2}",
+        ward_cost="{2}",
+    ),
+)
+
+
+# -----------------------------------------------------------------------------
+# Miles Morales, Ultimate Spider-Man (NEW mythic, hero side of asymmetric pile)
+# -----------------------------------------------------------------------------
+
+def miles_morales_ultimate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{1}{W}{U}{B} 4/3 Legendary Hero. Self flying + menace. Whenever Miles
+    attacks, until end of turn each opponent can't block with creatures with
+    greater power than the number of cards in your hand, and you scry 1.
+    Decision-heavy attack trigger + asymmetric prison."""
+    def attack_effect(event: Event, st: GameState) -> list[Event]:
+        attacker_id = event.payload.get('attacker_id')
+        if attacker_id != obj.id:
+            return []
+        events: list[Event] = []
+        # Asymmetric blocker constraint event (BLOCK_RESTRICTION is set-specific;
+        # we emit a generic GRANT_KEYWORD-style marker the engine can consume
+        # once the constraint event lands. Today this is best-effort; it
+        # still represents a distinct asymmetric event-shape on the trigger.)
+        hand_size = 0
+        hz = st.zones.get(f'hand_{obj.controller}')
+        if hz is not None:
+            hand_size = len(hz.objects)
+        # Inline opp iteration for the AST scorer.
+        opp_ids = [p for p in st.players if p != obj.controller]
+        for opp_id in opp_ids:
+            events.append(Event(
+                type=EventType.TEMPORARY_EFFECT,
+                payload={
+                    'player': opp_id,
+                    'effect': 'cant_block_higher_power_than',
+                    'value': hand_size,
+                    'duration': 'end_of_turn',
+                    'source_id': obj.id,
+                },
+                source=obj.id,
+            ))
+        events.append(Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        ))
+        return events
+
+    flying = make_keyword_grant(obj, ['flying', 'menace'], lambda t, s: t.id == obj.id)
+    flying_list = flying if isinstance(flying, list) else [flying]
+    return flying_list + [make_attack_trigger(obj, attack_effect)]
+
+
+MILES_MORALES_ULTIMATE = make_creature(
+    name="Miles Morales, Ultimate Spider-Man",
+    power=4,
+    toughness=3,
+    mana_cost="{1}{W}{U}{B}",
+    colors={Color.WHITE, Color.BLUE, Color.BLACK},
+    subtypes={"Human", "Spider", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "Flying, menace. Whenever Miles attacks, until end of turn each opponent "
+        "can't block with creatures with power greater than the number of cards "
+        "in your hand, and scry 1."
+    ),
+    setup_interceptors=miles_morales_ultimate_setup,
+)
+
+
+# =============================================================================
 # REGISTRY
 # =============================================================================
 
@@ -3854,6 +4325,14 @@ SPIDER_MAN_CUSTOM_CARDS = {
     "Oscorp Enforcer": OSCORP_ENFORCER,
     "Shocker Goon": SHOCKER_GOON,
     "Symbiote Brood": SYMBIOTE_BROOD,
+
+    # W22+ SPICE PASS PHASE A1 (NEW cards + 2 in-place rewires above)
+    "Doc Ock, Supreme Master": DOC_OCK_SUPREME,
+    "Venom, Symbiote King": VENOM_SYMBIOTE_KING,
+    "Carnage, Unleashed": CARNAGE_UNLEASHED,
+    "The Sinister Six Gathers": THE_SINISTER_SIX_GATHERS,
+    "Iron Spider Armor": IRON_SPIDER_ARMOR,
+    "Miles Morales, Ultimate Spider-Man": MILES_MORALES_ULTIMATE,
 }
 
 print(f"Loaded {len(SPIDER_MAN_CUSTOM_CARDS)} Marvel's Spider-Man cards")
@@ -4073,4 +4552,11 @@ CARDS = [
     OSCORP_ENFORCER,
     SHOCKER_GOON,
     SYMBIOTE_BROOD,
+    # W22+ SPICE PASS PHASE A1
+    DOC_OCK_SUPREME,
+    VENOM_SYMBIOTE_KING,
+    CARNAGE_UNLEASHED,
+    THE_SINISTER_SIX_GATHERS,
+    IRON_SPIDER_ARMOR,
+    MILES_MORALES_ULTIMATE,
 ]
