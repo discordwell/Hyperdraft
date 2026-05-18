@@ -5477,6 +5477,308 @@ FOREST_TLA = make_land(
 
 
 # =============================================================================
+# PHASE A1 SPICE PASS (2026-05-18)
+# =============================================================================
+#
+# Targets the v2 depth audit's findings for `mtg_tlac`:
+# - 286 cards, median_depth=0, mean=0.69, axis_d=0.056, code_d=0.611
+# - top reskin cluster: 15 cards sharing empty-make_etb_trigger fingerprint
+# - high 52.1% wired%, but most wired cards have effect_fn returning [].
+#
+# This pass adds 7 cards across two cleanup paths:
+# - 3 REWIRES of unwired/empty legendary equipment (Sokka's Boomerang,
+#   Aang's Staff, Toph's Bracelet)
+# - 1 REWIRE of empty Iroh, Dragon of the West upkeep
+# - 3 NEW build-around mythics + 1 saga (The Four Nations Restored,
+#   Fire Lord Ozai Phoenix King, Siege of Ba Sing Se)
+# =============================================================================
+
+from src.cards.interceptor_helpers import make_equipment_setup, make_saga_setup
+
+
+# --- Iroh, Dragon of the West: REWIRE upkeep ----------------------------------
+#
+# Existing setup at top of file emits no events. Rewire upkeep to ping each
+# opponent for 1 damage (engine-only, no target prompt — pattern matches
+# Daruk-style multi-opponent damage trigger). The {R} self-cost from the
+# printed text is dropped for v1 — automatic, like the engine treats most
+# upkeep triggers. Keeps the card alive without engine extensions.
+
+def _iroh_dragon_upkeep(obj: GameObject, state: GameState) -> list[Event]:
+    """Whenever Iroh's controller's upkeep starts, deal 1 to each opponent."""
+    return [
+        Event(
+            type=EventType.DAMAGE,
+            payload={'target': opp_id, 'amount': 1, 'source': obj.id},
+            source=obj.id,
+            controller=obj.controller,
+        )
+        for opp_id in all_opponents(obj, state)
+    ]
+
+
+def iroh_dragon_of_the_west_rewired_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """REWIRE: replace empty upkeep effect with real damage to each opponent."""
+    return [
+        make_firebend_etb(obj, 3),
+        make_upkeep_trigger(obj, lambda e, s: _iroh_dragon_upkeep(obj, s)),
+    ]
+
+
+# Re-bind: monkey-patch the existing card's setup_interceptors hook in-place.
+# This preserves the registry entry and the existing card def fields. The
+# card already exists at module load — we just swap the setup callable.
+IROH_DRAGON_OF_THE_WEST.setup_interceptors = iroh_dragon_of_the_west_rewired_setup
+
+
+# --- Sokka's Boomerang: REWIRE legendary equipment ----------------------------
+#
+# Existing BOOMERANG_ARTIFACT (display name "Sokka's Boomerang") has no
+# setup_interceptors — vanilla even though text says "+1/+1 and bounces on
+# combat damage." Wire the static PT mod via make_equipment_setup. The
+# bounce-on-damage clause is deferred (needs ATTACH-aware damage trigger);
+# the static keeps Skill 1 covered.
+
+BOOMERANG_ARTIFACT.setup_interceptors = make_equipment_setup(
+    power_mod=1,
+    toughness_mod=1,
+    equip_cost="{1}",
+)
+
+
+# --- Aang's Staff: REWIRE legendary equipment ---------------------------------
+#
+# +2/+0 and grant flying via make_equipment_setup. Equip Avatar {1}
+# discount and airbend-on-attack are deferred (Phase B-1).
+
+AANGS_STAFF.setup_interceptors = make_equipment_setup(
+    power_mod=2,
+    toughness_mod=0,
+    keywords=['flying'],
+    equip_cost="{3}",
+)
+
+
+# --- Toph's Bracelet: REWIRE legendary equipment ------------------------------
+#
+# +1/+2 plus grant trample to the equipped creature. The printed text says
+# "earthbend 2" — we approximate trample as a tangible, engine-supported
+# proxy for the earth-bending posture (Toph crushing through defenders).
+
+TOPHS_BRACELET.setup_interceptors = make_equipment_setup(
+    power_mod=1,
+    toughness_mod=2,
+    keywords=['trample'],
+    equip_cost="{2}",
+)
+
+
+# --- Fire Lord Ozai, Phoenix King: NEW build-around mythic --------------------
+#
+# Mythic finisher in mono-red. Indestructible while you control 5+ Mountains
+# (Sozin's Comet flavor), otherwise just menace + firebend on attack.
+# Pattern 11 build-around: needs Mountains to shine.
+
+def fire_lord_ozai_phoenix_king_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Menace static; indestructible-while-5-mountains; attack ping each opp."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def affects_self_with_mountains(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        mountain_count = sum(
+            1 for o in st.objects.values()
+            if o.controller == obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and 'Mountain' in (o.characteristics.subtypes or set())
+        )
+        return mountain_count >= 5
+
+    def attack_pings(event: Event, st: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': 2, 'source': obj.id},
+                source=obj.id,
+                controller=obj.controller,
+            )
+            for opp_id in all_opponents(obj, st)
+        ]
+
+    return [
+        make_keyword_grant(obj, ['menace'], affects_self),
+        make_keyword_grant(obj, ['indestructible'], affects_self_with_mountains),
+        make_attack_trigger(obj, attack_pings),
+    ]
+
+
+FIRE_LORD_OZAI_PHOENIX_KING = make_creature(
+    name="Fire Lord Ozai, Phoenix King",
+    power=6,
+    toughness=5,
+    mana_cost="{4}{R}{R}",
+    colors={Color.RED},
+    subtypes={"Human", "Avatar"},
+    supertypes={"Legendary"},
+    text=(
+        "Menace. As long as you control five or more Mountains, Fire Lord Ozai "
+        "has indestructible. Whenever Fire Lord Ozai attacks, it deals 2 damage "
+        "to each opponent."
+    ),
+    setup_interceptors=fire_lord_ozai_phoenix_king_setup,
+)
+
+
+# --- The Four Nations Restored: NEW build-around mythic (5-color) -------------
+#
+# Pattern 11 build-around payoff for a 5-color "Four Nations" deck. Each
+# creature you control gets +1/+1 for each distinct color among creatures
+# you control. The four nations theme lands when you have 4 colors deployed.
+
+def _distinct_colors_among_creatures(controller: str, state: GameState) -> int:
+    seen = set()
+    for o in state.objects.values():
+        if o.controller != controller:
+            continue
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        for c in (o.characteristics.colors or set()):
+            seen.add(c)
+    return len(seen)
+
+
+def four_nations_restored_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Dynamic anthem: +N/+N to creatures you control, N = distinct colors."""
+    def affects_filter(target: GameObject, st: GameState) -> bool:
+        if target.controller != obj.controller:
+            return False
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        return CardType.CREATURE in (target.characteristics.types or set())
+
+    def mod_fn(source: GameObject, target: GameObject, st: GameState) -> tuple[int, int]:
+        n = _distinct_colors_among_creatures(obj.controller, st)
+        return (n, n)
+
+    from src.cards.interceptor_helpers import make_dynamic_pt_boost
+    return make_dynamic_pt_boost(obj, mod_fn, affects_filter)
+
+
+FOUR_NATIONS_RESTORED = make_enchantment(
+    name="The Four Nations Restored",
+    mana_cost="{2}{W}{U}{G}",
+    colors={Color.WHITE, Color.BLUE, Color.GREEN},
+    text=(
+        "Creatures you control get +1/+1 for each color among creatures you "
+        "control."
+    ),
+    setup_interceptors=four_nations_restored_setup,
+)
+
+
+# --- Siege of Ba Sing Se: NEW 3-chapter saga ----------------------------------
+#
+# Earth Kingdom siege narrative compressed into a 3-chapter saga:
+#   I — search library for an Ally creature with MV<=3, into play tapped
+#   II — create two 2/2 green Earth Soldier tokens
+#   III — anthem +2/+1 to other creatures you control until end of turn
+
+def _siege_of_ba_sing_se_chapter_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Tutor an MV<=3 Ally onto battlefield tapped."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': saga_obj.controller,
+            'subtypes_any': ['Ally'],
+            'card_type': 'creature',
+            'destination': 'battlefield',
+            'min_count': 0,
+            'max_count': 1,
+            'mana_value_max': 3,
+            'enters_tapped': True,
+            'reveal': True,
+        },
+        source=saga_obj.id,
+    )]
+
+
+def _siege_of_ba_sing_se_chapter_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Create two 2/2 green Earthbender Soldier tokens."""
+    token_spec = {
+        'name': 'Earthbender',
+        'types': {CardType.CREATURE},
+        'subtypes': {'Human', 'Soldier'},
+        'power': 2,
+        'toughness': 2,
+        'colors': {Color.GREEN},
+    }
+    return [
+        Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': saga_obj.controller, 'token': dict(token_spec)},
+            source=saga_obj.id,
+        )
+        for _ in range(2)
+    ]
+
+
+def _siege_of_ba_sing_se_chapter_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Other creatures you control get +2/+1 until end of turn."""
+    events: list[Event] = []
+    for o in list(state.objects.values()):
+        if o.id == saga_obj.id:
+            continue
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if o.controller != saga_obj.controller:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': o.id,
+                'power_mod': 2,
+                'toughness_mod': 1,
+                'duration': 'end_of_turn',
+            },
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def siege_of_ba_sing_se_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """3-chapter saga: Ally tutor -> 2 Earthbender tokens -> anthem EOT."""
+    return make_saga_setup(
+        obj,
+        {
+            1: _siege_of_ba_sing_se_chapter_i,
+            2: _siege_of_ba_sing_se_chapter_ii,
+            3: _siege_of_ba_sing_se_chapter_iii,
+        },
+    )
+
+
+SIEGE_OF_BA_SING_SE = make_enchantment(
+    name="Siege of Ba Sing Se",
+    mana_cost="{3}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    subtypes={"Saga"},
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter.)\n"
+        "I — Search your library for an Ally creature card with mana value 3 "
+        "or less, put it onto the battlefield tapped, then shuffle.\n"
+        "II — Create two 2/2 green Earthbender creature tokens.\n"
+        "III — Other creatures you control get +2/+1 until end of turn."
+    ),
+    setup_interceptors=siege_of_ba_sing_se_setup,
+)
+
+
+# =============================================================================
 # REGISTRY
 # =============================================================================
 
@@ -5769,6 +6071,11 @@ AVATAR_TLA_CUSTOM_CARDS = {
     "Metalbending Cable": METALBENDING_CABLE,
     "Spirit Portal": SPIRIT_PORTAL,
     "Korra and Asami": KORRA_AND_ASAMI,
+
+    # PHASE A1 SPICE PASS (2026-05-18)
+    "Fire Lord Ozai, Phoenix King": FIRE_LORD_OZAI_PHOENIX_KING,
+    "The Four Nations Restored": FOUR_NATIONS_RESTORED,
+    "Siege of Ba Sing Se": SIEGE_OF_BA_SING_SE,
 
     # BASIC LANDS
     "Plains": PLAINS_TLA,
@@ -6083,5 +6390,9 @@ CARDS = [
     ISLAND_TLA,
     SWAMP_TLA,
     MOUNTAIN_TLA,
-    FOREST_TLA
+    FOREST_TLA,
+    # Phase A1 spice pass cards (2026-05-18)
+    FIRE_LORD_OZAI_PHOENIX_KING,
+    FOUR_NATIONS_RESTORED,
+    SIEGE_OF_BA_SING_SE,
 ]
