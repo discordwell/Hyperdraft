@@ -122,3 +122,16 @@ These are documented here so contributors know what *not* to reach for as a clea
 6. **`session.py` is a 2,700+ line god-object.** Per-mode branches for action handling, logging, serialization, and AI orchestration all live side-by-side.
 
 Addressing any of these is out of scope for this document — flagging only.
+
+## I. Asset Storage (Git LFS on R2)
+
+Hyperdraft tracks ~2.7 GB of card-art PNGs (`assets/card_art/**`, `frontend/public/scp-art/**`). To keep the GitHub repo cloneable for new contributors and avoid GitHub LFS pricing, these files live in a self-hosted Git LFS stack:
+
+- **Client**: stock `git-lfs`. `.lfsconfig` points at the LFS endpoint; `.gitattributes` declares the tracked paths so smudge/clean filters trigger automatically.
+- **Server**: `giftless` (Python/Flask), deployed to a single Fly.io `shared-cpu-1x` machine that auto-stops when idle (`infra/giftless/`). It only signs URLs — never sees the binary bytes.
+- **Storage**: a Cloudflare R2 bucket. Free egress; giftless exchanges client `batch` requests for S3-signed download/upload URLs that the client uses against R2 directly.
+- **Auth**: HS256 JWTs (2 h lifetime) gate writes; reads are anonymous so a fresh `git clone` of the public repo Just Works. The token issuer is `infra/giftless/scripts/issue-token.sh`.
+
+The one-time history rewrite that moved historical commits' art blobs into LFS is recorded in `docs/safety/lfs_migration_runbook.md`. Full ops, costs, and failure modes are in `infra/giftless/README.md`.
+
+Cost (as of 2026-05): $0 — well inside R2 (10 GB storage / 10 M Class B ops / 0¢ egress) and Fly (3 small machines) free tiers. Headroom for ~2,000 fresh clones per month before any tier limit binds.

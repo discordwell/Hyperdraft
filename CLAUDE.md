@@ -33,6 +33,26 @@ This drops the worktree from ~2.9GB to ~150MB. Skip only if your task explicitly
 
 If `git status` shows files missing that you need, the include list above is incomplete for your task — add the dir and continue.
 
+## Card art via Git LFS
+
+Tracked binary art (`assets/card_art/**`, `frontend/public/scp-art/**`) lives in **Git LFS on Cloudflare R2**, fronted by a small giftless server on Fly.io (`infra/giftless/`). The `.git` pack holds pointer files; the actual PNGs are fetched from R2 at clone time. Anonymous reads, JWT-gated writes.
+
+**Fresh clone**: one-time `git lfs install` per machine, then `git clone …` smudges art automatically — no auth required for reads.
+
+**Pushing new art** (rare; most changes touch only code): mint a fresh 2 h JWT with
+
+```bash
+./infra/giftless/scripts/issue-token.sh --install discordwell/Hyperdraft
+```
+
+Re-run whenever a token expires. The script installs credentials at both URL and host scope, so subsequent `git push` / `git lfs pull` Just Work.
+
+**Symptom → cause**:
+- Working-tree art files look like ~130 B of `version https://git-lfs…` text → run `git lfs pull` here.
+- `git lfs pull` or `clone` spins forever and trace shows repeated `HTTP 401` against `hyperdraft-lfs.fly.dev` → cached JWT is expired; re-run `issue-token.sh --install`. An expired credential traps git-lfs in a tight `credential fill` → 401 → `credential reject` loop instead of falling through to anon reads.
+
+Full ops + cost model + failure modes: `infra/giftless/README.md`. One-time migration record: `docs/safety/lfs_migration_runbook.md`.
+
 ## Architecture
 
 **Core Philosophy**: Everything is an Event, everything else is an Interceptor.
