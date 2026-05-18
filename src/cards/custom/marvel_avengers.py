@@ -26,7 +26,15 @@ from src.cards.ability_bundles import (
     static_pt_boost_by_subtype,
     static_keyword_grant_others,
 )
-from src.cards.interceptor_helpers import make_etb_trigger, make_upkeep_trigger
+from src.cards.interceptor_helpers import (
+    make_etb_trigger, make_upkeep_trigger, make_end_step_trigger,
+    make_attack_trigger, make_death_trigger, make_damage_trigger,
+    make_static_pt_boost, make_keyword_grant, make_spell_cast_trigger,
+    other_creatures_with_subtype, creatures_with_subtype, creatures_you_control,
+    all_opponents,
+    # Spice-pass MVL additions:
+    make_activated_ability, make_equipment_setup,
+)
 from src.cards.text_render import substitute_card_name
 from typing import Optional, Callable
 
@@ -49,6 +57,31 @@ def count_avengers(controller: str, state: GameState) -> int:
             "Avenger" in obj.characteristics.subtypes):
             count += 1
     return count
+
+
+def _count_infinity_stones(state: GameState, controller_id: str) -> int:
+    """Count battlefield artifacts with the 'Infinity Stone' subtype controlled
+    by ``controller_id``. Shared by Infinity Gauntlet / Thanos / Time Stone
+    so the assembly build-around has a single source of truth.
+    """
+    return sum(
+        1 for o in state.objects.values()
+        if o.controller == controller_id
+        and o.zone == ZoneType.BATTLEFIELD
+        and CardType.ARTIFACT in o.characteristics.types
+        and "Infinity Stone" in (o.characteristics.subtypes or set())
+    )
+
+
+# STUB helper: Scry N emits an ACTIVATE placeholder event (proper scry
+# requires player choice UI). Mirrors the ZLD pilot's _make_scry_event.
+def _make_scry_event(obj: GameObject, amount: int) -> Event:
+    return Event(
+        type=EventType.ACTIVATE,
+        payload={'action': 'scry', 'amount': amount, 'player': obj.controller},
+        source=obj.id,
+        controller=obj.controller,
+    )
 
 def make_assemble_bonus(source_obj: GameObject, power_bonus: int, toughness_bonus: int) -> list[Interceptor]:
     """Assemble - Gets +X/+Y as long as you control 2+ Avengers."""
@@ -79,6 +112,397 @@ def make_super_strength(source_obj: GameObject, power_bonus: int = 2) -> list[In
     interceptors.extend(make_static_pt_boost(source_obj, power_bonus, 0, self_filter))
     interceptors.append(make_keyword_grant(source_obj, ['trample'], self_filter))
     return interceptors
+
+
+# =============================================================================
+# SPICE PASS (Phase A1) — 2026-05-18
+# Pilot of the spice-pass methodology applied to MVL (mtg_mvl).
+# Baseline: docs/sets/custom_set_depth_baseline_2026-05-18.md
+#   depth_v2_mean=0.29  axis_diversity=0.043  code_diversity=0.750
+#   wired_pct=27.8  median=0  gates=1/4
+# Highest-leverage move: rewire the Infinity Stones (4 of 6 unwired or
+# stubbed) as a real assembly package so the Gauntlet + Thanos build-around
+# payoff lands on a working foundation (mirrors the ZLD Triforce trio +
+# Ganondorf pattern from commits 3bea58cf / d8911d0b).
+#
+# Cards (8):
+#   1. Mind Stone     (REWIRE) — upkeep scry + ETB scry; the assembly piece
+#                                that pays you for going long.
+#   2. Time Stone     (REWIRE) — ETB untap controller's permanents; if you
+#                                already control 3+ Infinity Stones, emit
+#                                EXTRA_TURN. The "you assembled it" payoff.
+#   3. Infinity Gauntlet (REWIRE) — End-step: drain N from each opponent
+#                                   where N = stones you control. Activated
+#                                   ability scales damage on stones.
+#   4. Mjolnir        (REWIRE) — make_equipment_setup +3/+3 flying+trample.
+#   5. Captain America's Shield (REWIRE) — make_equipment_setup +1/+3
+#                                          vigilance + indestructible.
+#   6. Avengers Assemble (REWIRE) — Real resolve: 3 Avenger tokens + EOT
+#                                   pump to other Avengers. Compression.
+#   7. Jean Grey, Phoenix (REWIRE) — Add a once-per-game Phoenix return-
+#                                    from-graveyard death trigger.
+#   8. Thanos, The Mad Titan (REWIRE) — Build-around payoff: per Infinity
+#                                       Stone you control, +2/+2 static.
+#                                       Plus conditional indestructible at
+#                                       >=2 stones (assembly threshold).
+#
+# Patterns targeted (spice-pass.md taxonomy):
+#   3 (snowball), 4 (compression), 7 (build-around partners),
+#   8 (recursion), 11 (build-around).
+# =============================================================================
+
+
+def mind_stone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Infinity Stone build-around partner. ETB scry 1; at the beginning of
+    your upkeep, scry 1. Cheap card-selection so going long with the
+    Infinity Stone package isn't just sitting on a brick.
+
+    Engine note: scry routes through an ACTIVATE placeholder
+    (`action='scry'`) because true scry needs player UI — the same pattern
+    the ZLD pilot uses.
+    """
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_scry(event: Event, st: GameState) -> list[Event]:
+        return [_make_scry_event(obj, 1)]
+
+    def upkeep_scry(event: Event, st: GameState) -> list[Event]:
+        return [_make_scry_event(obj, 1)]
+
+    return [
+        make_etb_trigger(obj, etb_scry),
+        make_upkeep_trigger(obj, upkeep_scry),
+    ]
+
+
+def time_stone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: untap each permanent you control. If you already control three
+    or more Infinity Stones, also take an extra turn.
+
+    The "you assembled it" payoff for the Infinity Stone build-around — you
+    have to slam four pieces (Time Stone + 3 others) to get the time-walk.
+    Without assembly it's just an untap-everything tempo swing.
+
+    Engine note: UNTAP_ALL handler reads {'controller', 'type'}; we pass
+    type='permanent' to untap all permanent types (creatures, artifacts,
+    lands). Mirrors the Penultimate Avatar Bumi Unleashed pattern.
+    """
+    def etb_time_warp(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = [
+            Event(
+                type=EventType.UNTAP_ALL,
+                payload={'controller': obj.controller, 'type': 'permanent'},
+                source=obj.id,
+            )
+        ]
+        stones = _count_infinity_stones(st, obj.controller)
+        # Self also counts post-ETB, so threshold is 3 = "Time Stone + 2 more".
+        if stones >= 3:
+            events.append(Event(
+                type=EventType.EXTRA_TURN,
+                payload={'player': obj.controller},
+                source=obj.id,
+            ))
+        return events
+
+    return [make_etb_trigger(obj, etb_time_warp)]
+
+
+def infinity_gauntlet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Build-around mythic for the Infinity Stone package.
+
+    At the beginning of your end step, each opponent loses N life and you
+    gain N life, where N = Infinity Stones you control (drains scale with
+    assembly).
+
+    {2}: Target creature gets +N/+N until end of turn (N = stones).
+    {6}: The Snap — each opponent sacrifices half their creatures, rounded
+    up. (Phase B-1 will lower the cost / strengthen the gate; v1 ships the
+    flat cost as the Phase 11 build-around payoff.)
+    """
+    def end_step_drain(event: Event, st: GameState) -> list[Event]:
+        stones = _count_infinity_stones(st, obj.controller)
+        if stones <= 0:
+            return []
+        events: list[Event] = []
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -stones, 'source': obj.id},
+                source=obj.id,
+            ))
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': stones, 'source': obj.id},
+            source=obj.id,
+        ))
+        return events
+
+    def scaling_pump(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        if isinstance(t, list):
+            t = t[0] if t else None
+        if t is None:
+            return []
+        target_id = t.object_id if hasattr(t, 'object_id') else (
+            t.id if hasattr(t, 'id') else t
+        )
+        stones = _count_infinity_stones(st, o.controller)
+        if stones <= 0:
+            return []
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': target_id,
+                'power_mod': stones,
+                'toughness_mod': stones,
+                'duration': 'end_of_turn',
+            },
+            source=o.id,
+        )]
+
+    def snap_sweep(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        events: list[Event] = []
+        for opp_id in all_opponents(o, st):
+            # Count opp creatures; sac ceil(count/2) of them.
+            opp_creatures = [
+                ob for ob in st.objects.values()
+                if ob.controller == opp_id
+                and ob.zone == ZoneType.BATTLEFIELD
+                and ob.characteristics
+                and CardType.CREATURE in (ob.characteristics.types or set())
+            ]
+            half = (len(opp_creatures) + 1) // 2
+            if half <= 0:
+                continue
+            events.append(Event(
+                type=EventType.SACRIFICE_REQUIRED,
+                payload={'player': opp_id, 'card_type': 'creature', 'count': half},
+                source=o.id,
+            ))
+        return events
+
+    make_activated_ability(
+        obj, cost="{2}", effect_fn=scaling_pump,
+        description="Target creature gets +N/+N until end of turn (N = Infinity Stones you control)",
+        targets_required=1, target_kind="creature",
+    )
+    make_activated_ability(
+        obj, cost="{6}", effect_fn=snap_sweep,
+        description="The Snap — each opponent sacrifices half their creatures, rounded up",
+        targets_required=0, sorcery_speed=True,
+    )
+
+    return [make_end_step_trigger(obj, end_step_drain)]
+
+
+def mjolnir_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Mjolnir, Hammer of Thor — equipped creature gets +3/+3 and gains
+    flying + trample. Equip {3}.
+
+    Real make_equipment_setup wiring of the previously-unwired equipment.
+    The "if equipped is Thor, indestructible + equip {0}" half of the
+    printed text is Phase B-1 (need creature-name-aware static gate); v1
+    ships the base equipment.
+    """
+    return make_equipment_setup(
+        power_mod=3, toughness_mod=3,
+        keywords=['flying', 'trample'],
+        equip_cost="{3}",
+    )(obj, state)
+
+
+def captain_americas_shield_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Captain America's Shield — equipped creature gets +1/+3 and gains
+    vigilance + indestructible. Equip {2}.
+
+    Real make_equipment_setup wiring of the previously-unwired equipment.
+    The "if equipped is Captain America, double strike" half is Phase B-1
+    (creature-name-aware static gate); v1 ships the base equipment.
+    """
+    return make_equipment_setup(
+        power_mod=1, toughness_mod=3,
+        keywords=['vigilance', 'indestructible'],
+        equip_cost="{2}",
+    )(obj, state)
+
+
+def avengers_assemble_resolve(targets: list, state: GameState) -> list[Event]:
+    """Avengers Assemble (sorcery) — create three 2/2 white Human Avenger
+    Soldier creature tokens with vigilance, then other Avengers you
+    control get +1/+1 until end of turn.
+
+    Resolve protocol: (targets, state) -> list[Event]. The active player
+    is the caster.
+    """
+    caster_id = getattr(state, 'active_player', None)
+    if not caster_id and state.players:
+        caster_id = next(iter(state.players))
+
+    events: list[Event] = []
+    token_spec = {
+        'name': 'Avenger',
+        'types': {CardType.CREATURE},
+        'subtypes': {'Human', 'Avenger', 'Soldier'},
+        'power': 2,
+        'toughness': 2,
+        'colors': {Color.WHITE},
+        'keywords': ['vigilance'],
+    }
+    for _ in range(3):
+        events.append(Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': caster_id, 'token': dict(token_spec)},
+            source=None,
+        ))
+
+    # +1/+1 EOT to other Avengers controlled by caster. (Pre-existing
+    # Avengers — the tokens are still in-flight here so they won't pump
+    # themselves; that's consistent with the "other Avengers" reading.)
+    for o in list(state.objects.values()):
+        if o.controller != caster_id:
+            continue
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        chars = o.characteristics
+        if not chars or CardType.CREATURE not in (chars.types or set()):
+            continue
+        if 'Avenger' not in (chars.subtypes or set()):
+            continue
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': o.id,
+                'power_mod': 1,
+                'toughness_mod': 1,
+                'duration': 'end_of_turn',
+            },
+            source=None,
+        ))
+    return events
+
+
+def jean_grey_phoenix_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Jean Grey, Phoenix — REWIRE.
+
+    Keeps the existing instant/sorcery cast-draw trigger but adds a once-
+    per-game Phoenix death trigger: when Jean Grey dies, return her from
+    your graveyard to the battlefield.
+
+    Spice-pass pattern 8 (recursion). Uses ``once_per_game`` semantics via
+    a state flag on obj.state so a second death no-ops (otherwise the
+    Phoenix returns indefinitely and gives a free infinite trigger loop).
+    """
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def cast_draw(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        )]
+
+    def phoenix_return(event: Event, st: GameState) -> list[Event]:
+        # Gate: once per game per Jean Grey instance.
+        if getattr(obj.state, '_phoenix_returned', False):
+            return []
+        setattr(obj.state, '_phoenix_returned', True)
+        return [Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={
+                'object_id': obj.id,
+                'player': obj.controller,
+                'destination': 'battlefield',
+            },
+            source=obj.id,
+        )]
+
+    return [
+        make_keyword_grant(obj, ['flying'], affects_self),
+        make_spell_cast_trigger(
+            obj, cast_draw,
+            spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+        ),
+        make_death_trigger(obj, phoenix_return),
+    ]
+
+
+def thanos_mad_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Thanos, The Mad Titan — REWIRE build-around payoff for the Infinity
+    Stone package.
+
+    Static: +2/+2 per Infinity Stone you control.
+    Static: Indestructible while you control two or more Infinity Stones.
+
+    The mythic that closes the build-around loop. Without stones he's a
+    7/7 vanilla for {3}{B}{B}{G}{G} (priced like a sledge); with the
+    assembly he scales relentlessly and is hard to remove.
+    """
+    def stones_threshold_2(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        return _count_infinity_stones(st, obj.controller) >= 2
+
+    def power_filter_self(event, st):
+        if event.type != EventType.QUERY_POWER:
+            return False
+        return event.payload.get('object_id') == obj.id
+
+    def power_handler(event, st):
+        stones = _count_infinity_stones(st, obj.controller)
+        if stones <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        current = event.payload.get('value', 0)
+        new_event = event.copy()
+        new_event.payload['value'] = current + stones * 2
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
+
+    def toughness_filter_self(event, st):
+        if event.type != EventType.QUERY_TOUGHNESS:
+            return False
+        return event.payload.get('object_id') == obj.id
+
+    def toughness_handler(event, st):
+        stones = _count_infinity_stones(st, obj.controller)
+        if stones <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        current = event.payload.get('value', 0)
+        new_event = event.copy()
+        new_event.payload['value'] = current + stones * 2
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            transformed_event=new_event,
+        )
+
+    power_itc = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=power_filter_self,
+        handler=power_handler,
+        duration='while_on_battlefield',
+    )
+    toughness_itc = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=toughness_filter_self,
+        handler=toughness_handler,
+        duration='while_on_battlefield',
+    )
+
+    indest_itc = make_keyword_grant(obj, ['indestructible'], stones_threshold_2)
+
+    return [power_itc, toughness_itc, indest_itc]
 
 
 # =============================================================================
@@ -1363,15 +1787,23 @@ KORG = make_creature(
 # MULTICOLOR CARDS
 # =============================================================================
 
+# REWIRE (MVL spice A1): Thanos is the closing build-around payoff for
+# the Infinity Stone package. Now static +2/+2 per Infinity Stone you
+# control, plus indestructible while you control two or more Stones (the
+# assembly threshold — matches Time Stone's gate at 3 less the self-count
+# offset). The printed "ETB each player sacs half their creatures" is
+# Phase B-1; v1 swaps "ETB sweeper" for "scaling threat" which is the
+# more interesting build-around shape (Sazh-Chocobo / Tifa-Lockheart
+# pattern from spice-pass.md taxonomy).
 THANOS = make_creature(
     name="Thanos, The Mad Titan",
-    power=7, toughness=7,
+    power=5, toughness=5,
     mana_cost="{3}{B}{B}{G}{G}",
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Eternal", "Villain"},
     supertypes={"Legendary"},
-    text="Indestructible. When Thanos enters, each player sacrifices half of their creatures, rounded up."
-    # Note: Complex sacrifice effect - keeping as text
+    text="Thanos gets +2/+2 for each Infinity Stone you control. Thanos has indestructible as long as you control two or more Infinity Stones.",
+    setup_interceptors=thanos_mad_titan_setup,
 )
 
 RED_SKULL = make_creature(
@@ -1540,13 +1972,12 @@ CYCLOPS = make_creature(
     setup_interceptors=cyclops_setup
 )
 
-def jean_grey_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Instant/sorcery cast trigger (uses old pattern for spell type filter)."""
-    from src.cards.interceptor_helpers import make_spell_cast_trigger
-    def spell_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
-    return [make_spell_cast_trigger(obj, spell_effect, spell_type_filter={CardType.INSTANT, CardType.SORCERY})]
-
+# REWIRE (MVL spice A1): Jean Grey already had a cast-draw trigger but
+# was missing the Phoenix half. New jean_grey_phoenix_setup wires
+# (a) self-flying, (b) cast-draw on I/S, (c) once-per-game return from
+# graveyard on death. The "5 damage to each creature and each player"
+# clause is Phase B-1 (mass damage from death trigger needs careful
+# stack ordering vs the Phoenix-return event).
 JEAN_GREY = make_creature(
     name="Jean Grey, Phoenix",
     power=3, toughness=4,
@@ -1554,8 +1985,8 @@ JEAN_GREY = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Human", "Mutant"},
     supertypes={"Legendary"},
-    text="Flying. Whenever you cast an instant or sorcery spell, draw a card. When Jean Grey dies, she deals 5 damage to each creature and each player.",
-    setup_interceptors=jean_grey_setup
+    text="Flying. Whenever you cast an instant or sorcery spell, draw a card. When Jean Grey dies, return her from your graveyard to the battlefield (once per game).",
+    setup_interceptors=jean_grey_phoenix_setup,
 )
 
 PROFESSOR_X = make_creature(
@@ -1633,12 +2064,18 @@ COLOSSUS = make_creature(
 # ARTIFACTS - INFINITY STONES, EQUIPMENT
 # =============================================================================
 
+# REWIRE (MVL spice A1): Mind Stone was an unwired vanilla artifact —
+# critical for the Infinity Stone build-around to work. Now ETB scries 1
+# and upkeep scries 1, giving the assembly piece a real "you went long"
+# payoff. Mana-tap and no-maxhand are Phase B-1 (need mana abilities +
+# hand-size replacement).
 MIND_STONE_INFINITY = make_artifact(
     name="Mind Stone",
     mana_cost="{4}",
-    text="Infinity Stone - At the beginning of your upkeep, scry 1. {T}: Add {U}. You have no maximum hand size.",
+    text="Infinity Stone — When Mind Stone enters, scry 1. At the beginning of your upkeep, scry 1. {T}: Add {U}. You have no maximum hand size.",
     subtypes={"Infinity Stone"},
     supertypes={"Legendary"},
+    setup_interceptors=mind_stone_setup,
 )
 
 def space_stone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1657,13 +2094,18 @@ SPACE_STONE = make_artifact(
     setup_interceptors=space_stone_setup
 )
 
+# REWIRE (MVL spice A1): Time Stone was unwired. Now ETB untaps the
+# controller's permanents AND grants an extra turn if you already control
+# three or more Infinity Stones (i.e. you assembled the build-around).
+# Phase 11 build-around payoff — the standalone untap is a tempo swing,
+# the extra turn is the "you assembled it" lock.
 TIME_STONE = make_artifact(
     name="Time Stone",
     mana_cost="{5}",
-    text="Infinity Stone - At the beginning of your upkeep, untap all permanents you control. {T}: Add {U}. Take an extra turn after this one. Exile Time Stone.",
+    text="Infinity Stone — When Time Stone enters, untap each permanent you control. If you control three or more Infinity Stones, take an extra turn after this one.",
     subtypes={"Infinity Stone"},
-    supertypes={"Legendary"}
-    # Note: Complex untap all + extra turn - keeping as text only
+    supertypes={"Legendary"},
+    setup_interceptors=time_stone_setup,
 )
 
 def power_stone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1716,12 +2158,17 @@ SOUL_STONE = make_artifact(
     setup_interceptors=soul_stone_setup
 )
 
+# REWIRE (MVL spice A1): Real make_equipment_setup wiring of the
+# previously-unwired equipment. The "if equipped creature is named Thor,
+# indestructible / equip {0}" branch is Phase B-1 (needs creature-name-
+# aware static gate); v1 ships the base equipment.
 MJOLNIR = make_equipment(
     name="Mjolnir",
     mana_cost="{3}",
     text="Equipped creature gets +3/+3 and has flying and trample. If equipped creature is named Thor, it has indestructible. Equip {3}. Equip Thor {0}.",
     equip_cost="{3}",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=mjolnir_setup,
 )
 
 STORMBREAKER = make_equipment(
@@ -1732,12 +2179,17 @@ STORMBREAKER = make_equipment(
     supertypes={"Legendary"}
 )
 
+# REWIRE (MVL spice A1): Real make_equipment_setup wiring of the
+# previously-unwired equipment. The "if equipped creature is named Captain
+# America, double strike" branch is Phase B-1; v1 ships the base
+# equipment.
 CAPTAIN_AMERICAS_SHIELD = make_equipment(
     name="Captain America's Shield",
     mana_cost="{2}",
     text="Equipped creature gets +1/+3 and has vigilance and indestructible. If equipped creature is named Captain America, it has double strike.",
     equip_cost="{2}",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=captain_americas_shield_setup,
 )
 
 IRON_MAN_ARMOR_MK_L = make_equipment(
@@ -1764,12 +2216,17 @@ HULKBUSTER_ARMOR = make_equipment(
     supertypes={"Legendary"}
 )
 
+# REWIRE (MVL spice A1): Infinity Gauntlet was unwired. The headline
+# build-around mythic — pairs with the rewired stones (Mind / Time / etc.)
+# to form a real Infinity Stone assembly package. End step drain scales
+# with stones controlled; activated abilities also scale or fire a Snap.
 INFINITY_GAUNTLET = make_artifact(
     name="Infinity Gauntlet",
     mana_cost="{6}",
-    text="Infinity Gauntlet enters with six charge counters. {T}, Remove a charge counter: Choose one - Draw a card; Add three mana of any color; Destroy target permanent; Exile target creature; Take an extra turn; Each opponent loses half their life.",
+    text="At the beginning of your end step, each opponent loses life equal to the number of Infinity Stones you control and you gain that much life. {2}: Target creature gets +N/+N until end of turn, where N is the number of Infinity Stones you control. {6}: The Snap — each opponent sacrifices half their creatures, rounded up.",
     subtypes={"Equipment"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=infinity_gauntlet_setup,
 )
 
 WEB_SHOOTERS = make_equipment(
@@ -1887,11 +2344,16 @@ SHIELD_THROW = make_instant(
     text="Shield Throw deals 2 damage to target creature. If that creature dies this turn, Shield Throw deals 2 damage to another target creature."
 )
 
+# REWIRE (MVL spice A1): Real resolve wiring for the previously-unwired
+# token-sorcery. Creates three 2/2 Avenger tokens + pumps other Avengers
+# +1/+1 EOT. Compression / "swarm-and-pump" payoff for the Avengers
+# subtype cluster.
 AVENGERS_ASSEMBLE = make_sorcery(
     name="Avengers Assemble",
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
-    text="Create three 2/2 white Human Avenger creature tokens with vigilance. Avengers you control get +1/+1 until end of turn."
+    text="Create three 2/2 white Human Avenger Soldier creature tokens with vigilance. Other Avengers you control get +1/+1 until end of turn.",
+    resolve=avengers_assemble_resolve,
 )
 
 HULK_SMASH = make_sorcery(
