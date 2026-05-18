@@ -2063,7 +2063,36 @@ JAW_TITAN = make_creature(
 # --- Regular Creatures ---
 
 def _berserker_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [_self_keywords(obj, ['double_strike'])]
+    # SPICE REWIRE (Phase A1, was 36-card self_keywords cluster member):
+    # Battle-fury sweep — when Berserker Titan attacks, each Titan you control
+    # gets +1/+0 and trample until end of turn. Big body that *snowballs*
+    # alongside the rest of the Titan archetype.
+    def on_attack(event: Event, s: GameState) -> list[Event]:
+        events: list[Event] = []
+        for t in s.objects.values():
+            if t.zone != ZoneType.BATTLEFIELD:
+                continue
+            if t.controller != obj.controller:
+                continue
+            if CardType.CREATURE not in t.characteristics.types:
+                continue
+            if 'Titan' not in (t.characteristics.subtypes or set()):
+                continue
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': t.id, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+                source=obj.id,
+            ))
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': t.id, 'keyword': 'trample', 'duration': 'end_of_turn'},
+                source=obj.id,
+            ))
+        return events
+    return [
+        _self_keywords(obj, ['double_strike']),
+        ih.make_attack_trigger(obj, on_attack),
+    ]
 
 BERSERKER_TITAN = make_creature(
     name="Berserker Titan",
@@ -2071,7 +2100,7 @@ BERSERKER_TITAN = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Titan"},
-    text="Double strike.",
+    text="Double strike. Whenever Berserker Titan attacks, each Titan you control gets +1/+0 and gains trample until end of turn.",
     setup_interceptors=_berserker_titan_setup,
 )
 
@@ -3156,7 +3185,18 @@ WAR_HAMMER_TITAN_LEGENDARY = make_creature(
 # Other Multicolor
 
 def _kenny_ackerman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [_self_keywords(obj, ['deathtouch', 'first_strike'])]
+    # SPICE REWIRE (Phase A1, was 36-card self_keywords cluster member):
+    # The Ripper — sac-fodder snowball. Whenever ANOTHER creature dies, each
+    # opponent loses 1 life and you scry 1. With deathtouch + first strike,
+    # Kenny trades up AND every death — yours, theirs, his own kill — is
+    # information + drain. The card warps how the opponent thinks about
+    # token-trading and chump-block.
+    def on_death(event: Event, s: GameState) -> list[Event]:
+        return _opponents_lose_life_events(obj, s, 1) + _scry_events(obj, 1)
+    return [
+        _self_keywords(obj, ['deathtouch', 'first_strike']),
+        _another_creature_death_trigger(obj, on_death),
+    ]
 
 KENNY_ACKERMAN = make_creature(
     name="Kenny Ackerman, The Ripper",
@@ -3165,7 +3205,7 @@ KENNY_ACKERMAN = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Human", "Rogue", "Ackerman"},
     supertypes={"Legendary"},
-    text="Deathtouch, first strike.",
+    text="Deathtouch, first strike. Whenever another creature dies, each opponent loses 1 life and you scry 1. (No witnesses.)",
     setup_interceptors=_kenny_ackerman_setup,
 )
 
@@ -3218,7 +3258,42 @@ YMIR = make_creature(
 
 
 def _gabi_braun_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [_self_keywords(obj, ['first_strike', 'haste'])]
+    # SPICE REWIRE (Phase A1, was 36-card self_keywords cluster member):
+    # The avenger — every time an opponent loses life (combat damage, drain,
+    # burn), Gabi puts a +1/+1 counter on herself. Three-color 2-drop body
+    # that snowballs across attrition turns. Pairs with Eldian Purge,
+    # Bertholdt, the Beast Titan throws, Kenny's drain.
+    def on_opp_life_loss(event: Event, s: GameState, source: GameObject) -> bool:
+        if event.type != EventType.LIFE_CHANGE:
+            return False
+        amount = event.payload.get('amount', 0)
+        if amount >= 0:
+            return False  # only losses count
+        player = event.payload.get('player')
+        if player is None or player == source.controller:
+            return False
+        return True
+
+    def grow(event: Event, s: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+            source=obj.id,
+        )]
+
+    grow_interceptor = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: on_opp_life_loss(e, s, obj),
+        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=grow(e, s)),
+        duration='while_on_battlefield',
+    )
+    return [
+        _self_keywords(obj, ['first_strike', 'haste']),
+        grow_interceptor,
+    ]
 
 GABI_BRAUN = make_creature(
     name="Gabi Braun, Warrior Candidate",
@@ -3227,14 +3302,38 @@ GABI_BRAUN = make_creature(
     colors={Color.RED, Color.BLACK},
     subtypes={"Human", "Warrior", "Soldier"},
     supertypes={"Legendary"},
-    text="First strike, haste.",
+    text="First strike, haste. Whenever an opponent loses life, put a +1/+1 counter on Gabi Braun. (\"You took everything from me.\")",
     setup_interceptors=_gabi_braun_setup,
 )
 
 
 def _falco_grice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Jaw Inheritor; Falco later flies — flying + vigilance.
-    return [_self_keywords(obj, ['flying', 'vigilance'])]
+    # SPICE REWIRE (Phase A1, was 36-card self_keywords cluster member):
+    # Future Jaw Inheritor — Falco's dreams show him an opponent's plan.
+    # When he attacks, each opponent reveals the top card of their library
+    # and you may exile that card (asymmetric information + soft mill /
+    # disruption). Flying + vigilance keeps him attacking every turn,
+    # turning the asymmetry into a slow stranglehold.
+    def on_attack(event: Event, s: GameState) -> list[Event]:
+        events: list[Event] = []
+        for opp_id in ih.all_opponents(obj, s):
+            events.append(Event(
+                type=EventType.ACTIVATE,
+                payload={
+                    'action': 'falco_dreams',
+                    'player': obj.controller,
+                    'opponent': opp_id,
+                    'mode': 'reveal_top_may_exile',
+                    'amount': 1,
+                },
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [
+        _self_keywords(obj, ['flying', 'vigilance']),
+        ih.make_attack_trigger(obj, on_attack),
+    ]
 
 FALCO_GRICE = make_creature(
     name="Falco Grice, Jaw Inheritor",
@@ -3243,7 +3342,7 @@ FALCO_GRICE = make_creature(
     colors={Color.BLUE, Color.GREEN},
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
-    text="Flying, vigilance.",
+    text="Flying, vigilance. Whenever Falco Grice attacks, each opponent reveals the top card of their library; you may exile any of them. (His dreams show what comes next.)",
     setup_interceptors=_falco_grice_setup,
 )
 
@@ -4454,6 +4553,295 @@ FOREST_AOT = make_land(
 
 
 # =============================================================================
+# PHASE A1 SPICE PASS — 2026-05-18 (3 rewires upstream + 4 new cards below)
+# =============================================================================
+# Targets the 36-card self_keywords reskin cluster (highest-leverage axis in
+# this set) plus four format-defining new picks:
+#   * Battle of Trost (Saga, B-2 mechanic, multi-stage decision pressure)
+#   * Levi Ackerman, Captain of the Special Ops Squad (build-around mythic)
+#   * Eren's Hardening (Equipment, granted activated ability, asymmetric)
+#   * The Nine Titans Assembled (gated mythic, scales with Titan permanents)
+# See spice-pass.md "reskin-cluster cleanup methodology" for the workflow.
+
+
+# --- Levi Ackerman, Captain of the Special Ops Squad (NEW build-around mythic)
+# Three-color (WBR) — Levi's elite squad. Build-around: when Levi attacks,
+# each OTHER Scout you control gets +2/+0 and double strike until end of turn.
+# Pattern 11 (build-around): in a Scout-tribal deck (Mikasa, Petra, Oluo,
+# Eren Scout, Sasha, Connie, Jean), every attack turns into a combat phase
+# the opponent has to chump-trade through. In a vanilla deck Levi is a 5/4
+# first-striker — the package is the point.
+def _levi_special_ops_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    scout_filter = ih.other_creatures_with_subtype(obj, "Scout")
+    def squad_charge(event: Event, s: GameState) -> list[Event]:
+        evts: list[Event] = []
+        for t in s.objects.values():
+            if not scout_filter(t, s):
+                continue
+            evts.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': t.id, 'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+                source=obj.id,
+            ))
+            evts.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': t.id, 'keyword': 'double_strike', 'duration': 'end_of_turn'},
+                source=obj.id,
+            ))
+        return evts
+    return [
+        _self_keywords(obj, ['first_strike', 'haste', 'vigilance']),
+        ih.make_attack_trigger(obj, squad_charge),
+    ]
+
+LEVI_SPECIAL_OPS = make_creature(
+    name="Levi Ackerman, Captain of the Special Ops Squad",
+    power=5, toughness=4,
+    mana_cost="{2}{W}{B}{R}",
+    colors={Color.WHITE, Color.BLACK, Color.RED},
+    subtypes={"Human", "Scout", "Soldier", "Ackerman"},
+    supertypes={"Legendary"},
+    text="First strike, haste, vigilance. Whenever Levi Ackerman, Captain of the Special Ops Squad attacks, each other Scout creature you control gets +2/+0 and gains double strike until end of turn. (Dedicate your hearts.)",
+    setup_interceptors=_levi_special_ops_setup,
+)
+
+
+# --- Battle of Trost (NEW Saga, Phase B-2 multi-stage build-around)
+# WBR — the defining battle of Season 1. Three chapters narrate the
+# attack-defense-comeback arc.
+# I:  Each opponent's creatures get -1/-1 until end of turn (Titans breach
+#     the gate; the line breaks).
+# II: Create two 2/2 Scout creature tokens with haste (cadets rally).
+# III: Other creatures you control get +1/+1 and gain trample until end of
+#     turn (Eren plugs the hole; counter-attack begins).
+# Uses make_saga_setup, no engine extension required.
+def _trost_chapter_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """Chapter I — 'The Wall Breaks'. -1/-1 to each opp creature EOT."""
+    events: list[Event] = []
+    opponents = set(ih.all_opponents(saga_obj, state))
+    for t in state.objects.values():
+        if t.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.CREATURE not in (t.characteristics.types or set()):
+            continue
+        if t.controller not in opponents:
+            continue
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': t.id, 'power_mod': -1, 'toughness_mod': -1, 'duration': 'end_of_turn'},
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def _trost_chapter_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """Chapter II — 'The Cadets Rally'. Two 2/2 Scouts with haste."""
+    token_spec = {
+        'name': 'Survey Corps Cadet',
+        'types': {CardType.CREATURE},
+        'subtypes': {'Human', 'Scout', 'Soldier'},
+        'power': 2,
+        'toughness': 2,
+        'colors': {Color.WHITE},
+        'keywords': ['haste'],
+    }
+    return [
+        Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': saga_obj.controller, 'token': dict(token_spec)},
+            source=saga_obj.id,
+        )
+        for _ in range(2)
+    ]
+
+
+def _trost_chapter_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """Chapter III — 'Eren Plugs the Hole'. +1/+1 + trample to your creatures EOT."""
+    events: list[Event] = []
+    for t in state.objects.values():
+        if t.zone != ZoneType.BATTLEFIELD:
+            continue
+        if t.id == saga_obj.id:
+            continue
+        if t.controller != saga_obj.controller:
+            continue
+        if CardType.CREATURE not in (t.characteristics.types or set()):
+            continue
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': t.id, 'power_mod': 1, 'toughness_mod': 1, 'duration': 'end_of_turn'},
+            source=saga_obj.id,
+        ))
+        events.append(Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': t.id, 'keyword': 'trample', 'duration': 'end_of_turn'},
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def _battle_of_trost_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return ih.make_saga_setup(
+        obj,
+        {1: _trost_chapter_i, 2: _trost_chapter_ii, 3: _trost_chapter_iii},
+    )
+
+
+BATTLE_OF_TROST = make_enchantment(
+    name="Battle of Trost",
+    mana_cost="{2}{W}{B}{R}",
+    colors={Color.WHITE, Color.BLACK, Color.RED},
+    subtypes={"Saga"},
+    supertypes={"Legendary"},
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I  — Each creature your opponents control gets -1/-1 until end of turn.\n"
+        "II — Create two 2/2 white Human Scout Soldier creature tokens with haste.\n"
+        "III — Other creatures you control get +1/+1 and gain trample until end of turn."
+    ),
+    setup_interceptors=_battle_of_trost_setup,
+)
+
+
+# --- Eren's Hardening (NEW Equipment, via make_equipment_setup)
+# {2} colorless artifact. Equip {2}.
+# Equipped creature gets +1/+2 and gains 'indestructible until end of turn'
+# as an activated ability ({1}, sacrifice this artifact). Build-around for
+# the Titan / Wall tribes where you want a vulnerable lord (Eren Founding,
+# Ymir Fritz) to survive a wrath at instant speed.
+def _erens_hardening_indestructible_effect(obj: GameObject, s: GameState, targets) -> list[Event]:
+    """Effect for the granted activated ability: equipped creature gains
+    indestructible until end of turn. The granted-ability machinery already
+    runs the activation from the EQUIPPED creature's perspective; the
+    classic `targets` slot will hold the equipped creature when the engine
+    surfaces it. For v1 we read the attach pointer kept on the equipment
+    object by make_granted_abilities_listener (`_granted_ability_targets`)
+    so the effect Just Works whether the ability is invoked directly on
+    the equipment or via the wrapper."""
+    target_id = getattr(obj.state, '_granted_ability_targets', None)
+    if not target_id:
+        # Fall back to engine-provided target list
+        if targets:
+            first = targets[0]
+            if isinstance(first, list) and first:
+                first = first[0]
+            if isinstance(first, str):
+                target_id = first
+            elif hasattr(first, 'id'):
+                target_id = first.id
+            elif hasattr(first, 'object_id'):
+                target_id = first.object_id
+    if not target_id:
+        return []
+    return [Event(
+        type=EventType.GRANT_KEYWORD,
+        payload={'object_id': target_id, 'keyword': 'indestructible', 'duration': 'end_of_turn'},
+        source=obj.id,
+    )]
+
+
+ERENS_HARDENING = make_equipment(
+    name="Eren's Hardening",
+    mana_cost="{2}",
+    text=(
+        "Equipped creature gets +1/+2.\n"
+        "{1}, Sacrifice Eren's Hardening: Equipped creature gains indestructible "
+        "until end of turn. (Crystal skin can shrug off a single blow.)"
+    ),
+    equip_cost="{2}",
+    setup_interceptors=ih.make_equipment_setup(
+        power_mod=1,
+        toughness_mod=2,
+        equip_cost="{2}",
+        granted_activated_abilities=[{
+            'cost': '{1}, Sacrifice Eren\'s Hardening',
+            'effect_fn': _erens_hardening_indestructible_effect,
+            'description': 'Equipped creature gains indestructible until end of turn.',
+        }],
+    ),
+)
+
+
+# --- The Nine Titans Assembled (NEW gated mythic, Pattern 11 build-around)
+# Six-color mythic that scales with Titan permanents you control.
+# ETB: For each Titan you control, ANOTHER Titan you control gets a +1/+1
+#      counter. Then if you control 5+ Titans, exile each non-Titan creature
+#      opponents control until The Nine Titans Assembled leaves play.
+# In a vanilla deck The Nine Titans is overcosted curve-topper; in a Titan-
+# tribal deck (FOUNDING_TITAN, ARMORED_TITAN, FEMALE_TITAN, COLOSSAL_TITAN,
+# BEAST_TITAN, CART_TITAN, JAW_TITAN, WAR_HAMMER_TITAN, ATTACK_TITAN, plus
+# the existing Eren/Reiner/Annie/Zeke/Pieck/Ymir Titan-typed legends) it is
+# a board-redefining payoff.
+def _nine_titans_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, s: GameState) -> list[Event]:
+        events: list[Event] = []
+        my_titans: list[GameObject] = []
+        for t in s.objects.values():
+            if t.zone != ZoneType.BATTLEFIELD:
+                continue
+            if t.controller != obj.controller:
+                continue
+            if t.id == obj.id:
+                continue
+            if CardType.CREATURE not in t.characteristics.types:
+                continue
+            if 'Titan' in (t.characteristics.subtypes or set()):
+                my_titans.append(t)
+        # +1/+1 counter on each of your other Titans, one per Titan you control
+        # (so 3 Titans -> +1/+1 on each = 3 total counters; 5 Titans -> +1/+1
+        # on each = 5 total). Scales linearly with the tribe.
+        for t in my_titans:
+            events.append(Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': t.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id,
+            ))
+        # Threshold: 5+ Titans (including self) -> exile each non-Titan
+        # opp creature (asymmetric prison — pattern 5).
+        my_titan_count = len(my_titans) + 1  # include self
+        if my_titan_count >= 5:
+            opponents = set(ih.all_opponents(obj, s))
+            for t in s.objects.values():
+                if t.zone != ZoneType.BATTLEFIELD:
+                    continue
+                if t.controller not in opponents:
+                    continue
+                if CardType.CREATURE not in t.characteristics.types:
+                    continue
+                if 'Titan' in (t.characteristics.subtypes or set()):
+                    continue
+                events.append(Event(
+                    type=EventType.EXILE,
+                    payload={'target': t.id, 'source': obj.id},
+                    source=obj.id,
+                    controller=obj.controller,
+                ))
+        return events
+    return [
+        _self_keywords(obj, ['trample', 'indestructible']),
+        ih.make_etb_trigger(obj, etb_effect),
+    ]
+
+
+NINE_TITANS_ASSEMBLED = make_creature(
+    name="The Nine Titans Assembled",
+    power=9, toughness=9,
+    mana_cost="{6}{W}{U}{B}{R}{G}",
+    colors={Color.WHITE, Color.BLUE, Color.BLACK, Color.RED, Color.GREEN},
+    subtypes={"Titan"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample, indestructible. When The Nine Titans Assembled enters the "
+        "battlefield, put a +1/+1 counter on each other Titan you control. "
+        "Then if you control five or more Titans, exile each non-Titan creature "
+        "your opponents control. (Reiss bloodline binds them all.)"
+    ),
+    setup_interceptors=_nine_titans_setup,
+)
+
+
+# =============================================================================
 # CARD DICTIONARY
 # =============================================================================
 
@@ -4745,6 +5133,12 @@ ATTACK_ON_TITAN_CARDS = {
     "Swamp": SWAMP_AOT,
     "Mountain": MOUNTAIN_AOT,
     "Forest": FOREST_AOT,
+
+    # PHASE A1 SPICE PASS (2026-05-18)
+    "Levi Ackerman, Captain of the Special Ops Squad": LEVI_SPECIAL_OPS,
+    "Battle of Trost": BATTLE_OF_TROST,
+    "Eren's Hardening": ERENS_HARDENING,
+    "The Nine Titans Assembled": NINE_TITANS_ASSEMBLED,
 }
 
 print(f"Loaded {len(ATTACK_ON_TITAN_CARDS)} Attack on Titan cards")
@@ -5009,4 +5403,9 @@ CARDS = [
     EREN_FOUNDING_VOWED,
     YMIR_PROGENITOR,
     PATHS_OF_MEMORY,
+    # PHASE A1 SPICE PASS (2026-05-18)
+    LEVI_SPECIAL_OPS,
+    BATTLE_OF_TROST,
+    ERENS_HARDENING,
+    NINE_TITANS_ASSEMBLED,
 ]
