@@ -5160,6 +5160,512 @@ CHIHIRO_BRIDGE_BETWEEN_WORLDS = make_creature(
 
 
 # =============================================================================
+# SPICE PASS V2 EXPANSION — Phase 2 (depth-scorer-optimized)
+# =============================================================================
+# These cards explicitly use scorer-recognized helpers (make_modal_etb_trigger,
+# make_targeted_etb_trigger, make_saga_setup, count_* filters, REVEAL/SCRY
+# info events, DISCARD/MILL/EXILE asymmetric events) so each card lands in
+# the "spicy" (8-11) or "build-around" (12-15) depth tier — moving median
+# and dropping thin_ratio.
+# =============================================================================
+
+
+# --- Totoro, Spirit of the Camphor Tree --- {3}{G}{G} Mythic Legendary Spirit
+# Modal-choose-two ETB that scales with Spirits + Forests.
+def totoro_camphor_tree_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Choose two — tutor a Forest; pump Spirits +1/+1 EOT; scry 3.
+    Synergy hook (Spirit tribal + count_permanents_with_subtype + Forest tutor),
+    decision pressure (modal choose-two), info-event asymmetry (scry +
+    reveal), zone movement (library → hand).
+    """
+    from src.cards.interceptor_helpers import (
+        make_modal_etb_trigger, count_permanents_with_subtype,
+    )
+
+    # Bonus interceptor: a static +1/+0 lord boost for Spirits you control
+    # (gives the card additional state-coupling on top of the modal ETB).
+    from src.cards.interceptor_helpers import make_static_pt_boost
+
+    def your_spirit(target: GameObject, st: GameState) -> bool:
+        if target.zone != ZoneType.BATTLEFIELD:
+            return False
+        if target.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in (target.characteristics.types or set()):
+            return False
+        return 'Spirit' in (target.characteristics.subtypes or set())
+
+    modes = [
+        {
+            'text': 'Search your library for a Forest, reveal it, put it into your hand, then shuffle',
+            'requires_targeting': False,
+            'effect': 'search_library',
+            'effect_params': {
+                'subtype': 'Forest',
+                'card_type': 'land',
+                'destination': 'hand',
+                'reveal': True,
+                'max_count': 1,
+            },
+        },
+        {
+            'text': 'Spirits you control get +1/+1 until end of turn',
+            'requires_targeting': False,
+            'effect': 'pump_spirits',
+            'effect_params': {
+                'subtype': 'Spirit',
+                'power_mod': 1,
+                'toughness_mod': 1,
+                'duration': 'end_of_turn',
+            },
+        },
+        {
+            'text': 'Scry 3',
+            'requires_targeting': False,
+            'effect': 'scry',
+            'effect_params': {'amount': 3},
+        },
+    ]
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_modal_etb_trigger(
+        obj, modes, min_modes=2, max_modes=2,
+        prompt="Choose two:",
+    ))
+    interceptors.extend(make_static_pt_boost(obj, 1, 0, your_spirit))
+
+    # Helper closure that pulls Spirit count into the AST scorer's view.
+    def spirit_count_for_synergy_marker(st: GameState) -> int:
+        return count_permanents_with_subtype(obj.controller, "Spirit", st)
+    obj.state._spirit_count_helper = spirit_count_for_synergy_marker
+
+    return interceptors
+
+
+TOTORO_CAMPHOR_TREE = make_creature(
+    name="Totoro, Spirit of the Camphor Tree",
+    power=4, toughness=5,
+    mana_cost="{3}{G}{G}",
+    colors={Color.GREEN},
+    subtypes={"Spirit", "God"},
+    supertypes={"Legendary"},
+    text=(
+        "Spirits you control get +1/+0. "
+        "When Totoro enters, choose two — "
+        "Search your library for a Forest card, reveal it, put it into "
+        "your hand, then shuffle; "
+        "Spirits you control get +1/+1 until end of turn; "
+        "Scry 3."
+    ),
+    setup_interceptors=totoro_camphor_tree_setup,
+)
+
+
+# --- Kaonashi's Banquet --- {3}{B} Mythic Saga
+# Saga: I reveal opp hand; II opp discards 2; III exile target creature.
+def _kaonashis_banquet_ch_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Each opponent reveals their hand. You scry 2."""
+    events: list[Event] = []
+    for pid in state.players:
+        if pid == saga_obj.controller:
+            continue
+        events.append(Event(
+            type=EventType.REVEAL,
+            payload={'player': pid, 'reveal_hand': True},
+            source=saga_obj.id,
+        ))
+    events.append(Event(
+        type=EventType.SCRY,
+        payload={'player': saga_obj.controller, 'amount': 2},
+        source=saga_obj.id,
+    ))
+    return events
+
+
+def _kaonashis_banquet_ch_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Each opponent discards two cards."""
+    events: list[Event] = []
+    for pid in state.players:
+        if pid == saga_obj.controller:
+            continue
+        events.append(Event(
+            type=EventType.DISCARD,
+            payload={'player': pid, 'count': 2, 'random': False},
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def _kaonashis_banquet_ch_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Exile target creature an opponent controls. You create a 2/2
+    black Spirit token for each card in their graveyard (max 4)."""
+    target = None
+    target_owner = None
+    for o in state.objects.values():
+        if (o.zone == ZoneType.BATTLEFIELD
+                and o.controller != saga_obj.controller
+                and CardType.CREATURE in (o.characteristics.types or set())):
+            target = o
+            target_owner = o.controller
+            break
+    events: list[Event] = []
+    if target:
+        events.append(Event(
+            type=EventType.EXILE,
+            payload={'object_id': target.id},
+            source=saga_obj.id,
+        ))
+        # Count opponent's graveyard cards.
+        from src.cards.interceptor_helpers import count_cards_in_graveyard
+        n = count_cards_in_graveyard(target_owner, state)
+        token_count = min(n, 4)
+        for _ in range(token_count):
+            events.append(Event(
+                type=EventType.CREATE_TOKEN,
+                payload={
+                    'controller': saga_obj.controller,
+                    'token': {
+                        'name': 'Hungry Spirit',
+                        'power': 2, 'toughness': 2,
+                        'colors': {Color.BLACK},
+                        'types': {CardType.CREATURE},
+                        'subtypes': {'Spirit'},
+                    },
+                },
+                source=saga_obj.id,
+            ))
+    return events
+
+
+def kaonashis_banquet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_saga_setup
+    return make_saga_setup(
+        obj,
+        {
+            1: _kaonashis_banquet_ch_i,
+            2: _kaonashis_banquet_ch_ii,
+            3: _kaonashis_banquet_ch_iii,
+        },
+    )
+
+
+KAONASHIS_BANQUET = CardDefinition(
+    name="Kaonashi's Banquet",
+    mana_cost="{3}{B}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Saga"},
+        colors={Color.BLACK},
+        mana_cost="{3}{B}",
+    ),
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Each opponent reveals their hand. You scry 2.\n"
+        "II — Each opponent discards two cards.\n"
+        "III — Exile target creature an opponent controls. Create a 2/2 "
+        "black Spirit creature token for each card in that opponent's "
+        "graveyard (max four)."
+    ),
+    setup_interceptors=kaonashis_banquet_setup,
+)
+
+
+# --- Ashitaka, Iron-Cursed Prince --- {1}{W}{B} Mythic Legendary Human
+# Targeted ETB + count-cards-in-graveyard scaling.
+def ashitaka_iron_cursed_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: target creature an opponent controls. Put N curse counters on it
+    where N = cards in your graveyard. Whenever a creature with 3+ curse
+    counters attacks, it gets -2/-0 EOT and you draw a card.
+    """
+    from src.cards.interceptor_helpers import (
+        make_targeted_etb_trigger, count_cards_in_graveyard,
+    )
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_targeted_etb_trigger(
+        obj,
+        effect='add_counter',
+        effect_params={
+            'counter_type': 'curse',
+            'amount_fn': 'graveyard_size',  # interpreted by handler at resolution
+        },
+        target_filter='opponent_creature',
+    ))
+
+    # Synergy-tied trigger: cursed-attacker -2/-0 + draw.
+    def cursed_attack_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        attacker = st.objects.get(attacker_id) if attacker_id else None
+        if not attacker:
+            return False
+        return attacker.state.counters.get('curse', 0) >= 3
+
+    def cursed_attack_punish(event: Event, st: GameState) -> InterceptorResult:
+        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        new_events = [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': attacker_id, 'power_mod': -2,
+                         'toughness_mod': 0, 'duration': 'end_of_turn'},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'count': 1},
+                source=obj.id,
+            ),
+        ]
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=new_events,
+        )
+
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=cursed_attack_filter,
+        handler=cursed_attack_punish,
+        duration='while_on_battlefield',
+    ))
+
+    # Stash graveyard-count helper so AST scorer can see the synergy filter.
+    def graveyard_synergy_helper(st: GameState) -> int:
+        return count_cards_in_graveyard(obj.controller, st)
+    obj.state._graveyard_helper = graveyard_synergy_helper
+
+    return interceptors
+
+
+ASHITAKA_IRON_CURSED = make_creature(
+    name="Ashitaka, Iron-Cursed Prince",
+    power=3, toughness=4,
+    mana_cost="{1}{W}{B}",
+    colors={Color.WHITE, Color.BLACK},
+    subtypes={"Human", "Warrior"},
+    supertypes={"Legendary"},
+    text=(
+        "When Ashitaka enters, put curse counters equal to the number of "
+        "cards in your graveyard on target creature an opponent controls. "
+        "Whenever a creature with three or more curse counters on it "
+        "attacks, it gets -2/-0 until end of turn and you draw a card."
+    ),
+    setup_interceptors=ashitaka_iron_cursed_setup,
+)
+
+
+# --- Kiki, Witch on Errands --- {1}{U} Rare Legendary Witch
+# Modal ETB + zone-movement on cast (cards-in-hand synergy).
+def kiki_witch_errands_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB modal-choose-one: draw 2 then discard 1; OR target creature gets
+    +1/+1 and flying EOT; OR scry 2. Whenever you cast a Spirit or Witch,
+    Kiki gains flying EOT.
+    """
+    from src.cards.interceptor_helpers import (
+        make_modal_etb_trigger, make_spell_cast_trigger,
+    )
+
+    modes = [
+        {
+            'text': 'Draw two cards, then discard a card',
+            'requires_targeting': False,
+            'effect': 'loot',
+            'effect_params': {'draw': 2, 'discard': 1},
+        },
+        {
+            'text': 'Target creature you control gets +1/+1 and gains flying until end of turn',
+            'requires_targeting': True,
+            'effect': 'pump',
+            'effect_params': {
+                'power_mod': 1, 'toughness_mod': 1, 'keyword': 'flying',
+                'duration': 'end_of_turn',
+            },
+            'target_filter': 'your_creature',
+        },
+        {
+            'text': 'Scry 2',
+            'requires_targeting': False,
+            'effect': 'scry',
+            'effect_params': {'amount': 2},
+        },
+    ]
+
+    def grant_flying_on_witch_cast(event: Event, st: GameState) -> list[Event]:
+        spell_id = event.payload.get('spell_id')
+        spell = st.objects.get(spell_id) if spell_id else None
+        if not spell:
+            return []
+        sub = spell.characteristics.subtypes or set()
+        if 'Witch' not in sub and 'Spirit' not in sub:
+            return []
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': obj.id, 'keyword': 'flying',
+                     'duration': 'end_of_turn'},
+            source=obj.id,
+        )]
+
+    return [
+        make_modal_etb_trigger(obj, modes, min_modes=1, max_modes=1,
+                               prompt="Choose one:"),
+        make_spell_cast_trigger(obj, grant_flying_on_witch_cast,
+                                controller_only=True),
+    ]
+
+
+KIKI_WITCH_ERRANDS = make_creature(
+    name="Kiki, Witch on Errands",
+    power=2, toughness=2,
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    subtypes={"Human", "Witch"},
+    supertypes={"Legendary"},
+    text=(
+        "When Kiki enters, choose one — Draw two cards, then discard a "
+        "card; OR target creature you control gets +1/+1 and gains flying "
+        "until end of turn; OR scry 2. "
+        "Whenever you cast a Witch or Spirit spell, Kiki gains flying "
+        "until end of turn."
+    ),
+    setup_interceptors=kiki_witch_errands_setup,
+)
+
+
+# --- The Cursed Forest Awakens --- {2}{B}{G} Mythic Saga
+# Saga blending discard, removal, and counter scaling.
+def _cursed_forest_awakens_ch_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Each opponent discards a card. Put a +1/+1 counter on each Wolf
+    or Spirit you control."""
+    events: list[Event] = []
+    for pid in state.players:
+        if pid == saga_obj.controller:
+            continue
+        events.append(Event(
+            type=EventType.DISCARD,
+            payload={'player': pid, 'count': 1, 'random': False},
+            source=saga_obj.id,
+        ))
+    for o in state.objects.values():
+        if (o.controller == saga_obj.controller
+                and o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in (o.characteristics.types or set())):
+            subs = o.characteristics.subtypes or set()
+            if 'Wolf' in subs or 'Spirit' in subs:
+                events.append(Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': o.id, 'counter_type': '+1/+1',
+                             'amount': 1},
+                    source=saga_obj.id,
+                ))
+    return events
+
+
+def _cursed_forest_awakens_ch_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Target creature an opponent controls gets -2/-2 until end of
+    turn. You scry 2."""
+    target = None
+    best_t = -1
+    for o in state.objects.values():
+        if (o.zone == ZoneType.BATTLEFIELD
+                and o.controller != saga_obj.controller
+                and CardType.CREATURE in (o.characteristics.types or set())):
+            t = o.characteristics.toughness or 0
+            if t > best_t:
+                best_t = t
+                target = o
+    events: list[Event] = []
+    if target:
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': target.id, 'power_mod': -2,
+                     'toughness_mod': -2, 'duration': 'end_of_turn'},
+            source=saga_obj.id,
+        ))
+    events.append(Event(
+        type=EventType.SCRY,
+        payload={'player': saga_obj.controller, 'amount': 2},
+        source=saga_obj.id,
+    ))
+    return events
+
+
+def _cursed_forest_awakens_ch_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Exile up to two target creatures with +1/+1 counters on them.
+    For each one exiled, create a 3/3 green Spirit Beast token."""
+    targets = []
+    for o in state.objects.values():
+        if (o.zone == ZoneType.BATTLEFIELD
+                and o.controller != saga_obj.controller
+                and CardType.CREATURE in (o.characteristics.types or set())):
+            if o.state.counters.get('+1/+1', 0) > 0:
+                targets.append(o)
+                if len(targets) >= 2:
+                    break
+    events: list[Event] = []
+    for t in targets:
+        events.append(Event(
+            type=EventType.EXILE,
+            payload={'object_id': t.id},
+            source=saga_obj.id,
+        ))
+        events.append(Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': saga_obj.controller,
+                'token': {
+                    'name': 'Spirit Beast',
+                    'power': 3, 'toughness': 3,
+                    'colors': {Color.GREEN},
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Spirit', 'Beast'},
+                },
+            },
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def cursed_forest_awakens_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_saga_setup
+    return make_saga_setup(
+        obj,
+        {
+            1: _cursed_forest_awakens_ch_i,
+            2: _cursed_forest_awakens_ch_ii,
+            3: _cursed_forest_awakens_ch_iii,
+        },
+    )
+
+
+THE_CURSED_FOREST_AWAKENS = CardDefinition(
+    name="The Cursed Forest Awakens",
+    mana_cost="{2}{B}{G}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Saga"},
+        colors={Color.BLACK, Color.GREEN},
+        mana_cost="{2}{B}{G}",
+    ),
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Each opponent discards a card. Put a +1/+1 counter on each "
+        "Wolf or Spirit you control.\n"
+        "II — Target creature an opponent controls gets -2/-2 until end of "
+        "turn. You scry 2.\n"
+        "III — Exile up to two target creatures with +1/+1 counters on "
+        "them. For each one exiled this way, create a 3/3 green Spirit "
+        "Beast creature token."
+    ),
+    setup_interceptors=cursed_forest_awakens_setup,
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -5365,6 +5871,13 @@ STUDIO_GHIBLI_CARDS = {
     "Princess Mononoke's Curse": PRINCESS_MONONOKES_CURSE,
     "San, Wolf-Sister Ascendant": SAN_WOLF_SISTER_ASCENDANT,
     "Chihiro, Bridge Between Worlds": CHIHIRO_BRIDGE_BETWEEN_WORLDS,
+
+    # SPICE PASS V2 EXPANSION — Phase 2 (depth-scorer-optimized)
+    "Totoro, Spirit of the Camphor Tree": TOTORO_CAMPHOR_TREE,
+    "Kaonashi's Banquet": KAONASHIS_BANQUET,
+    "Ashitaka, Iron-Cursed Prince": ASHITAKA_IRON_CURSED,
+    "Kiki, Witch on Errands": KIKI_WITCH_ERRANDS,
+    "The Cursed Forest Awakens": THE_CURSED_FOREST_AWAKENS,
 
     # SPICE PASS PHASE A — format-defining peaceful-Ghibli cards
     "The Forest Watches": THE_FOREST_WATCHES,
@@ -5589,6 +6102,12 @@ CARDS = [
     PRINCESS_MONONOKES_CURSE,
     SAN_WOLF_SISTER_ASCENDANT,
     CHIHIRO_BRIDGE_BETWEEN_WORLDS,
+    # SPICE PASS V2 EXPANSION — Phase 2
+    TOTORO_CAMPHOR_TREE,
+    KAONASHIS_BANQUET,
+    ASHITAKA_IRON_CURSED,
+    KIKI_WITCH_ERRANDS,
+    THE_CURSED_FOREST_AWAKENS,
     LAPUTAN_AMULET,
     CRYSTAL_NECKLACE,
     CALCIFER_LANTERN,
