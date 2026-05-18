@@ -171,6 +171,15 @@ MTG_PROFILE = EngineProfile(
     novel_helpers=_MTG_NOVEL_HELPERS,
     asymmetric_event_types=_MTG_ASYMMETRIC_EVENTS,
     information_event_types=_MTG_INFORMATION_EVENTS,
+    # Helpers that encapsulate cross-controller iteration so the AST walker
+    # can see asymmetry through the call (the walker doesn't descend into
+    # imported helpers' source). `all_opponents` is the canonical MTG
+    # opp-iterator from interceptor_helpers.py; without this, every card
+    # using it underscored on the Asymmetry axis. Surfaced by SPMC/AOT
+    # spice-pass agents 2026-05-18.
+    cross_controller_helpers=frozenset({
+        "all_opponents",
+    }),
 )
 
 

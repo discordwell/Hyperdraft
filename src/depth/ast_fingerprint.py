@@ -93,7 +93,19 @@ class FeatureBag:
 
 @lru_cache(maxsize=512)
 def _parse_module(path: str) -> tuple[Optional[ast.Module], dict[str, ast.FunctionDef]]:
-    """Parse a Python file and index its top-level FunctionDefs by name."""
+    """Parse a Python file and index its FunctionDefs by name AND by qualname.
+
+    Indexes both top-level functions (keyed by simple name) and nested
+    functions (keyed by qualname, e.g. ``make_equipment_setup.<locals>._setup``).
+    This lets the scorer locate closures returned by factory helpers — the
+    AST walker can then descend into the nested ``def _setup(obj, state):``
+    body and surface the real mechanics. Without this, every card built
+    through ``make_equipment_setup`` / ``make_aura_setup`` / similar
+    factories fingerprinted as ``helpers=[]`` because the walker only
+    found the wrapper (whose body just calls the helper) and couldn't
+    follow the closure into its captured logic. Surfaced by SPMC/MHA/TMH
+    spice-pass agents 2026-05-18.
+    """
     try:
         source = Path(path).read_text()
     except (OSError, UnicodeDecodeError):
@@ -103,14 +115,48 @@ def _parse_module(path: str) -> tuple[Optional[ast.Module], dict[str, ast.Functi
     except SyntaxError:
         return None, {}
     funcs: dict[str, ast.FunctionDef] = {}
+    # Top-level functions: keyed by simple name (backwards-compatible).
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             funcs[node.name] = node  # type: ignore[assignment]
+
+    # Nested functions: keyed by approximate qualname so closures returned
+    # by factory helpers are findable. Walks every FunctionDef in the tree
+    # and synthesizes ``<parent>.<locals>.<name>`` keys matching Python's
+    # runtime ``__qualname__`` format.
+    def _index_nested(node: ast.AST, parent_qualname: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                qualname = (
+                    f"{parent_qualname}.<locals>.{child.name}"
+                    if parent_qualname
+                    else child.name
+                )
+                if parent_qualname:
+                    # Don't overwrite the top-level entry above; nested
+                    # entries get the dotted qualname key.
+                    funcs.setdefault(qualname, child)  # type: ignore[assignment]
+                _index_nested(child, qualname)
+            else:
+                _index_nested(child, parent_qualname)
+
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            _index_nested(node, node.name)
+
     return tree, funcs
 
 
 def _func_source_for_callable(fn: Callable) -> tuple[Optional[str], Optional[ast.FunctionDef], dict[str, ast.FunctionDef]]:
-    """Locate the source file and AST FunctionDef for a runtime callable."""
+    """Locate the source file and AST FunctionDef for a runtime callable.
+
+    Tries ``fn.__qualname__`` first to find nested closures (e.g.
+    ``make_equipment_setup.<locals>._setup``), then falls back to
+    ``fn.__name__`` for the top-level case. Without the qualname lookup,
+    a closure returned by a factory helper resolves to a top-level entry
+    named ``_setup`` that doesn't exist, and the walker would early-return
+    an empty FeatureBag.
+    """
     try:
         path = inspect.getsourcefile(fn) or inspect.getfile(fn)
     except (TypeError, OSError):
@@ -118,7 +164,13 @@ def _func_source_for_callable(fn: Callable) -> tuple[Optional[str], Optional[ast
     if not path:
         return None, None, {}
     _, funcs = _parse_module(path)
-    fdef = funcs.get(fn.__name__)
+    # Prefer qualname for nested closures; fall back to simple name.
+    qualname = getattr(fn, "__qualname__", None)
+    fdef = None
+    if qualname and qualname in funcs:
+        fdef = funcs[qualname]
+    if fdef is None:
+        fdef = funcs.get(fn.__name__)
     return path, fdef, funcs
 
 

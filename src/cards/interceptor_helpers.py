@@ -7636,6 +7636,32 @@ __all_phase4__ = [
 # =============================================================================
 
 
+def get_attached_target_id(obj: GameObject) -> Optional[str]:
+    """Return the object-id of the creature this Equipment/Aura is attached to,
+    or None if not attached.
+
+    The canonical pointer is ``obj.state.attached_to`` (set by
+    ``src/engine/attach.py::_handle_attach`` on the ATTACH event). Cards
+    written against the legacy ``_aura_target_id`` / ``_attached_target_id``
+    attrs should migrate to either this helper or read ``attached_to``
+    directly — `make_aura_setup` already syncs the back-pointer on attach.
+
+    Use in setup_interceptors / activated abilities / triggers that need
+    to read the equipped creature mid-game::
+
+        def equip_trigger(event, state):
+            target_id = get_attached_target_id(obj)
+            if target_id is None:
+                return []
+            target = state.objects.get(target_id)
+            ...
+    """
+    state_obj = getattr(obj, "state", None)
+    if state_obj is None:
+        return None
+    return getattr(state_obj, "attached_to", None)
+
+
 def _make_attached_pt_interceptors(
     source_obj: GameObject,
     power_mod: int,
