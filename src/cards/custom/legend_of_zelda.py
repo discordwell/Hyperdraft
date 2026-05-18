@@ -27,6 +27,8 @@ from src.cards.interceptor_helpers import (
     make_upkeep_trigger, make_draw_trigger, make_spell_cast_trigger,
     other_creatures_you_control, other_creatures_with_subtype,
     creatures_with_subtype, creatures_you_control, all_opponents,
+    # Spice-pass W22+ additions:
+    make_activated_ability, make_equipment_setup,
 )
 from src.cards.ability_bundles import (
     etb_gain_life, etb_draw, etb_deal_damage, etb_create_token,
@@ -181,6 +183,165 @@ def _triforce_and_etb_setup(triforce_power: int, triforce_toughness: int, trifor
         interceptors.extend(make_triforce_bonus(obj, triforce_power, triforce_toughness, triforce_required))
         return interceptors
     return setup
+
+
+# =============================================================================
+# Spice-pass W22+ setup functions (added 2026-05-18)
+# Plan: /Users/discordwell/.claude/plans/zld_spice_pass.md
+# Baseline: docs/sets/custom_set_depth_baseline_2026-05-18.md
+# =============================================================================
+
+
+def triforce_of_power_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Anthem +1/+0 to other creatures you control, plus {2}, {T}: target gets
+    +3/+1 and gains haste until end of turn. Completes the Triforce trio so
+    pre-existing Triforce-gated cards (Zelda, Ganondorf King of Evil, Link
+    Hero of Time) have a real build-around package to assemble."""
+    interceptors, _ = static_pt_boost_other_you_control(obj, 1, 0)
+
+    def pump_target(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = t.object_id if hasattr(t, 'object_id') else (t.id if hasattr(t, 'id') else t)
+        return [
+            Event(type=EventType.PT_MODIFICATION,
+                  payload={'object_id': target_id, 'power_mod': 3,
+                           'toughness_mod': 1, 'duration': 'end_of_turn'},
+                  source=o.id),
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': target_id, 'keyword': 'haste',
+                           'duration': 'end_of_turn'},
+                  source=o.id),
+        ]
+
+    make_activated_ability(
+        obj, cost="{2}, {T}", effect_fn=pump_target,
+        description="Target creature gets +3/+1 and gains haste until end of turn",
+        targets_required=1, target_kind="creature",
+    )
+    return interceptors
+
+
+def triforce_of_wisdom_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you draw a card, scry 1. {2}, {T}: Draw a card, then discard a
+    card. Wisdom's scry-on-draw is the snowball axis; the loot activation lets
+    Triforce decks dig for assembly partners."""
+    def draw_trigger_effect(event: Event, st: GameState) -> list[Event]:
+        # Gate to controller draws only.
+        if event.payload.get('player') != obj.controller:
+            return []
+        return [_make_scry_event(obj, 1)]
+
+    def loot(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [
+            Event(type=EventType.DRAW,
+                  payload={'player': o.controller, 'amount': 1},
+                  source=o.id),
+            Event(type=EventType.DISCARD,
+                  payload={'player': o.controller, 'amount': 1},
+                  source=o.id),
+        ]
+
+    make_activated_ability(
+        obj, cost="{2}, {T}", effect_fn=loot,
+        description="Draw a card, then discard a card",
+        targets_required=0,
+    )
+    return [make_draw_trigger(obj, draw_trigger_effect)]
+
+
+def triforce_of_courage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Creatures you control have vigilance. {2}, {T}: target creature gains
+    indestructible until end of turn. Courage protects the assembled board."""
+    itc, _ = static_keyword_grant_others(obj, ['vigilance'], scope='creatures_you_control')
+    interceptors = list(itc) if isinstance(itc, list) else [itc]
+
+    def grant_indestructible(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        if not targets:
+            return []
+        t = targets[0]
+        target_id = t.object_id if hasattr(t, 'object_id') else (t.id if hasattr(t, 'id') else t)
+        return [Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': target_id, 'keyword': 'indestructible',
+                     'duration': 'end_of_turn'},
+            source=o.id,
+        )]
+
+    make_activated_ability(
+        obj, cost="{2}, {T}", effect_fn=grant_indestructible,
+        description="Target creature gains indestructible until end of turn",
+        targets_required=1, target_kind="creature",
+    )
+    return interceptors
+
+
+def master_kohga_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Yiga clan boss who steals time. At the beginning of your upkeep, exile
+    the top card of your library; you may play it this turn. Pure impulse-draw
+    engine — the cheapest, cleanest possible rewire for the unwired-legendary
+    cluster, and a build-around piece for the Rogue/Yiga aggro shell."""
+    def upkeep_impulse(event: Event, st: GameState) -> list[Event]:
+        # Use EXILE_TOP_PLAY shape used by Boba Fett / Ghirahim later — `caster`
+        # key, not `controller`. The handler grants play permission to the
+        # caster this turn.
+        return [Event(
+            type=EventType.EXILE_TOP_PLAY,
+            payload={
+                'caster': obj.controller,
+                'target_player': obj.controller,
+                'amount': 1,
+                'until_end_of_turn': True,
+            },
+            source=obj.id,
+        )]
+
+    return [make_upkeep_trigger(obj, upkeep_impulse)]
+
+
+def link_hero_of_the_wild_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Mythic Hylian Hero — trample + haste self, ETB tutors a sub-MV4 Equipment
+    onto the battlefield, attack-trigger pumps Link +1/+1 per artifact you
+    control until end of turn. Spice-pass pattern 4/7/11."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_tutor_equipment(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': obj.controller,
+                'subtype': 'Equipment',
+                'destination': 'battlefield',
+                'min_count': 0,
+                'max_count': 1,
+                'mana_value_max': 3,
+            },
+            source=obj.id,
+        )]
+
+    def attack_pump(event: Event, st: GameState) -> list[Event]:
+        artifact_count = sum(
+            1 for o in st.objects.values()
+            if o.controller == obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.ARTIFACT in o.characteristics.types
+        )
+        if artifact_count <= 0:
+            return []
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': artifact_count,
+                     'toughness_mod': artifact_count, 'duration': 'end_of_turn'},
+            source=obj.id,
+        )]
+
+    return [
+        make_keyword_grant(obj, ['trample', 'haste'], affects_self),
+        make_etb_trigger(obj, etb_tutor_equipment),
+        make_attack_trigger(obj, attack_pump),
+    ]
 
 
 def _triforce_setup(triforce_power: int, triforce_toughness: int, triforce_required: int):
@@ -1073,6 +1234,29 @@ LINK_CHAMPION_OF_HYRULE = make_creature(
 )
 
 
+# --- Link, Hero of the Wild (spice-pass W22+) ---
+# {2}{G}{W} 3/3 Mythic. Trample + haste self. ETB tutors a sub-MV4 Equipment
+# straight onto the battlefield (Stoneforge tier on a body that swings). Attack
+# trigger scales +N/+N where N = artifacts you control — a build-around enabler
+# for the Equipment / Mask cluster the set already ships unwired.
+LINK_HERO_OF_THE_WILD = make_creature(
+    name="Link, Hero of the Wild",
+    power=3, toughness=3,
+    mana_cost="{2}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    subtypes={"Hylian", "Warrior", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample, haste. When Link, Hero of the Wild enters, search your "
+        "library for an Equipment card with mana value 3 or less, put it "
+        "onto the battlefield, then shuffle. Whenever Link, Hero of the "
+        "Wild attacks, it gets +1/+1 until end of turn for each artifact "
+        "you control."
+    ),
+    setup_interceptors=link_hero_of_the_wild_setup,
+)
+
+
 SARIA_FOREST_SAGE = make_creature(
     name="Saria, Forest Sage",
     power=2, toughness=3,
@@ -1357,24 +1541,36 @@ MALON_RANCH_KEEPER = make_creature(
 TRIFORCE_OF_POWER = make_artifact(
     name="Triforce of Power",
     mana_cost="{3}",
-    text="Creatures you control get +1/+0. {T}: Target creature gets +3/+0 until end of turn.",
-    supertypes={"Legendary"}
+    text=(
+        "Creatures you control get +1/+0. "
+        "{2}, {T}: Target creature gets +3/+1 and gains haste until end of turn."
+    ),
+    supertypes={"Legendary"},
+    setup_interceptors=triforce_of_power_setup,
 )
 
 
 TRIFORCE_OF_WISDOM = make_artifact(
     name="Triforce of Wisdom",
     mana_cost="{3}",
-    text="Whenever you draw a card, you may pay {1}. If you do, scry 1. {T}: Draw a card, then discard a card.",
-    supertypes={"Legendary"}
+    text=(
+        "Whenever you draw a card, scry 1. "
+        "{2}, {T}: Draw a card, then discard a card."
+    ),
+    supertypes={"Legendary"},
+    setup_interceptors=triforce_of_wisdom_setup,
 )
 
 
 TRIFORCE_OF_COURAGE = make_artifact(
     name="Triforce of Courage",
     mana_cost="{3}",
-    text="Creatures you control have vigilance. {T}: Target creature gains indestructible until end of turn.",
-    supertypes={"Legendary"}
+    text=(
+        "Creatures you control have vigilance. "
+        "{2}, {T}: Target creature gains indestructible until end of turn."
+    ),
+    supertypes={"Legendary"},
+    setup_interceptors=triforce_of_courage_setup,
 )
 
 
@@ -1438,8 +1634,13 @@ HYLIAN_SHIELD = make_equipment(
     name="Hylian Shield",
     mana_cost="{2}",
     equip_cost="{1}",
-    text="Equipped creature gets +0/+3 and has hexproof.",
-    supertypes={"Legendary"}
+    text="Equipped creature gets +1/+3 and has ward {1}.",
+    supertypes={"Legendary"},
+    setup_interceptors=make_equipment_setup(
+        power_mod=1, toughness_mod=3,
+        ward_cost="{1}",
+        equip_cost="{1}",
+    ),
 )
 
 
@@ -2036,6 +2237,11 @@ MASTER_KOHGA = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Rogue"},
     supertypes={"Legendary"},
+    text=(
+        "At the beginning of your upkeep, exile the top card of your library. "
+        "You may play it this turn."
+    ),
+    setup_interceptors=master_kohga_setup,
 )
 
 GHIRAHIM_DEMON_LORD = make_creature(
@@ -2288,6 +2494,7 @@ LEGEND_OF_ZELDA_CARDS = {
     # GREEN LEGENDARIES
     "Link, Hero of Time": LINK_HERO_OF_TIME,
     "Link, Champion of Hyrule": LINK_CHAMPION_OF_HYRULE,
+    "Link, Hero of the Wild": LINK_HERO_OF_THE_WILD,
     "Saria, Forest Sage": SARIA_FOREST_SAGE,
     "Revali, Rito Champion": REVALI_RITO_CHAMPION,
     "Great Deku Tree": GREAT_DEKU_TREE,
@@ -2513,6 +2720,7 @@ CARDS = [
     BOMB_BARRAGE,
     LINK_HERO_OF_TIME,
     LINK_CHAMPION_OF_HYRULE,
+    LINK_HERO_OF_THE_WILD,
     SARIA_FOREST_SAGE,
     REVALI_RITO_CHAMPION,
     GREAT_DEKU_TREE,
