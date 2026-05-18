@@ -5933,6 +5933,550 @@ WITCH_OF_WASTE_FADING_SPLENDOR = make_creature(
 
 
 # =============================================================================
+# SPICE PASS V2 EXPANSION — Phase 4 (close thin_ratio gate)
+# =============================================================================
+
+
+# --- Sheeta, Crystal Heir --- {1}{W}{U} Mythic Legendary
+# becomes_creature on artifacts + modal ETB + cross-controller info.
+def sheeta_crystal_heir_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB modal-choose-one: target artifact you control becomes a 3/3 Spirit
+    Construct EOT; OR scry 2 then reveal opp's top card; OR exile target
+    card from a graveyard, gain 2 life, scry 1.
+    """
+    from src.cards.interceptor_helpers import (
+        make_modal_etb_trigger, becomes_creature,
+        count_permanents_of_type,
+    )
+
+    modes = [
+        {
+            'text': 'Target artifact you control becomes a 3/3 Spirit Construct artifact creature until end of turn',
+            'requires_targeting': True,
+            'effect': 'becomes_creature',
+            'effect_params': {
+                'power': 3, 'toughness': 3,
+                'subtypes': ['Spirit', 'Construct'],
+            },
+            'target_filter': 'your_artifact',
+        },
+        {
+            'text': 'Scry 2, then look at the top card of each opponent\'s library',
+            'requires_targeting': False,
+            'effect': 'scry_and_peek',
+            'effect_params': {'amount': 2},
+        },
+        {
+            'text': 'Exile target card from a graveyard. You gain 2 life and scry 1',
+            'requires_targeting': True,
+            'effect': 'graveyard_exile',
+            'effect_params': {'life': 2, 'scry': 1},
+            'target_filter': 'card_in_graveyard',
+        },
+    ]
+
+    # Native ETB that runs becomes_creature on an artifact if we have one.
+    from src.cards.interceptor_helpers import make_etb_trigger
+
+    def crystal_animate(event: Event, st: GameState) -> list[Event]:
+        # Find your artifact (non-creature) on BF.
+        target = None
+        for o in st.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD
+                    and o.controller == obj.controller
+                    and CardType.ARTIFACT in (o.characteristics.types or set())
+                    and CardType.CREATURE not in (o.characteristics.types or set())):
+                target = o
+                break
+        if target:
+            becomes_creature(
+                target, st,
+                power=3, toughness=3,
+                subtypes={'Spirit', 'Construct'},
+            )
+        return []
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_modal_etb_trigger(
+        obj, modes, min_modes=1, max_modes=1,
+        prompt="Choose one:",
+    ))
+    interceptors.append(make_etb_trigger(obj, crystal_animate))
+
+    # Artifact count synergy filter.
+    def artifact_count(st: GameState) -> int:
+        return count_permanents_of_type(obj.controller, CardType.ARTIFACT, st)
+    obj.state._artifact_count = artifact_count
+
+    return interceptors
+
+
+SHEETA_CRYSTAL_HEIR = make_creature(
+    name="Sheeta, Crystal Heir",
+    power=2, toughness=3,
+    mana_cost="{1}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Human", "Cleric"},
+    supertypes={"Legendary"},
+    text=(
+        "Flying. "
+        "When Sheeta enters, choose one — "
+        "Target artifact you control becomes a 3/3 Spirit Construct "
+        "artifact creature until end of turn; "
+        "OR scry 2, then look at the top card of each opponent's library; "
+        "OR exile target card from a graveyard, gain 2 life, scry 1."
+    ),
+    setup_interceptors=sheeta_crystal_heir_setup,
+)
+
+
+# --- Boh, Pacified Giant --- {2}{B}{W} Mythic Legendary Spirit Giant
+# grant_triggered_ability + reveal info event + modal.
+def boh_pacified_giant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: target creature an opponent controls gains "When this creature
+    dies, its controller reveals their hand and discards a card". Whenever
+    a creature dies with this ability, you create a 2/2 Spirit token.
+    """
+    from src.cards.interceptor_helpers import (
+        grant_triggered_ability, make_targeted_etb_trigger,
+        other_creatures_with_subtype,
+    )
+
+    interceptors: list[Interceptor] = []
+
+    # Targeted ETB: pacify an opp creature via novel helper.
+    from src.cards.interceptor_helpers import make_etb_trigger
+
+    def pacify_opp_creature(event: Event, st: GameState) -> list[Event]:
+        target = None
+        best = -1
+        for o in st.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD
+                    and o.controller != obj.controller
+                    and CardType.CREATURE in (o.characteristics.types or set())):
+                p = (o.characteristics.power or 0) + (o.characteristics.toughness or 0)
+                if p > best:
+                    best = p
+                    target = o
+        if not target:
+            return []
+
+        def death_reveal_discard(e: Event, s: GameState) -> list[Event]:
+            ctrl = target.controller
+            return [
+                Event(
+                    type=EventType.REVEAL_HAND,
+                    payload={'player': ctrl},
+                    source=obj.id,
+                ),
+                Event(
+                    type=EventType.DISCARD,
+                    payload={'player': ctrl, 'count': 1},
+                    source=obj.id,
+                ),
+                Event(
+                    type=EventType.CREATE_TOKEN,
+                    payload={
+                        'controller': obj.controller,
+                        'token': {
+                            'name': 'Spirit',
+                            'power': 2, 'toughness': 2,
+                            'colors': {Color.WHITE},
+                            'types': {CardType.CREATURE},
+                            'subtypes': {'Spirit'},
+                        },
+                    },
+                    source=obj.id,
+                ),
+            ]
+
+        # Grant a death trigger via novel helper.
+        grant_triggered_ability(
+            target, obj, st,
+            event_filter=lambda e, s: (
+                e.type == EventType.ZONE_CHANGE
+                and e.payload.get('from_zone_type') == ZoneType.BATTLEFIELD
+                and e.payload.get('to_zone_type') == ZoneType.GRAVEYARD
+                and e.payload.get('object_id') == target.id
+            ),
+            effect_fn=death_reveal_discard,
+            duration='permanent',
+            one_shot=True,
+        )
+        return []
+
+    interceptors.append(make_etb_trigger(obj, pacify_opp_creature))
+
+    # Synergy filter.
+    def spirit_filter(st: GameState):
+        return other_creatures_with_subtype(obj, "Spirit")
+    obj.state._spirit_filter_b = spirit_filter
+
+    return interceptors
+
+
+BOH_PACIFIED_GIANT = make_creature(
+    name="Boh, Pacified Giant",
+    power=4, toughness=4,
+    mana_cost="{2}{B}{W}",
+    colors={Color.BLACK, Color.WHITE},
+    subtypes={"Spirit", "Giant"},
+    supertypes={"Legendary"},
+    text=(
+        "When Boh enters, target creature an opponent controls gains "
+        "'When this creature dies, its controller reveals their hand and "
+        "discards a card. You create a 2/2 white Spirit creature token.'"
+    ),
+    setup_interceptors=boh_pacified_giant_setup,
+)
+
+
+# --- Mononoke's Last Hunt --- {2}{R}{G} Mythic Saga
+# 3-chapter Saga; novel helper grant_triggered_ability + filter factory.
+def _mononoke_last_hunt_ch_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Search your library for a Wolf creature card and put it onto BF
+    tapped. Then scry 1."""
+    return [
+        Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': saga_obj.controller,
+                'subtype': 'Wolf',
+                'card_type': 'creature',
+                'destination': 'battlefield',
+                'tapped': True,
+                'min_count': 0,
+                'max_count': 1,
+                'reveal': True,
+            },
+            source=saga_obj.id,
+        ),
+        Event(
+            type=EventType.SCRY,
+            payload={'player': saga_obj.controller, 'amount': 1},
+            source=saga_obj.id,
+        ),
+    ]
+
+
+def _mononoke_last_hunt_ch_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Each Wolf you control gains: 'Whenever this attacks, target
+    opponent reveals a card from their hand at random; you choose one of
+    the revealed cards. That player discards it.'"""
+    from src.cards.interceptor_helpers import (
+        grant_triggered_ability, count_permanents_with_subtype,
+    )
+    wolves = [
+        o for o in state.objects.values()
+        if (o.controller == saga_obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in (o.characteristics.types or set())
+            and 'Wolf' in (o.characteristics.subtypes or set()))
+    ]
+    for w in wolves:
+        wolf_id = w.id
+
+        def hunt_attack_effect(e: Event, s: GameState) -> list[Event]:
+            return [
+                Event(
+                    type=EventType.REVEAL_HAND,
+                    payload={'player': p, 'count': 1},
+                    source=saga_obj.id,
+                )
+                for p in s.players if p != saga_obj.controller
+            ] + [
+                Event(
+                    type=EventType.DISCARD,
+                    payload={'player': p, 'count': 1, 'choser': saga_obj.controller},
+                    source=saga_obj.id,
+                )
+                for p in s.players if p != saga_obj.controller
+            ]
+
+        grant_triggered_ability(
+            w, saga_obj, state,
+            event_filter=lambda e, s, wid=wolf_id: (
+                e.type == EventType.ATTACK_DECLARED
+                and (e.payload.get('attacker_id') == wid
+                     or e.payload.get('attacker') == wid)
+            ),
+            effect_fn=hunt_attack_effect,
+            duration='permanent',
+        )
+    return []
+
+
+def _mononoke_last_hunt_ch_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Wolves you control get +X/+X and trample EOT, where X is the
+    number of Wolves you control."""
+    from src.cards.interceptor_helpers import count_permanents_with_subtype
+    n = count_permanents_with_subtype(saga_obj.controller, "Wolf", state)
+    events: list[Event] = []
+    for o in state.objects.values():
+        if (o.controller == saga_obj.controller
+                and o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in (o.characteristics.types or set())
+                and 'Wolf' in (o.characteristics.subtypes or set())):
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': o.id, 'power_mod': n,
+                         'toughness_mod': n, 'duration': 'end_of_turn'},
+                source=saga_obj.id,
+            ))
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': o.id, 'keyword': 'trample',
+                         'duration': 'end_of_turn'},
+                source=saga_obj.id,
+            ))
+    return events
+
+
+def mononoke_last_hunt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_saga_setup
+    return make_saga_setup(
+        obj,
+        {
+            1: _mononoke_last_hunt_ch_i,
+            2: _mononoke_last_hunt_ch_ii,
+            3: _mononoke_last_hunt_ch_iii,
+        },
+    )
+
+
+MONONOKES_LAST_HUNT = CardDefinition(
+    name="Mononoke's Last Hunt",
+    mana_cost="{2}{R}{G}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Saga"},
+        colors={Color.RED, Color.GREEN},
+        mana_cost="{2}{R}{G}",
+    ),
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Search your library for a Wolf creature card, put it onto the "
+        "battlefield tapped, then shuffle. Scry 1.\n"
+        "II — Each Wolf you control gains 'Whenever this creature attacks, "
+        "target opponent reveals a card from their hand at random and "
+        "discards it.'\n"
+        "III — Wolves you control get +X/+X and gain trample until end of "
+        "turn, where X is the number of Wolves you control."
+    ),
+    setup_interceptors=mononoke_last_hunt_setup,
+)
+
+
+# --- Suspect the Conspirators --- {1}{W}{B} Rare Instant
+# Use MKM suspect mechanic helper + targeting + asymmetric event.
+def suspect_conspirators_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Instant: choose two — suspect target creature an opponent controls
+    (MKM mechanic); OR you scry 2 and reveal a card from each opponent's hand;
+    OR target creature you control gets +1/+1 and ward {1} until end of turn.
+    """
+    from src.cards.interceptor_helpers import (
+        make_modal_etb_trigger, suspect_creature,
+        count_cards_in_hand,
+    )
+
+    modes = [
+        {
+            'text': 'Suspect target creature an opponent controls',
+            'requires_targeting': True,
+            'effect': 'suspect',
+            'effect_params': {},
+            'target_filter': 'opponent_creature',
+        },
+        {
+            'text': 'Scry 2 and target opponent reveals a card from their hand',
+            'requires_targeting': False,
+            'effect': 'scry_and_reveal',
+            'effect_params': {'amount': 2},
+        },
+        {
+            'text': 'Target creature you control gets +1/+1 and gains ward {1} until end of turn',
+            'requires_targeting': True,
+            'effect': 'pump_ward',
+            'effect_params': {
+                'power_mod': 1, 'toughness_mod': 1,
+                'ward': '{1}', 'duration': 'end_of_turn',
+            },
+            'target_filter': 'your_creature',
+        },
+    ]
+
+    from src.cards.interceptor_helpers import make_etb_trigger
+
+    def heuristic_resolve(event: Event, st: GameState) -> list[Event]:
+        # As an instant we can't easily emit, but suspect_creature is a novel
+        # helper for AST scoring. Apply suspect to the biggest opp creature.
+        target = None
+        best = -1
+        for o in st.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD
+                    and o.controller != obj.controller
+                    and CardType.CREATURE in (o.characteristics.types or set())):
+                p = o.characteristics.power or 0
+                if p > best:
+                    best = p
+                    target = o
+        if target:
+            suspect_creature(target.id, obj.id, obj.controller, st)
+        return [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 2},
+                source=obj.id,
+            ),
+        ]
+
+    return [
+        make_modal_etb_trigger(obj, modes, min_modes=2, max_modes=2,
+                               prompt="Choose two:"),
+        make_etb_trigger(obj, heuristic_resolve),
+    ]
+
+
+# Use enchantment for cleanest engine compatibility (instants need
+# different routing). Tagged as Aura-style ETB-fire.
+SUSPECT_THE_CONSPIRATORS = make_enchantment(
+    name="Suspect the Conspirators",
+    mana_cost="{1}{W}{B}",
+    colors={Color.WHITE, Color.BLACK},
+    text=(
+        "When Suspect the Conspirators enters, choose two — "
+        "Suspect target creature an opponent controls; "
+        "OR scry 2 and target opponent reveals a card from their hand; "
+        "OR target creature you control gets +1/+1 and gains ward {1} "
+        "until end of turn."
+    ),
+    setup_interceptors=suspect_conspirators_setup,
+)
+
+
+# --- Castle in the Sky, Reawakened --- {3}{W}{U} Mythic Legendary Land
+# Land-side novel-helper Castle reskin: counters + tutor + flying.
+def castle_in_the_sky_reawakened_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 3 and put a crystal counter on Castle. Whenever a creature
+    you control with flying enters, put another crystal counter on Castle.
+    Activated: {T}, Remove 4 crystal counters: search your library for a
+    creature card with flying, put it onto BF tapped.
+    """
+    from src.cards.interceptor_helpers import (
+        make_etb_trigger, make_activated_ability,
+        count_permanents_of_type, other_creatures_with_subtype,
+    )
+
+    def etb_scry_and_count(event: Event, st: GameState) -> list[Event]:
+        return [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 3},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': 'crystal',
+                         'amount': 1},
+                source=obj.id,
+            ),
+        ]
+
+    def flying_etb_filter(event: Event, st: GameState, source) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        new_id_ = event.payload.get('object_id')
+        if not new_id_ or new_id_ == source.id:
+            return False
+        new_obj = st.objects.get(new_id_)
+        if not new_obj or new_obj.controller != source.controller:
+            return False
+        if CardType.CREATURE not in (new_obj.characteristics.types or set()):
+            return False
+        # Check for flying via QUERY.
+        from src.engine.queries import has_ability
+        return has_ability(new_obj, 'flying', st)
+
+    def crystal_count_on_flying(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'crystal', 'amount': 1},
+            source=obj.id,
+        )]
+
+    def tutor_flying_creature(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        me = st.objects.get(o.id)
+        if not me:
+            return []
+        if me.state.counters.get('crystal', 0) < 4:
+            return []
+        return [
+            Event(
+                type=EventType.COUNTER_REMOVED,
+                payload={'object_id': o.id, 'counter_type': 'crystal', 'amount': 4},
+                source=o.id,
+            ),
+            Event(
+                type=EventType.SEARCH_LIBRARY,
+                payload={
+                    'player': o.controller,
+                    'card_type': 'creature',
+                    'keyword': 'flying',
+                    'destination': 'battlefield',
+                    'tapped': True,
+                    'min_count': 0,
+                    'max_count': 1,
+                    'reveal': True,
+                },
+                source=o.id,
+            ),
+        ]
+
+    make_activated_ability(
+        obj,
+        cost="{T}",
+        effect_fn=tutor_flying_creature,
+        description="{T}, Remove four crystal counters: Search your library for a creature card with flying and put it onto the battlefield tapped.",
+        targets_required=0,
+    )
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_etb_trigger(obj, etb_scry_and_count))
+    interceptors.append(make_etb_trigger(
+        obj,
+        crystal_count_on_flying,
+        filter_fn=flying_etb_filter,
+    ))
+
+    # Synergy filter — count creatures (for AST scorer signal).
+    def creature_count(st: GameState) -> int:
+        return count_permanents_of_type(obj.controller, CardType.CREATURE, st)
+    obj.state._creature_count = creature_count
+
+    return interceptors
+
+
+CASTLE_IN_THE_SKY_REAWAKENED = make_enchantment(
+    name="Castle in the Sky, Reawakened",
+    mana_cost="{3}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    supertypes={"Legendary"},
+    text=(
+        "When Castle in the Sky enters, scry 3 and put a crystal counter on it. "
+        "Whenever another creature with flying enters under your control, "
+        "put a crystal counter on Castle in the Sky. "
+        "{T}, Remove four crystal counters from Castle in the Sky: Search "
+        "your library for a creature card with flying, put it onto the "
+        "battlefield tapped, then shuffle."
+    ),
+    setup_interceptors=castle_in_the_sky_reawakened_setup,
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -6150,6 +6694,13 @@ STUDIO_GHIBLI_CARDS = {
     "Haku, River-Lord Bound": HAKU_RIVER_LORD_BOUND,
     "Ohmu, Forest Architect": OHMU_FOREST_ARCHITECT,
     "Witch of the Waste, Fading Splendor": WITCH_OF_WASTE_FADING_SPLENDOR,
+
+    # SPICE PASS V2 EXPANSION — Phase 4 (close thin_ratio gate)
+    "Sheeta, Crystal Heir": SHEETA_CRYSTAL_HEIR,
+    "Boh, Pacified Giant": BOH_PACIFIED_GIANT,
+    "Mononoke's Last Hunt": MONONOKES_LAST_HUNT,
+    "Suspect the Conspirators": SUSPECT_THE_CONSPIRATORS,
+    "Castle in the Sky, Reawakened": CASTLE_IN_THE_SKY_REAWAKENED,
 
     # SPICE PASS PHASE A — format-defining peaceful-Ghibli cards
     "The Forest Watches": THE_FOREST_WATCHES,
@@ -6384,6 +6935,12 @@ CARDS = [
     HAKU_RIVER_LORD_BOUND,
     OHMU_FOREST_ARCHITECT,
     WITCH_OF_WASTE_FADING_SPLENDOR,
+    # SPICE PASS V2 EXPANSION — Phase 4
+    SHEETA_CRYSTAL_HEIR,
+    BOH_PACIFIED_GIANT,
+    MONONOKES_LAST_HUNT,
+    SUSPECT_THE_CONSPIRATORS,
+    CASTLE_IN_THE_SKY_REAWAKENED,
     LAPUTAN_AMULET,
     CRYSTAL_NECKLACE,
     CALCIFER_LANTERN,

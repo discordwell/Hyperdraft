@@ -1317,6 +1317,130 @@ def test_witch_etb_reveals_and_threatens():
 
 
 # ============================================================================
+# Phase 4 — Sheeta, Boh, Mononoke's Last Hunt, Suspect, Castle in the Sky
+# ============================================================================
+
+def test_sheeta_crystal_heir_loads():
+    """Loads as Legendary Human/Cleric."""
+    print("\n=== Sheeta Crystal Heir: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    sh = _put_on_battlefield(game, p1, "Sheeta, Crystal Heir")
+    chars = sh.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Cleric' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert len(sh.interceptor_ids) >= 2
+    print(f"  Loaded with {len(sh.interceptor_ids)} interceptors")
+
+
+def test_sheeta_etb_animates_artifact():
+    """ETB: an artifact you control becomes a 3/3 Spirit Construct."""
+    print("\n=== Sheeta: ETB animates artifact ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    artifact = game.create_object(
+        name="Hat",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.ARTIFACT},
+            colors=set(),
+        ),
+    )
+    _put_on_battlefield(game, p1, "Sheeta, Crystal Heir")
+    new_p = get_power(artifact, game.state)
+    assert new_p == 3, f"Power should be 3: {new_p}"
+    print(f"  Artifact animated: P={new_p}")
+
+
+def test_boh_pacified_giant_loads():
+    """Loads as Legendary Spirit/Giant."""
+    print("\n=== Boh Pacified Giant: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    boh = _put_on_battlefield(game, p1, "Boh, Pacified Giant")
+    chars = boh.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Giant' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert len(boh.interceptor_ids) >= 1
+    print(f"  Loaded with {len(boh.interceptor_ids)} interceptors")
+
+
+def test_mononoke_last_hunt_loads_as_saga():
+    """Loads as Saga enchantment."""
+    print("\n=== Mononoke's Last Hunt: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    saga = _put_on_battlefield(game, p1, "Mononoke's Last Hunt")
+    chars = saga.characteristics
+    assert CardType.ENCHANTMENT in chars.types
+    assert 'Saga' in chars.subtypes
+    assert len(saga.interceptor_ids) >= 2
+    print(f"  Loaded with {len(saga.interceptor_ids)} interceptors")
+
+
+def test_mononoke_last_hunt_chapter_i_tutors_wolf():
+    """Chapter I emits SEARCH_LIBRARY for Wolf."""
+    print("\n=== Mononoke's Last Hunt: chapter I ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    saga = _put_on_battlefield(game, p1, "Mononoke's Last Hunt")
+    from src.cards.custom.studio_ghibli import _mononoke_last_hunt_ch_i
+    events = _mononoke_last_hunt_ch_i(saga, game.state)
+    searches = [e for e in events
+                if e.type == EventType.SEARCH_LIBRARY
+                and e.payload.get('subtype') == 'Wolf']
+    assert searches, "Expected SEARCH_LIBRARY for Wolf"
+    print(f"  Chapter I tutors a Wolf")
+
+
+def test_suspect_the_conspirators_loads():
+    """Loads as Enchantment."""
+    print("\n=== Suspect the Conspirators: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    susp = _put_on_battlefield(game, p1, "Suspect the Conspirators")
+    chars = susp.characteristics
+    assert CardType.ENCHANTMENT in chars.types
+    # Modal ETB + ETB heuristic = 2.
+    assert len(susp.interceptor_ids) >= 2
+    print(f"  Loaded with {len(susp.interceptor_ids)} interceptors")
+
+
+def test_castle_in_the_sky_reawakened_loads():
+    """Loads as Legendary Enchantment with activated ability + ETB triggers."""
+    print("\n=== Castle in the Sky: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    castle = _put_on_battlefield(game, p1, "Castle in the Sky, Reawakened")
+    chars = castle.characteristics
+    assert CardType.ENCHANTMENT in chars.types
+    assert 'Legendary' in (chars.supertypes or set())
+    # ETB scry-and-count + flying-ETB listener = 2.
+    assert len(castle.interceptor_ids) >= 2
+    abilities = getattr(castle.state, 'activated_abilities', [])
+    assert len(abilities) >= 1
+    print(f"  Loaded with {len(castle.interceptor_ids)} interceptors, "
+          f"{len(abilities)} activated")
+
+
+def test_castle_in_the_sky_etb_scrys_and_counters():
+    """ETB: scry 3 + put a crystal counter on Castle."""
+    print("\n=== Castle in the Sky: ETB scry + counter ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    castle = _put_on_battlefield(game, p1, "Castle in the Sky, Reawakened")
+    crystals = castle.state.counters.get('crystal', 0)
+    assert crystals == 1, f"Expected 1 crystal counter, got {crystals}"
+    scrys = [e for e in game.state.event_log
+             if e.type == EventType.SCRY and e.source == castle.id]
+    assert scrys, "Expected SCRY emission"
+    print(f"  Crystal counters: {crystals}; scry'd")
+
+
+# ============================================================================
 # Registry smoke test
 # ============================================================================
 
@@ -1341,6 +1465,12 @@ def test_all_v2_spice_cards_register():
         "Haku, River-Lord Bound",
         "Ohmu, Forest Architect",
         "Witch of the Waste, Fading Splendor",
+        # Phase 4
+        "Sheeta, Crystal Heir",
+        "Boh, Pacified Giant",
+        "Mononoke's Last Hunt",
+        "Suspect the Conspirators",
+        "Castle in the Sky, Reawakened",
     ]
     for name in expected:
         assert name in STUDIO_GHIBLI_CARDS, f"Missing in registry: {name}"
@@ -1397,6 +1527,15 @@ if __name__ == "__main__":
     test_ohmu_etb_opens_modal()
     test_witch_of_waste_fading_loads()
     test_witch_etb_reveals_and_threatens()
+    # Phase 4 cards
+    test_sheeta_crystal_heir_loads()
+    test_sheeta_etb_animates_artifact()
+    test_boh_pacified_giant_loads()
+    test_mononoke_last_hunt_loads_as_saga()
+    test_mononoke_last_hunt_chapter_i_tutors_wolf()
+    test_suspect_the_conspirators_loads()
+    test_castle_in_the_sky_reawakened_loads()
+    test_castle_in_the_sky_etb_scrys_and_counters()
     test_all_v2_spice_cards_register()
     print("\n" + "=" * 60)
     print("ALL STUDIO GHIBLI V2 SPICE TESTS PASSED!")
