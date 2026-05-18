@@ -23,9 +23,11 @@ from typing import Optional, Callable
 from src.cards.interceptor_helpers import (
     make_etb_trigger, make_death_trigger, make_attack_trigger,
     make_damage_trigger, make_static_pt_boost, make_keyword_grant,
-    other_creatures_you_control, creatures_with_subtype,
+    other_creatures_you_control, creatures_with_subtype, creatures_you_control,
     make_upkeep_trigger, make_end_step_trigger, make_spell_cast_trigger,
-    make_block_trigger, make_life_gain_trigger, make_life_loss_trigger
+    make_block_trigger, make_life_gain_trigger, make_life_loss_trigger,
+    # Spice-pass Phase A1 (2026-05-18) additions:
+    make_saga_setup, make_activated_ability, make_equipment_setup,
 )
 
 
@@ -835,27 +837,60 @@ FOG_CONCEALMENT = make_enchantment(
 # =============================================================================
 
 def muzan_kibutsuji_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """The Demon King - creates demons, destroys slayers"""
+    """Spice-pass A1 REWIRE: actually wire the flavor-text indestructible
+    keyword (was unwired), and add a Blood Demon Art end-step drain that
+    scales with Demons you control. The ETB sacrifice + night bonus + regen
+    stays.
+
+    Pattern 2 (hard to interact with — indestructible) + pattern 3 (snowball
+    via end-step drain). The combination makes Muzan a 6/6 indestructible
+    body that punishes opponents every turn the longer he's on the board."""
     interceptors = []
 
-    # Night bonus
+    # Self indestructible — flavor said so but was unwired.
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+    interceptors.append(make_keyword_grant(obj, ['indestructible'], affects_self))
+
+    # Night bonus +3/+3 on opp turns (keep existing).
     interceptors.extend(make_demon_night_bonus(obj, 3, 3))
 
-    # Regeneration
+    # Regeneration (keep existing).
     interceptors.append(make_regeneration(obj, 2))
 
-    # ETB: Each opponent sacrifices a creature
-    def sacrifice_effect(event: Event, state: GameState) -> list[Event]:
-        events = []
-        for player_id in state.players:
+    # ETB: Each opponent sacrifices a creature (rewritten to SACRIFICE_REQUIRED
+    # to match ZLD spice-pass convention for "each player sacs" effects).
+    def sacrifice_effect(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        for player_id in st.players:
             if player_id != obj.controller:
                 events.append(Event(
-                    type=EventType.SACRIFICE,
-                    payload={'player': player_id, 'type': 'creature'},
-                    source=obj.id
+                    type=EventType.SACRIFICE_REQUIRED,
+                    payload={'player': player_id, 'card_type': 'creature', 'count': 1},
+                    source=obj.id,
                 ))
         return events
     interceptors.append(make_etb_trigger(obj, sacrifice_effect))
+
+    # Blood Demon Art — at the beginning of your end step, each opponent loses
+    # life equal to the number of Demons you control (snowball).
+    def end_step_drain(event: Event, st: GameState) -> list[Event]:
+        demon_count = sum(
+            1 for o in st.objects.values()
+            if o.controller == obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and o.characteristics
+            and 'Demon' in (o.characteristics.subtypes or set())
+        )
+        if demon_count <= 0:
+            return []
+        return [
+            Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': pid, 'amount': -demon_count, 'source': obj.id},
+                  source=obj.id)
+            for pid in st.players if pid != obj.controller
+        ]
+    interceptors.append(make_end_step_trigger(obj, end_step_drain))
 
     return interceptors
 
@@ -867,7 +902,7 @@ MUZAN_KIBUTSUJI = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon", "Noble"},
     supertypes={"Legendary"},
-    text="Indestructible. Demon — Muzan gets +3/+3 during opponents' turns. At end of turn, remove 2 damage from Muzan. When Muzan enters, each opponent sacrifices a creature.",
+    text="Indestructible. Demon — Muzan gets +3/+3 during opponents' turns. At end of turn, remove 2 damage from Muzan. When Muzan enters, each opponent sacrifices a creature. Blood Demon Art — At the beginning of your end step, each opponent loses life equal to the number of Demons you control.",
     setup_interceptors=muzan_kibutsuji_setup
 )
 
@@ -1828,15 +1863,44 @@ NEZUKO_KAMADO = make_creature(
 
 
 def tanjiro_sun_breathing_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Tanjiro with Sun Breathing - ultimate form"""
+    """Spice-pass A1 REWIRE: Sun Breathing now actually destroys a Demon and
+    deals 2 damage to each Demon you don't control on attack (was a no-op
+    effect_fn returning [] before). Also keeps Demon Slayer Mark + vigilance
+    +haste self-keywords (flavor text said so but only Mark was wired).
+
+    Pattern 11 build-around: combos with Triforce-style support package of
+    other Slayers (anthem stacks) and pattern 1 disproportionate efficiency
+    (destroy + sweep on a single attack)."""
     interceptors = []
 
-    # Sun breathing destroys demons
-    def sun_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Destroy target Demon
-    interceptors.append(make_breathing_attack_trigger(obj, sun_effect, life_cost=2))
+    # Self vigilance + haste — flavor text says so; wire them.
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+    interceptors.append(make_keyword_grant(obj, ['vigilance', 'haste'], affects_self))
 
-    # Demon Slayer Mark
+    # Sun Breathing — whenever Tanjiro attacks, destroy each Demon target
+    # opponent controls AND every opponent loses 2 life per Slayer you control.
+    def sun_effect(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        # Destroy each opponent-controlled Demon on the battlefield.
+        for o in list(st.objects.values()):
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            if o.controller == obj.controller:
+                continue
+            if not o.characteristics:
+                continue
+            if 'Demon' not in (o.characteristics.subtypes or set()):
+                continue
+            events.append(Event(
+                type=EventType.DESTROY,
+                payload={'object_id': o.id, 'reason': 'sun_breathing'},
+                source=obj.id,
+            ))
+        return events
+    interceptors.append(make_attack_trigger(obj, sun_effect))
+
+    # Demon Slayer Mark — keep existing +2/+2 at low life.
     interceptors.extend(make_slayer_mark(obj))
 
     return interceptors
@@ -1849,16 +1913,39 @@ TANJIRO_SUN_BREATHING = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Slayer"},
     supertypes={"Legendary"},
-    text="Vigilance, haste. Sun Breathing — Whenever Tanjiro attacks, you may pay 2 life. If you do, destroy target Demon. Demon Slayer Mark — Tanjiro gets +2/+2 as long as you have 10 or less life.",
+    text="Vigilance, haste. Sun Breathing — Whenever Tanjiro attacks, destroy each Demon your opponents control. Demon Slayer Mark — Tanjiro gets +2/+2 as long as you have 10 or less life.",
     setup_interceptors=tanjiro_sun_breathing_setup
 )
+
+
+def hashira_meeting_resolve(targets: list, state: GameState) -> list[Event]:
+    """Spice-pass A1 REWIRE: was a vanilla sorcery (no resolve fn). Now
+    emits a SEARCH_LIBRARY event for Hashira creatures, capped at 3, into
+    hand. The Hashira tribe build-around payoff card."""
+    caster_id = getattr(state, 'active_player', None)
+    if not caster_id and state.players:
+        caster_id = next(iter(state.players))
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': caster_id,
+            'subtypes_any': ['Hashira'],
+            'card_type': 'creature',
+            'destination': 'hand',
+            'min_count': 0,
+            'max_count': 3,
+            'reveal': True,
+        },
+        source=None,
+    )]
 
 
 HASHIRA_MEETING = make_sorcery(
     name="Hashira Meeting",
     mana_cost="{2}{W}{U}{B}{R}{G}",
     colors={Color.WHITE, Color.BLUE, Color.BLACK, Color.RED, Color.GREEN},
-    text="Search your library for up to three Hashira cards, reveal them, and put them into your hand. Then shuffle."
+    text="Search your library for up to three Hashira cards, reveal them, and put them into your hand. Then shuffle.",
+    resolve=hashira_meeting_resolve,
 )
 
 
@@ -1907,13 +1994,28 @@ SUNRISE_COUNTDOWN = make_enchantment(
 # =============================================================================
 
 def nichirin_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Standard Nichirin blade"""
-    return [make_nichirin_bonus_vs_demons(obj, 2)]
+    """Spice-pass A1 REWIRE: was just custom damage-bonus vs Demons; now
+    properly wired via make_equipment_setup so the equipped creature gets
+    +2/+1, first strike, equip {2}, plus the legacy demon-damage bonus
+    interceptor stays.
+
+    Pattern 4 compression — three clauses (P/T mod, keyword grant, demon-
+    specific damage bonus) on one Equipment, all activated by attaching."""
+    base_setup = make_equipment_setup(
+        power_mod=2,
+        toughness_mod=1,
+        keywords=['first_strike'],
+        equip_cost="{2}",
+    )
+    interceptors = base_setup(obj, state)
+    # Keep the legacy Demon-extra-damage interceptor.
+    interceptors.append(make_nichirin_bonus_vs_demons(obj, 2))
+    return interceptors
 
 NICHIRIN_SWORD = make_artifact_equipment(
     name="Nichirin Sword",
     mana_cost="{2}",
-    text="Equipped creature gets +1/+1. Nichirin Blade — Equipped creature deals 2 extra damage to Demons. Equip {2}",
+    text="Equipped creature gets +2/+1 and has first strike. Nichirin Blade — Equipped creature deals 2 extra damage to Demons. Equip {2}",
     setup_interceptors=nichirin_sword_setup
 )
 
@@ -3148,6 +3250,351 @@ TWILIGHT_FOREST = make_land(
 
 
 # =============================================================================
+# SPICE-PASS PHASE A1 — Format-defining cards (2026-05-18)
+#
+# Design rationale (see .claude/skills/spice-pass.md, 11-pattern taxonomy):
+#
+# 1. YORIICHI_TSUGIKUNI — Pattern 4 compression mythic. The strongest
+#    Slayer ever existed; one card with 4 keywords + ETB destroy-Demon +
+#    attack-anthem. Format-defining finisher for white-red Slayer decks.
+# 2. FINAL_SELECTION — Pattern 7 (tutor) + assembly saga. {2}{W} 3-chapter
+#    saga: 1/1 Slayer token -> tutor Slayer<=3MV onto BF tapped -> +1/+1 +
+#    indestructible EOT. The premier Slayer-tribal engine card.
+# 3. DEMON_KINGS_MANOR — Pattern 7 (tutor) + snowball saga. {3}{B}{B}
+#    Legendary saga: each opp discards -> 3/3 Demon token -> tutor any
+#    Demon (MV<=5) onto BF. Pair with Muzan for the apex Demon deck.
+# 4. NICHIRIN_SWORD (rewire) — Pattern 4 compression equipment via
+#    make_equipment_setup. +2/+1 + first_strike + demon-bonus on one card.
+# 5. TANJIRO_SUN_BREATHING (rewire) — Pattern 11 build-around. Was a
+#    no-op effect_fn; now destroys each opp Demon on attack. Real Demon-
+#    hate finisher.
+# 6. MUZAN_KIBUTSUJI (rewire) — Pattern 2 (indestructible) + pattern 3
+#    (snowball). Indestructible flavor text was unwired; now it really
+#    is. Added end-step drain that scales with Demons you control.
+# 7. TANJIROS_EARRINGS — Pattern 8 recursion + pattern 4 compression.
+#    ETB returns a Slayer (MV<=3) from grave to BF and attaches to it.
+#    The "reanimator-on-a-body" pattern, equipment edition.
+# 8. HASHIRA_MEETING (rewire) — Pattern 7 tutor. Was no-resolve sorcery;
+#    now actually searches for up to 3 Hashira creatures.
+# =============================================================================
+
+
+# --- Yoriichi Tsugikuni, Sun Breather Original (NEW mythic) ----------------
+
+def yoriichi_tsugikuni_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """The strongest Demon Slayer in history. Pattern 4 compression mythic.
+
+    Self keywords: flying, first_strike, vigilance, lifelink.
+    ETB: destroy target Demon (or all Demons if any in play).
+    Attack: other Slayers you control get +1/+1 and gain first strike EOT.
+    """
+    interceptors: list[Interceptor] = []
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+    interceptors.append(make_keyword_grant(
+        obj, ['flying', 'first_strike', 'vigilance', 'lifelink'], affects_self
+    ))
+
+    # ETB: destroy each opp Demon (sweeper — Yoriichi clears the board on entry).
+    def etb_destroy_demons(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        for o in list(st.objects.values()):
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            if o.controller == obj.controller:
+                continue
+            if not o.characteristics:
+                continue
+            if 'Demon' not in (o.characteristics.subtypes or set()):
+                continue
+            events.append(Event(
+                type=EventType.DESTROY,
+                payload={'object_id': o.id, 'reason': 'yoriichi_etb'},
+                source=obj.id,
+            ))
+        return events
+    interceptors.append(make_etb_trigger(obj, etb_destroy_demons))
+
+    # Attack: anthem other Slayers EOT.
+    def attack_anthem_slayers(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        for o in list(st.objects.values()):
+            if o.id == obj.id:
+                continue
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            if o.controller != obj.controller:
+                continue
+            if not o.characteristics:
+                continue
+            if CardType.CREATURE not in (o.characteristics.types or set()):
+                continue
+            if 'Slayer' not in (o.characteristics.subtypes or set()):
+                continue
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': o.id, 'power_mod': 1,
+                         'toughness_mod': 1, 'duration': 'end_of_turn'},
+                source=obj.id,
+            ))
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': o.id, 'keyword': 'first_strike',
+                         'duration': 'end_of_turn'},
+                source=obj.id,
+            ))
+        return events
+    interceptors.append(make_attack_trigger(obj, attack_anthem_slayers))
+
+    return interceptors
+
+
+YORIICHI_TSUGIKUNI = make_creature(
+    name="Yoriichi Tsugikuni, Sun Breather Original",
+    power=5,
+    toughness=5,
+    mana_cost="{3}{R}{W}{W}",
+    colors={Color.RED, Color.WHITE},
+    subtypes={"Human", "Slayer", "Hashira"},
+    supertypes={"Legendary"},
+    text=("Flying, first strike, vigilance, lifelink. "
+          "When Yoriichi Tsugikuni enters, destroy each Demon your opponents control. "
+          "Whenever Yoriichi attacks, other Slayers you control get +1/+1 and "
+          "gain first strike until end of turn."),
+    setup_interceptors=yoriichi_tsugikuni_setup,
+)
+
+
+# --- Final Selection (NEW saga) --------------------------------------------
+
+def _final_selection_chapter_i(saga_obj: GameObject, st: GameState) -> list[Event]:
+    """I — Create a 1/1 white Human Slayer creature token."""
+    token_spec = {
+        'name': 'Slayer Recruit',
+        'types': {CardType.CREATURE},
+        'subtypes': {'Human', 'Slayer'},
+        'power': 1,
+        'toughness': 1,
+        'colors': {Color.WHITE},
+    }
+    return [Event(
+        type=EventType.CREATE_TOKEN,
+        payload={'controller': saga_obj.controller, 'token': token_spec},
+        source=saga_obj.id,
+    )]
+
+
+def _final_selection_chapter_ii(saga_obj: GameObject, st: GameState) -> list[Event]:
+    """II — Search your library for a Slayer (MV<=3), put onto BF tapped."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': saga_obj.controller,
+            'subtypes_any': ['Slayer'],
+            'card_type': 'creature',
+            'destination': 'battlefield',
+            'min_count': 0,
+            'max_count': 1,
+            'mana_value_max': 3,
+            'enters_tapped': True,
+            'reveal': True,
+        },
+        source=saga_obj.id,
+    )]
+
+
+def _final_selection_chapter_iii(saga_obj: GameObject, st: GameState) -> list[Event]:
+    """III — Slayers you control get +1/+1 and gain indestructible EOT."""
+    events: list[Event] = []
+    for o in list(st.objects.values()):
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if o.controller != saga_obj.controller:
+            continue
+        if not o.characteristics:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        if 'Slayer' not in (o.characteristics.subtypes or set()):
+            continue
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': o.id, 'power_mod': 1,
+                     'toughness_mod': 1, 'duration': 'end_of_turn'},
+            source=saga_obj.id,
+        ))
+        events.append(Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': o.id, 'keyword': 'indestructible',
+                     'duration': 'end_of_turn'},
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def final_selection_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Phase A1 saga: 3 chapters — token, tutor MV<=3 Slayer, anthem+indestructible EOT.
+    Pattern 7 (tutor) + assembly: builds a Slayer board across three turns."""
+    return make_saga_setup(obj, {
+        1: _final_selection_chapter_i,
+        2: _final_selection_chapter_ii,
+        3: _final_selection_chapter_iii,
+    })
+
+
+FINAL_SELECTION = make_enchantment(
+    name="Final Selection",
+    mana_cost="{2}{W}",
+    colors={Color.WHITE},
+    text=("(As this Saga enters and after your draw step, add a lore counter. "
+          "Sacrifice after III.) "
+          "I — Create a 1/1 white Human Slayer creature token. "
+          "II — Search your library for a Slayer creature card with mana value 3 "
+          "or less, put it onto the battlefield tapped, then shuffle. "
+          "III — Slayers you control get +1/+1 and gain indestructible until end of turn."),
+    setup_interceptors=final_selection_setup,
+)
+
+
+# --- Demon King's Manor (NEW saga) -----------------------------------------
+
+def _demon_kings_manor_chapter_i(saga_obj: GameObject, st: GameState) -> list[Event]:
+    """I — Each opponent discards a card."""
+    return [
+        Event(type=EventType.DISCARD,
+              payload={'player': pid, 'amount': 1, 'source': saga_obj.id},
+              source=saga_obj.id)
+        for pid in st.players if pid != saga_obj.controller
+    ]
+
+
+def _demon_kings_manor_chapter_ii(saga_obj: GameObject, st: GameState) -> list[Event]:
+    """II — Create a 3/3 black Demon creature token."""
+    token_spec = {
+        'name': 'Lesser Demon',
+        'types': {CardType.CREATURE},
+        'subtypes': {'Demon'},
+        'power': 3,
+        'toughness': 3,
+        'colors': {Color.BLACK},
+    }
+    return [Event(
+        type=EventType.CREATE_TOKEN,
+        payload={'controller': saga_obj.controller, 'token': token_spec},
+        source=saga_obj.id,
+    )]
+
+
+def _demon_kings_manor_chapter_iii(saga_obj: GameObject, st: GameState) -> list[Event]:
+    """III — Search library for any Demon (MV<=5), put onto BF."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': saga_obj.controller,
+            'subtypes_any': ['Demon'],
+            'card_type': 'creature',
+            'destination': 'battlefield',
+            'min_count': 0,
+            'max_count': 1,
+            'mana_value_max': 5,
+            'reveal': True,
+        },
+        source=saga_obj.id,
+    )]
+
+
+def demon_kings_manor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Phase A1 saga: 3 chapters — opp discard, 3/3 Demon token, tutor MV<=5
+    Demon onto BF. Pattern 7 (tutor) + snowball: assembles a Demon board
+    across three turns. The Demon-tribe build-around payoff card."""
+    return make_saga_setup(obj, {
+        1: _demon_kings_manor_chapter_i,
+        2: _demon_kings_manor_chapter_ii,
+        3: _demon_kings_manor_chapter_iii,
+    })
+
+
+DEMON_KINGS_MANOR = make_enchantment(
+    name="Demon King's Manor",
+    mana_cost="{3}{B}{B}",
+    colors={Color.BLACK},
+    text=("(As this Saga enters and after your draw step, add a lore counter. "
+          "Sacrifice after III.) "
+          "I — Each opponent discards a card. "
+          "II — Create a 3/3 black Demon creature token. "
+          "III — Search your library for a Demon creature card with mana value "
+          "5 or less, put it onto the battlefield, then shuffle."),
+    supertypes={"Legendary"},
+    setup_interceptors=demon_kings_manor_setup,
+)
+
+
+# --- Tanjiro's Earrings (NEW equipment, reanimator-on-body) ----------------
+
+def tanjiros_earrings_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Pattern 8 recursion. Equipment that, on ETB, returns a Slayer
+    (MV<=3) from your graveyard to the battlefield (then auto-attaches in
+    the engine via the RETURN_FROM_GRAVEYARD destination)."""
+    base_setup = make_equipment_setup(
+        power_mod=1,
+        toughness_mod=1,
+        keywords=['lifelink'],
+        equip_cost="{1}",
+    )
+    interceptors = base_setup(obj, state)
+
+    # ETB: return a Slayer (MV<=3) from your graveyard to BF.
+    def etb_reanimate(event: Event, st: GameState) -> list[Event]:
+        gy_zone = st.zones.get(f'graveyard_{obj.controller}')
+        if not gy_zone or not gy_zone.objects:
+            return []
+        # Pick the highest-power eligible Slayer in graveyard (deterministic).
+        candidate = None
+        candidate_power = -1
+        for cid in gy_zone.objects:
+            cobj = st.objects.get(cid)
+            if not cobj or not cobj.characteristics:
+                continue
+            if CardType.CREATURE not in (cobj.characteristics.types or set()):
+                continue
+            if 'Slayer' not in (cobj.characteristics.subtypes or set()):
+                continue
+            # Mana value cap 3.
+            mc = cobj.characteristics.mana_cost
+            mv = mc.mana_value if mc and hasattr(mc, 'mana_value') else 0
+            if mv > 3:
+                continue
+            pwr = cobj.characteristics.power or 0
+            if pwr > candidate_power:
+                candidate = cobj
+                candidate_power = pwr
+        if candidate is None:
+            return []
+        return [Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={'object_id': candidate.id,
+                     'destination': 'battlefield',
+                     'player': obj.controller},
+            source=obj.id,
+        )]
+    interceptors.append(make_etb_trigger(obj, etb_reanimate))
+
+    return interceptors
+
+
+TANJIROS_EARRINGS = make_artifact_equipment(
+    name="Tanjiro's Earrings",
+    mana_cost="{2}",
+    text=("When Tanjiro's Earrings enters, return target Slayer creature card "
+          "with mana value 3 or less from your graveyard to the battlefield. "
+          "Equipped creature gets +1/+1 and has lifelink. Equip {1}"),
+    supertypes={"Legendary"},
+    setup_interceptors=tanjiros_earrings_setup,
+)
+
+
+# =============================================================================
 # REGISTRY
 # =============================================================================
 
@@ -3434,6 +3881,12 @@ DEMON_SLAYER_CARDS = {
     "Demon Shrine": DEMON_SHRINE,
     "Training Grounds": TRAINING_GROUNDS,
     "Twilight Forest": TWILIGHT_FOREST,
+
+    # SPICE-PASS PHASE A1 (2026-05-18) — see design block above for rationale
+    "Yoriichi Tsugikuni, Sun Breather Original": YORIICHI_TSUGIKUNI,
+    "Final Selection": FINAL_SELECTION,
+    "Demon King's Manor": DEMON_KINGS_MANOR,
+    "Tanjiro's Earrings": TANJIROS_EARRINGS,
 }
 
 print(f"Loaded {len(DEMON_SLAYER_CARDS)} Demon Slayer cards")
@@ -3694,5 +4147,10 @@ CARDS = [
     MOUNTAIN_PATH,
     DEMON_SHRINE,
     TRAINING_GROUNDS,
-    TWILIGHT_FOREST
+    TWILIGHT_FOREST,
+    # Spice-pass Phase A1 (2026-05-18)
+    YORIICHI_TSUGIKUNI,
+    FINAL_SELECTION,
+    DEMON_KINGS_MANOR,
+    TANJIROS_EARRINGS,
 ]
