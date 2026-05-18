@@ -5997,6 +5997,51 @@ WOLF_SKULL_SHAMAN = make_creature(
 # =============================================================================
 
 # Oona, Queen of the Fae - {3}{U/B}{U/B}{U/B} Legendary Creature
+# Spice rewire (Phase A1): cluster-cleanup of unwired flagship Faerie mythic.
+# Original activated-ability text is engine-gap (XR cost + opp library exile +
+# color choice). Wire the same role as a tribal snowball: self-flying via
+# keyword grant, anthem to Faeries you control (+1/+1), and at each end step
+# (your turn) create a 1/1 U/B Faerie Rogue token with flying. Pattern 3
+# (snowball value engine) + pattern 5 (asymmetric).
+def oona_queen_of_the_fae_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import (
+        make_keyword_grant as _make_keyword_grant,
+        make_static_pt_boost as _make_static_pt_boost,
+        make_end_step_trigger as _make_end_step_trigger,
+        other_creatures_with_subtype as _other_creatures_with_subtype,
+    )
+
+    interceptors: list[Interceptor] = []
+    # Self flying.
+    interceptors.append(_make_keyword_grant(
+        obj, ['flying'], lambda t, s: t.id == obj.id
+    ))
+    # Anthem: other Faeries you control get +1/+1.
+    interceptors.extend(_make_static_pt_boost(
+        obj, 1, 1, _other_creatures_with_subtype(obj, 'Faerie')
+    ))
+
+    # End-step trigger: spawn a Faerie Rogue.
+    def end_step_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'token': {
+                    'name': 'Faerie Rogue',
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Faerie', 'Rogue'},
+                    'colors': {Color.BLUE, Color.BLACK},
+                    'power': 1, 'toughness': 1,
+                    'keywords': ['flying'],
+                },
+            },
+            source=obj.id,
+        )]
+    interceptors.append(_make_end_step_trigger(obj, end_step_effect, controller_only=True))
+    return interceptors
+
+
 OONA_QUEEN_OF_THE_FAE = make_creature(
     name="Oona, Queen of the Fae",
     power=5,
@@ -6005,7 +6050,8 @@ OONA_QUEEN_OF_THE_FAE = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Faerie", "Wizard"},
     supertypes={"Legendary"},
-    text="Flying. {X}{U/B}: Choose a color. Target opponent exiles the top X cards of their library. For each card of the chosen color exiled this way, create a 1/1 blue and black Faerie Rogue creature token with flying."
+    text="Flying. Other Faeries you control get +1/+1. At the beginning of your end step, create a 1/1 blue and black Faerie Rogue creature token with flying.",
+    setup_interceptors=oona_queen_of_the_fae_setup,
 )
 
 # Sygg, River Guide - {W}{U} Legendary Creature
@@ -6033,6 +6079,47 @@ SYGG_RIVER_CUTTHROAT = make_creature(
 )
 
 # Wydwen, the Biting Gale - {2}{U}{B} Legendary Creature
+# Spice rewire (Phase A1): unwired Faerie flagship. The activated self-bounce
+# is engine-gap (needs life payment + return-to-hand combined cost). Wire the
+# flying+flash keywords statically AND a combat-damage trigger: when Wydwen
+# deals combat damage to a player, that player discards a card (asymmetric
+# Faerie pressure). Pattern 5 (asymmetric prison) + flying-tempo.
+def wydwen_the_biting_gale_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import (
+        make_keyword_grant as _make_keyword_grant,
+        make_damage_trigger as _make_damage_trigger,
+    )
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(_make_keyword_grant(
+        obj, ['flying', 'flash'], lambda t, s: t.id == obj.id
+    ))
+
+    def damage_filter(event: Event, state: GameState, source: GameObject) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get('source') != source.id:
+            return False
+        if not event.payload.get('is_combat', False):
+            return False
+        # Target must be a player.
+        return event.payload.get('target') in state.players
+
+    def damage_effect(event: Event, state: GameState) -> list[Event]:
+        target_player = event.payload.get('target')
+        if target_player is None:
+            return []
+        return [Event(
+            type=EventType.DISCARD,
+            payload={'player': target_player, 'amount': 1},
+            source=obj.id,
+        )]
+    interceptors.append(_make_damage_trigger(
+        obj, damage_effect, combat_only=True, filter_fn=damage_filter
+    ))
+    return interceptors
+
+
 WYDWEN_THE_BITING_GALE = make_creature(
     name="Wydwen, the Biting Gale",
     power=3,
@@ -6041,10 +6128,49 @@ WYDWEN_THE_BITING_GALE = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Faerie", "Wizard"},
     supertypes={"Legendary"},
-    text="Flash. Flying. {U}{B}, Pay 1 life: Return Wydwen, the Biting Gale to its owner's hand."
+    text="Flash. Flying. Whenever Wydwen, the Biting Gale deals combat damage to a player, that player discards a card.",
+    setup_interceptors=wydwen_the_biting_gale_setup,
 )
 
 # Wort, Boggart Auntie - {2}{B}{R} Legendary Creature
+# Spice rewire (Phase A1): unwired Goblin flagship. Upkeep RETURN_FROM_GRAVEYARD
+# of the first Goblin in your graveyard to your hand. Pattern 8 (recursion).
+# Self fear via keyword grant.
+def wort_boggart_auntie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import (
+        make_keyword_grant as _make_keyword_grant,
+        make_upkeep_trigger as _make_upkeep_trigger,
+    )
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(_make_keyword_grant(
+        obj, ['fear'], lambda t, s: t.id == obj.id
+    ))
+
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        gy_name = f'graveyard_{obj.controller}'
+        gy = state.zones.get(gy_name)
+        if not gy:
+            return []
+        for cid in list(gy.objects):
+            cobj = state.objects.get(cid)
+            if cobj and 'Goblin' in (cobj.characteristics.subtypes or set()):
+                return [Event(
+                    type=EventType.RETURN_FROM_GRAVEYARD,
+                    payload={
+                        'object_id': cid,
+                        'controller': obj.controller,
+                        'player': obj.controller,
+                        'destination': 'hand',
+                        'optional': True,
+                    },
+                    source=obj.id,
+                )]
+        return []
+    interceptors.append(_make_upkeep_trigger(obj, upkeep_effect, controller_only=True))
+    return interceptors
+
+
 WORT_BOGGART_AUNTIE = make_creature(
     name="Wort, Boggart Auntie",
     power=3,
@@ -6053,10 +6179,43 @@ WORT_BOGGART_AUNTIE = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Goblin", "Shaman"},
     supertypes={"Legendary"},
-    text="Fear. At the beginning of your upkeep, you may return target Goblin card from your graveyard to your hand."
+    text="Fear. At the beginning of your upkeep, you may return target Goblin card from your graveyard to your hand.",
+    setup_interceptors=wort_boggart_auntie_setup,
 )
 
 # Gaddock Teeg - {G}{W} Legendary Creature
+# Spice rewire (Phase A1): unwired Kithkin flagship. The original "noncreature
+# MV>=4 can't be cast" prison is engine-gap (no cast-time noncreature MV
+# filter). Approximate the prison role via opp-targeted asymmetric tax: when
+# Gaddock enters, each opponent loses 2 life (the noncreature-MV-4 tax cost in
+# soft form). Also +1/+1 anthem to other Kithkin you control (lord role) so the
+# 2/2 body slots into Kithkin tribal. Pattern 5 (asymmetric) + tribal lord.
+def gaddock_teeg_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import (
+        make_static_pt_boost as _make_static_pt_boost,
+        other_creatures_with_subtype as _other_creatures_with_subtype,
+        make_etb_trigger as _ih_make_etb_trigger,
+    )
+
+    interceptors: list[Interceptor] = []
+    interceptors.extend(_make_static_pt_boost(
+        obj, 1, 1, _other_creatures_with_subtype(obj, 'Kithkin')
+    ))
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for pid in state.players:
+            if pid != obj.controller:
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': pid, 'amount': -2},
+                    source=obj.id,
+                ))
+        return events
+    interceptors.append(_ih_make_etb_trigger(obj, etb_effect))
+    return interceptors
+
+
 GADDOCK_TEEG = make_creature(
     name="Gaddock Teeg",
     power=2,
@@ -6065,7 +6224,8 @@ GADDOCK_TEEG = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Kithkin", "Advisor"},
     supertypes={"Legendary"},
-    text="Noncreature spells with mana value 4 or greater can't be cast. Noncreature spells with {X} in their mana costs can't be cast."
+    text="When Gaddock Teeg enters, each opponent loses 2 life. Other Kithkin you control get +1/+1.",
+    setup_interceptors=gaddock_teeg_setup,
 )
 
 # Oversoul of Dusk - {G/W}{G/W}{G/W}{G/W}{G/W} Creature
@@ -7436,6 +7596,317 @@ WANDERBRINE_ROOTCUTTERS = make_creature(
 )
 
 # =============================================================================
+# PHASE A1 SPICE PASS (2026-05-18)
+# =============================================================================
+# 4 new spice picks targeting the 5-tribe Lorwyn axis (Faerie / Kithkin /
+# Treefolk / Elf / Merfolk / Giant / Goblin / Elemental). Designed to break
+# out of the 35-card make_etb_trigger cluster by introducing distinct
+# helpers/events (saga, dynamic PT, upkeep tribal-count gate, equipment).
+#
+# Reskin-cluster rewires (4) are inline above on the original cards:
+# Oona / Wort / Gaddock / Wydwen — each got a distinct code-fingerprint
+# (anthem+token loop, upkeep-graveyard recursion, lord+ETB drain, combat-
+# discard) rather than the shared shape they belonged to.
+
+# Spice 1 — Aurora of Five (NEW Mythic Legendary Enchantment)
+# {2}{W}{U}{B}{R}{G} — Pattern 11 build-around. At the beginning of your
+# upkeep, if you control creatures sharing 5 or more different Lorwyn tribes,
+# take an extra turn after this one. Otherwise scry 2.
+# Helpers: make_upkeep_trigger + EXTRA_TURN + SCRY. Reads battlefield subtype
+# diversity (state coupling). The 7-mana 5-color cost is the steep gate; the
+# extra turn is the payoff for actually assembling 5 tribes.
+_LORWYN_TRIBES = ('Faerie', 'Kithkin', 'Treefolk', 'Elf', 'Merfolk',
+                  'Giant', 'Goblin', 'Elemental')
+
+
+def aurora_of_five_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import (
+        make_upkeep_trigger as _make_upkeep_trigger,
+    )
+
+    def count_distinct_tribes(st: GameState) -> int:
+        seen: set[str] = set()
+        for o in st.objects.values():
+            if (o.controller == obj.controller and
+                    o.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in o.characteristics.types):
+                for tribe in _LORWYN_TRIBES:
+                    if tribe in (o.characteristics.subtypes or set()):
+                        seen.add(tribe)
+        return len(seen)
+
+    def upkeep_effect(event: Event, state: GameState) -> list[Event]:
+        n = count_distinct_tribes(state)
+        if n >= 5:
+            return [Event(
+                type=EventType.EXTRA_TURN,
+                payload={'player': obj.controller},
+                source=obj.id,
+            )]
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id,
+        )]
+    return [_make_upkeep_trigger(obj, upkeep_effect, controller_only=True)]
+
+
+AURORA_OF_FIVE = make_enchantment(
+    name="Aurora of Five",
+    mana_cost="{2}{W}{U}{B}{R}{G}",
+    colors={Color.WHITE, Color.BLUE, Color.BLACK, Color.RED, Color.GREEN},
+    supertypes={"Legendary"},
+    text="At the beginning of your upkeep, if you control creatures with five or more different Lorwyn tribes (Faerie, Kithkin, Treefolk, Elf, Merfolk, Giant, Goblin, Elemental), take an extra turn after this one. Otherwise, scry 2.",
+    setup_interceptors=aurora_of_five_setup,
+)
+
+
+# Spice 2 — Lorwyn Convocation (NEW Mythic Legendary Creature — Treefolk Druid)
+# {3}{G}{W}{U} — 4/4 Treefolk Druid. Pattern 11 build-around. Self has +1/+1
+# for each different tribe (Faerie/Kithkin/Treefolk/Elf/Merfolk) you control
+# AND tutors a creature card to hand on ETB. The dynamic PT pumps the body in
+# a tribally-diverse deck while the tutor digs for the next tribe rep.
+def lorwyn_convocation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import (
+        make_etb_trigger as _ih_make_etb_trigger,
+    )
+    five_tribes = ('Faerie', 'Kithkin', 'Treefolk', 'Elf', 'Merfolk')
+
+    def count_distinct_tribes(st: GameState) -> int:
+        seen: set[str] = set()
+        for o in st.objects.values():
+            if (o.controller == obj.controller and
+                    o.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in o.characteristics.types):
+                for tribe in five_tribes:
+                    if tribe in (o.characteristics.subtypes or set()):
+                        seen.add(tribe)
+        return len(seen)
+
+    def p_filter(event: Event, st: GameState) -> bool:
+        return event.type == EventType.QUERY_POWER and event.payload.get('object_id') == obj.id
+
+    def p_handler(event: Event, st: GameState) -> InterceptorResult:
+        ne = event.copy()
+        ne.payload['value'] = ne.payload.get('value', 0) + count_distinct_tribes(st)
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=ne)
+
+    def t_filter(event: Event, st: GameState) -> bool:
+        return event.type == EventType.QUERY_TOUGHNESS and event.payload.get('object_id') == obj.id
+
+    def t_handler(event: Event, st: GameState) -> InterceptorResult:
+        ne = event.copy()
+        ne.payload['value'] = ne.payload.get('value', 0) + count_distinct_tribes(st)
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=ne)
+
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': obj.controller,
+                'card_type': 'creature',
+                'destination': 'hand',
+            },
+            source=obj.id,
+        )]
+
+    return [
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY,
+                    filter=p_filter, handler=p_handler,
+                    duration='while_on_battlefield'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY,
+                    filter=t_filter, handler=t_handler,
+                    duration='while_on_battlefield'),
+        _ih_make_etb_trigger(obj, etb_effect),
+    ]
+
+
+LORWYN_CONVOCATION = make_creature(
+    name="Lorwyn Convocation",
+    power=4,
+    toughness=4,
+    mana_cost="{3}{G}{W}{U}",
+    colors={Color.GREEN, Color.WHITE, Color.BLUE},
+    subtypes={"Treefolk", "Druid"},
+    supertypes={"Legendary"},
+    text="When Lorwyn Convocation enters, search your library for a creature card, reveal it, put it into your hand, then shuffle. Lorwyn Convocation gets +1/+1 for each different tribe among Faerie, Kithkin, Treefolk, Elf, and Merfolk you control.",
+    setup_interceptors=lorwyn_convocation_setup,
+)
+
+
+# Spice 3 — The Aurora Cycle (NEW Legendary Saga)
+# {3}{W}{U}{B}{R}{G} — Pattern 11 build-around assembly. Uses make_saga_setup
+# (no new engine) — the saga delivers an Elemental tutor on I, five distinct
+# 1/1 tribe tokens on II, and a +2/+2 trample anthem on III.
+def _aurora_cycle_chapter_i(saga: GameObject, state: GameState) -> list[Event]:
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': saga.controller,
+            'subtype': 'Elemental',
+            'card_type': 'creature',
+            'destination': 'hand',
+        },
+        source=saga.id,
+    )]
+
+
+def _aurora_cycle_chapter_ii(saga: GameObject, state: GameState) -> list[Event]:
+    tokens = [
+        ('Faerie', {'Faerie', 'Rogue'}, {Color.BLUE, Color.BLACK}, ['flying']),
+        ('Kithkin', {'Kithkin', 'Soldier'}, {Color.WHITE}, []),
+        ('Treefolk', {'Treefolk', 'Warrior'}, {Color.GREEN}, []),
+        ('Goblin', {'Goblin', 'Warrior'}, {Color.RED}, []),
+        ('Merfolk', {'Merfolk', 'Wizard'}, {Color.BLUE}, []),
+    ]
+    events: list[Event] = []
+    for tribe_name, subs, colors, kws in tokens:
+        events.append(Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': saga.controller,
+                'token': {
+                    'name': f'{tribe_name} Token',
+                    'types': {CardType.CREATURE},
+                    'subtypes': subs,
+                    'colors': colors,
+                    'power': 1,
+                    'toughness': 1,
+                    'keywords': kws,
+                },
+            },
+            source=saga.id,
+        ))
+    return events
+
+
+def _aurora_cycle_chapter_iii(saga: GameObject, state: GameState) -> list[Event]:
+    events: list[Event] = []
+    for o in list(state.objects.values()):
+        if (o.controller == saga.controller and
+                o.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in o.characteristics.types and
+                o.id != saga.id):
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': o.id,
+                    'power_mod': 2,
+                    'toughness_mod': 2,
+                    'duration': 'end_of_turn',
+                },
+                source=saga.id,
+            ))
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={
+                    'object_id': o.id,
+                    'keyword': 'trample',
+                    'duration': 'end_of_turn',
+                },
+                source=saga.id,
+            ))
+    return events
+
+
+def the_aurora_cycle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_saga_setup as _make_saga_setup
+    return _make_saga_setup(
+        obj,
+        {1: _aurora_cycle_chapter_i,
+         2: _aurora_cycle_chapter_ii,
+         3: _aurora_cycle_chapter_iii},
+        final_chapter=3,
+    )
+
+
+THE_AURORA_CYCLE = make_enchantment(
+    name="The Aurora Cycle",
+    mana_cost="{3}{W}{U}{B}{R}{G}",
+    colors={Color.WHITE, Color.BLUE, Color.BLACK, Color.RED, Color.GREEN},
+    subtypes={"Saga"},
+    supertypes={"Legendary"},
+    text="(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.) I — Search your library for an Elemental creature card, reveal it, put it into your hand, then shuffle. II — Create five 1/1 creature tokens: one Faerie Rogue with flying, one Kithkin Soldier, one Treefolk Warrior, one Goblin Warrior, and one Merfolk Wizard. III — Until end of turn, other creatures you control get +2/+2 and gain trample.",
+    setup_interceptors=the_aurora_cycle_setup,
+)
+
+
+# Spice 4 — Treefolk-bough Spear (NEW Equipment)
+# {2} Artifact — Equipment. Equipped creature gets +X/+X where X equals
+# Treefolk and Forests you control. Equip {2}.
+# Uses make_equipment_setup helper for the equip cost + attach/unattach
+# plumbing, then layers a dynamic PT QUERY interceptor that reads live
+# Treefolk+Forest count on the equipped target. Pattern 11 build-around
+# (Treefolk/Forest gated tribal Equipment).
+def treefolk_bough_spear_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import (
+        make_equipment_setup as _make_equipment_setup,
+        get_attached_target_id as _get_attached_target_id,
+    )
+
+    def count_treefolk_and_forests(st: GameState) -> int:
+        n = 0
+        for o in st.objects.values():
+            if o.controller != obj.controller or o.zone != ZoneType.BATTLEFIELD:
+                continue
+            if 'Treefolk' in (o.characteristics.subtypes or set()):
+                n += 1
+                continue
+            if 'Forest' in (o.characteristics.subtypes or set()):
+                n += 1
+        return n
+
+    def p_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.QUERY_POWER:
+            return False
+        tgt_id = _get_attached_target_id(obj)
+        return tgt_id is not None and event.payload.get('object_id') == tgt_id
+
+    def p_handler(event: Event, st: GameState) -> InterceptorResult:
+        ne = event.copy()
+        ne.payload['value'] = ne.payload.get('value', 0) + count_treefolk_and_forests(st)
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=ne)
+
+    def t_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.QUERY_TOUGHNESS:
+            return False
+        tgt_id = _get_attached_target_id(obj)
+        return tgt_id is not None and event.payload.get('object_id') == tgt_id
+
+    def t_handler(event: Event, st: GameState) -> InterceptorResult:
+        ne = event.copy()
+        ne.payload['value'] = ne.payload.get('value', 0) + count_treefolk_and_forests(st)
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=ne)
+
+    setup_fn = _make_equipment_setup(equip_cost="{2}")
+    interceptors = setup_fn(obj, state)
+    interceptors.append(Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=p_filter, handler=p_handler,
+        duration='while_on_battlefield',
+    ))
+    interceptors.append(Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.QUERY,
+        filter=t_filter, handler=t_handler,
+        duration='while_on_battlefield',
+    ))
+    return interceptors
+
+
+TREEFOLK_BOUGH_SPEAR = make_artifact(
+    name="Treefolk-bough Spear",
+    mana_cost="{2}",
+    subtypes={"Equipment"},
+    text="Equipped creature gets +X/+X, where X is the number of Treefolk and Forests you control. Equip {2}.",
+    setup_interceptors=treefolk_bough_spear_setup,
+)
+
+
+# =============================================================================
 # REGISTRY
 # =============================================================================
 
@@ -7899,6 +8370,12 @@ LORWYN_CUSTOM_CARDS = {
     "Pili-Pala": PILI_PALA,
     "Wicker Warcrawler": WICKER_WARCRAWLER,
     "Wanderbrine Rootcutters": WANDERBRINE_ROOTCUTTERS,
+
+    # PHASE A1 SPICE PASS (2026-05-18)
+    "Aurora of Five": AURORA_OF_FIVE,
+    "Lorwyn Convocation": LORWYN_CONVOCATION,
+    "The Aurora Cycle": THE_AURORA_CYCLE,
+    "Treefolk-bough Spear": TREEFOLK_BOUGH_SPEAR,
 }
 
 print(f"Loaded {len(LORWYN_CUSTOM_CARDS)} Lorwyn Custom cards")
@@ -8318,5 +8795,10 @@ CARDS = [
     REAPER_KING,
     PILI_PALA,
     WICKER_WARCRAWLER,
-    WANDERBRINE_ROOTCUTTERS
+    WANDERBRINE_ROOTCUTTERS,
+    # PHASE A1 SPICE PASS (2026-05-18)
+    AURORA_OF_FIVE,
+    LORWYN_CONVOCATION,
+    THE_AURORA_CYCLE,
+    TREEFOLK_BOUGH_SPEAR,
 ]
