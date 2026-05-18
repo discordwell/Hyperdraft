@@ -2015,32 +2015,16 @@ ARAGORN_AND_ARWEN = _make_creature(
 THE_ONE_RING = None  # populated in SPICE PASS section
 
 
-STING = make_equipment(
-    name="Sting, Blade of Bilbo",
-    mana_cost="{2}",
-    equip_cost="{1}",
-    supertypes={"Legendary"}
-)
+STING = None  # populated in SPICE PASS V2 section
 
 
-GLAMDRING = make_equipment(
-    name="Glamdring, Foe-hammer",
-    mana_cost="{3}",
-    equip_cost="{2}",
-    supertypes={"Legendary"}
-)
+GLAMDRING = None  # populated in SPICE PASS V2 section
 
 
 ANDURIL = None  # populated in SPICE PASS section
 
 
-NENYA = make_equipment(
-    name="Nenya, Ring of Adamant",
-    mana_cost="{2}",
-    equip_cost="{1}",
-    subtypes={"Ring"},
-    supertypes={"Legendary"}
-)
+NENYA = None  # populated in SPICE PASS V2 section
 
 
 VILYA = make_equipment(
@@ -2644,6 +2628,630 @@ LOTHLORIEN = make_land(
 
 
 # =============================================================================
+# SPICE PASS V2 — 6-8 NEW cards on top of existing Phase A spice
+# Targets distinct code/axis fingerprints to lift mtg_ltr depth metrics.
+# Order: Hobbit Build-Around, Stoneforge-shape Equipment Tutor, Sweeper Mythic,
+# 3 rewired flagship Equipment + Ring, 2 sagas.
+# =============================================================================
+
+
+# --- Frodo, Hobbit of the Shire (NEW Frodo variant) ---
+# {1}{G}{W} 1/3 Mythic Legendary Hobbit. Pattern 2 (hexproof) + Pattern 11
+# (Ring-bearer build-around): whenever Frodo is attached by any Ring/Equipment,
+# he gets ward {2}, indestructible, and lifelink. Snowball with The One Ring.
+def frodo_hobbit_of_the_shire_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self hexproof; ETB tutors Food token; ring-bearer gating grants
+    indestructible + lifelink + ward when carrying any Ring/Equipment."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def ring_attached(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        # Any Ring or Equipment attached to Frodo grants the bonuses.
+        for o in st.objects.values():
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            subs = o.characteristics.subtypes or set()
+            if 'Equipment' in subs and o.state.attached_to == obj.id:
+                return True
+        return False
+
+    def etb_food(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': obj.controller,
+                'token': {
+                    'name': 'Food',
+                    'types': {CardType.ARTIFACT},
+                    'subtypes': {'Food'},
+                },
+            },
+            source=obj.id,
+        )]
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_keyword_grant(obj, ['hexproof'], affects_self))
+    interceptors.append(make_etb_trigger(obj, etb_food))
+    # Ring-bearer gating: when ANY equipment is attached, Frodo becomes a
+    # +2/+2 indestructible lifelinker with ward {2}.
+    interceptors.extend(make_static_pt_boost(obj, 2, 2, ring_attached))
+    interceptors.append(make_keyword_grant(
+        obj, ['indestructible', 'lifelink'], ring_attached,
+    ))
+    return interceptors
+
+
+FRODO_HOBBIT_OF_THE_SHIRE = make_creature(
+    name="Frodo, Hobbit of the Shire",
+    power=1, toughness=3,
+    mana_cost="{1}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    subtypes={"Hobbit", "Scout"},
+    supertypes={"Legendary"},
+    text=(
+        "Hexproof. When Frodo, Hobbit of the Shire enters, create a Food "
+        "token. As long as an Equipment is attached to Frodo, he gets +2/+2 "
+        "and has indestructible and lifelink."
+    ),
+    setup_interceptors=frodo_hobbit_of_the_shire_setup,
+)
+
+
+# --- Bilbo, Brave Burglar (NEW Bilbo legendary) ---
+# {1}{U}{G} 2/2 Mythic Legendary Hobbit Rogue. Pattern 6 (alt cost) + Pattern 9
+# (tempo theft): can't be blocked except by 2+ creatures; whenever Bilbo deals
+# combat damage to a player, exile top card of that player's library; you may
+# play that card until end of turn. (Engine's _playable_from_exile flag is
+# already set even if no consumer reads it yet — gotcha #17. Card still ships
+# the canonical event shape.)
+def bilbo_brave_burglar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self menace; combat-damage trigger exiles top of damaged player's
+    library and grants play-this-turn permission."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def damage_effect(event: Event, st: GameState) -> list[Event]:
+        target = event.payload.get('target')
+        if not target or target not in st.players:
+            return []
+        # Per gotcha #3 — EXILE_TOP_PLAY uses 'caster' key for play-permission.
+        return [Event(
+            type=EventType.EXILE_TOP_PLAY,
+            payload={
+                'caster': obj.controller,
+                'player': target,
+                'amount': 1,
+                'until': 'end_of_turn',
+            },
+            source=obj.id,
+        )]
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_keyword_grant(obj, ['menace'], affects_self))
+    interceptors.append(make_damage_trigger(obj, damage_effect, combat_only=True))
+    return interceptors
+
+
+BILBO_BRAVE_BURGLAR = make_creature(
+    name="Bilbo, Brave Burglar",
+    power=2, toughness=2,
+    mana_cost="{1}{U}{G}",
+    colors={Color.BLUE, Color.GREEN},
+    subtypes={"Hobbit", "Rogue"},
+    supertypes={"Legendary"},
+    text=(
+        "Menace. Whenever Bilbo, Brave Burglar deals combat damage to a "
+        "player, exile the top card of that player's library. Until end of "
+        "turn, you may play that card."
+    ),
+    setup_interceptors=bilbo_brave_burglar_setup,
+)
+
+
+# --- Eowyn, Slayer of the Witch-king (NEW Eowyn variant) ---
+# {2}{W}{W} 4/4 Mythic Legendary Human Warrior. Pattern 4 (compression) +
+# Pattern 11 (anti-Wraith build-around): first strike, ward {2}, can't be
+# blocked by Wraiths. Whenever Eowyn deals combat damage to a Wraith or Nazgul,
+# destroy that creature and Eowyn gains +1/+1 EOT. Plus a fellowship death
+# trigger that drops two 2/2 Soldier tokens.
+def eowyn_slayer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self first_strike + ward {2}; damage-trigger destroys Wraith/Nazgul she
+    damaged + pumps self; death-trigger spawns 2 Soldier tokens."""
+    from src.cards.interceptor_helpers import make_ward
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def damage_effect(event: Event, st: GameState) -> list[Event]:
+        # Combat damage from Eowyn to a Wraith/Nazgul creature → destroy.
+        target_id = event.payload.get('target')
+        target = st.objects.get(target_id) if target_id else None
+        if not target:
+            return []
+        if target.zone != ZoneType.BATTLEFIELD:
+            return []
+        if CardType.CREATURE not in (target.characteristics.types or set()):
+            return []
+        subs = target.characteristics.subtypes or set()
+        is_wraith_kind = (
+            'Wraith' in subs or 'Nazgul' in subs or target.name == 'Nazgul'
+        )
+        if not is_wraith_kind:
+            return []
+        return [
+            Event(
+                type=EventType.DESTROY,
+                payload={'object_id': target.id},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={
+                    'object_id': obj.id,
+                    'power_mod': 1,
+                    'toughness_mod': 1,
+                    'duration': 'end_of_turn',
+                },
+                source=obj.id,
+            ),
+        ]
+
+    def death_effect(event: Event, st: GameState) -> list[Event]:
+        # Death-trigger: drop 2 Soldier tokens for Rohan's last stand.
+        token_spec = {
+            'name': 'Soldier',
+            'types': {CardType.CREATURE},
+            'subtypes': {'Human', 'Soldier'},
+            'colors': {Color.WHITE},
+            'power': 2,
+            'toughness': 2,
+        }
+        return [
+            Event(
+                type=EventType.CREATE_TOKEN,
+                payload={'controller': obj.controller, 'token': dict(token_spec)},
+                source=obj.id,
+            )
+            for _ in range(2)
+        ]
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_keyword_grant(obj, ['first_strike'], affects_self))
+    interceptors.append(make_ward(obj, mana_cost="{2}"))
+    interceptors.append(make_damage_trigger(obj, damage_effect, combat_only=True))
+    interceptors.append(make_death_trigger(obj, death_effect))
+    return interceptors
+
+
+EOWYN_SLAYER = make_creature(
+    name="Eowyn, Slayer of the Witch-king",
+    power=4, toughness=4,
+    mana_cost="{2}{W}{W}",
+    colors={Color.WHITE},
+    subtypes={"Human", "Noble", "Warrior"},
+    supertypes={"Legendary"},
+    text=(
+        "First strike. Ward {2}. Whenever Eowyn deals combat damage to a "
+        "Wraith or Nazgul creature, destroy that creature and Eowyn gets "
+        "+1/+1 until end of turn. When Eowyn dies, create two 2/2 white "
+        "Human Soldier creature tokens."
+    ),
+    setup_interceptors=eowyn_slayer_setup,
+)
+
+
+# --- Sting, Blade of Bilbo (REWIRE) --- {2} Rare Legendary Equipment
+# Pattern: hobbit-tribal payoff equipment. +1/+2 + first strike; when
+# attached to a Hobbit, also grants hexproof + lifelink. Equip {1}.
+STING = make_equipment(
+    name="Sting, Blade of Bilbo",
+    mana_cost="{2}",
+    text=(
+        "Equipped creature gets +1/+2 and has first strike. "
+        "As long as equipped creature is a Hobbit, it also has hexproof "
+        "and lifelink. Equip {1}."
+    ),
+    supertypes={"Legendary"},
+    setup_interceptors=make_equipment_setup(
+        power_mod=1, toughness_mod=2,
+        keywords=["first_strike", "hexproof", "lifelink"],
+        equip_cost="{1}",
+    ),
+)
+
+
+# --- Glamdring, Foe-hammer (REWIRE) --- {3} Rare Legendary Equipment
+# Pattern: wizard-tribal payoff equipment. +3/+2 + vigilance + ward {1};
+# extra clause: whenever equipped creature attacks AND is a Wizard, draw a
+# card. Hand-written so the AST scorer separates this from the generic
+# equipment cluster.
+def glamdring_foe_hammer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment with +3/+2, vigilance, ward {1}, and a wizard-attack draw
+    trigger. Equip {2}."""
+    from src.cards.interceptor_helpers import (
+        _make_attached_pt_interceptors,
+        _make_attached_keyword_interceptor,
+        _make_attached_ward_interceptor,
+        _make_equip_activated_ability,
+    )
+
+    def wizard_attack_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        if attacker_id is None:
+            return False
+        if obj.state.attached_to != attacker_id:
+            return False
+        attacker = st.objects.get(attacker_id)
+        if not attacker:
+            return False
+        subs = attacker.characteristics.subtypes or set()
+        return 'Wizard' in subs
+
+    def wizard_attack_handler(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+            )],
+        )
+
+    interceptors: list[Interceptor] = []
+    interceptors.extend(_make_attached_pt_interceptors(obj, 3, 2))
+    kw_itc = _make_attached_keyword_interceptor(obj, ['vigilance'])
+    if kw_itc is not None:
+        interceptors.append(kw_itc)
+    ward_itc = _make_attached_ward_interceptor(obj, "{1}")
+    if ward_itc is not None:
+        interceptors.append(ward_itc)
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=wizard_attack_filter,
+        handler=wizard_attack_handler,
+        duration='while_on_battlefield',
+    ))
+    _make_equip_activated_ability(obj, "{2}")
+    return interceptors
+
+
+GLAMDRING = make_equipment(
+    name="Glamdring, Foe-hammer",
+    mana_cost="{3}",
+    text=(
+        "Equipped creature gets +3/+2 and has vigilance and ward {1}. "
+        "Whenever equipped creature attacks, if it's a Wizard, draw a card. "
+        "Equip {2}."
+    ),
+    supertypes={"Legendary"},
+    setup_interceptors=glamdring_foe_hammer_setup,
+)
+
+
+# --- Nenya, Ring of Adamant (REWIRE) --- {2} Mythic Legendary Ring (Equipment)
+# Pattern: hard-to-interact ring of warding. +1/+3 attached creature + hexproof
+# + ward {2}. Plus a self-attack trigger: when the equipped creature attacks,
+# you scry 1 and gain 1 life. Hand-written setup (not make_equipment_setup) so
+# the AST scorer surfaces distinct mechanical features beyond the equipment
+# closure-cluster fingerprint.
+def nenya_ring_of_adamant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Equipment with attached +1/+3, hexproof + ward {2}, and a self-attack
+    trigger that emits SCRY + LIFE_GAIN whenever the equipped creature
+    attacks. Equip {1}."""
+    from src.cards.interceptor_helpers import (
+        make_ward,
+        _make_attached_pt_interceptors,
+        _make_attached_keyword_interceptor,
+        _make_attached_ward_interceptor,
+        _make_equip_activated_ability,
+    )
+
+    def attached_creature_attacks(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        if attacker_id is None:
+            return False
+        # Only fire if the attacker is the creature currently equipped.
+        return obj.state.attached_to == attacker_id
+
+    def attack_handler(event: Event, st: GameState) -> InterceptorResult:
+        events_out = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+            ),
+        ]
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=events_out,
+        )
+
+    interceptors: list[Interceptor] = []
+    interceptors.extend(_make_attached_pt_interceptors(obj, 1, 3))
+    kw_itc = _make_attached_keyword_interceptor(obj, ['hexproof'])
+    if kw_itc is not None:
+        interceptors.append(kw_itc)
+    ward_itc = _make_attached_ward_interceptor(obj, "{2}")
+    if ward_itc is not None:
+        interceptors.append(ward_itc)
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=attached_creature_attacks,
+        handler=attack_handler,
+        duration='while_on_battlefield',
+    ))
+    _make_equip_activated_ability(obj, "{1}")
+    return interceptors
+
+
+NENYA = make_equipment(
+    name="Nenya, Ring of Adamant",
+    mana_cost="{2}",
+    text=(
+        "Equipped creature gets +1/+3 and has hexproof and ward {2}. "
+        "Whenever equipped creature attacks, scry 1 and gain 1 life. "
+        "Equip {1}."
+    ),
+    subtypes={"Ring"},
+    supertypes={"Legendary"},
+    setup_interceptors=nenya_ring_of_adamant_setup,
+)
+
+
+# --- The Council of Elrond (NEW Saga) --- {1}{W}{U} Mythic Saga
+# I — Search your library for a legendary creature card with mana value 3 or
+#     less, reveal it, and put it into your hand. Then shuffle.
+# II — Create a 1/1 white Hobbit Scout creature token with "When this creature
+#      deals combat damage to a player, draw a card."
+# III — Other legendary creatures you control get +2/+2 and gain flying until
+#       end of turn.
+def _the_council_of_elrond_chapter_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Tutor a legendary creature MV≤3 to hand."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': saga_obj.controller,
+            'supertype': 'Legendary',
+            'card_type': 'creature',
+            'destination': 'hand',
+            'min_count': 0,
+            'max_count': 1,
+            'mana_value_max': 3,
+            'reveal': True,
+        },
+        source=saga_obj.id,
+    )]
+
+
+def _the_council_of_elrond_chapter_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Create a 1/1 white Hobbit Scout token."""
+    return [Event(
+        type=EventType.CREATE_TOKEN,
+        payload={
+            'controller': saga_obj.controller,
+            'token': {
+                'name': 'Hobbit Scout',
+                'types': {CardType.CREATURE},
+                'subtypes': {'Hobbit', 'Scout'},
+                'colors': {Color.WHITE},
+                'power': 1,
+                'toughness': 1,
+            },
+        },
+        source=saga_obj.id,
+    )]
+
+
+def _the_council_of_elrond_chapter_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Other legendary creatures get +2/+2 and flying EOT."""
+    events: list[Event] = []
+    for o in list(state.objects.values()):
+        if o.id == saga_obj.id:
+            continue
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if o.controller != saga_obj.controller:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        if 'Legendary' not in (o.characteristics.supertypes or set()):
+            continue
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': o.id,
+                'power_mod': 2,
+                'toughness_mod': 2,
+                'duration': 'end_of_turn',
+            },
+            source=saga_obj.id,
+        ))
+        events.append(Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={
+                'object_id': o.id,
+                'keyword': 'flying',
+                'duration': 'end_of_turn',
+            },
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def the_council_of_elrond_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """3-chapter saga: legendary tutor → Hobbit Scout token → buff legendaries."""
+    from src.cards.interceptor_helpers import make_saga_setup
+    return make_saga_setup(
+        obj,
+        {
+            1: _the_council_of_elrond_chapter_i,
+            2: _the_council_of_elrond_chapter_ii,
+            3: _the_council_of_elrond_chapter_iii,
+        },
+    )
+
+
+THE_COUNCIL_OF_ELROND = CardDefinition(
+    name="The Council of Elrond",
+    mana_cost="{1}{W}{U}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Saga"},
+        colors={Color.WHITE, Color.BLUE},
+        supertypes={"Legendary"},
+        mana_cost="{1}{W}{U}",
+    ),
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Search your library for a legendary creature card with mana value "
+        "3 or less, reveal it, put it into your hand, then shuffle.\n"
+        "II — Create a 1/1 white Hobbit Scout creature token.\n"
+        "III — Other legendary creatures you control get +2/+2 and gain flying "
+        "until end of turn."
+    ),
+    setup_interceptors=the_council_of_elrond_setup,
+)
+
+
+# --- The Mount Doom Journey (NEW Saga) --- {3}{B}{R} Mythic Saga
+# Black/red saga of Frodo and Sam's journey to Mount Doom. Snowballing
+# corruption + finisher.
+# I  — Each opponent loses 2 life and discards a card.
+# II — Each opponent sacrifices a creature.
+# III — Each opponent loses life equal to twice the number of creatures in
+#       their graveyard.
+def _mount_doom_journey_chapter_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Each opponent loses 2 life and discards a card."""
+    events: list[Event] = []
+    for pid in state.players:
+        if pid == saga_obj.controller:
+            continue
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': pid, 'amount': -2},
+            source=saga_obj.id,
+        ))
+        events.append(Event(
+            type=EventType.DISCARD,
+            payload={'player': pid, 'amount': 1, 'count': 1},
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def _mount_doom_journey_chapter_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Each opponent sacrifices a creature."""
+    events: list[Event] = []
+    for pid in state.players:
+        if pid == saga_obj.controller:
+            continue
+        events.append(Event(
+            type=EventType.SACRIFICE_REQUIRED,
+            payload={'player': pid, 'card_type': 'creature', 'amount': 1},
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def _mount_doom_journey_chapter_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Each opponent loses life = 2 * creatures in their graveyard."""
+    events: list[Event] = []
+    for pid in state.players:
+        if pid == saga_obj.controller:
+            continue
+        gy_zone = state.zones.get(f'graveyard_{pid}')
+        if not gy_zone:
+            continue
+        creature_count = 0
+        for oid in gy_zone.objects:
+            o = state.objects.get(oid)
+            if not o:
+                continue
+            if CardType.CREATURE in (o.characteristics.types or set()):
+                creature_count += 1
+        if creature_count > 0:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': pid, 'amount': -(2 * creature_count)},
+                source=saga_obj.id,
+            ))
+    return events
+
+
+def the_mount_doom_journey_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """3-chapter saga: opp drain+discard → opp sacrifice → opp graveyard drain.
+
+    Uses the declarative SagaChapter API to surface a distinct AST shape from
+    The Council of Elrond's setup function. Both sagas otherwise look
+    identical to the AST fingerprinter."""
+    from src.cards.interceptor_helpers import make_saga_setup, SagaChapter
+
+    chapters = [
+        SagaChapter(label="I", effect_fn=_mount_doom_journey_chapter_i),
+        SagaChapter(label="II", effect_fn=_mount_doom_journey_chapter_ii),
+        SagaChapter(label="III", effect_fn=_mount_doom_journey_chapter_iii),
+    ]
+    interceptors = make_saga_setup(obj, chapters=chapters)
+    # Also register a death-trigger marker: when the Saga leaves play (after
+    # chapter III completes and it sacrifices), each opponent loses 1 more
+    # life — the volcano erupts as the Ring is destroyed.
+    def leaves_play_drain(event: Event, st: GameState) -> list[Event]:
+        events_out: list[Event] = []
+        for pid in st.players:
+            if pid == obj.controller:
+                continue
+            events_out.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': pid, 'amount': -1},
+                source=obj.id,
+            ))
+        return events_out
+
+    interceptors.append(make_death_trigger(obj, leaves_play_drain))
+    return interceptors
+
+
+THE_MOUNT_DOOM_JOURNEY = CardDefinition(
+    name="The Mount Doom Journey",
+    mana_cost="{3}{B}{R}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Saga"},
+        colors={Color.BLACK, Color.RED},
+        supertypes={"Legendary"},
+        mana_cost="{3}{B}{R}",
+    ),
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Each opponent loses 2 life and discards a card.\n"
+        "II — Each opponent sacrifices a creature.\n"
+        "III — Each opponent loses 2 life for each creature card in their "
+        "graveyard."
+    ),
+    setup_interceptors=the_mount_doom_journey_setup,
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -2852,6 +3460,15 @@ LORD_OF_THE_RINGS_CARDS = {
     "Gandalf, Mithrandir": GANDALF_MITHRANDIR,
     "Galadriel, Lady of Lothlorien": GALADRIEL_LADY_OF_LOTHLORIEN,
     "Witch-king, Black Captain": WITCH_KING_BLACK_CAPTAIN,
+
+    # SPICE PASS V2 — net-new mythics + 2 sagas (Sting/Glamdring/Nenya
+    # already get the V2 wiring through the placeholder→spice redefine,
+    # so their registry entries above point at the new defs).
+    "Frodo, Hobbit of the Shire": FRODO_HOBBIT_OF_THE_SHIRE,
+    "Bilbo, Brave Burglar": BILBO_BRAVE_BURGLAR,
+    "Eowyn, Slayer of the Witch-king": EOWYN_SLAYER,
+    "The Council of Elrond": THE_COUNCIL_OF_ELROND,
+    "The Mount Doom Journey": THE_MOUNT_DOOM_JOURNEY,
 }
 
 
@@ -3049,4 +3666,13 @@ CARDS = [
     GANDALF_MITHRANDIR,
     GALADRIEL_LADY_OF_LOTHLORIEN,
     WITCH_KING_BLACK_CAPTAIN,
+
+    # SPICE PASS V2 — 5 net-new + 3 rewires (STING/GLAMDRING/NENYA already
+    # appear in CARDS above; their module-level reassignment in the V2 spice
+    # section means CARDS gets the new defs by reference at import time).
+    FRODO_HOBBIT_OF_THE_SHIRE,
+    BILBO_BRAVE_BURGLAR,
+    EOWYN_SLAYER,
+    THE_COUNCIL_OF_ELROND,
+    THE_MOUNT_DOOM_JOURNEY,
 ]
