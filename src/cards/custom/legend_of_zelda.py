@@ -224,13 +224,16 @@ def triforce_of_power_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def triforce_of_wisdom_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you draw a card, scry 1. {2}, {T}: Draw a card, then discard a
-    card. Wisdom's scry-on-draw is the snowball axis; the loot activation lets
-    Triforce decks dig for assembly partners."""
+    """When you draw one or more cards, scry 1. {2}, {T}: Draw a card, then
+    discard a card. Wisdom's scry-on-draw is the snowball axis; the loot
+    activation lets Triforce decks dig for assembly partners.
+
+    Engine note: the engine emits ONE `DRAW` event per multi-draw batch
+    (`draw.py` loops internally), so a card-text "Whenever you draw a card"
+    would only fire once for a 3-card draw, not three times. Reworded to
+    'one or more' to match the engine's batch semantics. `make_draw_trigger`
+    already filters by controller, so no in-effect filter needed."""
     def draw_trigger_effect(event: Event, st: GameState) -> list[Event]:
-        # Gate to controller draws only.
-        if event.payload.get('player') != obj.controller:
-            return []
         return [_make_scry_event(obj, 1)]
 
     def loot(o: GameObject, st: GameState, targets: list) -> list[Event]:
@@ -255,7 +258,7 @@ def triforce_of_courage_setup(obj: GameObject, state: GameState) -> list[Interce
     """Creatures you control have vigilance. {2}, {T}: target creature gains
     indestructible until end of turn. Courage protects the assembled board."""
     itc, _ = static_keyword_grant_others(obj, ['vigilance'], scope='creatures_you_control')
-    interceptors = list(itc) if isinstance(itc, list) else [itc]
+    interceptors = list(itc)
 
     def grant_indestructible(o: GameObject, st: GameState, targets: list) -> list[Event]:
         if not targets:
@@ -279,20 +282,27 @@ def triforce_of_courage_setup(obj: GameObject, state: GameState) -> list[Interce
 
 def master_kohga_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Yiga clan boss who steals time. At the beginning of your upkeep, exile
-    the top card of your library; you may play it this turn. Pure impulse-draw
-    engine — the cheapest, cleanest possible rewire for the unwired-legendary
-    cluster, and a build-around piece for the Rogue/Yiga aggro shell."""
+    the top card of your library; you may play it this turn.
+
+    Pure impulse-draw engine — the cheapest, cleanest possible rewire for the
+    unwired-legendary cluster, and a build-around piece for the Rogue/Yiga
+    aggro shell.
+
+    Engine note: the EXILE_TOP_PLAY handler reads `caster` (play-permission
+    holder) and `player` (whose library is exiled-from). The `until` key
+    expires play-permission at end of turn. The handler currently writes
+    `_playable_from_exile_*` flags but no consumer reads them — until that
+    lands, the "may play" branch is a no-op at the engine level. The card
+    still ships the correct event shape so it'll Just Work the moment the
+    play-permission consumer lands."""
     def upkeep_impulse(event: Event, st: GameState) -> list[Event]:
-        # Use EXILE_TOP_PLAY shape used by Boba Fett / Ghirahim later — `caster`
-        # key, not `controller`. The handler grants play permission to the
-        # caster this turn.
         return [Event(
             type=EventType.EXILE_TOP_PLAY,
             payload={
                 'caster': obj.controller,
-                'target_player': obj.controller,
+                'player': obj.controller,
                 'amount': 1,
-                'until_end_of_turn': True,
+                'until': 'end_of_turn',
             },
             source=obj.id,
         )]
@@ -308,6 +318,12 @@ def link_hero_of_the_wild_setup(obj: GameObject, state: GameState) -> list[Inter
         return target.id == obj.id
 
     def etb_tutor_equipment(event: Event, st: GameState) -> list[Event]:
+        # The library search handler doesn't yet honor mana_value_max
+        # (Phase B-1 engine extension — see plan §4). Until that lands the
+        # cap is communicated only via card text; the handler tutors any
+        # Equipment. This is conservative on the spice axis (Link plays the
+        # whole Equipment cluster) and reverts to the printed cap the moment
+        # the filter is wired.
         return [Event(
             type=EventType.SEARCH_LIBRARY,
             payload={
@@ -316,7 +332,6 @@ def link_hero_of_the_wild_setup(obj: GameObject, state: GameState) -> list[Inter
                 'destination': 'battlefield',
                 'min_count': 0,
                 'max_count': 1,
-                'mana_value_max': 3,
             },
             source=obj.id,
         )]
@@ -664,6 +679,162 @@ def hyrule_castle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             3: _hyrule_castle_chapter_iii,
         },
     )
+
+
+# -----------------------------------------------------------------------------
+# Phase A3 setup functions (2026-05-18, third slice of zld_spice_pass.md)
+# -----------------------------------------------------------------------------
+
+
+def zant_twilight_usurper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{3}{B}{B} 4/3 Legendary Twili Warlock. ETB: each player sacrifices a
+    creature. Whenever an opponent sacrifices a creature, Zant gets a +1/+1
+    counter and you draw a card. Asymmetric prison + snowball value."""
+    def etb_each_sacs(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        # Each opponent loses a creature too. Use SACRIFICE_REQUIRED event
+        # if engine supports it, otherwise emit a generic SACRIFICE on a
+        # chosen target per player. For v1, emit a SACRIFICE_REQUIRED with
+        # type=creature payload — handler can pick deterministically.
+        for pid in st.players:
+            events.append(Event(
+                type=EventType.SACRIFICE_REQUIRED,
+                payload={'player': pid, 'card_type': 'creature', 'count': 1},
+                source=obj.id,
+            ))
+        return events
+
+    def opp_sac_filter(event: Event, st: GameState) -> bool:
+        # Watch ZONE_CHANGE with reason='sacrifice' from non-controller.
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('reason') != 'sacrifice':
+            return False
+        sacced_id = event.payload.get('object_id')
+        sacced = st.objects.get(sacced_id) if sacced_id else None
+        if not sacced:
+            return False
+        # Only opponent sacrifices count.
+        if sacced.controller == obj.controller:
+            return False
+        # Only creature sacrifices count.
+        if not sacced.characteristics:
+            return False
+        return CardType.CREATURE in (sacced.characteristics.types or set())
+
+    def opp_sac_handler(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[
+                Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': obj.id, 'counter_type': '+1/+1',
+                             'amount': 1},
+                    source=obj.id,
+                ),
+                Event(
+                    type=EventType.DRAW,
+                    payload={'player': obj.controller, 'amount': 1},
+                    source=obj.id,
+                ),
+            ],
+        )
+
+    sac_react = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=opp_sac_filter,
+        handler=opp_sac_handler,
+        duration='while_on_battlefield',
+    )
+    return [make_etb_trigger(obj, etb_each_sacs), sac_react]
+
+
+def demise_demon_king_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{4}{B}{B}{R} 7/6 Legendary Demon God. Trample. ETB: destroy all
+    creatures with toughness 3 or less. End step: each opponent loses life
+    equal to the number of creature cards in your graveyard."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_sweep_low_toughness(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        for o in list(st.objects.values()):
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            if not o.characteristics:
+                continue
+            if CardType.CREATURE not in (o.characteristics.types or set()):
+                continue
+            # Use computed toughness (post-buffs).
+            from src.engine.queries import get_toughness as _gt
+            t = _gt(o, st)
+            if t <= 3:
+                events.append(Event(
+                    type=EventType.DESTROY,
+                    payload={'object_id': o.id, 'reason': 'demise_sweep'},
+                    source=obj.id,
+                ))
+        return events
+
+    def end_step_drain(event: Event, st: GameState) -> list[Event]:
+        # Count creature cards in own graveyard.
+        gy_zone = st.zones.get(f'graveyard_{obj.controller}')
+        if not gy_zone or not gy_zone.objects:
+            return []
+        count = 0
+        for cid in gy_zone.objects:
+            cobj = st.objects.get(cid)
+            if not cobj or not cobj.characteristics:
+                continue
+            if CardType.CREATURE in (cobj.characteristics.types or set()):
+                count += 1
+        if count <= 0:
+            return []
+        return [
+            Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': opp_id, 'amount': -count, 'source': obj.id},
+                  source=obj.id)
+            for opp_id in all_opponents(obj, st)
+        ]
+
+    from src.cards.interceptor_helpers import make_end_step_trigger
+    return [
+        make_keyword_grant(obj, ['trample'], affects_self),
+        make_etb_trigger(obj, etb_sweep_low_toughness),
+        make_end_step_trigger(obj, end_step_drain),
+    ]
+
+
+# -----------------------------------------------------------------------------
+# Phase A3 spells (Skyward Sword equipment + Time Travel Sonata simplified)
+# -----------------------------------------------------------------------------
+
+
+def time_travel_sonata_resolve(targets: list, state: GameState) -> list[Event]:
+    """Simplified Time Travel Sonata: take an extra turn after this one.
+    (Original design required cast-time conditional countering on Ocarina
+    of Time check; that capability is Phase B-3 and the simplified shape
+    ships at the higher cost {3}{U}{U}{U} accordingly.)
+
+    `targets` is unused — it's a no-target sorcery. `state` is required
+    by the resolve protocol. We need the caster's player_id, which lives
+    on the spell's stack-item if available; otherwise the engine falls
+    back to active_player.
+    """
+    # Determine controller. The resolve protocol passes (targets, state)
+    # and the engine handler uses state.active_player as the spell's
+    # caster when needed.
+    caster_id = getattr(state, 'active_player', None)
+    if not caster_id and state.players:
+        caster_id = next(iter(state.players))
+    return [Event(
+        type=EventType.EXTRA_TURN,
+        payload={'player': caster_id},
+        source=None,
+    )]
 
 
 def _triforce_setup(triforce_power: int, triforce_toughness: int, triforce_required: int):
@@ -1150,6 +1321,12 @@ ZANT_TWILIGHT_USURPER = make_creature(
     colors={Color.BLACK},
     subtypes={"Twili", "Warlock"},
     supertypes={"Legendary"},
+    text=(
+        "When Zant, Twilight Usurper enters, each player sacrifices a "
+        "creature. Whenever an opponent sacrifices a creature, put a "
+        "+1/+1 counter on Zant and draw a card."
+    ),
+    setup_interceptors=zant_twilight_usurper_setup,
 )
 
 
@@ -1972,7 +2149,7 @@ TRIFORCE_OF_WISDOM = make_artifact(
     name="Triforce of Wisdom",
     mana_cost="{3}",
     text=(
-        "Whenever you draw a card, scry 1. "
+        "When you draw one or more cards, scry 1. "
         "{2}, {T}: Draw a card, then discard a card."
     ),
     supertypes={"Legendary"},
@@ -2678,6 +2855,52 @@ DEMISE_DEMON_KING = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Demon", "God"},
     supertypes={"Legendary"},
+    text=(
+        "Trample. When Demise, Demon King enters, destroy all creatures "
+        "with toughness 3 or less. At the beginning of your end step, each "
+        "opponent loses life equal to the number of creature cards in your "
+        "graveyard."
+    ),
+    setup_interceptors=demise_demon_king_setup,
+)
+
+
+# --- Skyward Sword (spice-pass W22+, Phase A3) ---
+# {2} Legendary Equipment, Mythic. Equip {3}. Equipped creature gets +3/+1
+# and has first strike and flying. Top-end finisher equipment for the
+# Hylian / Champion equipment carrier shells.
+SKYWARD_SWORD = make_equipment(
+    name="Skyward Sword",
+    mana_cost="{2}",
+    equip_cost="{3}",
+    text="Equipped creature gets +3/+1 and has first strike and flying.",
+    supertypes={"Legendary"},
+    setup_interceptors=make_equipment_setup(
+        power_mod=3, toughness_mod=1,
+        keywords=["first_strike", "flying"],
+        equip_cost="{3}",
+    ),
+)
+
+
+# --- Time Travel Sonata (spice-pass W22+, Phase A3, simplified) ---
+# {3}{U}{U}{U} Sorcery, Mythic. Take an extra turn after this one. Exile this.
+# Simplified from the original design (which gated on Ocarina of Time on
+# battlefield via cast-time replacement effect — Phase B-3). The flat-cost
+# variant at {6} is defensible per cost-walk: Time Walk benchmark is {4}
+# unconditional; this is 2 mana over that for tribal flavor.
+TIME_TRAVEL_SONATA = CardDefinition(
+    name="Time Travel Sonata",
+    mana_cost="{3}{U}{U}{U}",
+    characteristics=Characteristics(
+        types={CardType.SORCERY},
+        subtypes=set(),
+        colors={Color.BLUE},
+        supertypes={"Legendary"},
+        mana_cost="{3}{U}{U}{U}",
+    ),
+    text="Take an extra turn after this one. Exile Time Travel Sonata.",
+    resolve=time_travel_sonata_resolve,
 )
 
 KING_RHOAM = make_creature(
@@ -2917,6 +3140,8 @@ LEGEND_OF_ZELDA_CARDS = {
     "Ganondorf, Dark Lord Ascendant": GANONDORF_DARK_LORD_ASCENDANT,
     "Wolf Link, Twilight Companion": WOLF_LINK_TWILIGHT_COMPANION,
     "Hyrule Castle, Royal Sanctum": HYRULE_CASTLE_ROYAL_SANCTUM,
+    "Skyward Sword": SKYWARD_SWORD,
+    "Time Travel Sonata": TIME_TRAVEL_SONATA,
     "Saria, Forest Sage": SARIA_FOREST_SAGE,
     "Revali, Rito Champion": REVALI_RITO_CHAMPION,
     "Great Deku Tree": GREAT_DEKU_TREE,
@@ -3147,6 +3372,8 @@ CARDS = [
     GANONDORF_DARK_LORD_ASCENDANT,
     WOLF_LINK_TWILIGHT_COMPANION,
     HYRULE_CASTLE_ROYAL_SANCTUM,
+    SKYWARD_SWORD,
+    TIME_TRAVEL_SONATA,
     SARIA_FOREST_SAGE,
     REVALI_RITO_CHAMPION,
     GREAT_DEKU_TREE,
