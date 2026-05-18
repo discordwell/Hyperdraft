@@ -5270,8 +5270,8 @@ def _kaonashis_banquet_ch_i(saga_obj: GameObject, state: GameState) -> list[Even
         if pid == saga_obj.controller:
             continue
         events.append(Event(
-            type=EventType.REVEAL,
-            payload={'player': pid, 'reveal_hand': True},
+            type=EventType.REVEAL_HAND,
+            payload={'player': pid},
             source=saga_obj.id,
         ))
     events.append(Event(

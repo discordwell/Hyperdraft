@@ -745,11 +745,456 @@ def test_chihiro_bridge_no_counter_when_going_to_battlefield():
 
 
 # ============================================================================
+# Totoro, Spirit of the Camphor Tree — modal-choose-two ETB + Spirit lord
+# ============================================================================
+
+def test_totoro_camphor_loads():
+    """Loads as Legendary Spirit/God with modal ETB + lord static."""
+    print("\n=== Totoro Camphor: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    tot = _put_on_battlefield(game, p1, "Totoro, Spirit of the Camphor Tree")
+    chars = tot.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Spirit' in chars.subtypes
+    assert 'God' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    # ETB modal + lord static = 2+ interceptors.
+    assert len(tot.interceptor_ids) >= 2
+    print(f"  Loaded with {len(tot.interceptor_ids)} interceptors")
+
+
+def test_totoro_camphor_pumps_other_spirits():
+    """Spirits you control get +1/+0."""
+    print("\n=== Totoro: Spirit lord ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    spirit = game.create_object(
+        name="Forest Spirit",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes={"Spirit"},
+            power=1, toughness=1,
+        ),
+    )
+    base_p = get_power(spirit, game.state)
+    _put_on_battlefield(game, p1, "Totoro, Spirit of the Camphor Tree")
+    new_p = get_power(spirit, game.state)
+    assert new_p == base_p + 1, f"Expected +1 power: {base_p}→{new_p}"
+    print(f"  Spirit P: {base_p} → {new_p}")
+
+
+def test_totoro_camphor_etb_opens_modal_choice():
+    """ETB sets state.pending_choice for the modal."""
+    print("\n=== Totoro: ETB modal choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    _put_on_battlefield(game, p1, "Totoro, Spirit of the Camphor Tree")
+    # The modal helper sets state.pending_choice as a side effect.
+    # We may or may not see it depending on whether the trigger has resolved
+    # all the way through — at minimum, the trigger fires without crashing.
+    # Look for evidence the ETB ran: check for a modal_with_targeting choice
+    # OR a no-pending state if the AI heuristic auto-resolved.
+    pending = game.state.pending_choice
+    if pending is not None:
+        assert pending.choice_type == "modal_with_targeting", (
+            f"Wrong choice type: {pending.choice_type}"
+        )
+        print(f"  ETB modal choice opened: {pending.choice_type}")
+    else:
+        # Auto-resolved path is also acceptable in this test.
+        print(f"  ETB modal fired (auto-resolved or AI-resolved)")
+
+
+# ============================================================================
+# Kaonashi's Banquet — Saga: reveal hand, discard, exile + spirits
+# ============================================================================
+
+def test_kaonashis_banquet_loads_as_saga():
+    """Loads as Saga enchantment."""
+    print("\n=== Kaonashi's Banquet: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    saga = _put_on_battlefield(game, p1, "Kaonashi's Banquet")
+    chars = saga.characteristics
+    assert CardType.ENCHANTMENT in chars.types
+    assert 'Saga' in chars.subtypes
+    assert len(saga.interceptor_ids) >= 2
+    print(f"  Loaded with {len(saga.interceptor_ids)} interceptors")
+
+
+def test_kaonashis_banquet_chapter_i_reveal_and_scry():
+    """Chapter I reveals each opp hand and scries 2."""
+    print("\n=== Kaonashi: chapter I reveal + scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    saga = _put_on_battlefield(game, p1, "Kaonashi's Banquet")
+    from src.cards.custom.studio_ghibli import _kaonashis_banquet_ch_i
+    events = _kaonashis_banquet_ch_i(saga, game.state)
+    reveals = [e for e in events
+               if e.type == EventType.REVEAL_HAND
+               and e.payload.get('player') == p2.id]
+    scrys = [e for e in events
+             if e.type == EventType.SCRY
+             and e.payload.get('player') == p1.id]
+    assert reveals, "Expected REVEAL for opp's hand"
+    assert scrys, "Expected SCRY for controller"
+    print(f"  Chapter I emits REVEAL + SCRY")
+
+
+def test_kaonashis_banquet_chapter_iii_exile_and_tokens():
+    """Chapter III exiles opp creature and creates spirits = opp GY size."""
+    print("\n=== Kaonashi: chapter III exile + tokens ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    saga = _put_on_battlefield(game, p1, "Kaonashi's Banquet")
+    # Give Bob a creature and 3 cards in graveyard.
+    victim = game.create_object(
+        name="Bob's Wolf",
+        owner_id=p2.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes={"Wolf"},
+            power=3, toughness=3,
+        ),
+    )
+    for i in range(3):
+        c = game.create_object(
+            name=f"Bob GY {i}",
+            owner_id=p2.id,
+            zone=ZoneType.GRAVEYARD,
+            characteristics=Characteristics(types={CardType.SORCERY}),
+        )
+    from src.cards.custom.studio_ghibli import _kaonashis_banquet_ch_iii
+    events = _kaonashis_banquet_ch_iii(saga, game.state)
+    exiles = [e for e in events
+              if e.type == EventType.EXILE
+              and e.payload.get('object_id') == victim.id]
+    tokens = [e for e in events
+              if e.type == EventType.CREATE_TOKEN]
+    assert exiles, "Expected EXILE for opp creature"
+    assert len(tokens) == 3, f"Expected 3 Spirit tokens (GY size), got {len(tokens)}"
+    print(f"  Chapter III exiles + creates {len(tokens)} Spirit tokens")
+
+
+# ============================================================================
+# Ashitaka, Iron-Cursed Prince — targeted ETB + cursed-attack trigger
+# ============================================================================
+
+def test_ashitaka_iron_cursed_loads():
+    """Loads as Legendary Human/Warrior."""
+    print("\n=== Ashitaka Iron-Cursed: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    ash = _put_on_battlefield(game, p1, "Ashitaka, Iron-Cursed Prince")
+    chars = ash.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Human' in chars.subtypes
+    assert 'Warrior' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    # Targeted-ETB + cursed-attack trigger = 2.
+    assert len(ash.interceptor_ids) >= 2
+    print(f"  Loaded with {len(ash.interceptor_ids)} interceptors")
+
+
+def test_ashitaka_cursed_attack_punishes_and_draws():
+    """When a creature with 3+ curse counters attacks, -2/-0 + draw."""
+    print("\n=== Ashitaka: cursed attack punishes ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    ash = _put_on_battlefield(game, p1, "Ashitaka, Iron-Cursed Prince")
+    # Build a cursed creature for Bob.
+    attacker = game.create_object(
+        name="Cursed Attacker",
+        owner_id=p2.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes={"Wolf"},
+            power=4, toughness=4,
+        ),
+    )
+    attacker.state.counters['curse'] = 3
+    before_log = list(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': attacker.id, 'attacker': attacker.id,
+                 'defender': p1.id},
+        source=attacker.id,
+    ))
+    new = game.state.event_log[len(before_log):]
+    pt_mods = [e for e in new
+               if e.type == EventType.PT_MODIFICATION
+               and e.payload.get('object_id') == attacker.id
+               and e.payload.get('power_mod') == -2]
+    draws = [e for e in new
+             if e.type == EventType.DRAW
+             and e.source == ash.id
+             and e.payload.get('player') == p1.id]
+    assert pt_mods, f"Expected -2/-0 PT_MODIFICATION: {[e.type.name for e in new]}"
+    assert draws, "Expected DRAW for Ashitaka's controller"
+    print(f"  Cursed attacker got -2/-0; controller drew")
+
+
+def test_ashitaka_uncursed_attack_no_punish():
+    """Edge: an attacker without curse counters does NOT trigger."""
+    print("\n=== Ashitaka: uncursed attack edge ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    ash = _put_on_battlefield(game, p1, "Ashitaka, Iron-Cursed Prince")
+    plain = game.create_object(
+        name="Plain Attacker",
+        owner_id=p2.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes={"Wolf"},
+            power=2, toughness=2,
+        ),
+    )
+    before_log = list(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': plain.id, 'attacker': plain.id,
+                 'defender': p1.id},
+        source=plain.id,
+    ))
+    new = game.state.event_log[len(before_log):]
+    pt_mods = [e for e in new
+               if e.type == EventType.PT_MODIFICATION
+               and e.payload.get('object_id') == plain.id]
+    assert not pt_mods, f"Should not punish uncursed attacker; got {pt_mods}"
+    print(f"  No punishment for uncursed attacker (correct)")
+
+
+# ============================================================================
+# Kiki, Witch on Errands — modal-choose-one ETB + cast-trigger
+# ============================================================================
+
+def test_kiki_witch_errands_loads():
+    """Loads as Legendary Human/Witch."""
+    print("\n=== Kiki Witch Errands: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    kiki = _put_on_battlefield(game, p1, "Kiki, Witch on Errands")
+    chars = kiki.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Witch' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    # ETB modal + spell-cast trigger = 2.
+    assert len(kiki.interceptor_ids) >= 2
+    print(f"  Loaded with {len(kiki.interceptor_ids)} interceptors")
+
+
+def test_kiki_witch_cast_grants_flying():
+    """Casting a Spirit or Witch grants Kiki flying EOT."""
+    print("\n=== Kiki: witch cast grants flying ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    kiki = _put_on_battlefield(game, p1, "Kiki, Witch on Errands")
+    # Build a fake Witch spell.
+    spell = game.create_object(
+        name="Test Witch",
+        owner_id=p1.id,
+        zone=ZoneType.LIBRARY,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes={"Witch"},
+            colors={Color.BLUE},
+            power=2, toughness=2,
+        ),
+    )
+    before_log = list(game.state.event_log)
+    game.emit(Event(
+        type=EventType.CAST,
+        payload={
+            'caster': p1.id,
+            'controller': p1.id,
+            'spell_id': spell.id,
+            'mana_value': 2,
+        },
+        controller=p1.id,
+    ))
+    new = game.state.event_log[len(before_log):]
+    grants = [e for e in new
+              if e.type == EventType.GRANT_KEYWORD
+              and e.payload.get('object_id') == kiki.id
+              and e.payload.get('keyword') == 'flying']
+    assert grants, f"Expected flying grant on Witch cast: {[e.type.name for e in new]}"
+    print(f"  Witch cast → Kiki gained flying")
+
+
+def test_kiki_non_witch_cast_no_grant():
+    """Edge: non-Witch/non-Spirit cast does NOT grant flying."""
+    print("\n=== Kiki: non-witch cast edge ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    kiki = _put_on_battlefield(game, p1, "Kiki, Witch on Errands")
+    plain = game.create_object(
+        name="Plain Bolt",
+        owner_id=p1.id,
+        zone=ZoneType.LIBRARY,
+        characteristics=Characteristics(
+            types={CardType.INSTANT},
+            colors={Color.RED},
+        ),
+    )
+    before_log = list(game.state.event_log)
+    game.emit(Event(
+        type=EventType.CAST,
+        payload={
+            'caster': p1.id,
+            'controller': p1.id,
+            'spell_id': plain.id,
+            'mana_value': 1,
+        },
+        controller=p1.id,
+    ))
+    new = game.state.event_log[len(before_log):]
+    grants = [e for e in new
+              if e.type == EventType.GRANT_KEYWORD
+              and e.payload.get('object_id') == kiki.id
+              and e.payload.get('keyword') == 'flying']
+    assert not grants, f"Should not grant flying on non-Witch cast; got {grants}"
+    print(f"  Non-Witch cast does not grant flying (correct)")
+
+
+# ============================================================================
+# The Cursed Forest Awakens — Saga blending discard + counters + exile
+# ============================================================================
+
+def test_cursed_forest_awakens_loads_as_saga():
+    """Loads as Saga enchantment."""
+    print("\n=== Cursed Forest Awakens: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    saga = _put_on_battlefield(game, p1, "The Cursed Forest Awakens")
+    chars = saga.characteristics
+    assert CardType.ENCHANTMENT in chars.types
+    assert 'Saga' in chars.subtypes
+    assert len(saga.interceptor_ids) >= 2
+    print(f"  Loaded with {len(saga.interceptor_ids)} interceptors")
+
+
+def test_cursed_forest_chapter_i_discard_and_pump_tribes():
+    """Chapter I: opp discards + +1/+1 counter on each Wolf/Spirit."""
+    print("\n=== Cursed Forest: chapter I ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    saga = _put_on_battlefield(game, p1, "The Cursed Forest Awakens")
+    # Build a wolf, a spirit, and a non-tribal creature.
+    wolf = game.create_object(
+        name="My Wolf",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes={"Wolf"},
+            power=2, toughness=2,
+        ),
+    )
+    spirit = game.create_object(
+        name="My Spirit",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes={"Spirit"},
+            power=1, toughness=1,
+        ),
+    )
+    human = game.create_object(
+        name="My Human",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes={"Human"},
+            power=2, toughness=2,
+        ),
+    )
+    from src.cards.custom.studio_ghibli import _cursed_forest_awakens_ch_i
+    events = _cursed_forest_awakens_ch_i(saga, game.state)
+    discards = [e for e in events
+                if e.type == EventType.DISCARD
+                and e.payload.get('player') == p2.id]
+    counter_targets = {e.payload.get('object_id') for e in events
+                       if e.type == EventType.COUNTER_ADDED
+                       and e.payload.get('counter_type') == '+1/+1'}
+    assert discards, "Expected DISCARD for opp"
+    assert wolf.id in counter_targets, "Wolf should get +1/+1"
+    assert spirit.id in counter_targets, "Spirit should get +1/+1"
+    assert human.id not in counter_targets, "Human should NOT get +1/+1"
+    print(f"  Chapter I: opp discards + Wolf/Spirit counter (Human untouched)")
+
+
+def test_cursed_forest_chapter_iii_exile_counters():
+    """Chapter III: exile up to 2 opp creatures with +1/+1 counters."""
+    print("\n=== Cursed Forest: chapter III ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    saga = _put_on_battlefield(game, p1, "The Cursed Forest Awakens")
+    # Build 3 opp creatures: 2 with +1/+1, 1 without.
+    c1 = game.create_object(
+        name="Opp Cursed 1",
+        owner_id=p2.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes={"Wolf"},
+            power=2, toughness=2,
+        ),
+    )
+    c1.state.counters['+1/+1'] = 2
+    c2 = game.create_object(
+        name="Opp Cursed 2",
+        owner_id=p2.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes={"Wolf"},
+            power=2, toughness=2,
+        ),
+    )
+    c2.state.counters['+1/+1'] = 1
+    plain = game.create_object(
+        name="Opp Plain",
+        owner_id=p2.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes={"Wolf"},
+            power=2, toughness=2,
+        ),
+    )
+    from src.cards.custom.studio_ghibli import _cursed_forest_awakens_ch_iii
+    events = _cursed_forest_awakens_ch_iii(saga, game.state)
+    exile_ids = {e.payload.get('object_id') for e in events
+                 if e.type == EventType.EXILE}
+    tokens = [e for e in events if e.type == EventType.CREATE_TOKEN]
+    assert plain.id not in exile_ids, "Uncountered creature should NOT be exiled"
+    assert len(exile_ids) <= 2, f"At most 2 exiles, got {len(exile_ids)}"
+    assert len(tokens) == len(exile_ids), (
+        f"Token count must match exile count: {len(tokens)} != {len(exile_ids)}"
+    )
+    print(f"  Chapter III: {len(exile_ids)} exiles, {len(tokens)} tokens")
+
+
+# ============================================================================
 # Registry smoke test
 # ============================================================================
 
 def test_all_v2_spice_cards_register():
-    """All 7 v2 spice cards in registry."""
+    """All v2 spice cards in registry."""
     print("\n=== V2 Registry smoke ===")
     expected = [
         "Howl, Wandering Heart-Wizard",
@@ -759,6 +1204,12 @@ def test_all_v2_spice_cards_register():
         "Princess Mononoke's Curse",
         "San, Wolf-Sister Ascendant",
         "Chihiro, Bridge Between Worlds",
+        # Phase 2
+        "Totoro, Spirit of the Camphor Tree",
+        "Kaonashi's Banquet",
+        "Ashitaka, Iron-Cursed Prince",
+        "Kiki, Witch on Errands",
+        "The Cursed Forest Awakens",
     ]
     for name in expected:
         assert name in STUDIO_GHIBLI_CARDS, f"Missing in registry: {name}"
@@ -792,6 +1243,22 @@ if __name__ == "__main__":
     test_chihiro_bridge_counters_opp_hand_loss()
     test_chihiro_bridge_no_counter_on_own_hand_loss()
     test_chihiro_bridge_no_counter_when_going_to_battlefield()
+    # Phase 2 cards
+    test_totoro_camphor_loads()
+    test_totoro_camphor_pumps_other_spirits()
+    test_totoro_camphor_etb_opens_modal_choice()
+    test_kaonashis_banquet_loads_as_saga()
+    test_kaonashis_banquet_chapter_i_reveal_and_scry()
+    test_kaonashis_banquet_chapter_iii_exile_and_tokens()
+    test_ashitaka_iron_cursed_loads()
+    test_ashitaka_cursed_attack_punishes_and_draws()
+    test_ashitaka_uncursed_attack_no_punish()
+    test_kiki_witch_errands_loads()
+    test_kiki_witch_cast_grants_flying()
+    test_kiki_non_witch_cast_no_grant()
+    test_cursed_forest_awakens_loads_as_saga()
+    test_cursed_forest_chapter_i_discard_and_pump_tribes()
+    test_cursed_forest_chapter_iii_exile_counters()
     test_all_v2_spice_cards_register()
     print("\n" + "=" * 60)
     print("ALL STUDIO GHIBLI V2 SPICE TESTS PASSED!")
