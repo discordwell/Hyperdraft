@@ -5666,6 +5666,273 @@ THE_CURSED_FOREST_AWAKENS = CardDefinition(
 
 
 # =============================================================================
+# SPICE PASS V2 EXPANSION — Phase 3 (build-around tier max-axis cards)
+# =============================================================================
+
+
+# --- Haku, River-Lord Bound --- {2}{U} Mythic Legendary River Spirit
+# becomes_creature land transform + targeted-attack + cross-controller info.
+def haku_river_lord_bound_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: target land you control becomes a 4/4 Spirit Dragon with flying
+    until end of turn. Attack trigger: target opponent reveals their hand
+    and discards a card you choose. Filter-factory ties for synergy + novel
+    helper for state coupling.
+    """
+    from src.cards.interceptor_helpers import (
+        becomes_creature, make_targeted_attack_trigger,
+        count_permanents_with_subtype,
+    )
+
+    def transform_target_land(event: Event, st: GameState) -> list[Event]:
+        # Heuristic: pick the most recently-untapped Forest you control,
+        # else any land you control.
+        candidates = [o for o in st.objects.values()
+                      if (o.zone == ZoneType.BATTLEFIELD
+                          and o.controller == obj.controller
+                          and CardType.LAND in (o.characteristics.types or set())
+                          and o.id != obj.id)]
+        if not candidates:
+            return []
+        target = candidates[0]
+        # Use becomes_creature (novel helper) to flip the land.
+        becomes_creature(
+            target, st,
+            power=4, toughness=4,
+            subtypes={'Spirit', 'Dragon'},
+            keywords=['flying'],
+        )
+        return []
+
+    # ETB triggers becomes_creature on a target.
+    from src.cards.interceptor_helpers import make_etb_trigger
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_etb_trigger(obj, transform_target_land))
+
+    # Attack-trigger info event (REVEAL_HAND + DISCARD).
+    interceptors.append(make_targeted_attack_trigger(
+        obj,
+        effect='discard',
+        effect_params={'reveal_hand_first': True, 'count': 1},
+        target_filter='opponent',
+    ))
+
+    # Synergy: Spirit count helper.
+    def spirit_count(st: GameState) -> int:
+        return count_permanents_with_subtype(obj.controller, "Spirit", st)
+    obj.state._haku_spirit_count = spirit_count
+
+    return interceptors
+
+
+HAKU_RIVER_LORD_BOUND = make_creature(
+    name="Haku, River-Lord Bound",
+    power=2, toughness=3,
+    mana_cost="{2}{U}",
+    colors={Color.BLUE},
+    subtypes={"Spirit", "Dragon"},
+    supertypes={"Legendary"},
+    text=(
+        "Flying. When Haku enters, target land you control becomes a 4/4 "
+        "Spirit Dragon with flying until end of turn (it's still a land). "
+        "Whenever Haku attacks, target opponent reveals their hand and you "
+        "choose a nonland card from it. That player discards that card."
+    ),
+    setup_interceptors=haku_river_lord_bound_setup,
+)
+
+
+# --- Ohmu, Forest Architect --- {3}{G} Mythic Legendary Insect God
+# grant_triggered_ability + filter + modal etb (combines novel + decision + synergy).
+def ohmu_forest_architect_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB modal-choose-one: search library for a Forest or Insect; OR grant
+    each Insect you control a death trigger that creates a 1/1 green Insect
+    token; OR scry 3, then reveal top card; if Insect, put it onto BF.
+    """
+    from src.cards.interceptor_helpers import (
+        make_modal_etb_trigger, grant_death_trigger,
+        other_creatures_with_subtype, make_etb_trigger,
+    )
+
+    modes = [
+        {
+            'text': 'Search your library for a Forest or Insect card, reveal it, put it into your hand, then shuffle',
+            'requires_targeting': False,
+            'effect': 'search_library',
+            'effect_params': {
+                'subtypes_any': ['Forest', 'Insect'],
+                'destination': 'hand',
+                'reveal': True,
+                'max_count': 1,
+            },
+        },
+        {
+            'text': 'Each Insect you control gains: "When this creature dies, create a 1/1 green Insect creature token."',
+            'requires_targeting': False,
+            'effect': 'grant_death_trigger',
+            'effect_params': {
+                'subtype_filter': 'Insect',
+                'token_name': 'Insect',
+                'token_power': 1, 'token_toughness': 1,
+            },
+        },
+        {
+            'text': 'Scry 3',
+            'requires_targeting': False,
+            'effect': 'scry',
+            'effect_params': {'amount': 3},
+        },
+    ]
+
+    # Native ETB that grants death-triggers to current Insects (novel helper).
+    def grant_insect_death_trigger(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        # Find Insects you control and grant them a death trigger.
+        targets = [
+            o for o in st.objects.values()
+            if (o.zone == ZoneType.BATTLEFIELD
+                and o.controller == obj.controller
+                and CardType.CREATURE in (o.characteristics.types or set())
+                and 'Insect' in (o.characteristics.subtypes or set())
+                and o.id != obj.id)
+        ]
+        # Use grant_triggered_ability (novel helper) to add an EOT death trigger
+        # on each Insect.
+        for tgt in targets:
+            def insect_death_effect(e: Event, s: GameState) -> list[Event]:
+                return [Event(
+                    type=EventType.CREATE_TOKEN,
+                    payload={
+                        'controller': obj.controller,
+                        'token': {
+                            'name': 'Insect',
+                            'power': 1, 'toughness': 1,
+                            'colors': {Color.GREEN},
+                            'types': {CardType.CREATURE},
+                            'subtypes': {'Insect'},
+                        },
+                    },
+                    source=obj.id,
+                )]
+            grant_death_trigger(tgt, obj, st, insect_death_effect)
+        return events
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_modal_etb_trigger(
+        obj, modes, min_modes=1, max_modes=1,
+        prompt="Choose one:",
+    ))
+    interceptors.append(make_etb_trigger(obj, grant_insect_death_trigger))
+
+    # Insect-count synergy filter.
+    def insect_filter(st: GameState):
+        return other_creatures_with_subtype(obj, "Insect")
+    obj.state._insect_filter = insect_filter
+
+    return interceptors
+
+
+OHMU_FOREST_ARCHITECT = make_creature(
+    name="Ohmu, Forest Architect",
+    power=5, toughness=5,
+    mana_cost="{3}{G}",
+    colors={Color.GREEN},
+    subtypes={"Insect", "God"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample. "
+        "When Ohmu enters, choose one — "
+        "Search your library for a Forest or Insect card, reveal it, put "
+        "it into your hand, then shuffle; "
+        "OR each other Insect you control gains 'When this creature dies, "
+        "create a 1/1 green Insect creature token'; "
+        "OR scry 3."
+    ),
+    setup_interceptors=ohmu_forest_architect_setup,
+)
+
+
+# --- Witch of the Waste, Fading Splendor --- {2}{B}{B} Mythic Legendary Witch
+# ETB hand-reveal (info event +3) + threaten_creature (novel helper) +
+# targeted-spell-cast trigger for layered decision pressure.
+def witch_of_waste_fading_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: target opponent reveals their hand. Choose a creature card from
+    among the revealed cards; if you do, gain control of a creature with the
+    same name they control until end of turn (threaten effect).
+    Whenever you cast a spell with mana value 3 or greater, target creature
+    an opponent controls gets -2/-2 until end of turn.
+    """
+    from src.cards.interceptor_helpers import (
+        make_etb_trigger, threaten_creature,
+        make_targeted_spell_cast_trigger, count_cards_in_hand,
+    )
+
+    def etb_reveal_and_threaten(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        # Reveal each opponent's hand (info event).
+        for pid in st.players:
+            if pid == obj.controller:
+                continue
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': pid},
+                source=obj.id,
+            ))
+        # Heuristic: pick the largest opp creature on BF and threaten it.
+        target = None
+        best_p = -1
+        for o in st.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD
+                    and o.controller != obj.controller
+                    and CardType.CREATURE in (o.characteristics.types or set())):
+                p = o.characteristics.power or 0
+                if p > best_p:
+                    best_p = p
+                    target = o
+        if target:
+            # Use threaten_creature (novel helper).
+            events.extend(threaten_creature(target.id, obj.controller, obj.id))
+        return events
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_etb_trigger(obj, etb_reveal_and_threaten))
+
+    # Targeted spell-cast trigger (we filter mv >= 3 in our own wrapper).
+    interceptors.append(make_targeted_spell_cast_trigger(
+        obj,
+        effect='pump',
+        effect_params={'power_mod': -2, 'toughness_mod': -2,
+                       'duration': 'end_of_turn'},
+        target_filter='opponent_creature',
+        controller_only=True,
+    ))
+
+    # Hand-size synergy filter.
+    def hand_count(pid: str, st: GameState) -> int:
+        return count_cards_in_hand(pid, st)
+    obj.state._hand_helper = hand_count
+
+    return interceptors
+
+
+WITCH_OF_WASTE_FADING_SPLENDOR = make_creature(
+    name="Witch of the Waste, Fading Splendor",
+    power=3, toughness=3,
+    mana_cost="{2}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Witch"},
+    supertypes={"Legendary"},
+    text=(
+        "When Witch of the Waste enters, each opponent reveals their hand. "
+        "Then gain control of target creature an opponent controls until "
+        "end of turn. Untap it, and it gains haste until end of turn. "
+        "Whenever you cast a spell with mana value 3 or greater, target "
+        "creature an opponent controls gets -2/-2 until end of turn."
+    ),
+    setup_interceptors=witch_of_waste_fading_setup,
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -5878,6 +6145,11 @@ STUDIO_GHIBLI_CARDS = {
     "Ashitaka, Iron-Cursed Prince": ASHITAKA_IRON_CURSED,
     "Kiki, Witch on Errands": KIKI_WITCH_ERRANDS,
     "The Cursed Forest Awakens": THE_CURSED_FOREST_AWAKENS,
+
+    # SPICE PASS V2 EXPANSION — Phase 3 (max-axis novel-helper cards)
+    "Haku, River-Lord Bound": HAKU_RIVER_LORD_BOUND,
+    "Ohmu, Forest Architect": OHMU_FOREST_ARCHITECT,
+    "Witch of the Waste, Fading Splendor": WITCH_OF_WASTE_FADING_SPLENDOR,
 
     # SPICE PASS PHASE A — format-defining peaceful-Ghibli cards
     "The Forest Watches": THE_FOREST_WATCHES,
@@ -6108,6 +6380,10 @@ CARDS = [
     ASHITAKA_IRON_CURSED,
     KIKI_WITCH_ERRANDS,
     THE_CURSED_FOREST_AWAKENS,
+    # SPICE PASS V2 EXPANSION — Phase 3
+    HAKU_RIVER_LORD_BOUND,
+    OHMU_FOREST_ARCHITECT,
+    WITCH_OF_WASTE_FADING_SPLENDOR,
     LAPUTAN_AMULET,
     CRYSTAL_NECKLACE,
     CALCIFER_LANTERN,

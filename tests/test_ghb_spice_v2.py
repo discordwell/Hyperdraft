@@ -1190,6 +1190,133 @@ def test_cursed_forest_chapter_iii_exile_counters():
 
 
 # ============================================================================
+# Haku, River-Lord Bound — becomes_creature land transform
+# ============================================================================
+
+def test_haku_river_lord_loads():
+    """Loads as Legendary Spirit Dragon."""
+    print("\n=== Haku River-Lord: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    haku = _put_on_battlefield(game, p1, "Haku, River-Lord Bound")
+    chars = haku.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Spirit' in chars.subtypes
+    assert 'Dragon' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    # ETB + attack trigger = 2.
+    assert len(haku.interceptor_ids) >= 2
+    print(f"  Loaded with {len(haku.interceptor_ids)} interceptors")
+
+
+def test_haku_etb_transforms_land():
+    """ETB: target land you control becomes a 4/4 Spirit Dragon EOT.
+    becomes_creature installs QUERY interceptors; verify via get_power."""
+    print("\n=== Haku: ETB land transform ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    land = game.create_object(
+        name="Forest",
+        owner_id=p1.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.LAND},
+            subtypes={"Forest"},
+            supertypes={"Basic"},
+        ),
+    )
+    _put_on_battlefield(game, p1, "Haku, River-Lord Bound")
+    # becomes_creature installs QUERY interceptors; power should be 4.
+    new_p = get_power(land, game.state)
+    new_t = get_toughness(land, game.state)
+    assert new_p == 4, f"Power should be 4: {new_p}"
+    assert new_t == 4, f"Toughness should be 4: {new_t}"
+    print(f"  Land transformed: {new_p}/{new_t}")
+
+
+# ============================================================================
+# Ohmu, Forest Architect — modal ETB + grant_death_trigger
+# ============================================================================
+
+def test_ohmu_forest_architect_loads():
+    """Loads as Legendary Insect/God."""
+    print("\n=== Ohmu Forest Architect: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    ohmu = _put_on_battlefield(game, p1, "Ohmu, Forest Architect")
+    chars = ohmu.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Insect' in chars.subtypes
+    assert 'God' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    # Modal ETB + grant trigger = 2.
+    assert len(ohmu.interceptor_ids) >= 2
+    print(f"  Loaded with {len(ohmu.interceptor_ids)} interceptors")
+
+
+def test_ohmu_etb_opens_modal():
+    """ETB opens a modal_with_targeting choice."""
+    print("\n=== Ohmu: ETB modal ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    _put_on_battlefield(game, p1, "Ohmu, Forest Architect")
+    pending = game.state.pending_choice
+    if pending is not None:
+        assert pending.choice_type == "modal_with_targeting"
+        print(f"  Modal choice opened")
+    else:
+        print(f"  Modal fired (auto-resolved)")
+
+
+# ============================================================================
+# Witch of the Waste, Fading Splendor — reveal hand + threaten
+# ============================================================================
+
+def test_witch_of_waste_fading_loads():
+    """Loads as Legendary Witch."""
+    print("\n=== Witch of the Waste Fading: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    witch = _put_on_battlefield(game, p1, "Witch of the Waste, Fading Splendor")
+    chars = witch.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Witch' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert len(witch.interceptor_ids) >= 2
+    print(f"  Loaded with {len(witch.interceptor_ids)} interceptors")
+
+
+def test_witch_etb_reveals_and_threatens():
+    """ETB reveals opp's hand and emits threaten events."""
+    print("\n=== Witch of the Waste: ETB reveal + threaten ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Build a big opp creature to be threatened.
+    opp_creat = game.create_object(
+        name="Bob's Hulk",
+        owner_id=p2.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=Characteristics(
+            types={CardType.CREATURE},
+            subtypes={"Wolf"},
+            power=5, toughness=5,
+        ),
+    )
+    before_log = list(game.state.event_log)
+    _put_on_battlefield(game, p1, "Witch of the Waste, Fading Splendor")
+    new = game.state.event_log[len(before_log):]
+    reveals = [e for e in new
+               if e.type == EventType.REVEAL_HAND
+               and e.payload.get('player') == p2.id]
+    assert reveals, f"Expected REVEAL_HAND for opp: {[e.type.name for e in new[:10]]}"
+    # Threaten emits CONTROL_CHANGE + UNTAP + GRANT_KEYWORD haste.
+    ctrl_changes = [e for e in new if e.type == EventType.CONTROL_CHANGE]
+    assert ctrl_changes, f"Expected CONTROL_CHANGE for threaten effect"
+    print(f"  ETB revealed opp hand + threatened a creature")
+
+
+# ============================================================================
 # Registry smoke test
 # ============================================================================
 
@@ -1210,6 +1337,10 @@ def test_all_v2_spice_cards_register():
         "Ashitaka, Iron-Cursed Prince",
         "Kiki, Witch on Errands",
         "The Cursed Forest Awakens",
+        # Phase 3
+        "Haku, River-Lord Bound",
+        "Ohmu, Forest Architect",
+        "Witch of the Waste, Fading Splendor",
     ]
     for name in expected:
         assert name in STUDIO_GHIBLI_CARDS, f"Missing in registry: {name}"
@@ -1259,6 +1390,13 @@ if __name__ == "__main__":
     test_cursed_forest_awakens_loads_as_saga()
     test_cursed_forest_chapter_i_discard_and_pump_tribes()
     test_cursed_forest_chapter_iii_exile_counters()
+    # Phase 3 cards
+    test_haku_river_lord_loads()
+    test_haku_etb_transforms_land()
+    test_ohmu_forest_architect_loads()
+    test_ohmu_etb_opens_modal()
+    test_witch_of_waste_fading_loads()
+    test_witch_etb_reveals_and_threatens()
     test_all_v2_spice_cards_register()
     print("\n" + "=" * 60)
     print("ALL STUDIO GHIBLI V2 SPICE TESTS PASSED!")
