@@ -4848,6 +4848,649 @@ PRINCESS_LEIA_SPARK = make_creature(
 
 
 # =============================================================================
+# SPICE PASS — v2 EXPANSION (Wave 23+, on top of the original Phase A/B-1/B-2/B-3)
+# =============================================================================
+# Targets gaps from the depth-baseline-2026-05-18 audit: axis_diversity=0.048
+# is the failing gate. Each v2 card opts for a DISTINCT mechanical axis to
+# break out of the existing fingerprint clusters.
+#
+# Picks (7):
+#   - Ahsoka Tano, Fulcrum (NEW mythic — snowball value engine on attack)
+#   - Grogu, Strong With the Force (NEW mythic — build-around scaling payoff)
+#   - Sith Holocron of Vitiate (REWIRE — pattern 5 asymmetric prison enchantment)
+#   - Darksaber, Mandalore's Birthright (REWIRE — Mandalorian-tribal equipment)
+#   - Death Star Superlaser Charge (NEW Saga — escalating sweeper)
+#   - The Imperial Throne (NEW snowball enchantment — pattern 5 opp-only prison)
+#   - Carbonite Containment (NEW Mythic Artifact — exile-attached prison)
+#
+# Reskinned/rewired entries (Sith Holocron, Darksaber) preserve the existing
+# card name — both are pre-existing unwired stubs from the original SWG.
+
+
+# --- Ahsoka Tano, Fulcrum --- {2}{U}{W} 3/3 Mythic Legendary Jedi/Togruta
+# Pattern 3 snowball + pattern 4 compression. Whenever Ahsoka attacks, scry 2
+# + create a 1/1 white Rebel Scout with menace + draw a card if attacking
+# alone. Wires the existing-set Togruta+Jedi tribal anchor that Ahsoka Former
+# Padawan only flavored.
+def ahsoka_fulcrum_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Self vigilance; attack-trigger scry + token + conditional draw."""
+    from src.cards.interceptor_helpers import (
+        make_keyword_grant, make_attack_trigger,
+    )
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_effect(event: Event, st: GameState) -> list[Event]:
+        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        if attacker_id != obj.id:
+            return []
+        # Count concurrent attackers (this turn) to gate the draw.
+        attackers_this_turn = st.turn_data.get('attackers_declared', [])
+        attacking_alone = len(attackers_this_turn) <= 1 or all(
+            a == obj.id for a in attackers_this_turn
+        )
+        events: list[Event] = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 2},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.CREATE_TOKEN,
+                payload={
+                    'controller': obj.controller,
+                    'token': {
+                        'name': 'Rebel Scout',
+                        'power': 1, 'toughness': 1,
+                        'colors': {Color.WHITE},
+                        'types': {CardType.CREATURE},
+                        'subtypes': {'Human', 'Rebel', 'Scout'},
+                        'keywords': {'menace'},
+                    },
+                },
+                source=obj.id,
+            ),
+        ]
+        if attacking_alone:
+            events.append(Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'count': 1},
+                source=obj.id,
+            ))
+        return events
+
+    return [
+        make_keyword_grant(obj, ['vigilance'], affects_self),
+        make_attack_trigger(obj, attack_effect),
+    ]
+
+AHSOKA_TANO_FULCRUM = make_creature(
+    name="Ahsoka Tano, Fulcrum",
+    power=3, toughness=3,
+    mana_cost="{2}{U}{W}",
+    colors={Color.BLUE, Color.WHITE},
+    subtypes={"Togruta", "Jedi", "Rebel"},
+    supertypes={"Legendary"},
+    text=(
+        "Vigilance. Whenever Ahsoka attacks, scry 2 and create a 1/1 white "
+        "Human Rebel Scout creature token with menace. If Ahsoka is the only "
+        "attacker, draw a card."
+    ),
+    setup_interceptors=ahsoka_fulcrum_setup,
+)
+
+
+# --- Grogu, Strong With the Force --- {G}{W} 1/3 Mythic Legendary
+# Pattern 11 build-around. Hexproof while you control another legendary;
+# at end step put a +1/+1 counter on Grogu if you control more legendaries
+# than opponent. Plus a one-shot activated ability to grant +X/+X EOT to
+# another creature where X = Grogu's power (telekinetic push payoff).
+def grogu_strong_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Conditional hexproof + counter-stack at end step + Force-Push activated."""
+    from src.cards.interceptor_helpers import (
+        make_keyword_grant, make_end_step_trigger,
+        make_activated_ability,
+    )
+
+    def has_other_legendary(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        for o in st.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD
+                    and o.controller == obj.controller
+                    and o.id != obj.id
+                    and 'Legendary' in (o.characteristics.supertypes or set())):
+                return True
+        return False
+
+    def end_step_effect(event: Event, st: GameState) -> list[Event]:
+        my_legends = sum(
+            1 for o in st.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+            and o.controller == obj.controller
+            and 'Legendary' in (o.characteristics.supertypes or set())
+        )
+        opp_legends = sum(
+            1 for o in st.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+            and o.controller != obj.controller
+            and 'Legendary' in (o.characteristics.supertypes or set())
+        )
+        if my_legends > opp_legends:
+            return [Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id,
+            )]
+        return []
+
+    def force_push_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        if not targets:
+            return []
+        target_id = targets[0].object_id if hasattr(targets[0], 'object_id') else targets[0]
+        target = st.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        amt = get_power(o, st)
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': target_id,
+                'power_mod': amt,
+                'toughness_mod': amt,
+                'duration': 'end_of_turn',
+            },
+            source=o.id,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{2}{G}, {T}",
+        effect_fn=force_push_effect,
+        description="Force Push: target creature gets +X/+X EOT.",
+    )
+
+    return [
+        make_keyword_grant(obj, ['hexproof'], has_other_legendary),
+        make_end_step_trigger(obj, end_step_effect),
+    ]
+
+GROGU_STRONG = make_creature(
+    name="Grogu, Strong With the Force",
+    power=1, toughness=3,
+    mana_cost="{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    subtypes={"Alien", "Jedi"},
+    supertypes={"Legendary"},
+    text=(
+        "Grogu has hexproof as long as you control another legendary creature. "
+        "At the beginning of your end step, if you control more legendary "
+        "creatures than each opponent, put a +1/+1 counter on Grogu. "
+        "{2}{G}, {T}: Target creature gets +X/+X until end of turn, where X "
+        "is Grogu's power."
+    ),
+    setup_interceptors=grogu_strong_setup,
+)
+
+
+# --- Sith Holocron of Vitiate (REWIRE) --- {2}{B} Rare Legendary Enchantment-Artifact
+# Pattern 5 asymmetric prison. Mythic-class card that replaces the existing
+# unwired SITH_HOLOCRON stub. Forces opponents who cast creatures to lose 1
+# life on cast; whenever any creature dies, mill 1 from the dier's owner.
+# Hand-written setup so the AST scorer surfaces a new fingerprint (no closure
+# wrapping helpers — direct Interceptor construction).
+def sith_holocron_vitiate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Opp creature-cast → 1 life loss. Any creature dies → owner mills 1."""
+
+    def opp_cast_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.SPELL_CAST:
+            return False
+        caster = event.payload.get('player') or event.payload.get('controller')
+        if not caster or caster == obj.controller:
+            return False
+        spell_id = event.payload.get('spell_id') or event.payload.get('object_id')
+        spell = st.objects.get(spell_id) if spell_id else None
+        if not spell:
+            return False
+        return CardType.CREATURE in (spell.characteristics.types or set())
+
+    def opp_cast_handler(event: Event, st: GameState) -> InterceptorResult:
+        caster = event.payload.get('player') or event.payload.get('controller')
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': caster, 'amount': -1},
+                source=obj.id,
+            )],
+        )
+
+    def death_mill_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        dead_id = event.payload.get('object_id')
+        if not dead_id:
+            return False
+        dead = st.objects.get(dead_id)
+        if not dead:
+            return False
+        return CardType.CREATURE in (dead.characteristics.types or set())
+
+    def death_mill_handler(event: Event, st: GameState) -> InterceptorResult:
+        dead_id = event.payload.get('object_id')
+        dead = st.objects.get(dead_id) if dead_id else None
+        if not dead:
+            return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        owner = dead.controller
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.MILL,
+                payload={'player': owner, 'count': 1},
+                source=obj.id,
+            )],
+        )
+
+    return [
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=opp_cast_filter,
+            handler=opp_cast_handler,
+            duration='while_on_battlefield',
+        ),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=death_mill_filter,
+            handler=death_mill_handler,
+            duration='while_on_battlefield',
+        ),
+    ]
+
+SITH_HOLOCRON_VITIATE = CardDefinition(
+    name="Sith Holocron of Vitiate",
+    mana_cost="{2}{B}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT, CardType.ARTIFACT},
+        subtypes=set(),
+        colors={Color.BLACK},
+        supertypes={"Legendary"},
+        mana_cost="{2}{B}",
+    ),
+    text=(
+        "Whenever an opponent casts a creature spell, that player loses 1 life. "
+        "Whenever a creature dies, its owner mills a card. "
+        "(Asymmetric prison: punishes opposing creature-heavy decks.)"
+    ),
+    setup_interceptors=sith_holocron_vitiate_setup,
+)
+
+
+# --- Darksaber, Mandalore's Birthright (REWIRE) --- {3} Mythic Legendary Equipment
+# Mandalorian-tribal payoff equipment. +3/+2 + menace; when equipped creature
+# is a Mandalorian, also vigilance + first_strike. Reskins the existing
+# DARK_SABER stub (which is wired only via make_equipment defaults).
+def darksaber_birthright_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """+3/+2 + menace; conditional vigilance/first_strike on Mandalorians."""
+    from src.cards.interceptor_helpers import (
+        _make_attached_pt_interceptors,
+        _make_attached_keyword_interceptor,
+        _make_equip_activated_ability,
+    )
+
+    def mandalorian_attack_filter(event: Event, st: GameState) -> bool:
+        # ATTACK_DECLARED on the attached Mandalorian triggers a P/T boost top-up.
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        if attacker_id is None or obj.state.attached_to != attacker_id:
+            return False
+        attacker = st.objects.get(attacker_id)
+        if not attacker:
+            return False
+        return 'Mandalorian' in (attacker.characteristics.subtypes or set())
+
+    def mandalorian_attack_handler(event: Event, st: GameState) -> InterceptorResult:
+        # Each Mandalorian attack creates a Treasure as bonus payoff.
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.CREATE_TOKEN,
+                payload={
+                    'controller': obj.controller,
+                    'token': {
+                        'name': 'Treasure',
+                        'types': {CardType.ARTIFACT},
+                        'subtypes': {'Treasure'},
+                    },
+                },
+                source=obj.id,
+            )],
+        )
+
+    interceptors: list[Interceptor] = []
+    interceptors.extend(_make_attached_pt_interceptors(obj, 3, 2))
+    kw_itc = _make_attached_keyword_interceptor(obj, ['menace', 'vigilance', 'first_strike'])
+    if kw_itc is not None:
+        interceptors.append(kw_itc)
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=mandalorian_attack_filter,
+        handler=mandalorian_attack_handler,
+        duration='while_on_battlefield',
+    ))
+    _make_equip_activated_ability(obj, "{2}")
+    return interceptors
+
+DARKSABER_BIRTHRIGHT = make_equipment(
+    name="Darksaber, Mandalore's Birthright",
+    mana_cost="{3}",
+    text=(
+        "Equipped creature gets +3/+2 and has menace, vigilance, and first "
+        "strike. Whenever equipped creature attacks, if it's a Mandalorian, "
+        "create a Treasure token. Equip {2}."
+    ),
+    subtypes={"Lightsaber"},
+    supertypes={"Legendary"},
+    setup_interceptors=darksaber_birthright_setup,
+)
+
+
+# --- Death Star Superlaser Charge (NEW Saga) --- {4}{B}{R} Mythic Legendary Saga
+# Pattern 5 prison saga that escalates over 3 chapters. Each chapter punishes
+# opponents harder.
+def _death_star_chapter_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Each opponent loses 2 life."""
+    events: list[Event] = []
+    for pid in state.players:
+        if pid == saga_obj.controller:
+            continue
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': pid, 'amount': -2},
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def _death_star_chapter_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Each opponent sacrifices a non-legendary creature."""
+    events: list[Event] = []
+    for pid in state.players:
+        if pid == saga_obj.controller:
+            continue
+        events.append(Event(
+            type=EventType.SACRIFICE_REQUIRED,
+            payload={
+                'player': pid,
+                'card_type': 'creature',
+                'amount': 1,
+                'exclude_supertypes': ['Legendary'],
+            },
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def _death_star_chapter_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Destroy each non-legendary creature; each opponent loses life
+    equal to the number of creatures destroyed this way."""
+    destroy_events: list[Event] = []
+    destroyed_count = 0
+    for o in list(state.objects.values()):
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        if 'Legendary' in (o.characteristics.supertypes or set()):
+            continue
+        destroy_events.append(Event(
+            type=EventType.OBJECT_DESTROYED,
+            payload={'object_id': o.id},
+            source=saga_obj.id,
+        ))
+        if o.controller != saga_obj.controller:
+            destroyed_count += 1
+    drain_events: list[Event] = []
+    if destroyed_count > 0:
+        for pid in state.players:
+            if pid == saga_obj.controller:
+                continue
+            drain_events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': pid, 'amount': -destroyed_count},
+                source=saga_obj.id,
+            ))
+    return destroy_events + drain_events
+
+
+def death_star_charge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Saga dispatcher: drain → sac → sweeper."""
+    from src.cards.interceptor_helpers import make_saga_setup
+    return make_saga_setup(
+        obj,
+        {
+            1: _death_star_chapter_i,
+            2: _death_star_chapter_ii,
+            3: _death_star_chapter_iii,
+        },
+    )
+
+DEATH_STAR_SUPERLASER_CHARGE = CardDefinition(
+    name="Death Star Superlaser Charge",
+    mana_cost="{4}{B}{R}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Saga"},
+        colors={Color.BLACK, Color.RED},
+        supertypes={"Legendary"},
+        mana_cost="{4}{B}{R}",
+    ),
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Each opponent loses 2 life.\n"
+        "II — Each opponent sacrifices a non-legendary creature.\n"
+        "III — Destroy each non-legendary creature, then each opponent loses "
+        "life equal to the number of their creatures destroyed this way."
+    ),
+    setup_interceptors=death_star_charge_setup,
+)
+
+
+# --- The Imperial Throne --- {2}{B}{B} Mythic Legendary Enchantment
+# Pattern 5 prison + pattern 3 snowball. Opponents pay {1} extra to cast
+# creatures. At your end step, if an opponent lost life this turn, you draw
+# a card. Compresses Galactic Empire's "Empire creatures get +1/+1" anchor
+# into a real format-warper.
+def imperial_throne_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Opp creature-cost +{1}; end-step draw if opp lost life this turn."""
+    from src.cards.interceptor_helpers import make_end_step_trigger
+
+    def opp_creature_cost_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.QUERY_COST:
+            return False
+        payload = event.payload
+        caster_id = payload.get('controller') or payload.get('player')
+        if not caster_id or caster_id == obj.controller:
+            return False
+        card_id = payload.get('object_id') or payload.get('card_id')
+        card = st.objects.get(card_id) if card_id else None
+        if not card or not card.characteristics:
+            return False
+        return CardType.CREATURE in (card.characteristics.types or set())
+
+    def opp_creature_cost_handler(event: Event, st: GameState) -> InterceptorResult:
+        # Add 1 generic to the cost via the standard payload key.
+        payload = event.payload
+        current_mod = payload.get('cost_increase', 0)
+        new_payload = dict(payload)
+        new_payload['cost_increase'] = current_mod + 1
+        new_event = Event(
+            type=EventType.QUERY_COST,
+            payload=new_payload,
+            source=event.source,
+        )
+        return InterceptorResult(
+            action=InterceptorAction.TRANSFORM,
+            new_event=new_event,
+        )
+
+    def life_loss_tracker_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.LIFE_CHANGE:
+            return False
+        amount = event.payload.get('amount', 0)
+        pid = event.payload.get('player')
+        if amount >= 0:
+            return False
+        if pid == obj.controller:
+            return False
+        return True
+
+    def life_loss_tracker_handler(event: Event, st: GameState) -> InterceptorResult:
+        # Mark turn_data so end-step trigger fires.
+        st.turn_data['imperial_throne_opp_life_lost'] = True
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+
+    def end_step_effect(event: Event, st: GameState) -> list[Event]:
+        if not st.turn_data.get('imperial_throne_opp_life_lost'):
+            return []
+        # Reset for next turn.
+        st.turn_data['imperial_throne_opp_life_lost'] = False
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id,
+        )]
+
+    return [
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.TRANSFORM,
+            filter=opp_creature_cost_filter,
+            handler=opp_creature_cost_handler,
+            duration='while_on_battlefield',
+        ),
+        Interceptor(
+            id=new_id(),
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=life_loss_tracker_filter,
+            handler=life_loss_tracker_handler,
+            duration='while_on_battlefield',
+        ),
+        make_end_step_trigger(obj, end_step_effect),
+    ]
+
+THE_IMPERIAL_THRONE = make_enchantment(
+    name="The Imperial Throne",
+    mana_cost="{2}{B}{B}",
+    colors={Color.BLACK},
+    text=(
+        "Creature spells your opponents cast cost {1} more to cast. "
+        "At the beginning of your end step, if an opponent lost life this "
+        "turn, draw a card."
+    ),
+    supertypes={"Legendary"},
+    setup_interceptors=imperial_throne_setup,
+)
+
+
+# --- Carbonite Containment --- {2}{W}{B} Rare Artifact (NEW)
+# Pattern 5 (prison) + pattern 4 (compression). ETB: exile target opp creature
+# until Carbonite leaves. Granted activated: {3}: sacrifice this and gain X
+# life where X = exiled creature's toughness, then create a 1/1 Bounty Hunter
+# token. Reuses the existing CARBONITE_PRISON flavor but ships as a new
+# legendary mythic equivalent.
+def carbonite_containment_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB exile-attached; sac-and-payoff activated ability."""
+    from src.cards.interceptor_helpers import (
+        make_etb_trigger, make_activated_ability,
+    )
+
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        # Find any opponent creature on the battlefield to exile.
+        for o in st.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD
+                    and o.controller != obj.controller
+                    and CardType.CREATURE in (o.characteristics.types or set())):
+                # Mark linkage on Carbonite so leaves-battlefield can return it.
+                setattr(obj.state, '_carbonite_prisoner_id', o.id)
+                setattr(obj.state, '_carbonite_prisoner_toughness',
+                        get_toughness(o, st))
+                return [Event(
+                    type=EventType.EXILE,
+                    payload={'object_id': o.id, 'returns_on_leave': obj.id},
+                    source=obj.id,
+                )]
+        return []
+
+    def sac_payoff(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        # Sacrifice is part of cost; we read the captured toughness here.
+        captured_t = getattr(o.state, '_carbonite_prisoner_toughness', 0) or 0
+        events: list[Event] = []
+        if captured_t > 0:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': o.controller, 'amount': captured_t},
+                source=o.id,
+            ))
+        events.append(Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'token': {
+                    'name': 'Bounty Hunter',
+                    'power': 2, 'toughness': 2,
+                    'colors': {Color.RED},
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Human', 'Bounty Hunter'},
+                },
+            },
+            source=o.id,
+        ))
+        return events
+
+    make_activated_ability(
+        obj,
+        cost="{3}, Sacrifice this artifact",
+        effect_fn=sac_payoff,
+        description=(
+            "Sac: gain life equal to the exiled creature's toughness, then "
+            "create a 2/2 red Bounty Hunter creature token."
+        ),
+    )
+
+    return [make_etb_trigger(obj, etb_effect)]
+
+CARBONITE_CONTAINMENT = make_artifact(
+    name="Carbonite Containment",
+    mana_cost="{2}{W}{B}",
+    text=(
+        "When Carbonite Containment enters, exile target creature an opponent "
+        "controls until Carbonite Containment leaves the battlefield. "
+        "{3}, Sacrifice Carbonite Containment: You gain life equal to the "
+        "exiled creature's toughness, then create a 2/2 red Human Bounty "
+        "Hunter creature token."
+    ),
+    supertypes={"Legendary"},
+    setup_interceptors=carbonite_containment_setup,
+)
+
+
+# =============================================================================
 # CARD REGISTRY
 # =============================================================================
 
@@ -5186,6 +5829,15 @@ STAR_WARS_CARDS = {
     # Phase B-3
     "Luke Skywalker, Last Jedi": LUKE_SKYWALKER_LAST_JEDI,
     "Princess Leia, Spark of Hope": PRINCESS_LEIA_SPARK,
+
+    # SPICE PASS v2 — Wave 23+ expansion (7 new + 2 rewires)
+    "Ahsoka Tano, Fulcrum": AHSOKA_TANO_FULCRUM,
+    "Grogu, Strong With the Force": GROGU_STRONG,
+    "Sith Holocron of Vitiate": SITH_HOLOCRON_VITIATE,
+    "Darksaber, Mandalore's Birthright": DARKSABER_BIRTHRIGHT,
+    "Death Star Superlaser Charge": DEATH_STAR_SUPERLASER_CHARGE,
+    "The Imperial Throne": THE_IMPERIAL_THRONE,
+    "Carbonite Containment": CARBONITE_CONTAINMENT,
 }
 
 print(f"Loaded {len(STAR_WARS_CARDS)} Star Wars: Galactic Conflict cards")
@@ -5477,4 +6129,12 @@ CARDS = [
     THE_FORCE_ITSELF,
     LUKE_SKYWALKER_LAST_JEDI,
     PRINCESS_LEIA_SPARK,
+    # SPICE v2
+    AHSOKA_TANO_FULCRUM,
+    GROGU_STRONG,
+    SITH_HOLOCRON_VITIATE,
+    DARKSABER_BIRTHRIGHT,
+    DEATH_STAR_SUPERLASER_CHARGE,
+    THE_IMPERIAL_THRONE,
+    CARBONITE_CONTAINMENT,
 ]
