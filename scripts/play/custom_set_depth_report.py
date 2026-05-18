@@ -160,7 +160,144 @@ SETS = {
         registry_name="BEYOND_KAMIGAWA_CARDS",
         engine="yugioh",
     ),
+    # ---- Custom MTG sets in src/cards/custom/ ----
+    # All score against the MTG engine profile. Added 2026-05-18 so the v2
+    # depth audit can reach every custom set in one CLI sweep.
+    "mtg_lrw": DepthSet(
+        label="MTG Lorwyn Custom",
+        registry_path="src.cards.custom.lorwyn_custom:LORWYN_CUSTOM_CARDS",
+        import_path="src.cards.custom.lorwyn_custom",
+        registry_name="LORWYN_CUSTOM_CARDS",
+        engine="mtg",
+    ),
+    "mtg_tmh": DepthSet(
+        label="MTG Temporal Horizons",
+        registry_path="src.cards.custom.temporal_horizons:TEMPORAL_HORIZONS_CARDS",
+        import_path="src.cards.custom.temporal_horizons",
+        registry_name="TEMPORAL_HORIZONS_CARDS",
+        engine="mtg",
+    ),
+    "mtg_swr": DepthSet(
+        label="MTG Star Wars",
+        registry_path="src.cards.custom.star_wars:STAR_WARS_CARDS",
+        import_path="src.cards.custom.star_wars",
+        registry_name="STAR_WARS_CARDS",
+        engine="mtg",
+    ),
+    "mtg_dbz": DepthSet(
+        label="MTG Dragon Ball",
+        registry_path="src.cards.custom.dragon_ball:DRAGON_BALL_CARDS",
+        import_path="src.cards.custom.dragon_ball",
+        registry_name="DRAGON_BALL_CARDS",
+        engine="mtg",
+    ),
+    "mtg_nrt": DepthSet(
+        label="MTG Naruto",
+        registry_path="src.cards.custom.naruto:NARUTO_CARDS",
+        import_path="src.cards.custom.naruto",
+        registry_name="NARUTO_CARDS",
+        engine="mtg",
+    ),
+    "mtg_jjk": DepthSet(
+        label="MTG Jujutsu Kaisen",
+        registry_path="src.cards.custom.jujutsu_kaisen:JUJUTSU_KAISEN_CARDS",
+        import_path="src.cards.custom.jujutsu_kaisen",
+        registry_name="JUJUTSU_KAISEN_CARDS",
+        engine="mtg",
+    ),
+    "mtg_aot": DepthSet(
+        label="MTG Attack on Titan",
+        registry_path="src.cards.custom.attack_on_titan:ATTACK_ON_TITAN_CARDS",
+        import_path="src.cards.custom.attack_on_titan",
+        registry_name="ATTACK_ON_TITAN_CARDS",
+        engine="mtg",
+    ),
+    "mtg_hpw": DepthSet(
+        label="MTG Harry Potter",
+        registry_path="src.cards.custom.harry_potter:HARRY_POTTER_CARDS",
+        import_path="src.cards.custom.harry_potter",
+        registry_name="HARRY_POTTER_CARDS",
+        engine="mtg",
+    ),
+    "mtg_mvl": DepthSet(
+        label="MTG Marvel Avengers",
+        registry_path="src.cards.custom.marvel_avengers:MARVEL_AVENGERS_CARDS",
+        import_path="src.cards.custom.marvel_avengers",
+        registry_name="MARVEL_AVENGERS_CARDS",
+        engine="mtg",
+    ),
+    "mtg_mha": DepthSet(
+        label="MTG My Hero Academia",
+        registry_path="src.cards.custom.my_hero_academia:MY_HERO_ACADEMIA_CARDS",
+        import_path="src.cards.custom.my_hero_academia",
+        registry_name="MY_HERO_ACADEMIA_CARDS",
+        engine="mtg",
+    ),
+    "mtg_ltr": DepthSet(
+        label="MTG Lord of the Rings",
+        registry_path="src.cards.custom.lord_of_the_rings:LORD_OF_THE_RINGS_CARDS",
+        import_path="src.cards.custom.lord_of_the_rings",
+        registry_name="LORD_OF_THE_RINGS_CARDS",
+        engine="mtg",
+    ),
+    "mtg_zld": DepthSet(
+        label="MTG Legend of Zelda",
+        registry_path="src.cards.custom.legend_of_zelda:LEGEND_OF_ZELDA_CARDS",
+        import_path="src.cards.custom.legend_of_zelda",
+        registry_name="LEGEND_OF_ZELDA_CARDS",
+        engine="mtg",
+    ),
+    "mtg_ghb": DepthSet(
+        label="MTG Studio Ghibli",
+        registry_path="src.cards.custom.studio_ghibli:STUDIO_GHIBLI_CARDS",
+        import_path="src.cards.custom.studio_ghibli",
+        registry_name="STUDIO_GHIBLI_CARDS",
+        engine="mtg",
+    ),
+    "mtg_dms": DepthSet(
+        label="MTG Demon Slayer",
+        registry_path="src.cards.custom.demon_slayer:DEMON_SLAYER_CARDS",
+        import_path="src.cards.custom.demon_slayer",
+        registry_name="DEMON_SLAYER_CARDS",
+        engine="mtg",
+    ),
+    "mtg_opc": DepthSet(
+        label="MTG One Piece",
+        registry_path="src.cards.custom.one_piece:ONE_PIECE_CARDS",
+        import_path="src.cards.custom.one_piece",
+        registry_name="ONE_PIECE_CARDS",
+        engine="mtg",
+    ),
+    "mtg_spmc": DepthSet(
+        label="MTG Spider-Man (custom)",
+        registry_path="src.cards.custom.man_of_pider:SPIDER_MAN_CUSTOM_CARDS",
+        import_path="src.cards.custom.man_of_pider",
+        registry_name="SPIDER_MAN_CUSTOM_CARDS",
+        engine="mtg",
+    ),
+    "mtg_finc": DepthSet(
+        label="MTG Final Fantasy (custom)",
+        registry_path="src.cards.custom.princess_catholicon:FINAL_FANTASY_CUSTOM_CARDS",
+        import_path="src.cards.custom.princess_catholicon",
+        registry_name="FINAL_FANTASY_CUSTOM_CARDS",
+        engine="mtg",
+    ),
+    "mtg_tlac": DepthSet(
+        label="MTG Avatar: TLA (custom)",
+        registry_path="src.cards.custom.penultimate_avatar:AVATAR_TLA_CUSTOM_CARDS",
+        import_path="src.cards.custom.penultimate_avatar",
+        registry_name="AVATAR_TLA_CUSTOM_CARDS",
+        engine="mtg",
+    ),
 }
+
+# Convenience group for "all custom MTG sets" (excludes modern_mtg benchmark).
+CUSTOM_MTG_SET_KEYS: tuple[str, ...] = (
+    "mtg_pkh", "mtg_lrw", "mtg_tmh", "mtg_swr", "mtg_dbz", "mtg_nrt",
+    "mtg_jjk", "mtg_aot", "mtg_hpw", "mtg_mvl", "mtg_mha", "mtg_ltr",
+    "mtg_zld", "mtg_ghb", "mtg_dms", "mtg_opc", "mtg_spmc", "mtg_finc",
+    "mtg_tlac",
+)
 
 
 def _import_module(path: str):
@@ -403,13 +540,18 @@ def main() -> int:
         choices=sorted(SETS),
         help="Set keys to report. modern_mtg is included as a benchmark automatically.",
     )
+    parser.add_argument(
+        "--all-custom-mtg", action="store_true",
+        help="Shortcut for --sets covering every custom MTG set in src/cards/custom/.",
+    )
     parser.add_argument("--thin-threshold", type=int, default=28,
                         help="Legacy thin threshold (kept for diffing during migration)")
     parser.add_argument("--out", type=Path)
     parser.add_argument("--compact", action="store_true")
     args = parser.parse_args()
 
-    report = build_report(args.sets, args.thin_threshold)
+    set_names = list(CUSTOM_MTG_SET_KEYS) if args.all_custom_mtg else args.sets
+    report = build_report(set_names, args.thin_threshold)
     payload = json.dumps(report, indent=None if args.compact else 2, sort_keys=True)
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
