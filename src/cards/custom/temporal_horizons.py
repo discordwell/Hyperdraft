@@ -204,6 +204,375 @@ def make_time_counter_upkeep_add(source_obj: GameObject, target_filter: Callable
 
 
 # =============================================================================
+# Spice-pass W22+ setup functions (Phase A1, 2026-05-18)
+# Plan/Doc: docs/sets/custom_set_depth_baseline_2026-05-18.md (TMH row)
+#
+# Adds 5 net-new spice picks + 3 unwired-legendary rewires:
+#   - The Paradox War (saga)            : tempo / extra-turn build-around
+#   - Chronoblade, Forged in Time       : Equipment mythic w/ time-counter scaling
+#   - Crystals of Past/Present/Future   : assembly trio (3 cards)
+#   - Hourglass of Eternity (REWIRE)    : time-counter engine artifact
+#   - Chronolith (REWIRE)               : exile-cast cost reduction
+#   - Timeless Crown (REWIRE)           : Equipment w/ upkeep counter trigger
+# =============================================================================
+
+from src.cards.interceptor_helpers import (
+    make_activated_ability,
+    make_equipment_setup,
+    make_cost_reduction,
+    make_draw_trigger,
+    make_counter_added_trigger,
+)
+
+
+def the_paradox_war_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """3-chapter Saga {2}{U}{R}: I exile top-2 of each library w/ time counters,
+    II create two 1/1 Spirit tokens w/ time counters, III take an extra turn."""
+    from src.cards.interceptor_helpers import make_saga_setup
+    return make_saga_setup(obj, {
+        1: _the_paradox_war_chapter_i,
+        2: _the_paradox_war_chapter_ii,
+        3: _the_paradox_war_chapter_iii,
+    })
+
+
+def _the_paradox_war_chapter_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Each player exiles the top two cards of their library with time
+    counters on them. Engine note: we emit an EXILE_TOP_PLAY w/ a time-counter
+    marker for each player; the play-permission flag is harmless (see #17)."""
+    events: list[Event] = []
+    for pid in state.players.keys():
+        events.append(Event(
+            type=EventType.EXILE_TOP_PLAY,
+            payload={
+                'caster': saga_obj.controller,
+                'player': pid,
+                'amount': 2,
+                'until': 'forever',
+                'time_counter': True,
+            },
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def _the_paradox_war_chapter_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Create two 1/1 blue Spirit creature tokens with flying and a time
+    counter on each."""
+    token_spec = {
+        'name': 'Paradox Spirit',
+        'types': {CardType.CREATURE},
+        'subtypes': {'Spirit'},
+        'power': 1,
+        'toughness': 1,
+        'colors': {Color.BLUE},
+        'keywords': ['flying'],
+        'counters': {'time': 1},
+    }
+    return [
+        Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': saga_obj.controller, 'token': dict(token_spec)},
+            source=saga_obj.id,
+        )
+        for _ in range(2)
+    ]
+
+
+def _the_paradox_war_chapter_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Take an extra turn after this one."""
+    return [Event(
+        type=EventType.EXTRA_TURN,
+        payload={'player': saga_obj.controller},
+        source=saga_obj.id,
+    )]
+
+
+def chronoblade_forged_in_time_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Legendary Equipment — +1/+1 + first_strike + haste, equip {2}. Auto-equip
+    ETB seek for a creature you control (passive: equipment will sit on
+    battlefield until ATTACH event resolves). Grants a self-attack-trigger to
+    the equipped creature: 'Whenever this creature attacks, put a time counter
+    on it.' """
+    # Use make_equipment_setup for the static PT + keywords + equip cost.
+    base_setup = make_equipment_setup(
+        power_mod=1,
+        toughness_mod=1,
+        keywords=["first_strike", "haste"],
+        equip_cost="{2}",
+    )
+    interceptors = base_setup(obj, state)
+
+    # Attack-time-counter trigger on the equipped creature: filter the attacker
+    # against the currently-attached target via obj.state.attached_to (set by
+    # the engine's _handle_attach to the equipped target's id).
+    def attached_attack_filter(event: Event, st: GameState, src: GameObject) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        return attacker_id is not None and attacker_id == getattr(src.state, 'attached_to', None)
+
+    def add_time_counter(event: Event, st: GameState) -> list[Event]:
+        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': attacker_id, 'counter_type': 'time', 'amount': 1},
+            source=obj.id,
+        )]
+
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: attached_attack_filter(e, s, obj),
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=add_time_counter(e, s),
+        ),
+        duration='while_on_battlefield',
+    ))
+    return interceptors
+
+
+def _count_paradox_crystals(state: GameState, controller_id: str) -> int:
+    """Count battlefield artifacts named 'Crystal of Past/Present/Future' that
+    the player controls. Used by Crystal of Present's assembly gate."""
+    targets = {"Crystal of Past", "Crystal of Present", "Crystal of Future"}
+    return sum(
+        1 for o in state.objects.values()
+        if o.controller == controller_id
+        and o.zone == ZoneType.BATTLEFIELD
+        and CardType.ARTIFACT in (o.characteristics.types or set())
+        and o.name in targets
+    )
+
+
+def crystal_of_past_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: return target creature card with MV<=3 from your graveyard to your
+    hand. Anthem: artifacts you control get +0/+1 (toughness boost shores up
+    fragile mana-rocks).
+    """
+    def etb_reanimate(event: Event, st: GameState) -> list[Event]:
+        # Greedy pick — engine doesn't yet honor mana_value_max on
+        # RETURN_FROM_GRAVEYARD, but the printed cap is in the card text.
+        gy = st.zones.get(f'graveyard_{obj.controller}')
+        if not gy:
+            return []
+        for oid in gy.objects:
+            cand = st.objects.get(oid)
+            if not cand or not cand.characteristics:
+                continue
+            if CardType.CREATURE not in (cand.characteristics.types or set()):
+                continue
+            mv = getattr(cand.characteristics.mana_cost, 'mana_value', 0) if cand.characteristics.mana_cost else 0
+            if mv > 3:
+                continue
+            return [Event(
+                type=EventType.RETURN_FROM_GRAVEYARD,
+                payload={'object_id': oid, 'destination': 'hand', 'player': obj.controller},
+                source=obj.id,
+            )]
+        return []
+
+    def artifact_toughness_filter(target: GameObject, st: GameState) -> bool:
+        if target.controller != obj.controller or target.zone != ZoneType.BATTLEFIELD:
+            return False
+        return CardType.ARTIFACT in (target.characteristics.types or set())
+
+    # +0/+1 anthem to artifacts you control (make_static_pt_boost returns
+    # list[Interceptor], so spread it into the result).
+    return [make_etb_trigger(obj, etb_reanimate)] + make_static_pt_boost(
+        obj, 0, 1, artifact_toughness_filter,
+    )
+
+
+def crystal_of_present_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At beginning of your upkeep, if you control all three Crystals (Past +
+    Present + Future), take an extra turn. Activated {T}, sacrifice self: scry
+    2 and draw a card."""
+    def upkeep_check(event: Event, st: GameState) -> list[Event]:
+        if _count_paradox_crystals(st, obj.controller) >= 3:
+            return [Event(
+                type=EventType.EXTRA_TURN,
+                payload={'player': obj.controller},
+                source=obj.id,
+            )]
+        return []
+
+    def scry_draw(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [
+            Event(type=EventType.SCRY,
+                  payload={'player': o.controller, 'amount': 2},
+                  source=o.id),
+            Event(type=EventType.DRAW,
+                  payload={'player': o.controller, 'amount': 1},
+                  source=o.id),
+        ]
+
+    make_activated_ability(
+        obj,
+        cost="{T}, Sacrifice this artifact",
+        effect_fn=scry_draw,
+        description="Scry 2, then draw a card",
+        targets_required=0,
+    )
+    return [make_upkeep_trigger(obj, upkeep_check, controller_only=True)]
+
+
+def crystal_of_future_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you draw one or more cards, scry 1. Activated {2}, {T}, sac:
+    exile top 3 of library, may play this turn."""
+    def draw_scry(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        )]
+
+    def impulse_three(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.EXILE_TOP_PLAY,
+            payload={
+                'caster': o.controller,
+                'player': o.controller,
+                'amount': 3,
+                'until': 'end_of_turn',
+            },
+            source=o.id,
+        )]
+
+    make_activated_ability(
+        obj,
+        cost="{2}, {T}, Sacrifice this artifact",
+        effect_fn=impulse_three,
+        description="Exile top 3 of your library; you may play those cards this turn",
+        targets_required=0,
+    )
+    return [make_draw_trigger(obj, draw_scry)]
+
+
+def hourglass_of_eternity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Legendary artifact rewire — {T}: put a time counter on Hourglass (self,
+    bypassing missing target picker). {3}, {T}: draw a card. Static: whenever a
+    time counter is added to a permanent you control, you gain 1 life."""
+    def add_self_time(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': o.id, 'counter_type': 'time', 'amount': 1},
+            source=o.id,
+        )]
+
+    def pay_and_draw(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': o.controller, 'amount': 1},
+            source=o.id,
+        )]
+
+    def time_counter_filter(event: Event, st: GameState, src: GameObject) -> bool:
+        if event.type != EventType.COUNTER_ADDED:
+            return False
+        if event.payload.get('counter_type') != 'time':
+            return False
+        target_id = event.payload.get('object_id')
+        target = st.objects.get(target_id)
+        return target is not None and target.controller == src.controller
+
+    def gain_one(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        )]
+
+    make_activated_ability(
+        obj, cost="{T}", effect_fn=add_self_time,
+        description="Put a time counter on Hourglass of Eternity",
+        targets_required=0,
+    )
+    make_activated_ability(
+        obj, cost="{3}, {T}", effect_fn=pay_and_draw,
+        description="Draw a card",
+        targets_required=0,
+    )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: time_counter_filter(e, s, obj),
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=gain_one(e, s),
+        ),
+        duration='while_on_battlefield',
+    )]
+
+
+def chronolith_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Legendary artifact rewire — spells you cast from exile cost {2} less.
+    Activated {3}, {T}: exile top of library, may play it this turn."""
+    def applies_to_from_exile(card: GameObject, pid: str, st: GameState) -> bool:
+        if card is None or pid != obj.controller:
+            return False
+        # The card is in EXILE while being cast-from-exile (the cast handler
+        # hasn't moved it to STACK yet at QUERY_COST time, in practice).
+        return card.zone == ZoneType.EXILE
+
+    def impulse(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.EXILE_TOP_PLAY,
+            payload={
+                'caster': o.controller,
+                'player': o.controller,
+                'amount': 1,
+                'until': 'end_of_turn',
+            },
+            source=o.id,
+        )]
+
+    make_activated_ability(
+        obj, cost="{3}, {T}", effect_fn=impulse,
+        description="Exile top of library; you may play it this turn",
+        targets_required=0,
+    )
+
+    return [make_cost_reduction(
+        obj, applies_to=applies_to_from_exile, amount=2,
+    )]
+
+
+def timeless_crown_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Legendary Equipment rewire — +2/+2, equip {3}. Static: at the beginning
+    of your upkeep, put a time counter on the equipped creature (placeholder
+    'put on equipped creature' via attached_target_id read).
+
+    Bound through make_equipment_setup, then we layer an upkeep trigger that
+    targets whatever the crown is attached to."""
+    base_setup = make_equipment_setup(
+        power_mod=2, toughness_mod=2, equip_cost="{3}",
+    )
+    interceptors = base_setup(obj, state)
+
+    def upkeep_grant_counter(event: Event, st: GameState) -> list[Event]:
+        # Canonical attach pointer on equipment-side state (set by
+        # src/engine/attach.py::_handle_attach).
+        target_id = getattr(obj.state, 'attached_to', None)
+        if not target_id:
+            return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': target_id, 'counter_type': 'time', 'amount': 1},
+            source=obj.id,
+        )]
+
+    interceptors.append(make_upkeep_trigger(obj, upkeep_grant_counter, controller_only=True))
+    return interceptors
+
+
+# =============================================================================
 # SETUP INTERCEPTOR FUNCTIONS FOR CARDS 139-276
 # =============================================================================
 
@@ -2290,7 +2659,12 @@ HOURGLASS_OF_ETERNITY = make_artifact(
     name="Hourglass of Eternity",
     mana_cost="{4}",
     supertypes={"Legendary"},
-    text="{T}: Put a time counter on target permanent. {3}, {T}: Remove all time counters from target permanent. If you removed three or more, draw a card."
+    text=(
+        "{T}: Put a time counter on Hourglass of Eternity. "
+        "{3}, {T}: Draw a card. "
+        "Whenever a time counter is put on a permanent you control, you gain 1 life."
+    ),
+    setup_interceptors=hourglass_of_eternity_setup,
 )
 
 CHRONO_COMPASS = make_artifact(
@@ -2343,7 +2717,8 @@ CHRONOLITH = make_artifact(
     name="Chronolith",
     mana_cost="{4}",
     supertypes={"Legendary"},
-    text="Spells you cast from exile cost {2} less to cast. {3}, {T}: Exile the top card of your library. You may play it this turn."
+    text="Spells you cast from exile cost {2} less to cast. {3}, {T}: Exile the top card of your library. You may play it this turn.",
+    setup_interceptors=chronolith_setup,
 )
 
 TEMPORAL_ANCHOR_ARTIFACT = make_artifact(
@@ -3519,7 +3894,11 @@ TIMELESS_CROWN = make_artifact(
     mana_cost="{3}",
     subtypes={"Equipment"},
     supertypes={"Legendary"},
-    text="Equipped creature gets +2/+2 and has 'At the beginning of your upkeep, put a time counter on target permanent.' Equip {3}"
+    text=(
+        "Equipped creature gets +2/+2. At the beginning of your upkeep, put a "
+        "time counter on the equipped creature. Equip {3}"
+    ),
+    setup_interceptors=timeless_crown_setup,
 )
 
 ENTROPY_ORB = make_artifact(
@@ -4040,6 +4419,116 @@ ENTROPY_SHADE = make_creature(
 
 
 # =============================================================================
+# Spice-pass W22+ card definitions (Phase A1, 2026-05-18)
+# 5 net-new cards. Wired through setup functions in the Phase A1 block above.
+# =============================================================================
+
+# CardDefinition is needed for the Saga; import at module scope already covered
+# the others via make_creature/make_artifact/etc., but Saga needs an explicit
+# CardDefinition because there's no make_saga factory.
+from src.engine import CardDefinition
+
+# --- The Paradox War (saga, {2}{U}{R}, Mythic) ---
+# 3-chapter time/tempo saga. I exiles top-2 of each library w/ time counters
+# (mass impulse-draw + paradox flavor), II creates two 1/1 flying Spirit tokens
+# (each w/ a time counter — primes any time-counter payoff), III takes an
+# extra turn. Final chapter sacs the saga (CR 714.5). Pattern 4 (compression)
+# + 9 (extra-turn tempo theft) + 11 (build-around for time-counter / cast-from-
+# exile / extra-turn matters).
+THE_PARADOX_WAR = CardDefinition(
+    name="The Paradox War",
+    mana_cost="{2}{U}{R}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Saga"},
+        colors={Color.BLUE, Color.RED},
+        supertypes={"Legendary"},
+        mana_cost="{2}{U}{R}",
+    ),
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Each player exiles the top two cards of their library with a "
+        "time counter on each.\n"
+        "II — Create two 1/1 blue Spirit creature tokens with flying. Each "
+        "enters with a time counter on it.\n"
+        "III — Take an extra turn after this one."
+    ),
+    setup_interceptors=the_paradox_war_setup,
+)
+
+
+# --- Chronoblade, Forged in Time ({3} Mythic Legendary Equipment) ---
+# +1/+1, first strike, haste, equip {2}. Whenever equipped creature attacks,
+# put a time counter on it. Pattern 4 (compression: PT + 2 keywords + per-
+# attack snowball) + 11 (build-around for time-counter scaling). Sits naturally
+# next to Chronoblade-style growing-threat decks.
+CHRONOBLADE_FORGED_IN_TIME = make_artifact(
+    name="Chronoblade, Forged in Time",
+    mana_cost="{3}",
+    subtypes={"Equipment"},
+    supertypes={"Legendary"},
+    text=(
+        "Equipped creature gets +1/+1 and has first strike and haste. "
+        "Whenever equipped creature attacks, put a time counter on it. "
+        "Equip {2}"
+    ),
+    setup_interceptors=chronoblade_forged_in_time_setup,
+)
+
+
+# --- Crystal of Past ({1} Mythic Artifact) ---
+# 1-mana mythic. ETB returns a creature card with MV<=3 from your graveyard
+# to your hand. Anthem: artifacts you control get +0/+1 (toughness boost
+# stabilizes the assembly turn). Pattern 8 (recursion) + 11 (build-around
+# anchor for the Crystal trio).
+CRYSTAL_OF_PAST = make_artifact(
+    name="Crystal of Past",
+    mana_cost="{1}",
+    text=(
+        "When Crystal of Past enters, return target creature card with mana "
+        "value 3 or less from your graveyard to your hand. "
+        "Artifacts you control get +0/+1."
+    ),
+    setup_interceptors=crystal_of_past_setup,
+)
+
+
+# --- Crystal of Present ({1} Mythic Artifact) ---
+# At the beginning of your upkeep, if you control all three Crystals, take an
+# extra turn. {T}, Sacrifice Crystal of Present: scry 2, then draw a card.
+# Pattern 9 (extra turn) + 11 (build-around: gated by assembly of all 3
+# Crystals). Loose card on its own; broken when all 3 assemble.
+CRYSTAL_OF_PRESENT = make_artifact(
+    name="Crystal of Present",
+    mana_cost="{1}",
+    text=(
+        "At the beginning of your upkeep, if you control Crystal of Past, "
+        "Crystal of Present, and Crystal of Future, take an extra turn after "
+        "this one. "
+        "{T}, Sacrifice Crystal of Present: Scry 2, then draw a card."
+    ),
+    setup_interceptors=crystal_of_present_setup,
+)
+
+
+# --- Crystal of Future ({1} Mythic Artifact) ---
+# Whenever you draw one or more cards, scry 1. {2}, {T}, Sac: exile top 3 of
+# library; you may play those cards this turn. Pattern 3 (snowball: each draw
+# digs further) + 6 (alternative cast — impulse draw) + 11 (Crystal assembly).
+CRYSTAL_OF_FUTURE = make_artifact(
+    name="Crystal of Future",
+    mana_cost="{1}",
+    text=(
+        "Whenever you draw one or more cards, scry 1. "
+        "{2}, {T}, Sacrifice Crystal of Future: Exile the top three cards of "
+        "your library. You may play those cards this turn."
+    ),
+    setup_interceptors=crystal_of_future_setup,
+)
+
+
+# =============================================================================
 # REGISTRY
 # =============================================================================
 
@@ -4357,6 +4846,13 @@ TEMPORAL_HORIZONS_CARDS = {
     "Rift Haven": RIFT_HAVEN,
     "Temporal Squire": TEMPORAL_CHAMPION_SMALL,
     "Entropy Shade": ENTROPY_SHADE,
+
+    # SPICE-PASS PHASE A1 (2026-05-18) — 5 net-new cards
+    "The Paradox War": THE_PARADOX_WAR,
+    "Chronoblade, Forged in Time": CHRONOBLADE_FORGED_IN_TIME,
+    "Crystal of Past": CRYSTAL_OF_PAST,
+    "Crystal of Present": CRYSTAL_OF_PRESENT,
+    "Crystal of Future": CRYSTAL_OF_FUTURE,
 }
 
 print(f"Loaded {len(TEMPORAL_HORIZONS_CARDS)} Temporal Horizons cards")
@@ -4643,5 +5139,11 @@ CARDS = [
     ETERNAL_NEXUS,
     RIFT_HAVEN,
     TEMPORAL_CHAMPION_SMALL,
-    ENTROPY_SHADE
+    ENTROPY_SHADE,
+    # SPICE-PASS PHASE A1 (2026-05-18) — 5 net-new cards
+    THE_PARADOX_WAR,
+    CHRONOBLADE_FORGED_IN_TIME,
+    CRYSTAL_OF_PAST,
+    CRYSTAL_OF_PRESENT,
+    CRYSTAL_OF_FUTURE,
 ]
