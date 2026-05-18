@@ -344,6 +344,328 @@ def link_hero_of_the_wild_setup(obj: GameObject, state: GameState) -> list[Inter
     ]
 
 
+# -----------------------------------------------------------------------------
+# Phase A2 setup functions (2026-05-18, second slice of zld_spice_pass.md)
+# -----------------------------------------------------------------------------
+
+
+def _count_triforce_artifacts(state: GameState, controller_id: str) -> int:
+    """Count battlefield artifacts named with 'Triforce' that the player
+    controls. Mirrors the inline filter inside make_triforce_bonus so future
+    Triforce-build-around cards share one source of truth."""
+    return sum(
+        1 for o in state.objects.values()
+        if o.controller == controller_id
+        and o.zone == ZoneType.BATTLEFIELD
+        and CardType.ARTIFACT in o.characteristics.types
+        and 'Triforce' in o.name
+    )
+
+
+def zelda_sage_of_wisdom_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{1}{W}{U} 2/3 Legendary Hylian Noble Wizard. Flash. ETB scry 2 + draw a
+    card. Whenever you cast your second spell each turn, copy that spell.
+    Once per turn."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_scry_and_draw(event: Event, st: GameState) -> list[Event]:
+        return [
+            _make_scry_event(obj, 2),
+            Event(type=EventType.DRAW,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id),
+        ]
+
+    def second_spell_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.SPELL_CAST:
+            return False
+        caster = event.payload.get('caster') or event.payload.get('player')
+        if caster != obj.controller:
+            return False
+        # Don't copy this trigger's own follow-up COPY_STACK_ITEM emission.
+        # Count spells the controller has cast this turn (including this one).
+        td = getattr(st, 'turn_data', None) or {}
+        spells_cast = td.get(f'zelda_spells_cast_{obj.controller}', 0) + 1
+        # Persist updated count for subsequent triggers in same turn.
+        if hasattr(st, 'turn_data') and st.turn_data is not None:
+            st.turn_data[f'zelda_spells_cast_{obj.controller}'] = spells_cast
+        else:
+            try:
+                st.turn_data = {f'zelda_spells_cast_{obj.controller}': spells_cast}
+            except Exception:
+                pass
+        # Fire only when this is the SECOND spell AND copy hasn't already
+        # been used this turn.
+        if spells_cast != 2:
+            return False
+        return not td.get(f'zelda_copy_used_{obj.controller}', False)
+
+    def second_spell_copy(event: Event, st: GameState) -> list[Event]:
+        # Mark the copy as used this turn.
+        td = getattr(st, 'turn_data', None) or {}
+        if hasattr(st, 'turn_data') and st.turn_data is not None:
+            st.turn_data[f'zelda_copy_used_{obj.controller}'] = True
+        spell_id = event.payload.get('stack_item_id') or event.payload.get('object_id')
+        if not spell_id:
+            return []
+        return [Event(
+            type=EventType.COPY_STACK_ITEM,
+            payload={
+                'stack_item_id': spell_id,
+                'controller': obj.controller,
+            },
+            source=obj.id,
+        )]
+
+    # We need a custom interceptor instead of make_spell_cast_trigger because
+    # the filter mutates turn_data (counting) and the handler needs to read
+    # the stack_item_id from the SPELL_CAST payload.
+    copy_itc = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=second_spell_filter,
+        handler=lambda e, st: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=second_spell_copy(e, st),
+        ),
+        duration='while_on_battlefield',
+    )
+
+    return [
+        make_keyword_grant(obj, ['flash'], affects_self),
+        make_etb_trigger(obj, etb_scry_and_draw),
+        copy_itc,
+    ]
+
+
+def ganondorf_dark_lord_ascendant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{3}{B}{R} 5/5 Legendary Gerudo Warlock, mythic. Menace. ETB: each opp
+    loses 3 life, controller draws 3 then discards 2. Triforce — controlling
+    >=1 Triforce-named artifact grants indestructible + static +2/+2."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_compress(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -3, 'source': obj.id},
+                source=obj.id,
+            ))
+        events.append(Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 3},
+            source=obj.id,
+        ))
+        events.append(Event(
+            type=EventType.DISCARD,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id,
+        ))
+        return events
+
+    def triforce_present(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        return _count_triforce_artifacts(st, obj.controller) >= 1
+
+    # Conditional indestructible (via QUERY_ABILITIES handler) — only when
+    # at least 1 Triforce-named artifact is on the battlefield.
+    indest_itc = make_keyword_grant(obj, ['indestructible'], triforce_present)
+    # Always-on menace.
+    menace_itc = make_keyword_grant(obj, ['menace'], affects_self)
+    # Conditional +2/+2 via make_static_pt_boost with the triforce filter.
+    pt_itcs = make_static_pt_boost(obj, 2, 2, triforce_present)
+
+    return [menace_itc, indest_itc, make_etb_trigger(obj, etb_compress)] + pt_itcs
+
+
+def wolf_link_twilight_companion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{G} 3/3 Legendary Hylian Wolf. Vigilance + haste. ETB: may return
+    target creature card with mana value <= 3 from your graveyard to the
+    battlefield. (Reanimator on a body.)"""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_reanimate(event: Event, st: GameState) -> list[Event]:
+        # Find candidates in own graveyard with MV <= 3 that are creature cards.
+        gy_zone = st.zones.get(f'graveyard_{obj.controller}')
+        if not gy_zone or not gy_zone.objects:
+            return []
+        candidates: list[str] = []
+        for cid in gy_zone.objects:
+            cobj = st.objects.get(cid)
+            if not cobj or not cobj.characteristics:
+                continue
+            if CardType.CREATURE not in (cobj.characteristics.types or set()):
+                continue
+            mv = 0
+            mc = cobj.characteristics.mana_cost
+            if isinstance(mc, str):
+                # Crude generic-mana count + colored-pip count.
+                import re
+                generic = re.findall(r'\{(\d+)\}', mc)
+                pips = re.findall(r'\{([WUBRGCSXP])\}', mc)
+                mv = sum(int(g) for g in generic) + len(pips)
+            elif hasattr(mc, 'mana_value'):
+                mv = mc.mana_value
+            if mv <= 3:
+                candidates.append(cid)
+        if not candidates:
+            return []
+        # Heuristic pick: highest-MV (most efficient reanimate). Real engine
+        # would emit a PendingChoice; v1 picks deterministically.
+        def _mv(cid: str) -> int:
+            cobj = st.objects.get(cid)
+            if not cobj or not cobj.characteristics:
+                return 0
+            mc = cobj.characteristics.mana_cost
+            if isinstance(mc, str):
+                import re
+                generic = re.findall(r'\{(\d+)\}', mc)
+                pips = re.findall(r'\{[WUBRGCSXP]\}', mc)
+                return sum(int(g) for g in generic) + len(pips)
+            return 0
+        pick = max(candidates, key=_mv)
+        return [Event(
+            type=EventType.RETURN_FROM_GRAVEYARD,
+            payload={
+                'object_id': pick,
+                'player': obj.controller,
+                'destination': 'battlefield',
+            },
+            source=obj.id,
+        )]
+
+    return [
+        make_keyword_grant(obj, ['vigilance', 'haste'], affects_self),
+        make_etb_trigger(obj, etb_reanimate),
+    ]
+
+
+def link_champion_of_hyrule_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{3}{G}{G} 4/4 Legendary Hylian Champion. ETB: create three 1/1 green
+    Spirit creature tokens. With >=3 Spirit creatures you control: +2/+2 and
+    trample. Build-around for the Spirit subtype cluster (17 cards in set)."""
+    def etb_spirits(event: Event, st: GameState) -> list[Event]:
+        token_spec = {
+            'name': 'Spirit',
+            'types': {CardType.CREATURE},
+            'subtypes': {'Spirit'},
+            'power': 1,
+            'toughness': 1,
+            'colors': {Color.GREEN},
+        }
+        return [
+            Event(
+                type=EventType.CREATE_TOKEN,
+                payload={'controller': obj.controller, 'token': dict(token_spec)},
+                source=obj.id,
+            )
+            for _ in range(3)
+        ]
+
+    def three_spirits(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        count = sum(
+            1 for o in st.objects.values()
+            if o.controller == obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in (o.characteristics.types or set())
+            and 'Spirit' in (o.characteristics.subtypes or set())
+        )
+        return count >= 3
+
+    pt_itcs = make_static_pt_boost(obj, 2, 2, three_spirits)
+    trample_itc = make_keyword_grant(obj, ['trample'], three_spirits)
+
+    return [make_etb_trigger(obj, etb_spirits), trample_itc] + pt_itcs
+
+
+# Hyrule Castle saga chapter functions
+def _hyrule_castle_chapter_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Search your library for a Hylian, Sheikah, or Kokiri creature card
+    with mana value 3 or less, put it onto the battlefield tapped."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': saga_obj.controller,
+            'subtypes_any': ['Hylian', 'Sheikah', 'Kokiri'],
+            'card_type': 'creature',
+            'destination': 'battlefield',
+            'min_count': 0,
+            'max_count': 1,
+            'mana_value_max': 3,
+            'enters_tapped': True,
+            'reveal': True,
+        },
+        source=saga_obj.id,
+    )]
+
+
+def _hyrule_castle_chapter_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Create two 1/1 white Soldier creature tokens."""
+    token_spec = {
+        'name': 'Soldier',
+        'types': {CardType.CREATURE},
+        'subtypes': {'Soldier'},
+        'power': 1,
+        'toughness': 1,
+        'colors': {Color.WHITE},
+    }
+    return [
+        Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': saga_obj.controller, 'token': dict(token_spec)},
+            source=saga_obj.id,
+        )
+        for _ in range(2)
+    ]
+
+
+def _hyrule_castle_chapter_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Other creatures you control get +1/+1 until end of turn."""
+    events: list[Event] = []
+    for o in list(state.objects.values()):
+        if o.id == saga_obj.id:
+            continue
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if o.controller != saga_obj.controller:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={
+                'object_id': o.id,
+                'power_mod': 1,
+                'toughness_mod': 1,
+                'duration': 'end_of_turn',
+            },
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def hyrule_castle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """3-chapter saga: tutor a low-MV tribal -> 2 Soldier tokens -> anthem EOT."""
+    from src.cards.interceptor_helpers import make_saga_setup
+    return make_saga_setup(
+        obj,
+        {
+            1: _hyrule_castle_chapter_i,
+            2: _hyrule_castle_chapter_ii,
+            3: _hyrule_castle_chapter_iii,
+        },
+    )
+
+
 def _triforce_setup(triforce_power: int, triforce_toughness: int, triforce_required: int):
     """Helper for cards with only Triforce bonus."""
     def setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1231,6 +1553,102 @@ LINK_CHAMPION_OF_HYRULE = make_creature(
     colors={Color.GREEN},
     subtypes={"Hylian", "Champion"},
     supertypes={"Legendary"},
+    text=(
+        "When Link, Champion of Hyrule enters, create three 1/1 green Spirit "
+        "creature tokens. As long as you control three or more Spirit "
+        "creatures, Link gets +2/+2 and has trample."
+    ),
+    setup_interceptors=link_champion_of_hyrule_setup,
+)
+
+
+# --- Zelda, Sage of Wisdom (spice-pass W22+, Phase A2) ---
+# {1}{W}{U} 2/3 Rare. Flash + ETB scry 2 + draw 1. Whenever you cast your
+# second spell each turn, copy that spell (once per turn). Compression mythic
+# in the Hylian/Sheikah hexproof+control archetype.
+ZELDA_SAGE_OF_WISDOM = make_creature(
+    name="Zelda, Sage of Wisdom",
+    power=2, toughness=3,
+    mana_cost="{1}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Hylian", "Noble", "Wizard"},
+    supertypes={"Legendary"},
+    text=(
+        "Flash. When Zelda, Sage of Wisdom enters, scry 2, then draw a card. "
+        "Whenever you cast your second spell each turn, copy that spell. "
+        "(Once per turn.)"
+    ),
+    setup_interceptors=zelda_sage_of_wisdom_setup,
+)
+
+
+# --- Ganondorf, Dark Lord Ascendant (spice-pass W22+, Phase A2) ---
+# {3}{B}{R} 5/5 Mythic. Menace + ETB compression (drain 3 each opp, draw 3
+# discard 2). Triforce gate: with >=1 Triforce-named artifact you control,
+# Ganondorf has indestructible and gets +2/+2. Build-around mythic for the
+# Triforce assembly archetype.
+GANONDORF_DARK_LORD_ASCENDANT = make_creature(
+    name="Ganondorf, Dark Lord Ascendant",
+    power=5, toughness=5,
+    mana_cost="{3}{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    subtypes={"Gerudo", "Warlock"},
+    supertypes={"Legendary"},
+    text=(
+        "Menace. When Ganondorf, Dark Lord Ascendant enters, each opponent "
+        "loses 3 life and you draw three cards, then discard two cards. "
+        "Triforce — as long as you control one or more artifacts named "
+        "Triforce, Ganondorf has indestructible and gets +2/+2."
+    ),
+    setup_interceptors=ganondorf_dark_lord_ascendant_setup,
+)
+
+
+# --- Wolf Link, Twilight Companion (spice-pass W22+, Phase A2) ---
+# {2}{G} 3/3 Rare. Vigilance + haste. ETB returns target creature card with
+# MV<=3 from your graveyard to the battlefield. Reanimator on a body, cheats
+# the graveyard-anchored Spirit/Sheikah subthemes forward by a turn.
+WOLF_LINK_TWILIGHT_COMPANION = make_creature(
+    name="Wolf Link, Twilight Companion",
+    power=3, toughness=3,
+    mana_cost="{2}{G}",
+    colors={Color.GREEN},
+    subtypes={"Hylian", "Wolf"},
+    supertypes={"Legendary"},
+    text=(
+        "Vigilance, haste. When Wolf Link, Twilight Companion enters, you "
+        "may return target creature card with mana value 3 or less from "
+        "your graveyard to the battlefield."
+    ),
+    setup_interceptors=wolf_link_twilight_companion_setup,
+)
+
+
+# --- Hyrule Castle, Royal Sanctum (spice-pass W22+, Phase A2) ---
+# {1}{W}{W} Saga, Rare. 3-chapter tribal payoff.
+# I — Search library for Hylian/Sheikah/Kokiri creature MV<=3, ETB tapped
+# II — Create two 1/1 white Soldier tokens
+# III — Other creatures you control get +1/+1 until end of turn
+HYRULE_CASTLE_ROYAL_SANCTUM = CardDefinition(
+    name="Hyrule Castle, Royal Sanctum",
+    mana_cost="{1}{W}{W}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Saga"},
+        colors={Color.WHITE},
+        supertypes={"Legendary"},
+        mana_cost="{1}{W}{W}",
+    ),
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Search your library for a Hylian, Sheikah, or Kokiri creature "
+        "card with mana value 3 or less, put it onto the battlefield tapped, "
+        "then shuffle.\n"
+        "II — Create two 1/1 white Soldier creature tokens.\n"
+        "III — Other creatures you control get +1/+1 until end of turn."
+    ),
+    setup_interceptors=hyrule_castle_setup,
 )
 
 
@@ -2495,6 +2913,10 @@ LEGEND_OF_ZELDA_CARDS = {
     "Link, Hero of Time": LINK_HERO_OF_TIME,
     "Link, Champion of Hyrule": LINK_CHAMPION_OF_HYRULE,
     "Link, Hero of the Wild": LINK_HERO_OF_THE_WILD,
+    "Zelda, Sage of Wisdom": ZELDA_SAGE_OF_WISDOM,
+    "Ganondorf, Dark Lord Ascendant": GANONDORF_DARK_LORD_ASCENDANT,
+    "Wolf Link, Twilight Companion": WOLF_LINK_TWILIGHT_COMPANION,
+    "Hyrule Castle, Royal Sanctum": HYRULE_CASTLE_ROYAL_SANCTUM,
     "Saria, Forest Sage": SARIA_FOREST_SAGE,
     "Revali, Rito Champion": REVALI_RITO_CHAMPION,
     "Great Deku Tree": GREAT_DEKU_TREE,
@@ -2721,6 +3143,10 @@ CARDS = [
     LINK_HERO_OF_TIME,
     LINK_CHAMPION_OF_HYRULE,
     LINK_HERO_OF_THE_WILD,
+    ZELDA_SAGE_OF_WISDOM,
+    GANONDORF_DARK_LORD_ASCENDANT,
+    WOLF_LINK_TWILIGHT_COMPANION,
+    HYRULE_CASTLE_ROYAL_SANCTUM,
     SARIA_FOREST_SAGE,
     REVALI_RITO_CHAMPION,
     GREAT_DEKU_TREE,

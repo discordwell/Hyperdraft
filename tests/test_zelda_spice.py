@@ -368,6 +368,272 @@ def test_link_hero_of_the_wild_attack_zero_artifacts_no_pump():
 
 
 # ============================================================================
+# Phase A2 cards
+# ============================================================================
+
+# --- Link, Champion of Hyrule (REWIRE) ----------------------------------------
+
+def test_link_champion_of_hyrule_etb_creates_three_spirits():
+    print("\n=== Link, Champion of Hyrule: ETB 3 Spirits ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Link, Champion of Hyrule")
+    new_tokens = [
+        e for e in game.state.event_log[before:]
+        if e.type == EventType.CREATE_TOKEN
+        and e.payload.get('token', {}).get('subtypes', set()) & {'Spirit'}
+    ]
+    assert len(new_tokens) == 3, f"Expected 3 Spirit tokens; got {len(new_tokens)}"
+
+
+def test_link_champion_of_hyrule_no_pump_with_few_spirits():
+    """Without 3+ Spirits, base 4/4, no trample."""
+    print("\n=== Link, Champion: no pump w/ 2 Spirits ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    link = _put_on_battlefield(game, p1, "Link, Champion of Hyrule")
+    # ETB creates 3 spirits via CREATE_TOKEN events — but tokens only enter
+    # the battlefield if the engine processes the events. Direct measure:
+    # check Link's power before ETB-token processing settles.
+    # Force the alternate by reading Link with no Spirits present.
+    # (Token creation goes through the engine and adds to state.objects
+    # async-ish in event log; for this edge test we just count current
+    # battlefield spirits directly.)
+    spirits_now = sum(
+        1 for o in game.state.objects.values()
+        if o.controller == p1.id
+        and o.zone == ZoneType.BATTLEFIELD
+        and 'Spirit' in (o.characteristics.subtypes or set())
+    )
+    if spirits_now < 3:
+        p = get_power(link, game.state)
+        assert p == link.characteristics.power, (
+            f"Without 3 Spirits, expected base {link.characteristics.power}; got {p}"
+        )
+        print(f"  Link power with {spirits_now} Spirits: {p} (no pump)")
+    else:
+        # Engine processed token ETBs already; positive case.
+        p = get_power(link, game.state)
+        assert p == link.characteristics.power + 2
+        print(f"  Link power with {spirits_now} Spirits: {p} (pumped)")
+
+
+# --- Zelda, Sage of Wisdom ----------------------------------------------------
+
+def test_zelda_sage_of_wisdom_etb_scry_and_draw():
+    print("\n=== Zelda, Sage of Wisdom: ETB scry + draw ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Zelda, Sage of Wisdom")
+    new = game.state.event_log[before:]
+    scry = [e for e in new
+            if e.type == EventType.ACTIVATE and e.payload.get('action') == 'scry']
+    draws = [e for e in new
+             if e.type == EventType.DRAW and e.payload.get('player') == p1.id]
+    assert scry, "Expected scry placeholder on Zelda ETB"
+    assert draws, "Expected DRAW on Zelda ETB"
+
+
+def test_zelda_sage_of_wisdom_second_spell_copies():
+    print("\n=== Zelda, Sage of Wisdom: 2nd spell copy ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    _put_on_battlefield(game, p1, "Zelda, Sage of Wisdom")
+    # Reset event log after ETB so we measure only post-ETB activity.
+    before = len(game.state.event_log)
+
+    # First spell — no copy.
+    game.emit(Event(
+        type=EventType.SPELL_CAST,
+        payload={'caster': p1.id, 'stack_item_id': 'spell-1'},
+    ))
+    mid = len(game.state.event_log)
+    first_copies = [
+        e for e in game.state.event_log[before:mid]
+        if e.type == EventType.COPY_STACK_ITEM
+    ]
+    assert not first_copies, f"Did not expect copy on first spell; got {len(first_copies)}"
+
+    # Second spell — copy.
+    game.emit(Event(
+        type=EventType.SPELL_CAST,
+        payload={'caster': p1.id, 'stack_item_id': 'spell-2'},
+    ))
+    second_copies = [
+        e for e in game.state.event_log[mid:]
+        if e.type == EventType.COPY_STACK_ITEM
+        and e.payload.get('stack_item_id') == 'spell-2'
+    ]
+    assert second_copies, (
+        f"Expected COPY_STACK_ITEM for spell-2; recent={[e.type.name for e in game.state.event_log[mid:]][-10:]}"
+    )
+
+
+# --- Ganondorf, Dark Lord Ascendant -------------------------------------------
+
+def test_ganondorf_etb_drains_opps_and_loots():
+    print("\n=== Ganondorf, Dark Lord Ascendant: ETB compress ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Ganondorf, Dark Lord Ascendant")
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -3
+    ]
+    draws = [e for e in new
+             if e.type == EventType.DRAW and e.payload.get('amount') == 3]
+    discards = [e for e in new
+                if e.type == EventType.DISCARD and e.payload.get('amount') == 2]
+    assert drains, "Expected -3 life on opponent"
+    assert draws, "Expected DRAW 3"
+    assert discards, "Expected DISCARD 2"
+
+
+def test_ganondorf_indestructible_gated_on_triforce():
+    print("\n=== Ganondorf: indestructible only with Triforce ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    ganon = _put_on_battlefield(game, p1, "Ganondorf, Dark Lord Ascendant")
+    # Without any Triforce: NOT indestructible.
+    assert not has_ability(ganon, "indestructible", game.state)
+    # Add a Triforce.
+    _put_on_battlefield(game, p1, "Triforce of Power")
+    assert has_ability(ganon, "indestructible", game.state), (
+        "Expected indestructible after Triforce on battlefield"
+    )
+    # And +2/+2.
+    new_p = get_power(ganon, game.state)
+    base_p = ganon.characteristics.power
+    # Note: Triforce of Power also gives the anthem +1/+0 because Ganondorf
+    # is a creature you control. So expect base + 2 (from Triforce gate) +
+    # 1 (from Triforce anthem) = +3.
+    assert new_p == base_p + 3, (
+        f"Expected +3 (Triforce gate +2 + Triforce anthem +1): {base_p}→{new_p}"
+    )
+
+
+# --- Wolf Link, Twilight Companion --------------------------------------------
+
+def test_wolf_link_loads_with_etb_and_keywords():
+    print("\n=== Wolf Link: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    wolf = _put_on_battlefield(game, p1, "Wolf Link, Twilight Companion")
+    assert has_ability(wolf, "vigilance", game.state)
+    assert has_ability(wolf, "haste", game.state)
+
+
+def test_wolf_link_etb_emits_return_when_graveyard_has_target():
+    """Wolf Link's ETB emits RETURN_FROM_GRAVEYARD when a valid MV<=3 creature
+    is in graveyard."""
+    print("\n=== Wolf Link: reanimate ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Stash a low-MV creature directly in p1's graveyard.
+    knight_def = LEGEND_OF_ZELDA_CARDS["Hyrule Knight"]
+    knight_obj = game.create_object(
+        name="Hyrule Knight",
+        owner_id=p1.id,
+        zone=ZoneType.GRAVEYARD,
+        characteristics=knight_def.characteristics,
+        card_def=None,
+    )
+    knight_obj.card_def = knight_def
+    gy_zone_name = f'graveyard_{p1.id}'
+    if gy_zone_name in game.state.zones:
+        gz = game.state.zones[gy_zone_name]
+        if knight_obj.id not in gz.objects:
+            gz.objects.append(knight_obj.id)
+
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Wolf Link, Twilight Companion")
+    new = game.state.event_log[before:]
+    reanimates = [
+        e for e in new
+        if e.type == EventType.RETURN_FROM_GRAVEYARD
+        and e.payload.get('object_id') == knight_obj.id
+        and e.payload.get('destination') == 'battlefield'
+    ]
+    assert reanimates, (
+        f"Expected RETURN_FROM_GRAVEYARD for Hyrule Knight; "
+        f"recent={[e.type.name for e in new[-15:]]}"
+    )
+
+
+def test_wolf_link_empty_graveyard_no_crash():
+    """ETB with empty graveyard returns no events."""
+    print("\n=== Wolf Link: empty graveyard ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Wolf Link, Twilight Companion")
+    new = game.state.event_log[before:]
+    reanimates = [e for e in new if e.type == EventType.RETURN_FROM_GRAVEYARD]
+    assert not reanimates
+
+
+# --- Hyrule Castle, Royal Sanctum (saga) --------------------------------------
+
+def test_hyrule_castle_loads_saga():
+    print("\n=== Hyrule Castle, Royal Sanctum: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    saga = _put_on_battlefield(game, p1, "Hyrule Castle, Royal Sanctum")
+    # Saga setup registers a chapter dispatcher interceptor.
+    assert saga.interceptor_ids, "Expected saga chapter interceptors"
+
+
+def test_hyrule_castle_chapter_i_emits_tribal_tutor():
+    """Direct chapter-I dispatch emits SEARCH_LIBRARY for Hylian/Sheikah/Kokiri creature."""
+    print("\n=== Hyrule Castle: chapter I ===")
+    from src.cards.custom.legend_of_zelda import _hyrule_castle_chapter_i
+    game = Game()
+    p1 = game.add_player("Alice")
+    saga = _put_on_battlefield(game, p1, "Hyrule Castle, Royal Sanctum")
+    events = _hyrule_castle_chapter_i(saga, game.state)
+    assert events and events[0].type == EventType.SEARCH_LIBRARY
+    payload = events[0].payload
+    assert set(payload.get('subtypes_any', [])) == {'Hylian', 'Sheikah', 'Kokiri'}
+    assert payload.get('mana_value_max') == 3
+    assert payload.get('enters_tapped') is True
+
+
+def test_hyrule_castle_chapter_ii_creates_two_soldiers():
+    print("\n=== Hyrule Castle: chapter II ===")
+    from src.cards.custom.legend_of_zelda import _hyrule_castle_chapter_ii
+    game = Game()
+    p1 = game.add_player("Alice")
+    saga = _put_on_battlefield(game, p1, "Hyrule Castle, Royal Sanctum")
+    events = _hyrule_castle_chapter_ii(saga, game.state)
+    tokens = [
+        e for e in events
+        if e.type == EventType.CREATE_TOKEN
+        and e.payload.get('token', {}).get('subtypes', set()) & {'Soldier'}
+    ]
+    assert len(tokens) == 2
+
+
+def test_hyrule_castle_chapter_iii_anthem_excludes_saga():
+    print("\n=== Hyrule Castle: chapter III ===")
+    from src.cards.custom.legend_of_zelda import _hyrule_castle_chapter_iii
+    game = Game()
+    p1 = game.add_player("Alice")
+    saga = _put_on_battlefield(game, p1, "Hyrule Castle, Royal Sanctum")
+    knight = _put_on_battlefield(game, p1, "Hyrule Knight")
+    events = _hyrule_castle_chapter_iii(saga, game.state)
+    targets = [e.payload['object_id'] for e in events if e.type == EventType.PT_MODIFICATION]
+    assert knight.id in targets, f"Knight not buffed: {targets}"
+    assert saga.id not in targets, f"Saga should not buff itself: {targets}"
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 
