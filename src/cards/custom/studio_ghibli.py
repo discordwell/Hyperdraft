@@ -4294,6 +4294,872 @@ GRANMAMARE_HOSPITALITY = make_enchantment(
 
 
 # =============================================================================
+# SPICE PASS V2 EXPANSION — Build-Around Mythics + Sagas
+# =============================================================================
+# Pushes Studio Ghibli from 2/4 health gates to 3/4 or 4/4. Failing gates:
+#   median_depth >= 2   (need >=3 axis points per card on multiple axes)
+#   thin_ratio <= 0.90  (need cards that aren't bare-stat or single-trigger)
+#
+# Six high-depth picks here, all designed to score on >= 3 axes:
+#   - State coupling: read multi-zone state (hand size, GY count, counters).
+#   - Decision pressure: modal effects, counter-spending choices.
+#   - Zone movement: exile/return, library tutor, GY return.
+#   - Asymmetry: opponent-targeted prisons, friendly-only payoffs.
+#   - Synergy hook: tribal payoff (Spirit/Wolf), enchantment-matters.
+# =============================================================================
+
+
+# --- Howl, Wandering Heart-Wizard --- {1}{U}{R} Mythic Legendary Wizard
+# Snowball value engine + late-game transform via charm counters.
+def howl_wandering_heart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast an instant or sorcery, put a heart counter on Howl.
+    Each end step, if Howl has 5+ heart counters, he gains flying, double
+    strike, +3/+1 until end of turn. Activated: {1}, remove 3 heart counters:
+    Return target instant/sorcery from your GY to your hand.
+
+    Axes: state coupling (counters + GY + cast type), decision pressure
+    (when to spend counters), zone movement (GY -> hand), synergy hook
+    (spells-matter package), asymmetry (only your spells count).
+    """
+    from src.cards.interceptor_helpers import (
+        make_spell_cast_trigger, make_end_step_trigger, make_activated_ability,
+    )
+
+    def heart_counter_on_spell_cast(event: Event, st: GameState) -> list[Event]:
+        # Only instants and sorceries (snowball gate).
+        mv_unused = event.payload.get('mana_value', 0)
+        spell_types = event.payload.get('card_types') or set()
+        spell_id = event.payload.get('spell_id')
+        # Try to read the spell's types via state lookup.
+        if spell_id:
+            spell_obj = st.objects.get(spell_id)
+            if spell_obj and spell_obj.characteristics:
+                spell_types = spell_obj.characteristics.types or set()
+        if not (CardType.INSTANT in spell_types or CardType.SORCERY in spell_types):
+            # If we can't introspect types, default to permissive (single trigger).
+            if spell_types:
+                return []
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'heart', 'amount': 1},
+            source=obj.id,
+        )]
+
+    def end_step_transform(event: Event, st: GameState) -> list[Event]:
+        me = st.objects.get(obj.id)
+        if not me or me.zone != ZoneType.BATTLEFIELD:
+            return []
+        hearts = me.state.counters.get('heart', 0)
+        if hearts < 5:
+            return []
+        return [
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': obj.id, 'power_mod': 3, 'toughness_mod': 1,
+                         'duration': 'end_of_turn'},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': obj.id, 'keyword': 'flying',
+                         'duration': 'end_of_turn'},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': obj.id, 'keyword': 'double_strike',
+                         'duration': 'end_of_turn'},
+                source=obj.id,
+            ),
+        ]
+
+    def flashback_recover(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        if not targets:
+            return []
+        target_id = targets[0].object_id if hasattr(targets[0], 'object_id') else targets[0]
+        target = st.objects.get(target_id)
+        if not target:
+            return []
+        if target.zone != ZoneType.GRAVEYARD or target.owner != o.controller:
+            return []
+        types = target.characteristics.types or set()
+        if not (CardType.INSTANT in types or CardType.SORCERY in types):
+            return []
+        # Pay cost: remove 3 heart counters from Howl.
+        me = st.objects.get(o.id)
+        if not me or me.state.counters.get('heart', 0) < 3:
+            return []
+        return [
+            Event(
+                type=EventType.COUNTER_REMOVED,
+                payload={'object_id': o.id, 'counter_type': 'heart', 'amount': 3},
+                source=o.id,
+            ),
+            Event(
+                type=EventType.ZONE_CHANGE,
+                payload={
+                    'object_id': target_id,
+                    'from_zone': f'graveyard_{o.controller}',
+                    'from_zone_type': ZoneType.GRAVEYARD,
+                    'to_zone': f'hand_{o.controller}',
+                    'to_zone_type': ZoneType.HAND,
+                },
+                source=o.id,
+            ),
+        ]
+
+    make_activated_ability(
+        obj,
+        cost="{1}",
+        effect_fn=flashback_recover,
+        description="{1}, Remove three heart counters: Return target instant or sorcery from your graveyard to your hand.",
+        targets_required=1,
+        target_kind="card",
+    )
+
+    return [
+        make_spell_cast_trigger(obj, heart_counter_on_spell_cast, controller_only=True),
+        make_end_step_trigger(obj, end_step_transform),
+    ]
+
+
+HOWL_WANDERING_HEART_WIZARD = make_creature(
+    name="Howl, Wandering Heart-Wizard",
+    power=2, toughness=3,
+    mana_cost="{1}{U}{R}",
+    colors={Color.BLUE, Color.RED},
+    subtypes={"Human", "Wizard"},
+    supertypes={"Legendary"},
+    text=(
+        "Whenever you cast an instant or sorcery spell, put a heart counter "
+        "on Howl. At the beginning of your end step, if Howl has five or "
+        "more heart counters, he gets +3/+1 and gains flying and double "
+        "strike until end of turn. {1}, Remove three heart counters: Return "
+        "target instant or sorcery from your graveyard to your hand."
+    ),
+    setup_interceptors=howl_wandering_heart_setup,
+)
+
+
+# --- Yubaba, Bathhouse Greed --- {3}{B}{B} Mythic Legendary Witch
+# Asymmetric prison: read opp's hand + curse-counter scaling.
+def yubaba_bathhouse_greed_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: each opponent puts a greed counter on a creature they control
+    for each card in their hand (max 3). Whenever a creature with a greed
+    counter dies, draw a card. Each opponent's upkeep: if they control a
+    creature with 3+ greed counters, they lose 2 life.
+
+    Axes: state coupling (hand-size read + counter read), zone movement
+    (GY trigger), asymmetry (opps suffer), synergy hook (curse-counter
+    package + Witch tribe).
+    """
+    from src.cards.interceptor_helpers import (
+        make_etb_trigger, make_upkeep_trigger,
+    )
+
+    def etb_curse_opp_creatures(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        for pid, player in st.players.items():
+            if pid == obj.controller:
+                continue
+            # Find a creature they control to curse.
+            target = None
+            for o in st.objects.values():
+                if (o.controller == pid
+                        and o.zone == ZoneType.BATTLEFIELD
+                        and CardType.CREATURE in (o.characteristics.types or set())):
+                    target = o
+                    break
+            if target is None:
+                continue
+            # Count cards in their hand (max 3 counters).
+            hand = st.zones.get(f'hand_{pid}')
+            hand_size = len(hand.objects) if hand else 0
+            amount = min(hand_size, 3)
+            if amount <= 0:
+                continue
+            events.append(Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': target.id, 'counter_type': 'greed',
+                         'amount': amount},
+                source=obj.id,
+            ))
+        return events
+
+    def greed_death_draw_filter(event: Event, st: GameState, source_obj):
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying_id = event.payload.get('object_id')
+        dying = st.objects.get(dying_id) if dying_id else None
+        if not dying:
+            return False
+        return dying.state.counters.get('greed', 0) > 0
+
+    def draw_on_greed_death(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'count': 1},
+            source=obj.id,
+        )]
+
+    def opp_upkeep_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.PHASE_START:
+            return False
+        if event.payload.get('phase') != 'upkeep':
+            return False
+        ap = st.active_player
+        return ap is not None and ap != obj.controller
+
+    def opp_upkeep_pain(event: Event, st: GameState) -> InterceptorResult:
+        ap = st.active_player
+        if ap is None or ap == obj.controller:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        for o in st.objects.values():
+            if (o.controller == ap
+                    and o.zone == ZoneType.BATTLEFIELD
+                    and o.state.counters.get('greed', 0) >= 3):
+                return InterceptorResult(
+                    action=InterceptorAction.REACT,
+                    new_events=[Event(
+                        type=EventType.LIFE_CHANGE,
+                        payload={'player': ap, 'amount': -2},
+                        source=obj.id,
+                    )],
+                )
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_etb_trigger(obj, etb_curse_opp_creatures))
+    # Death-trigger for greed counter deaths.
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: greed_death_draw_filter(e, s, obj),
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=draw_on_greed_death(e, s),
+        ),
+        duration='while_on_battlefield',
+    ))
+    # Opp upkeep pain.
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=opp_upkeep_filter,
+        handler=opp_upkeep_pain,
+        duration='while_on_battlefield',
+    ))
+    return interceptors
+
+
+YUBABA_BATHHOUSE_GREED = make_creature(
+    name="Yubaba, Bathhouse Greed",
+    power=3, toughness=5,
+    mana_cost="{3}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Spirit", "Witch"},
+    supertypes={"Legendary"},
+    text=(
+        "When Yubaba enters, each opponent puts a greed counter on a "
+        "creature they control for each card in their hand (max three). "
+        "Whenever a creature with a greed counter dies, draw a card. "
+        "At the beginning of each opponent's upkeep, if they control a "
+        "creature with three or more greed counters, they lose 2 life."
+    ),
+    setup_interceptors=yubaba_bathhouse_greed_setup,
+)
+
+
+# --- No-Face, Devouring Spirit --- {2}{B} Mythic Legendary Spirit
+# Hunger-counter snowball + activated counter-burn.
+def no_face_devouring_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever an opponent loses a card from hand or library to exile or
+    graveyard, put a hunger counter on No-Face. While No-Face has 3+ hunger
+    counters, it has menace. 5+, deathtouch + trample. Activated: {X},
+    Remove X hunger counters — target creature gets -X/-X until end of turn.
+
+    Axes: state coupling (track multi-zone movements), zone movement
+    (hand/library -> exile/GY), decision pressure (when to spend), synergy
+    hook (mill/discard package), asymmetry (only opp losses count).
+    """
+    from src.cards.interceptor_helpers import (
+        make_keyword_grant, make_activated_ability,
+    )
+
+    def card_loss_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        moving_id = event.payload.get('object_id')
+        if not moving_id:
+            return False
+        moving = st.objects.get(moving_id)
+        if not moving or moving.owner == obj.controller:
+            return False
+        from_zone_type = event.payload.get('from_zone_type')
+        to_zone_type = event.payload.get('to_zone_type')
+        return (from_zone_type in (ZoneType.HAND, ZoneType.LIBRARY)
+                and to_zone_type in (ZoneType.EXILE, ZoneType.GRAVEYARD))
+
+    def feed_hunger(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': obj.id, 'counter_type': 'hunger', 'amount': 1},
+                source=obj.id,
+            )],
+        )
+
+    def has_3_plus_hunger(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        me = st.objects.get(obj.id)
+        if not me:
+            return False
+        return me.state.counters.get('hunger', 0) >= 3
+
+    def has_5_plus_hunger(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        me = st.objects.get(obj.id)
+        if not me:
+            return False
+        return me.state.counters.get('hunger', 0) >= 5
+
+    def devour_target(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        if not targets:
+            return []
+        target_id = targets[0].object_id if hasattr(targets[0], 'object_id') else targets[0]
+        target = st.objects.get(target_id)
+        if not target or target.zone != ZoneType.BATTLEFIELD:
+            return []
+        if CardType.CREATURE not in (target.characteristics.types or set()):
+            return []
+        me = st.objects.get(o.id)
+        if not me:
+            return []
+        hunger = me.state.counters.get('hunger', 0)
+        if hunger <= 0:
+            return []
+        # Spend ALL hunger counters for X = hunger.
+        x = hunger
+        return [
+            Event(
+                type=EventType.COUNTER_REMOVED,
+                payload={'object_id': o.id, 'counter_type': 'hunger', 'amount': x},
+                source=o.id,
+            ),
+            Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': target_id,
+                         'power_mod': -x, 'toughness_mod': -x,
+                         'duration': 'end_of_turn'},
+                source=o.id,
+            ),
+        ]
+
+    make_activated_ability(
+        obj,
+        cost="{1}",
+        effect_fn=devour_target,
+        description="{1}, Remove all hunger counters from No-Face (call it X): Target creature gets -X/-X until end of turn.",
+        targets_required=1,
+        target_kind="creature",
+    )
+
+    interceptors: list[Interceptor] = []
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=card_loss_filter,
+        handler=feed_hunger,
+        duration='while_on_battlefield',
+    ))
+    interceptors.append(make_keyword_grant(obj, ['menace'], has_3_plus_hunger))
+    interceptors.append(make_keyword_grant(obj, ['deathtouch'], has_5_plus_hunger))
+    interceptors.append(make_keyword_grant(obj, ['trample'], has_5_plus_hunger))
+    return interceptors
+
+
+NO_FACE_DEVOURING_SPIRIT = make_creature(
+    name="No-Face, Devouring Spirit",
+    power=2, toughness=2,
+    mana_cost="{2}{B}",
+    colors={Color.BLACK},
+    subtypes={"Spirit"},
+    supertypes={"Legendary"},
+    text=(
+        "Whenever an opponent's card is put into a graveyard or exile from "
+        "their hand or library, put a hunger counter on No-Face. "
+        "As long as No-Face has three or more hunger counters, it has menace. "
+        "As long as No-Face has five or more hunger counters, it has "
+        "deathtouch and trample. "
+        "{1}, Remove all hunger counters from No-Face (call it X): Target "
+        "creature gets -X/-X until end of turn."
+    ),
+    setup_interceptors=no_face_devouring_setup,
+)
+
+
+# --- The Spirit-Realm Summoning --- {2}{G}{W} Mythic Saga
+# 3-chapter tribal Spirit package payoff.
+def _spirit_realm_summoning_ch_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Search your library for a Spirit creature or a Forest, reveal it,
+    put it into your hand, then shuffle."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': saga_obj.controller,
+            'subtype': 'Spirit',
+            'card_type': 'creature',
+            'destination': 'hand',
+            'min_count': 0,
+            'max_count': 1,
+            'reveal': True,
+        },
+        source=saga_obj.id,
+    )]
+
+
+def _spirit_realm_summoning_ch_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Create a 2/2 green Spirit creature token with vigilance."""
+    return [Event(
+        type=EventType.CREATE_TOKEN,
+        payload={
+            'controller': saga_obj.controller,
+            'token': {
+                'name': 'Forest Spirit',
+                'power': 2, 'toughness': 2,
+                'colors': {Color.GREEN},
+                'types': {CardType.CREATURE},
+                'subtypes': {'Spirit'},
+                'keywords': ['vigilance'],
+            },
+        },
+        source=saga_obj.id,
+    )]
+
+
+def _spirit_realm_summoning_ch_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Spirits you control get +1/+1 and gain flying until end of turn."""
+    events: list[Event] = []
+    for o in list(state.objects.values()):
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if o.controller != saga_obj.controller:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        if 'Spirit' not in (o.characteristics.subtypes or set()):
+            continue
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': o.id, 'power_mod': 1, 'toughness_mod': 1,
+                     'duration': 'end_of_turn'},
+            source=saga_obj.id,
+        ))
+        events.append(Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': o.id, 'keyword': 'flying',
+                     'duration': 'end_of_turn'},
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def spirit_realm_summoning_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_saga_setup
+    return make_saga_setup(
+        obj,
+        {
+            1: _spirit_realm_summoning_ch_i,
+            2: _spirit_realm_summoning_ch_ii,
+            3: _spirit_realm_summoning_ch_iii,
+        },
+    )
+
+
+THE_SPIRIT_REALM_SUMMONING = CardDefinition(
+    name="The Spirit-Realm Summoning",
+    mana_cost="{2}{G}{W}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Saga"},
+        colors={Color.GREEN, Color.WHITE},
+        mana_cost="{2}{G}{W}",
+    ),
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Search your library for a Spirit creature card, reveal it, put "
+        "it into your hand, then shuffle.\n"
+        "II — Create a 2/2 green Spirit creature token with vigilance.\n"
+        "III — Spirits you control get +1/+1 and gain flying until end of turn."
+    ),
+    setup_interceptors=spirit_realm_summoning_setup,
+)
+
+
+# --- Princess Mononoke's Curse --- {2}{B}{R} Mythic Saga
+# Curse-counter snowball + final-chapter X/X payoff.
+def _mononoke_curse_ch_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Each opponent loses 2 life. Then put a curse counter on a creature
+    you control (heuristic: pick the creature with highest power)."""
+    events: list[Event] = []
+    for pid in state.players:
+        if pid == saga_obj.controller:
+            continue
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': pid, 'amount': -2},
+            source=saga_obj.id,
+        ))
+    # Pick our strongest creature.
+    best = None
+    best_power = -1
+    for o in state.objects.values():
+        if (o.controller == saga_obj.controller
+                and o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in (o.characteristics.types or set())):
+            p = o.characteristics.power or 0
+            if p > best_power:
+                best_power = p
+                best = o
+    if best is not None:
+        events.append(Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': best.id, 'counter_type': 'curse', 'amount': 1},
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def _mononoke_curse_ch_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Target creature an opponent controls gets -2/-2 (heuristic: pick
+    biggest opp creature)."""
+    target = None
+    best_t = -1
+    for o in state.objects.values():
+        if (o.controller != saga_obj.controller
+                and o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in (o.characteristics.types or set())):
+            t = o.characteristics.toughness or 0
+            if t > best_t:
+                best_t = t
+                target = o
+    if target is None:
+        return []
+    return [Event(
+        type=EventType.PT_MODIFICATION,
+        payload={'object_id': target.id, 'power_mod': -2, 'toughness_mod': -2,
+                 'duration': 'end_of_turn'},
+        source=saga_obj.id,
+    )]
+
+
+def _mononoke_curse_ch_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Each curse-counter creature you control gains +X/+X and trample
+    until end of turn, where X is the number of curse counters on it."""
+    events: list[Event] = []
+    for o in state.objects.values():
+        if o.controller != saga_obj.controller:
+            continue
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        n = o.state.counters.get('curse', 0)
+        if n <= 0:
+            continue
+        events.append(Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': o.id, 'power_mod': n, 'toughness_mod': n,
+                     'duration': 'end_of_turn'},
+            source=saga_obj.id,
+        ))
+        events.append(Event(
+            type=EventType.GRANT_KEYWORD,
+            payload={'object_id': o.id, 'keyword': 'trample',
+                     'duration': 'end_of_turn'},
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def mononoke_curse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_saga_setup
+    return make_saga_setup(
+        obj,
+        {
+            1: _mononoke_curse_ch_i,
+            2: _mononoke_curse_ch_ii,
+            3: _mononoke_curse_ch_iii,
+        },
+    )
+
+
+PRINCESS_MONONOKES_CURSE = CardDefinition(
+    name="Princess Mononoke's Curse",
+    mana_cost="{2}{B}{R}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Saga"},
+        colors={Color.BLACK, Color.RED},
+        mana_cost="{2}{B}{R}",
+    ),
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Each opponent loses 2 life, then put a curse counter on a "
+        "creature you control.\n"
+        "II — Target creature an opponent controls gets -2/-2 until end of turn.\n"
+        "III — Each creature you control with a curse counter on it gets "
+        "+X/+X and gains trample until end of turn, where X is the number "
+        "of curse counters on it."
+    ),
+    setup_interceptors=mononoke_curse_setup,
+)
+
+
+# --- San, Wolf-Sister Ascendant --- {2}{G}{G} Mythic Legendary Warrior
+# Modal ETB tribal payoff: tutor / pump / fight.
+def san_wolf_sister_ascendant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB modal: choose one — search library for a Wolf card; OR Wolves you
+    control get +2/+0 and trample EOT; OR target creature you control fights
+    target creature an opponent controls. Ward {1}.
+
+    Axes: state coupling (count Wolves), decision pressure (modal), zone
+    movement (library tutor), synergy hook (Wolf tribal), asymmetry
+    (Ward + opp-targeted fight).
+    """
+    from src.cards.interceptor_helpers import (
+        make_etb_trigger, make_ward,
+    )
+
+    def heuristic_mode_choice(event: Event, st: GameState) -> list[Event]:
+        # Heuristic: count Wolves you control; pick the strongest mode.
+        wolves = [o for o in st.objects.values()
+                  if (o.zone == ZoneType.BATTLEFIELD
+                      and o.controller == obj.controller
+                      and CardType.CREATURE in (o.characteristics.types or set())
+                      and 'Wolf' in (o.characteristics.subtypes or set()))]
+        opp_creatures = [o for o in st.objects.values()
+                         if (o.zone == ZoneType.BATTLEFIELD
+                             and o.controller != obj.controller
+                             and CardType.CREATURE in (o.characteristics.types or set()))]
+
+        # If 2+ Wolves out → pump them (mode B).
+        if len(wolves) >= 2:
+            events = []
+            for w in wolves:
+                events.append(Event(
+                    type=EventType.PT_MODIFICATION,
+                    payload={'object_id': w.id, 'power_mod': 2,
+                             'toughness_mod': 0, 'duration': 'end_of_turn'},
+                    source=obj.id,
+                ))
+                events.append(Event(
+                    type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': w.id, 'keyword': 'trample',
+                             'duration': 'end_of_turn'},
+                    source=obj.id,
+                ))
+            return events
+
+        # If we have a beefy Wolf and there's a vulnerable opp creature → fight.
+        if wolves and opp_creatures:
+            wolf = max(wolves, key=lambda w: w.characteristics.power or 0)
+            opp = min(opp_creatures, key=lambda o: o.characteristics.toughness or 999)
+            wp = wolf.characteristics.power or 0
+            ot = opp.characteristics.toughness or 0
+            if wp >= ot and wp > 0:
+                return [
+                    Event(
+                        type=EventType.DAMAGE,
+                        payload={'source': wolf.id, 'target': opp.id,
+                                 'amount': wp, 'is_combat': False},
+                        source=obj.id,
+                    ),
+                    Event(
+                        type=EventType.DAMAGE,
+                        payload={'source': opp.id, 'target': wolf.id,
+                                 'amount': opp.characteristics.power or 0,
+                                 'is_combat': False},
+                        source=obj.id,
+                    ),
+                ]
+
+        # Default: tutor a Wolf to hand.
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': obj.controller,
+                'subtype': 'Wolf',
+                'card_type': 'creature',
+                'destination': 'hand',
+                'min_count': 0,
+                'max_count': 1,
+                'reveal': True,
+            },
+            source=obj.id,
+        )]
+
+    return [
+        make_etb_trigger(obj, heuristic_mode_choice),
+        make_ward(obj, mana_cost="{1}"),
+    ]
+
+
+SAN_WOLF_SISTER_ASCENDANT = make_creature(
+    name="San, Wolf-Sister Ascendant",
+    power=3, toughness=3,
+    mana_cost="{2}{G}{G}",
+    colors={Color.GREEN},
+    subtypes={"Human", "Warrior"},
+    supertypes={"Legendary"},
+    text=(
+        "Ward {1}. "
+        "When San enters, choose one — "
+        "Search your library for a Wolf creature card, reveal it, put it "
+        "into your hand, then shuffle; "
+        "OR Wolves you control get +2/+0 and gain trample until end of turn; "
+        "OR target creature you control fights target creature an opponent "
+        "controls."
+    ),
+    setup_interceptors=san_wolf_sister_ascendant_setup,
+)
+
+
+# --- Chihiro, Bridge Between Worlds --- {1}{W}{U} Mythic Legendary
+# Reads opp zone changes, scaling tutor payoff.
+def chihiro_bridge_between_worlds_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever an opponent's card leaves their hand (to anywhere other than
+    BF), put a name counter on Chihiro and scry 1. Activated: {2}, Remove
+    three name counters: Search your library for a creature with mana value
+    less than or equal to the number of name counters on Chihiro plus 1,
+    reveal it, put it into your hand, then shuffle.
+
+    Axes: state coupling (opp hand transitions + counters), decision
+    pressure (when to spend tutoring), zone movement (hand-leave + library
+    search), asymmetry (only opp losses trigger), synergy hook (control
+    tempo package).
+    """
+    from src.cards.interceptor_helpers import make_activated_ability
+
+    def opp_hand_leaving(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.HAND:
+            return False
+        # Skip if going to battlefield (a normal cast resolution).
+        if event.payload.get('to_zone_type') == ZoneType.BATTLEFIELD:
+            return False
+        moving_id = event.payload.get('object_id')
+        if not moving_id:
+            return False
+        moving = st.objects.get(moving_id)
+        if not moving:
+            return False
+        return moving.owner != obj.controller
+
+    def name_counter_and_scry(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[
+                Event(
+                    type=EventType.COUNTER_ADDED,
+                    payload={'object_id': obj.id, 'counter_type': 'name', 'amount': 1},
+                    source=obj.id,
+                ),
+                Event(
+                    type=EventType.SCRY,
+                    payload={'player': obj.controller, 'amount': 1},
+                    source=obj.id,
+                ),
+            ],
+        )
+
+    def bridge_tutor(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        me = st.objects.get(o.id)
+        if not me:
+            return []
+        n = me.state.counters.get('name', 0)
+        if n < 3:
+            return []
+        # MV ceiling = (n // 3) + 1. So at 3 names you tutor MV 1; at 6 MV 2; etc.
+        # But to keep it relevant, scale linearly: max_mv = max(1, n//2).
+        max_mv = max(1, n // 2)
+        return [
+            Event(
+                type=EventType.COUNTER_REMOVED,
+                payload={'object_id': o.id, 'counter_type': 'name', 'amount': 3},
+                source=o.id,
+            ),
+            Event(
+                type=EventType.SEARCH_LIBRARY,
+                payload={
+                    'player': o.controller,
+                    'card_type': 'creature',
+                    'destination': 'hand',
+                    'min_count': 0,
+                    'max_count': 1,
+                    'reveal': True,
+                    'max_mana_value': max_mv,
+                },
+                source=o.id,
+            ),
+        ]
+
+    make_activated_ability(
+        obj,
+        cost="{2}",
+        effect_fn=bridge_tutor,
+        description="{2}, Remove three name counters: Search your library for a creature card with mana value X or less and put it into your hand. X is half the number of name counters Chihiro had when this ability activates, minimum 1.",
+        targets_required=0,
+    )
+
+    return [Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=opp_hand_leaving,
+        handler=name_counter_and_scry,
+        duration='while_on_battlefield',
+    )]
+
+
+CHIHIRO_BRIDGE_BETWEEN_WORLDS = make_creature(
+    name="Chihiro, Bridge Between Worlds",
+    power=2, toughness=4,
+    mana_cost="{1}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Human", "Advisor"},
+    supertypes={"Legendary"},
+    text=(
+        "Whenever a card leaves an opponent's hand and goes to anywhere "
+        "other than the battlefield, put a name counter on Chihiro and "
+        "scry 1. "
+        "{2}, Remove three name counters from Chihiro: Search your library "
+        "for a creature card with mana value X or less, reveal it, put it "
+        "into your hand, then shuffle, where X is half the number of name "
+        "counters Chihiro had (minimum 1)."
+    ),
+    setup_interceptors=chihiro_bridge_between_worlds_setup,
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -4490,6 +5356,15 @@ STUDIO_GHIBLI_CARDS = {
     "Shuna, Emissary of the Forest": SHUNA_EMISSARY,
     "Chihiro, River-Returned": CHIHIRO_RIVER_RETURNED,
     "The Bathhouse, Pure Retreat": BATHHOUSE_PURE_RETREAT,
+
+    # SPICE PASS V2 EXPANSION — high-depth build-around mythics + sagas
+    "Howl, Wandering Heart-Wizard": HOWL_WANDERING_HEART_WIZARD,
+    "Yubaba, Bathhouse Greed": YUBABA_BATHHOUSE_GREED,
+    "No-Face, Devouring Spirit": NO_FACE_DEVOURING_SPIRIT,
+    "The Spirit-Realm Summoning": THE_SPIRIT_REALM_SUMMONING,
+    "Princess Mononoke's Curse": PRINCESS_MONONOKES_CURSE,
+    "San, Wolf-Sister Ascendant": SAN_WOLF_SISTER_ASCENDANT,
+    "Chihiro, Bridge Between Worlds": CHIHIRO_BRIDGE_BETWEEN_WORLDS,
 
     # SPICE PASS PHASE A — format-defining peaceful-Ghibli cards
     "The Forest Watches": THE_FOREST_WATCHES,
@@ -4706,6 +5581,14 @@ CARDS = [
     ASCENSION_OF_SPIRITS,
     CALCIFER_HEARTH_PACT,
     GRANMAMARE_HOSPITALITY,
+    # SPICE PASS V2 EXPANSION
+    HOWL_WANDERING_HEART_WIZARD,
+    YUBABA_BATHHOUSE_GREED,
+    NO_FACE_DEVOURING_SPIRIT,
+    THE_SPIRIT_REALM_SUMMONING,
+    PRINCESS_MONONOKES_CURSE,
+    SAN_WOLF_SISTER_ASCENDANT,
+    CHIHIRO_BRIDGE_BETWEEN_WORLDS,
     LAPUTAN_AMULET,
     CRYSTAL_NECKLACE,
     CALCIFER_LANTERN,
