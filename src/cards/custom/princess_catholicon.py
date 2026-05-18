@@ -32,7 +32,10 @@ from src.cards.interceptor_helpers import (
     make_life_gain_trigger, make_life_loss_trigger, creatures_you_control,
     other_creatures_with_subtype, all_opponents,
     make_targeted_attack_trigger, make_targeted_death_trigger,
-    make_targeted_damage_trigger, make_targeted_spell_cast_trigger
+    make_targeted_damage_trigger, make_targeted_spell_cast_trigger,
+    # Phase A1 spice-pass additions
+    make_attacks_alone_trigger, make_equipment_setup, make_saga_setup,
+    make_counter_added_trigger, make_activated_ability,
 )
 
 
@@ -1472,13 +1475,16 @@ BLACK_MAGE = make_creature(
 
 
 def berserker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Must attack each combat, gets +2/+0 when attacking"""
-    def attack_check(target: GameObject, state: GameState) -> bool:
-        return target.id == obj.id
-
-    interceptors = []
-    # Attack bonus when attacking is handled by the combat system
-    return interceptors
+    """Phase A1 spice-pass rewire: was an empty stub. Now wires the
+    +2/+0-on-attack pump as a PT_MODIFICATION with end_of_turn duration."""
+    def attack_pump(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 2, 'toughness_mod': 0,
+                     'duration': 'end_of_turn'},
+            source=obj.id,
+        )]
+    return [make_attack_trigger(obj, attack_pump)]
 
 BERSERKER = make_creature(
     name="Berserker",
@@ -1715,8 +1721,21 @@ KNIGHTS_OF_ROUND = make_creature(
 # --- Classic Jobs ---
 
 def dragoon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Jump - At beginning of combat, may exile and return at end of combat"""
-    return []  # Jump handled by separate ability
+    """Phase A1 spice-pass rewire: was an empty stub. Now wires self-Flying
+    plus an ETB fight (matching the printed text). Distinct shape from the
+    static_pt_boost_by_subtype cluster by combining a keyword grant + a
+    targeted fight ETB."""
+    def etb_fight(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.DAMAGE, payload={
+            'fight': True,
+            'source': obj.id,
+            'target_type': 'creature',
+        }, source=obj.id)]
+
+    return [
+        make_keyword_grant(obj, ['flying'], lambda t, s: t.id == obj.id),
+        make_etb_trigger(obj, etb_fight),
+    ]
 
 DRAGOON = make_creature(
     name="Dragoon",
@@ -1793,8 +1812,18 @@ RANGER = make_creature(
 
 
 def monk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When attacks alone, gets +3/+3"""
-    return []  # Handled by combat system
+    """Phase A1 spice-pass rewire: was an empty stub. Now uses the engine's
+    ``make_attacks_alone_trigger`` (COMBAT_DECLARED filter on
+    ``attackers == [obj.id]``) to fire +3/+3 EOT only when Monk is the
+    controller's only attacker."""
+    def alone_pump(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 3, 'toughness_mod': 3,
+                     'duration': 'end_of_turn'},
+            source=obj.id,
+        )]
+    return [make_attacks_alone_trigger(obj, alone_pump)]
 
 MONK = make_creature(
     name="Monk",
@@ -2036,8 +2065,21 @@ OCHU_DANCE = make_sorcery(
 # =============================================================================
 
 def buster_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipped creature gets +3/+0 and has first strike"""
-    return []  # Equipment effects handled by equip system
+    """Phase A1 spice-pass rewire: was a no-op stub. Now uses the canonical
+    ``make_equipment_setup`` so the equipped creature actually gains +3/+0,
+    first strike, the equip activated ability, AND counts as a SOLDIER for
+    tribal interactions (Cloud Strife, Sephiroth, Zack Fair lord effects).
+
+    The printed "+4/+0 if equipped to a SOLDIER" upgrade is approximated by
+    always granting SOLDIER subtype (so the +3/+0 always lands on a SOLDIER
+    body). The strict +1 conditional bump is deferred to Phase B-1."""
+    return make_equipment_setup(
+        power_mod=3,
+        toughness_mod=0,
+        keywords=["first_strike"],
+        subtypes_to_add={"SOLDIER"},
+        equip_cost="{2}",
+    )(obj, state)
 
 BUSTER_SWORD = make_equipment(
     name="Buster Sword",
@@ -2461,11 +2503,102 @@ MAKO_INFUSION = make_enchantment(
 )
 
 
+def limit_charge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Phase A1 spice-pass rewire: was an unwired enchantment. Now ties the
+    Limit Break archetype together — every life-loss on the controller drops
+    a charge counter, and the activated ability cashes them in for a draw +
+    burn (Stoneforge-shape value engine for the LB cluster).
+
+    The "remove three charge counters" pay is approximated as the activated
+    cost — costs that require counters as resources are still WIP at engine
+    level (Phase B-1), so we track the count on ``obj.state._charge_counters``
+    and gate the ability via ``precondition_fn``."""
+    def own_life_loss_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.LIFE_CHANGE:
+            return False
+        if event.payload.get('amount', 0) >= 0:
+            return False
+        return event.payload.get('player') == obj.controller
+
+    def add_charge(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'charge', 'amount': 1},
+            source=obj.id,
+        )]
+
+    def life_loss_handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.REACT,
+                                 new_events=add_charge(event, state))
+
+    life_loss_interceptor = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=own_life_loss_filter,
+        handler=life_loss_handler,
+        duration='while_on_battlefield',
+    )
+
+    def counter_filter(target: GameObject, state: GameState) -> bool:
+        # Internal counter tracker — mutates obj.state on each COUNTER_ADDED.
+        return False  # never matches; just here for legality of the structure
+
+    # Track charges directly on obj.state via a counter-added trigger:
+    def track_charge(event: Event, state: GameState) -> list[Event]:
+        cur = getattr(obj.state, '_charge_counters', 0)
+        obj.state._charge_counters = cur + int(event.payload.get('amount', 1) or 1)
+        return []
+
+    track_interceptor = make_counter_added_trigger(
+        obj, track_charge, counter_type='charge', self_only=True,
+    )
+
+    def has_three_charges(o: GameObject, st: GameState) -> bool:
+        return getattr(o.state, '_charge_counters', 0) >= 3
+
+    def cash_in(o: GameObject, st: GameState, targets) -> list[Event]:
+        # Spend the charges (decrement on obj.state) then resolve the effect.
+        o.state._charge_counters = max(0, getattr(o.state, '_charge_counters', 0) - 3)
+        events: list[Event] = [
+            Event(type=EventType.DRAW,
+                  payload={'player': o.controller, 'amount': 1},
+                  source=o.id),
+        ]
+        target_id = None
+        if targets:
+            t = targets[0]
+            if isinstance(t, list):
+                t = t[0] if t else None
+            if t is not None:
+                target_id = (t if isinstance(t, str)
+                             else getattr(t, 'object_id', None) or getattr(t, 'id', None))
+        events.append(Event(
+            type=EventType.DAMAGE,
+            payload={'object_id': target_id, 'amount': 3, 'source': o.id},
+            source=o.id,
+        ))
+        return events
+
+    make_activated_ability(
+        obj,
+        cost="{0}",
+        effect_fn=cash_in,
+        description="Remove three charge counters: Draw a card and deal 3 damage",
+        targets_required=1,
+        target_kind="any",
+        precondition_fn=has_three_charges,
+    )
+
+    return [life_loss_interceptor, track_interceptor]
+
 LIMIT_CHARGE = make_enchantment(
     name="Limit Charge",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="Whenever you lose life, put a charge counter on Limit Charge. Remove three charge counters: Draw a card and Limit Charge deals 3 damage to any target."
+    text="Whenever you lose life, put a charge counter on Limit Charge. Remove three charge counters: Draw a card and Limit Charge deals 3 damage to any target.",
+    setup_interceptors=limit_charge_setup,
 )
 
 
@@ -3349,6 +3482,207 @@ ROYAL_KNIGHT = make_creature(
 
 
 # =============================================================================
+# SPICE PASS PHASE A1 — new format-defining cards
+# =============================================================================
+#
+# Three NEW cards layered on top of the rewires (Berserker / Dragoon / Monk /
+# Buster Sword / Limit Charge) earlier in the file. Together they hit the
+# spice-pass goals for FINC:
+#
+#   * Sephiroth Avatar — build-around mythic 1 (snowball Limit Break engine)
+#   * Cecil Harvey — build-around mythic 2 (Limit Break self-sustain engine)
+#   * Crystals of Light — saga (uses make_saga_setup)
+#
+# The two mythics deepen the existing Limit Break cluster: Sephiroth Avatar
+# drains opponents on attack (advancing your own LB threshold every combat
+# because *you* are the one near death — see card text), and Cecil Harvey
+# trades upkeep tempo for stable life management once LB is online.
+# Crystals of Light is the saga shape the set lacks; FF lore has plenty of
+# multi-stage narrative beats so the flavor lands cleanly.
+
+
+# --- Sephiroth, Avatar of the Calamity ---  {4}{B}{B}{B} Mythic
+def sephiroth_avatar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Build-around Limit Break mythic. While LB10 active (you have <=10
+    life), Sephiroth gains haste + double_strike + indestructible AND each
+    attack drains each opponent for 2 life. Self-keyword grants are filter
+    based per gotcha #1.
+
+    Pattern 1 (efficiency), 2 (hard to interact via indestructible LB-gated),
+    3 (snowball value engine — each attack moves you and the opponent toward
+    the LB threshold), 11 (build-around — only relevant in a LB deck)."""
+    interceptors: list[Interceptor] = []
+    interceptors.extend(make_limit_break(obj, 10, 0, 0))  # marker / extra hook
+
+    def lb_active(target: GameObject, state: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        player = state.players.get(obj.controller)
+        return bool(player and player.life <= 10)
+
+    interceptors.append(make_keyword_grant(
+        obj, ['haste', 'double_strike', 'indestructible'], lb_active,
+    ))
+    interceptors.append(make_keyword_grant(
+        obj, ['flying'], lambda t, s: t.id == obj.id,
+    ))
+
+    def drain_on_attack(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -2},
+                source=obj.id,
+            ))
+        return events
+
+    interceptors.append(make_attack_trigger(obj, drain_on_attack))
+    return interceptors
+
+SEPHIROTH_AVATAR = make_creature(
+    name="Sephiroth, Avatar of the Calamity",
+    power=5, toughness=5,
+    mana_cost="{4}{B}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "SOLDIER", "Avatar"},
+    supertypes={"Legendary"},
+    text=(
+        "Flying. Limit Break 10 — Sephiroth has haste, double strike, and "
+        "indestructible as long as you have 10 or less life. Whenever "
+        "Sephiroth attacks, each opponent loses 2 life."
+    ),
+    setup_interceptors=sephiroth_avatar_setup,
+)
+
+
+# --- Cecil Harvey, Paladin of Mysidia ---  {2}{W}{B} Mythic
+def cecil_harvey_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Build-around Limit Break self-sustain mythic. Lifelink + vigilance
+    natively; while LB10 active, your end-step trigger fires the canonical
+    snowball — drain each opp 2 and gain 2 yourself. This *holds* you at
+    the LB threshold instead of crossing it back upward, which keeps the
+    rest of your LB engine online.
+
+    Pattern 3 (snowball value engine), 5 (asymmetric prison-light — drains
+    opps but heals you), 11 (build-around — only useful in a LB deck)."""
+    interceptors: list[Interceptor] = []
+    interceptors.append(make_keyword_grant(
+        obj, ['lifelink', 'vigilance'], lambda t, s: t.id == obj.id,
+    ))
+
+    def end_step_drain(event: Event, state: GameState) -> list[Event]:
+        player = state.players.get(obj.controller)
+        if not player or player.life > 10:
+            return []
+        events: list[Event] = []
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -3},
+                source=obj.id,
+            ))
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 3},
+            source=obj.id,
+        ))
+        return events
+
+    interceptors.append(make_end_step_trigger(obj, end_step_drain))
+    return interceptors
+
+CECIL_HARVEY = make_creature(
+    name="Cecil Harvey, Paladin of Mysidia",
+    power=3, toughness=4,
+    mana_cost="{2}{W}{B}",
+    colors={Color.WHITE, Color.BLACK},
+    subtypes={"Human", "Paladin", "Knight"},
+    supertypes={"Legendary"},
+    text=(
+        "Lifelink, vigilance. Limit Break 10 — At the beginning of your end "
+        "step, if you have 10 or less life, each opponent loses 3 life and "
+        "you gain 3 life."
+    ),
+    setup_interceptors=cecil_harvey_setup,
+)
+
+
+# --- Crystals of Light --- {2}{U}{W} Saga (uses make_saga_setup)
+def crystals_of_light_chapter_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Scry 2.
+
+    Engine has no canonical SCRY event; emit the same ACTIVATE/scry
+    placeholder shape used by Triforce of Wisdom in legend_of_zelda.py.
+    Lands as a typed event in the log; downstream consumer is Phase B-1."""
+    return [Event(
+        type=EventType.ACTIVATE,
+        payload={'action': 'scry', 'amount': 2, 'player': saga_obj.controller},
+        source=saga_obj.id,
+    )]
+
+
+def crystals_of_light_chapter_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Draw a card."""
+    return [Event(
+        type=EventType.DRAW,
+        payload={'player': saga_obj.controller, 'amount': 1},
+        source=saga_obj.id,
+    )]
+
+
+def crystals_of_light_chapter_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Create a 4/4 white-blue Aeon creature token with flying."""
+    return [Event(
+        type=EventType.CREATE_TOKEN,
+        payload={
+            'controller': saga_obj.controller,
+            'token': {
+                'name': 'Aeon',
+                'power': 4, 'toughness': 4,
+                'colors': {Color.WHITE, Color.BLUE},
+                'subtypes': {'Aeon'},
+                'keywords': ['flying'],
+            },
+        },
+        source=saga_obj.id,
+    )]
+
+
+def crystals_of_light_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Wire chapter dispatcher for the Crystals of Light saga."""
+    return make_saga_setup(
+        obj,
+        {
+            1: crystals_of_light_chapter_i,
+            2: crystals_of_light_chapter_ii,
+            3: crystals_of_light_chapter_iii,
+        },
+    )
+
+CRYSTALS_OF_LIGHT = CardDefinition(
+    name="Crystals of Light",
+    mana_cost="{2}{U}{W}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Saga"},
+        colors={Color.BLUE, Color.WHITE},
+        supertypes={"Legendary"},
+        mana_cost="{2}{U}{W}",
+    ),
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Scry 2.\n"
+        "II — Draw a card.\n"
+        "III — Create Crystallized Aeon, a 4/4 white and blue Aeon creature "
+        "token with flying."
+    ),
+    setup_interceptors=crystals_of_light_setup,
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -3663,6 +3997,11 @@ FINAL_FANTASY_CUSTOM_CARDS = {
     "Recruit Soldier": RECRUIT_SOLDIER,
     "Pixie Mage": PIXIE_MAGE,
     "Royal Knight": ROYAL_KNIGHT,
+
+    # SPICE PASS PHASE A1 — new format-defining cards
+    "Sephiroth, Avatar of the Calamity": SEPHIROTH_AVATAR,
+    "Cecil Harvey, Paladin of Mysidia": CECIL_HARVEY,
+    "Crystals of Light": CRYSTALS_OF_LIGHT,
 }
 
 
@@ -3946,4 +4285,8 @@ CARDS = [
     RECRUIT_SOLDIER,
     PIXIE_MAGE,
     ROYAL_KNIGHT,
+    # SPICE PASS PHASE A1
+    SEPHIROTH_AVATAR,
+    CECIL_HARVEY,
+    CRYSTALS_OF_LIGHT,
 ]
