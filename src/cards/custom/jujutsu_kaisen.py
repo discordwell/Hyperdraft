@@ -1935,6 +1935,455 @@ def _malevolent_shrine_flame_arrow_setup(obj, state):
 
 
 # =============================================================================
+# PHASE A1 SPICE PASS — 2026-05-18
+# 8 picks: 2 build-around mythics, 1 saga, 1 assembly equipment,
+# 1 Domain Expansion enchantment, 3 rewires of vanilla cards.
+# All using existing helpers; no new helpers >30 lines.
+# =============================================================================
+
+
+# --- Helper: count Curse permanents you control --------------------------------
+
+def _count_curses(controller: str, state: GameState) -> int:
+    """Count Curse-subtype permanents on the battlefield under controller."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if o and o.controller == controller and 'Curse' in (o.characteristics.subtypes or set()):
+            n += 1
+    return n
+
+
+def _count_shikigami(controller: str, state: GameState) -> int:
+    """Count Shikigami-subtype creatures on the battlefield under controller."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if o and o.controller == controller and 'Shikigami' in (o.characteristics.subtypes or set()):
+            n += 1
+    return n
+
+
+# --- Sukuna, Heian Reincarnate (NEW mythic build-around) ----------------------
+# {3}{B}{B}{R} 5/5 Legendary Curse Avatar
+# ETB: each opponent sacrifices a creature.
+# Whenever another Curse you control dies, put a +1/+1 counter on Sukuna.
+# As long as you control 4 or more Curses, Sukuna has trample and menace.
+#
+# Patterns: 3 (snowball), 5 (asymmetric ETB), 11 (Curse-tribal build-around).
+
+def _sukuna_heian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors = []
+
+    # ETB: each opponent must sacrifice a creature.
+    def etb_sac(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SACRIFICE_REQUIRED,
+            payload={'player': opp, 'card_type': 'creature', 'count': 1},
+            source=obj.id,
+        ) for opp in _ih.all_opponents(obj, st)]
+    interceptors.append(_ih.make_etb_trigger(obj, etb_sac))
+
+    # Snowball: when another Curse you control dies, +1/+1 counter.
+    def curse_death_filter(event: Event, st: GameState, src: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying = st.objects.get(event.payload.get('object_id'))
+        if not dying:
+            return False
+        if dying.id == src.id:
+            return False
+        if dying.controller != src.controller:
+            return False
+        if CardType.CREATURE not in dying.characteristics.types:
+            return False
+        return 'Curse' in (dying.characteristics.subtypes or set())
+
+    def curse_death_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+            source=obj.id, controller=obj.controller,
+        )]
+    interceptors.append(_ih.make_death_trigger(
+        obj, curse_death_effect, filter_fn=curse_death_filter,
+    ))
+
+    # Conditional: 4+ Curses -> trample and menace.
+    def four_curses(target: GameObject, st: GameState) -> bool:
+        if target.id != obj.id:
+            return False
+        return _count_curses(obj.controller, st) >= 4
+    interceptors.append(_ih.make_keyword_grant(obj, ['trample', 'menace'], four_curses))
+
+    return interceptors
+
+
+# --- Megumi, Master of Ten Shadows (NEW mythic build-around) ------------------
+# {2}{G}{W} 3/3 Legendary Human Sorcerer
+# ETB: search your library for a Shikigami creature card with MV<=3, put it
+#      onto the battlefield, then shuffle. (Stoneforge-style tutor on a body.)
+# Whenever a Shikigami you control attacks, draw a card.
+# Other Shikigami you control get +1/+1.
+#
+# Patterns: 4 (compression), 7 (tutoring), 11 (Shikigami-tribal build-around).
+
+def _megumi_ten_shadows_master_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors = []
+
+    # ETB tutor for low-MV Shikigami.
+    def etb_tutor(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': obj.controller,
+                'subtype': 'Shikigami',
+                'card_type': 'creature',
+                'destination': 'battlefield',
+                'min_count': 0,
+                'max_count': 1,
+                'mana_value_max': 3,
+                'reveal': True,
+            },
+            source=obj.id,
+        )]
+    interceptors.append(_ih.make_etb_trigger(obj, etb_tutor))
+
+    # Anthem for other Shikigami you control.
+    def other_shikigami(target: GameObject, st: GameState) -> bool:
+        if target.id == obj.id:
+            return False
+        if target.controller != obj.controller:
+            return False
+        if CardType.CREATURE not in (target.characteristics.types or set()):
+            return False
+        return 'Shikigami' in (target.characteristics.subtypes or set())
+    interceptors.extend(_ih.make_static_pt_boost(obj, 1, 1, other_shikigami))
+
+    # Draw on Shikigami attack — filter triggers any of your Shikigami attacking.
+    def attack_filter(event: Event, st: GameState, src: GameObject) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        attacker = st.objects.get(attacker_id) if attacker_id else None
+        if not attacker:
+            return False
+        if attacker.controller != src.controller:
+            return False
+        return 'Shikigami' in (attacker.characteristics.subtypes or set())
+
+    def draw_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+    # Use a generic Interceptor — make_attack_trigger filters on self-attack only.
+    interceptors.append(Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: attack_filter(e, s, obj),
+        handler=lambda e, s: InterceptorResult(
+            action=InterceptorAction.REACT, new_events=draw_effect(e, s),
+        ),
+        duration='while_on_battlefield',
+    ))
+
+    return interceptors
+
+
+# --- Sukuna's Awakening (NEW saga, 3 chapters) --------------------------------
+# {2}{B}{R} Enchantment - Saga.
+# I — Each opponent loses 2 life.
+# II — Create two 1/1 black Curse creature tokens.
+# III — Search your library for a Curse creature card, put it onto the
+#       battlefield, then shuffle.
+
+def _sukuna_awakening_chapter_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    return [Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': opp, 'amount': -2},
+        source=saga_obj.id, controller=saga_obj.controller,
+    ) for opp in _ih.all_opponents(saga_obj, state)]
+
+
+def _sukuna_awakening_chapter_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    token_spec = {
+        'name': 'Curse',
+        'types': {CardType.CREATURE},
+        'subtypes': {'Curse'},
+        'power': 1,
+        'toughness': 1,
+        'colors': {Color.BLACK},
+    }
+    return [
+        Event(
+            type=EventType.CREATE_TOKEN,
+            payload={'controller': saga_obj.controller, 'token': dict(token_spec)},
+            source=saga_obj.id,
+        )
+        for _ in range(2)
+    ]
+
+
+def _sukuna_awakening_chapter_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': saga_obj.controller,
+            'subtype': 'Curse',
+            'card_type': 'creature',
+            'destination': 'battlefield',
+            'min_count': 0,
+            'max_count': 1,
+            'reveal': True,
+        },
+        source=saga_obj.id,
+    )]
+
+
+def _sukuna_awakening_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import make_saga_setup
+    return make_saga_setup(
+        obj,
+        {
+            1: _sukuna_awakening_chapter_i,
+            2: _sukuna_awakening_chapter_ii,
+            3: _sukuna_awakening_chapter_iii,
+        },
+    )
+
+
+# --- Cursed Object Collection (NEW assembly equipment) ------------------------
+# {2} Artifact - Equipment - Cursed
+# Equipped creature gets +X/+X and has menace, where X is the number of Curse
+# creatures in your graveyard. Equip {2}.
+#
+# Patterns: 3 (snowball with graveyard fill), 8 (recursion-adjacent).
+
+def _cursed_object_collection_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import (
+        make_attached_dynamic_pt_boost, _make_attached_keyword_interceptor,
+        _make_equip_activated_ability,
+    )
+    interceptors = []
+
+    def x_from_grave(source: GameObject, target: GameObject, st: GameState) -> tuple[int, int]:
+        # Count Curse creature cards in equipper's graveyard.
+        gy = st.zones.get(f'graveyard_{source.controller}')
+        if not gy:
+            return (0, 0)
+        n = 0
+        for oid in gy.objects:
+            o = st.objects.get(oid)
+            if not o:
+                continue
+            if CardType.CREATURE not in (o.characteristics.types or set()):
+                continue
+            if 'Curse' in (o.characteristics.subtypes or set()):
+                n += 1
+        return (n, n)
+
+    # Dynamic +X/+X driven by graveyard Curse count, fires only while attached.
+    interceptors.extend(make_attached_dynamic_pt_boost(obj, x_from_grave))
+    ki = _make_attached_keyword_interceptor(obj, ['menace'])
+    if ki is not None:
+        interceptors.append(ki)
+    # Register the equip activated ability via side-effect.
+    _make_equip_activated_ability(obj, "{2}")
+    return interceptors
+
+
+# --- Domain Expansion: Unlimited Void (REWIRE) --------------------------------
+# Existing card: {4}{U}{U} Enchantment - Domain. Originally had no text.
+# Rewire: Creatures your opponents control get -1/-1 and lose all activated
+#         abilities. At the beginning of your upkeep, opponents discard a card.
+#
+# Patterns: 5 (asymmetric prison), 1 (disproportionate efficiency).
+
+def _unlimited_void_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors = []
+
+    # Static -1/-1 to opp creatures.
+    interceptors.extend(_ih.make_static_pt_boost(
+        obj, -1, -1, _ih.opponent_creatures_filter(obj),
+    ))
+
+    # Upkeep: each opponent discards a card.
+    def upkeep_discard(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.DISCARD,
+            payload={'player': opp, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        ) for opp in _ih.all_opponents(obj, st)]
+    interceptors.append(_ih.make_upkeep_trigger(obj, upkeep_discard))
+
+    return interceptors
+
+
+# --- Nue, Thunder Shikigami (REWIRE) ------------------------------------------
+# Existing: {2}{G}{U} 3/2 Legendary Shikigami Bird, Flying only.
+# Rewire: Flying. ETB — Nue deals 2 damage divided among any number of target
+#         creatures and/or opponents (split = number of Shikigami you control,
+#         min 1, defaults to evenly across opps if no Shikigami).
+# Simpler v1: ETB deal 2 damage to each opp creature with toughness 2 or less.
+#
+# Patterns: 4 (compression), 11 (Shikigami payoff).
+
+def _nue_thunder_shikigami_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors = []
+
+    # Self-keyword grant for Flying (gotcha #1).
+    interceptors.append(_ih.make_keyword_grant(
+        obj, ['flying'], lambda t, s: t.id == obj.id,
+    ))
+
+    # ETB: deal 2 damage to each opponent creature with toughness 2 or less.
+    def etb_zap(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        # Damage scales with Shikigami count.
+        n_shikigami = _count_shikigami(obj.controller, st)
+        dmg = 2 + n_shikigami  # base 2 + 1 per other Shikigami (including self)
+        for target in list(st.objects.values()):
+            if target.id == obj.id:
+                continue
+            if target.controller == obj.controller:
+                continue
+            if target.zone != ZoneType.BATTLEFIELD:
+                continue
+            if CardType.CREATURE not in (target.characteristics.types or set()):
+                continue
+            if get_toughness(target, st) > 2:
+                continue
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': target.id, 'amount': dmg, 'source': obj.id,
+                         'is_combat': False},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    interceptors.append(_ih.make_etb_trigger(obj, etb_zap))
+    return interceptors
+
+
+# --- Malevolent Shrine Keeper (REWIRE) ----------------------------------------
+# Existing: {2}{B}{B} 3/4 Curse Cleric, no text.
+# Rewire: Other Curse creatures you control get +1/+1.
+#         Whenever a Curse you control dies, each opponent loses 1 life.
+#
+# Patterns: 11 (Curse-tribal lord), 3 (snowball drain).
+
+def _malevolent_shrine_keeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors = []
+
+    # Curse-tribal lord +1/+1.
+    interceptors.extend(_ih.make_static_pt_boost(
+        obj, 1, 1, _ih.other_creatures_with_subtype(obj, 'Curse'),
+    ))
+
+    # Death drain.
+    def curse_death_filter(event: Event, st: GameState, src: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('from_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        dying = st.objects.get(event.payload.get('object_id'))
+        if not dying:
+            return False
+        if dying.id == src.id:
+            return False
+        if dying.controller != src.controller:
+            return False
+        if CardType.CREATURE not in dying.characteristics.types:
+            return False
+        return 'Curse' in (dying.characteristics.subtypes or set())
+
+    def drain_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp, 'amount': -1},
+            source=obj.id, controller=obj.controller,
+        ) for opp in _ih.all_opponents(obj, st)]
+    interceptors.append(_ih.make_death_trigger(
+        obj, drain_effect, filter_fn=curse_death_filter,
+    ))
+    return interceptors
+
+
+# --- Sukuna's Finger (REWIRE) -------------------------------------------------
+# Existing: {B}{R} 0/1 Curse Horror, Indestructible only.
+# Rewire: Indestructible. At the beginning of your end step, if you control
+#         four or more Sukuna's Fingers, you may search your library for a
+#         card named "Ryomen Sukuna, King of Curses" or "Sukuna, Heian
+#         Reincarnate", reveal it, and put it into your hand. (Sukuna's
+#         twenty fingers — gather them, summon the King.)
+#
+# Patterns: 7 (tutoring), 11 (assembly build-around).
+
+def _sukuna_finger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    interceptors = []
+
+    # Preserve Indestructible via keyword grant (gotcha #1).
+    interceptors.append(_ih.make_keyword_grant(
+        obj, ['indestructible'], lambda t, s: t.id == obj.id,
+    ))
+
+    # End-step tutor: count Sukuna's Fingers you control.
+    def count_fingers(controller: str, st: GameState) -> int:
+        bf = st.zones.get('battlefield')
+        if not bf:
+            return 0
+        n = 0
+        for oid in bf.objects:
+            o = st.objects.get(oid)
+            if not o or o.controller != controller:
+                continue
+            if (o.card_def is not None and o.card_def.name == "Sukuna's Finger"):
+                n += 1
+            elif o.characteristics.power == 0 and o.characteristics.toughness == 1 \
+                    and 'Curse' in (o.characteristics.subtypes or set()) \
+                    and 'Horror' in (o.characteristics.subtypes or set()):
+                # Fallback identification for objects without card_def (tokens etc.)
+                n += 1
+        return n
+
+    def end_step_tutor(event: Event, st: GameState) -> list[Event]:
+        if count_fingers(obj.controller, st) < 4:
+            return []
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': obj.controller,
+                'card_name_any': [
+                    'Ryomen Sukuna, King of Curses',
+                    'Sukuna, Heian Reincarnate',
+                ],
+                'destination': 'hand',
+                'min_count': 0,
+                'max_count': 1,
+                'reveal': True,
+            },
+            source=obj.id,
+        )]
+    interceptors.append(_ih.make_end_step_trigger(obj, end_step_tutor))
+    return interceptors
+
+
+# =============================================================================
 # WHITE CARDS - JUJUTSU SORCERERS, PROTECTION, EXORCISM
 # =============================================================================
 
@@ -2529,7 +2978,10 @@ MALEVOLENT_SHRINE_KEEPER = make_creature(
     power=3, toughness=4,
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    subtypes={"Curse", "Cleric"}
+    subtypes={"Curse", "Cleric"},
+    text=("Other Curse creatures you control get +1/+1. Whenever a Curse you "
+          "control dies, each opponent loses 1 life."),
+    setup_interceptors=_malevolent_shrine_keeper_setup,
 )
 
 
@@ -2833,7 +3285,11 @@ NUE_SHIKIGAMI = _make_creature_with_keywords(
     subtypes={"Shikigami", "Bird"},
     supertypes={"Legendary"},
     keywords=['Flying'],
-    text='Flying',
+    text=("Flying. When Nue, Thunder Shikigami enters the battlefield, it "
+          "deals X damage to each creature an opponent controls with toughness "
+          "2 or less, where X is 2 plus the number of Shikigami you control. "
+          "(The thundercloud strikes the weak.)"),
+    setup_interceptors=_nue_thunder_shikigami_setup,
 )
 
 
@@ -3010,7 +3466,12 @@ SUKUNA_FINGER = _make_creature_with_keywords(
     colors={Color.BLACK, Color.RED},
     subtypes={"Curse", "Horror"},
     keywords=['Indestructible'],
-    text='Indestructible',
+    text=("Indestructible. At the beginning of your end step, if you control "
+          "four or more Sukuna's Fingers, you may search your library for a "
+          "card named \"Ryomen Sukuna, King of Curses\" or \"Sukuna, Heian "
+          "Reincarnate\", reveal it, and put it into your hand. (Twenty "
+          "fingers — gather them, summon the King.)"),
+    setup_interceptors=_sukuna_finger_setup,
 )
 
 
@@ -3431,7 +3892,11 @@ UNLIMITED_VOID = make_enchantment(
     name="Unlimited Void",
     mana_cost="{4}{U}{U}",
     colors={Color.BLUE},
-    subtypes={"Domain"}
+    subtypes={"Domain"},
+    text=("Creatures your opponents control get -1/-1. At the beginning of "
+          "your upkeep, each opponent discards a card. (You are alone in the "
+          "infinity. You will receive nothing.)"),
+    setup_interceptors=_unlimited_void_setup,
 )
 
 
@@ -4352,6 +4817,75 @@ CURSED_SPIRIT_REAVER = make_creature(
 
 
 # =============================================================================
+# PHASE A1 SPICE CARDS — new defs (2026-05-18)
+# =============================================================================
+
+# Mythic build-around #1 — Curse-tribal payoff legend.
+SUKUNA_HEIAN_REINCARNATE = _make_creature_with_keywords(
+    name="Sukuna, Heian Reincarnate",
+    power=5, toughness=5,
+    mana_cost="{3}{B}{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    subtypes={"Curse", "Avatar", "Demon"},
+    supertypes={"Legendary"},
+    text=("When Sukuna, Heian Reincarnate enters the battlefield, each "
+          "opponent sacrifices a creature. Whenever another Curse you "
+          "control dies, put a +1/+1 counter on Sukuna. As long as you "
+          "control four or more Curses, Sukuna has trample and menace. "
+          "(The King wakes, fed by the cursed dead.)"),
+    setup_interceptors=_sukuna_heian_setup,
+)
+
+
+# Mythic build-around #2 — Shikigami tutor on a body.
+MEGUMI_TEN_SHADOWS_MASTER = _make_creature_with_keywords(
+    name="Megumi, Master of Ten Shadows",
+    power=3, toughness=3,
+    mana_cost="{2}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    subtypes={"Human", "Sorcerer"},
+    supertypes={"Legendary"},
+    text=("When Megumi, Master of Ten Shadows enters the battlefield, search "
+          "your library for a Shikigami creature card with mana value 3 or "
+          "less, put it onto the battlefield, then shuffle. Other Shikigami "
+          "you control get +1/+1. Whenever a Shikigami you control attacks, "
+          "draw a card."),
+    setup_interceptors=_megumi_ten_shadows_master_setup,
+)
+
+
+# Saga — three-chapter Sukuna manifestation.
+SUKUNA_AWAKENING = make_enchantment(
+    name="Sukuna's Awakening",
+    mana_cost="{2}{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    subtypes={"Saga"},
+    text=("(As this Saga enters and after your draw step, add a lore counter. "
+          "Sacrifice after III.) "
+          "I — Each opponent loses 2 life. "
+          "II — Create two 1/1 black Curse creature tokens. "
+          "III — Search your library for a Curse creature card, put it onto "
+          "the battlefield, then shuffle."),
+    setup_interceptors=_sukuna_awakening_setup,
+)
+
+
+# Assembly equipment — graveyard-Curse counter scaling.
+# Note: we let the setup_interceptors call `_make_equip_activated_ability("{2}")`
+# rather than passing equip_cost= here, so the equip ability is registered
+# exactly once.
+CURSED_OBJECT_COLLECTION = make_equipment(
+    name="Cursed Object Collection",
+    mana_cost="{2}",
+    text=("Equipped creature gets +X/+X and has menace, where X is the number "
+          "of Curse creature cards in your graveyard. Equip {2}. "
+          "(The relics of dead curses still hunger.)"),
+    setup_interceptors=_cursed_object_collection_setup,
+    subtypes={"Cursed"},
+)
+
+
+# =============================================================================
 # EXPORT
 # =============================================================================
 
@@ -4623,6 +5157,12 @@ JUJUTSU_KAISEN_CARDS = {
     "Jujutsu Veteran": JUJUTSU_VETERAN,
     "Curse Brigand": CURSE_BRIGAND,
     "Cursed Spirit Reaver": CURSED_SPIRIT_REAVER,
+
+    # Phase A1 spice pass (2026-05-18)
+    "Sukuna, Heian Reincarnate": SUKUNA_HEIAN_REINCARNATE,
+    "Megumi, Master of Ten Shadows": MEGUMI_TEN_SHADOWS_MASTER,
+    "Sukuna's Awakening": SUKUNA_AWAKENING,
+    "Cursed Object Collection": CURSED_OBJECT_COLLECTION,
 }
 
 
@@ -4854,4 +5394,9 @@ CARDS = [
     JUJUTSU_VETERAN,
     CURSE_BRIGAND,
     CURSED_SPIRIT_REAVER,
+    # Phase A1 spice pass (2026-05-18)
+    SUKUNA_HEIAN_REINCARNATE,
+    MEGUMI_TEN_SHADOWS_MASTER,
+    SUKUNA_AWAKENING,
+    CURSED_OBJECT_COLLECTION,
 ]
