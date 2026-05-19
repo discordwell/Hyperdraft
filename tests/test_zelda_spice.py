@@ -2545,6 +2545,496 @@ def test_kass_spell_cast_scry_and_drain():
 
 
 # ============================================================================
+# Slice-8B Blue + Red median lift (2026-05-19): 28 vanilla cards lifted to
+# depth>=6 via inline state.zones+all_opponents pattern. Each test fires the
+# buffed ETB / attack trigger and asserts the expected information +
+# asymmetric events emit. Keeps the depth-v2 axes wired to engine behavior.
+# ============================================================================
+
+
+def _events_after(game, source_id, event_type, since):
+    return [
+        e for e in game.state.event_log[since:]
+        if e.type == event_type and e.source == source_id
+    ]
+
+
+def _assert_etb_scry(game, p, card_name, expected_amount):
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p, card_name)
+    scrys = _events_after(game, obj.id, EventType.SCRY, before)
+    assert scrys, f"{card_name}: SCRY missing — got {_emitted_types(game)[-10:]}"
+    assert scrys[-1].payload.get('amount') == expected_amount, (
+        f"{card_name}: expected SCRY {expected_amount}, got {scrys[-1].payload}"
+    )
+    return obj, before
+
+
+def _fire_attack(game, attacker, attacker_controller):
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': attacker.id, 'attacker': attacker.id,
+                 'controller': attacker_controller.id},
+        source=attacker.id,
+    ))
+    return before
+
+
+# -- Blue cards (13) --------------------------------------------------------
+
+def test_zora_warrior_etb_scry_and_drain():
+    print("\n=== Zora Warrior: ETB scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj, before = _assert_etb_scry(game, p1, "Zora Warrior", 1)
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount') == -1
+              and e.source == obj.id]
+    assert drains, f"Expected drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_river_zora_attack_scry_and_drain():
+    print("\n=== River Zora: attack scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, "River Zora")
+    before = _fire_attack(game, obj, p1)
+    scrys = _events_after(game, obj.id, EventType.SCRY, before)
+    assert scrys, f"Expected SCRY; got {_emitted_types(game)[-10:]}"
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount') == -1
+              and e.source == obj.id]
+    assert drains, f"Expected attack drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_water_spirit_etb_scry2_and_drain():
+    print("\n=== Water Spirit: ETB scry 2 + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj, before = _assert_etb_scry(game, p1, "Water Spirit", 2)
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.source == obj.id]
+    assert drains, f"Expected drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_octorok_etb_scry_and_drain():
+    print("\n=== Octorok: ETB scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj, before = _assert_etb_scry(game, p1, "Octorok", 1)
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.source == obj.id]
+    assert drains, f"Expected drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_like_like_etb_surveil_and_discard():
+    print("\n=== Like-Like: ETB surveil + each opp discard ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, "Like-Like")
+    surveils = _events_after(game, obj.id, EventType.SURVEIL, before)
+    assert surveils, f"Expected SURVEIL; got {_emitted_types(game)[-10:]}"
+    discards = [e for e in game.state.event_log[before:]
+                if e.type == EventType.DISCARD
+                and e.payload.get('player') == p2.id
+                and e.source == obj.id]
+    assert discards, f"Expected DISCARD; got {_emitted_types(game)[-10:]}"
+
+
+def test_gyorg_etb_scry2_and_mill():
+    print("\n=== Gyorg: ETB scry 2 + mill ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj, before = _assert_etb_scry(game, p1, "Gyorg", 2)
+    mills = [e for e in game.state.event_log[before:]
+             if e.type == EventType.MILL
+             and e.payload.get('player') == p2.id
+             and e.source == obj.id]
+    assert mills, f"Expected MILL; got {_emitted_types(game)[-10:]}"
+
+
+def test_zora_diver_etb_scry_and_reveal_hand():
+    print("\n=== Zora Diver: ETB scry + reveal hand ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj, before = _assert_etb_scry(game, p1, "Zora Diver", 1)
+    reveals = [e for e in game.state.event_log[before:]
+               if e.type == EventType.REVEAL_HAND
+               and e.payload.get('player') == p2.id
+               and e.source == obj.id]
+    assert reveals, f"Expected REVEAL_HAND; got {_emitted_types(game)[-10:]}"
+
+
+def test_zora_spearman_attack_scry_and_drain():
+    print("\n=== Zora Spearman: attack scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, "Zora Spearman")
+    before = _fire_attack(game, obj, p1)
+    scrys = _events_after(game, obj.id, EventType.SCRY, before)
+    assert scrys, f"Expected SCRY; got {_emitted_types(game)[-10:]}"
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.source == obj.id]
+    assert drains, f"Expected drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_zora_guard_etb_scry_lifegain_drain():
+    print("\n=== Zora Guard: ETB scry + life gain + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj, before = _assert_etb_scry(game, p1, "Zora Guard", 1)
+    gains = [e for e in game.state.event_log[before:]
+             if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('amount', 0) > 0
+             and e.source == obj.id]
+    assert gains, f"Expected life gain; got {_emitted_types(game)[-10:]}"
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0
+              and e.source == obj.id]
+    assert drains, f"Expected drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_wisdom_fairy_etb_scry_lifegain_drain():
+    print("\n=== Wisdom Fairy: ETB scry + life gain + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj, before = _assert_etb_scry(game, p1, "Wisdom Fairy", 1)
+    gains = [e for e in game.state.event_log[before:]
+             if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('amount', 0) > 0
+             and e.source == obj.id]
+    assert gains, f"Expected life gain; got {_emitted_types(game)[-10:]}"
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0
+              and e.source == obj.id]
+    assert drains, f"Expected drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_river_guardian_etb_scry_surveil_when_threat():
+    print("\n=== River Guardian: ETB scry + surveil if threat ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    threat_cd = LEGEND_OF_ZELDA_CARDS["Goron Warrior"]
+    game.create_object(
+        name="Goron Warrior",
+        owner_id=p2.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=threat_cd.characteristics,
+        card_def=threat_cd,
+    )
+    obj, before = _assert_etb_scry(game, p1, "River Guardian", 1)
+    surveils = _events_after(game, obj.id, EventType.SURVEIL, before)
+    assert surveils, f"Expected SURVEIL with opp threat; got {_emitted_types(game)[-10:]}"
+
+
+def test_robbie_etb_scry2_lifegain_drain():
+    print("\n=== Robbie: ETB scry 2 + life gain + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj, before = _assert_etb_scry(game, p1, "Robbie, Ancient Tech Expert", 2)
+    gains = [e for e in game.state.event_log[before:]
+             if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('amount', 0) > 0
+             and e.source == obj.id]
+    assert gains, f"Expected life gain; got {_emitted_types(game)[-10:]}"
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0
+              and e.source == obj.id]
+    assert drains, f"Expected drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_zoras_domain_enchantment_etb_scry2_and_mill():
+    print("\n=== Zora's Domain (Enchantment): ETB scry 2 + mill ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj, before = _assert_etb_scry(game, p1, "Zora's Domain (Enchantment)", 2)
+    mills = [e for e in game.state.event_log[before:]
+             if e.type == EventType.MILL
+             and e.payload.get('player') == p2.id
+             and e.source == obj.id]
+    assert mills, f"Expected MILL; got {_emitted_types(game)[-10:]}"
+
+
+# -- Red cards (15) ---------------------------------------------------------
+
+
+def test_volvagia_fire_dragon_etb_damage_and_surveil():
+    print("\n=== Volvagia: ETB damage + surveil ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, "Volvagia, Fire Dragon")
+    surveils = _events_after(game, obj.id, EventType.SURVEIL, before)
+    assert surveils, f"Expected SURVEIL; got {_emitted_types(game)[-10:]}"
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) <= -2
+              and e.source == obj.id]
+    assert drains, f"Expected >=2 damage; got {_emitted_types(game)[-10:]}"
+
+
+def test_goron_warrior_attack_damage_each_opp():
+    print("\n=== Goron Warrior: attack damages each opp ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, "Goron Warrior")
+    before = _fire_attack(game, obj, p1)
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0
+              and e.source == obj.id]
+    assert drains, f"Expected attack damage; got {_emitted_types(game)[-10:]}"
+
+
+def test_goron_smith_etb_damage_and_artifact_scry():
+    print("\n=== Goron Smith: ETB damage (and scry if artifact) ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, "Goron Smith")
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0
+              and e.source == obj.id]
+    assert drains, f"Expected damage; got {_emitted_types(game)[-10:]}"
+
+
+def test_dodongo_etb_damage_each_opp():
+    print("\n=== Dodongo: ETB damages each opp ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, "Dodongo")
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0
+              and e.source == obj.id]
+    assert drains, f"Expected damage; got {_emitted_types(game)[-10:]}"
+
+
+def test_fire_keese_attack_damage_each_opp():
+    print("\n=== Fire Keese: attack damages each opp ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, "Fire Keese")
+    before = _fire_attack(game, obj, p1)
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0
+              and e.source == obj.id]
+    assert drains, f"Expected attack damage; got {_emitted_types(game)[-10:]}"
+
+
+def test_lizalfos_attack_damage_each_opp():
+    print("\n=== Lizalfos: attack damages each opp ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, "Lizalfos")
+    before = _fire_attack(game, obj, p1)
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0
+              and e.source == obj.id]
+    assert drains, f"Expected attack damage; got {_emitted_types(game)[-10:]}"
+
+
+def test_lynel_etb_damage_each_opp():
+    print("\n=== Lynel: ETB damage to each opp ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, "Lynel")
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) <= -2
+              and e.source == obj.id]
+    assert drains, f"Expected 2+ damage; got {_emitted_types(game)[-10:]}"
+
+
+def test_moblin_attack_reveal_hand_and_drain():
+    print("\n=== Moblin: attack reveal hand + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, "Moblin")
+    before = _fire_attack(game, obj, p1)
+    reveals = [e for e in game.state.event_log[before:]
+               if e.type == EventType.REVEAL_HAND
+               and e.payload.get('player') == p2.id
+               and e.source == obj.id]
+    assert reveals, f"Expected REVEAL_HAND; got {_emitted_types(game)[-10:]}"
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0
+              and e.source == obj.id]
+    assert drains, f"Expected drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_hinox_etb_damage_each_opp():
+    print("\n=== Hinox: ETB damages each opp ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, "Hinox")
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) <= -2
+              and e.source == obj.id]
+    assert drains, f"Expected 2+ damage; got {_emitted_types(game)[-10:]}"
+
+
+def test_goron_elder_etb_scry_lifegain_drain():
+    print("\n=== Goron Elder: ETB scry + life gain + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj, before = _assert_etb_scry(game, p1, "Goron Elder", 1)
+    gains = [e for e in game.state.event_log[before:]
+             if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('amount', 0) > 0
+             and e.source == obj.id]
+    assert gains, f"Expected life gain; got {_emitted_types(game)[-10:]}"
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0
+              and e.source == obj.id]
+    assert drains, f"Expected drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_fire_spirit_etb_damage_each_opp():
+    print("\n=== Fire Spirit: ETB damages each opp ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, "Fire Spirit")
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0
+              and e.source == obj.id]
+    assert drains, f"Expected damage; got {_emitted_types(game)[-10:]}"
+
+
+def test_fire_temple_goron_attack_damage_each_opp():
+    print("\n=== Fire Temple Goron: attack damages each opp ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, "Fire Temple Goron")
+    before = _fire_attack(game, obj, p1)
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0
+              and e.source == obj.id]
+    assert drains, f"Expected attack damage; got {_emitted_types(game)[-10:]}"
+
+
+def test_volcanic_keese_attack_damage_each_opp():
+    print("\n=== Volcanic Keese: attack damages each opp ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, "Volcanic Keese")
+    before = _fire_attack(game, obj, p1)
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0
+              and e.source == obj.id]
+    assert drains, f"Expected attack damage; got {_emitted_types(game)[-10:]}"
+
+
+def test_stone_talus_etb_damage_each_opp():
+    print("\n=== Stone Talus: ETB damages each opp ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, "Stone Talus")
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) <= -2
+              and e.source == obj.id]
+    assert drains, f"Expected 2+ damage; got {_emitted_types(game)[-10:]}"
+
+
+def test_goron_strength_etb_reveal_hand_and_drain():
+    print("\n=== Goron Strength: ETB reveal hand + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, "Goron Strength")
+    reveals = [e for e in game.state.event_log[before:]
+               if e.type == EventType.REVEAL_HAND
+               and e.payload.get('player') == p2.id
+               and e.source == obj.id]
+    assert reveals, f"Expected REVEAL_HAND; got {_emitted_types(game)[-10:]}"
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0
+              and e.source == obj.id]
+    assert drains, f"Expected drain; got {_emitted_types(game)[-10:]}"
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 

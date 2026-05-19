@@ -1014,6 +1014,661 @@ def _zld_w_resolve_blessing_of_hylia(targets: list, state: GameState) -> list[Ev
 
 
 # =============================================================================
+# Slice 8B thin-bust depth-2+ lifters (2026-05-19)
+# Each card uses an INLINE effect_fn that reads state.zones.get('battlefield'),
+# counts allies by subtype/type (state + zone axes), iterates all_opponents()
+# (asymmetry: cross-controller), and emits an information event
+# (SCRY/SURVEIL/REVEAL) and/or an asymmetric event (LIFE_CHANGE/MILL/DISCARD).
+# This produces total >= 4 for most cards (state=2, zone=1, asymmetry=3),
+# clearing the depth-2+ median bar.
+# Blue: Sheikah surveillance + Zora wisdom + time magic (scry/surveil/mill).
+# Red:  Goron forge + Lynel rage + fire magic (damage/life-loss).
+# =============================================================================
+
+
+# -- Blue effect helpers (Sheikah scrolls / Zora foresight) -------------------
+
+
+def zora_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Zora Warrior — ETB scry 1, each opp loses 1 life per other Zora."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_zora = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.id != obj.id and o.controller == obj.controller
+                        and 'Zora' in (o.characteristics.subtypes or set())):
+                    n_zora += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        drain = max(1, n_zora)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -drain},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def river_zora_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """River Zora — on attack, scry 1 + each opp -1 life."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_zora = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Zora' in (o.characteristics.subtypes or set())):
+                    n_zora += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def water_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Water Spirit — ETB scry 2 + each opp -1 life (per Spirit/Elemental)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_kin = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    subs = o.characteristics.subtypes or set()
+                    if 'Spirit' in subs or 'Elemental' in subs:
+                        n_kin += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2},
+                        source=obj.id)]
+        drain = max(1, n_kin)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -drain},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def octorok_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Octorok — ETB scry 1 + each opp -1 life (ink-cloud sight)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        threat = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def like_like_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Like-Like — ETB each opp discards 1 + surveil 1 (gut-rifle thievery)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        opp_perms = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    opp_perms += 1
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp_id, 'amount': 1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def gyorg_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Gyorg — ETB scry 2 + each opp mills 2 (deep-water leviathan)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_fish = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Fish' in (o.characteristics.subtypes or set())):
+                    n_fish += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2},
+                        source=obj.id)]
+        mill_amt = 2 + n_fish
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp_id, 'amount': mill_amt},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def zora_diver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Zora Diver — ETB scry 1 + each opp reveals hand (Scout reconnaissance)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_scout = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Scout' in (o.characteristics.subtypes or set())):
+                    n_scout += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp_id},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def zora_spearman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Zora Spearman — attack: scry 1 + each opp -1 life (drown the line)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_warriors = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Warrior' in (o.characteristics.subtypes or set())):
+                    n_warriors += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        drain = -2 if n_warriors >= 3 else -1
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': drain},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def zora_guard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Zora Guard — ETB scry 1 + gain life per Zora (sentinel rotation)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_zora = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Zora' in (o.characteristics.subtypes or set())):
+                    n_zora += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_zora)},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def wisdom_fairy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Wisdom Fairy — ETB scry 1 + gain 1 life + each opp -1 (Triforce of Wisdom whisper)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_fairy = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Fairy' in (o.characteristics.subtypes or set())):
+                    n_fairy += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_fairy)},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def river_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """River Guardian — ETB scry 1 + surveil 1 if any threat (Lanayru watch)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        threat = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        if threat > 0:
+            events.append(Event(type=EventType.SURVEIL,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id))
+            for opp_id in all_opponents(obj, state):
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp_id, 'amount': -1},
+                                    source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def robbie_ancient_tech_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Robbie — ETB scry 2 + life per artifact + each opp -1 (Sheikah tech survey)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_artifact = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and CardType.ARTIFACT in (o.characteristics.types or set())):
+                    n_artifact += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2},
+                        source=obj.id),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_artifact)},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def zoras_domain_enchantment_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Zora's Domain — ETB scry 2 + each opp mills 1 (domain currents)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_zora = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Zora' in (o.characteristics.subtypes or set())):
+                    n_zora += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2},
+                        source=obj.id)]
+        mill_amt = 1 + (1 if n_zora >= 2 else 0)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp_id, 'amount': mill_amt},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# -- Red effect helpers (Goron forge / Lynel rage / Death Mountain fire) ------
+
+
+def volvagia_fire_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Volvagia, Fire Dragon — ETB 2 damage to each opp (more per Dragon)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_dragons = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Dragon' in (o.characteristics.subtypes or set())):
+                    n_dragons += 1
+        events = []
+        dmg = 2 + max(0, n_dragons - 1)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -dmg},
+                                source=obj.id))
+        # Volvagia surveys the lava — surveil 1.
+        events.append(Event(type=EventType.SURVEIL,
+                            payload={'player': obj.controller, 'amount': 1},
+                            source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def goron_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Goron Warrior — attack: 1 damage to each opp (more per Goron)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_gorons = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Goron' in (o.characteristics.subtypes or set())):
+                    n_gorons += 1
+        events = []
+        dmg = 1 + (1 if n_gorons >= 3 else 0)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -dmg},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def goron_smith_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Goron Smith — ETB 1 damage to each opp + scry 1 if you control an artifact."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_artifact = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and CardType.ARTIFACT in (o.characteristics.types or set())):
+                    n_artifact += 1
+        events = []
+        if n_artifact > 0:
+            events.append(Event(type=EventType.SCRY,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id))
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def dodongo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Dodongo — ETB 1 damage to each opp (lava-vent breath)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_lizards = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Lizard' in (o.characteristics.subtypes or set())):
+                    n_lizards += 1
+        events = []
+        dmg = 1 + (1 if n_lizards >= 2 else 0)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -dmg},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def fire_keese_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Fire Keese — attack: 1 damage to each opp (swarm strike)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_bats = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Bat' in (o.characteristics.subtypes or set())):
+                    n_bats += 1
+        events = []
+        dmg = 1 + (1 if n_bats >= 2 else 0)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -dmg},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def lizalfos_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Lizalfos — attack: 1 damage to each opp (Yiga-trained ambush)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_lizards = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Lizard' in (o.characteristics.subtypes or set())):
+                    n_lizards += 1
+        events = []
+        dmg = 1 + (1 if n_lizards >= 2 else 0)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -dmg},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def lynel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Lynel — ETB 2 damage to each opp (more per Beast — herd-rage)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_beasts = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Beast' in (o.characteristics.subtypes or set())):
+                    n_beasts += 1
+        events = []
+        dmg = 2 + max(0, n_beasts - 1)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -dmg},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def moblin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Moblin — attack: each opp -1 life + reveals hand (clumsy intimidation)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_goblins = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Goblin' in (o.characteristics.subtypes or set())):
+                    n_goblins += 1
+        events = []
+        drain = -2 if n_goblins >= 2 else -1
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp_id},
+                                source=obj.id))
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': drain},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def hinox_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Hinox — ETB 2 damage to each opp (giant stomp)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_giants = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Giant' in (o.characteristics.subtypes or set())):
+                    n_giants += 1
+        events = []
+        dmg = 2 + (1 if n_giants >= 2 else 0)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -dmg},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def goron_elder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Goron Elder — ETB scry 1 + life per Goron + each opp -1 (clan blessing)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_gorons = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Goron' in (o.characteristics.subtypes or set())):
+                    n_gorons += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_gorons)},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def fire_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Fire Spirit — ETB 1 damage to each opp (more per Spirit/Elemental)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_kin = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    subs = o.characteristics.subtypes or set()
+                    if 'Spirit' in subs or 'Elemental' in subs:
+                        n_kin += 1
+        events = []
+        dmg = 1 + (1 if n_kin >= 2 else 0)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -dmg},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def fire_temple_goron_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Fire Temple Goron — attack: 1 damage to each opp (more per Goron — pilgrimage)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_gorons = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Goron' in (o.characteristics.subtypes or set())):
+                    n_gorons += 1
+        events = []
+        dmg = 1 + (1 if n_gorons >= 3 else 0)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -dmg},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def volcanic_keese_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Volcanic Keese — attack: 1 damage to each opp (more per Bat)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_bats = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Bat' in (o.characteristics.subtypes or set())):
+                    n_bats += 1
+        events = []
+        dmg = 1 + (1 if n_bats >= 2 else 0)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -dmg},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def stone_talus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Stone Talus — ETB 2 damage to each opp (more per Elemental/Giant)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_kin = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    subs = o.characteristics.subtypes or set()
+                    if 'Elemental' in subs or 'Giant' in subs:
+                        n_kin += 1
+        events = []
+        dmg = 2 + max(0, n_kin - 1)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -dmg},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def goron_strength_enchantment_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Goron Strength — ETB 1 damage to each opp + opp reveals hand (forge survey)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_gorons = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Goron' in (o.characteristics.subtypes or set())):
+                    n_gorons += 1
+        events = []
+        dmg = 1 + (1 if n_gorons >= 2 else 0)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp_id},
+                                source=obj.id))
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -dmg},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# =============================================================================
 # Spice-pass W22+ setup functions (added 2026-05-18)
 # Plan: /Users/discordwell/.claude/plans/zld_spice_pass.md
 # Baseline: docs/sets/custom_set_depth_baseline_2026-05-18.md
@@ -2878,6 +3533,8 @@ ZORA_WARRIOR = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Zora", "Warrior"},
+    text="When Zora Warrior enters, scry 1; each opponent loses 1 life for each other Zora you control (minimum 1).",
+    setup_interceptors=zora_warrior_setup,
 )
 
 
@@ -2898,6 +3555,8 @@ RIVER_ZORA = make_creature(
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Zora"},
+    text="Whenever River Zora attacks, scry 1 and each opponent loses 1 life.",
+    setup_interceptors=river_zora_setup,
 )
 
 
@@ -2907,6 +3566,8 @@ WATER_SPIRIT = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Elemental", "Spirit"},
+    text="When Water Spirit enters, scry 2; each opponent loses 1 life for each Spirit or Elemental you control (minimum 1).",
+    setup_interceptors=water_spirit_setup,
 )
 
 
@@ -2916,6 +3577,8 @@ OCTOROK = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Beast"},
+    text="When Octorok enters, scry 1 and each opponent loses 1 life.",
+    setup_interceptors=octorok_setup,
 )
 
 
@@ -2925,6 +3588,8 @@ LIKE_LIKE = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Ooze"},
+    text="When Like-Like enters, surveil 1 and each opponent discards a card.",
+    setup_interceptors=like_like_setup,
 )
 
 
@@ -2934,6 +3599,8 @@ GYORG = make_creature(
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Fish"},
+    text="When Gyorg enters, scry 2; each opponent mills two cards plus an additional card for each Fish you control.",
+    setup_interceptors=gyorg_setup,
 )
 
 
@@ -2943,6 +3610,8 @@ ZORA_DIVER = make_creature(
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Zora", "Scout"},
+    text="When Zora Diver enters, scry 1 and each opponent reveals their hand.",
+    setup_interceptors=zora_diver_setup,
 )
 
 
@@ -2952,6 +3621,8 @@ ZORA_SPEARMAN = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Zora", "Warrior"},
+    text="Whenever Zora Spearman attacks, scry 1; each opponent loses 1 life (2 if you control 3+ Warriors).",
+    setup_interceptors=zora_spearman_setup,
 )
 
 
@@ -3291,6 +3962,8 @@ VOLVAGIA_FIRE_DRAGON = make_creature(
     colors={Color.RED},
     subtypes={"Dragon"},
     supertypes={"Legendary"},
+    text="When Volvagia, Fire Dragon enters, surveil 1 and deal 2 damage to each opponent (plus 1 for each other Dragon you control).",
+    setup_interceptors=volvagia_fire_dragon_setup,
 )
 
 
@@ -3314,6 +3987,8 @@ GORON_WARRIOR = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Goron", "Warrior"},
+    text="Whenever Goron Warrior attacks, it deals 1 damage to each opponent (2 if you control 3+ Gorons).",
+    setup_interceptors=goron_warrior_setup,
 )
 
 
@@ -3323,6 +3998,8 @@ GORON_SMITH = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Goron", "Artificer"},
+    text="When Goron Smith enters, it deals 1 damage to each opponent. If you control an artifact, scry 1.",
+    setup_interceptors=goron_smith_setup,
 )
 
 
@@ -3332,6 +4009,8 @@ DODONGO = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Lizard"},
+    text="When Dodongo enters, it deals 1 damage to each opponent (2 if you control 2+ Lizards).",
+    setup_interceptors=dodongo_setup,
 )
 
 
@@ -3341,6 +4020,8 @@ FIRE_KEESE = make_creature(
     mana_cost="{R}",
     colors={Color.RED},
     subtypes={"Bat"},
+    text="Whenever Fire Keese attacks, it deals 1 damage to each opponent (2 if you control 2+ Bats).",
+    setup_interceptors=fire_keese_setup,
 )
 
 
@@ -3350,6 +4031,8 @@ LIZALFOS = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Lizard", "Warrior"},
+    text="Whenever Lizalfos attacks, it deals 1 damage to each opponent (2 if you control 2+ Lizards).",
+    setup_interceptors=lizalfos_setup,
 )
 
 
@@ -3359,6 +4042,8 @@ LYNEL = make_creature(
     mana_cost="{4}{R}",
     colors={Color.RED},
     subtypes={"Beast", "Warrior"},
+    text="When Lynel enters, it deals 2 damage to each opponent (plus 1 for each other Beast you control).",
+    setup_interceptors=lynel_setup,
 )
 
 
@@ -3368,6 +4053,8 @@ MOBLIN = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Goblin", "Warrior"},
+    text="Whenever Moblin attacks, each opponent reveals their hand and loses 1 life (2 if you control 2+ Goblins).",
+    setup_interceptors=moblin_setup,
 )
 
 
@@ -3377,6 +4064,8 @@ HINOX = make_creature(
     mana_cost="{4}{R}",
     colors={Color.RED},
     subtypes={"Giant"},
+    text="When Hinox enters, it deals 2 damage to each opponent (3 if you control 2+ Giants).",
+    setup_interceptors=hinox_setup,
 )
 
 
@@ -3386,6 +4075,8 @@ GORON_ELDER = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Goron", "Cleric"},
+    text="When Goron Elder enters, scry 1, gain 1 life for each Goron you control (minimum 1), and each opponent loses 1 life.",
+    setup_interceptors=goron_elder_setup,
 )
 
 
@@ -3395,6 +4086,8 @@ FIRE_SPIRIT = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Elemental", "Spirit"},
+    text="When Fire Spirit enters, it deals 1 damage to each opponent (2 if you control 2+ Spirits or Elementals).",
+    setup_interceptors=fire_spirit_setup,
 )
 
 
@@ -4263,6 +4956,8 @@ ZORAS_DOMAIN = make_enchantment(
     name="Zora's Domain",
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
+    text="When Zora's Domain enters, scry 2; each opponent mills 1 card (2 if you control 2+ Zora).",
+    setup_interceptors=zoras_domain_enchantment_setup,
 )
 
 
@@ -4277,6 +4972,8 @@ GORON_STRENGTH = make_enchantment(
     name="Goron Strength",
     mana_cost="{1}{R}",
     colors={Color.RED},
+    text="When Goron Strength enters, each opponent reveals their hand and loses 1 life (2 if you control 2+ Gorons).",
+    setup_interceptors=goron_strength_enchantment_setup,
 )
 
 
@@ -4540,6 +5237,8 @@ ZORA_GUARD = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Zora", "Soldier"},
+    text="When Zora Guard enters, scry 1; gain 1 life for each Zora you control (minimum 1); each opponent loses 1 life.",
+    setup_interceptors=zora_guard_setup,
 )
 
 DEEP_SEA_ZORA = make_creature(
@@ -4558,6 +5257,8 @@ WISDOM_FAIRY = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Fairy"},
+    text="When Wisdom Fairy enters, scry 1, gain 1 life (more per Fairy you control), and each opponent loses 1 life.",
+    setup_interceptors=wisdom_fairy_setup,
 )
 
 RIVER_GUARDIAN = make_creature(
@@ -4566,6 +5267,8 @@ RIVER_GUARDIAN = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Elemental"},
+    text="When River Guardian enters, scry 1; if an opponent controls a creature, surveil 1 and each opponent loses 1 life.",
+    setup_interceptors=river_guardian_setup,
 )
 
 # More Black
@@ -4612,6 +5315,8 @@ FIRE_TEMPLE_GORON = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Goron", "Warrior"},
+    text="Whenever Fire Temple Goron attacks, it deals 1 damage to each opponent (2 if you control 3+ Gorons).",
+    setup_interceptors=fire_temple_goron_setup,
 )
 
 BOKOBLIN_HORDE = make_creature(
@@ -4630,6 +5335,8 @@ VOLCANIC_KEESE = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Bat"},
+    text="Whenever Volcanic Keese attacks, it deals 1 damage to each opponent (2 if you control 2+ Bats).",
+    setup_interceptors=volcanic_keese_setup,
 )
 
 TALUS = make_creature(
@@ -4638,6 +5345,8 @@ TALUS = make_creature(
     mana_cost="{5}{R}",
     colors={Color.RED},
     subtypes={"Elemental", "Giant"},
+    text="When Stone Talus enters, it deals 2 damage to each opponent (plus 1 for each other Elemental or Giant you control).",
+    setup_interceptors=stone_talus_setup,
 )
 
 # More Green
@@ -4815,6 +5524,8 @@ ROBBIE_ANCIENT_TECH = make_creature(
     colors={Color.BLUE},
     subtypes={"Sheikah", "Artificer"},
     supertypes={"Legendary"},
+    text="When Robbie enters, scry 2; gain 1 life for each artifact you control (minimum 1); each opponent loses 1 life.",
+    setup_interceptors=robbie_ancient_tech_setup,
 )
 
 
