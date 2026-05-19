@@ -3156,11 +3156,63 @@ TRACKING_DEVICE = make_artifact(
     setup_interceptors=tracking_device_setup
 )
 
+# --- Shock Gauntlets: Helper-5 rewire --------------------------------------
+# +2/+0 + granted trigger "combat damage to player → tap a creature they
+# control." Greedy first-eligible-creature picker. (The printed "you may"
+# clause is dropped; the trigger always fires.)
+def _shock_gauntlets_combat_damage_to_player_filter(
+    event: Event, state: GameState, target_id: str
+) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    return event.payload.get('target') in state.players
+
+
+def _shock_gauntlets_tap_effect(
+    target_obj: GameObject, event: Event, state: GameState
+) -> list[Event]:
+    victim_player = event.payload.get('target')
+    if not victim_player:
+        return []
+    for o in state.objects.values():
+        if o.controller != victim_player:
+            continue
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if o.characteristics is None:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        if o.id == target_obj.id:
+            continue
+        if getattr(o.state, 'tapped', False):
+            continue
+        return [Event(
+            type=EventType.TAP,
+            payload={'object_id': o.id},
+            source=target_obj.id,
+        )]
+    return []
+
+
 SHOCK_GAUNTLETS = make_artifact(
     name="Shock Gauntlets",
     mana_cost="{2}",
     subtypes={"Equipment"},
-    text="Equipped creature gets +2/+0. Whenever equipped creature deals combat damage to a player, you may tap target creature that player controls. Equip {2}"
+    text="Equipped creature gets +2/+0. Whenever equipped creature deals combat damage to a player, tap a creature that player controls. Equip {2}",
+    setup_interceptors=make_equipment_setup(
+        power_mod=2, toughness_mod=0,
+        equip_cost="{2}",
+        granted_triggered_abilities={
+            "event_filter": _shock_gauntlets_combat_damage_to_player_filter,
+            "effect_fn": _shock_gauntlets_tap_effect,
+            "description": "Combat damage to player → tap one of their creatures",
+        },
+    ),
 )
 
 def sand_containment_unit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
