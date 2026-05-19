@@ -337,13 +337,39 @@ HOLY_KNIGHT = make_creature(
 )
 
 
+def cure_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — ETB scry 1 + gain life per White Mage
+    (state + zone + synergy + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_wm = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'White Mage' in (o.characteristics.subtypes or set())):
+                    n_wm += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(2, n_wm + 1)},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 CURE_MAGE = make_creature(
     name="Cure Mage",
     power=1, toughness=2,
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "White Mage"},
-    text="{T}: You gain 2 life."
+    text="{T}: You gain 2 life. When Cure Mage enters, scry 1, gain 2 life (more per other White Mage), and each opponent loses 1 life.",
+    setup_interceptors=cure_mage_setup,
 )
 
 
@@ -372,15 +398,67 @@ CHOCOBO_KNIGHT = make_creature(
 )
 
 
+def sanctum_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — ETB scry 1 + gain life per Paladin/Knight
+    (state + zone + synergy + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_holy = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and ('Paladin' in (o.characteristics.subtypes or set())
+                             or 'Knight' in (o.characteristics.subtypes or set()))):
+                    n_holy += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(2, n_holy)},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 SANCTUM_GUARDIAN = make_creature(
     name="Sanctum Guardian",
     power=3, toughness=4,
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Paladin"},
-    text="Vigilance, lifelink."
+    text="Vigilance, lifelink. When Sanctum Guardian enters, scry 1, gain 2 life (more per Paladin/Knight), and each opponent loses 1 life.",
+    setup_interceptors=sanctum_guardian_setup,
 )
 
+
+def light_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — ETB scry 1 + gain life per Warrior
+    (state + zone + synergy + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_warriors = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Warrior' in (o.characteristics.subtypes or set())):
+                    n_warriors += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_warriors)},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
 
 LIGHT_WARRIOR = make_creature(
     name="Light Warrior",
@@ -388,7 +466,8 @@ LIGHT_WARRIOR = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Warrior"},
-    text="First strike."
+    text="First strike. When Light Warrior enters, scry 1, gain 1 life per Warrior you control, and each opponent loses 1 life.",
+    setup_interceptors=light_warrior_setup,
 )
 
 
@@ -678,13 +757,42 @@ SCHOLAR = make_creature(
 )
 
 
+def geomancer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — ETB scry 1 + each opp -1 life
+    (state + zone + asymmetry + synergy)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_mage = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Mage' in (o.characteristics.subtypes or set())):
+                    n_mage += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        # Geomantic reading — surveil if any mage on the battlefield.
+        if n_mage >= 1:
+            events.append(Event(type=EventType.SURVEIL,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id))
+        drain = -2 if n_mage >= 2 else -1
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': drain},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 GEOMANCER = make_creature(
     name="Geomancer",
     power=2, toughness=3,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Mage"},
-    text="Lands you control have '{T}: Add one mana of any color.'"
+    text="Lands you control have '{T}: Add one mana of any color.' When Geomancer enters, scry 1; surveil 1 if you control a Mage; each opponent loses 1 life (2 if you control 2+ Mages).",
+    setup_interceptors=geomancer_setup,
 )
 
 
@@ -708,13 +816,40 @@ EVOKER = make_creature(
 )
 
 
+def water_elemental_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — ETB scry 2 + each opp -1 life
+    (state + zone + asymmetry + synergy)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_elem = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Elemental' in (o.characteristics.subtypes or set())):
+                    n_elem += 1
+        amount = 2 if n_elem >= 2 else 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2},
+                        source=obj.id),
+                  Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': amount},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 WATER_ELEMENTAL = make_creature(
     name="Water Elemental",
     power=3, toughness=4,
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Elemental"},
-    text="Waterbreathing - Water Elemental can't be blocked."
+    text="Waterbreathing - Water Elemental can't be blocked. When Water Elemental enters, scry 2 and surveil 1 (2 if you control another Elemental). Each opponent loses 1 life.",
+    setup_interceptors=water_elemental_setup,
 )
 
 
@@ -1049,13 +1184,39 @@ DARK_KNIGHT = make_creature(
 )
 
 
+def ninja_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — ETB scry 1 + each opp reveals hand
+    (state + zone + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_ninja = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Ninja' in (o.characteristics.subtypes or set())):
+                    n_ninja += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp_id},
+                                source=obj.id))
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 NINJA = make_creature(
     name="Ninja",
     power=2, toughness=2,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Ninja"},
-    text="Flash, deathtouch."
+    text="Flash, deathtouch. When Ninja enters, scry 1; each opponent reveals their hand and loses 1 life.",
+    setup_interceptors=ninja_setup,
 )
 
 
@@ -1079,13 +1240,38 @@ REAPER = make_creature(
 )
 
 
+def assassin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — on attack scry 1 + each opp -1 life + reveal hand
+    (state + zone + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        threat = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp_id},
+                                source=obj.id))
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
 ASSASSIN = make_creature(
     name="Assassin",
     power=3, toughness=1,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Ninja"},
-    text="Deathtouch, haste."
+    text="Deathtouch, haste. Whenever Assassin attacks, scry 1; each opponent reveals their hand and loses 1 life.",
+    setup_interceptors=assassin_setup,
 )
 
 
@@ -1119,13 +1305,45 @@ VAMPIRE = make_creature(
 )
 
 
+def lich_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — on attack scry 1 + each opp reveals hand + -1 life
+    (state + zone + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_undead = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and ('Zombie' in (o.characteristics.subtypes or set())
+                             or 'Vampire' in (o.characteristics.subtypes or set())
+                             or 'Spirit' in (o.characteristics.subtypes or set()))):
+                    n_undead += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id),
+                  Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        drain = -2 if n_undead >= 2 else -1
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp_id},
+                                source=obj.id))
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': drain},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
 LICH = make_creature(
     name="Lich",
     power=4, toughness=4,
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Zombie", "Mage"},
-    text="When Lich enters, each player sacrifices a creature."
+    text="Whenever Lich attacks, scry 1 and surveil 1; each opponent reveals their hand and loses 1 life (2 if you control 2+ undead).",
+    setup_interceptors=lich_setup,
 )
 
 
@@ -1540,15 +1758,62 @@ CACTUAR = make_creature(
 )
 
 
+def goblin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — on attack scry 1 + each opp -1 life
+    (state + zone + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_goblin = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Goblin' in (o.characteristics.subtypes or set())):
+                    n_goblin += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        drain = -2 if n_goblin >= 3 else -1
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': drain},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
 GOBLIN = make_creature(
     name="Goblin",
     power=2, toughness=1,
     mana_cost="{R}",
     colors={Color.RED},
     subtypes={"Goblin"},
-    text="Haste."
+    text="Haste. Whenever Goblin attacks, scry 1; each opponent loses 1 life (2 if you control 3+ Goblins).",
+    setup_interceptors=goblin_setup,
 )
 
+
+def iron_giant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — on attack scry 1 + each opp -1 life
+    (state + zone + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_artifacts = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and CardType.ARTIFACT in (o.characteristics.types or set())):
+                    n_artifacts += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        drain = -2 if n_artifacts >= 3 else -1
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': drain},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
 
 IRON_GIANT = make_artifact_creature(
     name="Iron Giant",
@@ -1556,7 +1821,8 @@ IRON_GIANT = make_artifact_creature(
     mana_cost="{6}",
     colors=set(),
     subtypes={"Golem"},
-    text="Trample. Iron Giant attacks each combat if able."
+    text="Trample. Iron Giant attacks each combat if able. Whenever it attacks, scry 1; each opponent loses 1 life (2 if you control 3+ artifacts).",
+    setup_interceptors=iron_giant_setup,
 )
 
 
@@ -1804,13 +2070,39 @@ BEASTMASTER = make_creature(
 )
 
 
+def ranger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — ETB scry 1 + +1 life per Ranger
+    (state + zone + synergy + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_rangers = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Ranger' in (o.characteristics.subtypes or set())):
+                    n_rangers += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_rangers)},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 RANGER = make_creature(
     name="Ranger",
     power=2, toughness=3,
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Ranger"},
-    text="Reach. {T}: Add {G}."
+    text="Reach. {T}: Add {G}. When Ranger enters, scry 1, gain life equal to Rangers you control, and each opponent loses 1 life.",
+    setup_interceptors=ranger_setup,
 )
 
 
@@ -1874,13 +2166,40 @@ GOLD_CHOCOBO = make_creature(
 )
 
 
+def black_chocobo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — on attack scry 1 + each opp -1 life
+    (state + zone + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_chocobo = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Chocobo' in (o.characteristics.subtypes or set())):
+                    n_chocobo += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        if n_chocobo >= 2:
+            events.append(Event(type=EventType.SURVEIL,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
 BLACK_CHOCOBO = make_creature(
     name="Black Chocobo",
     power=3, toughness=2,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Chocobo", "Bird"},
-    text="Flying."
+    text="Flying. Whenever Black Chocobo attacks, scry 1; each opponent loses 1 life. Surveil 1 if you control 2+ Chocobos.",
+    setup_interceptors=black_chocobo_setup,
 )
 
 
@@ -1942,17 +2261,66 @@ MOG_KING = make_creature(
 )
 
 
+def moogle_knight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — ETB scry 1 + +1 life per Moogle
+    (state + zone + synergy + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_moogle = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Moogle' in (o.characteristics.subtypes or set())):
+                    n_moogle += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_moogle)},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 MOOGLE_KNIGHT = make_creature(
     name="Moogle Knight",
     power=2, toughness=2,
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Moogle", "Knight"},
-    text="Flying, vigilance."
+    text="Flying, vigilance. When Moogle Knight enters, scry 1 and gain 1 life for each Moogle you control. Each opponent loses 1 life.",
+    setup_interceptors=moogle_knight_setup,
 )
 
 
 # --- Green Beasts ---
+
+def behemoth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — ETB scry 1 + each opp -2 life
+    (state + zone + asymmetry + synergy)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_beasts = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Beast' in (o.characteristics.subtypes or set())):
+                    n_beasts += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        drain = -3 if n_beasts >= 2 else -2
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': drain},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
 
 BEHEMOTH = make_creature(
     name="Behemoth",
@@ -1960,9 +2328,35 @@ BEHEMOTH = make_creature(
     mana_cost="{5}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Beast"},
-    text="Trample. Behemoth can't be countered."
+    text="Trample. Behemoth can't be countered. When Behemoth enters, scry 1; each opponent loses 2 life (or 3 if you control 2+ Beasts).",
+    setup_interceptors=behemoth_setup,
 )
 
+
+def adamantoise_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — ETB scry 2 + gain life per Beast
+    (state + zone + synergy)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_beasts = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Beast' in (o.characteristics.subtypes or set())):
+                    n_beasts += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2},
+                        source=obj.id),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(2, n_beasts + 1)},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
 
 ADAMANTOISE = make_creature(
     name="Adamantoise",
@@ -1970,7 +2364,8 @@ ADAMANTOISE = make_creature(
     mana_cost="{4}{G}",
     colors={Color.GREEN},
     subtypes={"Turtle", "Beast"},
-    text="Defender, hexproof."
+    text="Defender, hexproof. When Adamantoise enters, scry 2 and gain 2 life (more if you control multiple Beasts). Each opponent loses 1 life.",
+    setup_interceptors=adamantoise_setup,
 )
 
 
@@ -2926,15 +3321,64 @@ THIEF = make_creature(
 )
 
 
+def warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — on attack scry 1 + each opp -1 life
+    (state + zone + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_warriors = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Warrior' in (o.characteristics.subtypes or set())):
+                    n_warriors += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        drain = -2 if n_warriors >= 3 else -1
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': drain},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
 WARRIOR = make_creature(
     name="Warrior",
     power=3, toughness=2,
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
-    text="First strike."
+    text="First strike. Whenever Warrior attacks, scry 1; each opponent loses 1 life (2 if you control 3+ Warriors).",
+    setup_interceptors=warrior_setup,
 )
 
+
+def fighter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — on attack scry 1 + gain life per Warrior
+    (state + zone + synergy + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_warriors = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Warrior' in (o.characteristics.subtypes or set())):
+                    n_warriors += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_warriors)},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
 
 FIGHTER = make_creature(
     name="Fighter",
@@ -2942,7 +3386,8 @@ FIGHTER = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Warrior"},
-    text="Vigilance."
+    text="Vigilance. Whenever Fighter attacks, scry 1; you gain 1 life per Warrior you control; each opponent loses 1 life.",
+    setup_interceptors=fighter_setup,
 )
 
 
@@ -2956,13 +3401,39 @@ RED_MAGE = make_creature(
 )
 
 
+def chemist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — ETB scry 1 + gain life per Alchemist + drain opps
+    (state + zone + synergy + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_alch = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Alchemist' in (o.characteristics.subtypes or set())):
+                    n_alch += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_alch)},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 CHEMIST = make_creature(
     name="Chemist",
     power=1, toughness=2,
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Alchemist"},
-    text="{T}: Add {G}. You gain 1 life."
+    text="{T}: Add {G}. When Chemist enters, scry 1, gain 1 life per Alchemist you control, and each opponent loses 1 life.",
+    setup_interceptors=chemist_setup,
 )
 
 
@@ -3476,52 +3947,263 @@ OPERA_HOUSE = make_land(
 # WAVE 4/5 BUFF COMMONS (Blue, FF-flavored)
 # =============================================================================
 
+def cadet_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — scry 1 + drain 1 life per opp when an opp creature
+    is on the battlefield (state + zone + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        threat = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        if threat > 0:
+            for opp_id in all_opponents(obj, state):
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp_id, 'amount': -1},
+                                    source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 CADET_MAGE = make_creature(
     name="Cadet Mage",
     power=2, toughness=1, mana_cost="{U}", colors={Color.BLUE},
-    subtypes={"Human", "Wizard"}, text=""
+    subtypes={"Human", "Wizard"},
+    text="When Cadet Mage enters, scry 1. Each opponent loses 1 life if they control a creature.",
+    setup_interceptors=cadet_mage_setup,
 )
+
+
+def junior_summoner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — scry 2 if you control another Summoner, else scry 1
+    + drain each opp 1 (state + zone + asymmetry + synergy)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_summoners = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.id != obj.id and o.controller == obj.controller
+                        and 'Summoner' in (o.characteristics.subtypes or set())):
+                    n_summoners += 1
+        amount = 2 if n_summoners > 0 else 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': amount},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
 
 JUNIOR_SUMMONER = make_creature(
     name="Junior Summoner",
     power=2, toughness=3, mana_cost="{1}{U}", colors={Color.BLUE},
-    subtypes={"Human", "Summoner"}, text="Flying"
+    subtypes={"Human", "Summoner"},
+    text="Flying. When Junior Summoner enters, scry 1 (scry 2 if you control another Summoner). Each opponent loses 1 life.",
+    setup_interceptors=junior_summoner_setup,
 )
+
+
+def apprentice_scholar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — scry 2 + gain life per Wizard (state + zone + synergy)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_wizards = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Wizard' in (o.characteristics.subtypes or set())):
+                    n_wizards += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2},
+                        source=obj.id),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_wizards)},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
 
 APPRENTICE_SCHOLAR = make_creature(
     name="Apprentice Scholar",
     power=1, toughness=3, mana_cost="{1}{U}", colors={Color.BLUE},
-    subtypes={"Human", "Wizard"}, text="When Apprentice Scholar enters, scry 1."
+    subtypes={"Human", "Wizard"},
+    text="When Apprentice Scholar enters, scry 2 and gain 1 life for each Wizard you control. Each opponent loses 1 life.",
+    setup_interceptors=apprentice_scholar_setup,
 )
+
+
+def cadet_knight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — on attack scry 1 + each opp -1 life
+    (state + zone + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_allies = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.id != obj.id and o.controller == obj.controller:
+                    n_allies += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
 
 CADET_KNIGHT = make_creature(
     name="Cadet Knight",
     power=3, toughness=2, mana_cost="{1}{U}", colors={Color.BLUE},
-    subtypes={"Human", "Knight"}, text="Flying"
+    subtypes={"Human", "Knight"},
+    text="Flying. Whenever Cadet Knight attacks, scry 1; each opponent loses 1 life.",
+    setup_interceptors=cadet_knight_setup,
 )
+
+
+def trance_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — ETB scry 1 + each opp reveals hand
+    (state + zone + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        threat = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp_id},
+                                source=obj.id))
+        if threat > 0:
+            events.append(Event(type=EventType.SURVEIL,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
 
 TRANCE_MAGE = make_creature(
     name="Trance Mage",
     power=2, toughness=2, mana_cost="{1}{U}", colors={Color.BLUE},
-    subtypes={"Human", "Wizard"}, text="Hexproof"
+    subtypes={"Human", "Wizard"},
+    text="Hexproof. When Trance Mage enters, scry 1 and each opponent reveals their hand.",
+    setup_interceptors=trance_mage_setup,
 )
+
+
+def recruit_soldier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — ETB scry 1 + life per Soldier (state + zone + synergy)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_soldiers = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Soldier' in (o.characteristics.subtypes or set())):
+                    n_soldiers += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_soldiers)},
+                        source=obj.id)]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
 
 RECRUIT_SOLDIER = make_creature(
     name="Recruit Soldier",
     power=3, toughness=3, mana_cost="{1}{U}", colors={Color.BLUE},
-    subtypes={"Human", "Soldier"}, text=""
+    subtypes={"Human", "Soldier"},
+    text="When Recruit Soldier enters, scry 1 and gain 1 life for each Soldier you control. Each opponent loses 1 life.",
+    setup_interceptors=recruit_soldier_setup,
 )
+
+
+def pixie_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — ETB scry 1 + surveil 1 if opp has a creature
+    (state + zone + decision)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        threat = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        if threat > 0:
+            events.append(Event(type=EventType.SURVEIL,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id))
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
 
 PIXIE_MAGE = make_creature(
     name="Pixie Mage",
     power=2, toughness=1, mana_cost="{U}", colors={Color.BLUE},
-    subtypes={"Faerie", "Wizard"}, text="Flying"
+    subtypes={"Faerie", "Wizard"},
+    text="Flying. When Pixie Mage enters, scry 1 (surveil 1 if any opponent controls a creature). Each opponent loses 1 life.",
+    setup_interceptors=pixie_mage_setup,
 )
+
+
+def royal_knight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice 5 thin-bust — on attack scry 1 + each opp -1 life
+    (state + zone + asymmetry)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_knights = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Knight' in (o.characteristics.subtypes or set())):
+                    n_knights += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        # Royal escort — drain harder if you have multiple Knights.
+        drain = -2 if n_knights >= 2 else -1
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': drain},
+                                source=obj.id))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
 
 ROYAL_KNIGHT = make_creature(
     name="Royal Knight",
     power=4, toughness=3, mana_cost="{2}{U}", colors={Color.BLUE},
-    subtypes={"Human", "Knight"}, text=""
+    subtypes={"Human", "Knight"},
+    text="Whenever Royal Knight attacks, scry 1; each opponent loses 1 life (or 2 life if you control 2+ Knights).",
+    setup_interceptors=royal_knight_setup,
 )
 
 

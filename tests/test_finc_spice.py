@@ -506,6 +506,425 @@ def test_limit_charge_opp_life_loss_does_not_add_counter():
 
 
 # ============================================================================
+# Slice 5 thin-bust — 26 vanilla cards lifted to multi-axis depth
+# ============================================================================
+#
+# Each test follows the same shape used by DBZ slice-4: put the card on the
+# battlefield, fire the appropriate trigger (ETB or ATTACK_DECLARED), and
+# assert at least one SCRY/SURVEIL emission + the asymmetry/synergy event the
+# buff promises. Tests are intentionally light — coverage, not balance.
+
+
+def _events_after(game, before, kind, **payload_match):
+    """Helper: filter events newer than ``before`` matching ``kind`` and the
+    given payload key/values. ``before`` is the event-log length snapshot."""
+    out = []
+    for e in game.state.event_log[before:]:
+        if e.type != kind:
+            continue
+        if all(e.payload.get(k) == v for k, v in payload_match.items()):
+            out.append(e)
+    return out
+
+
+def test_cadet_mage_etb_scrys_and_drains_each_opp_when_opp_has_creature():
+    print("\n=== Cadet Mage: ETB scry + opp drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Put an opp creature down first so the threat gate fires.
+    _put_on_battlefield(game, p2, "Goblin")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Cadet Mage")
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys, "Expected scry 1 on Cadet Mage ETB"
+    assert drains, "Expected -1 life to opp on Cadet Mage ETB"
+
+
+def test_junior_summoner_etb_scrys_more_with_another_summoner():
+    print("\n=== Junior Summoner: ETB scry escalates ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    # Drop a second Summoner first; same controller.
+    _put_on_battlefield(game, p1, "Evoker")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Junior Summoner")
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=2)
+    assert scrys, "Expected scry 2 when a second Summoner is on field"
+
+
+def test_apprentice_scholar_etb_scrys_2_and_gains_life():
+    print("\n=== Apprentice Scholar: ETB scry 2 + life ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Apprentice Scholar")
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=2)
+    gains = [e for e in game.state.event_log[before:]
+             if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('amount', 0) > 0]
+    assert scrys, "Expected scry 2 on Apprentice Scholar ETB"
+    assert gains, "Expected positive life-gain on Apprentice Scholar ETB"
+
+
+def test_cadet_knight_attack_scrys_and_drains():
+    print("\n=== Cadet Knight: attack scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    ck = _put_on_battlefield(game, p1, "Cadet Knight")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.ATTACK_DECLARED,
+                    payload={'attacker_id': ck.id, 'attacker': ck.id, 'controller': p1.id},
+                    source=ck.id))
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys, "Expected scry on Cadet Knight attack"
+    assert drains, "Expected -1 life on attack"
+
+
+def test_trance_mage_etb_reveals_opp_hand():
+    print("\n=== Trance Mage: ETB reveal hand ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Trance Mage")
+    reveals = _events_after(game, before, EventType.REVEAL_HAND, player=p2.id)
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    assert scrys, "Expected scry on Trance Mage ETB"
+    assert reveals, "Expected opp REVEAL_HAND on Trance Mage ETB"
+
+
+def test_recruit_soldier_etb_scrys_and_drains():
+    print("\n=== Recruit Soldier: ETB scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Recruit Soldier")
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys and drains, "Expected scry + drain on Recruit Soldier ETB"
+
+
+def test_pixie_mage_surveils_when_opp_has_threat():
+    print("\n=== Pixie Mage: ETB surveil when opp has creature ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p2, "Goblin")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Pixie Mage")
+    surveils = _events_after(game, before, EventType.SURVEIL, player=p1.id, amount=1)
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert surveils, "Expected surveil 1 when opp has a creature"
+    assert drains, "Expected -1 life on Pixie Mage ETB"
+
+
+def test_royal_knight_attack_scrys_and_drains():
+    print("\n=== Royal Knight: attack scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    rk = _put_on_battlefield(game, p1, "Royal Knight")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.ATTACK_DECLARED,
+                    payload={'attacker_id': rk.id, 'attacker': rk.id, 'controller': p1.id},
+                    source=rk.id))
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) <= -1]
+    assert scrys and drains, "Expected scry + drain on Royal Knight attack"
+
+
+def test_black_chocobo_attack_scrys_and_drains():
+    print("\n=== Black Chocobo: attack scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    bc = _put_on_battlefield(game, p1, "Black Chocobo")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.ATTACK_DECLARED,
+                    payload={'attacker_id': bc.id, 'attacker': bc.id, 'controller': p1.id},
+                    source=bc.id))
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys and drains, "Expected scry + drain on Black Chocobo attack"
+
+
+def test_moogle_knight_etb_scrys_and_gains_life():
+    print("\n=== Moogle Knight: ETB scry + life ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Moogle Knight")
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    gains = [e for e in game.state.event_log[before:]
+             if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('amount', 0) >= 1]
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys and gains and drains, "Expected scry + gain + drain on Moogle Knight"
+
+
+def test_behemoth_etb_scrys_and_drains_2():
+    print("\n=== Behemoth: ETB scry + -2 drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Behemoth")
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-2)
+    assert scrys and drains, "Expected scry + -2 drain on Behemoth ETB"
+
+
+def test_adamantoise_etb_scrys_2_and_gains_life():
+    print("\n=== Adamantoise: ETB scry 2 + gain life ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Adamantoise")
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=2)
+    gains = [e for e in game.state.event_log[before:]
+             if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('amount', 0) >= 2]
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys and gains and drains, "Expected scry 2 + life-gain + drain on Adamantoise ETB"
+
+
+def test_ranger_etb_scrys_and_drains():
+    print("\n=== Ranger: ETB scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Ranger")
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys and drains, "Expected scry + drain on Ranger ETB"
+
+
+def test_ninja_etb_reveals_hand_and_drains():
+    print("\n=== Ninja: ETB reveal hand + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Ninja")
+    reveals = _events_after(game, before, EventType.REVEAL_HAND, player=p2.id)
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    assert scrys and reveals and drains, "Expected scry + reveal + drain on Ninja ETB"
+
+
+def test_assassin_attack_reveals_hand_and_drains():
+    print("\n=== Assassin: attack reveal + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    asn = _put_on_battlefield(game, p1, "Assassin")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.ATTACK_DECLARED,
+                    payload={'attacker_id': asn.id, 'attacker': asn.id, 'controller': p1.id},
+                    source=asn.id))
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    reveals = _events_after(game, before, EventType.REVEAL_HAND, player=p2.id)
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys and reveals and drains, "Expected scry + reveal + drain on Assassin attack"
+
+
+def test_lich_attack_reveals_hand_and_drains():
+    print("\n=== Lich: attack reveal + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    lich = _put_on_battlefield(game, p1, "Lich")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.ATTACK_DECLARED,
+                    payload={'attacker_id': lich.id, 'attacker': lich.id, 'controller': p1.id},
+                    source=lich.id))
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    surveils = _events_after(game, before, EventType.SURVEIL, player=p1.id, amount=1)
+    reveals = _events_after(game, before, EventType.REVEAL_HAND, player=p2.id)
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) <= -1]
+    assert scrys and surveils and reveals and drains, (
+        "Expected scry + surveil + reveal + drain on Lich attack")
+
+
+def test_goblin_attack_scrys_and_drains():
+    print("\n=== Goblin: attack scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    gob = _put_on_battlefield(game, p1, "Goblin")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.ATTACK_DECLARED,
+                    payload={'attacker_id': gob.id, 'attacker': gob.id, 'controller': p1.id},
+                    source=gob.id))
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys and drains, "Expected scry + drain on Goblin attack"
+
+
+def test_iron_giant_attack_scrys_and_drains():
+    print("\n=== Iron Giant: attack scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    ig = _put_on_battlefield(game, p1, "Iron Giant")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.ATTACK_DECLARED,
+                    payload={'attacker_id': ig.id, 'attacker': ig.id, 'controller': p1.id},
+                    source=ig.id))
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys and drains, "Expected scry + drain on Iron Giant attack"
+
+
+def test_warrior_attack_scrys_and_drains():
+    print("\n=== Warrior: attack scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    w = _put_on_battlefield(game, p1, "Warrior")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.ATTACK_DECLARED,
+                    payload={'attacker_id': w.id, 'attacker': w.id, 'controller': p1.id},
+                    source=w.id))
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys and drains, "Expected scry + drain on Warrior attack"
+
+
+def test_fighter_attack_scrys_gains_life_and_drains():
+    print("\n=== Fighter: attack scry + gain + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    f = _put_on_battlefield(game, p1, "Fighter")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.ATTACK_DECLARED,
+                    payload={'attacker_id': f.id, 'attacker': f.id, 'controller': p1.id},
+                    source=f.id))
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    gains = [e for e in game.state.event_log[before:]
+             if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('amount', 0) >= 1]
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys and gains and drains, "Expected scry + gain + drain on Fighter attack"
+
+
+def test_chemist_etb_scrys_gains_life_and_drains():
+    print("\n=== Chemist: ETB scry + gain + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Chemist")
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    gains = [e for e in game.state.event_log[before:]
+             if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('amount', 0) >= 1]
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys and gains and drains, "Expected scry + gain + drain on Chemist ETB"
+
+
+def test_cure_mage_etb_scrys_gains_life_and_drains():
+    print("\n=== Cure Mage: ETB scry + gain + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Cure Mage")
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    gains = [e for e in game.state.event_log[before:]
+             if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('amount', 0) >= 2]
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys and gains and drains, "Expected scry + +2 life + drain on Cure Mage ETB"
+
+
+def test_sanctum_guardian_etb_scrys_gains_life_and_drains():
+    print("\n=== Sanctum Guardian: ETB scry + gain + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Sanctum Guardian")
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    gains = [e for e in game.state.event_log[before:]
+             if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('amount', 0) >= 2]
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys and gains and drains, "Expected scry + +2 life + drain on Sanctum Guardian ETB"
+
+
+def test_light_warrior_etb_scrys_gains_life_and_drains():
+    print("\n=== Light Warrior: ETB scry + gain + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Light Warrior")
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    gains = [e for e in game.state.event_log[before:]
+             if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('amount', 0) >= 1]
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys and gains and drains, "Expected scry + gain + drain on Light Warrior ETB"
+
+
+def test_water_elemental_etb_scrys_2_surveils_and_drains():
+    print("\n=== Water Elemental: ETB scry 2 + surveil + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Water Elemental")
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=2)
+    surveils = [e for e in game.state.event_log[before:]
+                if e.type == EventType.SURVEIL
+                and e.payload.get('player') == p1.id
+                and e.payload.get('amount', 0) >= 1]
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert scrys and surveils and drains, "Expected scry 2 + surveil + drain on Water Elemental ETB"
+
+
+def test_geomancer_etb_scrys_and_drains():
+    print("\n=== Geomancer: ETB scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Geomancer")
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id, amount=1)
+    drains = [e for e in game.state.event_log[before:]
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) <= -1]
+    assert scrys and drains, "Expected scry + drain on Geomancer ETB"
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 
