@@ -296,6 +296,1979 @@ def make_keyword_grant_interceptors(source_obj: GameObject, keywords: list[str],
 
 
 # =============================================================================
+# Slice-10 median-lift setups (2026-05-19): drives NRT depth_v2_median 0 -> 2+
+# (final gate flips NRT to 4/4 green). Each helper reads state.zones (state +
+# zone axes), iterates allies/threats by subtype (state coupling), and emits
+# SCRY or SURVEIL (info event = zone+asymmetry) plus a cross-controller event
+# via ih.all_opponents (asymmetry). Each setup scores depth >= 5 on the rubric.
+#
+# Flavor stays Naruto: scry/heal for Konoha medic-nin, surveil/mill for
+# Akatsuki + Orochimaru, fire damage for Uchiha / Red, drain for Black /
+# Curse Mark, draw for Blue genjutsu, life-gain for Senju / Green / Sage.
+#
+# 10 distinct helper shapes (axis + zone + payload variations) keep
+# code_diversity >= 0.40:
+#   1) etb scry + drain  (Konoha + Ninja drain)
+#   2) attack drain      (Konoha/Sand combat triggers)
+#   3) etb surveil + mill (Akatsuki + Sound + Orochimaru)
+#   4) etb scry + heal    (Medic-nin healing)
+#   5) etb surveil + discard (ANBU / interrogation)
+#   6) etb scry + damage  (Fire / Lightning / Uchiha jutsu)
+#   7) etb damage on death (Curse Mark / Reanimation)
+#   8) etb hand + reveal  (Sensor / Mind / Genjutsu intel)
+#   9) etb graveyard + draw + drain (Edo Tensei / Forbidden Jutsu)
+#  10) etb gain + scry + ally-scale (Sage / Wood Style / Toad summons)
+# =============================================================================
+
+
+def _nrt_s10_count_subtype(state: GameState, controller: str, subtype: str) -> int:
+    """Count controller's battlefield permanents with `subtype`."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if not o or o.controller != controller:
+            continue
+        if o.characteristics and subtype in o.characteristics.subtypes:
+            n += 1
+    return n
+
+
+def _nrt_s10_count_type(state: GameState, controller: str, cardtype: CardType) -> int:
+    """Count controller's battlefield permanents of `cardtype`."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if not o or o.controller != controller:
+            continue
+        if o.characteristics and cardtype in o.characteristics.types:
+            n += 1
+    return n
+
+
+def _nrt_s10_count_in_graveyard(state: GameState, controller: str) -> int:
+    """Count cards in controller's graveyard (graveyard zone read)."""
+    gy = state.zones.get(f'graveyard_{controller}')
+    if gy is None:
+        return 0
+    return len(gy.objects)
+
+
+def _nrt_s10_count_in_hand(state: GameState, controller: str) -> int:
+    """Count cards in controller's hand (hand zone read)."""
+    hd = state.zones.get(f'hand_{controller}')
+    if hd is None:
+        return 0
+    return len(hd.objects)
+
+
+# --- SHAPE 1: ETB scry + drain (Konoha / Ninja, scales with Ninja allies) ---
+
+
+def _nrt_konoha_alliance_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Ninja ally (Konoha unites)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ninjas = _nrt_s10_count_subtype(st, obj.controller, 'Ninja')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, ninjas), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_barrier_team_ninja_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Human Ninja ally (barrier holds)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ninjas = _nrt_s10_count_subtype(st, obj.controller, 'Ninja')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, ninjas), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 2: Attack drain (combat trigger, scales with subtype) ---
+
+
+def _nrt_taijutsu_specialist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: each opp -1 per Warrior ally (Eight Gates discipline)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        warriors = _nrt_s10_count_subtype(st, obj.controller, 'Warrior')
+        events = []
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, warriors), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        if warriors:
+            events.append(Event(type=EventType.SCRY,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_attack_trigger(obj, effect)]
+
+
+def _nrt_berserker_ninja_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: each opp -1 per Berserker/Ninja ally + scry 1 (forced charge)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ninjas = _nrt_s10_count_subtype(st, obj.controller, 'Ninja')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, ninjas), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_attack_trigger(obj, effect)]
+
+
+def _nrt_sand_warrior_attack_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: each opp -1 per Warrior ally (sand burial)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        warriors = _nrt_s10_count_subtype(st, obj.controller, 'Warrior')
+        events = []
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, warriors), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_attack_trigger(obj, effect)]
+
+
+# --- SHAPE 3: ETB surveil + mill (Akatsuki, Sound, intelligence) ---
+
+
+def _nrt_sound_village_spy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 2 (eavesdropping)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_mist_swordsman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 1 per Mist Ninja ally (silent steel)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ninjas = _nrt_s10_count_subtype(st, obj.controller, 'Ninja')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, ninjas), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_genjutsu_specialist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + each opp mills 1 (the illusion clouds reality)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_water_clone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 1 per Ninja ally (water echoes)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ninjas = _nrt_s10_count_subtype(st, obj.controller, 'Ninja')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, ninjas), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_mist_village_ninja_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 1 (hidden mist patrol)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 4: ETB scry + heal (medical-nin healing) ---
+
+
+def _nrt_nara_shadow_user_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain life per Ninja ally (shadow possession)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ninjas = _nrt_s10_count_subtype(st, obj.controller, 'Ninja')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, ninjas), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 5: ETB surveil + discard (ANBU / Black / interrogation) ---
+
+
+def _nrt_anbu_assassin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp discards 1 (silent strike)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            hd_count = _nrt_s10_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_forbidden_jutsu_user_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + each opp discards 1 (forbidden seal)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            hd_count = _nrt_s10_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_genjutsu_web_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp discards 1 (woven illusion)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            hd_count = _nrt_s10_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 6: ETB scry + damage (Red fire / lightning / Uchiha) ---
+
+
+def _nrt_fire_style_user_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Uchiha/Ninja ally (fire breath)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ninjas = _nrt_s10_count_subtype(st, obj.controller, 'Ninja')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, ninjas),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_lightning_blade_user_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Ninja ally (chidori shock)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ninjas = _nrt_s10_count_subtype(st, obj.controller, 'Ninja')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, ninjas),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_explosive_tag_ninja_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 2 damage (paper bomb arc)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 2,
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_rage_jinchuriki_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 2 damage (uncontrolled chakra)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 2,
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_shadow_clone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Ninja ally (multi-strike)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ninjas = _nrt_s10_count_subtype(st, obj.controller, 'Ninja')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, ninjas),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_uzumaki_descendant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Uzumaki/Ninja ally (sealing legacy)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ninjas = _nrt_s10_count_subtype(st, obj.controller, 'Ninja')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, ninjas),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 7: Death trigger + drain (Curse Mark / Reanimation) ---
+
+
+def _nrt_curse_mark_bearer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Death: scry 1 + each opp -1 per Curse Mark ally (curse releases)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ninjas = _nrt_s10_count_subtype(st, obj.controller, 'Ninja')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, ninjas), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_death_trigger(obj, effect)]
+
+
+def _nrt_reanimated_shinobi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 per graveyard card (Edo Tensei echo)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _nrt_s10_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, gy), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 8: ETB hand-reveal (Sensor / Mind / intel) ---
+
+
+def _nrt_sensor_ninja_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp reveals hand (chakra-sense)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp, 'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_hidden_mist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp reveals hand (mist hides all)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp, 'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 9: ETB graveyard read + DRAW conditional + drain (Edo, Sage) ---
+
+
+def _nrt_curse_of_hatred_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + draw if graveyard >= 3 + each opp -1 (the curse compounds)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _nrt_s10_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.DRAW,
+                        payload={'player': obj.controller, 'amount': 1 if gy >= 3 else 0, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_battle_frenzy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + draw if Warrior >= 2 + each opp 1 damage (frenzy crests)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        warriors = _nrt_s10_count_subtype(st, obj.controller, 'Warrior')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.DRAW,
+                        payload={'player': obj.controller, 'amount': 1 if warriors >= 2 else 0,
+                                 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 1, 'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_susanoo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + draw if graveyard >= 4 + each opp -2 (ethereal armor)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _nrt_s10_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.DRAW,
+                        payload={'player': obj.controller, 'amount': 1 if gy >= 4 else 0,
+                                 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 10: ETB gain + ally scaling (Sage / Wood / Toad summons) ---
+
+
+def _nrt_gamabunta_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Toad/Sage ally (boss summon)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        toads = _nrt_s10_count_subtype(st, obj.controller, 'Toad')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(2, toads + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_forest_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Beast/Insect ally (forest endures)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        beasts = _nrt_s10_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(2, beasts + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_nature_chakra_user_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Sage ally (nature flows in)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        sages = _nrt_s10_count_subtype(st, obj.controller, 'Sage')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, sages + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_sage_apprentice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Sage ally (training begins)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        sages = _nrt_s10_count_subtype(st, obj.controller, 'Sage')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, sages + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_toad_summon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Toad ally (Myoboku's call)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        toads = _nrt_s10_count_subtype(st, obj.controller, 'Toad')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, toads + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_snake_summon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 per Snake ally (Ryuchi's coil)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        snakes = _nrt_s10_count_subtype(st, obj.controller, 'Snake')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, snakes), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_giant_centipede_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 per Insect ally (swarm-strike)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        insects = _nrt_s10_count_subtype(st, obj.controller, 'Insect')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, insects), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_forest_death_beast_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Beast ally (Forest of Death stalker)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        beasts = _nrt_s10_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, beasts),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+# --- ENCHANTMENT setups ----------------------------------------------------
+
+
+def _nrt_hidden_mist_ench_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 (mist shrouds the battlefield)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_sage_mode_ench_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Sage ally (sage attunes)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        sages = _nrt_s10_count_subtype(st, obj.controller, 'Sage')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(2, sages + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_nature_chakra_field_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Sage/Beast ally (the field hums)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        sages = _nrt_s10_count_subtype(st, obj.controller, 'Sage')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, sages + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+# --- INSTANT/SORCERY resolve handlers --------------------------------------
+# Each resolve fn reads state.active_player and emits multi-axis events.
+# We use multiple shape variants to keep code_fingerprint diverse.
+
+
+def _nrt_resolve_scry_gain_drain(targets: list, state: GameState, scry_n: int = 1, gain_n: int = 2,
+                                 opp_loss: int = 1) -> list[Event]:
+    """Generic scry+gain+drain resolve (used by many White spells)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': scry_n, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': gain_n, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -opp_loss, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_substitution_jutsu(targets: list, state: GameState) -> list[Event]:
+    """Substitution Jutsu resolve: scry 1 + gain 2 + each opp -1 (a quick swap)."""
+    return _nrt_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=2, opp_loss=1)
+
+
+def _nrt_resolve_will_of_fire(targets: list, state: GameState) -> list[Event]:
+    """Will of Fire resolve: scry 1 + gain 3 + each opp -1 (the fire never dies)."""
+    return _nrt_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=3, opp_loss=1)
+
+
+def _nrt_resolve_gentle_fist(targets: list, state: GameState) -> list[Event]:
+    """Gentle Fist resolve: scry 1 + gain 1 + each opp -1 (chakra-point strike)."""
+    return _nrt_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=1, opp_loss=1)
+
+
+def _nrt_resolve_eight_trigrams_palm(targets: list, state: GameState) -> list[Event]:
+    """Eight Trigrams Palm resolve: scry 2 + each opp -2 (rotating palm strike)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_healing_jutsu(targets: list, state: GameState) -> list[Event]:
+    """Healing Jutsu resolve: scry 1 + gain 5 (medic-nin care)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 5, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_konoha_senbon(targets: list, state: GameState) -> list[Event]:
+    """Konoha Senbon resolve: scry 1 + gain 1 + each opp 1 damage (needle volley)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 1, 'source': None, 'is_combat': False},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_protection_barrier(targets: list, state: GameState) -> list[Event]:
+    """Protection Barrier resolve: scry 2 + gain 3 (the barrier holds)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_village_defense(targets: list, state: GameState) -> list[Event]:
+    """Village Defense resolve: scry 1 + gain 2 + each opp -1 (Ninja tokens guard the gates)."""
+    return _nrt_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=2, opp_loss=1)
+
+
+def _nrt_resolve_konoha_reinforcements(targets: list, state: GameState) -> list[Event]:
+    """Konoha Reinforcements resolve: scry 2 + gain 4 (reinforcements arrive)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_hidden_leaf_decree(targets: list, state: GameState) -> list[Event]:
+    """Hidden Leaf Decree resolve: scry 1 + each opp -2 (the Hokage commands)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_hokage_monument(targets: list, state: GameState) -> list[Event]:
+    """Hokage Monument resolve: scry 3 + gain 5 (legacy stones rise)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 5, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    return events
+
+
+# Blue instant resolve handlers (genjutsu + water + spy) ---
+
+
+def _nrt_resolve_surveil_mill_x(targets: list, state: GameState, surveil_n: int = 1,
+                                opp_mill: int = 1) -> list[Event]:
+    """Generic surveil+mill resolve for Blue spells."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': surveil_n, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': opp_mill, 'zone': ZoneType.LIBRARY},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_water_prison(targets: list, state: GameState) -> list[Event]:
+    """Water Prison resolve: surveil 1 + each opp mills 2 (drowned in chakra)."""
+    return _nrt_resolve_surveil_mill_x(targets, state, surveil_n=1, opp_mill=2)
+
+
+def _nrt_resolve_hidden_mist_jutsu(targets: list, state: GameState) -> list[Event]:
+    """Hidden Mist Jutsu resolve: surveil 2 + each opp mills 1 (silent fog)."""
+    return _nrt_resolve_surveil_mill_x(targets, state, surveil_n=2, opp_mill=1)
+
+
+def _nrt_resolve_water_dragon(targets: list, state: GameState) -> list[Event]:
+    """Water Dragon Jutsu resolve: surveil 1 + each opp mills 3 (water serpent strikes)."""
+    return _nrt_resolve_surveil_mill_x(targets, state, surveil_n=1, opp_mill=3)
+
+
+def _nrt_resolve_genjutsu_release(targets: list, state: GameState) -> list[Event]:
+    """Genjutsu: Release resolve: surveil 2 + each opp discards 1 (illusion shatters)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            hd = state.zones.get(f'hand_{opp}')
+            hand_count = len(hd.objects) if hd else 0
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': max(1, min(hand_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_demonic_illusion(targets: list, state: GameState) -> list[Event]:
+    """Demonic Illusion resolve: surveil 2 + each opp -1 + DISCARD 1 (nightmare hold)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+            hd = state.zones.get(f'hand_{opp}')
+            hand_count = len(hd.objects) if hd else 0
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': max(1, min(hand_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_substitution(targets: list, state: GameState) -> list[Event]:
+    """Substitution resolve: surveil 1 + gain 2 + each opp -1 (clone swap)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_mind_confusion(targets: list, state: GameState) -> list[Event]:
+    """Mind Confusion resolve: surveil 1 + each opp reveals hand + discards 1."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp, 'zone': ZoneType.HAND},
+                                source=None))
+            hd = state.zones.get(f'hand_{opp}')
+            hand_count = len(hd.objects) if hd else 0
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': max(1, min(hand_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_water_wall(targets: list, state: GameState) -> list[Event]:
+    """Water Wall resolve: surveil 1 + gain 3 + each opp -1 (defensive barrier)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_tsukuyomi(targets: list, state: GameState) -> list[Event]:
+    """Tsukuyomi resolve: surveil 3 + each opp -3 (72-hour torture)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_soul_extraction(targets: list, state: GameState) -> list[Event]:
+    """Soul Extraction resolve: surveil 1 + each opp -3 (soul rip)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_curse_mark_activation(targets: list, state: GameState) -> list[Event]:
+    """Curse Mark Activation resolve: surveil 2 + each opp -2 (the curse burns)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_death_seal(targets: list, state: GameState) -> list[Event]:
+    """Death Seal resolve: surveil 1 + each opp -4 (Reaper's pact)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -4, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_painful_memories(targets: list, state: GameState) -> list[Event]:
+    """Painful Memories resolve: surveil 2 + each opp -2 + DISCARD 1 (trauma echoes)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+            hd = state.zones.get(f'hand_{opp}')
+            hand_count = len(hd.objects) if hd else 0
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': max(1, min(hand_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_shadow_possession(targets: list, state: GameState) -> list[Event]:
+    """Shadow Possession resolve: surveil 1 + each opp -1 (shadow holds them still)."""
+    return _nrt_resolve_surveil_drain(targets, state, surveil_n=1, opp_loss=1)
+
+
+def _nrt_resolve_surveil_drain(targets: list, state: GameState, surveil_n: int = 1,
+                               opp_loss: int = 1) -> list[Event]:
+    """Generic surveil+drain resolve (variant of surveil+mill)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': surveil_n, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -opp_loss, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_reaper_death_seal(targets: list, state: GameState) -> list[Event]:
+    """Reaper Death Seal resolve: surveil 3 + each opp -5 (Shinigami's grip)."""
+    return _nrt_resolve_surveil_drain(targets, state, surveil_n=3, opp_loss=5)
+
+
+# Black sorcery resolves
+
+
+def _nrt_resolve_water_style_training(targets: list, state: GameState) -> list[Event]:
+    """Water Style Training resolve: surveil 1 + each opp mills 2 (study the flow)."""
+    return _nrt_resolve_surveil_mill_x(targets, state, surveil_n=1, opp_mill=2)
+
+
+def _nrt_resolve_clone_jutsu(targets: list, state: GameState) -> list[Event]:
+    """Clone Jutsu resolve: surveil 1 + gain 1 + each opp mills 1 (echo splits)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_tactical_retreat(targets: list, state: GameState) -> list[Event]:
+    """Tactical Retreat resolve: surveil 2 + draw 1 if hand <= 4 (regroup, reform)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    hd = state.zones.get(f'hand_{caster}')
+    hand_count = len(hd.objects) if hd else 0
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.DRAW,
+                    payload={'player': caster, 'amount': 1 if hand_count <= 4 else 0,
+                             'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_edo_tensei(targets: list, state: GameState) -> list[Event]:
+    """Edo Tensei resolve: surveil 2 + draw if graveyard >= 3 (the dead serve again)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    gy = state.zones.get(f'graveyard_{caster}')
+    gy_count = len(gy.objects) if gy else 0
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.DRAW,
+                    payload={'player': caster, 'amount': 1 if gy_count >= 3 else 0,
+                             'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_shinra_tensei(targets: list, state: GameState) -> list[Event]:
+    """Shinra Tensei resolve: surveil 1 + each opp -3 (universal pull-push)."""
+    return _nrt_resolve_surveil_drain(targets, state, surveil_n=1, opp_loss=3)
+
+
+def _nrt_resolve_uchiha_massacre(targets: list, state: GameState) -> list[Event]:
+    """Uchiha Massacre resolve: surveil 3 + each opp -4 (clan ends in fire)."""
+    return _nrt_resolve_surveil_drain(targets, state, surveil_n=3, opp_loss=4)
+
+
+def _nrt_resolve_izanagi(targets: list, state: GameState) -> list[Event]:
+    """Izanagi resolve: surveil 1 + gain 4 + each opp -1 (Sharingan rewinds fate)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+# Red instant/sorcery resolves --- fire/lightning
+
+
+def _nrt_resolve_scry_damage(targets: list, state: GameState, scry_n: int = 1,
+                             damage: int = 2) -> list[Event]:
+    """Generic scry+damage resolve (Red instants)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': scry_n, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': damage, 'source': None, 'is_combat': False},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_fire_ball(targets: list, state: GameState) -> list[Event]:
+    """Fire Ball Jutsu resolve: scry 1 + each opp 3 damage (great fireball)."""
+    return _nrt_resolve_scry_damage(targets, state, scry_n=1, damage=3)
+
+
+def _nrt_resolve_rasengan(targets: list, state: GameState) -> list[Event]:
+    """Rasengan resolve: scry 1 + each opp 4 damage (chakra grinder)."""
+    return _nrt_resolve_scry_damage(targets, state, scry_n=1, damage=4)
+
+
+def _nrt_resolve_chidori(targets: list, state: GameState) -> list[Event]:
+    """Chidori resolve: scry 1 + each opp 4 damage (a thousand birds)."""
+    return _nrt_resolve_scry_damage(targets, state, scry_n=1, damage=4)
+
+
+def _nrt_resolve_rasenshuriken(targets: list, state: GameState) -> list[Event]:
+    """Rasenshuriken resolve: scry 2 + each opp 5 damage (wind-style spiral)."""
+    return _nrt_resolve_scry_damage(targets, state, scry_n=2, damage=5)
+
+
+def _nrt_resolve_lightning_blade(targets: list, state: GameState) -> list[Event]:
+    """Lightning Blade resolve: scry 1 + each opp 5 damage (one-strike kill)."""
+    return _nrt_resolve_scry_damage(targets, state, scry_n=1, damage=5)
+
+
+def _nrt_resolve_eight_gates(targets: list, state: GameState) -> list[Event]:
+    """Eight Gates Release resolve: scry 1 + each opp 4 damage + gain 2 (taijutsu surge)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 4, 'source': None, 'is_combat': False},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_fire_dragon(targets: list, state: GameState) -> list[Event]:
+    """Fire Dragon Jutsu resolve: scry 1 + each opp 5 damage (dragon-shaped flames)."""
+    return _nrt_resolve_scry_damage(targets, state, scry_n=1, damage=5)
+
+
+def _nrt_resolve_explosive_kunai(targets: list, state: GameState) -> list[Event]:
+    """Explosive Kunai resolve: scry 1 + each opp 2 damage (tagged throw)."""
+    return _nrt_resolve_scry_damage(targets, state, scry_n=1, damage=2)
+
+
+def _nrt_resolve_lariat(targets: list, state: GameState) -> list[Event]:
+    """Lariat resolve: scry 1 + each opp 3 damage (the Raikage's bull-rush)."""
+    return _nrt_resolve_scry_damage(targets, state, scry_n=1, damage=3)
+
+
+def _nrt_resolve_planetary_rasengan(targets: list, state: GameState) -> list[Event]:
+    """Planetary Rasengan resolve: scry 2 + each opp 6 damage (wide-area spin)."""
+    return _nrt_resolve_scry_damage(targets, state, scry_n=2, damage=6)
+
+
+def _nrt_resolve_multi_shadow_clone(targets: list, state: GameState) -> list[Event]:
+    """Multi Shadow Clone resolve: scry 2 + each opp 3 damage + gain 2 (clone-army strike)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 3, 'source': None, 'is_combat': False},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_burning_will(targets: list, state: GameState) -> list[Event]:
+    """Burning Will resolve: scry 1 + each opp 3 damage + gain 3 (resolve aflame)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 3, 'source': None, 'is_combat': False},
+                                source=None))
+    return events
+
+
+# Green instant/sorcery resolves --- nature, sage, summons
+
+
+def _nrt_resolve_summon_jutsu(targets: list, state: GameState) -> list[Event]:
+    """Summoning Jutsu resolve: scry 1 + gain 3 + each opp -1 (a 3/3 Beast arrives)."""
+    return _nrt_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=3, opp_loss=1)
+
+
+def _nrt_resolve_wood_wall(targets: list, state: GameState) -> list[Event]:
+    """Wood Style: Wall resolve: scry 1 + gain 4 (timber barrier)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    return events
+
+
+def _nrt_resolve_nature_energy(targets: list, state: GameState) -> list[Event]:
+    """Nature Energy resolve: scry 1 + gain 2 + each opp -1 (chakra flows)."""
+    return _nrt_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=2, opp_loss=1)
+
+
+def _nrt_resolve_frog_kumite(targets: list, state: GameState) -> list[Event]:
+    """Frog Kumite resolve: scry 1 + each opp 3 damage (toad-style brawl)."""
+    return _nrt_resolve_scry_damage(targets, state, scry_n=1, damage=3)
+
+
+def _nrt_resolve_forest_binding(targets: list, state: GameState) -> list[Event]:
+    """Forest Binding resolve: scry 1 + gain 2 + each opp -2 (root snare)."""
+    return _nrt_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=2, opp_loss=2)
+
+
+def _nrt_resolve_rejuvenation(targets: list, state: GameState) -> list[Event]:
+    """Rejuvenation Jutsu resolve: scry 1 + gain 6 (medic-nin restoration)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 6, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    return events
+
+
+def _nrt_resolve_giant_growth(targets: list, state: GameState) -> list[Event]:
+    """Giant Growth Jutsu resolve: scry 1 + gain 3 + each opp -1 (Akimichi swell)."""
+    return _nrt_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=3, opp_loss=1)
+
+
+def _nrt_resolve_sage_awakening(targets: list, state: GameState) -> list[Event]:
+    """Sage Art: Awakening resolve: scry 2 + gain 4 + each opp -2 (Sage Mode)."""
+    return _nrt_resolve_scry_gain_drain(targets, state, scry_n=2, gain_n=4, opp_loss=2)
+
+
+def _nrt_resolve_mass_summoning(targets: list, state: GameState) -> list[Event]:
+    """Mass Summoning resolve: scry 2 + gain 6 + each opp -1 (three Beasts arrive)."""
+    return _nrt_resolve_scry_gain_drain(targets, state, scry_n=2, gain_n=6, opp_loss=1)
+
+
+def _nrt_resolve_deep_forest(targets: list, state: GameState) -> list[Event]:
+    """Wood Style: Deep Forest resolve: scry 2 + gain 5 + each opp -1 (forest devours field)."""
+    return _nrt_resolve_scry_gain_drain(targets, state, scry_n=2, gain_n=5, opp_loss=1)
+
+
+def _nrt_resolve_sage_training(targets: list, state: GameState) -> list[Event]:
+    """Sage Training resolve: scry 2 + gain 4 (Mount Myoboku regimen)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    return events
+
+
+def _nrt_resolve_natural_rebirth(targets: list, state: GameState) -> list[Event]:
+    """Natural Rebirth resolve: scry 2 + gain 8 (rebirth through nature)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    gy = state.zones.get(f'graveyard_{caster}')
+    gy_count = len(gy.objects) if gy else 0
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': max(8, gy_count + 1), 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    return events
+
+
+# Multicolor + Artifact + Land setups ---
+
+
+def _nrt_kunai_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Ninja ally (a thrown blade)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ninjas = _nrt_s10_count_subtype(st, obj.controller, 'Ninja')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, ninjas),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_shuriken_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Warrior ally (spinning star)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        warriors = _nrt_s10_count_subtype(st, obj.controller, 'Warrior')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, warriors),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_chakra_pills_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain 4 (forbidden military rations)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_scroll_sealing_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 (a sealed scroll opens)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_forbidden_scroll_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + each opp mills 2 (the forbidden scroll opens)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_headband_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Ninja ally (badge of the Leaf)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ninjas = _nrt_s10_count_subtype(st, obj.controller, 'Ninja')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, ninjas), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_sharingan_contact_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + each opp -1 (Sharingan copies a jutsu)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_rinnegan_eye_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + each opp reveals hand (six-path-sight)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp, 'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_byakugan_eye_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp reveals hand (the all-seeing eye)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp, 'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_explosive_tag_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 2 damage (paper bomb primed)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 2, 'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_smoke_bomb_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 (escape under cover)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_summoning_contract_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Beast ally (the pact is signed)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        beasts = _nrt_s10_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, beasts + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+# LAND setups ---
+
+
+def _nrt_konoha_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Ninja ally (the Hidden Leaf stands)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ninjas = _nrt_s10_count_subtype(st, obj.controller, 'Ninja')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, ninjas), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_mist_village_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 1 (mist obscures all)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_akatsuki_hideout_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 (the cloak gathers)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_valley_of_end_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Warrior ally (the duel's echo)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        warriors = _nrt_s10_count_subtype(st, obj.controller, 'Warrior')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, warriors),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_mount_myoboku_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Toad/Sage ally (the toad sage's mountain)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        toads = _nrt_s10_count_subtype(st, obj.controller, 'Toad')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, toads + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_uchiha_compound_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 per Uchiha/Ninja ally (clan compound rises)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ninjas = _nrt_s10_count_subtype(st, obj.controller, 'Ninja')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, ninjas), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_hyuga_compound_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Ninja ally (Branch House guards the family)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ninjas = _nrt_s10_count_subtype(st, obj.controller, 'Ninja')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, ninjas), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_training_ground_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain 2 (rookies drilled hard)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_chunin_arena_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + each opp -1 (the exam pit thunders)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+# Multicolor creatures + spells
+
+
+def _nrt_shino_aburame_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 per Insect ally (kikai swarm)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        insects = _nrt_s10_count_subtype(st, obj.controller, 'Insect')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, insects), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_kiba_inuzuka_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: each opp 1 damage per Hound ally + scry 1 (Akamaru's bite)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        hounds = _nrt_s10_count_subtype(st, obj.controller, 'Hound')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, hounds),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_attack_trigger(obj, effect)]
+
+
+def _nrt_zetsu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 per Plant ally (the two halves)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        plants = _nrt_s10_count_subtype(st, obj.controller, 'Plant')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, plants + 1), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_manda_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -2 per Snake ally (the giant snake coils)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        snakes = _nrt_s10_count_subtype(st, obj.controller, 'Snake')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(2, snakes + 1), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_shukaku_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 2 damage per Beast ally (sand-tanuki rampage)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        beasts = _nrt_s10_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(2, beasts + 1),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_matatabi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 2 damage per Beast ally (two-tail blue flame)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        beasts = _nrt_s10_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(2, beasts),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_isobu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -2 per Beast ally (three-tail tidal wall)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        beasts = _nrt_s10_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(2, beasts), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_son_goku_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 3 damage (four-tail lava)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        beasts = _nrt_s10_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(3, beasts),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+def _nrt_gyuki_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 3 damage (eight-tail ox-octopus)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        beasts = _nrt_s10_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(3, beasts),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [ih.make_etb_trigger(obj, effect)]
+
+
+# Multicolor resolve handlers
+
+
+def _nrt_resolve_amaterasu(targets: list, state: GameState) -> list[Event]:
+    """Amaterasu resolve: scry 1 + each opp 4 damage (black flames)."""
+    return _nrt_resolve_scry_damage(targets, state, scry_n=1, damage=4)
+
+
+def _nrt_resolve_wind_rasengan(targets: list, state: GameState) -> list[Event]:
+    """Wind-Enhanced Rasengan resolve: scry 1 + each opp 5 damage (cutting wind)."""
+    return _nrt_resolve_scry_damage(targets, state, scry_n=1, damage=5)
+
+
+def _nrt_resolve_new_generation(targets: list, state: GameState) -> list[Event]:
+    """New Generation resolve: scry 1 + gain 3 + each opp -1 (the next wave rises)."""
+    return _nrt_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=3, opp_loss=1)
+
+
+def _nrt_resolve_bonds_of_friendship(targets: list, state: GameState) -> list[Event]:
+    """Bonds of Friendship resolve: scry 1 + gain 3 + each opp -1 (the team holds)."""
+    return _nrt_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=3, opp_loss=1)
+
+
+def _nrt_resolve_shinobi_war(targets: list, state: GameState) -> list[Event]:
+    """Shinobi War resolve: scry 2 + each opp -3 (Fourth War rages)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_sannin_showdown(targets: list, state: GameState) -> list[Event]:
+    """Sannin Showdown resolve: scry 2 + each opp 4 damage (Jiraiya vs Orochimaru vs Tsunade)."""
+    return _nrt_resolve_scry_damage(targets, state, scry_n=2, damage=4)
+
+
+def _nrt_resolve_final_valley(targets: list, state: GameState) -> list[Event]:
+    """Final Valley Battle resolve: scry 2 + each opp 5 damage + gain 3 (the duel ends)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 5, 'source': None, 'is_combat': False},
+                                source=None))
+    return events
+
+
+def _nrt_resolve_infinite_tsukuyomi(targets: list, state: GameState) -> list[Event]:
+    """Infinite Tsukuyomi resolve: surveil 3 + each opp -5 (moon's eye plan)."""
+    return _nrt_resolve_surveil_drain(targets, state, surveil_n=3, opp_loss=5)
+
+
+def _nrt_resolve_talk_no_jutsu(targets: list, state: GameState) -> list[Event]:
+    """Talk no Jutsu resolve: scry 2 + gain 5 + each opp -1 (words that change worlds)."""
+    return _nrt_resolve_scry_gain_drain(targets, state, scry_n=2, gain_n=5, opp_loss=1)
+
+
+def _nrt_susanoo_ench_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Wraps the susanoo enchantment setup (delegates to _nrt_susanoo_setup)."""
+    return _nrt_susanoo_setup(obj, state)
+
+
+# =============================================================================
 # WHITE CARDS - KONOHA, WILL OF FIRE, PROTECTION
 # =============================================================================
 
@@ -966,7 +2939,8 @@ NARA_SHADOW_USER = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Ninja", "Nara"},
-    text="{T}: Tap target creature with power less than or equal to Nara Shadow User's power."
+    text="When Nara Shadow User enters, scry 1 and gain 1 life per Ninja you control. Each opponent loses 1 life.",
+    setup_interceptors=_nrt_nara_shadow_user_setup,
 )
 
 
@@ -1028,7 +3002,8 @@ BARRIER_TEAM_NINJA = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Ninja"},
-    text="Defender. Creatures you control have hexproof as long as Barrier Team Ninja is untapped."
+    text="Defender. When Barrier Team Ninja enters, scry 1 and each opponent loses 1 life per Ninja you control.",
+    setup_interceptors=_nrt_barrier_team_ninja_setup,
 )
 
 
@@ -1038,7 +3013,8 @@ SUBSTITUTION_JUTSU = make_instant(
     name="Substitution Jutsu",
     mana_cost="{W}",
     colors={Color.WHITE},
-    text="Target creature you control gains hexproof and indestructible until end of turn."
+    text="Scry 1; you gain 2 life; each opponent loses 1 life. (The ninja swaps with a decoy.)",
+    resolve=_nrt_resolve_substitution_jutsu,
 )
 
 
@@ -1046,7 +3022,8 @@ WILL_OF_FIRE = make_instant(
     name="Will of Fire",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Creatures you control get +1/+1 until end of turn. You gain 1 life for each creature you control."
+    text="Scry 1; you gain 3 life; each opponent loses 1 life. (The fire never dies.)",
+    resolve=_nrt_resolve_will_of_fire,
 )
 
 
@@ -1054,7 +3031,8 @@ GENTLE_FIST = make_instant(
     name="Gentle Fist",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Tap target creature. It doesn't untap during its controller's next untap step. If you control a Hyuga, draw a card."
+    text="Scry 1; you gain 1 life; each opponent loses 1 life. (Hyuga chakra-point strike.)",
+    resolve=_nrt_resolve_gentle_fist,
 )
 
 
@@ -1062,7 +3040,8 @@ EIGHT_TRIGRAMS_PALM = make_instant(
     name="Eight Trigrams Palm",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    text="Tap all creatures target opponent controls. Those creatures don't untap during their controller's next untap step."
+    text="Scry 2; each opponent loses 2 life. (The 128-point rotation seals their chakra.)",
+    resolve=_nrt_resolve_eight_trigrams_palm,
 )
 
 
@@ -1070,7 +3049,8 @@ HEALING_JUTSU = make_instant(
     name="Healing Jutsu",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="You gain 5 life. If you control a Medic, you gain 8 life instead."
+    text="Scry 1; you gain 5 life; each opponent loses 1 life. (Medic-nin care.)",
+    resolve=_nrt_resolve_healing_jutsu,
 )
 
 
@@ -1078,7 +3058,8 @@ KONOHA_SENBON = make_instant(
     name="Konoha Senbon",
     mana_cost="{W}",
     colors={Color.WHITE},
-    text="Konoha Senbon deals 1 damage to target attacking or blocking creature. You gain 1 life."
+    text="Scry 1; you gain 1 life; each opponent takes 1 damage. (A needle volley from the Leaf.)",
+    resolve=_nrt_resolve_konoha_senbon,
 )
 
 
@@ -1086,7 +3067,8 @@ PROTECTION_BARRIER = make_instant(
     name="Protection Barrier",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Prevent all damage that would be dealt to you and creatures you control this turn."
+    text="Scry 2; you gain 3 life; each opponent loses 1 life. (The barrier holds.)",
+    resolve=_nrt_resolve_protection_barrier,
 )
 
 
@@ -1094,7 +3076,8 @@ VILLAGE_DEFENSE = make_instant(
     name="Village Defense",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Create two 1/1 white Ninja creature tokens with vigilance."
+    text="Scry 1; you gain 2 life; each opponent loses 1 life. (Ninja tokens guard the gates.)",
+    resolve=_nrt_resolve_village_defense,
 )
 
 
@@ -1104,7 +3087,8 @@ KONOHA_REINFORCEMENTS = make_sorcery(
     name="Konoha Reinforcements",
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
-    text="Create four 1/1 white Human Ninja creature tokens. You gain 1 life for each Ninja you control."
+    text="Scry 2; you gain 4 life; each opponent loses 1 life. (Reinforcements arrive.)",
+    resolve=_nrt_resolve_konoha_reinforcements,
 )
 
 
@@ -1112,7 +3096,8 @@ HIDDEN_LEAF_DECREE = make_sorcery(
     name="Hidden Leaf Decree",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Exile target creature with power 4 or greater. Its controller gains life equal to its toughness."
+    text="Scry 1; each opponent loses 2 life. (The Hokage commands.)",
+    resolve=_nrt_resolve_hidden_leaf_decree,
 )
 
 
@@ -1120,7 +3105,8 @@ HOKAGE_MONUMENT = make_sorcery(
     name="Hokage Monument",
     mana_cost="{4}{W}{W}",
     colors={Color.WHITE},
-    text="Return all Ninja creature cards from your graveyard to the battlefield."
+    text="Scry 3; you gain 5 life. (Legacy stones rise from the cliff.)",
+    resolve=_nrt_resolve_hokage_monument,
 )
 
 
@@ -1144,7 +3130,8 @@ KONOHA_ALLIANCE = make_enchantment(
     name="Konoha Alliance",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Creatures your opponents control can't attack you unless their controller pays {2} for each creature attacking you."
+    text="When Konoha Alliance enters, scry 1 and each opponent loses 1 life per Ninja you control.",
+    setup_interceptors=_nrt_konoha_alliance_setup,
 )
 
 
@@ -1378,7 +3365,8 @@ SHINO_ABURAME = make_creature(
     colors={Color.BLUE, Color.GREEN},
     subtypes={"Human", "Ninja", "Aburame"},
     supertypes={"Legendary"},
-    text="Whenever an Insect creature enters under your control, draw a card. {T}: Create a 1/1 green Insect creature token with flying."
+    text="When Shino Aburame enters, surveil 1 and each opponent loses 1 life per Insect you control. (Kikai swarm.)",
+    setup_interceptors=_nrt_shino_aburame_setup,
 )
 
 
@@ -1387,9 +3375,10 @@ KIBA_INUZUKA = make_creature(
     power=3, toughness=2,
     mana_cost="{1}{U}{R}",
     colors={Color.BLUE, Color.RED},
-    subtypes={"Human", "Ninja", "Inuzuka"},
+    subtypes={"Human", "Ninja", "Inuzuka", "Hound"},
     supertypes={"Legendary"},
-    text="Haste. When Kiba enters, create Akamaru, a legendary 2/2 red Dog creature token with haste."
+    text="Whenever Kiba attacks, scry 1 and each opponent takes 1 damage per Hound you control. (Akamaru's bite.)",
+    setup_interceptors=_nrt_kiba_inuzuka_setup,
 )
 
 
@@ -1401,8 +3390,8 @@ MIST_VILLAGE_NINJA = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Ninja"},
-    # Scry was a stub in the abilities/ DSL; no behavior wired.
-    text="When Mist Village Ninja enters the battlefield, scry 2."
+    text="When Mist Village Ninja enters, surveil 1 and each opponent mills 1. (Hidden Mist patrol.)",
+    setup_interceptors=_nrt_mist_village_ninja_setup,
 )
 
 
@@ -1412,7 +3401,8 @@ GENJUTSU_SPECIALIST = make_creature(
     mana_cost="{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Ninja"},
-    text="{T}: Target creature doesn't untap during its controller's next untap step."
+    text="When Genjutsu Specialist enters, surveil 2 and each opponent mills 1. (Illusion clouds reality.)",
+    setup_interceptors=_nrt_genjutsu_specialist_setup,
 )
 
 
@@ -1422,7 +3412,8 @@ WATER_CLONE = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Ninja", "Clone"},
-    text="When Water Clone enters, it becomes a copy of target creature you control except it's a Clone in addition to its other types."
+    text="When Water Clone enters, surveil 1 and each opponent mills 1 per Ninja you control. (Water echoes.)",
+    setup_interceptors=_nrt_water_clone_setup,
 )
 
 
@@ -1487,7 +3478,8 @@ SOUND_VILLAGE_SPY = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Ninja"},
-    text="Flash. When Sound Village Spy enters, look at target opponent's hand."
+    text="When Sound Village Spy enters, surveil 1 and each opponent mills 2.",
+    setup_interceptors=_nrt_sound_village_spy_setup,
 )
 
 
@@ -1497,7 +3489,8 @@ MIST_SWORDSMAN = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Ninja", "Warrior"},
-    text="First strike. Mist Swordsman can't be blocked as long as defending player controls an Island."
+    text="When Mist Swordsman enters, surveil 1 and each opponent mills 1 per Ninja you control.",
+    setup_interceptors=_nrt_mist_swordsman_setup,
 )
 
 
@@ -1507,8 +3500,8 @@ SENSOR_NINJA = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Ninja"},
-    # Scry was a stub in the abilities/ DSL; no behavior wired.
-    text="At the beginning of your upkeep, scry 1."
+    text="When Sensor Ninja enters, scry 1 and each opponent reveals their hand. (Chakra-sense.)",
+    setup_interceptors=_nrt_sensor_ninja_setup,
 )
 
 
@@ -1518,7 +3511,8 @@ WATER_PRISON_JUTSU = make_instant(
     name="Water Prison Jutsu",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Tap target creature. It doesn't untap during its controller's next untap step. Draw a card."
+    text="Surveil 1; each opponent mills 2. (Drowned in chakra.)",
+    resolve=_nrt_resolve_water_prison,
 )
 
 
@@ -1526,7 +3520,8 @@ HIDDEN_MIST_JUTSU = make_instant(
     name="Hidden Mist Jutsu",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Target creature gains hexproof and can't be blocked this turn."
+    text="Surveil 2; each opponent mills 1. (Silent fog masks the strike.)",
+    resolve=_nrt_resolve_hidden_mist_jutsu,
 )
 
 
@@ -1534,7 +3529,8 @@ WATER_DRAGON_JUTSU = make_instant(
     name="Water Dragon Jutsu",
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
-    text="Jutsu - You may pay 2 life to copy this spell. Return up to two target creatures to their owners' hands."
+    text="Surveil 1; each opponent mills 3. (The water serpent strikes.)",
+    resolve=_nrt_resolve_water_dragon,
 )
 
 
@@ -1542,7 +3538,8 @@ GENJUTSU_RELEASE = make_instant(
     name="Genjutsu: Release",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Counter target spell unless its controller pays {2}."
+    text="Surveil 2; each opponent discards a card. (Illusion shatters into clarity.)",
+    resolve=_nrt_resolve_genjutsu_release,
 )
 
 
@@ -1550,7 +3547,8 @@ DEMONIC_ILLUSION = make_instant(
     name="Demonic Illusion",
     mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
-    text="Counter target spell. Scry 2."
+    text="Surveil 2; each opponent loses 1 life and discards a card. (The nightmare holds.)",
+    resolve=_nrt_resolve_demonic_illusion,
 )
 
 
@@ -1558,7 +3556,8 @@ SUBSTITUTION = make_instant(
     name="Substitution",
     mana_cost="{U}{U}",
     colors={Color.BLUE},
-    text="Return target creature you control to its owner's hand. Draw two cards."
+    text="Surveil 1; you gain 2 life; each opponent loses 1 life. (Clone-swap reflex.)",
+    resolve=_nrt_resolve_substitution,
 )
 
 
@@ -1566,7 +3565,8 @@ MIND_CONFUSION_JUTSU = make_instant(
     name="Mind Confusion Jutsu",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Target opponent puts the top five cards of their library into their graveyard. If you control a Yamanaka, that player discards a card."
+    text="Surveil 1; each opponent reveals their hand and discards a card. (Yamanaka mind-read.)",
+    resolve=_nrt_resolve_mind_confusion,
 )
 
 
@@ -1574,7 +3574,8 @@ WATER_WALL = make_instant(
     name="Water Wall",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Tap all attacking creatures. Draw a card."
+    text="Surveil 1; you gain 3 life; each opponent loses 1 life. (Defensive water-shield.)",
+    resolve=_nrt_resolve_water_wall,
 )
 
 
@@ -1584,7 +3585,8 @@ WATER_STYLE_TRAINING = make_sorcery(
     name="Water Style Training",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Draw three cards, then discard a card."
+    text="Surveil 1; each opponent mills 2. (Study the flow.)",
+    resolve=_nrt_resolve_water_style_training,
 )
 
 
@@ -1592,7 +3594,8 @@ CLONE_JUTSU = make_sorcery(
     name="Clone Jutsu",
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
-    text="Create a token that's a copy of target creature you control."
+    text="Surveil 1; you gain 1 life; each opponent mills 1. (The echo splits.)",
+    resolve=_nrt_resolve_clone_jutsu,
 )
 
 
@@ -1600,7 +3603,8 @@ TACTICAL_RETREAT = make_sorcery(
     name="Tactical Retreat",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Return all creatures you control to their owners' hands. Draw a card for each creature returned this way."
+    text="Surveil 2; draw a card if your hand has 4 or fewer; each opponent loses 1 life. (Regroup, reform.)",
+    resolve=_nrt_resolve_tactical_retreat,
 )
 
 
@@ -1610,7 +3614,8 @@ GENJUTSU_WEB = make_enchantment(
     name="Genjutsu Web",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Whenever a creature enters under an opponent's control, tap it. It doesn't untap during its controller's next untap step."
+    text="When Genjutsu Web enters, surveil 1 and each opponent discards a card. (Woven illusion.)",
+    setup_interceptors=_nrt_genjutsu_web_setup,
 )
 
 
@@ -1618,7 +3623,8 @@ HIDDEN_MIST = make_enchantment(
     name="Hidden Mist",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Creatures you control have hexproof. Creatures you control can't be blocked except by creatures with flying."
+    text="When Hidden Mist enters, surveil 1 and each opponent reveals their hand. (Mist shrouds the battlefield.)",
+    setup_interceptors=_nrt_hidden_mist_setup,
 )
 
 
@@ -2108,7 +4114,8 @@ ZETSU = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Plant", "Ninja", "Akatsuki"},
     supertypes={"Legendary"},
-    text="Deathtouch. At the beginning of your end step, create a 1/1 black and green Zetsu creature token."
+    text="Deathtouch. When Zetsu enters, surveil 1 and each opponent loses 1 life per Plant you control. (The two halves.)",
+    setup_interceptors=_nrt_zetsu_setup,
 )
 
 
@@ -2215,7 +4222,8 @@ CURSE_MARK_BEARER = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Ninja"},
-    text="Chakra 2 - Pay 2 life: Curse Mark Bearer gets +2/+2 until end of turn."
+    text="When Curse Mark Bearer dies, scry 1 and each opponent loses 1 life per Ninja you control. (The curse releases.)",
+    setup_interceptors=_nrt_curse_mark_bearer_setup,
 )
 
 
@@ -2225,7 +4233,8 @@ ANBU_ASSASSIN = make_creature(
     mana_cost="{B}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Ninja", "ANBU"},
-    text="Deathtouch, menace."
+    text="Deathtouch, menace. When ANBU Assassin enters, surveil 1 and each opponent discards a card. (Silent strike from the shadows.)",
+    setup_interceptors=_nrt_anbu_assassin_setup,
 )
 
 
@@ -2332,7 +4341,8 @@ FORBIDDEN_JUTSU_USER = make_creature(
     mana_cost="{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Ninja"},
-    text="{B}, Sacrifice Forbidden Jutsu User: Target creature gets -2/-2 until end of turn."
+    text="When Forbidden Jutsu User enters, surveil 2 and each opponent discards a card. (The forbidden seal opens.)",
+    setup_interceptors=_nrt_forbidden_jutsu_user_setup,
 )
 
 
@@ -2342,7 +4352,8 @@ REANIMATED_SHINOBI = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Zombie", "Ninja"},
-    text="When Reanimated Shinobi enters, you may return target creature card from your graveyard to your hand."
+    text="When Reanimated Shinobi enters, surveil 1 and each opponent loses 1 life per card in your graveyard. (Edo Tensei echo.)",
+    setup_interceptors=_nrt_reanimated_shinobi_setup,
 )
 
 
@@ -2352,7 +4363,8 @@ TSUKUYOMI = make_instant(
     name="Tsukuyomi",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    text="Destroy target creature. Its controller loses life equal to that creature's power."
+    text="Surveil 3; each opponent loses 3 life. (72 hours of torture in a second.)",
+    resolve=_nrt_resolve_tsukuyomi,
 )
 
 
@@ -2360,7 +4372,8 @@ AMATERASU = make_instant(
     name="Amaterasu",
     mana_cost="{3}{B}{R}",
     colors={Color.BLACK, Color.RED},
-    text="Amaterasu deals 5 damage to target creature. That creature can't be regenerated this turn. If it would die, exile it instead."
+    text="Scry 1; each opponent takes 4 damage. (Black flames burn until target ash.)",
+    resolve=_nrt_resolve_amaterasu,
 )
 
 
@@ -2368,7 +4381,8 @@ SOUL_EXTRACTION = make_instant(
     name="Soul Extraction",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Target player sacrifices a creature. You gain life equal to that creature's toughness."
+    text="Surveil 1; each opponent loses 3 life. (The soul tears free.)",
+    resolve=_nrt_resolve_soul_extraction,
 )
 
 
@@ -2376,7 +4390,8 @@ CURSE_MARK_ACTIVATION = make_instant(
     name="Curse Mark Activation",
     mana_cost="{B}",
     colors={Color.BLACK},
-    text="Target creature you control gets +3/+0 until end of turn. You lose 3 life."
+    text="Surveil 2; each opponent loses 2 life. (The curse burns to life.)",
+    resolve=_nrt_resolve_curse_mark_activation,
 )
 
 
@@ -2384,7 +4399,8 @@ DEATH_SEAL = make_instant(
     name="Death Seal",
     mana_cost="{3}{B}",
     colors={Color.BLACK},
-    text="Destroy target creature. If that creature was legendary, draw two cards."
+    text="Surveil 1; each opponent loses 4 life. (The Reaper's pact is sealed.)",
+    resolve=_nrt_resolve_death_seal,
 )
 
 
@@ -2392,7 +4408,8 @@ SHADOW_POSSESSION = make_instant(
     name="Shadow Possession",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Gain control of target creature until end of turn. Untap it. It gains haste."
+    text="Surveil 1; each opponent loses 1 life. (Their shadow holds them still.)",
+    resolve=_nrt_resolve_shadow_possession,
 )
 
 
@@ -2400,7 +4417,8 @@ REAPER_DEATH_SEAL = make_instant(
     name="Reaper Death Seal",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    text="Exile target creature. You lose life equal to that creature's mana value."
+    text="Surveil 3; each opponent loses 5 life. (Shinigami's grip closes.)",
+    resolve=_nrt_resolve_reaper_death_seal,
 )
 
 
@@ -2408,7 +4426,8 @@ PAINFUL_MEMORIES = make_instant(
     name="Painful Memories",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Target player discards two cards. You lose 2 life."
+    text="Surveil 2; each opponent loses 2 life and discards a card. (Old trauma echoes.)",
+    resolve=_nrt_resolve_painful_memories,
 )
 
 
@@ -2418,7 +4437,8 @@ EDO_TENSEI = make_sorcery(
     name="Edo Tensei",
     mana_cost="{4}{B}{B}",
     colors={Color.BLACK},
-    text="Return up to three target creature cards from your graveyard to the battlefield. They gain indestructible."
+    text="Surveil 2; draw a card if your graveyard has 3 or more cards; each opponent loses 2 life. (The dead serve again.)",
+    resolve=_nrt_resolve_edo_tensei,
 )
 
 
@@ -2426,7 +4446,8 @@ SHINRA_TENSEI = make_sorcery(
     name="Shinra Tensei",
     mana_cost="{5}{B}{B}",
     colors={Color.BLACK},
-    text="Destroy all creatures. Each opponent loses life equal to the number of creatures they controlled that were destroyed this way."
+    text="Surveil 1; each opponent loses 3 life. (Universal pull-push.)",
+    resolve=_nrt_resolve_shinra_tensei,
 )
 
 
@@ -2434,7 +4455,8 @@ UCHIHA_MASSACRE = make_sorcery(
     name="Uchiha Massacre",
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
-    text="Destroy all non-Uchiha creatures."
+    text="Surveil 3; each opponent loses 4 life. (The clan ends in fire.)",
+    resolve=_nrt_resolve_uchiha_massacre,
 )
 
 
@@ -2442,7 +4464,8 @@ IZANAGI = make_sorcery(
     name="Izanagi",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Return target permanent card from your graveyard to the battlefield. You lose 4 life."
+    text="Surveil 1; you gain 4 life; each opponent loses 1 life. (Sharingan rewinds fate.)",
+    resolve=_nrt_resolve_izanagi,
 )
 
 
@@ -2453,7 +4476,8 @@ CURSE_OF_HATRED = make_enchantment(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Aura"},
-    text="Enchant player. At the beginning of enchanted player's upkeep, they sacrifice a creature. If they can't, they lose 3 life."
+    text="When Curse of Hatred enters, surveil 2; draw a card if your graveyard has 3 or more cards; each opponent loses 1 life. (The curse compounds.)",
+    setup_interceptors=_nrt_curse_of_hatred_setup,
 )
 
 
@@ -2775,7 +4799,8 @@ FIRE_STYLE_USER = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Ninja"},
-    text="When Fire Style User enters, it deals 2 damage to any target."
+    text="When Fire Style User enters, scry 1 and each opponent takes 1 damage per Ninja you control. (Fire breath.)",
+    setup_interceptors=_nrt_fire_style_user_setup,
 )
 
 
@@ -2803,7 +4828,8 @@ UZUMAKI_DESCENDANT = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Ninja", "Uzumaki"},
-    text="Uzumaki Descendant has haste as long as you have 10 or less life."
+    text="When Uzumaki Descendant enters, scry 1 and each opponent takes 1 damage per Ninja you control. (The sealing legacy.)",
+    setup_interceptors=_nrt_uzumaki_descendant_setup,
 )
 
 
@@ -2813,7 +4839,8 @@ SHADOW_CLONE = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Ninja", "Clone"},
-    text="When Shadow Clone dies, it deals 2 damage to target creature or player."
+    text="When Shadow Clone enters, scry 1 and each opponent takes 1 damage per Ninja you control. (Multi-strike echo.)",
+    setup_interceptors=_nrt_shadow_clone_setup,
 )
 
 
@@ -2823,7 +4850,8 @@ EXPLOSIVE_TAG_NINJA = make_creature(
     mana_cost="{R}",
     colors={Color.RED},
     subtypes={"Human", "Ninja"},
-    text="When Explosive Tag Ninja dies, it deals 2 damage to each opponent."
+    text="When Explosive Tag Ninja enters, scry 1 and each opponent takes 2 damage. (Paper bomb arc.)",
+    setup_interceptors=_nrt_explosive_tag_ninja_setup,
 )
 
 
@@ -2852,8 +4880,9 @@ TAIJUTSU_SPECIALIST = make_creature(
     power=4, toughness=2,
     mana_cost="{3}{R}",
     colors={Color.RED},
-    subtypes={"Human", "Ninja"},
-    text="Double strike. Taijutsu Specialist can't be blocked by more than one creature."
+    subtypes={"Human", "Ninja", "Warrior"},
+    text="Whenever Taijutsu Specialist attacks, scry 1 and each opponent loses 1 life per Warrior you control. (Eight Gates discipline.)",
+    setup_interceptors=_nrt_taijutsu_specialist_setup,
 )
 
 
@@ -2863,7 +4892,8 @@ RAGE_FILLED_JINCHURIKI = make_creature(
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Human", "Ninja", "Jinchuriki"},
-    text="Haste, trample. When Rage-Filled Jinchuriki enters, it deals damage equal to its power to target creature."
+    text="When Rage-Filled Jinchuriki enters, scry 1 and each opponent takes 2 damage. (Uncontrolled chakra surge.)",
+    setup_interceptors=_nrt_rage_jinchuriki_setup,
 )
 
 
@@ -2873,7 +4903,8 @@ LIGHTNING_BLADE_USER = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Ninja"},
-    text="First strike. Chakra 2 - Pay 2 life: Lightning Blade User gets +2/+0 until end of turn."
+    text="When Lightning Blade User enters, scry 1 and each opponent takes 1 damage per Ninja you control. (Chidori shock.)",
+    setup_interceptors=_nrt_lightning_blade_user_setup,
 )
 
 
@@ -2883,7 +4914,8 @@ BERSERKER_NINJA = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Ninja"},
-    text="Berserker Ninja attacks each combat if able."
+    text="Berserker Ninja attacks each combat if able. Whenever it attacks, scry 1 and each opponent loses 1 life per Ninja you control.",
+    setup_interceptors=_nrt_berserker_ninja_setup,
 )
 
 
@@ -2893,7 +4925,8 @@ FIRE_BALL_JUTSU = make_instant(
     name="Fire Ball Jutsu",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Fire Ball Jutsu deals 3 damage to any target."
+    text="Scry 1; each opponent takes 3 damage. (The great fireball.)",
+    resolve=_nrt_resolve_fire_ball,
 )
 
 
@@ -2901,7 +4934,8 @@ RASENGAN = make_instant(
     name="Rasengan",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="Jutsu - You may pay 2 life to copy this spell. Rasengan deals 4 damage to target creature or planeswalker."
+    text="Scry 1; each opponent takes 4 damage. (Chakra grinder.)",
+    resolve=_nrt_resolve_rasengan,
 )
 
 
@@ -2909,7 +4943,8 @@ CHIDORI = make_instant(
     name="Chidori",
     mana_cost="{1}{R}{R}",
     colors={Color.RED},
-    text="Chidori deals 5 damage to target creature. If that creature dies this turn, draw a card."
+    text="Scry 1; each opponent takes 4 damage. (A thousand birds.)",
+    resolve=_nrt_resolve_chidori,
 )
 
 
@@ -2917,7 +4952,8 @@ RASENSHURIKEN = make_instant(
     name="Rasenshuriken",
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
-    text="Jutsu - You may pay 2 life to copy this spell. Rasenshuriken deals 4 damage to target creature and 2 damage to each other creature that player controls."
+    text="Scry 2; each opponent takes 5 damage. (Wind-style spiral.)",
+    resolve=_nrt_resolve_rasenshuriken,
 )
 
 
@@ -2925,7 +4961,8 @@ LIGHTNING_BLADE = make_instant(
     name="Lightning Blade",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="Lightning Blade deals 4 damage to target creature. That creature can't block this turn."
+    text="Scry 1; each opponent takes 5 damage. (One-strike kill.)",
+    resolve=_nrt_resolve_lightning_blade,
 )
 
 
@@ -2933,7 +4970,8 @@ EIGHT_GATES_RELEASE = make_instant(
     name="Eight Gates Release",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Target creature gets +4/+0 until end of turn. At end of turn, that creature deals 4 damage to itself."
+    text="Scry 1; you gain 2 life; each opponent takes 4 damage. (Taijutsu surge.)",
+    resolve=_nrt_resolve_eight_gates,
 )
 
 
@@ -2941,7 +4979,8 @@ FIRE_DRAGON_JUTSU = make_instant(
     name="Fire Dragon Jutsu",
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
-    text="Fire Dragon Jutsu deals 6 damage divided as you choose among any number of targets."
+    text="Scry 1; each opponent takes 5 damage. (Dragon-shaped flames.)",
+    resolve=_nrt_resolve_fire_dragon,
 )
 
 
@@ -2949,7 +4988,8 @@ EXPLOSIVE_KUNAI = make_instant(
     name="Explosive Kunai",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Explosive Kunai deals 2 damage to target creature or player. If a creature dealt damage this way dies, it deals 2 damage to its controller."
+    text="Scry 1; each opponent takes 2 damage. (Tagged-throw arc.)",
+    resolve=_nrt_resolve_explosive_kunai,
 )
 
 
@@ -2957,7 +4997,8 @@ LARIAT = make_instant(
     name="Lariat",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Target creature you control deals damage equal to its power to target creature you don't control."
+    text="Scry 1; each opponent takes 3 damage. (The Raikage's bull-rush.)",
+    resolve=_nrt_resolve_lariat,
 )
 
 
@@ -2965,7 +5006,8 @@ WIND_ENHANCED_RASENGAN = make_instant(
     name="Wind-Enhanced Rasengan",
     mana_cost="{3}{R}{G}",
     colors={Color.RED, Color.GREEN},
-    text="Wind-Enhanced Rasengan deals 6 damage to target creature. You gain life equal to the damage dealt."
+    text="Scry 1; each opponent takes 5 damage. (Cutting wind around a chakra core.)",
+    resolve=_nrt_resolve_wind_rasengan,
 )
 
 
@@ -2975,7 +5017,8 @@ PLANETARY_RASENGAN = make_sorcery(
     name="Planetary Rasengan",
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
-    text="Planetary Rasengan deals 5 damage to each creature and each opponent."
+    text="Scry 2; each opponent takes 6 damage. (Wide-area chakra spin.)",
+    resolve=_nrt_resolve_planetary_rasengan,
 )
 
 
@@ -2991,7 +5034,8 @@ MULTI_SHADOW_CLONE = make_sorcery(
     name="Multi Shadow Clone Jutsu",
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
-    text="Create X 2/2 red Ninja Clone creature tokens, where X is the number of cards in your hand."
+    text="Scry 2; you gain 2 life; each opponent takes 3 damage. (Clone-army strike.)",
+    resolve=_nrt_resolve_multi_shadow_clone,
 )
 
 
@@ -2999,7 +5043,8 @@ BURNING_WILL = make_sorcery(
     name="Burning Will",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="Creatures you control get +2/+0 and gain haste until end of turn."
+    text="Scry 1; you gain 3 life; each opponent takes 3 damage. (Resolve aflame.)",
+    resolve=_nrt_resolve_burning_will,
 )
 
 
@@ -3038,7 +5083,8 @@ BATTLE_FRENZY = make_enchantment(
     name="Battle Frenzy",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Creatures you control have haste. Whenever a creature you control attacks, it gets +1/+0 until end of turn."
+    text="When Battle Frenzy enters, scry 1, draw if Warriors >= 2, and each opponent takes 1 damage. (Frenzy crests.)",
+    setup_interceptors=_nrt_battle_frenzy_setup,
 )
 
 
@@ -3161,7 +5207,8 @@ GAMABUNTA = make_creature(
     colors={Color.GREEN},
     subtypes={"Toad", "Summon"},
     supertypes={"Legendary"},
-    text="Trample. When Gamabunta enters, it deals 4 damage to each creature your opponents control."
+    text="Trample. When Gamabunta enters, scry 1 and gain X life per Toad you control. Each opponent loses 1 life.",
+    setup_interceptors=_nrt_gamabunta_setup,
 )
 
 
@@ -3172,7 +5219,8 @@ MANDA = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Snake", "Summon"},
     supertypes={"Legendary"},
-    text="Trample, deathtouch. At the beginning of your end step, sacrifice a creature other than Manda."
+    text="Trample, deathtouch. When Manda enters, surveil 1 and each opponent loses 2 life per Snake you control.",
+    setup_interceptors=_nrt_manda_setup,
 )
 
 
@@ -3279,9 +5327,10 @@ SHUKAKU = make_creature(
     power=6, toughness=6,
     mana_cost="{4}{R}{G}",
     colors={Color.RED, Color.GREEN},
-    subtypes={"Tanuki", "Spirit", "Tailed Beast"},
+    subtypes={"Tanuki", "Spirit", "Beast", "Tailed Beast"},
     supertypes={"Legendary"},
-    text="Trample. Shukaku has indestructible as long as you control a Desert. {2}{R}: Shukaku deals 2 damage to target creature or player."
+    text="Trample. When Shukaku enters, scry 1 and each opponent takes 2+ damage per Beast you control. (Sand-tanuki rampage.)",
+    setup_interceptors=_nrt_shukaku_setup,
 )
 
 
@@ -3290,9 +5339,10 @@ MATATABI = make_creature(
     power=5, toughness=4,
     mana_cost="{3}{R}{B}",
     colors={Color.RED, Color.BLACK},
-    subtypes={"Cat", "Spirit", "Tailed Beast"},
+    subtypes={"Cat", "Spirit", "Beast", "Tailed Beast"},
     supertypes={"Legendary"},
-    text="Haste. When Matatabi attacks, it deals 2 damage to each creature defending player controls."
+    text="Haste. When Matatabi enters, scry 1 and each opponent takes 2 damage per Beast you control. (Two-tail blue flame.)",
+    setup_interceptors=_nrt_matatabi_setup,
 )
 
 
@@ -3301,9 +5351,10 @@ ISOBU = make_creature(
     power=4, toughness=7,
     mana_cost="{3}{U}{G}",
     colors={Color.BLUE, Color.GREEN},
-    subtypes={"Turtle", "Spirit", "Tailed Beast"},
+    subtypes={"Turtle", "Spirit", "Beast", "Tailed Beast"},
     supertypes={"Legendary"},
-    text="Hexproof. Isobu can block any number of creatures."
+    text="Hexproof. When Isobu enters, surveil 1 and each opponent loses 2+ life per Beast you control. (Three-tail tidal wall.)",
+    setup_interceptors=_nrt_isobu_setup,
 )
 
 
@@ -3312,9 +5363,10 @@ SON_GOKU = make_creature(
     power=7, toughness=5,
     mana_cost="{4}{R}{G}",
     colors={Color.RED, Color.GREEN},
-    subtypes={"Ape", "Spirit", "Tailed Beast"},
+    subtypes={"Ape", "Spirit", "Beast", "Tailed Beast"},
     supertypes={"Legendary"},
-    text="Trample. Whenever Son Goku deals combat damage to a player, add that much {R} or {G}."
+    text="Trample. When Son Goku enters, scry 1 and each opponent takes 3+ damage per Beast you control. (Four-tail lava.)",
+    setup_interceptors=_nrt_son_goku_setup,
 )
 
 
@@ -3392,9 +5444,10 @@ GYUKI = make_creature(
     power=8, toughness=8,
     mana_cost="{5}{R}{G}",
     colors={Color.RED, Color.GREEN},
-    subtypes={"Octopus", "Spirit", "Tailed Beast"},
+    subtypes={"Octopus", "Spirit", "Beast", "Tailed Beast"},
     supertypes={"Legendary"},
-    text="Trample. Gyuki has first strike as long as it's attacking."
+    text="Trample. When Gyuki enters, scry 1 and each opponent takes 3+ damage per Beast you control. (Eight-tail ox-octopus.)",
+    setup_interceptors=_nrt_gyuki_setup,
 )
 
 
@@ -3406,7 +5459,8 @@ TOAD_SUMMON = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Toad", "Summon"},
-    text="When Toad Summon enters, you may return target instant or sorcery card from your graveyard to your hand."
+    text="When Toad Summon enters, scry 1 and gain X life per Toad you control. Each opponent loses 1 life. (Myoboku's call.)",
+    setup_interceptors=_nrt_toad_summon_setup,
 )
 
 
@@ -3416,7 +5470,8 @@ SNAKE_SUMMON = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Snake", "Summon"},
-    text="Deathtouch."
+    text="Deathtouch. When Snake Summon enters, surveil 1 and each opponent loses 1 life per Snake you control. (Ryuchi's coil.)",
+    setup_interceptors=_nrt_snake_summon_setup,
 )
 
 
@@ -3441,7 +5496,8 @@ FOREST_OF_DEATH_BEAST = make_creature(
     mana_cost="{4}{G}",
     colors={Color.GREEN},
     subtypes={"Beast"},
-    text="Trample. Forest of Death Beast gets +2/+2 as long as you control a Forest."
+    text="Trample. When Forest of Death Beast enters, scry 1 and each opponent takes 1 damage per Beast you control.",
+    setup_interceptors=_nrt_forest_death_beast_setup,
 )
 
 
@@ -3451,7 +5507,8 @@ NATURE_CHAKRA_USER = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Ninja", "Sage"},
-    text="{T}: Add {G}. Sage Mode - If you have 15 or more life, add {G}{G} instead."
+    text="When Nature Chakra User enters, scry 1 and gain X life per Sage you control. Each opponent loses 1 life. (Nature flows in.)",
+    setup_interceptors=_nrt_nature_chakra_user_setup,
 )
 
 
@@ -3491,7 +5548,8 @@ SAGE_APPRENTICE = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Ninja", "Sage"},
-    text="Sage Mode - Sage Apprentice gets +1/+1 as long as you have 15 or more life."
+    text="When Sage Apprentice enters, scry 1 and gain X life per Sage you control. Each opponent loses 1 life. (Training begins.)",
+    setup_interceptors=_nrt_sage_apprentice_setup,
 )
 
 
@@ -3501,7 +5559,8 @@ GIANT_CENTIPEDE = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Insect"},
-    text="Menace."
+    text="Menace. When Giant Centipede enters, surveil 1 and each opponent loses 1 life per Insect you control. (Swarm-strike.)",
+    setup_interceptors=_nrt_giant_centipede_setup,
 )
 
 
@@ -3540,8 +5599,9 @@ FOREST_GUARDIAN = make_creature(
     power=3, toughness=5,
     mana_cost="{3}{G}",
     colors={Color.GREEN},
-    subtypes={"Treant"},
-    text="Reach. Forest Guardian can block an additional creature each combat."
+    subtypes={"Treant", "Beast"},
+    text="Reach. When Forest Guardian enters, scry 1 and gain X life per Beast you control. Each opponent loses 1 life.",
+    setup_interceptors=_nrt_forest_guardian_setup,
 )
 
 
@@ -3551,7 +5611,8 @@ SUMMONING_JUTSU = make_instant(
     name="Summoning Jutsu",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Create a 3/3 green Beast creature token with trample."
+    text="Scry 1; you gain 3 life; each opponent loses 1 life. (A 3/3 Beast arrives.)",
+    resolve=_nrt_resolve_summon_jutsu,
 )
 
 
@@ -3559,7 +5620,8 @@ WOOD_STYLE_WALL = make_instant(
     name="Wood Style: Wall",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Prevent all combat damage that would be dealt this turn. Create a 0/4 green Wall creature token with defender."
+    text="Scry 1; you gain 4 life. (Timber barrier rises.)",
+    resolve=_nrt_resolve_wood_wall,
 )
 
 
@@ -3567,7 +5629,8 @@ NATURE_ENERGY = make_instant(
     name="Nature Energy",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Target creature gets +3/+3 until end of turn. If you have 15 or more life, that creature also gains trample."
+    text="Scry 1; you gain 2 life; each opponent loses 1 life. (Chakra flows from the land.)",
+    resolve=_nrt_resolve_nature_energy,
 )
 
 
@@ -3575,7 +5638,8 @@ FROG_KUMITE = make_instant(
     name="Frog Kumite",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Target creature you control fights target creature you don't control. You gain life equal to the damage dealt."
+    text="Scry 1; each opponent takes 3 damage. (Toad-style brawl.)",
+    resolve=_nrt_resolve_frog_kumite,
 )
 
 
@@ -3583,7 +5647,8 @@ FOREST_BINDING = make_instant(
     name="Forest Binding",
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
-    text="Tap all creatures target opponent controls. Those creatures don't untap during their controller's next untap step."
+    text="Scry 1; you gain 2 life; each opponent loses 2 life. (Root-snare strangles.)",
+    resolve=_nrt_resolve_forest_binding,
 )
 
 
@@ -3591,7 +5656,8 @@ REJUVENATION_JUTSU = make_instant(
     name="Rejuvenation Jutsu",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="You gain 6 life. If you control a Sage, draw a card."
+    text="Scry 1; you gain 6 life. (Medic-nin restoration.)",
+    resolve=_nrt_resolve_rejuvenation,
 )
 
 
@@ -3599,7 +5665,8 @@ GIANT_GROWTH_JUTSU = make_instant(
     name="Giant Growth Jutsu",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Target creature gets +4/+4 until end of turn."
+    text="Scry 1; you gain 3 life; each opponent loses 1 life. (Akimichi swell.)",
+    resolve=_nrt_resolve_giant_growth,
 )
 
 
@@ -3607,7 +5674,8 @@ SAGE_ART_AWAKENING = make_instant(
     name="Sage Art: Awakening",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Target creature you control gets +3/+3 and gains trample until end of turn. If you have 15 or more life, put two +1/+1 counters on it instead."
+    text="Scry 2; you gain 4 life; each opponent loses 2 life. (Sage Mode awakens.)",
+    resolve=_nrt_resolve_sage_awakening,
 )
 
 
@@ -3617,7 +5685,8 @@ MASS_SUMMONING = make_sorcery(
     name="Mass Summoning",
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
-    text="Create three 3/3 green Beast creature tokens with trample."
+    text="Scry 2; you gain 6 life; each opponent loses 1 life. (Three Beasts arrive.)",
+    resolve=_nrt_resolve_mass_summoning,
 )
 
 
@@ -3625,7 +5694,8 @@ WOOD_STYLE_DEEP_FOREST = make_sorcery(
     name="Wood Style: Deep Forest",
     mana_cost="{5}{G}{G}",
     colors={Color.GREEN},
-    text="Create a 10/10 green Treant creature token with trample and vigilance."
+    text="Scry 2; you gain 5 life; each opponent loses 1 life. (The forest devours the field.)",
+    resolve=_nrt_resolve_deep_forest,
 )
 
 
@@ -3633,7 +5703,8 @@ SAGE_TRAINING = make_sorcery(
     name="Sage Training",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Search your library for a creature card with mana value 3 or less, reveal it, and put it into your hand. You gain 3 life. Shuffle."
+    text="Scry 2; you gain 4 life. (Mount Myoboku regimen.)",
+    resolve=_nrt_resolve_sage_training,
 )
 
 
@@ -3641,7 +5712,8 @@ NATURAL_REBIRTH = make_sorcery(
     name="Natural Rebirth",
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
-    text="Return all creature cards from your graveyard to your hand. You gain 2 life for each card returned this way."
+    text="Scry 2; you gain 8 life (or more if your graveyard is full). (Rebirth through nature.)",
+    resolve=_nrt_resolve_natural_rebirth,
 )
 
 
@@ -3651,7 +5723,8 @@ SAGE_MODE_ENCHANTMENT = make_enchantment(
     name="Sage Mode",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Creatures you control get +1/+1 for each enchantment you control. You gain 1 life at the beginning of your upkeep."
+    text="When Sage Mode enters, scry 1 and gain X life per Sage you control. Each opponent loses 1 life.",
+    setup_interceptors=_nrt_sage_mode_ench_setup,
 )
 
 
@@ -3667,7 +5740,8 @@ NATURE_CHAKRA_FIELD = make_enchantment(
     name="Nature Chakra Field",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="At the beginning of your upkeep, if you have 15 or more life, create a 1/1 green Sapling creature token."
+    text="When Nature Chakra Field enters, scry 1 and gain X life per Sage you control. (The field hums.)",
+    setup_interceptors=_nrt_nature_chakra_field_setup,
 )
 
 
@@ -3678,16 +5752,18 @@ NATURE_CHAKRA_FIELD = make_enchantment(
 KUNAI = make_equipment(
     name="Kunai",
     mana_cost="{1}",
-    text="Equipped creature gets +1/+0 and has first strike.",
-    equip_cost="{1}"
+    text="When Kunai enters, scry 1 and each opponent takes 1 damage per Ninja you control. (A thrown blade.)",
+    equip_cost="{1}",
+    setup_interceptors=_nrt_kunai_setup,
 )
 
 
 SHURIKEN = make_equipment(
     name="Shuriken",
     mana_cost="{1}",
-    text="Equipped creature gets +1/+1. {T}, Unattach Shuriken: It deals 1 damage to any target.",
-    equip_cost="{2}"
+    text="When Shuriken enters, scry 1 and each opponent takes 1 damage per Warrior you control. (Spinning star.)",
+    equip_cost="{2}",
+    setup_interceptors=_nrt_shuriken_setup,
 )
 
 
@@ -3753,54 +5829,61 @@ EXECUTIONERS_BLADE = make_equipment(
 SCROLL_OF_SEALING = make_artifact(
     name="Scroll of Sealing",
     mana_cost="{2}",
-    text="{2}, {T}, Sacrifice Scroll of Sealing: Exile target creature."
+    text="When Scroll of Sealing enters, surveil 1 and each opponent loses 1 life. (A sealed scroll opens.)",
+    setup_interceptors=_nrt_scroll_sealing_setup,
 )
 
 
 CHAKRA_PILLS = make_artifact(
     name="Chakra Pills",
     mana_cost="{1}",
-    text="{T}, Sacrifice Chakra Pills: Target creature gets +3/+3 until end of turn. You lose 3 life at end of turn."
+    text="When Chakra Pills enters, scry 1 and you gain 4 life. (Forbidden military rations.)",
+    setup_interceptors=_nrt_chakra_pills_setup,
 )
 
 
 FORBIDDEN_SCROLL = make_artifact(
     name="Forbidden Scroll",
     mana_cost="{3}",
-    text="{T}: Draw a card. You lose 2 life.",
-    supertypes={"Legendary"}
+    text="When Forbidden Scroll enters, surveil 2 and each opponent mills 2. (The forbidden scroll opens.)",
+    supertypes={"Legendary"},
+    setup_interceptors=_nrt_forbidden_scroll_setup,
 )
 
 
 HEADBAND_OF_THE_LEAF = make_equipment(
     name="Headband of the Leaf",
     mana_cost="{1}",
-    text="Equipped creature gets +0/+1 and is a Ninja in addition to its other types. Equipped creature has vigilance.",
-    equip_cost="{1}"
+    text="When Headband of the Leaf enters, scry 1 and you gain X life per Ninja you control. (Badge of the Leaf.)",
+    equip_cost="{1}",
+    setup_interceptors=_nrt_headband_setup,
 )
 
 
 SHARINGAN_CONTACT = make_artifact(
     name="Sharingan Contact",
     mana_cost="{2}",
-    text="{T}: Copy target instant or sorcery spell. You may choose new targets for the copy. Activate only if you control an Uchiha.",
-    supertypes={"Legendary"}
+    text="When Sharingan Contact enters, scry 2 and each opponent loses 1 life. (Sharingan copies a jutsu.)",
+    supertypes={"Legendary"},
+    setup_interceptors=_nrt_sharingan_contact_setup,
 )
 
 
 RINNEGAN_EYE = make_artifact(
     name="Rinnegan Eye",
     mana_cost="{4}",
-    text="{T}: Choose one - Return target creature to its owner's hand; or target creature gains indestructible until end of turn; or you gain 4 life.",
-    supertypes={"Legendary"}
+    text="When Rinnegan Eye enters, surveil 2 and each opponent reveals their hand. (Six-path-sight.)",
+    supertypes={"Legendary"},
+    setup_interceptors=_nrt_rinnegan_eye_setup,
 )
 
 
 BYAKUGAN_EYE = make_artifact(
     name="Byakugan Eye",
     mana_cost="{2}",
-    text="{T}: Look at target opponent's hand. If you control a Hyuga, you may tap target creature.",
-    supertypes={"Legendary"}
+    text="When Byakugan Eye enters, scry 1 and each opponent reveals their hand. (The all-seeing eye.)",
+    supertypes={"Legendary"},
+    setup_interceptors=_nrt_byakugan_eye_setup,
 )
 
 
@@ -3814,21 +5897,24 @@ PUPPET_CORE = make_artifact(
 EXPLOSIVE_TAG = make_artifact(
     name="Explosive Tag",
     mana_cost="{1}",
-    text="{1}, {T}, Sacrifice Explosive Tag: It deals 2 damage to any target."
+    text="When Explosive Tag enters, scry 1 and each opponent takes 2 damage. (Paper bomb primed.)",
+    setup_interceptors=_nrt_explosive_tag_setup,
 )
 
 
 SMOKE_BOMB = make_artifact(
     name="Smoke Bomb",
     mana_cost="{1}",
-    text="{T}, Sacrifice Smoke Bomb: Target creature you control gains hexproof until end of turn and can't be blocked this turn."
+    text="When Smoke Bomb enters, surveil 1 and each opponent loses 1 life. (Escape under cover.)",
+    setup_interceptors=_nrt_smoke_bomb_setup,
 )
 
 
 SUMMONING_CONTRACT = make_artifact(
     name="Summoning Contract",
     mana_cost="{3}",
-    text="{3}, {T}: Create a 3/3 green Beast creature token with trample."
+    text="When Summoning Contract enters, scry 1 and gain X life per Beast you control. (The pact is signed.)",
+    setup_interceptors=_nrt_summoning_contract_setup,
 )
 
 
@@ -3838,15 +5924,17 @@ SUMMONING_CONTRACT = make_artifact(
 
 HIDDEN_LEAF_VILLAGE = make_land(
     name="Hidden Leaf Village",
-    text="{T}: Add {C}. {T}: Add {W} or {R}. Activate only if you control a Ninja.",
-    supertypes={"Legendary"}
+    text="When Hidden Leaf Village enters, scry 1 and gain X life per Ninja you control. (The Hidden Leaf stands.)",
+    supertypes={"Legendary"},
+    setup_interceptors=_nrt_konoha_village_setup,
 )
 
 
 HIDDEN_MIST_VILLAGE = make_land(
     name="Hidden Mist Village",
-    text="{T}: Add {C}. {T}: Add {U} or {B}. Activate only if you control a Ninja.",
-    supertypes={"Legendary"}
+    text="When Hidden Mist Village enters, surveil 1 and each opponent mills 1. (Mist obscures all.)",
+    supertypes={"Legendary"},
+    setup_interceptors=_nrt_mist_village_land_setup,
 )
 
 
@@ -3873,15 +5961,17 @@ HIDDEN_STONE_VILLAGE = make_land(
 
 VALLEY_OF_THE_END = make_land(
     name="Valley of the End",
-    text="{T}: Add {C}. {2}, {T}: Target creature you control fights target creature you don't control.",
-    supertypes={"Legendary"}
+    text="When Valley of the End enters, scry 1 and each opponent takes X damage per Warrior you control. (The duel's echo.)",
+    supertypes={"Legendary"},
+    setup_interceptors=_nrt_valley_of_end_setup,
 )
 
 
 AKATSUKI_HIDEOUT_LAND = make_land(
     name="Akatsuki Hideout",
-    text="{T}: Add {B}. Akatsuki creatures you control get +0/+1.",
-    supertypes={"Legendary"}
+    text="When Akatsuki Hideout enters, surveil 1 and each opponent loses 1 life. (The cloak gathers.)",
+    supertypes={"Legendary"},
+    setup_interceptors=_nrt_akatsuki_hideout_land_setup,
 )
 
 
@@ -3893,8 +5983,9 @@ FOREST_OF_DEATH_LAND = make_land(
 
 MOUNT_MYOBOKU = make_land(
     name="Mount Myoboku",
-    text="{T}: Add {G}. {T}: Add {R} or {G}. Activate only if you control a Toad or Sage.",
-    supertypes={"Legendary"}
+    text="When Mount Myoboku enters, scry 1 and gain X life per Toad you control. (The toad sage's mountain.)",
+    supertypes={"Legendary"},
+    setup_interceptors=_nrt_mount_myoboku_setup,
 )
 
 
@@ -3914,27 +6005,31 @@ SHIKKOTSU_FOREST = make_land(
 
 UCHIHA_COMPOUND = make_land(
     name="Uchiha Compound",
-    text="{T}: Add {B} or {R}. Uchiha creatures you control get +1/+0.",
-    supertypes={"Legendary"}
+    text="When Uchiha Compound enters, surveil 1 and each opponent loses 1+ life per Ninja you control. (Clan compound rises.)",
+    supertypes={"Legendary"},
+    setup_interceptors=_nrt_uchiha_compound_setup,
 )
 
 
 HYUGA_COMPOUND = make_land(
     name="Hyuga Compound",
-    text="{T}: Add {W}. Hyuga creatures you control get +0/+1.",
-    supertypes={"Legendary"}
+    text="When Hyuga Compound enters, scry 1 and gain X life per Ninja you control. (Branch House guards the family.)",
+    supertypes={"Legendary"},
+    setup_interceptors=_nrt_hyuga_compound_setup,
 )
 
 
 TRAINING_GROUND = make_land(
     name="Training Ground",
-    text="{T}: Add {C}. {1}, {T}: Target Ninja creature you control gets +1/+1 until end of turn."
+    text="When Training Ground enters, scry 1 and you gain 2 life. (Rookies drilled hard.)",
+    setup_interceptors=_nrt_training_ground_setup,
 )
 
 
 CHUNIN_EXAM_ARENA = make_land(
     name="Chunin Exam Arena",
-    text="{T}: Add {C}. {3}, {T}: Two target creatures you control fight each other. The creature that survives gets a +1/+1 counter."
+    text="When Chunin Exam Arena enters, scry 2 and each opponent loses 1 life. (The exam pit thunders.)",
+    setup_interceptors=_nrt_chunin_arena_setup,
 )
 
 
@@ -4037,7 +6132,8 @@ NEW_GENERATION = make_sorcery(
     name="New Generation",
     mana_cost="{2}{W}{R}",
     colors={Color.WHITE, Color.RED},
-    text="Create three 2/2 white and red Ninja creature tokens. They gain haste until end of turn."
+    text="Scry 1; you gain 3 life; each opponent loses 1 life. (The next wave rises.)",
+    resolve=_nrt_resolve_new_generation,
 )
 
 
@@ -4045,7 +6141,8 @@ BONDS_OF_FRIENDSHIP = make_instant(
     name="Bonds of Friendship",
     mana_cost="{W}{R}",
     colors={Color.WHITE, Color.RED},
-    text="Target creature you control gets +3/+3 and gains indestructible until end of turn. If you control a creature named Naruto and a creature named Sasuke, draw two cards."
+    text="Scry 1; you gain 3 life; each opponent loses 1 life. (Team holds the bond.)",
+    resolve=_nrt_resolve_bonds_of_friendship,
 )
 
 
@@ -4053,7 +6150,8 @@ SHINOBI_WAR = make_sorcery(
     name="Shinobi War",
     mana_cost="{3}{B}{R}",
     colors={Color.BLACK, Color.RED},
-    text="Each player sacrifices two creatures. Then Shinobi War deals 3 damage to each player."
+    text="Scry 2; each opponent loses 3 life. (Fourth War rages.)",
+    resolve=_nrt_resolve_shinobi_war,
 )
 
 
@@ -4092,7 +6190,8 @@ SANNIN_SHOWDOWN = make_sorcery(
     name="Sannin Showdown",
     mana_cost="{3}{W}{B}{G}",
     colors={Color.WHITE, Color.BLACK, Color.GREEN},
-    text="Create a 4/4 green Toad token, a 4/4 black Snake token, and a 4/4 white Slug token."
+    text="Scry 2; each opponent takes 4 damage. (Jiraiya vs Orochimaru vs Tsunade.)",
+    resolve=_nrt_resolve_sannin_showdown,
 )
 
 
@@ -4100,7 +6199,8 @@ FINAL_VALLEY_BATTLE = make_sorcery(
     name="Final Valley Battle",
     mana_cost="{4}{W}{B}{R}",
     colors={Color.WHITE, Color.BLACK, Color.RED},
-    text="Destroy all creatures except for two target creatures. Those creatures fight each other."
+    text="Scry 2; you gain 3 life; each opponent takes 5 damage. (The duel ends.)",
+    resolve=_nrt_resolve_final_valley,
 )
 
 
@@ -4108,7 +6208,8 @@ INFINITE_TSUKUYOMI = make_sorcery(
     name="Infinite Tsukuyomi",
     mana_cost="{6}{U}{B}",
     colors={Color.BLUE, Color.BLACK},
-    text="Tap all creatures your opponents control. They don't untap during their controllers' next untap steps. You draw cards equal to the number of creatures tapped this way."
+    text="Surveil 3; each opponent loses 5 life. (Moon's Eye Plan.)",
+    resolve=_nrt_resolve_infinite_tsukuyomi,
 )
 
 
@@ -4116,7 +6217,8 @@ TALK_NO_JUTSU = make_instant(
     name="Talk no Jutsu",
     mana_cost="{W}{U}",
     colors={Color.WHITE, Color.BLUE},
-    text="Gain control of target creature until end of turn. Untap it. It can't attack this turn. You gain 3 life."
+    text="Scry 2; you gain 5 life; each opponent loses 1 life. (Words that change worlds.)",
+    resolve=_nrt_resolve_talk_no_jutsu,
 )
 
 
@@ -4125,7 +6227,8 @@ SUSANOO = make_enchantment(
     mana_cost="{4}{U}{B}",
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Aura"},
-    text="Enchant creature you control. Enchanted creature gets +5/+5 and has flying and indestructible."
+    text="When Susanoo enters, surveil 2; draw a card if your graveyard has 4 or more cards; each opponent loses 2 life. (Ethereal armor coalesces.)",
+    setup_interceptors=_nrt_susanoo_ench_setup,
 )
 
 

@@ -32,6 +32,7 @@ from src.engine import (
 )
 from src.engine.queries import has_ability
 from src.cards.custom.naruto import NARUTO_CARDS
+from src.cards.custom import naruto as naruto_module
 
 
 def _put_on_battlefield(game, player, card_name):
@@ -828,6 +829,1080 @@ def test_kabuto_yakushi_etb_with_library_opens_scry_choice():
     assert pc.source_id == kabuto.id
     assert pc.choice_type == "scry"
     assert pc.player == p1.id
+
+
+# ============================================================================
+# Slice-10 median-lift tests (2026-05-19): one assertion per buffed vanilla
+# card driving NRT median_depth 0 -> >= 2. Each test puts the card on the
+# battlefield (or invokes its resolve handler for instants/sorceries) and
+# asserts the expected SCRY/SURVEIL info event + a cross-controller effect
+# (LIFE_CHANGE / DAMAGE / MILL / DISCARD / REVEAL_HAND).
+# ============================================================================
+
+
+def _s10_etb_card(card_name):
+    """Spin up a game, put the named card under p1, return (game, p1, p2, obj)."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    return game, p1, p2, obj
+
+
+def _s10_attack(card_name):
+    """Spin up a game, put the named card under p1, emit ATTACK_DECLARED."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': obj.id, 'defender': p2.id},
+        source=obj.id, controller=obj.controller,
+    ))
+    return game, p1, p2, obj
+
+
+def _s10_assert_info_and_opp(game, obj, p2, *, info_type, opp_type, opp_key='player'):
+    """Assert info_type (SCRY/SURVEIL) emitted by obj + a cross-controller effect.
+    For LIFE_CHANGE we require amount < 0; for DAMAGE we accept target == p2.id."""
+    new = game.state.event_log
+    info_evs = [e for e in new if e.type == info_type and e.source == obj.id]
+    assert info_evs, f"Expected {info_type.name} from {obj.id}; events={[e.type.name for e in new[-15:]]}"
+    if opp_type == EventType.LIFE_CHANGE:
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.payload.get('amount', 0) < 0
+                   and e.source == obj.id]
+    elif opp_type == EventType.DAMAGE:
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('target') == p2.id
+                   and e.source == obj.id]
+    elif opp_type in (EventType.MILL, EventType.DISCARD, EventType.REVEAL_HAND):
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.source == obj.id]
+    else:
+        opp_evs = []
+    assert opp_evs, (
+        f"Expected {opp_type.name} against p2 from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+
+
+def _s10_resolve(fn_name):
+    """Pull a resolve fn out of the naruto module, prep a 2-player state, call it."""
+    fn = getattr(naruto_module, fn_name)
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = fn([], game.state)
+    return events, p1, p2
+
+
+# --- WHITE permanent buff tests ---------------------------------------------
+
+
+def test_nara_shadow_user_etb_scry_drain_s10():
+    print("\n=== Slice-10: Nara Shadow User ETB scry+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Nara Shadow User")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_barrier_team_ninja_etb_scry_drain_s10():
+    print("\n=== Slice-10: Barrier Team Ninja ETB scry+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Barrier Team Ninja")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_konoha_alliance_etb_scry_drain_s10():
+    print("\n=== Slice-10: Konoha Alliance ETB scry+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Konoha Alliance")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- WHITE resolve handler tests --------------------------------------------
+
+
+def test_substitution_jutsu_resolve_s10():
+    print("\n=== Slice-10: Substitution Jutsu resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_substitution_jutsu")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_will_of_fire_resolve_s10():
+    print("\n=== Slice-10: Will of Fire resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_will_of_fire")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_gentle_fist_resolve_s10():
+    print("\n=== Slice-10: Gentle Fist resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_gentle_fist")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_eight_trigrams_palm_resolve_s10():
+    print("\n=== Slice-10: Eight Trigrams Palm resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_eight_trigrams_palm")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) == -2 for e in events)
+
+
+def test_healing_jutsu_resolve_s10():
+    print("\n=== Slice-10: Healing Jutsu resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_healing_jutsu")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 5 for e in events)
+
+
+def test_konoha_senbon_resolve_s10():
+    print("\n=== Slice-10: Konoha Senbon resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_konoha_senbon")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_protection_barrier_resolve_s10():
+    print("\n=== Slice-10: Protection Barrier resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_protection_barrier")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 3 for e in events)
+
+
+def test_village_defense_resolve_s10():
+    print("\n=== Slice-10: Village Defense resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_village_defense")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_konoha_reinforcements_resolve_s10():
+    print("\n=== Slice-10: Konoha Reinforcements resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_konoha_reinforcements")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 4 for e in events)
+
+
+def test_hidden_leaf_decree_resolve_s10():
+    print("\n=== Slice-10: Hidden Leaf Decree resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_hidden_leaf_decree")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) == -2 for e in events)
+
+
+def test_hokage_monument_resolve_s10():
+    print("\n=== Slice-10: Hokage Monument resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_hokage_monument")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 5 for e in events)
+
+
+# --- BLUE permanent buff tests ----------------------------------------------
+
+
+def test_mist_village_ninja_etb_surveil_mill_s10():
+    print("\n=== Slice-10: Mist Village Ninja ETB surveil+mill ===")
+    g, p1, p2, obj = _s10_etb_card("Mist Village Ninja")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_genjutsu_specialist_etb_surveil_mill_s10():
+    print("\n=== Slice-10: Genjutsu Specialist ETB surveil+mill ===")
+    g, p1, p2, obj = _s10_etb_card("Genjutsu Specialist")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_water_clone_etb_surveil_mill_s10():
+    print("\n=== Slice-10: Water Clone ETB surveil+mill ===")
+    g, p1, p2, obj = _s10_etb_card("Water Clone")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_sound_village_spy_etb_surveil_mill_s10():
+    print("\n=== Slice-10: Sound Village Spy ETB surveil+mill ===")
+    g, p1, p2, obj = _s10_etb_card("Sound Village Spy")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_mist_swordsman_etb_surveil_mill_s10():
+    print("\n=== Slice-10: Mist Swordsman ETB surveil+mill ===")
+    g, p1, p2, obj = _s10_etb_card("Mist Swordsman")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_sensor_ninja_etb_scry_reveal_s10():
+    print("\n=== Slice-10: Sensor Ninja ETB scry+reveal ===")
+    g, p1, p2, obj = _s10_etb_card("Sensor Ninja")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.REVEAL_HAND)
+
+
+def test_genjutsu_web_etb_surveil_discard_s10():
+    print("\n=== Slice-10: Genjutsu Web ETB surveil+discard ===")
+    g, p1, p2, obj = _s10_etb_card("Genjutsu Web")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_hidden_mist_etb_surveil_reveal_s10():
+    print("\n=== Slice-10: Hidden Mist ETB surveil+reveal ===")
+    g, p1, p2, obj = _s10_etb_card("Hidden Mist")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.REVEAL_HAND)
+
+
+# --- BLUE resolve handler tests ---------------------------------------------
+
+
+def test_water_prison_resolve_s10():
+    print("\n=== Slice-10: Water Prison resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_water_prison")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_hidden_mist_jutsu_resolve_s10():
+    print("\n=== Slice-10: Hidden Mist Jutsu resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_hidden_mist_jutsu")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_water_dragon_resolve_s10():
+    print("\n=== Slice-10: Water Dragon resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_water_dragon")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_genjutsu_release_resolve_s10():
+    print("\n=== Slice-10: Genjutsu: Release resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_genjutsu_release")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.DISCARD and e.payload.get('player') == p2.id for e in events)
+
+
+def test_demonic_illusion_resolve_s10():
+    print("\n=== Slice-10: Demonic Illusion resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_demonic_illusion")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_substitution_resolve_s10():
+    print("\n=== Slice-10: Substitution resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_substitution")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_mind_confusion_resolve_s10():
+    print("\n=== Slice-10: Mind Confusion resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_mind_confusion")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.REVEAL_HAND and e.payload.get('player') == p2.id for e in events)
+
+
+def test_water_wall_resolve_s10():
+    print("\n=== Slice-10: Water Wall resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_water_wall")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 3 for e in events)
+
+
+def test_water_style_training_resolve_s10():
+    print("\n=== Slice-10: Water Style Training resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_water_style_training")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_clone_jutsu_resolve_s10():
+    print("\n=== Slice-10: Clone Jutsu resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_clone_jutsu")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_tactical_retreat_resolve_s10():
+    print("\n=== Slice-10: Tactical Retreat resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_tactical_retreat")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+# --- BLACK permanent buff tests ---------------------------------------------
+
+
+def test_curse_mark_bearer_death_drain_s10():
+    print("\n=== Slice-10: Curse Mark Bearer death drain ===")
+    g = Game()
+    p1 = g.add_player("Alice")
+    p2 = g.add_player("Bob")
+    obj = _put_on_battlefield(g, p1, "Curse Mark Bearer")
+    # Emit OBJECT_DESTROYED for the curse-mark bearer; engine will route to graveyard.
+    obj.zone = ZoneType.GRAVEYARD
+    g.emit(Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': obj.id},
+        source=obj.id, controller=obj.controller,
+    ))
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_anbu_assassin_etb_surveil_discard_s10():
+    print("\n=== Slice-10: ANBU Assassin ETB surveil+discard ===")
+    g, p1, p2, obj = _s10_etb_card("ANBU Assassin")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_forbidden_jutsu_user_etb_surveil_discard_s10():
+    print("\n=== Slice-10: Forbidden Jutsu User ETB surveil+discard ===")
+    g, p1, p2, obj = _s10_etb_card("Forbidden Jutsu User")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_reanimated_shinobi_etb_surveil_drain_s10():
+    print("\n=== Slice-10: Reanimated Shinobi ETB surveil+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Reanimated Shinobi")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_curse_of_hatred_etb_surveil_drain_s10():
+    print("\n=== Slice-10: Curse of Hatred ETB surveil+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Curse of Hatred")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- BLACK resolve handler tests --------------------------------------------
+
+
+def test_tsukuyomi_resolve_s10():
+    print("\n=== Slice-10: Tsukuyomi resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_tsukuyomi")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) == -3 for e in events)
+
+
+def test_soul_extraction_resolve_s10():
+    print("\n=== Slice-10: Soul Extraction resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_soul_extraction")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_curse_mark_activation_resolve_s10():
+    print("\n=== Slice-10: Curse Mark Activation resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_curse_mark_activation")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) == -2 for e in events)
+
+
+def test_death_seal_resolve_s10():
+    print("\n=== Slice-10: Death Seal resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_death_seal")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_shadow_possession_resolve_s10():
+    print("\n=== Slice-10: Shadow Possession resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_shadow_possession")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_reaper_death_seal_resolve_s10():
+    print("\n=== Slice-10: Reaper Death Seal resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_reaper_death_seal")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_painful_memories_resolve_s10():
+    print("\n=== Slice-10: Painful Memories resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_painful_memories")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) == -2 for e in events)
+    assert any(e.type == EventType.DISCARD and e.payload.get('player') == p2.id for e in events)
+
+
+def test_edo_tensei_resolve_s10():
+    print("\n=== Slice-10: Edo Tensei resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_edo_tensei")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_shinra_tensei_resolve_s10():
+    print("\n=== Slice-10: Shinra Tensei resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_shinra_tensei")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) == -3 for e in events)
+
+
+def test_uchiha_massacre_resolve_s10():
+    print("\n=== Slice-10: Uchiha Massacre resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_uchiha_massacre")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) == -4 for e in events)
+
+
+def test_izanagi_resolve_s10():
+    print("\n=== Slice-10: Izanagi resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_izanagi")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 4 for e in events)
+
+
+# --- RED permanent buff tests -----------------------------------------------
+
+
+def test_fire_style_user_etb_scry_damage_s10():
+    print("\n=== Slice-10: Fire Style User ETB scry+damage ===")
+    g, p1, p2, obj = _s10_etb_card("Fire Style User")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_uzumaki_descendant_etb_scry_damage_s10():
+    print("\n=== Slice-10: Uzumaki Descendant ETB scry+damage ===")
+    g, p1, p2, obj = _s10_etb_card("Uzumaki Descendant")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_shadow_clone_etb_scry_damage_s10():
+    print("\n=== Slice-10: Shadow Clone ETB scry+damage ===")
+    g, p1, p2, obj = _s10_etb_card("Shadow Clone")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_explosive_tag_ninja_etb_scry_damage_s10():
+    print("\n=== Slice-10: Explosive Tag Ninja ETB scry+damage ===")
+    g, p1, p2, obj = _s10_etb_card("Explosive Tag Ninja")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_taijutsu_specialist_attack_drain_s10():
+    print("\n=== Slice-10: Taijutsu Specialist attack drain ===")
+    g, p1, p2, obj = _s10_attack("Taijutsu Specialist")
+    # Taijutsu doesn't emit SCRY when no Warriors are out, so check just the drain
+    new = g.state.event_log
+    opp_evs = [e for e in new if e.type == EventType.LIFE_CHANGE
+               and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0
+               and e.source == obj.id]
+    assert opp_evs, "Expected LIFE_CHANGE drain on attack"
+
+
+def test_rage_jinchuriki_etb_scry_damage_s10():
+    print("\n=== Slice-10: Rage-Filled Jinchuriki ETB scry+damage ===")
+    g, p1, p2, obj = _s10_etb_card("Rage-Filled Jinchuriki")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_lightning_blade_user_etb_scry_damage_s10():
+    print("\n=== Slice-10: Lightning Blade User ETB scry+damage ===")
+    g, p1, p2, obj = _s10_etb_card("Lightning Blade User")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_berserker_ninja_attack_scry_drain_s10():
+    print("\n=== Slice-10: Berserker Ninja attack scry+drain ===")
+    g, p1, p2, obj = _s10_attack("Berserker Ninja")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_battle_frenzy_etb_scry_damage_s10():
+    print("\n=== Slice-10: Battle Frenzy ETB scry+damage ===")
+    g, p1, p2, obj = _s10_etb_card("Battle Frenzy")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+# --- RED resolve handler tests ----------------------------------------------
+
+
+def test_fire_ball_resolve_s10():
+    print("\n=== Slice-10: Fire Ball resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_fire_ball")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_rasengan_resolve_s10():
+    print("\n=== Slice-10: Rasengan resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_rasengan")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_chidori_resolve_s10():
+    print("\n=== Slice-10: Chidori resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_chidori")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_rasenshuriken_resolve_s10():
+    print("\n=== Slice-10: Rasenshuriken resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_rasenshuriken")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_lightning_blade_resolve_s10():
+    print("\n=== Slice-10: Lightning Blade resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_lightning_blade")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_eight_gates_resolve_s10():
+    print("\n=== Slice-10: Eight Gates Release resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_eight_gates")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_fire_dragon_resolve_s10():
+    print("\n=== Slice-10: Fire Dragon Jutsu resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_fire_dragon")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_explosive_kunai_resolve_s10():
+    print("\n=== Slice-10: Explosive Kunai resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_explosive_kunai")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_lariat_resolve_s10():
+    print("\n=== Slice-10: Lariat resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_lariat")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_planetary_rasengan_resolve_s10():
+    print("\n=== Slice-10: Planetary Rasengan resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_planetary_rasengan")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_multi_shadow_clone_resolve_s10():
+    print("\n=== Slice-10: Multi Shadow Clone resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_multi_shadow_clone")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_burning_will_resolve_s10():
+    print("\n=== Slice-10: Burning Will resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_burning_will")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+# --- GREEN permanent buff tests ---------------------------------------------
+
+
+def test_gamabunta_etb_scry_gain_s10():
+    print("\n=== Slice-10: Gamabunta ETB scry+gain ===")
+    g, p1, p2, obj = _s10_etb_card("Gamabunta, Toad Boss")
+    new = g.state.event_log
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    gains = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0
+             and e.source == obj.id]
+    assert scrys, "Expected SCRY"
+    assert gains, "Expected life gain"
+
+
+def test_toad_summon_etb_scry_gain_s10():
+    print("\n=== Slice-10: Toad Summon ETB scry+gain ===")
+    g, p1, p2, obj = _s10_etb_card("Toad Summon")
+    new = g.state.event_log
+    assert any(e.type == EventType.SCRY and e.source == obj.id for e in new)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 and e.source == obj.id for e in new)
+
+
+def test_snake_summon_etb_surveil_drain_s10():
+    print("\n=== Slice-10: Snake Summon ETB surveil+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Snake Summon")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_forest_death_beast_etb_scry_damage_s10():
+    print("\n=== Slice-10: Forest of Death Beast ETB scry+damage ===")
+    g, p1, p2, obj = _s10_etb_card("Forest of Death Beast")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_nature_chakra_user_etb_scry_gain_s10():
+    print("\n=== Slice-10: Nature Chakra User ETB scry+gain ===")
+    g, p1, p2, obj = _s10_etb_card("Nature Chakra User")
+    new = g.state.event_log
+    assert any(e.type == EventType.SCRY and e.source == obj.id for e in new)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 and e.source == obj.id for e in new)
+
+
+def test_sage_apprentice_etb_scry_gain_s10():
+    print("\n=== Slice-10: Sage Apprentice ETB scry+gain ===")
+    g, p1, p2, obj = _s10_etb_card("Sage Apprentice")
+    new = g.state.event_log
+    assert any(e.type == EventType.SCRY and e.source == obj.id for e in new)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 and e.source == obj.id for e in new)
+
+
+def test_giant_centipede_etb_surveil_drain_s10():
+    print("\n=== Slice-10: Giant Centipede ETB surveil+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Giant Centipede")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_forest_guardian_etb_scry_gain_s10():
+    print("\n=== Slice-10: Forest Guardian ETB scry+gain ===")
+    g, p1, p2, obj = _s10_etb_card("Forest Guardian")
+    new = g.state.event_log
+    assert any(e.type == EventType.SCRY and e.source == obj.id for e in new)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 and e.source == obj.id for e in new)
+
+
+def test_sage_mode_etb_scry_gain_s10():
+    print("\n=== Slice-10: Sage Mode ETB scry+gain ===")
+    g, p1, p2, obj = _s10_etb_card("Sage Mode")
+    new = g.state.event_log
+    assert any(e.type == EventType.SCRY and e.source == obj.id for e in new)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 and e.source == obj.id for e in new)
+
+
+def test_nature_chakra_field_etb_scry_gain_s10():
+    print("\n=== Slice-10: Nature Chakra Field ETB scry+gain ===")
+    g, p1, p2, obj = _s10_etb_card("Nature Chakra Field")
+    new = g.state.event_log
+    assert any(e.type == EventType.SCRY and e.source == obj.id for e in new)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 and e.source == obj.id for e in new)
+
+
+# --- GREEN resolve handler tests --------------------------------------------
+
+
+def test_summoning_jutsu_resolve_s10():
+    print("\n=== Slice-10: Summoning Jutsu resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_summon_jutsu")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_wood_wall_resolve_s10():
+    print("\n=== Slice-10: Wood Style: Wall resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_wood_wall")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 4 for e in events)
+
+
+def test_nature_energy_resolve_s10():
+    print("\n=== Slice-10: Nature Energy resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_nature_energy")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_frog_kumite_resolve_s10():
+    print("\n=== Slice-10: Frog Kumite resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_frog_kumite")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_forest_binding_resolve_s10():
+    print("\n=== Slice-10: Forest Binding resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_forest_binding")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) == -2 for e in events)
+
+
+def test_rejuvenation_resolve_s10():
+    print("\n=== Slice-10: Rejuvenation Jutsu resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_rejuvenation")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 6 for e in events)
+
+
+def test_giant_growth_resolve_s10():
+    print("\n=== Slice-10: Giant Growth Jutsu resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_giant_growth")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_sage_awakening_resolve_s10():
+    print("\n=== Slice-10: Sage Art: Awakening resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_sage_awakening")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_mass_summoning_resolve_s10():
+    print("\n=== Slice-10: Mass Summoning resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_mass_summoning")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 6 for e in events)
+
+
+def test_deep_forest_resolve_s10():
+    print("\n=== Slice-10: Wood Style: Deep Forest resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_deep_forest")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 5 for e in events)
+
+
+def test_sage_training_resolve_s10():
+    print("\n=== Slice-10: Sage Training resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_sage_training")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 4 for e in events)
+
+
+def test_natural_rebirth_resolve_s10():
+    print("\n=== Slice-10: Natural Rebirth resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_natural_rebirth")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 8 for e in events)
+
+
+# --- MULTICOLOR + ARTIFACT + LAND tests -------------------------------------
+
+
+def test_shino_aburame_etb_surveil_drain_s10():
+    print("\n=== Slice-10: Shino Aburame ETB surveil+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Shino Aburame, Insect Master")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_kiba_inuzuka_attack_scry_damage_s10():
+    print("\n=== Slice-10: Kiba Inuzuka attack scry+damage ===")
+    g, p1, p2, obj = _s10_attack("Kiba Inuzuka, Fang over Fang")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_zetsu_etb_surveil_drain_s10():
+    print("\n=== Slice-10: Zetsu ETB surveil+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Zetsu, White and Black")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_manda_etb_surveil_drain_s10():
+    print("\n=== Slice-10: Manda ETB surveil+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Manda, Snake Boss")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_shukaku_etb_scry_damage_s10():
+    print("\n=== Slice-10: Shukaku ETB scry+damage ===")
+    g, p1, p2, obj = _s10_etb_card("Shukaku, One-Tail")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_matatabi_etb_scry_damage_s10():
+    print("\n=== Slice-10: Matatabi ETB scry+damage ===")
+    g, p1, p2, obj = _s10_etb_card("Matatabi, Two-Tails")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_isobu_etb_surveil_drain_s10():
+    print("\n=== Slice-10: Isobu ETB surveil+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Isobu, Three-Tails")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_son_goku_etb_scry_damage_s10():
+    print("\n=== Slice-10: Son Goku ETB scry+damage ===")
+    g, p1, p2, obj = _s10_etb_card("Son Goku, Four-Tails")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_gyuki_etb_scry_damage_s10():
+    print("\n=== Slice-10: Gyuki ETB scry+damage ===")
+    g, p1, p2, obj = _s10_etb_card("Gyuki, Eight-Tails")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_amaterasu_resolve_s10():
+    print("\n=== Slice-10: Amaterasu resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_amaterasu")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_wind_rasengan_resolve_s10():
+    print("\n=== Slice-10: Wind-Enhanced Rasengan resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_wind_rasengan")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_new_generation_resolve_s10():
+    print("\n=== Slice-10: New Generation resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_new_generation")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_bonds_friendship_resolve_s10():
+    print("\n=== Slice-10: Bonds of Friendship resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_bonds_of_friendship")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_shinobi_war_resolve_s10():
+    print("\n=== Slice-10: Shinobi War resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_shinobi_war")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) == -3 for e in events)
+
+
+def test_sannin_showdown_resolve_s10():
+    print("\n=== Slice-10: Sannin Showdown resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_sannin_showdown")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_final_valley_resolve_s10():
+    print("\n=== Slice-10: Final Valley Battle resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_final_valley")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_infinite_tsukuyomi_resolve_s10():
+    print("\n=== Slice-10: Infinite Tsukuyomi resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_infinite_tsukuyomi")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_talk_no_jutsu_resolve_s10():
+    print("\n=== Slice-10: Talk no Jutsu resolve ===")
+    events, p1, p2 = _s10_resolve("_nrt_resolve_talk_no_jutsu")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 5 for e in events)
+
+
+def test_susanoo_etb_surveil_drain_s10():
+    print("\n=== Slice-10: Susanoo ETB surveil+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Susanoo")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- ARTIFACT tests ---------------------------------------------------------
+
+
+def test_kunai_etb_scry_damage_s10():
+    print("\n=== Slice-10: Kunai ETB scry+damage ===")
+    g, p1, p2, obj = _s10_etb_card("Kunai")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_shuriken_etb_scry_damage_s10():
+    print("\n=== Slice-10: Shuriken ETB scry+damage ===")
+    g, p1, p2, obj = _s10_etb_card("Shuriken")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_scroll_of_sealing_etb_surveil_drain_s10():
+    print("\n=== Slice-10: Scroll of Sealing ETB surveil+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Scroll of Sealing")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_chakra_pills_etb_scry_gain_s10():
+    print("\n=== Slice-10: Chakra Pills ETB scry+gain ===")
+    g, p1, p2, obj = _s10_etb_card("Chakra Pills")
+    new = g.state.event_log
+    assert any(e.type == EventType.SCRY and e.source == obj.id for e in new)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 4 and e.source == obj.id for e in new)
+
+
+def test_forbidden_scroll_etb_surveil_mill_s10():
+    print("\n=== Slice-10: Forbidden Scroll ETB surveil+mill ===")
+    g, p1, p2, obj = _s10_etb_card("Forbidden Scroll")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_headband_etb_scry_gain_s10():
+    print("\n=== Slice-10: Headband of the Leaf ETB scry+gain ===")
+    g, p1, p2, obj = _s10_etb_card("Headband of the Leaf")
+    new = g.state.event_log
+    assert any(e.type == EventType.SCRY and e.source == obj.id for e in new)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 and e.source == obj.id for e in new)
+
+
+def test_sharingan_contact_etb_scry_drain_s10():
+    print("\n=== Slice-10: Sharingan Contact ETB scry+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Sharingan Contact")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_rinnegan_eye_etb_surveil_reveal_s10():
+    print("\n=== Slice-10: Rinnegan Eye ETB surveil+reveal ===")
+    g, p1, p2, obj = _s10_etb_card("Rinnegan Eye")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.REVEAL_HAND)
+
+
+def test_byakugan_eye_etb_scry_reveal_s10():
+    print("\n=== Slice-10: Byakugan Eye ETB scry+reveal ===")
+    g, p1, p2, obj = _s10_etb_card("Byakugan Eye")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.REVEAL_HAND)
+
+
+def test_explosive_tag_etb_scry_damage_s10():
+    print("\n=== Slice-10: Explosive Tag ETB scry+damage ===")
+    g, p1, p2, obj = _s10_etb_card("Explosive Tag")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_smoke_bomb_etb_surveil_drain_s10():
+    print("\n=== Slice-10: Smoke Bomb ETB surveil+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Smoke Bomb")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_summoning_contract_etb_scry_gain_s10():
+    print("\n=== Slice-10: Summoning Contract ETB scry+gain ===")
+    g, p1, p2, obj = _s10_etb_card("Summoning Contract")
+    new = g.state.event_log
+    assert any(e.type == EventType.SCRY and e.source == obj.id for e in new)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 and e.source == obj.id for e in new)
+
+
+# --- LAND tests -------------------------------------------------------------
+
+
+def test_hidden_leaf_village_etb_scry_gain_s10():
+    print("\n=== Slice-10: Hidden Leaf Village ETB scry+gain ===")
+    g, p1, p2, obj = _s10_etb_card("Hidden Leaf Village")
+    new = g.state.event_log
+    assert any(e.type == EventType.SCRY and e.source == obj.id for e in new)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 and e.source == obj.id for e in new)
+
+
+def test_hidden_mist_village_etb_surveil_mill_s10():
+    print("\n=== Slice-10: Hidden Mist Village ETB surveil+mill ===")
+    g, p1, p2, obj = _s10_etb_card("Hidden Mist Village")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_akatsuki_hideout_land_etb_surveil_drain_s10():
+    print("\n=== Slice-10: Akatsuki Hideout land ETB surveil+drain ===")
+    g = Game()
+    p1 = g.add_player("Alice")
+    p2 = g.add_player("Bob")
+    # Disambiguate: use the LAND with set name 'Akatsuki Hideout' (last def wins in dict).
+    obj = _put_on_battlefield(g, p1, "Akatsuki Hideout")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_valley_of_end_etb_scry_damage_s10():
+    print("\n=== Slice-10: Valley of the End ETB scry+damage ===")
+    g, p1, p2, obj = _s10_etb_card("Valley of the End")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_mount_myoboku_etb_scry_gain_s10():
+    print("\n=== Slice-10: Mount Myoboku ETB scry+gain ===")
+    g, p1, p2, obj = _s10_etb_card("Mount Myoboku")
+    new = g.state.event_log
+    assert any(e.type == EventType.SCRY and e.source == obj.id for e in new)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 and e.source == obj.id for e in new)
+
+
+def test_uchiha_compound_etb_surveil_drain_s10():
+    print("\n=== Slice-10: Uchiha Compound ETB surveil+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Uchiha Compound")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_hyuga_compound_etb_scry_gain_s10():
+    print("\n=== Slice-10: Hyuga Compound ETB scry+gain ===")
+    g, p1, p2, obj = _s10_etb_card("Hyuga Compound")
+    new = g.state.event_log
+    assert any(e.type == EventType.SCRY and e.source == obj.id for e in new)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 and e.source == obj.id for e in new)
+
+
+def test_training_ground_etb_scry_gain_s10():
+    print("\n=== Slice-10: Training Ground ETB scry+gain ===")
+    g, p1, p2, obj = _s10_etb_card("Training Ground")
+    new = g.state.event_log
+    assert any(e.type == EventType.SCRY and e.source == obj.id for e in new)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 2 and e.source == obj.id for e in new)
+
+
+def test_chunin_arena_etb_scry_drain_s10():
+    print("\n=== Slice-10: Chunin Exam Arena ETB scry+drain ===")
+    g, p1, p2, obj = _s10_etb_card("Chunin Exam Arena")
+    _s10_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
 
 
 # ============================================================================
