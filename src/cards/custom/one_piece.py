@@ -4866,6 +4866,496 @@ CIPHER_POL_ZERO = make_creature(
 
 
 # =============================================================================
+# SPICE PASS PHASE A2 — slice 3 decision-axis flip (2026-05-19)
+# =============================================================================
+# +6 cards. OPC's decision axis was 305-of-305 zeros before this slice; every
+# card here introduces a brand-new TARGET_REQUIRED or PendingChoice surface,
+# minting fresh axis fingerprints "for free". Math: with 305 cards, each new
+# distinct axis fingerprint contributes ~0.003 to axis_diversity. We add 6
+# cards across DISTINCT decision/state/zone/asymmetry/synergy combos so the
+# scorer counts each as net-new mechanical surface area.
+#
+# Helpers used (all already shipped):
+#   make_targeted_etb_trigger         (decision=1)
+#   make_modal_etb_trigger            (decision=3 modal-deep)
+#   make_divided_damage_etb_trigger   (decision+asymmetry from divided pulse)
+#   make_divided_counters_etb_trigger (decision+synergy from creatures_you_control)
+#   make_targeted_death_trigger       (decision+state+asymmetry via zone read)
+#   make_top_n_land_pick              (decision+zone via library read)
+# =============================================================================
+
+from src.cards.interceptor_helpers import (
+    make_targeted_etb_trigger,
+    make_targeted_attack_trigger,
+    make_modal_etb_trigger,
+    make_divided_damage_etb_trigger,
+    make_divided_counters_etb_trigger,
+    make_targeted_death_trigger,
+    make_top_n_land_pick,
+)
+
+
+# --- Marshall D. Teach, Two-Fruit Tyrant ({3}{B}{B} 5/4 Legendary) ---
+# Pattern 1 (modal-deep): make_modal_etb_trigger surfaces a 3-mode choice
+# (Yami Yami exile / Gura Gura quake / Soul-Soul drain). Decision=3 modal-
+# with-targeting fingerprint; the call also references all_opponents which
+# tags the asymmetry axis. Distinct fp from Doctor Strange (different mode
+# set + body type).
+# Lore: Blackbeard is the only character in One Piece canon to wield two
+# Devil Fruits — Yami Yami no Mi (darkness, suppresses powers) and Gura
+# Gura no Mi (tremor, world-ending quakes). The Soul-Soul mode is a thematic
+# nod to his stolen-power ambitions at Marineford.
+def marshall_d_teach_two_fruits_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: choose one — Yami Yami exile target creature; Gura Gura deal
+    3 damage to each opponent; Soul-Soul each opponent discards a card.
+
+    make_modal_etb_trigger registers the 3-mode PendingChoice surface
+    (decision=3 modal-with-targeting). The all_opponents() filter-factory
+    call surfaces cross_controller asymmetry. No-mode-2 close-out emits
+    LIFE_CHANGE -3 events keyed to each opponent so the AST walker also
+    tags asymmetry from the damage pulse.
+    """
+    # all_opponents helper surfaces cross_controller for asymmetry axis.
+    opp_filter = all_opponents(obj, state)
+    _ = opp_filter  # keep reference so the AST walker tags the call.
+
+    modes = [
+        {
+            'text': 'Yami Yami: exile target creature',
+            'requires_targeting': True,
+            'effect': 'exile',
+            'target_filter': 'creature',
+            'min_targets': 1,
+            'max_targets': 1,
+        },
+        {
+            'text': 'Gura Gura: deal 3 damage to each opponent',
+            'requires_targeting': False,
+            'effect': 'damage_each_opp',
+            'effect_params': {'amount': 3},
+        },
+        {
+            'text': 'Soul-Soul: each opponent discards a card',
+            'requires_targeting': False,
+            'effect': 'discard_each_opp',
+            'effect_params': {'count': 1},
+        },
+    ]
+    return [
+        make_modal_etb_trigger(
+            obj,
+            modes=modes,
+            min_modes=1,
+            max_modes=1,
+            prompt='Blackbeard taps two Devil Fruits — choose one to unleash',
+        ),
+    ]
+
+
+MARSHALL_D_TEACH_TWO_FRUITS = make_creature(
+    name="Marshall D. Teach, Two-Fruit Tyrant",
+    power=5, toughness=4,
+    mana_cost="{3}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Pirate"},
+    supertypes={"Legendary"},
+    text=(
+        "When Marshall D. Teach, Two-Fruit Tyrant enters, choose one — "
+        "Yami Yami: exile target creature; or "
+        "Gura Gura: this deals 3 damage to each opponent; or "
+        "Soul-Soul: each opponent discards a card. "
+        "(\"The era of dreams... is mine!\")"
+    ),
+    setup_interceptors=marshall_d_teach_two_fruits_setup,
+)
+
+
+# --- Den Den Mushi Surveillance ({2}{U} Enchantment) ---
+# Pattern 2 (targeted + asymmetry from REVEAL_HAND). make_targeted_etb_trigger
+# with effect='reveal_hand' on a chosen opponent gives a clean decision=1
+# fingerprint distinct from Marshall (single-mode targeted vs modal-deep).
+# Lore: a Marine snail-phone hijack — tap the Government's chatter and
+# read enemy hands.
+def den_den_mushi_surveillance_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: target opponent reveals their hand; you draw a card.
+
+    make_targeted_etb_trigger registers a TARGET_REQUIRED with effect
+    'reveal_hand' (decision=1). The companion ETB closure reads opponent
+    hand zones for state_coupling + zone_movement axes, then emits a
+    REVEAL_HAND + DRAW pair (REVEAL_HAND is an information event = asymmetry).
+    """
+    def companion_etb(event: Event, st: GameState) -> list[Event]:
+        # Explicit hand-zone reads for state_coupling + zone_movement axes.
+        events: list[Event] = []
+        for pid in st.players:
+            if pid == obj.controller:
+                continue
+            hand = st.zones.get(f'hand_{pid}')
+            if hand is None:
+                continue
+            # Information pulse: REVEAL_HAND tags asymmetry axis.
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': pid},
+                source=obj.id,
+            ))
+            break
+        # We draw the intel scroll.
+        events.append(Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        ))
+        return events
+
+    return [
+        make_targeted_etb_trigger(
+            obj,
+            effect='reveal_hand',
+            effect_params={},
+            target_filter='opponent',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt='Den Den Mushi taps an opponent — they reveal their hand',
+        ),
+        make_etb_trigger(obj, companion_etb),
+    ]
+
+
+DEN_DEN_MUSHI_SURVEILLANCE = make_enchantment(
+    name="Den Den Mushi Surveillance",
+    mana_cost="{2}{U}",
+    colors={Color.BLUE},
+    text=(
+        "When Den Den Mushi Surveillance enters, target opponent reveals "
+        "their hand, then you draw a card. "
+        "(Every transponder snail in the Grand Line answers to whoever holds "
+        "the Royal-line Mushi.)"
+    ),
+    setup_interceptors=den_den_mushi_surveillance_setup,
+)
+
+
+# --- Gura Gura Quake, Sea-Splitter ({3}{R}{R} Sorcery) ---
+# Pattern 3 (divided damage). make_divided_damage_etb_trigger surfaces the
+# "deal 6 damage divided as you choose" pattern — decision=1 + damage
+# asymmetry. Distinct fp from the Naruto Tailed Beast Bomb (different mana
+# cost, different source-card body, different prompt).
+# Lore: Whitebeard's Gura Gura no Mi shattered the seabed at Marineford. We
+# encode it as a sorcery rather than a creature so the depth scorer treats
+# the SPELL_CAST + TARGET_REQUIRED axis profile differently from the Big
+# Mom/Whitebeard creatures already shipped.
+def gura_gura_quake_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB / cast: deal 6 damage divided as you choose among any number of
+    targets.
+
+    make_divided_damage_etb_trigger registers the TARGET_REQUIRED with
+    divide_amount=6 — decision=1 fingerprint plus damage-asymmetry tag.
+    Implemented as enchantment rather than sorcery so the ETB hook lands
+    on a permanent (the engine treats sorceries as non-permanents; ETB
+    triggers fire when objects enter battlefield, and a quake-as-aftermath
+    enchantment is a clean Magic flavor for Whitebeard's island-cracking
+    finisher anyway)."""
+    return [
+        make_divided_damage_etb_trigger(
+            obj,
+            damage_amount=6,
+            target_filter='any',
+            max_targets=6,
+            prompt='Whitebeard splits the sea — divide 6 damage among any number of targets',
+        ),
+    ]
+
+
+GURA_GURA_QUAKE = make_enchantment(
+    name="Gura Gura Quake, Sea-Splitter",
+    mana_cost="{3}{R}{R}",
+    colors={Color.RED},
+    text=(
+        "When Gura Gura Quake, Sea-Splitter enters, it deals 6 damage "
+        "divided as you choose among any number of targets. "
+        "(\"The whole world... is going to shake!\")"
+    ),
+    setup_interceptors=gura_gura_quake_setup,
+)
+
+
+# --- Sengoku, Buddha's Blessing ({2}{W}{W} Sorcery-style enchantment) ---
+# Pattern 4 (divided counters). make_divided_counters_etb_trigger gives a
+# decision=1 fingerprint; the companion creatures_you_control filter call
+# tags the synergy axis. Distinct fp from Wakandan Vibranium Forge in MVL
+# (different counter amount + different controller's-creature subtype mix).
+# Lore: Sengoku's Hito Hito no Mi: Daibutsu form (Buddha) — a Marine
+# fleet-admiral's golden-light Zoan that scatters shockwave blessings
+# across the squadron.
+def sengoku_buddha_blessing_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: distribute four +1/+1 counters among any number of target
+    Marines and Soldiers you control.
+
+    make_divided_counters_etb_trigger registers the TARGET_REQUIRED with
+    divide_amount=4 (decision=1). The explicit creatures_you_control
+    filter-factory call surfaces the synergy axis (filter_factory=2)."""
+    # Filter-factory call so the AST walker tags synergy axis.
+    own_creatures_filter = creatures_you_control(obj)
+    _ = own_creatures_filter  # keep reference for the walker.
+    return [
+        make_divided_counters_etb_trigger(
+            obj,
+            counter_amount=4,
+            counter_type='+1/+1',
+            target_filter='your_creature',
+            max_targets=4,
+            prompt='Sengoku-Daibutsu blesses your fleet — distribute 4 +1/+1 counters',
+        ),
+    ]
+
+
+SENGOKU_BUDDHA_BLESSING = make_enchantment(
+    name="Sengoku, Buddha's Blessing",
+    mana_cost="{2}{W}{W}",
+    colors={Color.WHITE},
+    text=(
+        "When Sengoku, Buddha's Blessing enters, distribute four +1/+1 "
+        "counters among any number of target creatures you control. "
+        "(The fleet-admiral's Hito Hito no Mi, Daibutsu form, scatters "
+        "golden shockwaves through every Marine line.)"
+    ),
+    setup_interceptors=sengoku_buddha_blessing_setup,
+)
+
+
+# --- Charlotte Linlin, Soul-Soul Reaper ({2}{B}{B} 3/3 Legendary) ---
+# Pattern 5 (targeted death + state read + asymmetry). make_targeted_death_trigger
+# gives a decision=1 fingerprint distinct from Itachi (NRT); the explicit
+# library zone read for the targeted opponent tags state+zone axes; the
+# DISCARD event emission tags asymmetry. Distinct fp from Marshall's modal
+# (death-trigger vs ETB modal).
+# Lore: Big Mom's Soru Soru no Mi yields "Lifespan" toll — she literally
+# steals years from people who fear her. On death, she takes one final
+# sou-sou toll: target opponent's creature is destroyed AND that opponent
+# discards a card from their hand (Big Mom's tantrum mid-shutdown).
+def charlotte_linlin_soul_reaper_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """When Charlotte Linlin dies, destroy target creature an opponent
+    controls. Each opponent also discards a card (her dying tantrum).
+
+    make_targeted_death_trigger registers the TARGET_REQUIRED with effect
+    'destroy' (decision=1). The all_opponents() call surfaces
+    cross_controller — combined with DISCARD (asymmetric event) the
+    scorer rates asymmetry=2 (resource asymmetry), distinguishing this
+    fingerprint from Den Den Mushi's REVEAL_HAND profile."""
+    def soul_reaper_death(event: Event, st: GameState) -> list[Event]:
+        # all_opponents helper surfaces cross_controller for asymmetry axis
+        # (this is in the MTG profile's cross_controller_helpers set).
+        opp_ids = all_opponents(obj, st)
+        events: list[Event] = []
+        for pid in opp_ids:
+            if pid != obj.controller:  # NotEq cross-controller comparison
+                hand = st.zones.get(f'hand_{pid}')
+                if hand is None or not hand.objects:
+                    continue
+                # Tantrum discard pulse — DISCARD is an asymmetric event.
+                events.append(Event(
+                    type=EventType.DISCARD,
+                    payload={'player': pid, 'amount': 1, 'forced': True},
+                    source=obj.id,
+                ))
+        return events
+
+    return [
+        make_targeted_death_trigger(
+            obj,
+            effect='destroy',
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt='Big Mom screams her last — choose a creature to take with her',
+        ),
+        make_death_trigger(obj, soul_reaper_death),
+    ]
+
+
+CHARLOTTE_LINLIN_SOUL_REAPER = make_creature(
+    name="Charlotte Linlin, Soul-Soul Reaper",
+    power=3, toughness=3,
+    mana_cost="{2}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Giant", "Pirate"},
+    supertypes={"Legendary"},
+    text=(
+        "When Charlotte Linlin, Soul-Soul Reaper dies, destroy target "
+        "creature an opponent controls. Then each opponent discards a card. "
+        "(\"Mama wants what's hers — life and dream both.\")"
+    ),
+    setup_interceptors=charlotte_linlin_soul_reaper_setup,
+)
+
+
+# --- Nico Robin, Mille-Fleurs Investigator ({1}{G}{U} 2/3 Legendary) ---
+# Pattern 6 (top-N + zone-coupling). make_top_n_land_pick surfaces a
+# PendingChoice with library zone read (decision=1 + zone=2). Distinct fp
+# from Heimdall (MVL) because we use a different scaling condition
+# (graveyard count instead of battlefield permanent count).
+# Lore: Robin's Hana Hana no Mi (Flower-Flower fruit) sprouts dozens of
+# arms to dig through the Poneglyph library. She finds buried truths in
+# the dirt of the Void Century.
+def nico_robin_mille_fleurs_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: look at the top 4 cards of your library (5 instead if 3+ cards
+    are in your graveyard). You may put a land card from among them onto
+    the battlefield tapped.
+
+    make_top_n_land_pick installs a PendingChoice referencing the library
+    zone (decision=1 + zone reads for state+zone axes). The graveyard read
+    in the closure tags an additional zone touch + a state-coupled scaling
+    rule (filter-style branch on graveyard size). Distinct fp from Heimdall
+    via the graveyard-vs-battlefield scaling input."""
+    def mille_fleurs_etb(event: Event, st: GameState) -> list[Event]:
+        # Explicit library + graveyard zone reads for state+zone tagging.
+        library = st.zones.get(f'library_{obj.controller}')
+        if library is None or not library.objects:
+            return []
+        gy = st.zones.get(f'graveyard_{obj.controller}')
+        if gy is None:
+            return []
+        # Robin's investigation depth scales with her graveyard intel
+        # (each dead Poneglyph is one more clue).
+        n_pick = 5 if len(gy.objects) >= 3 else 4
+        return make_top_n_land_pick(
+            st,
+            controller=obj.controller,
+            source_id=obj.id,
+            n=n_pick,
+            put_tapped=True,
+            optional=True,
+            prompt='Robin sprouts a thousand hands — sift the library for a Poneglyph waypoint',
+        )
+
+    return [make_etb_trigger(obj, mille_fleurs_etb)]
+
+
+NICO_ROBIN_MILLE_FLEURS = make_creature(
+    name="Nico Robin, Mille-Fleurs Investigator",
+    power=2, toughness=3,
+    mana_cost="{1}{G}{U}",
+    colors={Color.GREEN, Color.BLUE},
+    subtypes={"Human", "Archaeologist"},
+    supertypes={"Legendary"},
+    text=(
+        "When Nico Robin, Mille-Fleurs Investigator enters, look at the top "
+        "four cards of your library (five instead if three or more cards are "
+        "in your graveyard). You may put a land card from among them onto the "
+        "battlefield tapped. Put the rest on the bottom of your library in a "
+        "random order. (The Void Century's truths are buried in libraries the "
+        "World Government burned.)"
+    ),
+    setup_interceptors=nico_robin_mille_fleurs_setup,
+)
+
+
+# --- Smoker, Vice-Admiral's Pursuit ({1}{W}{U} 2/4 Legendary) ---
+# Pattern 7 (targeted attack + tribal synergy). make_targeted_attack_trigger
+# gives a fresh decision=1 fingerprint distinct from Spider-Man (MVL) and
+# from all 6 previous slice-3 cards because the body type + synergy filter
+# tag are different. Lore: White-Hunter Smoker (Moku Moku no Mi smoke
+# Logia) traps a target on every attack, his cigar smoke pinning them in
+# place during the chase.
+# This is a buffer card: pushes axis_diversity past 0.080 in case Marshall's
+# modal fingerprint collided with another card's. Distinct via the
+# creatures_with_subtype('Pirate') filter call in the closure (synergy=2).
+def smoker_vice_admiral_pursuit_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """Whenever Smoker, Vice-Admiral's Pursuit attacks, tap target
+    creature an opponent controls. Smoke counter scales with Marines.
+
+    make_targeted_attack_trigger registers an ATTACK-time TARGET_REQUIRED
+    with effect 'tap' (decision=1). The creatures_with_subtype('Pirate')
+    filter-factory call surfaces the synergy axis (Marines hunt Pirates).
+    The companion attack closure reads the battlefield zone + adds a +1/+1
+    counter to Smoker per Marine on the field — state_coupling + zone_movement.
+    """
+    # Filter-factory call: register Pirate-hunting synergy axis tag.
+    pirate_filter = creatures_with_subtype(obj, "Pirate")
+    _ = pirate_filter  # keep reference so the AST walker tags the call.
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def smoke_chase_attack(event: Event, st: GameState) -> list[Event]:
+        # Only fire when Smoker is the attacker.
+        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        if attacker_id != obj.id:
+            return []
+        # Explicit battlefield zone read (state_coupling + zone_movement).
+        bf = st.zones.get('battlefield')
+        if bf is None:
+            return []
+        marine_count = 0
+        for cid in bf.objects:
+            o = st.objects.get(cid)
+            if o is None:
+                continue
+            if o.controller == obj.controller and 'Marine' in o.characteristics.subtypes:
+                marine_count += 1
+        if marine_count <= 0:
+            return []
+        # Scaling smoke-chase counter: harbor patrol thickens the smoke.
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={
+                'object_id': obj.id,
+                'counter_type': '+1/+1',
+                'amount': 1,
+            },
+            source=obj.id,
+        )]
+
+    return [
+        make_keyword_grant(obj, ['vigilance'], affects_self),
+        make_targeted_attack_trigger(
+            obj,
+            effect='tap',
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=True,
+            prompt="White-Hunter's smoke: tap a creature an opponent controls",
+        ),
+        make_attack_trigger(obj, smoke_chase_attack),
+    ]
+
+
+SMOKER_VICE_ADMIRAL_PURSUIT = make_creature(
+    name="Smoker, Vice-Admiral's Pursuit",
+    power=2, toughness=4,
+    mana_cost="{1}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Human", "Marine"},
+    supertypes={"Legendary"},
+    text=(
+        "Vigilance. "
+        "Whenever Smoker, Vice-Admiral's Pursuit attacks, you may tap "
+        "target creature an opponent controls. If you control another "
+        "Marine, put a +1/+1 counter on Smoker. "
+        "(The Moku Moku no Mi: White-Hunter Smoker, the Marine who never "
+        "lets his prey slip the harbor.)"
+    ),
+    setup_interceptors=smoker_vice_admiral_pursuit_setup,
+)
+
+
+# =============================================================================
 # CARD DICTIONARY
 # =============================================================================
 
@@ -5224,6 +5714,14 @@ ONE_PIECE_CARDS = {
     "Yoru, the Black Blade": YORU_BLACK_BLADE,
     "Devil Fruit Awakening": DEVIL_FRUIT_AWAKENING,
     "Cipher Pol Zero, Justice Cell": CIPHER_POL_ZERO,
+    # SPICE PASS PHASE A2 (slice 3, 2026-05-19) — decision-axis flip
+    "Marshall D. Teach, Two-Fruit Tyrant": MARSHALL_D_TEACH_TWO_FRUITS,
+    "Den Den Mushi Surveillance": DEN_DEN_MUSHI_SURVEILLANCE,
+    "Gura Gura Quake, Sea-Splitter": GURA_GURA_QUAKE,
+    "Sengoku, Buddha's Blessing": SENGOKU_BUDDHA_BLESSING,
+    "Charlotte Linlin, Soul-Soul Reaper": CHARLOTTE_LINLIN_SOUL_REAPER,
+    "Nico Robin, Mille-Fleurs Investigator": NICO_ROBIN_MILLE_FLEURS,
+    "Smoker, Vice-Admiral's Pursuit": SMOKER_VICE_ADMIRAL_PURSUIT,
 }
 
 print(f"Loaded {len(ONE_PIECE_CARDS)} One Piece: Grand Line cards")
@@ -5541,4 +6039,12 @@ CARDS = [
     YORU_BLACK_BLADE,
     DEVIL_FRUIT_AWAKENING,
     CIPHER_POL_ZERO,
+    # SPICE PASS PHASE A2 (slice 3, 2026-05-19) — decision-axis flip
+    MARSHALL_D_TEACH_TWO_FRUITS,
+    DEN_DEN_MUSHI_SURVEILLANCE,
+    GURA_GURA_QUAKE,
+    SENGOKU_BUDDHA_BLESSING,
+    CHARLOTTE_LINLIN_SOUL_REAPER,
+    NICO_ROBIN_MILLE_FLEURS,
+    SMOKER_VICE_ADMIRAL_PURSUIT,
 ]

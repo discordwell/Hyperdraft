@@ -794,6 +794,338 @@ def test_cipher_pol_zero_own_spell_does_not_drain():
     print(f"  Own-spell drain: {before_lcs}->{after_lcs} (no change)")
 
 
+# ============================================================================
+# SPICE PASS PHASE A2 (slice 3, 2026-05-19) — decision-axis flip
+# Each test below proves that the new card installs a brand-new
+# PendingChoice / TARGET_REQUIRED surface (decision axis > 0). These tests
+# do NOT resolve the choices — they just verify the surface emits, since
+# resolution requires either AI auto-pick or full UI plumbing.
+# ============================================================================
+
+
+# ----------------------------------------------------------------------------
+# Marshall D. Teach, Two-Fruit Tyrant — modal-ETB (decision=3 modal-deep)
+# ----------------------------------------------------------------------------
+
+def test_marshall_d_teach_loads_legendary():
+    """Loads as a legendary Human Pirate with a modal ETB interceptor."""
+    print("\n=== Marshall D. Teach: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    bb = _put_on_battlefield(game, p1, "Marshall D. Teach, Two-Fruit Tyrant")
+    chars = bb.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Pirate' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert bb.interceptor_ids, f"Expected ETB interceptor; got {bb.interceptor_ids}"
+    print(f"  Interceptors: {len(bb.interceptor_ids)}; subtypes={chars.subtypes}")
+
+
+def test_marshall_d_teach_etb_opens_modal_choice():
+    """ETB installs a modal_with_targeting pending_choice with 3 modes."""
+    print("\n=== Marshall D. Teach: modal choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    bb = _put_on_battlefield(game, p1, "Marshall D. Teach, Two-Fruit Tyrant")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice after ETB"
+    assert pc.source_id == bb.id
+    assert pc.choice_type == "modal_with_targeting"
+    assert pc.player == p1.id
+    assert len(pc.options) == 3, f"Expected 3 modes; got {len(pc.options)}"
+    print(f"  Modes: {[opt.get('label') for opt in pc.options]}")
+
+
+# ----------------------------------------------------------------------------
+# Den Den Mushi Surveillance — targeted ETB (decision=1 + asymmetry)
+# ----------------------------------------------------------------------------
+
+def test_den_den_mushi_loads_enchantment():
+    """Loads as a Blue enchantment with ETB interceptors."""
+    print("\n=== Den Den Mushi Surveillance: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    ddm = _put_on_battlefield(game, p1, "Den Den Mushi Surveillance")
+    assert CardType.ENCHANTMENT in ddm.characteristics.types
+    assert ddm.interceptor_ids, "Expected ETB interceptors"
+    print(f"  Interceptors: {len(ddm.interceptor_ids)}")
+
+
+def test_den_den_mushi_etb_emits_target_required_and_draw():
+    """ETB emits a TARGET_REQUIRED for an opponent + a DRAW for self."""
+    print("\n=== Den Den Mushi: ETB target+draw ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    ddm = _put_on_battlefield(game, p1, "Den Den Mushi Surveillance")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == ddm.id
+        and e.payload.get('effect') == 'reveal_hand'
+    ]
+    assert target_reqs, (
+        f"Expected reveal_hand TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    assert target_reqs[0].payload.get('target_filter') == 'opponent'
+    draws = [e for e in new
+             if e.type == EventType.DRAW
+             and e.source == ddm.id
+             and e.payload.get('player') == p1.id]
+    assert draws, f"Expected DRAW for controller; new={[e.type.name for e in new[-10:]]}"
+    print(f"  TARGET_REQUIRED: {len(target_reqs)}; DRAW: {len(draws)}")
+
+
+# ----------------------------------------------------------------------------
+# Gura Gura Quake — divided damage (decision=1 + asymmetry)
+# ----------------------------------------------------------------------------
+
+def test_gura_gura_quake_loads_enchantment():
+    """Loads as a Red enchantment with ETB interceptor."""
+    print("\n=== Gura Gura Quake: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    ggq = _put_on_battlefield(game, p1, "Gura Gura Quake, Sea-Splitter")
+    assert CardType.ENCHANTMENT in ggq.characteristics.types
+    assert ggq.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(ggq.interceptor_ids)}")
+
+
+def test_gura_gura_quake_etb_emits_divided_damage_target_required():
+    """ETB emits TARGET_REQUIRED with divide_amount=6 and damage effect."""
+    print("\n=== Gura Gura Quake: ETB divided 6 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    ggq = _put_on_battlefield(game, p1, "Gura Gura Quake, Sea-Splitter")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == ggq.id
+        and e.payload.get('effect') == 'damage'
+    ]
+    assert target_reqs, (
+        f"Expected damage TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    payload = target_reqs[0].payload
+    assert payload.get('divide_amount') == 6, (
+        f"Expected divide_amount=6; got {payload.get('divide_amount')}"
+    )
+    print(f"  divide_amount: {payload.get('divide_amount')}")
+
+
+# ----------------------------------------------------------------------------
+# Sengoku, Buddha's Blessing — divided counters (decision=1 + synergy)
+# ----------------------------------------------------------------------------
+
+def test_sengoku_buddha_blessing_loads():
+    """Loads as a White enchantment with ETB interceptor."""
+    print("\n=== Sengoku Buddha's Blessing: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    sbb = _put_on_battlefield(game, p1, "Sengoku, Buddha's Blessing")
+    assert CardType.ENCHANTMENT in sbb.characteristics.types
+    assert sbb.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(sbb.interceptor_ids)}")
+
+
+def test_sengoku_buddha_blessing_etb_emits_counter_add_target_required():
+    """ETB emits TARGET_REQUIRED with divide_amount=4 and counter_add effect."""
+    print("\n=== Sengoku Buddha: ETB distribute counters ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    sbb = _put_on_battlefield(game, p1, "Sengoku, Buddha's Blessing")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == sbb.id
+        and e.payload.get('effect') == 'counter_add'
+    ]
+    assert target_reqs, (
+        f"Expected counter_add TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    payload = target_reqs[0].payload
+    assert payload.get('divide_amount') == 4, (
+        f"Expected divide_amount=4; got {payload.get('divide_amount')}"
+    )
+    assert payload.get('target_filter') == 'your_creature'
+    print(f"  divide_amount: {payload.get('divide_amount')}; filter: {payload.get('target_filter')}")
+
+
+# ----------------------------------------------------------------------------
+# Charlotte Linlin, Soul-Soul Reaper — targeted death + asymmetric discard
+# ----------------------------------------------------------------------------
+
+def test_charlotte_linlin_loads_legendary_giant_pirate():
+    """Loads as a legendary Giant Pirate with death-trigger interceptors."""
+    print("\n=== Charlotte Linlin Soul Reaper: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    cl = _put_on_battlefield(game, p1, "Charlotte Linlin, Soul-Soul Reaper")
+    chars = cl.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Pirate' in chars.subtypes
+    assert 'Giant' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert len(cl.interceptor_ids) >= 2, (
+        f"Expected >=2 (targeted-death + death listener); got {len(cl.interceptor_ids)}"
+    )
+    print(f"  Interceptors: {len(cl.interceptor_ids)}")
+
+
+def test_charlotte_linlin_death_emits_target_required_and_discard():
+    """On death, emits TARGET_REQUIRED for destroy + DISCARD on opponent hand."""
+    print("\n=== Charlotte Linlin: death trigger ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Drop a card into p2's hand so the DISCARD pulse has something to bite.
+    chitauri_chars = Characteristics(
+        types={CardType.CREATURE}, subtypes={"Pirate"}, power=1, toughness=1,
+    )
+    junk = game.create_object(
+        name="Spare", owner_id=p2.id, zone=ZoneType.HAND,
+        characteristics=chitauri_chars, card_def=None,
+    )
+    cl = _put_on_battlefield(game, p1, "Charlotte Linlin, Soul-Soul Reaper")
+    before = len(game.state.event_log)
+    # Simulate death: ZONE_CHANGE battlefield -> graveyard with reason='destroy'.
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': cl.id,
+            'from_zone': 'battlefield',
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+            'reason': 'destroy',
+        },
+        source=cl.id,
+    ))
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == cl.id
+        and e.payload.get('effect') == 'destroy'
+    ]
+    assert target_reqs, (
+        f"Expected destroy TARGET_REQUIRED on death; new={[e.type.name for e in new[-10:]]}"
+    )
+    assert target_reqs[0].payload.get('target_filter') == 'opponent_creature'
+    discards = [
+        e for e in new
+        if e.type == EventType.DISCARD
+        and e.payload.get('player') == p2.id
+        and e.source == cl.id
+    ]
+    assert discards, f"Expected DISCARD on p2; new={[e.type.name for e in new[-10:]]}"
+    print(f"  TARGET_REQUIRED: {len(target_reqs)}; DISCARD: {len(discards)}")
+
+
+# ----------------------------------------------------------------------------
+# Nico Robin, Mille-Fleurs Investigator — top-N + zone-coupling
+# ----------------------------------------------------------------------------
+
+def test_nico_robin_loads_legendary_archaeologist():
+    """Loads as a legendary Human Archaeologist with ETB interceptor."""
+    print("\n=== Nico Robin Mille-Fleurs: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    nr = _put_on_battlefield(game, p1, "Nico Robin, Mille-Fleurs Investigator")
+    chars = nr.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Archaeologist' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert nr.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(nr.interceptor_ids)}; subtypes={chars.subtypes}")
+
+
+def test_nico_robin_etb_empty_library_no_op():
+    """ETB with empty library doesn't crash and doesn't install a choice."""
+    print("\n=== Nico Robin: empty library no-op ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Library is empty by default (no shuffle / deck setup in this test harness).
+    nr = _put_on_battlefield(game, p1, "Nico Robin, Mille-Fleurs Investigator")
+    assert nr.zone == ZoneType.BATTLEFIELD
+    # No pending choice should be installed (empty library short-circuits).
+    pc = game.state.pending_choice
+    # NOTE: pc may be None or unrelated; we only care that ETB returned cleanly.
+    print(f"  No-crash; pending_choice={pc}")
+
+
+def test_nico_robin_etb_with_library_lands_opens_choice():
+    """ETB with a land on top of library installs a PendingChoice."""
+    print("\n=== Nico Robin: library lands -> choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Plant a land in p1's library so the helper has something to pick.
+    lib = game.state.zones[f'library_{p1.id}']
+    land_chars = Characteristics(types={CardType.LAND}, subtypes={"Island"})
+    land_obj = game.create_object(
+        name="Test Island", owner_id=p1.id, zone=ZoneType.LIBRARY,
+        characteristics=land_chars, card_def=None,
+    )
+    if land_obj.id not in lib.objects:
+        lib.objects.append(land_obj.id)
+    nr = _put_on_battlefield(game, p1, "Nico Robin, Mille-Fleurs Investigator")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice installed by top-N land pick"
+    assert pc.source_id == nr.id, f"Choice source should be Robin; got {pc.source_id}"
+    print(f"  PendingChoice type: {pc.choice_type}; source: {pc.source_id}")
+
+
+# ----------------------------------------------------------------------------
+# Smoker, Vice-Admiral's Pursuit — targeted attack trigger (decision=1 + synergy)
+# ----------------------------------------------------------------------------
+
+def test_smoker_vice_admiral_loads_legendary_marine():
+    """Loads as a legendary Human Marine with vigilance + attack-trigger."""
+    print("\n=== Smoker Vice-Admiral: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    sm = _put_on_battlefield(game, p1, "Smoker, Vice-Admiral's Pursuit")
+    chars = sm.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Marine' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert len(sm.interceptor_ids) >= 2, (
+        f"Expected >=2 (vigilance kw + attack trigger); got {len(sm.interceptor_ids)}"
+    )
+    print(f"  Interceptors: {len(sm.interceptor_ids)}")
+
+
+def test_smoker_vice_admiral_attack_emits_tap_target_required():
+    """On attack, emits TARGET_REQUIRED with effect='tap' targeting opp creature."""
+    print("\n=== Smoker Vice-Admiral: attack tap trigger ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    sm = _put_on_battlefield(game, p1, "Smoker, Vice-Admiral's Pursuit")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': sm.id, 'attacker': sm.id, 'controller': p1.id},
+        source=sm.id,
+    ))
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == sm.id
+        and e.payload.get('effect') == 'tap'
+        and e.payload.get('target_filter') == 'opponent_creature'
+    ]
+    assert target_reqs, (
+        f"Expected tap TARGET_REQUIRED on attack; new={[e.type.name for e in new[-10:]]}"
+    )
+    print(f"  TARGET_REQUIRED (tap): {len(target_reqs)}")
+
+
 if __name__ == "__main__":
     # Kaido
     test_kaido_awakened_loads_legendary_dragon()
@@ -830,6 +1162,22 @@ if __name__ == "__main__":
     test_cipher_pol_zero_etb_reveals_opp_hands()
     test_cipher_pol_zero_opp_spell_drains_life()
     test_cipher_pol_zero_own_spell_does_not_drain()
+    # Slice 3 — decision-axis flip
+    test_marshall_d_teach_loads_legendary()
+    test_marshall_d_teach_etb_opens_modal_choice()
+    test_den_den_mushi_loads_enchantment()
+    test_den_den_mushi_etb_emits_target_required_and_draw()
+    test_gura_gura_quake_loads_enchantment()
+    test_gura_gura_quake_etb_emits_divided_damage_target_required()
+    test_sengoku_buddha_blessing_loads()
+    test_sengoku_buddha_blessing_etb_emits_counter_add_target_required()
+    test_charlotte_linlin_loads_legendary_giant_pirate()
+    test_charlotte_linlin_death_emits_target_required_and_discard()
+    test_nico_robin_loads_legendary_archaeologist()
+    test_nico_robin_etb_empty_library_no_op()
+    test_nico_robin_etb_with_library_lands_opens_choice()
+    test_smoker_vice_admiral_loads_legendary_marine()
+    test_smoker_vice_admiral_attack_emits_tap_target_required()
     print("\n" + "=" * 60)
     print("ALL ONE PIECE SPICE v2 EXPANSION TESTS PASSED!")
     print("=" * 60)
