@@ -645,6 +645,177 @@ def test_fawkes_empty_graveyard_no_reanimate_no_crash():
 
 
 # ============================================================================
+# Phase A2 (slice 2) — decision-axis flip cards
+# ============================================================================
+
+
+def test_sorting_hats_verdict_loads():
+    """Setup registers a modal-ETB trigger."""
+    print("\n=== Sorting Hat's Verdict: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    shv = _put_on_battlefield(game, p1, "Sorting Hat's Verdict")
+    assert shv.zone == ZoneType.BATTLEFIELD
+    assert shv.interceptor_ids, "Expected modal-ETB trigger interceptor"
+
+
+def test_sorting_hats_verdict_etb_opens_modal_choice():
+    """ETB installs a modal_with_targeting pending_choice with 3 modes."""
+    print("\n=== Sorting Hat's Verdict: pending modal choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    shv = _put_on_battlefield(game, p1, "Sorting Hat's Verdict")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice after ETB"
+    assert pc.source_id == shv.id
+    assert pc.choice_type == "modal_with_targeting"
+    assert pc.player == p1.id
+    assert len(pc.options) == 3, f"Expected 3 modes; got {len(pc.options)}"
+
+
+def test_bellatrix_crucio_loads():
+    """Setup registers menace + ETB info pulse + targeted-ETB trigger."""
+    print("\n=== Bellatrix Lestrange, Crucio Witch: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    bel = _put_on_battlefield(game, p1, "Bellatrix Lestrange, Crucio Witch")
+    assert bel.zone == ZoneType.BATTLEFIELD
+    assert len(bel.interceptor_ids) >= 3, (
+        f"Expected at least 3 interceptors; got {len(bel.interceptor_ids)}"
+    )
+    assert has_ability(bel, 'menace', game.state), "Expected menace"
+
+
+def test_bellatrix_crucio_etb_emits_target_required_and_info():
+    """ETB emits TARGET_REQUIRED w/ effect=damage + DISCARD_CHOICE info."""
+    print("\n=== Bellatrix Crucio: ETB target_required + info pulse ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    bel = _put_on_battlefield(game, p1, "Bellatrix Lestrange, Crucio Witch")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == bel.id
+        and e.payload.get('target_filter') == 'opponent_creature'
+        and e.payload.get('effect') == 'damage'
+    ]
+    assert target_reqs, (
+        f"Expected damage TARGET_REQUIRED; recent={[e.type.name for e in new[-10:]]}"
+    )
+    info_events = [
+        e for e in new
+        if e.type == EventType.DISCARD_CHOICE and e.payload.get('source') == bel.id
+    ]
+    assert info_events, "Expected DISCARD_CHOICE info pulse on ETB"
+
+
+def test_sybill_trelawney_loads():
+    """Setup registers an ETB trigger."""
+    print("\n=== Sybill Trelawney, Seer's Vision: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    syb = _put_on_battlefield(game, p1, "Sybill Trelawney, Seer's Vision")
+    assert syb.zone == ZoneType.BATTLEFIELD
+    assert syb.interceptor_ids, "Expected ETB interceptor"
+
+
+def test_sybill_trelawney_etb_opens_scry_choice_with_library():
+    """ETB with non-empty library opens a scry pending_choice."""
+    print("\n=== Sybill Trelawney: ETB opens scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Plant 2 cards in library.
+    soldier_def = HARRY_POTTER_CARDS["Hogwarts Scholar"]
+    lib = game.state.zones[f'library_{p1.id}']
+    for _ in range(2):
+        obj = game.create_object(
+            name="Hogwarts Scholar",
+            owner_id=p1.id,
+            zone=ZoneType.LIBRARY,
+            characteristics=soldier_def.characteristics,
+            card_def=None,
+        )
+        obj.card_def = soldier_def
+        if obj.id not in lib.objects:
+            lib.objects.append(obj.id)
+    syb = _put_on_battlefield(game, p1, "Sybill Trelawney, Seer's Vision")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected scry pending_choice"
+    assert pc.source_id == syb.id
+    assert pc.choice_type == "scry"
+    assert pc.player == p1.id
+
+
+def test_sybill_trelawney_etb_empty_library_no_op():
+    """ETB with empty library returns [] without crashing."""
+    print("\n=== Sybill Trelawney: empty library ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    syb = _put_on_battlefield(game, p1, "Sybill Trelawney, Seer's Vision")
+    assert syb.zone == ZoneType.BATTLEFIELD
+
+
+def test_marauders_map_loads():
+    """Setup registers an ETB trigger."""
+    print("\n=== The Marauder's Map: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    mm = _put_on_battlefield(game, p1, "The Marauder's Map")
+    assert mm.zone == ZoneType.BATTLEFIELD
+    assert mm.interceptor_ids, "Expected ETB interceptor"
+
+
+def test_marauders_map_empty_library_no_crash():
+    """ETB with empty library returns [] without installing a choice."""
+    print("\n=== Marauder's Map: empty library ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    mm = _put_on_battlefield(game, p1, "The Marauder's Map")
+    assert mm.zone == ZoneType.BATTLEFIELD
+
+
+def test_horcrux_reliquary_loads():
+    """Setup registers an ETB trigger."""
+    print("\n=== Horcrux Reliquary: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    hr = _put_on_battlefield(game, p1, "Horcrux Reliquary")
+    assert hr.zone == ZoneType.BATTLEFIELD
+    assert hr.interceptor_ids, "Expected ETB interceptor"
+
+
+def test_horcrux_reliquary_etb_with_creature_opens_sac_choice():
+    """ETB with at least one own creature opens a sacrifice pending_choice."""
+    print("\n=== Horcrux Reliquary: ETB sacrifice choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Drop a sac-target into play first.
+    target_creature = _put_on_battlefield(game, p1, "Hogwarts Scholar")
+    hr = _put_on_battlefield(game, p1, "Horcrux Reliquary")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected sacrifice pending_choice"
+    assert pc.source_id == hr.id
+    assert pc.choice_type == "sacrifice"
+    assert pc.player == p1.id
+    assert target_creature.id in pc.options, (
+        f"Expected the planted creature to appear as a sacrifice option; "
+        f"got options={pc.options}"
+    )
+
+
+def test_horcrux_reliquary_etb_with_no_creatures_no_op():
+    """ETB with no own creatures returns [] without installing a choice."""
+    print("\n=== Horcrux Reliquary: no own creatures ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    hr = _put_on_battlefield(game, p1, "Horcrux Reliquary")
+    assert hr.zone == ZoneType.BATTLEFIELD
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 

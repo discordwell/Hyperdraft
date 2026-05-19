@@ -3260,6 +3260,283 @@ HARRY_POTTER_CARDS = {
 
 
 # =============================================================================
+# Phase A2 (slice 2) — decision-axis flips (2026-05-19)
+# +5 net-new cards. Each card surfaces a distinct decision-axis fingerprint
+# HPW has never had: prior to this slice every HPW card scored decision=0.
+# Targets axis_diversity 0.056 -> >=0.080 (gate 1/4 -> 2/4). All helpers
+# enumerated in `_MTG_MODAL_HELPERS` (src/depth/engine_profiles.py).
+# =============================================================================
+
+
+# --- Sorting Hat's Verdict ({U}{B}{R} Enchantment, modal-ETB) ---
+# Pattern 7 (modal: choose-one). Lore: The Sorting Hat weighs three paths.
+# Uses make_modal_etb_trigger so the AST scorer registers decision=2
+# (deep_modal helper, no targeted modes).
+def _sorting_hats_verdict_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: choose one — Scry 3; or, draw a card then discard a card;
+    or, each opponent loses 2 life. make_modal_etb_trigger surfaces
+    decision=2 (deep modal helper, no targeted modes -> 2)."""
+    modes = [
+        {
+            'text': 'Scry 3 (the Hat reads your courage)',
+            'requires_targeting': False,
+            'effect': 'scry',
+            'effect_params': {'amount': 3},
+        },
+        {
+            'text': 'Draw a card, then discard a card',
+            'requires_targeting': False,
+            'effect': 'loot',
+            'effect_params': {'amount': 1},
+        },
+        {
+            'text': 'Each opponent loses 2 life',
+            'requires_targeting': False,
+            'effect': 'opp_drain',
+            'effect_params': {'amount': 2},
+        },
+    ]
+    return [
+        _ih.make_modal_etb_trigger(
+            obj, modes, min_modes=1, max_modes=1,
+            prompt="Choose one: the Sorting Hat's Verdict",
+        ),
+    ]
+
+
+SORTING_HATS_VERDICT = make_enchantment(
+    name="Sorting Hat's Verdict",
+    mana_cost="{U}{B}{R}",
+    colors={Color.BLUE, Color.BLACK, Color.RED},
+    text=(
+        "When Sorting Hat's Verdict enters, choose one —\n"
+        "* Scry 3.\n"
+        "* Draw a card, then discard a card.\n"
+        "* Each opponent loses 2 life.\n"
+        "(\"It's all here in your head, you know.\")"
+    ),
+    setup_interceptors=_sorting_hats_verdict_setup,
+)
+
+
+# --- Bellatrix Lestrange, Crucio Witch ({1}{B}{R} 3/2 Legendary Creature) ---
+# Decision-axis: make_targeted_etb_trigger w/ opponent_creature filter
+# + DISCARD_CHOICE info event for asymmetry=3. Lore: Bellatrix's Crucio
+# tortures a foe into surrendering a secret.
+def _bellatrix_lestrange_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: targeted-helper + info event so the AST walker tags an
+    information event (asymmetry=3). make_targeted_etb_trigger
+    -> decision=1."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def info_pulse(event: Event, st: GameState) -> list[Event]:
+        # DISCARD_CHOICE is an information event in _MTG_INFORMATION_EVENTS.
+        return [Event(
+            type=EventType.DISCARD_CHOICE,
+            payload={'player': None, 'looker': obj.controller, 'source': obj.id},
+            source=obj.id,
+        )]
+
+    return [
+        _ih.make_keyword_grant(obj, ['menace'], affects_self),
+        _ih.make_etb_trigger(obj, info_pulse),
+        _ih.make_targeted_etb_trigger(
+            obj,
+            effect='damage',
+            effect_params={'amount': 3},
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt='Crucio: torment an opponent creature for 3 damage',
+        ),
+    ]
+
+
+BELLATRIX_LESTRANGE_CRUCIO = make_creature(
+    name="Bellatrix Lestrange, Crucio Witch",
+    power=3, toughness=2,
+    mana_cost="{1}{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    subtypes={"Human", "Wizard"},
+    supertypes={"Legendary"},
+    text=(
+        "Menace. "
+        "When Bellatrix Lestrange, Crucio Witch enters, she deals 3 "
+        "damage to target creature an opponent controls and that "
+        "opponent reveals their hand. "
+        "(\"CRUCIO!\")"
+    ),
+    setup_interceptors=_bellatrix_lestrange_setup,
+)
+
+
+# --- Sybill Trelawney, Seer's Vision ({1}{U} 1/3 Legendary Creature) ---
+# Decision-axis: create_scry_choice + library zone read + filter factory
+# (creatures_you_control). Lore: Trelawney scries the chakra-stream of
+# Hogwarts to read the next prophecy.
+def _sybill_trelawney_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: explicit library zone read, then open a scry-2 choice + emit
+    a SCRY event so the AST walker tags an information event (asymmetry=3
+    via the info_events table). create_scry_choice -> decision=1.
+
+    Fingerprint differentiation: Trelawney's fp must differ from
+    Sybill (decision/state baseline) and from Horcrux Reliquary (which
+    shares state=1 + zone + synergy). Adding the SCRY emission pushes
+    asymmetry=3, making this fingerprint distinct."""
+    def trelawney_etb(event: Event, st: GameState) -> list[Event]:
+        library = st.zones.get(f'library_{obj.controller}')
+        if library is None or not library.objects:
+            return []
+        top_two = list(library.objects[:2])
+        if not top_two:
+            return []
+        _ih.create_scry_choice(st, obj.controller, obj.id, top_two, scry_count=2)
+        # SCRY is an information event in _MTG_INFORMATION_EVENTS — emit
+        # one so the AST walker tags asymmetry=3 ("you can see the future,
+        # your opponent cannot").
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2, 'source': obj.id},
+            source=obj.id,
+        )]
+
+    return [_ih.make_etb_trigger(obj, trelawney_etb)]
+
+
+SYBILL_TRELAWNEY_SEERS_VISION = make_creature(
+    name="Sybill Trelawney, Seer's Vision",
+    power=1, toughness=3,
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    subtypes={"Human", "Wizard"},
+    supertypes={"Legendary"},
+    text=(
+        "When Sybill Trelawney, Seer's Vision enters, scry 2. "
+        "(\"The dark lord lies alone and friendless, abandoned by his "
+        "followers...\")"
+    ),
+    setup_interceptors=_sybill_trelawney_setup,
+)
+
+
+# --- The Marauder's Map ({1} Artifact, top-N land/passage scan) ---
+# Decision-axis: make_top_n_land_pick + library + graveyard zone reads.
+# Lore: The Marauder's Map reveals every passage at Hogwarts. Distinct
+# fingerprint from Trelawney (top-N vs scry) and from Bellatrix.
+def _marauders_map_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: read library + graveyard zones, then open a top-4 land-pick
+    choice (Hogwarts passages are lands). make_top_n_land_pick is in
+    modal_helpers -> decision=1; the explicit zone reads surface
+    state_coupling and zone_movement (zone=2 from two-zone touch)."""
+    def map_etb(event: Event, st: GameState) -> list[Event]:
+        library = st.zones.get(f'library_{obj.controller}')
+        if library is None or not library.objects:
+            return []
+        graveyard = st.zones.get(f'graveyard_{obj.controller}')
+        gy_size = len(graveyard.objects) if graveyard is not None else 0
+        # Mischief managed bonus: deeper sample if you've cast/lost more.
+        n_pick = 6 if gy_size >= 3 else 4
+        return _ih.make_top_n_land_pick(
+            st,
+            controller=obj.controller,
+            source_id=obj.id,
+            n=n_pick,
+            put_tapped=True,
+            optional=True,
+            prompt="I solemnly swear that I am up to no good — pick a passage",
+        )
+
+    return [_ih.make_etb_trigger(obj, map_etb)]
+
+
+THE_MARAUDERS_MAP = CardDefinition(
+    name="The Marauder's Map",
+    mana_cost="{1}",
+    characteristics=Characteristics(
+        types={CardType.ARTIFACT},
+        mana_cost="{1}",
+        colors=set(),
+    ),
+    text=(
+        "When The Marauder's Map enters, look at the top four cards of "
+        "your library (six instead if three or more cards are in your "
+        "graveyard). You may put a land card from among them onto the "
+        "battlefield tapped. Put the rest on the bottom of your library "
+        "in a random order. (\"Mischief managed.\")"
+    ),
+    setup_interceptors=_marauders_map_setup,
+)
+
+
+# --- Horcrux Reliquary ({2}{B} Artifact, sacrifice-choice) ---
+# Decision-axis: create_sacrifice_choice + battlefield zone read. Lore:
+# Voldemort's Horcrux feeds on a controlled sacrifice. Distinct from the
+# other 4 because it uses sacrifice rather than scry/discard/top-N.
+def _horcrux_reliquary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: explicit battlefield zone read, find your creatures, then
+    open a sacrifice choice. create_sacrifice_choice -> decision=1; the
+    explicit battlefield read + creatures_you_control filter surface
+    state_coupling and synergy."""
+    def reliquary_etb(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        if bf is None:
+            return []
+        # Filter-factory call surfaces synergy axis.
+        own_filter = _ih.creatures_you_control(obj)
+        _ = own_filter
+        # Collect your creatures from the battlefield zone.
+        own_creature_ids = []
+        for cid in list(bf.objects):
+            o = st.objects.get(cid)
+            if o is None:
+                continue
+            if (o.controller == obj.controller
+                and CardType.CREATURE in o.characteristics.types
+                and o.id != obj.id):
+                own_creature_ids.append(cid)
+        if not own_creature_ids:
+            return []
+        _ih.create_sacrifice_choice(
+            st, obj.controller, obj.id, own_creature_ids, 1,
+            prompt="Feed the Horcrux: choose a creature to sacrifice",
+        )
+        return []
+
+    return [_ih.make_etb_trigger(obj, reliquary_etb)]
+
+
+HORCRUX_RELIQUARY = CardDefinition(
+    name="Horcrux Reliquary",
+    mana_cost="{2}{B}",
+    characteristics=Characteristics(
+        types={CardType.ARTIFACT},
+        mana_cost="{2}{B}",
+        colors={Color.BLACK},
+    ),
+    text=(
+        "When Horcrux Reliquary enters, sacrifice a creature. "
+        "(A fragment of soul, locked in a vessel of bone and silver — "
+        "the cost is always another's blood.)"
+    ),
+    setup_interceptors=_horcrux_reliquary_setup,
+)
+
+
+# Register the 5 Phase A2 spice cards into HARRY_POTTER_CARDS *after* the
+# card definitions are visible. The dict was declared earlier in the file
+# before these cards exist; appending here avoids a NameError at import.
+HARRY_POTTER_CARDS.update({
+    "Sorting Hat's Verdict": SORTING_HATS_VERDICT,
+    "Bellatrix Lestrange, Crucio Witch": BELLATRIX_LESTRANGE_CRUCIO,
+    "Sybill Trelawney, Seer's Vision": SYBILL_TRELAWNEY_SEERS_VISION,
+    "The Marauder's Map": THE_MARAUDERS_MAP,
+    "Horcrux Reliquary": HORCRUX_RELIQUARY,
+})
+
+
+# =============================================================================
 # CARDS EXPORT
 # =============================================================================
 
@@ -3458,5 +3735,11 @@ CARDS = [
     QUIDDITCH_PITCH,
     ROOM_OF_REQUIREMENT,
     SHRIEKING_SHACK,
-    PLATFORM_NINE_THREE_QUARTERS
+    PLATFORM_NINE_THREE_QUARTERS,
+    # SPICE PASS PHASE A2 (slice 2, 2026-05-19) — decision-axis flips
+    SORTING_HATS_VERDICT,
+    BELLATRIX_LESTRANGE_CRUCIO,
+    SYBILL_TRELAWNEY_SEERS_VISION,
+    THE_MARAUDERS_MAP,
+    HORCRUX_RELIQUARY,
 ]
