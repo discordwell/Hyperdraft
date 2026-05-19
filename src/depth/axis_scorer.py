@@ -125,6 +125,7 @@ def _score_decision_pressure(features: FeatureBag, profile: EngineProfile) -> tu
     }
     targeted_names = {
         "create_target_choice",
+        "create_target_creature_choice",
         "create_discard_choice",
         "create_sacrifice_choice",
         "create_order_choice",
@@ -138,6 +139,8 @@ def _score_decision_pressure(features: FeatureBag, profile: EngineProfile) -> tu
         "make_targeted_spell_cast_trigger",
         "make_divided_damage_etb_trigger",
         "make_divided_counters_etb_trigger",
+        "make_targeted_multi_effect_etb_trigger",
+        "make_targeted_multi_effect_attack_trigger",
         "make_top_n_land_pick",
         "make_library_search_etb_trigger",
     }

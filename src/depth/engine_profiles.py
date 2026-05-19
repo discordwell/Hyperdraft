@@ -110,6 +110,7 @@ _MTG_MODAL_HELPERS = frozenset({
     "make_modal_spell_trigger",
     "make_spree_setup",
     "create_target_choice",
+    "create_target_creature_choice",
     "create_may_choice",
     "create_scry_choice",
     "create_surveil_choice",
@@ -128,6 +129,13 @@ _MTG_MODAL_HELPERS = frozenset({
     "make_divided_counters_etb_trigger",
     "make_targeted_multi_effect_etb_trigger",
     "make_targeted_multi_effect_attack_trigger",
+    # Library search ETB tutors — cards calling these open a PendingChoice for
+    # the searcher to pick a specific card from their library. Decision-axis
+    # signal (player makes a choice at resolution). Slice-7 fix 2026-05-19:
+    # the helper appeared in axis_scorer.targeted_names but was NOT registered
+    # here, so AST walker never tagged it into `modal_calls` and every tutor
+    # scored decision=0.
+    "make_library_search_etb_trigger",
 })
 
 _MTG_FILTER_FACTORIES = frozenset({
