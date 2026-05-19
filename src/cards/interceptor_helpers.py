@@ -2332,6 +2332,128 @@ def create_target_choice(
     return choice
 
 
+def create_target_creature_choice(
+    state: GameState,
+    player_id: str,
+    source_id: str,
+    *,
+    filter_fn: 'Optional[Callable[[GameObject, GameState], bool]]' = None,
+    effect_fn: 'Optional[Callable[[GameObject, GameState], list[Event]]]' = None,
+    prompt: str = "Choose target creature",
+    min_targets: int = 1,
+    max_targets: int = 1,
+    extra_callback_data: dict = None,
+) -> 'Optional[PendingChoice]':
+    """Open a PendingChoice for "target creature" from a triggered ability.
+
+    Mirrors ``create_library_search_choice`` for battlefield creatures.
+    Triggered abilities that need a player-chosen creature target (rather
+    than picking the first eligible) call this from their effect_fn, set
+    ``state.pending_choice`` (handled internally) and return ``[]`` — the
+    chosen-creature callback runs on choice resolution and emits the
+    actual effect events.
+
+    Args:
+        state: Game state.
+        player_id: The player making the choice.
+        source_id: The triggering object's id (used for logs / chained
+            triggers).
+        filter_fn: Optional ``(GameObject, GameState) -> bool`` predicate
+            applied to each battlefield creature. Default: any creature.
+        effect_fn: Required if the caller wants the effect emitted from the
+            choice callback. Signature: ``(target_obj, state) -> list[Event]``.
+            If omitted, callers must wire their own
+            ``extra_callback_data['handler']``.
+        prompt: UI prompt text.
+        min_targets / max_targets: Same semantics as ``create_target_choice``.
+        extra_callback_data: Extra keys merged into the choice's
+            ``callback_data`` (e.g. ``{'duration': 'end_of_turn'}``).
+
+    Returns:
+        The PendingChoice that was set on ``state.pending_choice``. Returns
+        ``None`` if there are no valid targets — in that case no choice is
+        opened and the caller's trigger silently no-ops (mirrors the
+        library_search "no valid targets, fail to find" behavior).
+
+    Example:
+        # Triggered ability: "Whenever Clima-Tact deals combat damage to a
+        # player, tap target creature that player controls."
+        def damage_effect(event, state):
+            victim = event.payload.get('target')
+            def creature_filter(o, st):
+                return o.controller == victim and not o.state.tapped
+            def tap_target(target_obj, st):
+                return [Event(type=EventType.TAP,
+                              payload={'object_id': target_obj.id},
+                              source=obj.id)]
+            create_target_creature_choice(
+                state, obj.controller, obj.id,
+                filter_fn=creature_filter,
+                effect_fn=tap_target,
+                prompt="Choose a creature to tap",
+            )
+            return []
+    """
+    valid_targets: list[str] = []
+    for obj in state.objects.values():
+        if obj.zone != ZoneType.BATTLEFIELD:
+            continue
+        if obj.characteristics is None:
+            continue
+        types = obj.characteristics.types or set()
+        if CardType.CREATURE not in types:
+            continue
+        if filter_fn is not None and not filter_fn(obj, state):
+            continue
+        valid_targets.append(obj.id)
+
+    if not valid_targets:
+        return None
+
+    def _on_target_picked(choice, selected: list, st: GameState) -> list[Event]:
+        if not selected:
+            return []
+        # Targets can arrive as raw ids, dicts ({'id': ...}), or Target
+        # dataclasses. ``normalize_target`` handles all three.
+        events: list[Event] = []
+        for entry in selected:
+            target_id, _is_player = normalize_target(entry, st)
+            target_obj = st.objects.get(target_id)
+            if target_obj is None or target_obj.zone != ZoneType.BATTLEFIELD:
+                continue
+            if effect_fn is None:
+                continue
+            try:
+                produced = effect_fn(target_obj, st)
+            except Exception:
+                produced = []
+            if produced:
+                events.extend(produced)
+        return events
+
+    callback_data = {'handler': _on_target_picked}
+    if extra_callback_data:
+        for k, v in extra_callback_data.items():
+            if k not in callback_data:
+                callback_data[k] = v
+
+    actual_max = min(max_targets, len(valid_targets))
+    actual_min = min(min_targets, actual_max)
+
+    choice = PendingChoice(
+        choice_type="target",
+        player=player_id,
+        prompt=prompt,
+        options=valid_targets,
+        source_id=source_id,
+        min_choices=int(actual_min),
+        max_choices=int(actual_max),
+        callback_data=callback_data,
+    )
+    state.pending_choice = choice
+    return choice
+
+
 def create_discard_choice(
     state: GameState,
     player_id: str,
