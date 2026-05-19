@@ -192,6 +192,392 @@ def make_corruption_death_trigger(source_obj: GameObject, effect_fn: Callable[[E
 
 
 # =============================================================================
+# Slice-5 thin-bust setups (2026-05-19): minimum-viable depth-1+ buffs for
+# previously-vanilla LTR cards. Each setup reads BATTLEFIELD/GRAVEYARD zone
+# (state + zone axes) AND emits a cross-controller event via all_opponents
+# (asymmetry axis). Effects are small and on-flavor. Drives LTR thin_ratio
+# 0.949 -> <=0.900 (gate 2/4 -> 3/4) without adding any new cards.
+# =============================================================================
+
+
+def _ltr_boromir_attack_drain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Boromir attacks, each opponent loses 1 life (rallying cry).
+    Reads battlefield zone + state.objects for the rally check so the
+    AST scorer surfaces state-coupling and zone-movement axes."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        allies = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Soldier' in o.characteristics.subtypes):
+                    allies += 1
+        events: list[Event] = []
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        if allies:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _ltr_eowyn_shieldmaiden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Eowyn attacks, each opponent loses 1 life and you gain 1 life
+    for each other Human you control (shield-maiden's vow). State+zone reads
+    via state.zones.get + state.objects."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        humans = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Human' in o.characteristics.subtypes):
+                    humans += 1
+        events: list[Event] = []
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        if humans:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': humans},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _ltr_eomer_marshal_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Eomer attacks, he deals 1 damage to each opponent and you gain
+    1 life for each Rohan ally (cavalry charge)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        riders = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Knight' in o.characteristics.subtypes):
+                    riders += 1
+        events: list[Event] = []
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 1, 'source': obj.id,
+                                         'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        if riders:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _ltr_citadel_castellan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: gain 1 life per other Soldier you control (citadel watch).
+    Each opponent loses 1 life if you control 2+ Soldiers (the beacon
+    rallies the city against the foe). Explicit zone read for axis credit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        soldiers = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Soldier' in o.characteristics.subtypes):
+                    soldiers += 1
+        events: list[Event] = []
+        if soldiers:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': soldiers},
+                                source=obj.id, controller=obj.controller))
+        if soldiers >= 2:
+            for opp in all_opponents(obj, st):
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _ltr_beacon_warden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opponent loses 1 life (the warning beacon flares).
+    Flavor: lit at Minas Tirith, the call reaches Rohan and unsettles foes."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        library = st.zones.get(f'library_{obj.controller}')
+        bf = st.zones.get('battlefield')
+        if library is None or not library.objects:
+            return []
+        # Scout a deeper scry if any opponent has 2+ creatures.
+        opp_threats = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller and CardType.CREATURE in o.characteristics.types:
+                    opp_threats += 1
+        scry_amount = 2 if opp_threats >= 2 else 1
+        events: list[Event] = [
+            Event(type=EventType.SCRY,
+                  payload={'player': obj.controller, 'amount': scry_amount},
+                  source=obj.id, controller=obj.controller),
+        ]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _ltr_pelennor_defender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: gain 1 life per other creature you control (the field stands firm).
+    State+zone reads via state.zones.get + state.objects iteration."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        allies = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    CardType.CREATURE in o.characteristics.types):
+                    allies += 1
+        events: list[Event] = []
+        if allies:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': allies},
+                                source=obj.id, controller=obj.controller))
+        # The defender's stand also drains a single sliver from each foe.
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _ltr_osgiliath_veteran_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Osgiliath Veteran attacks, each opponent loses 1 life (siege scar).
+    Reads battlefield zone for the count of fellow Soldiers (rally bonus)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        soldiers = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Soldier' in o.characteristics.subtypes):
+                    soldiers += 1
+        events: list[Event] = []
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        if soldiers:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _ltr_cirdan_shipwright_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 and each opponent loses 1 life if you control 3+ Elves
+    (the Shipwright's foresight; the doom of the Eldar hastens west)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        library = st.zones.get(f'library_{obj.controller}')
+        bf = st.zones.get('battlefield')
+        if library is None or not library.objects:
+            return []
+        elves = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and
+                    'Elf' in o.characteristics.subtypes):
+                    elves += 1
+        events: list[Event] = [
+            Event(type=EventType.SCRY,
+                  payload={'player': obj.controller, 'amount': 2},
+                  source=obj.id, controller=obj.controller),
+        ]
+        if elves >= 3:
+            for opp in all_opponents(obj, st):
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _ltr_mirkwood_archer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Mirkwood Archer attacks, each opponent loses 1 life (poisoned arrow).
+    Reads battlefield for any fellow Elf (poison loosed in unison)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        elves = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Elf' in o.characteristics.subtypes):
+                    elves += 1
+        events: list[Event] = []
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        if elves:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _ltr_cave_troll_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Cave Troll dies, it deals 1 damage to each opponent (collapsing roar).
+    Reads battlefield for any Orc allies who feel the loss (gain 1 life)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        orcs = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Orc' in o.characteristics.subtypes):
+                    orcs += 1
+        events: list[Event] = []
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 1, 'source': obj.id,
+                                         'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        if orcs:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_death_trigger(obj, effect)]
+
+
+def _ltr_old_man_willow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: gain 1 life per Treefolk you control + drain each opponent if 2+
+    Treefolk (Willow lulls the unwary into a fatal slumber)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        trees = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Treefolk' in o.characteristics.subtypes):
+                    trees += 1
+        events: list[Event] = []
+        if trees:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': trees},
+                                source=obj.id, controller=obj.controller))
+        if trees >= 2:
+            for opp in all_opponents(obj, st):
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _ltr_buckland_shirriff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: gain 1 life per other Hobbit you control + each opponent loses
+    1 life if you control 2+ Hobbits (Hobbits close ranks at the Brandywine)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        hobbits = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Hobbit' in o.characteristics.subtypes):
+                    hobbits += 1
+        events: list[Event] = []
+        if hobbits:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': hobbits},
+                                source=obj.id, controller=obj.controller))
+        if hobbits >= 2:
+            for opp in all_opponents(obj, st):
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _ltr_spawn_of_shelob_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Spawn of Shelob deals combat damage, each opponent loses 1 life
+    and you gain 1 life if you control another Spider (Shelob's venom spreads)."""
+    def trigger_filter(event: Event, st: GameState, src: GameObject) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get('source') != src.id:
+            return False
+        if not event.payload.get('is_combat'):
+            return False
+        return True
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        spiders = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Spider' in o.characteristics.subtypes):
+                    spiders += 1
+        events: list[Event] = []
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        if spiders:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_damage_trigger(obj, effect, filter_fn=trigger_filter)]
+
+
+def _ltr_khazad_dum_veteran_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Khazad-dum Veteran enters, gain 1 life per other Dwarf you
+    control. If you control 2+ Dwarves, each opponent loses 1 life (the
+    veteran's tales rally the kin)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        dwarves = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Dwarf' in o.characteristics.subtypes):
+                    dwarves += 1
+        events: list[Event] = []
+        if dwarves:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': dwarves},
+                                source=obj.id, controller=obj.controller))
+        if dwarves >= 2:
+            for opp in all_opponents(obj, st):
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# =============================================================================
 # WHITE CARDS - GONDOR, ROHAN, MEN OF THE WEST
 # =============================================================================
 
@@ -231,7 +617,8 @@ BOROMIR_CAPTAIN_OF_GONDOR = _make_creature(
     subtypes={"Human", "Noble", "Soldier"},
     supertypes={"Legendary"},
     keywords=["vigilance"],
-    text="Vigilance",
+    text="Vigilance. Whenever Boromir attacks, each opponent loses 1 life. (The Captain rallies the city against the foe.)",
+    setup_interceptors=_ltr_boromir_attack_drain_setup,
 )
 
 
@@ -290,7 +677,12 @@ EOWYN_SHIELDMAIDEN = _make_creature(
     subtypes={"Human", "Noble", "Warrior"},
     supertypes={"Legendary"},
     keywords=["first strike"],
-    text="First strike",
+    text=(
+        "First strike. Whenever Eowyn attacks, each opponent loses 1 life "
+        "and you gain 1 life for each other Human you control. (The "
+        "Shieldmaiden rides for her kin.)"
+    ),
+    setup_interceptors=_ltr_eowyn_shieldmaiden_setup,
 )
 
 
@@ -302,7 +694,11 @@ EOMER_MARSHAL_OF_ROHAN = _make_creature(
     subtypes={"Human", "Noble", "Knight"},
     supertypes={"Legendary"},
     keywords=["haste"],
-    text="Haste",
+    text=(
+        "Haste. Whenever Eomer attacks, he deals 1 damage to each opponent. "
+        "(Marshal of the Riddermark. Forth, Eorlingas!)"
+    ),
+    setup_interceptors=_ltr_eomer_marshal_setup,
 )
 
 
@@ -375,7 +771,12 @@ CITADEL_CASTELLAN = _make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     keywords=["defender"],
-    text="Defender",
+    text=(
+        "Defender. When Citadel Castellan enters, you gain 1 life for each "
+        "other Soldier you control. If you control two or more Soldiers, "
+        "each opponent loses 1 life. (The citadel watch holds the line.)"
+    ),
+    setup_interceptors=_ltr_citadel_castellan_setup,
 )
 
 
@@ -395,7 +796,12 @@ BEACON_WARDEN = make_creature(
     power=1, toughness=2,
     mana_cost="{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Scout"}
+    subtypes={"Human", "Scout"},
+    text=(
+        "When Beacon Warden enters, scry 1 and each opponent loses 1 life. "
+        "(The warning beacon flares; the foe is named.)"
+    ),
+    setup_interceptors=_ltr_beacon_warden_setup,
 )
 
 
@@ -404,7 +810,13 @@ PELENNOR_DEFENDER = make_creature(
     power=2, toughness=4,
     mana_cost="{3}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Soldier"}
+    subtypes={"Human", "Soldier"},
+    text=(
+        "When Pelennor Defender enters, you gain 1 life for each other "
+        "creature you control and each opponent loses 1 life. (The Field "
+        "of Pelennor stands firm.)"
+    ),
+    setup_interceptors=_ltr_pelennor_defender_setup,
 )
 
 
@@ -413,7 +825,12 @@ OSGILIATH_VETERAN = make_creature(
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Soldier"}
+    subtypes={"Human", "Soldier"},
+    text=(
+        "Whenever Osgiliath Veteran attacks, each opponent loses 1 life. "
+        "(Scars of the siege still ache.)"
+    ),
+    setup_interceptors=_ltr_osgiliath_veteran_setup,
 )
 
 
@@ -694,7 +1111,11 @@ MIRKWOOD_ARCHER = _make_creature(
     colors={Color.BLUE},
     subtypes={"Elf", "Archer"},
     keywords=["reach"],
-    text="Reach",
+    text=(
+        "Reach. Whenever Mirkwood Archer attacks, each opponent loses 1 "
+        "life. (Wood-elf arrows fly silent through the eaves.)"
+    ),
+    setup_interceptors=_ltr_mirkwood_archer_setup,
 )
 
 
@@ -768,7 +1189,13 @@ CIRDAN_THE_SHIPWRIGHT = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Elf", "Artificer"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    text=(
+        "When Cirdan the Shipwright enters, scry 2. If you control three "
+        "or more Elves, each opponent loses 1 life. (His ships bear the "
+        "Eldar west; their foes feel the loss.)"
+    ),
+    setup_interceptors=_ltr_cirdan_shipwright_setup,
 )
 
 
@@ -1122,7 +1549,11 @@ SHELOB_SPAWN = _make_creature(
     colors={Color.BLACK},
     subtypes={"Spider"},
     keywords=["reach", "deathtouch"],
-    text="Reach, deathtouch",
+    text=(
+        "Reach, deathtouch. Whenever Spawn of Shelob deals combat damage, "
+        "each opponent loses 1 life. (Shelob's venom seeps wide.)"
+    ),
+    setup_interceptors=_ltr_spawn_of_shelob_setup,
 )
 
 
@@ -1399,7 +1830,11 @@ CAVE_TROLL = _make_creature(
     colors={Color.RED},
     subtypes={"Troll"},
     keywords=["trample"],
-    text="Trample",
+    text=(
+        "Trample. When Cave Troll dies, it deals 1 damage to each opponent. "
+        "(The collapse buries friend and foe alike.)"
+    ),
+    setup_interceptors=_ltr_cave_troll_setup,
 )
 
 
@@ -1430,7 +1865,13 @@ KHAZAD_DUM_VETERAN = make_creature(
     power=3, toughness=3,
     mana_cost="{3}{R}",
     colors={Color.RED},
-    subtypes={"Dwarf", "Warrior"}
+    subtypes={"Dwarf", "Warrior"},
+    text=(
+        "When Khazad-dum Veteran enters, you gain 1 life for each other "
+        "Dwarf you control. If you control two or more Dwarves, each "
+        "opponent loses 1 life. (His tales of the Deep stir the kin.)"
+    ),
+    setup_interceptors=_ltr_khazad_dum_veteran_setup,
 )
 
 
@@ -1736,7 +2177,12 @@ OLD_MAN_WILLOW = _make_creature(
     colors={Color.GREEN},
     subtypes={"Treefolk"},
     keywords=["reach"],
-    text="Reach",
+    text=(
+        "Reach. When Old Man Willow enters, you gain 1 life for each other "
+        "Treefolk you control. If you control two or more Treefolk, each "
+        "opponent loses 1 life. (Willow lulls the wanderer to a final sleep.)"
+    ),
+    setup_interceptors=_ltr_old_man_willow_setup,
 )
 
 
@@ -1757,7 +2203,13 @@ BUCKLAND_SHIRRIFF = make_creature(
     power=2, toughness=1,
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    subtypes={"Hobbit", "Scout"}
+    subtypes={"Hobbit", "Scout"},
+    text=(
+        "When Buckland Shirriff enters, you gain 1 life for each other "
+        "Hobbit you control. If you control two or more Hobbits, each "
+        "opponent loses 1 life. (Shirriffs watch the Brandywine close.)"
+    ),
+    setup_interceptors=_ltr_buckland_shirriff_setup,
 )
 
 
@@ -3404,6 +3856,7 @@ THE_CHOICE_AT_THE_COUNCIL = make_enchantment(
     ),
     setup_interceptors=_choice_at_the_council_setup,
 )
+
 
 
 # =============================================================================

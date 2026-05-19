@@ -965,6 +965,343 @@ def test_the_choice_at_the_council_etb_sets_modal_pending_choice():
 
 
 # ============================================================================
+# Slice-5 thin-bust tests (2026-05-19): one unit test per buffed vanilla
+# card. Verifies setup_interceptors registers + on-flavor effect fires
+# under the expected trigger (ATTACK_DECLARED / ETB / death / combat damage).
+# ============================================================================
+
+
+def _slice5_emit_attack(game, attacker):
+    """Helper: emit ATTACK_DECLARED for the given attacker."""
+    p2 = next(iter([p for p in game.state.players.values() if p.id != attacker.controller]))
+    return game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': attacker.id, 'defender': p2.id},
+        source=attacker.id, controller=attacker.controller,
+    ))
+
+
+def _slice5_emit_death(game, dying):
+    """Helper: emit ZONE_CHANGE moving the object from battlefield to graveyard."""
+    return game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': dying.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'graveyard_{dying.controller}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+        source=dying.id,
+    ))
+
+
+def test_boromir_captain_attack_drains_each_opp_slice5():
+    """Slice-5: Boromir attacks -> each opponent loses 1 life."""
+    print("\n=== Slice-5: Boromir, Captain of Gondor — attack drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    boromir = _put_on_battlefield(game, p1, "Boromir, Captain of Gondor")
+    assert boromir.interceptor_ids, "Expected attack-trigger interceptor"
+    before = len(game.state.event_log)
+    _slice5_emit_attack(game, boromir)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.payload.get('source', e.source) == boromir.id or e.source == boromir.id
+    ]
+    assert drains, (
+        f"Expected each-opp -1 life drain; recent={[e.type.name for e in new[-10:]]}"
+    )
+
+
+def test_eowyn_shieldmaiden_attack_drains_each_opp_slice5():
+    """Slice-5: Eowyn attacks -> each opponent loses 1 life."""
+    print("\n=== Slice-5: Eowyn, Shieldmaiden of Rohan — attack drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    eowyn = _put_on_battlefield(game, p1, "Eowyn, Shieldmaiden of Rohan")
+    assert eowyn.interceptor_ids, "Expected attack-trigger interceptor"
+    before = len(game.state.event_log)
+    _slice5_emit_attack(game, eowyn)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == eowyn.id
+    ]
+    assert drains, (
+        f"Expected each-opp -1 life drain; recent={[e.type.name for e in new[-10:]]}"
+    )
+
+
+def test_eomer_marshal_attack_pings_each_opp_slice5():
+    """Slice-5: Eomer attacks -> deals 1 damage to each opponent."""
+    print("\n=== Slice-5: Eomer, Marshal of Rohan — attack ping ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    eomer = _put_on_battlefield(game, p1, "Eomer, Marshal of Rohan")
+    assert eomer.interceptor_ids, "Expected attack-trigger interceptor"
+    before = len(game.state.event_log)
+    _slice5_emit_attack(game, eomer)
+    new = game.state.event_log[before:]
+    pings = [
+        e for e in new
+        if e.type == EventType.DAMAGE
+        and e.payload.get('target') == p2.id
+        and e.payload.get('amount') == 1
+        and e.source == eomer.id
+    ]
+    assert pings, (
+        f"Expected each-opp 1 damage ping; recent={[e.type.name for e in new[-10:]]}"
+    )
+
+
+def test_citadel_castellan_etb_no_other_soldiers_no_drain_slice5():
+    """Slice-5: Citadel Castellan ETB alone -> no drain (only fires at 2+)."""
+    print("\n=== Slice-5: Citadel Castellan — solo ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    cc = _put_on_battlefield(game, p1, "Citadel Castellan")
+    assert cc.interceptor_ids, "Expected ETB-trigger interceptor"
+    # No allies in play - solo ETB should NOT drain opponents.
+    drains = [
+        e for e in game.state.event_log
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.source == cc.id
+    ]
+    assert not drains, (
+        f"Expected no drain with 0 other Soldiers; got {len(drains)}"
+    )
+
+
+def test_beacon_warden_etb_scry_and_drain_slice5():
+    """Slice-5: Beacon Warden ETB -> SCRY + each opp -1 life."""
+    print("\n=== Slice-5: Beacon Warden — ETB scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Plant a card in library so the helper proceeds past empty-library guard.
+    plains_def = LORD_OF_THE_RINGS_CARDS.get("Soldier of Gondor")
+    ko = game.create_object(
+        name="Soldier of Gondor", owner_id=p1.id, zone=ZoneType.LIBRARY,
+        characteristics=plains_def.characteristics, card_def=None,
+    )
+    ko.card_def = plains_def
+    lib = game.state.zones[f'library_{p1.id}']
+    if ko.id not in lib.objects:
+        lib.objects.append(ko.id)
+    before = len(game.state.event_log)
+    bw = _put_on_battlefield(game, p1, "Beacon Warden")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == bw.id]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == bw.id
+    ]
+    assert scrys, f"Expected SCRY event; recent={[e.type.name for e in new[-10:]]}"
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_pelennor_defender_etb_drains_each_opp_slice5():
+    """Slice-5: Pelennor Defender ETB -> each opp -1 life."""
+    print("\n=== Slice-5: Pelennor Defender — ETB drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    pd = _put_on_battlefield(game, p1, "Pelennor Defender")
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == pd.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_osgiliath_veteran_attack_drains_each_opp_slice5():
+    """Slice-5: Osgiliath Veteran attacks -> each opp -1 life."""
+    print("\n=== Slice-5: Osgiliath Veteran — attack drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    ov = _put_on_battlefield(game, p1, "Osgiliath Veteran")
+    assert ov.interceptor_ids, "Expected attack-trigger interceptor"
+    before = len(game.state.event_log)
+    _slice5_emit_attack(game, ov)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == ov.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_cirdan_shipwright_etb_scry_2_slice5():
+    """Slice-5: Cirdan the Shipwright ETB -> SCRY 2 (library non-empty)."""
+    print("\n=== Slice-5: Cirdan the Shipwright — ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    plains_def = LORD_OF_THE_RINGS_CARDS.get("Soldier of Gondor")
+    ko = game.create_object(
+        name="Soldier of Gondor", owner_id=p1.id, zone=ZoneType.LIBRARY,
+        characteristics=plains_def.characteristics, card_def=None,
+    )
+    ko.card_def = plains_def
+    lib = game.state.zones[f'library_{p1.id}']
+    if ko.id not in lib.objects:
+        lib.objects.append(ko.id)
+    before = len(game.state.event_log)
+    cirdan = _put_on_battlefield(game, p1, "Cirdan the Shipwright")
+    new = game.state.event_log[before:]
+    scrys = [
+        e for e in new
+        if e.type == EventType.SCRY and e.source == cirdan.id and e.payload.get('amount') == 2
+    ]
+    assert scrys, f"Expected SCRY 2 event; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_mirkwood_archer_attack_drains_each_opp_slice5():
+    """Slice-5: Mirkwood Archer attacks -> each opp -1 life."""
+    print("\n=== Slice-5: Mirkwood Archer — attack drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    ma = _put_on_battlefield(game, p1, "Mirkwood Archer")
+    assert ma.interceptor_ids, "Expected attack-trigger interceptor"
+    before = len(game.state.event_log)
+    _slice5_emit_attack(game, ma)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == ma.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_cave_troll_death_pings_each_opp_slice5():
+    """Slice-5: Cave Troll dies -> 1 damage to each opponent."""
+    print("\n=== Slice-5: Cave Troll — death ping ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    ct = _put_on_battlefield(game, p1, "Cave Troll")
+    assert ct.interceptor_ids, "Expected death-trigger interceptor"
+    before = len(game.state.event_log)
+    _slice5_emit_death(game, ct)
+    new = game.state.event_log[before:]
+    pings = [
+        e for e in new
+        if e.type == EventType.DAMAGE
+        and e.payload.get('target') == p2.id
+        and e.payload.get('amount') == 1
+        and e.source == ct.id
+    ]
+    assert pings, f"Expected each-opp ping; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_old_man_willow_etb_solo_no_drain_slice5():
+    """Slice-5: Old Man Willow ETB solo (1 Treefolk only = self) -> no opp drain."""
+    print("\n=== Slice-5: Old Man Willow — solo ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    omw = _put_on_battlefield(game, p1, "Old Man Willow")
+    assert omw.interceptor_ids, "Expected ETB-trigger interceptor"
+    # Solo Treefolk (only self) — opp drain fires only at 2+ Treefolk.
+    drains = [
+        e for e in game.state.event_log
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.source == omw.id
+    ]
+    assert not drains, f"Expected no drain with 1 Treefolk; got {len(drains)}"
+
+
+def test_buckland_shirriff_etb_solo_no_drain_slice5():
+    """Slice-5: Buckland Shirriff ETB solo (1 Hobbit = self) -> no opp drain."""
+    print("\n=== Slice-5: Buckland Shirriff — solo ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    bs = _put_on_battlefield(game, p1, "Buckland Shirriff")
+    assert bs.interceptor_ids, "Expected ETB-trigger interceptor"
+    drains = [
+        e for e in game.state.event_log
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.source == bs.id
+    ]
+    assert not drains, f"Expected no drain with 1 Hobbit; got {len(drains)}"
+
+
+def test_spawn_of_shelob_combat_damage_drains_each_opp_slice5():
+    """Slice-5: Spawn of Shelob deals combat damage -> each opp -1 life."""
+    print("\n=== Slice-5: Spawn of Shelob — combat damage drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    spawn = _put_on_battlefield(game, p1, "Spawn of Shelob")
+    assert spawn.interceptor_ids, "Expected damage-trigger interceptor"
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': spawn.id, 'target': p2.id, 'amount': 2, 'is_combat': True},
+        source=spawn.id,
+    ))
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == spawn.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_khazad_dum_veteran_etb_solo_no_drain_slice5():
+    """Slice-5: Khazad-dum Veteran ETB solo (1 Dwarf = self) -> no opp drain."""
+    print("\n=== Slice-5: Khazad-dum Veteran — solo ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    kdv = _put_on_battlefield(game, p1, "Khazad-dum Veteran")
+    assert kdv.interceptor_ids, "Expected ETB-trigger interceptor"
+    drains = [
+        e for e in game.state.event_log
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.source == kdv.id
+    ]
+    assert not drains, f"Expected no drain with 1 Dwarf; got {len(drains)}"
+
+
+
+# ============================================================================
 # Runner — direct execution without pytest
 # ============================================================================
 

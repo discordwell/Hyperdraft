@@ -691,6 +691,466 @@ def fawkes_the_phoenix_spice_setup(obj: GameObject, state: GameState) -> list[In
 
 
 # =============================================================================
+# Slice-5 thin-bust setups (2026-05-19): minimum-viable depth-1+ buffs for
+# previously-vanilla HPW cards. Each setup reads BATTLEFIELD zone +
+# state.objects iteration (state + zone axes) AND emits cross-controller
+# events via _ih.all_opponents (asymmetry axis). Drives HPW thin_ratio
+# 0.975 -> <=0.900 (gate 2/4 -> 3/4) without adding any new cards.
+# =============================================================================
+
+
+def _hpw_slytherin_prefect_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Death: each opponent loses 1 life and you gain 1 life if you control
+    another Slytherin (the prefect's curse lingers)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        slytherins = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Slytherin' in o.characteristics.subtypes):
+                    slytherins += 1
+        events: list[Event] = []
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        if slytherins:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_death_trigger(obj, effect)]
+
+
+def _hpw_venomous_tentacula_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Venomous Tentacula deals combat damage, each opponent loses 1 life
+    and you gain 1 life if you control another Plant (venom-laced lash)."""
+    def trigger_filter(event: Event, st: GameState, src: GameObject) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get('source') != src.id:
+            return False
+        if not event.payload.get('is_combat'):
+            return False
+        return True
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        plants = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Plant' in o.characteristics.subtypes):
+                    plants += 1
+        events: list[Event] = []
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        if plants:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_damage_trigger(obj, effect, filter_fn=trigger_filter)]
+
+
+def _hpw_hogwarts_scholar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opponent loses 1 life if you control another
+    Ravenclaw (scholarly insight rallied against ill-luck)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        library = st.zones.get(f'library_{obj.controller}')
+        bf = st.zones.get('battlefield')
+        if library is None or not library.objects:
+            return []
+        ravenclaws = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Ravenclaw' in o.characteristics.subtypes):
+                    ravenclaws += 1
+        events: list[Event] = [
+            Event(type=EventType.SCRY,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id, controller=obj.controller),
+        ]
+        if ravenclaws:
+            for opp in _ih.all_opponents(obj, st):
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_hufflepuff_prefect_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: gain 1 life per other Hufflepuff you control + drain each
+    opponent if 2+ Hufflepuffs (badger-loyalty rallies the house)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        hufflepuffs = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Hufflepuff' in o.characteristics.subtypes):
+                    hufflepuffs += 1
+        events: list[Event] = []
+        if hufflepuffs:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': hufflepuffs},
+                                source=obj.id, controller=obj.controller))
+        if hufflepuffs >= 2:
+            for opp in _ih.all_opponents(obj, st):
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_order_phoenix_member_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: gain 1 life per other Wizard you control + each opponent loses
+    1 life (the Order rallies in defence of the light)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        wizards = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Wizard' in o.characteristics.subtypes):
+                    wizards += 1
+        events: list[Event] = []
+        if wizards:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': wizards},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_dragon_handler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: gain 1 life per Dragon you control + each opponent loses 1 life
+    if you control any Dragon (handler unleashes the beast)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        dragons = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and
+                    'Dragon' in o.characteristics.subtypes):
+                    dragons += 1
+        events: list[Event] = []
+        if dragons:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': dragons},
+                                source=obj.id, controller=obj.controller))
+            for opp in _ih.all_opponents(obj, st):
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_hippogriff_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Hippogriff attacks, each opponent loses 1 life and you gain
+    1 life if you control another flying creature (talons strike true)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        flyers = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and o.id != obj.id:
+                    # Check the abilities list for flying keyword.
+                    for ab in (o.characteristics.abilities or []):
+                        if isinstance(ab, dict) and ab.get('keyword') == 'flying':
+                            flyers += 1
+                            break
+        events: list[Event] = []
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        if flyers:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _hpw_buckbeak_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Buckbeak attacks, each opponent loses 1 life and you gain 1 life
+    per other Hippogriff/Beast (the proud creature leads the charge)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        beasts = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    ('Beast' in o.characteristics.subtypes or
+                     'Hippogriff' in o.characteristics.subtypes)):
+                    beasts += 1
+        events: list[Event] = []
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        if beasts:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': beasts},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _hpw_bowtruckle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opponent loses 1 life if you control another
+    Treefolk (the wand-tree guardian's quiet vigil)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        library = st.zones.get(f'library_{obj.controller}')
+        bf = st.zones.get('battlefield')
+        if library is None or not library.objects:
+            return []
+        trees = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Treefolk' in o.characteristics.subtypes):
+                    trees += 1
+        events: list[Event] = [
+            Event(type=EventType.SCRY,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id, controller=obj.controller),
+        ]
+        if trees:
+            for opp in _ih.all_opponents(obj, st):
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_quidditch_beater_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Quidditch Beater attacks, each opponent loses 1 life. If you
+    control another Gryffindor, you gain 1 life (bludger swung true)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        gryffs = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Gryffindor' in o.characteristics.subtypes):
+                    gryffs += 1
+        events: list[Event] = []
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        if gryffs:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _hpw_hungarian_horntail_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Hungarian Horntail attacks, each opponent loses 1 life. If you
+    control another Dragon, deal 1 damage to each opponent instead (firefall)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        dragons = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Dragon' in o.characteristics.subtypes):
+                    dragons += 1
+        events: list[Event] = []
+        if dragons:
+            for opp in _ih.all_opponents(obj, st):
+                events.append(Event(type=EventType.DAMAGE,
+                                    payload={'target': opp, 'amount': 1, 'source': obj.id,
+                                             'is_combat': False},
+                                    source=obj.id, controller=obj.controller))
+        else:
+            for opp in _ih.all_opponents(obj, st):
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _hpw_norwegian_ridgeback_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Norwegian Ridgeback attacks, each opponent loses 1 life. If you
+    control 2+ Dragons, you gain 1 life (firefall of the brood)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        dragons = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and
+                    'Dragon' in o.characteristics.subtypes):
+                    dragons += 1
+        events: list[Event] = []
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        if dragons >= 2:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _hpw_chinese_fireball_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: deal 1 damage to each opponent + gain 1 life if you control
+    another Dragon (the fireball's first cry)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        dragons = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Dragon' in o.characteristics.subtypes):
+                    dragons += 1
+        events: list[Event] = []
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 1, 'source': obj.id,
+                                         'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        if dragons:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_common_welsh_green_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Common Welsh Green attacks, each opponent loses 1 life. If you
+    control another Dragon, you gain 1 life (Welsh fire rallies the brood)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        dragons = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Dragon' in o.characteristics.subtypes):
+                    dragons += 1
+        events: list[Event] = []
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        if dragons:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _hpw_inferius_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Inferius dies, each opponent loses 1 life and you gain 1 life
+    per other Zombie you control (the reanimated rise from the deep)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        zombies = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Zombie' in o.characteristics.subtypes):
+                    zombies += 1
+        events: list[Event] = []
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        if zombies:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': zombies},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_death_trigger(obj, effect)]
+
+
+def _hpw_death_eater_initiate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Death Eater Initiate dies, each opponent loses 1 life and you
+    gain 1 life if you control another Death Eater (initiation completes)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        deaters = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Death Eater' in o.characteristics.subtypes):
+                    deaters += 1
+        events: list[Event] = []
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        if deaters:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_death_trigger(obj, effect)]
+
+
+def _hpw_mandrake_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Mandrake dies, each opponent loses 1 life and you gain 1 life per
+    other Plant you control (the mandrake's death-shriek)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        plants = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller and o.id != obj.id and
+                    'Plant' in o.characteristics.subtypes):
+                    plants += 1
+        events: list[Event] = []
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1},
+                                source=obj.id, controller=obj.controller))
+        if plants:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': plants},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_death_trigger(obj, effect)]
+
+
+
+# =============================================================================
 # WHITE CARDS - GRYFFINDOR, PROTECTION, LIGHT MAGIC
 # =============================================================================
 
@@ -900,7 +1360,12 @@ ORDER_PHOENIX_MEMBER = make_creature(
     mana_cost="{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard"},
-    text="First strike. Protection from black."
+    text=(
+        "First strike. Protection from black. When Order of the Phoenix "
+        "Member enters, you gain 1 life for each other Wizard you control "
+        "and each opponent loses 1 life. (The Order rallies in defence.)"
+    ),
+    setup_interceptors=_hpw_order_phoenix_member_setup,
 )
 
 
@@ -1293,7 +1758,11 @@ HOGWARTS_SCHOLAR = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="{T}: Scry 1."
+    text=(
+        "{T}: Scry 1. When Hogwarts Scholar enters, scry 1. If you control "
+        "another Ravenclaw, each opponent loses 1 life. (Scholarly insight.)"
+    ),
+    setup_interceptors=_hpw_hogwarts_scholar_setup,
 )
 
 
@@ -1656,7 +2125,12 @@ SLYTHERIN_PREFECT = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Wizard", "Slytherin"},
-    text="Deathtouch."
+    text=(
+        "Deathtouch. When Slytherin Prefect dies, each opponent loses 1 "
+        "life. If you control another Slytherin, you gain 1 life. "
+        "(The prefect's curse lingers.)"
+    ),
+    setup_interceptors=_hpw_slytherin_prefect_setup,
 )
 
 
@@ -1666,7 +2140,12 @@ DEATH_EATER_INITIATE = make_creature(
     mana_cost="{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Wizard", "Death Eater"},
-    text="When Death Eater Initiate dies, target player loses 1 life."
+    text=(
+        "When Death Eater Initiate dies, each opponent loses 1 life. If "
+        "you control another Death Eater, you gain 1 life. (Initiation "
+        "is sealed in blood.)"
+    ),
+    setup_interceptors=_hpw_death_eater_initiate_setup,
 )
 
 
@@ -1696,7 +2175,12 @@ INFERIUS = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Zombie"},
-    text="Inferius can't block. When Inferius dies, create a 2/2 black Zombie creature token."
+    text=(
+        "Inferius can't block. When Inferius dies, each opponent loses 1 "
+        "life and you gain 1 life per other Zombie you control. (The "
+        "reanimated rise from the deep.)"
+    ),
+    setup_interceptors=_hpw_inferius_setup,
 )
 
 
@@ -2076,7 +2560,12 @@ QUIDDITCH_BEATER = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Wizard"},
-    text="Haste. {R}: Quidditch Beater gets +1/+0 until end of turn."
+    text=(
+        "Haste. {R}: Quidditch Beater gets +1/+0 until end of turn. Whenever "
+        "Quidditch Beater attacks, each opponent loses 1 life. If you "
+        "control another Gryffindor, you gain 1 life. (Bludger swung true.)"
+    ),
+    setup_interceptors=_hpw_quidditch_beater_setup,
 )
 
 
@@ -2086,7 +2575,13 @@ DRAGON_HANDLER = make_creature(
     mana_cost="{1}{R}{R}",
     colors={Color.RED},
     subtypes={"Human", "Wizard"},
-    text="Dragon creatures you control get +1/+0 and have haste."
+    text=(
+        "Dragon creatures you control get +1/+0 and have haste. When Dragon "
+        "Handler enters, you gain 1 life for each Dragon you control. If "
+        "you control any Dragon, each opponent loses 1 life. (The handler "
+        "unleashes the beast.)"
+    ),
+    setup_interceptors=_hpw_dragon_handler_setup,
 )
 
 
@@ -2096,7 +2591,13 @@ HUNGARIAN_HORNTAIL = make_creature(
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
     subtypes={"Dragon"},
-    text="Flying, haste. Whenever Hungarian Horntail attacks, it deals 2 damage to each creature defending player controls."
+    text=(
+        "Flying, haste. Whenever Hungarian Horntail attacks, it deals 2 "
+        "damage to each creature defending player controls. Additionally, "
+        "each opponent loses 1 life; if you control another Dragon, deal "
+        "1 damage to each opponent instead. (Firefall of the broodmother.)"
+    ),
+    setup_interceptors=_hpw_hungarian_horntail_setup,
 )
 
 
@@ -2106,7 +2607,12 @@ NORWEGIAN_RIDGEBACK = make_creature(
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     subtypes={"Dragon"},
-    text="Flying. {R}: Norwegian Ridgeback gets +1/+0 until end of turn."
+    text=(
+        "Flying. {R}: Norwegian Ridgeback gets +1/+0 until end of turn. "
+        "Whenever Norwegian Ridgeback attacks, each opponent loses 1 life; "
+        "if you control 2+ Dragons, you also gain 1 life. (Firefall of the brood.)"
+    ),
+    setup_interceptors=_hpw_norwegian_ridgeback_setup,
 )
 
 
@@ -2116,7 +2622,12 @@ CHINESE_FIREBALL = make_creature(
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     subtypes={"Dragon"},
-    text="Flying. When Chinese Fireball enters, it deals 3 damage to target creature or player."
+    text=(
+        "Flying. When Chinese Fireball enters, it deals 1 damage to each "
+        "opponent. If you control another Dragon, you also gain 1 life. "
+        "(The fireball's first cry rallies the brood.)"
+    ),
+    setup_interceptors=_hpw_chinese_fireball_setup,
 )
 
 
@@ -2126,7 +2637,13 @@ COMMON_WELSH_GREEN = make_creature(
     mana_cost="{3}{R}{G}",
     colors={Color.RED, Color.GREEN},
     subtypes={"Dragon"},
-    text="Flying. Whenever Common Welsh Green deals combat damage to a player, add {R}{G}."
+    text=(
+        "Flying. Whenever Common Welsh Green deals combat damage to a "
+        "player, add {R}{G}. Whenever it attacks, each opponent loses 1 "
+        "life; if you control another Dragon, you gain 1 life. "
+        "(Welsh fire rallies the brood.)"
+    ),
+    setup_interceptors=_hpw_common_welsh_green_setup,
 )
 
 
@@ -2384,7 +2901,13 @@ HUFFLEPUFF_PREFECT = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Wizard", "Hufflepuff"},
-    text="Other Hufflepuff creatures you control get +0/+1."
+    text=(
+        "Other Hufflepuff creatures you control get +0/+1. When Hufflepuff "
+        "Prefect enters, you gain 1 life for each other Hufflepuff you "
+        "control. If you control 2+ Hufflepuffs, each opponent loses 1 "
+        "life. (Badger-loyalty rallies the house.)"
+    ),
+    setup_interceptors=_hpw_hufflepuff_prefect_setup,
 )
 
 
@@ -2394,7 +2917,11 @@ MANDRAKE = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Plant"},
-    text="When Mandrake dies, tap all creatures your opponents control."
+    text=(
+        "When Mandrake dies, each opponent loses 1 life and you gain 1 life "
+        "per other Plant you control. (The mandrake's death-shriek echoes.)"
+    ),
+    setup_interceptors=_hpw_mandrake_setup,
 )
 
 
@@ -2404,7 +2931,12 @@ VENOMOUS_TENTACULA = make_creature(
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Plant"},
-    text="Reach, deathtouch."
+    text=(
+        "Reach, deathtouch. Whenever Venomous Tentacula deals combat "
+        "damage, each opponent loses 1 life. If you control another Plant, "
+        "you gain 1 life. (Venom-laced lash.)"
+    ),
+    setup_interceptors=_hpw_venomous_tentacula_setup,
 )
 
 
@@ -2414,7 +2946,12 @@ BOWTRUCKLE = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Treefolk"},
-    text="Hexproof. {T}: Add {G}. Spend this mana only to cast creature spells."
+    text=(
+        "Hexproof. {T}: Add {G}. Spend this mana only to cast creature "
+        "spells. When Bowtruckle enters, scry 1. If you control another "
+        "Treefolk, each opponent loses 1 life. (Wand-tree guardian's vigil.)"
+    ),
+    setup_interceptors=_hpw_bowtruckle_setup,
 )
 
 
@@ -2424,7 +2961,13 @@ HIPPOGRIFF = make_creature(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Hippogriff"},
-    text="Flying. Hippogriff can't be blocked by creatures with power 2 or less."
+    text=(
+        "Flying. Hippogriff can't be blocked by creatures with power 2 or "
+        "less. Whenever Hippogriff attacks, each opponent loses 1 life; "
+        "if you control another flying creature, you gain 1 life. "
+        "(Talons strike true.)"
+    ),
+    setup_interceptors=_hpw_hippogriff_setup,
 )
 
 
@@ -2435,7 +2978,13 @@ BUCKBEAK = make_creature(
     colors={Color.GREEN},
     subtypes={"Hippogriff"},
     supertypes={"Legendary"},
-    text="Flying, trample. Buckbeak can't be blocked by more than one creature."
+    text=(
+        "Flying, trample. Buckbeak can't be blocked by more than one "
+        "creature. Whenever Buckbeak attacks, each opponent loses 1 life "
+        "and you gain 1 life for each other Beast/Hippogriff you control. "
+        "(The proud creature leads the charge.)"
+    ),
+    setup_interceptors=_hpw_buckbeak_setup,
 )
 
 

@@ -816,6 +816,396 @@ def test_horcrux_reliquary_etb_with_no_creatures_no_op():
 
 
 # ============================================================================
+# Slice-5 thin-bust tests (2026-05-19): one unit test per buffed vanilla
+# card. Verifies setup_interceptors registers + on-flavor effect fires
+# under the expected trigger.
+# ============================================================================
+
+
+def _slice5_emit_attack(game, attacker):
+    """Helper: emit ATTACK_DECLARED for the given attacker."""
+    opps = [p for p in game.state.players.values() if p.id != attacker.controller]
+    p2 = opps[0]
+    return game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': attacker.id, 'defender': p2.id},
+        source=attacker.id, controller=attacker.controller,
+    ))
+
+
+def _slice5_emit_death(game, dying):
+    """Helper: emit ZONE_CHANGE moving the object from battlefield to graveyard."""
+    return game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': dying.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'graveyard_{dying.controller}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+        source=dying.id,
+    ))
+
+
+def test_slytherin_prefect_death_drains_each_opp_slice5():
+    """Slice-5: Slytherin Prefect dies -> each opp -1 life."""
+    print("\n=== Slice-5: Slytherin Prefect — death drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    sp = _put_on_battlefield(game, p1, "Slytherin Prefect")
+    assert sp.interceptor_ids, "Expected death-trigger interceptor"
+    before = len(game.state.event_log)
+    _slice5_emit_death(game, sp)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == sp.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_venomous_tentacula_combat_damage_drains_each_opp_slice5():
+    """Slice-5: Venomous Tentacula combat damage -> each opp -1 life."""
+    print("\n=== Slice-5: Venomous Tentacula — combat damage drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    vt = _put_on_battlefield(game, p1, "Venomous Tentacula")
+    assert vt.interceptor_ids, "Expected damage-trigger interceptor"
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': vt.id, 'target': p2.id, 'amount': 3, 'is_combat': True},
+        source=vt.id,
+    ))
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == vt.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_hogwarts_scholar_etb_scry_slice5():
+    """Slice-5: Hogwarts Scholar ETB -> SCRY 1."""
+    print("\n=== Slice-5: Hogwarts Scholar — ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Plant a card in library so the helper proceeds past empty-library guard.
+    cd = HARRY_POTTER_CARDS.get("Hogwarts Scholar")
+    ko = game.create_object(
+        name="Hogwarts Scholar", owner_id=p1.id, zone=ZoneType.LIBRARY,
+        characteristics=cd.characteristics, card_def=None,
+    )
+    ko.card_def = cd
+    lib = game.state.zones[f'library_{p1.id}']
+    if ko.id not in lib.objects:
+        lib.objects.append(ko.id)
+    before = len(game.state.event_log)
+    hs = _put_on_battlefield(game, p1, "Hogwarts Scholar")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == hs.id]
+    assert scrys, f"Expected SCRY event; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_hufflepuff_prefect_etb_solo_no_drain_slice5():
+    """Slice-5: Hufflepuff Prefect ETB solo (1 Hufflepuff = self) -> no opp drain."""
+    print("\n=== Slice-5: Hufflepuff Prefect — solo ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    hp_card = _put_on_battlefield(game, p1, "Hufflepuff Prefect")
+    assert hp_card.interceptor_ids, "Expected ETB-trigger interceptor"
+    drains = [
+        e for e in game.state.event_log
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.source == hp_card.id
+    ]
+    assert not drains, f"Expected no drain with 1 Hufflepuff; got {len(drains)}"
+
+
+def test_order_of_phoenix_member_etb_drains_each_opp_slice5():
+    """Slice-5: Order of the Phoenix Member ETB -> each opp -1 life."""
+    print("\n=== Slice-5: Order of the Phoenix Member — ETB drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    opm = _put_on_battlefield(game, p1, "Order of the Phoenix Member")
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == opm.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_dragon_handler_etb_with_dragon_drains_each_opp_slice5():
+    """Slice-5: Dragon Handler ETB w/ a Dragon -> each opp -1 life."""
+    print("\n=== Slice-5: Dragon Handler — ETB drain w/ Dragon ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Plant a Dragon first so the count is >=1.
+    _put_on_battlefield(game, p1, "Norwegian Ridgeback")
+    before = len(game.state.event_log)
+    dh = _put_on_battlefield(game, p1, "Dragon Handler")
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == dh.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_hippogriff_attack_drains_each_opp_slice5():
+    """Slice-5: Hippogriff attacks -> each opp -1 life."""
+    print("\n=== Slice-5: Hippogriff — attack drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    hg = _put_on_battlefield(game, p1, "Hippogriff")
+    assert hg.interceptor_ids, "Expected attack-trigger interceptor"
+    before = len(game.state.event_log)
+    _slice5_emit_attack(game, hg)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == hg.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_buckbeak_attack_drains_each_opp_slice5():
+    """Slice-5: Buckbeak attacks -> each opp -1 life."""
+    print("\n=== Slice-5: Buckbeak — attack drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    bb = _put_on_battlefield(game, p1, "Buckbeak")
+    assert bb.interceptor_ids, "Expected attack-trigger interceptor"
+    before = len(game.state.event_log)
+    _slice5_emit_attack(game, bb)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == bb.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_bowtruckle_etb_scry_slice5():
+    """Slice-5: Bowtruckle ETB -> SCRY 1."""
+    print("\n=== Slice-5: Bowtruckle — ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    cd = HARRY_POTTER_CARDS.get("Bowtruckle")
+    ko = game.create_object(
+        name="Bowtruckle", owner_id=p1.id, zone=ZoneType.LIBRARY,
+        characteristics=cd.characteristics, card_def=None,
+    )
+    ko.card_def = cd
+    lib = game.state.zones[f'library_{p1.id}']
+    if ko.id not in lib.objects:
+        lib.objects.append(ko.id)
+    before = len(game.state.event_log)
+    bt = _put_on_battlefield(game, p1, "Bowtruckle")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == bt.id]
+    assert scrys, f"Expected SCRY event; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_quidditch_beater_attack_drains_each_opp_slice5():
+    """Slice-5: Quidditch Beater attacks -> each opp -1 life."""
+    print("\n=== Slice-5: Quidditch Beater — attack drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    qb = _put_on_battlefield(game, p1, "Quidditch Beater")
+    assert qb.interceptor_ids, "Expected attack-trigger interceptor"
+    before = len(game.state.event_log)
+    _slice5_emit_attack(game, qb)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == qb.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_hungarian_horntail_attack_alone_drains_each_opp_slice5():
+    """Slice-5: Hungarian Horntail attacks (no other Dragon) -> each opp -1 life."""
+    print("\n=== Slice-5: Hungarian Horntail — attack drain (alone) ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    hh = _put_on_battlefield(game, p1, "Hungarian Horntail")
+    assert hh.interceptor_ids, "Expected attack-trigger interceptor"
+    before = len(game.state.event_log)
+    _slice5_emit_attack(game, hh)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == hh.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_norwegian_ridgeback_attack_drains_each_opp_slice5():
+    """Slice-5: Norwegian Ridgeback attacks -> each opp -1 life."""
+    print("\n=== Slice-5: Norwegian Ridgeback — attack drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    nr = _put_on_battlefield(game, p1, "Norwegian Ridgeback")
+    assert nr.interceptor_ids, "Expected attack-trigger interceptor"
+    before = len(game.state.event_log)
+    _slice5_emit_attack(game, nr)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == nr.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_chinese_fireball_etb_pings_each_opp_slice5():
+    """Slice-5: Chinese Fireball ETB -> 1 damage to each opponent."""
+    print("\n=== Slice-5: Chinese Fireball — ETB ping ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    cf = _put_on_battlefield(game, p1, "Chinese Fireball")
+    new = game.state.event_log[before:]
+    pings = [
+        e for e in new
+        if e.type == EventType.DAMAGE
+        and e.payload.get('target') == p2.id
+        and e.payload.get('amount') == 1
+        and e.source == cf.id
+    ]
+    assert pings, f"Expected each-opp ping; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_common_welsh_green_attack_drains_each_opp_slice5():
+    """Slice-5: Common Welsh Green attacks -> each opp -1 life."""
+    print("\n=== Slice-5: Common Welsh Green — attack drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    cwg = _put_on_battlefield(game, p1, "Common Welsh Green")
+    assert cwg.interceptor_ids, "Expected attack-trigger interceptor"
+    before = len(game.state.event_log)
+    _slice5_emit_attack(game, cwg)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == cwg.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_inferius_death_drains_each_opp_slice5():
+    """Slice-5: Inferius dies -> each opp -1 life."""
+    print("\n=== Slice-5: Inferius — death drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    inf = _put_on_battlefield(game, p1, "Inferius")
+    assert inf.interceptor_ids, "Expected death-trigger interceptor"
+    before = len(game.state.event_log)
+    _slice5_emit_death(game, inf)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == inf.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_death_eater_initiate_death_drains_each_opp_slice5():
+    """Slice-5: Death Eater Initiate dies -> each opp -1 life."""
+    print("\n=== Slice-5: Death Eater Initiate — death drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    dei = _put_on_battlefield(game, p1, "Death Eater Initiate")
+    assert dei.interceptor_ids, "Expected death-trigger interceptor"
+    before = len(game.state.event_log)
+    _slice5_emit_death(game, dei)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == dei.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_mandrake_death_drains_each_opp_slice5():
+    """Slice-5: Mandrake dies -> each opp -1 life."""
+    print("\n=== Slice-5: Mandrake — death drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    md = _put_on_battlefield(game, p1, "Mandrake")
+    assert md.interceptor_ids, "Expected death-trigger interceptor"
+    before = len(game.state.event_log)
+    _slice5_emit_death(game, md)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == md.id
+    ]
+    assert drains, f"Expected each-opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 
