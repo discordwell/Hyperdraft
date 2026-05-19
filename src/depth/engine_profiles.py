@@ -66,6 +66,29 @@ class EngineProfile:
     # opp-lookup to a helper (instead of inlining the `!=`) under-scores on S/A.
     cross_controller_helpers: frozenset[str] = field(default_factory=frozenset)
 
+    # Helpers/constructors that take *function* arguments (passed as values
+    # inside dicts, lists, or kwargs — not called inline). The AST walker
+    # scans these calls' arguments for module-level function Name references
+    # and descends into them, so per-card effect_fns, chapter handlers, and
+    # granted-ability bodies surface on the FeatureBag the same way as
+    # inline helper calls.
+    #
+    # Examples (MTG):
+    #   make_saga_setup(obj, {1: ch_i, 2: ch_ii})   # chapter handlers
+    #   SagaChapter(label="I", effect_fn=ch_i)       # declarative API
+    #   make_equipment_setup(granted_activated_abilities=[{'effect_fn': fn}])
+    #   make_aura_setup(granted_triggered_abilities={'effect_fn': fn, ...})
+    #   grant_triggered_ability(target, source, state, effect_fn=fn, ...)
+    #   make_activated_ability(obj, cost, effect_fn=fn, ...)
+    #
+    # Without this descent, every legacy-API saga collapsed to one
+    # `code_fingerprint` (~24 sagas across 17 custom sets) and every
+    # granted-ability Equipment collapsed to `ababd2c75e63` regardless of
+    # what its per-card `effect_fn` did. Slice 7B (2026-05-19) added the
+    # descent for sagas + equipment + auras + grant_* / make_activated_*
+    # helpers; extend the set when new function-accepting helpers ship.
+    function_accepting_helpers: frozenset[str] = field(default_factory=frozenset)
+
 
 # ---------------------------------------------------------------------------
 # MTG
@@ -158,6 +181,40 @@ _MTG_INFORMATION_EVENTS = frozenset({
     "TARGET_CHOSEN",  # ward interactions
 })
 
+# Helpers that accept function-typed arguments (chapter handlers, granted-
+# ability effect_fns, etc.). The AST walker scans these calls' arg trees for
+# module-level function Name references and descends into them so per-card
+# logic surfaces on the bag.
+#
+# Wired by Slice 7B (saga + equipment tagging sweep), 2026-05-19. Each entry
+# must be a helper that (a) the walker reliably sees as a top-level Call and
+# (b) takes at least one effect_fn / chapter handler / triggered-ability spec
+# in its arguments.
+_MTG_FUNCTION_ACCEPTING_HELPERS = frozenset({
+    # Saga subsystem (legacy + declarative APIs both flow through here).
+    "make_saga_setup",
+    "SagaChapter",
+    # Attach mechanics — equipment + auras with granted abilities. Both
+    # accept `granted_activated_abilities` (list or single dict, each with
+    # 'effect_fn'), `granted_triggered_abilities` (dict or list with
+    # 'event_filter' and 'effect_fn').
+    "make_equipment_setup",
+    "make_aura_setup",
+    # Activated abilities — `effect_fn` is a top-level kwarg, but cards often
+    # build the spec via this helper inside a deeper helper call where the
+    # walker doesn't otherwise see the function reference.
+    "make_activated_ability",
+    "make_granted_activated_ability",
+    "make_equipment_granted_ability",
+    # Triggered-ability granters — `effect_fn` is a kwarg, plus optional
+    # `event_filter` / `condition`. Used by Helper 5 wires across the catalog.
+    "grant_triggered_ability",
+    "grant_death_trigger",
+    # Room subsystem (DSK) — door unlock handlers passed as values.
+    "make_room_setup",
+})
+
+
 MTG_PROFILE = EngineProfile(
     name="mtg",
     zone_names=_MTG_ZONES,
@@ -180,6 +237,7 @@ MTG_PROFILE = EngineProfile(
     cross_controller_helpers=frozenset({
         "all_opponents",
     }),
+    function_accepting_helpers=_MTG_FUNCTION_ACCEPTING_HELPERS,
 )
 
 
