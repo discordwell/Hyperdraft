@@ -1031,6 +1031,1007 @@ def test_eldian_woodcutter_grows_on_death():
 
 
 # ============================================================================
+# Slice-19 median-lift tests: scry/drain/mill/discard pattern verification.
+# Each test puts a buffed card on the battlefield and asserts the expected
+# cross-controller event (LIFE_CHANGE / DAMAGE / MILL / DISCARD / REVEAL_HAND)
+# plus the SCRY or SURVEIL info event fires.
+# ============================================================================
+
+
+def _emit_etb_and_collect(game, p1, p2, card_name):
+    """Place card under p1, return new events after entry."""
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, card_name)
+    return game.state.event_log[before:]
+
+
+def _assert_scry_and_opp_loss(events, p2_id, expect_amount_min=1):
+    scries = [e for e in events if e.type == EventType.SCRY]
+    drains = [e for e in events if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2_id and e.payload.get('amount') < 0]
+    assert scries, f"Expected SCRY; got {[e.type.name for e in events[-10:]]}"
+    assert drains, f"Expected life-loss on opp; got {[e.type.name for e in events[-10:]]}"
+
+
+def _assert_surveil_and_opp_mill(events, p2_id):
+    surveils = [e for e in events if e.type == EventType.SURVEIL]
+    mills = [e for e in events if e.type == EventType.MILL
+             and e.payload.get('player') == p2_id]
+    assert surveils, f"Expected SURVEIL; got {[e.type.name for e in events[-10:]]}"
+    assert mills, f"Expected mill on opp; got {[e.type.name for e in events[-10:]]}"
+
+
+# --- SHAPE 1: ETB scry + drain (Survey Corps, Garrison) -------------------
+
+
+def test_aot_s19_sasha_blouse():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Sasha Blouse, Hunter")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_erwin_smith_commander():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Erwin Smith, Commander")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_connie_springer():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Connie Springer, Loyal Friend")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_petra_ral():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Petra Ral, Levi Squad")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_oluo_bozado():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Oluo Bozado, Levi Squad")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_survey_corps_veteran():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Survey Corps Veteran")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_military_police_officer():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Military Police Officer")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_squad_captain():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Squad Captain")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_horse_mounted_scout():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Horse Mounted Scout")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_wall_garrison_elite():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Wall Garrison Elite")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+# --- SHAPE 2: Attack drain (Titan, Warrior combat) -------------------------
+
+
+def _emit_attack_and_collect(game, p1, attacker):
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': attacker.id, 'attacker': attacker.id, 'controller': p1.id},
+        source=attacker.id,
+    ))
+    return game.state.event_log[before:]
+
+
+def test_aot_s19_jaw_titan_attack():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    jaw = _put_on_battlefield(game, p1, "Jaw Titan")
+    events = _emit_attack_and_collect(game, p1, jaw)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_wall_breaker_attack():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    wb = _put_on_battlefield(game, p1, "Wall Breaker")
+    events = _emit_attack_and_collect(game, p1, wb)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_attack_titan_acolyte_attack():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    aa = _put_on_battlefield(game, p1, "Attack Titan Acolyte")
+    events = _emit_attack_and_collect(game, p1, aa)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_yeagerist_soldier_attack():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    ys = _put_on_battlefield(game, p1, "Yeagerist Soldier")
+    events = _emit_attack_and_collect(game, p1, ys)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_louise_attack():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    lou = _put_on_battlefield(game, p1, "Louise, Yeagerist Devotee")
+    events = _emit_attack_and_collect(game, p1, lou)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_porco_galliard_attack():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    porco = _put_on_battlefield(game, p1, "Porco Galliard, Jaw Titan")
+    events = _emit_attack_and_collect(game, p1, porco)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+# --- SHAPE 3: ETB surveil + mill (Marleyan spies, intel) ------------------
+
+
+def test_aot_s19_marleyan_spy():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Marleyan Spy")
+    _assert_surveil_and_opp_mill(events, p2.id)
+
+
+def test_aot_s19_marleyan_warrior():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Marleyan Warrior")
+    _assert_surveil_and_opp_mill(events, p2.id)
+
+
+def test_aot_s19_marleyan_officer():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Marleyan Officer")
+    _assert_surveil_and_opp_mill(events, p2.id)
+
+
+def test_aot_s19_infiltrator():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Infiltrator")
+    _assert_surveil_and_opp_mill(events, p2.id)
+
+
+def test_aot_s19_intelligence_officer():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Intelligence Officer")
+    _assert_surveil_and_opp_mill(events, p2.id)
+
+
+def test_aot_s19_signal_corps_operator():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Signal Corps Operator")
+    _assert_surveil_and_opp_mill(events, p2.id)
+
+
+def test_aot_s19_survey_cartographer():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Survey Cartographer")
+    _assert_surveil_and_opp_mill(events, p2.id)
+
+
+def test_aot_s19_coastal_scout():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Coastal Scout")
+    _assert_surveil_and_opp_mill(events, p2.id)
+
+
+def test_aot_s19_formation_analyst():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Formation Analyst")
+    _assert_surveil_and_opp_mill(events, p2.id)
+
+
+def test_aot_s19_military_tactician():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Military Tactician")
+    _assert_surveil_and_opp_mill(events, p2.id)
+
+
+# --- SHAPE 4: ETB scry + heal (medics, lifegain) --------------------------
+
+
+def test_aot_s19_eldian_refugee():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Eldian Refugee")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    gains = [e for e in events if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount') > 0]
+    assert scries
+    assert gains
+
+
+def test_aot_s19_paradis_farmer():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Paradis Farmer")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    gains = [e for e in events if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount') > 0]
+    assert scries
+    assert gains
+
+
+def test_aot_s19_kaya():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Kaya, Sasha's Friend")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    gains = [e for e in events if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount') > 0]
+    assert scries
+    assert gains
+
+
+def test_aot_s19_shiganshina_citizen():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Shiganshina Citizen")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    gains = [e for e in events if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount') > 0]
+    assert scries
+    assert gains
+
+
+# --- SHAPE 5: ETB surveil + discard (mind-games) --------------------------
+
+
+def test_aot_s19_pieck_finger():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Pieck Finger, Cart Titan")
+    surveils = [e for e in events if e.type == EventType.SURVEIL]
+    discards = [e for e in events if e.type == EventType.DISCARD
+                and e.payload.get('player') == p2.id]
+    assert surveils
+    assert discards
+
+
+def test_aot_s19_eldian_internment_guard():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Eldian Internment Guard")
+    surveils = [e for e in events if e.type == EventType.SURVEIL]
+    discards = [e for e in events if e.type == EventType.DISCARD
+                and e.payload.get('player') == p2.id]
+    assert surveils
+    assert discards
+
+
+def test_aot_s19_yelena():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Yelena, True Believer")
+    surveils = [e for e in events if e.type == EventType.SURVEIL]
+    discards = [e for e in events if e.type == EventType.DISCARD
+                and e.payload.get('player') == p2.id]
+    assert surveils
+    assert discards
+
+
+def test_aot_s19_onyankopon():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Onyankopon, Anti-Marleyan")
+    surveils = [e for e in events if e.type == EventType.SURVEIL]
+    discards = [e for e in events if e.type == EventType.DISCARD
+                and e.payload.get('player') == p2.id]
+    assert surveils
+    assert discards
+
+
+def test_aot_s19_interior_police():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Interior Police")
+    surveils = [e for e in events if e.type == EventType.SURVEIL]
+    discards = [e for e in events if e.type == EventType.DISCARD
+                and e.payload.get('player') == p2.id]
+    assert surveils
+    assert discards
+
+
+# --- SHAPE 6: ETB scry + damage (thunder-spear, Titan strikes) ------------
+
+
+def test_aot_s19_reiner_braun():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Reiner Braun, Armored Titan")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    dmg = [e for e in events if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id]
+    assert scries
+    assert dmg
+
+
+def test_aot_s19_pure_titan():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Pure Titan")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    dmg = [e for e in events if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id]
+    assert scries
+    assert dmg
+
+
+def test_aot_s19_abnormal_titan():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Abnormal Titan")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    dmg = [e for e in events if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id]
+    assert scries
+    assert dmg
+
+
+def test_aot_s19_mindless_titan():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Mindless Titan")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    dmg = [e for e in events if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id]
+    assert scries
+    assert dmg
+
+
+def test_aot_s19_small_titan():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Small Titan")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    dmg = [e for e in events if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id]
+    assert scries
+    assert dmg
+
+
+def test_aot_s19_titan_horde():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Titan Horde")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    dmg = [e for e in events if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id]
+    assert scries
+    assert dmg
+
+
+def test_aot_s19_crawling_titan_etb():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Crawling Titan")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    dmg = [e for e in events if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id]
+    assert scries
+    assert dmg
+
+
+def test_aot_s19_forest_titan_etb():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Forest Titan")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    dmg = [e for e in events if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id]
+    assert scries
+    assert dmg
+
+
+def test_aot_s19_towering_titan_etb():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Towering Titan")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    dmg = [e for e in events if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id]
+    assert scries
+    assert dmg
+
+
+def test_aot_s19_primordial_titan_etb():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Primordial Titan")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    dmg = [e for e in events if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id]
+    assert scries
+    assert dmg
+
+
+# --- SHAPE 7: Death drain (Titan deaths) ----------------------------------
+
+
+def _emit_death_and_collect(game, p1, victim, victim_owner):
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': victim.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'graveyard_{victim_owner.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+    ))
+    return game.state.event_log[before:]
+
+
+def test_aot_s19_titan_inheritor_death():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    ti = _put_on_battlefield(game, p1, "Titan Inheritor")
+    events = _emit_death_and_collect(game, p1, ti, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_marcel_galliard_death():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    mg = _put_on_battlefield(game, p1, "Marcel Galliard, Fallen Warrior")
+    events = _emit_death_and_collect(game, p1, mg, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_ymir_original_death():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    ymir = _put_on_battlefield(game, p1, "Ymir, Original Titan")
+    events = _emit_death_and_collect(game, p1, ymir, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_eren_kruger_death():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    ek = _put_on_battlefield(game, p1, "Eren Kruger, The Owl")
+    events = _emit_death_and_collect(game, p1, ek, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_willy_tybur_death():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    wt = _put_on_battlefield(game, p1, "Willy Tybur, Declaration of War")
+    events = _emit_death_and_collect(game, p1, wt, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_ilse_langnar_death():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    il = _put_on_battlefield(game, p1, "Ilse Langnar, Titan Chronicler")
+    events = _emit_death_and_collect(game, p1, il, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_training_corps_cadet_death():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    tcc = _put_on_battlefield(game, p1, "Training Corps Cadet")
+    events = _emit_death_and_collect(game, p1, tcc, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+# --- SHAPE 8: ETB hand-reveal ---------------------------------------------
+
+
+def test_aot_s19_erwin_smith_gambit():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Erwin Smith, The Gambit")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    reveals = [e for e in events if e.type == EventType.REVEAL_HAND
+               and e.payload.get('player') == p2.id]
+    assert scries
+    assert reveals
+
+
+def test_aot_s19_supply_corps_quartermaster():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Supply Corps Quartermaster")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    reveals = [e for e in events if e.type == EventType.REVEAL_HAND
+               and e.payload.get('player') == p2.id]
+    assert scries
+    assert reveals
+
+
+def test_aot_s19_wall_architect():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Wall Architect")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    reveals = [e for e in events if e.type == EventType.REVEAL_HAND
+               and e.payload.get('player') == p2.id]
+    assert scries
+    assert reveals
+
+
+def test_aot_s19_colt_grice():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Colt Grice, Beast Candidate")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    reveals = [e for e in events if e.type == EventType.REVEAL_HAND
+               and e.payload.get('player') == p2.id]
+    assert scries
+    assert reveals
+
+
+# --- SHAPE 9: ETB graveyard + draw ----------------------------------------
+
+
+def test_aot_s19_armin_arlert_tactician():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Armin Arlert, Tactician")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    draws = [e for e in events if e.type == EventType.DRAW
+             and e.payload.get('player') == p1.id]
+    assert scries
+    assert draws
+
+
+# --- SHAPE 10: ETB gain + ally scaling (Wall, Eldian) ---------------------
+
+
+def test_aot_s19_wall_defender():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Wall Defender")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_wall_cultist():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Wall Cultist")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_forest_dweller():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Forest Dweller")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_titan_hunter():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Titan Hunter")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_forest_scout():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Forest Scout")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_wild_horse():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Wild Horse")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_darius_zackly():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Darius Zackly, Premier")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+# --- Artifacts ETB ---
+
+
+def test_aot_s19_supply_cache():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Supply Cache")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_signal_flare():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Signal Flare")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_war_hammer_construct():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "War Hammer Construct")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_the_coordinate():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "The Coordinate")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    dmg = [e for e in events if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id]
+    assert scries
+    assert dmg
+
+
+def test_aot_s19_basement_key():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Basement Key")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_grishas_journal():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Grisha's Journal")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    mills = [e for e in events if e.type == EventType.MILL
+             and e.payload.get('player') == p2.id]
+    assert scries
+    assert mills
+
+
+def test_aot_s19_eldian_armband():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Eldian Armband")
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_attack_titans_memories():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _emit_etb_and_collect(game, p1, p2, "Attack Titan's Memories")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    mills = [e for e in events if e.type == EventType.MILL
+             and e.payload.get('player') == p2.id]
+    assert scries
+    assert mills
+
+
+# --- SHAPE 11: Upkeep scry + drain (lands, enchantments) ------------------
+
+
+def _trigger_upkeep_and_collect(game, p1):
+    """Emit a PHASE_START event for p1's upkeep, return new events."""
+    # active_player must be p1 for controller_only=True to fire.
+    game.state.active_player = p1.id
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'player': p1.id},
+    ))
+    return game.state.event_log[before:]
+
+
+def test_aot_s19_strategic_planning_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Strategic Planning")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_wall_maria_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Wall Maria")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_wall_rose_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Wall Rose")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_wall_sheena_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Wall Sheena")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_shiganshina_district_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Shiganshina District")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_trost_district_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Trost District")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_stohess_district_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Stohess District")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_surveil_and_opp_mill(events, p2.id)
+
+
+def test_aot_s19_survey_corps_hq_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Survey Corps Headquarters")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_garrison_hq_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Garrison Headquarters")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_mp_hq_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Military Police Headquarters")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_surveil_and_opp_mill(events, p2.id)
+
+
+def test_aot_s19_paradis_island_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Paradis Island")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_marley_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Marley")
+    events = _trigger_upkeep_and_collect(game, p1)
+    surveils = [e for e in events if e.type == EventType.SURVEIL]
+    drains = [e for e in events if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.payload.get('amount') < 0]
+    assert surveils
+    assert drains
+
+
+def test_aot_s19_liberio_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Liberio Internment Zone")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_surveil_and_opp_mill(events, p2.id)
+
+
+def test_aot_s19_forest_of_giant_trees_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Forest of Giant Trees")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_utgard_castle_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Utgard Castle")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_reiss_chapel_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Reiss Chapel")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_paths_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "The Paths")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_the_ocean_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "The Ocean")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_orvud_district_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Orvud District")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_scry_and_opp_loss(events, p2.id)
+
+
+def test_aot_s19_karanes_district_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Karanes District")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_surveil_and_opp_mill(events, p2.id)
+
+
+def test_aot_s19_ragako_village_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Ragako Village")
+    events = _trigger_upkeep_and_collect(game, p1)
+    surveils = [e for e in events if e.type == EventType.SURVEIL]
+    drains = [e for e in events if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.payload.get('amount') < 0]
+    assert surveils
+    assert drains
+
+
+def test_aot_s19_underground_city_upkeep():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Underground City")
+    events = _trigger_upkeep_and_collect(game, p1)
+    _assert_surveil_and_opp_mill(events, p2.id)
+
+
+# --- SHAPE 12: Resolve handlers (instants/sorceries) ----------------------
+
+
+def _resolve_card(game, p1, card_name):
+    """Call card.resolve directly (simulates cast resolution)."""
+    card_def = ATTACK_ON_TITAN_CARDS[card_name]
+    game.state.active_player = p1.id
+    if card_def.resolve is None:
+        return []
+    events = card_def.resolve([], game.state)
+    for e in events:
+        game.emit(e)
+    return events
+
+
+def test_aot_s19_resolve_devoted_heart():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "Devoted Heart")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    gains = [e for e in events if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount') > 0]
+    assert scries
+    assert gains
+
+
+def test_aot_s19_resolve_survey_corps_charge():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "Survey Corps Charge")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    dmg = [e for e in events if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id]
+    assert scries
+    assert dmg
+
+
+def test_aot_s19_resolve_humanitys_hope():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "Humanity's Hope")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    assert scries
+
+
+def test_aot_s19_resolve_strategic_analysis():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "Strategic Analysis")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    draws = [e for e in events if e.type == EventType.DRAW
+             and e.payload.get('player') == p1.id]
+    assert scries
+    assert draws
+
+
+def test_aot_s19_resolve_memory_wipe():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "Memory Wipe")
+    surveils = [e for e in events if e.type == EventType.SURVEIL]
+    mills = [e for e in events if e.type == EventType.MILL
+             and e.payload.get('player') == p2.id]
+    assert surveils
+    assert mills
+
+
+def test_aot_s19_resolve_betrayal():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "Betrayal")
+    surveils = [e for e in events if e.type == EventType.SURVEIL]
+    drains = [e for e in events if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.payload.get('amount') < 0]
+    assert surveils
+    assert drains
+
+
+def test_aot_s19_resolve_titans_hunger():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "Titan's Hunger")
+    surveils = [e for e in events if e.type == EventType.SURVEIL]
+    drains = [e for e in events if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.payload.get('amount') < 0]
+    assert surveils
+    assert drains
+
+
+def test_aot_s19_resolve_thunder_spear():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "Thunder Spear Strike")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    dmg = [e for e in events if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id]
+    assert scries
+    assert dmg
+
+
+def test_aot_s19_resolve_the_rumbling():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "The Rumbling")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    dmg = [e for e in events if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id]
+    assert scries
+    assert dmg
+
+
+def test_aot_s19_resolve_titans_growth():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "Titan's Growth")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    gains = [e for e in events if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount') > 0]
+    assert scries
+    assert gains
+
+
+def test_aot_s19_resolve_natural_regeneration():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "Natural Regeneration")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    gains = [e for e in events if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount') > 0]
+    assert scries
+    assert gains
+
+
+def test_aot_s19_resolve_survey_mission():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "Survey Mission")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    draws = [e for e in events if e.type == EventType.DRAW
+             and e.payload.get('player') == p1.id]
+    assert scries
+    assert draws
+
+
+def test_aot_s19_resolve_titanization():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "Titanization")
+    surveils = [e for e in events if e.type == EventType.SURVEIL]
+    drains = [e for e in events if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.payload.get('amount') < 0]
+    assert surveils
+    assert drains
+
+
+def test_aot_s19_resolve_eldian_purge():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "Eldian Purge")
+    surveils = [e for e in events if e.type == EventType.SURVEIL]
+    drains = [e for e in events if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.payload.get('amount') < 0]
+    assert surveils
+    assert drains
+
+
+def test_aot_s19_resolve_information_gathering():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "Information Gathering")
+    surveils = [e for e in events if e.type == EventType.SURVEIL]
+    reveals = [e for e in events if e.type == EventType.REVEAL_HAND
+               and e.payload.get('player') == p2.id]
+    assert surveils
+    assert reveals
+
+
+def test_aot_s19_resolve_declaration_of_war():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "Declaration of War")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    dmg = [e for e in events if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id]
+    assert scries
+    assert dmg
+
+
+def test_aot_s19_resolve_wall_titan_army():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _resolve_card(game, p1, "Wall Titan Army")
+    scries = [e for e in events if e.type == EventType.SCRY]
+    drains = [e for e in events if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.payload.get('amount') < 0]
+    assert scries
+    assert drains
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 
