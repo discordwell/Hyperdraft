@@ -191,6 +191,8 @@ from src.cards.interceptor_helpers import (
     make_targeted_death_trigger,
     # Conspire (W29 / CR 702.78)
     make_conspire_grant,
+    # Aura tagging sweep (W22+):
+    make_aura_setup,
 )
 
 
@@ -1428,6 +1430,7 @@ AQUITECTS_DEFENSES = make_enchantment(
     name="Aquitect's Defenses",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
+    subtypes={"Aura"},
     text="Flash. Enchant creature you control. When this Aura enters, enchanted creature gains hexproof until end of turn. Enchanted creature gets +1/+2.",
     setup_interceptors=aquitects_defenses_setup
 )
@@ -1443,6 +1446,7 @@ BLOSSOMBIND = make_enchantment(
     name="Blossombind",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
+    subtypes={"Aura"},
     text="Enchant creature. When this Aura enters, tap enchanted creature. Enchanted creature can't become untapped and can't have counters put on it.",
     setup_interceptors=blossombind_setup
 )
@@ -2867,6 +2871,7 @@ EVERSHRIKES_GIFT = make_enchantment(
     name="Evershrike's Gift",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
+    subtypes={"Aura"},
     text="Enchant creature. Enchanted creature gets +2/+2 and has flying. When enchanted creature dies, return Evershrike's Gift to your hand.",
     setup_interceptors=evershrikes_gift_setup
 )
@@ -4200,6 +4205,7 @@ GILT_LEAFS_EMBRACE = make_enchantment(
     name="Gilt-Leaf's Embrace",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
+    subtypes={"Aura"},
     text="Flash. Enchant creature you control. When this Aura enters, enchanted creature gains trample and indestructible until end of turn. Enchanted creature gets +2/+0.",
     setup_interceptors=None
 )
@@ -4210,6 +4216,7 @@ PITILESS_FISTS = make_enchantment(
     name="Pitiless Fists",
     mana_cost="{3}{G}",
     colors={Color.GREEN},
+    subtypes={"Aura"},
     text="Enchant creature you control. When this Aura enters, enchanted creature fights up to one target creature an opponent controls.",
     setup_interceptors=None
 )
@@ -4327,12 +4334,40 @@ MISTMEADOW_COUNCIL = make_creature(
 
 
 # Morcant's Eyes - {2}{G} Enchantment — Aura
+# --- Morcant's Eyes (Aura tagging sweep, W22+) ---
+# Helper 5 wire: +2/+2 plus "combat damage to player → controller draws a card".
+def _morcants_eyes_combat_dmg_to_player_filter(event: Event, state: GameState, target_id: str) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    return event.payload.get('target') in state.players
+
+
+def _morcants_eyes_draw_effect(target_obj: GameObject, event: Event, state: GameState) -> list[Event]:
+    return [Event(
+        type=EventType.DRAW,
+        payload={'player': target_obj.controller, 'amount': 1, 'source': target_obj.id},
+        source=target_obj.id,
+    )]
+
+
 MORCANTS_EYES = make_enchantment(
     name="Morcant's Eyes",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
+    subtypes={"Aura"},
     text="Enchant creature. Enchanted creature gets +2/+2 and has 'Whenever this creature deals combat damage to a player, draw a card.'",
-    setup_interceptors=None
+    setup_interceptors=make_aura_setup(
+        power_mod=2, toughness_mod=2,
+        granted_triggered_abilities={
+            "event_filter": _morcants_eyes_combat_dmg_to_player_filter,
+            "effect_fn": _morcants_eyes_draw_effect,
+            "description": "Combat damage to player → draw a card",
+        },
+    ),
 )
 
 
@@ -4363,6 +4398,7 @@ SHIMMERWILDS_GROWTH = make_enchantment(
     name="Shimmerwilds Growth",
     mana_cost="{G}",
     colors={Color.GREEN},
+    subtypes={"Aura"},
     text="Enchant land. Enchanted land has '{T}: Add one mana of any color.'",
     setup_interceptors=None
 )
@@ -7304,6 +7340,7 @@ NETTLEVINE_BLIGHT = make_enchantment(
     name="Nettlevine Blight",
     mana_cost="{4}{B}{B}",
     colors={Color.BLACK},
+    subtypes={"Aura"},
     text="Enchant creature or land. Enchanted permanent has \"At the beginning of your end step, sacrifice a creature or land. If you do, attach Nettlevine Blight to a permanent you control.\""
 )
 
