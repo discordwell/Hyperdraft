@@ -294,6 +294,7 @@ def score_card(card_def, profile: EngineProfile) -> CardScore:
             novel_helpers=profile.novel_helpers,
             cross_controller_helpers=profile.cross_controller_helpers,
             function_accepting_helpers=profile.function_accepting_helpers,
+            bundle_features=profile.bundle_features,
         )
         if bag.is_trivially_empty and not bag.helpers_called:
             continue  # contributes nothing meaningful

@@ -69,25 +69,13 @@ class EngineProfile:
     # Helpers/constructors that take *function* arguments (passed as values
     # inside dicts, lists, or kwargs — not called inline). The AST walker
     # scans these calls' arguments for module-level function Name references
-    # and descends into them, so per-card effect_fns, chapter handlers, and
-    # granted-ability bodies surface on the FeatureBag the same way as
-    # inline helper calls.
-    #
-    # Examples (MTG):
-    #   make_saga_setup(obj, {1: ch_i, 2: ch_ii})   # chapter handlers
-    #   SagaChapter(label="I", effect_fn=ch_i)       # declarative API
-    #   make_equipment_setup(granted_activated_abilities=[{'effect_fn': fn}])
-    #   make_aura_setup(granted_triggered_abilities={'effect_fn': fn, ...})
-    #   grant_triggered_ability(target, source, state, effect_fn=fn, ...)
-    #   make_activated_ability(obj, cost, effect_fn=fn, ...)
-    #
-    # Without this descent, every legacy-API saga collapsed to one
-    # `code_fingerprint` (~24 sagas across 17 custom sets) and every
-    # granted-ability Equipment collapsed to `ababd2c75e63` regardless of
-    # what its per-card `effect_fn` did. Slice 7B (2026-05-19) added the
-    # descent for sagas + equipment + auras + grant_* / make_activated_*
-    # helpers; extend the set when new function-accepting helpers ship.
+    # and descends into them. Slice 7B (2026-05-19).
     function_accepting_helpers: frozenset[str] = field(default_factory=frozenset)
+
+    # Bundle helpers (v1 `ability_bundles.py`-style) that wrap a standard
+    # effect. AST walker can't descend into cross-module imports, so this
+    # map injects feature contributions on a name match. Slice 7A (2026-05-19).
+    bundle_features: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -190,37 +178,88 @@ _MTG_INFORMATION_EVENTS = frozenset({
 })
 
 # Helpers that accept function-typed arguments (chapter handlers, granted-
-# ability effect_fns, etc.). The AST walker scans these calls' arg trees for
-# module-level function Name references and descends into them so per-card
-# logic surfaces on the bag.
-#
-# Wired by Slice 7B (saga + equipment tagging sweep), 2026-05-19. Each entry
-# must be a helper that (a) the walker reliably sees as a top-level Call and
-# (b) takes at least one effect_fn / chapter handler / triggered-ability spec
-# in its arguments.
+# ability effect_fns, etc.). Slice 7B (2026-05-19).
 _MTG_FUNCTION_ACCEPTING_HELPERS = frozenset({
-    # Saga subsystem (legacy + declarative APIs both flow through here).
     "make_saga_setup",
     "SagaChapter",
-    # Attach mechanics — equipment + auras with granted abilities. Both
-    # accept `granted_activated_abilities` (list or single dict, each with
-    # 'effect_fn'), `granted_triggered_abilities` (dict or list with
-    # 'event_filter' and 'effect_fn').
     "make_equipment_setup",
     "make_aura_setup",
-    # Activated abilities — `effect_fn` is a top-level kwarg, but cards often
-    # build the spec via this helper inside a deeper helper call where the
-    # walker doesn't otherwise see the function reference.
     "make_activated_ability",
     "make_granted_activated_ability",
     "make_equipment_granted_ability",
-    # Triggered-ability granters — `effect_fn` is a kwarg, plus optional
-    # `event_filter` / `condition`. Used by Helper 5 wires across the catalog.
     "grant_triggered_ability",
     "grant_death_trigger",
-    # Room subsystem (DSK) — door unlock handlers passed as values.
     "make_room_setup",
 })
+
+# v1 `ability_bundles.py` helpers — AST walker can't descend into a different
+# module's source, so we declare each bundle's effect contribution upfront
+# and inject it on a name match. Slice 7A (2026-05-19).
+_MTG_BUNDLE_FEATURES: dict[str, dict] = {
+    "etb_gain_life": {
+        "event_types": frozenset({"LIFE_CHANGE"}),
+        "state_attrs": frozenset({"life"}),
+    },
+    "etb_lose_life": {
+        "event_types": frozenset({"LIFE_CHANGE"}),
+        "state_attrs": frozenset({"life"}),
+        "cross_controller": True,
+    },
+    "etb_draw": {
+        "event_types": frozenset({"DRAW"}),
+        "zones_accessed": frozenset({"library", "hand"}),
+    },
+    "etb_create_token": {
+        "event_types": frozenset({"OBJECT_CREATED"}),
+        "zones_accessed": frozenset({"battlefield"}),
+    },
+    "etb_deal_damage": {
+        "event_types": frozenset({"DAMAGE"}),
+        "state_attrs": frozenset({"life"}),
+        "cross_controller": True,
+    },
+    "death_drain": {
+        "event_types": frozenset({"LIFE_CHANGE"}),
+        "state_attrs": frozenset({"life"}),
+        "cross_controller": True,
+    },
+    "death_draw": {
+        "event_types": frozenset({"DRAW"}),
+        "zones_accessed": frozenset({"library", "hand"}),
+    },
+    "attack_deal_damage": {
+        "event_types": frozenset({"DAMAGE"}),
+        "state_attrs": frozenset({"life"}),
+        "cross_controller": True,
+    },
+    "attack_add_counters": {
+        "event_types": frozenset({"COUNTER_ADDED"}),
+        "state_attrs": frozenset({"counters"}),
+    },
+    "static_pt_boost_all_you_control": {
+        "state_attrs": frozenset({"power", "toughness"}),
+        "filter_factory_calls": frozenset({"creatures_you_control"}),
+    },
+    "static_pt_boost_other_you_control": {
+        "state_attrs": frozenset({"power", "toughness"}),
+        "filter_factory_calls": frozenset({"other_creatures_you_control"}),
+    },
+    "static_pt_boost_by_subtype": {
+        "state_attrs": frozenset({"power", "toughness"}),
+        "filter_factory_calls": frozenset({"other_creatures_with_subtype"}),
+    },
+    "static_keyword_grant_others": {
+        "filter_factory_calls": frozenset({"other_creatures_you_control"}),
+    },
+    "upkeep_gain_life": {
+        "event_types": frozenset({"LIFE_CHANGE"}),
+        "state_attrs": frozenset({"life"}),
+    },
+    "spell_cast_draw": {
+        "event_types": frozenset({"DRAW"}),
+        "zones_accessed": frozenset({"library", "hand"}),
+    },
+}
 
 
 MTG_PROFILE = EngineProfile(
@@ -246,6 +285,7 @@ MTG_PROFILE = EngineProfile(
         "all_opponents",
     }),
     function_accepting_helpers=_MTG_FUNCTION_ACCEPTING_HELPERS,
+    bundle_features=_MTG_BUNDLE_FEATURES,
 )
 
 

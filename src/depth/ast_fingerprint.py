@@ -298,6 +298,7 @@ class _FeatureCollector(ast.NodeVisitor):
         filter_factories: frozenset[str],
         novel_helpers: frozenset[str],
         function_accepting_helpers: frozenset[str] = frozenset(),
+        bundle_features: Optional[dict] = None,
     ):
         self.module_funcs = module_funcs
         self.bag = bag
@@ -305,13 +306,13 @@ class _FeatureCollector(ast.NodeVisitor):
         self.modal_helpers = modal_helpers
         self.filter_factories = filter_factories
         self.novel_helpers = novel_helpers
-        # Slice 7B: helpers like `make_saga_setup` accept function references
-        # as data inside dicts/lists/kwargs. When we see one of these, we
-        # scan its arg tree for Name references that resolve to module-level
-        # function defs and descend into them. Without this, every saga's
-        # chapter handlers and every Equipment's granted-ability effect_fns
-        # are invisible to the scorer.
+        # Slice 7B: function-accepting helpers (saga chapters, granted abilities)
+        # where effect_fns are passed as values inside dicts/lists/kwargs.
         self.function_accepting_helpers = function_accepting_helpers
+        # Slice 7A: bundle helpers from other modules (ability_bundles.py).
+        # AST walker can't descend across imports, so inject pre-declared
+        # feature contributions on name match.
+        self.bundle_features = bundle_features or {}
 
     def visit_Call(self, node: ast.Call) -> None:
         self.bag.raw_call_count += 1
@@ -327,6 +328,19 @@ class _FeatureCollector(ast.NodeVisitor):
                 self.bag.filter_factory_calls.add(name)
             if name in self.novel_helpers:
                 self.bag.novel_helper_calls.add(name)
+            # Inject bundle features for known cross-module helpers (the
+            # walker can't descend into ability_bundles.py so we declare the
+            # bundle's effect contribution upfront — see EngineProfile docs).
+            if name in self.bundle_features:
+                bf = self.bundle_features[name]
+                self.bag.event_types |= bf.get("event_types", frozenset())
+                self.bag.state_attrs |= bf.get("state_attrs", frozenset())
+                self.bag.zones_accessed |= bf.get("zones_accessed", frozenset())
+                if bf.get("cross_controller"):
+                    self.bag.cross_controller = True
+                self.bag.modal_calls |= bf.get("modal_calls", frozenset())
+                self.bag.filter_factory_calls |= bf.get("filter_factory_calls", frozenset())
+                self.bag.novel_helper_calls |= bf.get("novel_helper_calls", frozenset())
             # Detect zone access: state.zones.get(...) — name is "get", func.value.attr is "zones".
             if (
                 name == "get"
@@ -346,6 +360,7 @@ class _FeatureCollector(ast.NodeVisitor):
                     self.module_funcs, self.bag, self.visited,
                     self.modal_helpers, self.filter_factories, self.novel_helpers,
                     function_accepting_helpers=self.function_accepting_helpers,
+                    bundle_features=self.bundle_features,
                 )
                 inner.generic_visit(inner_func)
             # Slice 7B: function-arg descent. When the call site is a known
@@ -491,6 +506,7 @@ def extract_features_from_callable(
     novel_helpers: frozenset[str] = frozenset(),
     cross_controller_helpers: frozenset[str] = frozenset(),
     function_accepting_helpers: frozenset[str] = frozenset(),
+    bundle_features: Optional[dict] = None,
     _closure_depth: int = 0,
     _closure_visited: Optional[set[int]] = None,
 ) -> FeatureBag:
@@ -503,6 +519,14 @@ def extract_features_from_callable(
     implies cross-controller interaction (the `!=` comparator lives in
     a different module the walker doesn't descend into). Any call site
     matching this set flips `bag.cross_controller=True` post-walk.
+
+    `bundle_features` is the cross-module helper feature-injection map
+    (e.g. for `ability_bundles.etb_gain_life(...)` → inject LIFE_CHANGE
+    and `life` state-attr). The walker can't descend into a different
+    module's source but it CAN see the call name, so we declare each
+    bundle helper's contribution upfront in the engine profile and
+    inject it on a name match. Surfaced by DBZ slice-4 agent 2026-05-19:
+    cards built via v1 bundle helpers scored zero on all axes.
 
     Closure-walking (gotcha #19 from spice-pass.md): when `fn` is a
     closure produced by a wrapper-factory like `_pass5_compose_setup`,
@@ -524,6 +548,7 @@ def extract_features_from_callable(
         collector = _FeatureCollector(
             funcs, bag, visited, modal_helpers, filter_factories, novel_helpers,
             function_accepting_helpers=function_accepting_helpers,
+            bundle_features=bundle_features,
         )
         collector.generic_visit(fdef)
     # else: fn is a closure with no top-level fdef (e.g. wrapper produced by
@@ -563,6 +588,7 @@ def extract_features_from_callable(
                 novel_helpers=novel_helpers,
                 cross_controller_helpers=cross_controller_helpers,
                 function_accepting_helpers=function_accepting_helpers,
+                bundle_features=bundle_features,
                 _closure_depth=_closure_depth + 1,
                 _closure_visited=_closure_visited,
             )
