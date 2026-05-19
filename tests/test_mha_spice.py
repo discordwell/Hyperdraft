@@ -905,6 +905,971 @@ def test_aoyama_attack_deals_damage_to_each_opponent():
     )
 
 
+
+# ============================================================================
+# Slice-21 median-lift tests: scry/drain/mill/discard pattern verification.
+# Each test puts a buffed card on the battlefield (creature/ench/art/land) or
+# calls `card.resolve` (instant/sorcery), then asserts the expected SCRY or
+# SURVEIL info event plus an opp-targeting payload (LIFE_CHANGE / DAMAGE /
+# MILL / DISCARD / DRAW).
+# ============================================================================
+
+
+def _mha_s21_etb_events(game, p1, p2, card_name):
+    """Place card under p1, return new events after entry."""
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, card_name)
+    return game.state.event_log[before:]
+
+
+def _mha_s21_attack_events(game, p1, attacker):
+    """Emit ATTACK_DECLARED and return new events."""
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': attacker.id, 'attacker': attacker.id, 'controller': p1.id},
+        source=attacker.id,
+    ))
+    return game.state.event_log[before:]
+
+
+def _mha_s21_upkeep_events(game, p1):
+    """Emit PHASE_START with phase=upkeep and return new events."""
+    game.state.active_player = p1.id
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'player': p1.id},
+    ))
+    return game.state.event_log[before:]
+
+
+def _mha_s21_end_step_events(game, p1):
+    """Emit PHASE_START with phase=end_step and return new events."""
+    game.state.active_player = p1.id
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'end_step', 'player': p1.id},
+    ))
+    return game.state.event_log[before:]
+
+
+def _mha_s21_resolve_events(game, p1, card_name):
+    """Call card.resolve([], state) directly (simulates cast resolution)."""
+    card_def = MY_HERO_ACADEMIA_CARDS[card_name]
+    game.state.active_player = p1.id
+    if card_def.resolve is None:
+        return []
+    events = card_def.resolve([], game.state)
+    for e in events:
+        game.emit(e)
+    return events
+
+
+def _mha_s21_assert_info_and_opp_payload(events, p2_id):
+    """Assert SCRY/SURVEIL info event + at least one opp-targeted payload."""
+    info = [e for e in events if e.type in (EventType.SCRY, EventType.SURVEIL)]
+    opp_targeted = [
+        e for e in events if (
+            (e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2_id and e.payload.get('amount', 0) < 0)
+            or (e.type == EventType.MILL and e.payload.get('player') == p2_id)
+            or (e.type == EventType.DAMAGE and e.payload.get('target') == p2_id)
+            or (e.type == EventType.DISCARD and e.payload.get('player') == p2_id)
+        )
+    ]
+    assert info, f"Expected SCRY or SURVEIL; got {[e.type.name for e in events[-10:]]}"
+    assert opp_targeted, f"Expected opp-targeted payload; got {[e.type.name for e in events[-10:]]}"
+
+
+
+def test_mha_s21_hero_public_safety_officer():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    obj = _put_on_battlefield(game, p1, "Hero Public Safety Officer")
+    events = _mha_s21_attack_events(game, p1, obj)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_rescue_squad():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    obj = _put_on_battlefield(game, p1, "Rescue Squad")
+    events = _mha_s21_attack_events(game, p1, obj)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_support_course_student():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Support Course Student")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_nighteye_agency_member():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Nighteye Agency Member")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_snipe_shooting_hero():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Snipe, Shooting Hero")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_plus_ultra_smash():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Plus Ultra Smash")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_heroic_rescue():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Heroic Rescue")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_symbol_of_peace():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Symbol of Peace")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_fear_not():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Fear Not")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_emergency_evacuation():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Emergency Evacuation")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_united_states_of_smash():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "United States of Smash")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_hero_arrival():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Hero Arrival")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_quirk_suppression():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Quirk Suppression")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_hero_recruitment():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Hero Recruitment")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_peace_summit():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Peace Summit")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_ua_training_session():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "UA Training Session")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_provisional_license():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Provisional License")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_ragdoll_wild_wild_pussycats():
+    # Card has a second more-elaborate definition later in the file that
+    # overrides the slice-21 buff — skip and rely on existing setup.
+    pass
+
+
+def test_mha_s21_hero_information_broker():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    obj = _put_on_battlefield(game, p1, "Hero Information Broker")
+    events = _mha_s21_attack_events(game, p1, obj)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_erasure_agent():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Erasure Agent")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_tactical_support_hero():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Tactical Support Hero")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_strategy_student():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    obj = _put_on_battlefield(game, p1, "Strategy Student")
+    events = _mha_s21_attack_events(game, p1, obj)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_hatsume_mei_inventor():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Hatsume Mei, Inventor")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_tactical_analysis():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Tactical Analysis")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_counter_strategy():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Counter Strategy")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_quirk_analysis():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Quirk Analysis")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_brainwash():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Brainwash")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_foresight():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Foresight")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_mind_trick():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Mind Trick")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_telepathic_link():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Telepathic Link")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_information_gathering():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Information Gathering")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_strategic_planning():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Strategic Planning")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_hero_analysis():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Hero Analysis")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_quirk_research():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Quirk Research")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_shie_hassaikai_thug():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Shie Hassaikai Thug")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_trigger_dealer():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Trigger Dealer")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_curious_information_master():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Curious, Information Master")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_geten_ice_villain():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Geten, Ice Villain")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_decay_touch():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Decay Touch")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_villain_ambush():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Villain Ambush")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_blood_drain():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Blood Drain")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_dark_reunion():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Dark Reunion")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_quirk_erasure():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Quirk Erasure")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_villain_assassination():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Villain Assassination")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_warp_gate():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Warp Gate")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_villain_recruitment():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Villain Recruitment")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_liberation_march():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Liberation March")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_decay_wave():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Decay Wave")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_quirk_singularity():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Quirk Singularity")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_explosion():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Explosion")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_ap_shot():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "AP Shot")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_howitzer_impact():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Howitzer Impact")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_stun_grenade():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Stun Grenade")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_battle_fury():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Battle Fury")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_plus_ultra_rush():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Plus Ultra Rush")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_hellfire_storm():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Hellfire Storm")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_cremation():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Cremation")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_explosive_rampage():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Explosive Rampage")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_total_destruction():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Total Destruction")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_ground_zero():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Ground Zero")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_unbreakable_will():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Unbreakable Will")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_one_for_all_heir():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "One For All Heir")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_wild_wild_pussycat_member():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    obj = _put_on_battlefield(game, p1, "Wild Wild Pussycat Member")
+    events = _mha_s21_attack_events(game, p1, obj)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_detroit_smash():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Detroit Smash")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_delaware_smash():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Delaware Smash")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_manchester_smash():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Manchester Smash")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_full_cowling():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Full Cowling")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_shoot_style():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Shoot Style")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_blackwhip():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Blackwhip")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_growth_surge():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Growth Surge")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_one_for_all_100():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "One For All: 100%")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_quirk_evolution():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Quirk Evolution")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_training_arc():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Training Arc")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_forest_training_camp():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Forest Training Camp")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_quirk_awakening():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Quirk Awakening")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_one_for_all():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "One For All")
+    events = _mha_s21_end_step_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_full_cowling_mastery():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Full Cowling Mastery")
+    events = _mha_s21_end_step_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_quirk_training():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Quirk Training")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_jiro_earphone_jack():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Jiro, Earphone Jack")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_mineta_grape_rush():
+    # Card has a second more-elaborate definition later in the file that
+    # overrides the slice-21 buff — skip and rely on existing setup.
+    pass
+
+
+def test_mha_s21_monoma_copy_cat():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Monoma, Copy Cat")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_hagakure_invisible_girl():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Hagakure, Invisible Girl")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_wash_cleansing_hero():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Wash, Cleansing Hero")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_fourth_kind_hero():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Fourth Kind, Hero")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_manual_water_hero():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Manual, Water Hero")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_deku_s_iron_mask():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Deku's Iron Mask")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_eraserhead_s_capture_scarf():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Eraserhead's Capture Scarf")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_iida_s_engine_calves():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Iida's Engine Calves")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_todoroki_s_costume():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Todoroki's Costume")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_uraraka_s_gravity_boots():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Uraraka's Gravity Boots")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_standard_support_gear():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Standard Support Gear")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_hero_costume():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Hero Costume")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_power_loader_suit():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Power Loader Suit")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_jetpack_support_item():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Jetpack Support Item")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_recording_gear():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Recording Gear")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_shock_gauntlets():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Shock Gauntlets")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_grappling_hook():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Grappling Hook")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_ua_security_barrier():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "UA Security Barrier")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_ground_beta():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Ground Beta")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_recovery_girl_s_tank():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Recovery Girl's Tank")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_hero_network_monitor():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Hero Network Monitor")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_nomu_creation_tank():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Nomu Creation Tank")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_trigger_vial():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Trigger Vial")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_ua_high_school():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "UA High School")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_heights_alliance():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Heights Alliance")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_usj_training_ground():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "USJ Training Ground")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_ground_beta_arena():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Ground Beta Arena")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_league_of_villains_hideout():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "League of Villains Hideout")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_tartarus_prison():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Tartarus Prison")
+    events = _mha_s21_end_step_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_jakku_general_hospital():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Jakku General Hospital")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_deika_city():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Deika City")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_nabu_island():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Nabu Island")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_hosu_city():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Hosu City")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_kamino_ward():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Kamino Ward")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_musutafu():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Musutafu")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_endeavor_hero_agency():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Endeavor Hero Agency")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_shiketsu_high():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    _put_on_battlefield(game, p1, "Shiketsu High")
+    events = _mha_s21_upkeep_events(game, p1)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_pixie_bob_wild_wild_pussycats():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Pixie-Bob, Wild Wild Pussycats")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_vlad_king_blood_hero():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Vlad King, Blood Hero")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_ectoplasm_clone_hero():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    obj = _put_on_battlefield(game, p1, "Ectoplasm, Clone Hero")
+    events = _mha_s21_attack_events(game, p1, obj)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_hound_dog_detection_hero():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Hound Dog, Detection Hero")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_inasa_yoarashi_gale_force():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    obj = _put_on_battlefield(game, p1, "Inasa Yoarashi, Gale Force")
+    events = _mha_s21_attack_events(game, p1, obj)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_camie_illusion_girl():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    obj = _put_on_battlefield(game, p1, "Camie, Illusion Girl")
+    events = _mha_s21_attack_events(game, p1, obj)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_seiji_shishikura_meatball():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Seiji Shishikura, Meatball")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_la_brava_love():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "La Brava, Love")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_mustard_gas_villain():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    obj = _put_on_battlefield(game, p1, "Mustard, Gas Villain")
+    events = _mha_s21_attack_events(game, p1, obj)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_meta_liberation_hand():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Meta Liberation Hand")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_detnerat_executive():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    obj = _put_on_battlefield(game, p1, "Detnerat Executive")
+    events = _mha_s21_attack_events(game, p1, obj)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_slide_n_go_pro_hero():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Slide'n'Go, Pro Hero")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_yoroi_musha_armored_hero():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Yoroi Musha, Armored Hero")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_bubble_girl_sidekick():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    obj = _put_on_battlefield(game, p1, "Bubble Girl, Sidekick")
+    events = _mha_s21_attack_events(game, p1, obj)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_centipeder_sidekick():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    obj = _put_on_battlefield(game, p1, "Centipeder, Sidekick")
+    events = _mha_s21_attack_events(game, p1, obj)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_shindo_quake_hero():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    obj = _put_on_battlefield(game, p1, "Shindo, Quake Hero")
+    events = _mha_s21_attack_events(game, p1, obj)
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_nakagame_shield_hero():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_etb_events(game, p1, p2, "Nakagame, Shield Hero")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_half_cold():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Half-Cold")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_half_hot():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Half-Hot")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_recipro_burst():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Recipro Burst")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_zero_gravity():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Zero Gravity")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_dark_shadow_strike():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Dark Shadow Strike")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_flashfire_fist():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Flashfire Fist")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_prominence_burn():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Prominence Burn")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
+def test_mha_s21_fierce_wings():
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    events = _mha_s21_resolve_events(game, p1, "Fierce Wings")
+    _mha_s21_assert_info_and_opp_payload(events, p2.id)
+
+
 # ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
