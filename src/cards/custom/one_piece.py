@@ -27,7 +27,8 @@ from src.cards.interceptor_helpers import (
     other_creatures_you_control, creatures_with_subtype,
     make_spell_cast_trigger, make_upkeep_trigger, make_end_step_trigger,
     make_block_trigger, make_draw_trigger, make_life_gain_trigger,
-    other_creatures_with_subtype, creatures_you_control, all_opponents
+    other_creatures_with_subtype, creatures_you_control, all_opponents,
+    make_equipment_setup,
 )
 
 
@@ -770,11 +771,64 @@ WEATHER_TEMPO = make_instant(
     text="Return up to two target creatures to their owners' hands. If you control a creature named Nami, draw a card."
 )
 
+# --- Clima-Tact: Helper-5 rewire -------------------------------------------
+# +1/+1 + granted trigger "combat damage to player → tap a creature that
+# player controls." Skips the "doesn't untap next turn" clause (replacement
+# effect on the untap step is a Phase B-3 effect).
+def _clima_tact_combat_damage_to_player_filter(
+    event: Event, state: GameState, target_id: str
+) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    return event.payload.get('target') in state.players
+
+
+def _clima_tact_tap_effect(
+    target_obj: GameObject, event: Event, state: GameState
+) -> list[Event]:
+    victim_player = event.payload.get('target')
+    if not victim_player:
+        return []
+    # Pick the first untapped non-equipped-creature controlled by the victim.
+    for o in state.objects.values():
+        if o.controller != victim_player:
+            continue
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if o.characteristics is None:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        if o.id == target_obj.id:
+            continue
+        if getattr(o.state, 'tapped', False):
+            continue
+        return [Event(
+            type=EventType.TAP,
+            payload={'object_id': o.id},
+            source=target_obj.id,
+        )]
+    return []
+
+
 CLIMA_TACT = make_artifact(
     name="Clima-Tact",
     mana_cost="{2}{U}",
     subtypes={"Equipment"},
-    text="Equipped creature gets +1/+1. Whenever equipped creature deals combat damage to a player, tap target creature. It doesn't untap during its controller's next untap step. Equip {2}"
+    text="Equipped creature gets +1/+1. Whenever equipped creature deals combat damage to a player, tap target creature that player controls. Equip {2}",
+    setup_interceptors=make_equipment_setup(
+        power_mod=1, toughness_mod=1,
+        equip_cost="{2}",
+        granted_triggered_abilities={
+            "event_filter": _clima_tact_combat_damage_to_player_filter,
+            "effect_fn": _clima_tact_tap_effect,
+            "description": "Combat damage to player → tap one of their creatures",
+        },
+    ),
 )
 
 MIRAGE_TEMPO = make_instant(
