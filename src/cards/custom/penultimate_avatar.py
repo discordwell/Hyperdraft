@@ -37,7 +37,11 @@ from src.cards.interceptor_helpers import (
     make_static_pt_boost, make_keyword_grant, make_life_gain_trigger,
     make_death_trigger, make_damage_trigger, make_tap_trigger,
     make_upkeep_trigger, make_end_step_trigger,
-    other_creatures_you_control, creatures_with_subtype, all_opponents
+    other_creatures_you_control, creatures_with_subtype, all_opponents,
+    # Helper 5 rewires (catalog sweep, 2026-05-18) — make_equipment_setup is
+    # re-imported lower in the file with make_saga_setup; the top-level import
+    # here lets Equipment definitions above that point also use Helper 5.
+    make_equipment_setup,
 )
 
 
@@ -3755,11 +3759,49 @@ WAR_BALLOON = make_artifact(
     setup_interceptors=war_balloon_setup
 )
 
+# --- Azula's Crown: Helper-5 rewire ----------------------------------------
+# +2/+1 + menace + granted trigger "combat damage to player → that player
+# discards a card."
+def _azulas_crown_combat_damage_to_player_filter(
+    event: Event, state: GameState, target_id: str
+) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    return event.payload.get('target') in state.players
+
+
+def _azulas_crown_discard_effect(
+    target_obj: GameObject, event: Event, state: GameState
+) -> list[Event]:
+    victim = event.payload.get('target')
+    if not victim:
+        return []
+    return [Event(
+        type=EventType.DISCARD,
+        payload={'player': victim, 'amount': 1},
+        source=target_obj.id,
+    )]
+
+
 AZULAS_CROWN = make_artifact(
     name="Azula's Crown",
     mana_cost="{2}",
     subtypes={"Equipment"},
-    text="Equipped creature gets +2/+1 and has menace. Whenever equipped creature deals combat damage to a player, that player discards a card. Equip {3}"
+    text="Equipped creature gets +2/+1 and has menace. Whenever equipped creature deals combat damage to a player, that player discards a card. Equip {3}",
+    setup_interceptors=make_equipment_setup(
+        power_mod=2, toughness_mod=1,
+        keywords=["menace"],
+        equip_cost="{3}",
+        granted_triggered_abilities={
+            "event_filter": _azulas_crown_combat_damage_to_player_filter,
+            "effect_fn": _azulas_crown_discard_effect,
+            "description": "Combat damage to player → that player discards a card",
+        },
+    ),
 )
 
 WATER_POUCH = make_artifact(
