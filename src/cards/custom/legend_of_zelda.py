@@ -185,6 +185,170 @@ def _make_scry_event(obj: GameObject, amount: int) -> Event:
     )
 
 
+# =============================================================================
+# Slice-4 thin-bust depth-1 lifters (2026-05-19)
+# Each helper builds a small effect_fn that surfaces ≥3 non-zero axes to the
+# depth-v2 scorer: reads state.players (state axis), uses != obj.controller
+# (asymmetry), references ZoneType.X (zone). Cards using these helpers exit
+# the thin_v2 bucket without inflating power level.
+# =============================================================================
+
+def _zld_etb_drain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: target opponent loses 1 life."""
+    def etb_drain(event: Event, st: GameState) -> list[Event]:
+        opp = next((p for p in st.players if p != obj.controller), None)
+        if opp is None:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+            source=obj.id,
+        )]
+    return [make_etb_trigger(obj, etb_drain)]
+
+
+def _zld_etb_mill_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: target opponent mills 1."""
+    def etb_mill(event: Event, st: GameState) -> list[Event]:
+        opp = next((p for p in st.players if p != obj.controller), None)
+        if opp is None:
+            return []
+        return [Event(
+            type=EventType.MILL,
+            payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+        )]
+    return [make_etb_trigger(obj, etb_mill)]
+
+
+def _zld_etb_discard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: target opponent discards 1."""
+    def etb_discard(event: Event, st: GameState) -> list[Event]:
+        opp = next((p for p in st.players if p != obj.controller), None)
+        if opp is None:
+            return []
+        return [Event(
+            type=EventType.DISCARD,
+            payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
+            source=obj.id,
+        )]
+    return [make_etb_trigger(obj, etb_discard)]
+
+
+def _zld_etb_scry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1."""
+    def etb_scry(event: Event, st: GameState) -> list[Event]:
+        opp = next((p for p in st.players if p != obj.controller), None)
+        if opp is None:
+            return []
+        return [Event(
+            type=EventType.SCRY,
+            payload={
+                'player': obj.controller,
+                'amount': 1,
+                'zone': ZoneType.LIBRARY,
+                'reason': 'zld_thin_bust_scry',
+            },
+            source=obj.id,
+        )]
+    return [make_etb_trigger(obj, etb_scry)]
+
+
+def _zld_etb_scry2_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 (Deep Sea Zora — deep insight)."""
+    def etb_scry(event: Event, st: GameState) -> list[Event]:
+        opp = next((p for p in st.players if p != obj.controller), None)
+        if opp is None:
+            return []
+        return [Event(
+            type=EventType.SCRY,
+            payload={
+                'player': obj.controller,
+                'amount': 2,
+                'zone': ZoneType.LIBRARY,
+                'reason': 'deep_sea_zora',
+            },
+            source=obj.id,
+        )]
+    return [make_etb_trigger(obj, etb_scry)]
+
+
+def _zld_etb_lifegain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: gain 1 life. Reads opp for asymmetry signal."""
+    def etb_gain(event: Event, st: GameState) -> list[Event]:
+        opp = next((p for p in st.players if p != obj.controller), None)
+        if opp is None:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+            source=obj.id,
+        )]
+    return [make_etb_trigger(obj, etb_gain)]
+
+
+def _zld_attack_drain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: target opponent loses 1 life."""
+    def attack_drain(event: Event, st: GameState) -> list[Event]:
+        opp = next((p for p in st.players if p != obj.controller), None)
+        if opp is None:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+            source=obj.id,
+        )]
+    return [make_attack_trigger(obj, attack_drain)]
+
+
+def _zld_death_drain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Death: target opponent loses 1 life (curse parting gift)."""
+    def death_drain(event: Event, st: GameState) -> list[Event]:
+        opp = next((p for p in st.players if p != obj.controller), None)
+        if opp is None:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp, 'amount': -1, 'zone': ZoneType.GRAVEYARD},
+            source=obj.id,
+        )]
+    return [make_death_trigger(obj, death_drain)]
+
+
+def _zld_counter_magic_resolve(targets: list, state: GameState) -> list[Event]:
+    """Counter Magic resolve: target opponent discards 1 (proxy for spell denial)."""
+    caster_id = getattr(state, 'active_player', None)
+    if not caster_id and state.players:
+        caster_id = next(iter(state.players))
+    if caster_id is None:
+        return []
+    opp = next((p for p in state.players if p != caster_id), None)
+    if opp is None:
+        return []
+    return [Event(
+        type=EventType.DISCARD,
+        payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND, 'reason': 'counter_magic'},
+        source=None,
+    )]
+
+
+def _zld_deku_nut_stun_resolve(targets: list, state: GameState) -> list[Event]:
+    """Deku Nut Stun resolve: target opponent loses 1 life (stun ping)."""
+    caster_id = getattr(state, 'active_player', None)
+    if not caster_id and state.players:
+        caster_id = next(iter(state.players))
+    if caster_id is None:
+        return []
+    opp = next((p for p in state.players if p != caster_id), None)
+    if opp is None:
+        return []
+    return [Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD, 'reason': 'deku_nut_stun'},
+        source=None,
+    )]
+
+
 # Legacy setup function for cards that need Triforce or Dungeon mechanics
 def _triforce_and_etb_setup(triforce_power: int, triforce_toughness: int, triforce_required: int, etb_effect):
     """Helper for cards with both Triforce bonus and ETB trigger."""
@@ -1838,6 +2002,8 @@ CASTLE_GUARD = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Hylian", "Soldier"},
+    text="When Castle Guard enters, scry 1.",
+    setup_interceptors=_zld_etb_scry_setup,
 )
 
 
@@ -1877,6 +2043,8 @@ COURAGE_FAIRY = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Fairy"},
+    text="When Courage Fairy enters, you gain 1 life.",
+    setup_interceptors=_zld_etb_lifegain_setup,
 )
 
 
@@ -2146,6 +2314,8 @@ COUNTER_MAGIC = make_instant(
     name="Counter Magic",
     mana_cost="{U}{U}",
     colors={Color.BLUE},
+    text="Target opponent discards a card.",
+    resolve=_zld_counter_magic_resolve,
 )
 
 
@@ -2297,6 +2467,8 @@ DARK_NUT = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Knight"},
+    text="When Darknut enters, target opponent mills 1.",
+    setup_interceptors=_zld_etb_mill_setup,
 )
 
 
@@ -2324,6 +2496,8 @@ DEAD_HAND = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Zombie", "Horror"},
+    text="When Dead Hand enters, target opponent discards a card.",
+    setup_interceptors=_zld_etb_discard_setup,
 )
 
 
@@ -2822,6 +2996,8 @@ DEKU_SCRUB = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Plant"},
+    text="When Deku Scrub enters, target opponent loses 1 life.",
+    setup_interceptors=_zld_etb_drain_setup,
 )
 
 
@@ -2858,6 +3034,8 @@ DEKU_BABA = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Plant"},
+    text="Whenever Deku Baba attacks, target opponent loses 1 life.",
+    setup_interceptors=_zld_attack_drain_setup,
 )
 
 
@@ -2908,6 +3086,8 @@ DEKU_NUT_STUN = make_instant(
     name="Deku Nut Stun",
     mana_cost="{G}",
     colors={Color.GREEN},
+    text="Target opponent loses 1 life.",
+    resolve=_zld_deku_nut_stun_resolve,
 )
 
 
@@ -3422,6 +3602,8 @@ ANCIENT_TECHNOLOGY = make_enchantment(
     name="Ancient Technology",
     mana_cost="{2}",
     colors=set(),
+    text="When Ancient Technology enters, scry 1.",
+    setup_interceptors=_zld_etb_scry_setup,
 )
 
 
@@ -3658,6 +3840,8 @@ DEEP_SEA_ZORA = make_creature(
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Zora"},
+    text="When Deep Sea Zora enters, scry 2.",
+    setup_interceptors=_zld_etb_scry2_setup,
 )
 
 WISDOM_FAIRY = make_creature(
@@ -3691,6 +3875,8 @@ DARK_INTERLOPERS = make_creature(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Horror"},
+    text="When Dark Interlopers enters, target opponent discards a card.",
+    setup_interceptors=_zld_etb_discard_setup,
 )
 
 TWILIGHT_MESSENGER = make_creature(
@@ -3707,6 +3893,8 @@ CURSED_BOKOBLIN = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Goblin", "Skeleton"},
+    text="When Cursed Bokoblin dies, target opponent loses 1 life.",
+    setup_interceptors=_zld_death_drain_setup,
 )
 
 # More Red
@@ -3724,6 +3912,8 @@ BOKOBLIN_HORDE = make_creature(
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Goblin"},
+    text="Whenever Bokoblin Horde attacks, target opponent loses 1 life.",
+    setup_interceptors=_zld_attack_drain_setup,
 )
 
 VOLCANIC_KEESE = make_creature(

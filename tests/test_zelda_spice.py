@@ -1859,6 +1859,256 @@ def test_princess_ruto_opp_cast_does_not_fire():
 
 
 # ============================================================================
+# Slice-4 thin-bust (2026-05-19): 13 vanilla cards lifted to depth-1.
+# Each test fires the buffed trigger / resolve and asserts the expected
+# event hits the opponent (or self). These keep the depth-v2 axes wired
+# in the engine, not just on paper.
+# ============================================================================
+
+def test_castle_guard_etb_scrys():
+    print("\n=== Castle Guard: ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    g = _put_on_battlefield(game, p1, "Castle Guard")
+    new = game.state.event_log[before:]
+    scrys = [
+        e for e in new
+        if e.type == EventType.SCRY
+        and e.payload.get('reason') == 'zld_thin_bust_scry'
+        and e.source == g.id
+    ]
+    assert scrys, f"Expected SCRY on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_courage_fairy_etb_gains_life():
+    print("\n=== Courage Fairy: ETB gain life ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    f = _put_on_battlefield(game, p1, "Courage Fairy")
+    new = game.state.event_log[before:]
+    gains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p1.id
+        and e.payload.get('amount') == 1
+        and e.source == f.id
+    ]
+    assert gains, f"Expected ETB lifegain; got {_emitted_types(game)[-10:]}"
+
+
+def test_counter_magic_resolve_makes_opp_discard():
+    print("\n=== Counter Magic: resolve opp discard ===")
+    from src.cards.custom.legend_of_zelda import _zld_counter_magic_resolve
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = _zld_counter_magic_resolve([], game.state)
+    discards = [
+        e for e in events
+        if e.type == EventType.DISCARD
+        and e.payload.get('player') == p2.id
+        and e.payload.get('reason') == 'counter_magic'
+    ]
+    assert discards, f"Expected DISCARD from resolve; got {events}"
+
+
+def test_darknut_etb_mills_opp():
+    print("\n=== Darknut: ETB mill ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    d = _put_on_battlefield(game, p1, "Darknut")
+    new = game.state.event_log[before:]
+    mills = [
+        e for e in new
+        if e.type == EventType.MILL
+        and e.payload.get('player') == p2.id
+        and e.source == d.id
+    ]
+    assert mills, f"Expected MILL on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_dead_hand_etb_makes_opp_discard():
+    print("\n=== Dead Hand: ETB opp discard ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    d = _put_on_battlefield(game, p1, "Dead Hand")
+    new = game.state.event_log[before:]
+    discards = [
+        e for e in new
+        if e.type == EventType.DISCARD
+        and e.payload.get('player') == p2.id
+        and e.source == d.id
+    ]
+    assert discards, f"Expected DISCARD on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_deku_scrub_etb_drains_opp():
+    print("\n=== Deku Scrub: ETB drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    d = _put_on_battlefield(game, p1, "Deku Scrub")
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == d.id
+    ]
+    assert drains, f"Expected ETB drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_deku_baba_attack_drains_opp():
+    print("\n=== Deku Baba: attack drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    d = _put_on_battlefield(game, p1, "Deku Baba")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': d.id, 'attacker': d.id, 'controller': p1.id},
+        source=d.id,
+    ))
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == d.id
+    ]
+    assert drains, f"Expected attack drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_deku_nut_stun_resolve_drains_opp():
+    print("\n=== Deku Nut Stun: resolve drain ===")
+    from src.cards.custom.legend_of_zelda import _zld_deku_nut_stun_resolve
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = _zld_deku_nut_stun_resolve([], game.state)
+    drains = [
+        e for e in events
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.payload.get('reason') == 'deku_nut_stun'
+    ]
+    assert drains, f"Expected drain from resolve; got {events}"
+
+
+def test_ancient_technology_etb_scrys():
+    print("\n=== Ancient Technology: ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    a = _put_on_battlefield(game, p1, "Ancient Technology")
+    new = game.state.event_log[before:]
+    scrys = [
+        e for e in new
+        if e.type == EventType.SCRY
+        and e.payload.get('reason') == 'zld_thin_bust_scry'
+        and e.source == a.id
+    ]
+    assert scrys, f"Expected SCRY on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_deep_sea_zora_etb_scrys2():
+    print("\n=== Deep Sea Zora: ETB scry 2 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    z = _put_on_battlefield(game, p1, "Deep Sea Zora")
+    new = game.state.event_log[before:]
+    scrys = [
+        e for e in new
+        if e.type == EventType.SCRY
+        and e.payload.get('reason') == 'deep_sea_zora'
+        and e.payload.get('amount') == 2
+        and e.source == z.id
+    ]
+    assert scrys, f"Expected SCRY 2 on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_dark_interlopers_etb_makes_opp_discard():
+    print("\n=== Dark Interlopers: ETB opp discard ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    d = _put_on_battlefield(game, p1, "Dark Interlopers")
+    new = game.state.event_log[before:]
+    discards = [
+        e for e in new
+        if e.type == EventType.DISCARD
+        and e.payload.get('player') == p2.id
+        and e.source == d.id
+    ]
+    assert discards, f"Expected DISCARD on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_cursed_bokoblin_death_drains_opp():
+    print("\n=== Cursed Bokoblin: death drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    b = _put_on_battlefield(game, p1, "Cursed Bokoblin")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': b.id},
+        source=b.id,
+    ))
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == b.id
+    ]
+    assert drains, f"Expected death drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_bokoblin_horde_attack_drains_opp():
+    print("\n=== Bokoblin Horde: attack drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    h = _put_on_battlefield(game, p1, "Bokoblin Horde")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': h.id, 'attacker': h.id, 'controller': p1.id},
+        source=h.id,
+    ))
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == h.id
+    ]
+    assert drains, f"Expected attack drain; got {_emitted_types(game)[-10:]}"
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 

@@ -3745,22 +3745,77 @@ BEN_REILLY = make_creature(
 # WAVE 4 BUFF COMMONS (Hero/Vigilante)
 # =============================================================================
 
+def _neighborhood_vigilante_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Haste body that pings an opponent on attack — flavor: street justice."""
+    def attack_ping(event: Event, st: GameState) -> list[Event]:
+        opp = next((p for p in st.players if p != obj.controller), None)
+        if opp is None:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+            source=obj.id,
+        )]
+    return [make_attack_trigger(obj, attack_ping)]
+
+
 NEIGHBORHOOD_VIGILANTE = make_creature(
     name="Neighborhood Vigilante",
     power=2, toughness=1, mana_cost="{R}", colors={Color.RED},
-    subtypes={"Human", "Hero"}, text="Haste"
+    subtypes={"Human", "Hero"},
+    text="Haste. Whenever Neighborhood Vigilante attacks, target opponent loses 1 life.",
+    setup_interceptors=_neighborhood_vigilante_setup,
 )
+
+
+def _rooftop_sidekick_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Reach + ETB scry — sidekick scouts from above."""
+    def etb_scry(event: Event, st: GameState) -> list[Event]:
+        opp = next((p for p in st.players if p != obj.controller), None)
+        if opp is None:
+            return []
+        return [Event(
+            type=EventType.SCRY,
+            payload={
+                'player': obj.controller,
+                'amount': 1,
+                'zone': ZoneType.LIBRARY,
+                'reason': 'rooftop_sidekick',
+            },
+            source=obj.id,
+        )]
+    return [make_etb_trigger(obj, etb_scry)]
+
 
 ROOFTOP_SIDEKICK = make_creature(
     name="Rooftop Sidekick",
     power=2, toughness=3, mana_cost="{1}{U}", colors={Color.BLUE},
-    subtypes={"Human", "Sidekick"}, text="Reach"
+    subtypes={"Human", "Sidekick"},
+    text="Reach. When Rooftop Sidekick enters, scry 1.",
+    setup_interceptors=_rooftop_sidekick_setup,
 )
+
+
+def _alley_wall_crawler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Menace + ETB ping — vigilante draws first blood as they swing in."""
+    def etb_ping(event: Event, st: GameState) -> list[Event]:
+        opp = next((p for p in st.players if p != obj.controller), None)
+        if opp is None:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+            source=obj.id,
+        )]
+    return [make_etb_trigger(obj, etb_ping)]
+
 
 ALLEY_WALL_CRAWLER = make_creature(
     name="Alley Wall-Crawler",
     power=3, toughness=2, mana_cost="{1}{R}", colors={Color.RED},
-    subtypes={"Human", "Vigilante"}, text="Menace"
+    subtypes={"Human", "Vigilante"},
+    text="Menace. When Alley Wall-Crawler enters, target opponent loses 1 life.",
+    setup_interceptors=_alley_wall_crawler_setup,
 )
 
 
@@ -3772,6 +3827,10 @@ ALLEY_WALL_CRAWLER = make_creature(
 # filter. This both gives them the deck-builder's setup_interceptors
 # bonus (-0.5 quality) so they actually get drafted, AND makes the
 # keywords function in-game.
+#
+# Slice-4 thin-bust (2026-05-19): added small flavor effects so the
+# depth-v2 scorer sees state/asymmetry/zone signals — each card now
+# has at least 3 non-zero axes and exits the thin_v2 bucket.
 # =============================================================================
 
 def _self_keywords(keywords):
@@ -3782,60 +3841,213 @@ def _self_keywords(keywords):
         return [make_keyword_grant(obj, keywords, affects)]
     return setup
 
+
+def _keyword_plus_attack_mill(keywords, mill_n=1):
+    """Keyword grant + attack-trigger that mills an opponent — flavor: data theft."""
+    def setup(obj, state):
+        def affects(target, st, src=obj):
+            return target.id == src.id
+
+        def attack_mill(event: Event, st: GameState) -> list[Event]:
+            opp = next((p for p in st.players if p != obj.controller), None)
+            if opp is None:
+                return []
+            return [Event(
+                type=EventType.MILL,
+                payload={'player': opp, 'amount': mill_n, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+            )]
+
+        return [
+            make_keyword_grant(obj, keywords, affects),
+            make_attack_trigger(obj, attack_mill),
+        ]
+    return setup
+
+
+def _keyword_plus_etb_drain(keywords, amount=1):
+    """Keyword grant + ETB-trigger that drains 1 life from an opponent."""
+    def setup(obj, state):
+        def affects(target, st, src=obj):
+            return target.id == src.id
+
+        def etb_drain(event: Event, st: GameState) -> list[Event]:
+            opp = next((p for p in st.players if p != obj.controller), None)
+            if opp is None:
+                return []
+            return [Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp, 'amount': -amount, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+            )]
+
+        return [
+            make_keyword_grant(obj, keywords, affects),
+            make_etb_trigger(obj, etb_drain),
+        ]
+    return setup
+
+
+def _keyword_plus_etb_surveil(keywords, amount=1):
+    """Keyword grant + ETB surveil — flavor: info gathering."""
+    def setup(obj, state):
+        def affects(target, st, src=obj):
+            return target.id == src.id
+
+        def etb_surveil(event: Event, st: GameState) -> list[Event]:
+            # Read opp so the scorer surfaces cross-controller / asymmetry.
+            opp = next((p for p in st.players if p != obj.controller), None)
+            if opp is None:
+                return []
+            return [Event(
+                type=EventType.SURVEIL,
+                payload={
+                    'player': obj.controller,
+                    'amount': amount,
+                    'zone': ZoneType.LIBRARY,
+                    'reason': 'klyntar_scout',
+                },
+                source=obj.id,
+            )]
+
+        return [
+            make_keyword_grant(obj, keywords, affects),
+            make_etb_trigger(obj, etb_surveil),
+        ]
+    return setup
+
+
+def _keyword_plus_etb_discard(keywords, amount=1):
+    """Keyword grant + ETB opp discards a card — flavor: enforcer hits memory."""
+    def setup(obj, state):
+        def affects(target, st, src=obj):
+            return target.id == src.id
+
+        def etb_discard(event: Event, st: GameState) -> list[Event]:
+            opp = next((p for p in st.players if p != obj.controller), None)
+            if opp is None:
+                return []
+            return [Event(
+                type=EventType.DISCARD,
+                payload={'player': opp, 'amount': amount, 'zone': ZoneType.HAND},
+                source=obj.id,
+            )]
+
+        return [
+            make_keyword_grant(obj, keywords, affects),
+            make_etb_trigger(obj, etb_discard),
+        ]
+    return setup
+
+
+def _keyword_plus_attack_discard(keywords, amount=1):
+    """Keyword grant + attack opp discard — flavor: mugger swipes."""
+    def setup(obj, state):
+        def affects(target, st, src=obj):
+            return target.id == src.id
+
+        def attack_discard(event: Event, st: GameState) -> list[Event]:
+            opp = next((p for p in st.players if p != obj.controller), None)
+            if opp is None:
+                return []
+            return [Event(
+                type=EventType.DISCARD,
+                payload={'player': opp, 'amount': amount, 'zone': ZoneType.HAND},
+                source=obj.id,
+            )]
+
+        return [
+            make_keyword_grant(obj, keywords, affects),
+            make_attack_trigger(obj, attack_discard),
+        ]
+    return setup
+
+
+def _keyword_plus_death_drain(keywords, amount=1):
+    """Keyword grant + death drain — flavor: parting symbiote spore."""
+    def setup(obj, state):
+        def affects(target, st, src=obj):
+            return target.id == src.id
+
+        def death_drain(event: Event, st: GameState) -> list[Event]:
+            opp = next((p for p in st.players if p != obj.controller), None)
+            if opp is None:
+                return []
+            return [Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp, 'amount': -amount, 'zone': ZoneType.GRAVEYARD},
+                source=obj.id,
+            )]
+
+        return [
+            make_keyword_grant(obj, keywords, affects),
+            make_death_trigger(obj, death_drain),
+        ]
+    return setup
+
+
 PETTY_MUGGER = make_creature(
     name="Petty Mugger",
     power=2, toughness=1, mana_cost="{U}", colors={Color.BLUE},
-    subtypes={"Human", "Rogue"}, text="Flying",
-    setup_interceptors=_self_keywords(['flying']),
+    subtypes={"Human", "Rogue"},
+    text="Flying. Whenever Petty Mugger attacks, target opponent discards a card.",
+    setup_interceptors=_keyword_plus_attack_discard(['flying']),
 )
 
 SYMBIOTE_LARVA = make_creature(
     name="Symbiote Larva",
     power=1, toughness=2, mana_cost="{U}", colors={Color.BLUE},
-    subtypes={"Symbiote"}, text="Flying",
-    setup_interceptors=_self_keywords(['flying']),
+    subtypes={"Symbiote"},
+    text="Flying. When Symbiote Larva dies, target opponent loses 1 life.",
+    setup_interceptors=_keyword_plus_death_drain(['flying']),
 )
 
 KLYNTAR_SCOUT = make_creature(
     name="Klyntar Scout",
     power=2, toughness=2, mana_cost="{U}", colors={Color.BLUE},
-    subtypes={"Symbiote"}, text="Hexproof",
-    setup_interceptors=_self_keywords(['hexproof']),
+    subtypes={"Symbiote"},
+    text="Hexproof. When Klyntar Scout enters, surveil 1.",
+    setup_interceptors=_keyword_plus_etb_surveil(['hexproof']),
 )
 
 HAND_NINJA = make_creature(
     name="Hand Ninja",
     power=2, toughness=2, mana_cost="{1}{U}", colors={Color.BLUE},
-    subtypes={"Human", "Ninja"}, text="Flying",
-    setup_interceptors=_self_keywords(['flying']),
+    subtypes={"Human", "Ninja"},
+    text="Flying. Whenever Hand Ninja attacks, target opponent mills 1.",
+    setup_interceptors=_keyword_plus_attack_mill(['flying']),
 )
 
 VULTURE_INITIATE = make_creature(
     name="Vulture Initiate",
     power=2, toughness=2, mana_cost="{1}{U}", colors={Color.BLUE},
-    subtypes={"Human", "Mercenary"}, text="Flying",
-    setup_interceptors=_self_keywords(['flying']),
+    subtypes={"Human", "Mercenary"},
+    text="Flying. When Vulture Initiate enters, target opponent loses 1 life.",
+    setup_interceptors=_keyword_plus_etb_drain(['flying']),
 )
 
 OSCORP_ENFORCER = make_creature(
     name="Oscorp Enforcer",
     power=3, toughness=2, mana_cost="{1}{U}", colors={Color.BLUE},
-    subtypes={"Human", "Soldier"}, text="Flash",
-    setup_interceptors=_self_keywords(['flash']),
+    subtypes={"Human", "Soldier"},
+    text="Flash. When Oscorp Enforcer enters, target opponent discards a card.",
+    setup_interceptors=_keyword_plus_etb_discard(['flash']),
 )
 
 SHOCKER_GOON = make_creature(
     name="Shocker Goon",
     power=2, toughness=3, mana_cost="{1}{U}", colors={Color.BLUE},
-    subtypes={"Human", "Villain"}, text="Flash",
-    setup_interceptors=_self_keywords(['flash']),
+    subtypes={"Human", "Villain"},
+    text="Flash. When Shocker Goon enters, target opponent loses 1 life.",
+    setup_interceptors=_keyword_plus_etb_drain(['flash']),
 )
 
 SYMBIOTE_BROOD = make_creature(
     name="Symbiote Brood",
     power=4, toughness=2, mana_cost="{2}{U}", colors={Color.BLUE},
-    subtypes={"Symbiote"}, text="Flying",
-    setup_interceptors=_self_keywords(['flying']),
+    subtypes={"Symbiote"},
+    text="Flying. Whenever Symbiote Brood attacks, target opponent mills 1.",
+    setup_interceptors=_keyword_plus_attack_mill(['flying']),
 )
 
 

@@ -711,6 +711,233 @@ def test_miles_morales_ultimate_other_attacker_no_fire():
 
 
 # ============================================================================
+# Slice-4 thin-bust (2026-05-19): 11 vanilla cards lifted to depth-1.
+# Each test fires the buffed trigger and asserts the expected event hits the
+# opponent (or self). These keep the depth-v2 axes wired in the engine, not
+# just on paper.
+# ============================================================================
+
+def test_neighborhood_vigilante_attack_pings_opp():
+    print("\n=== Neighborhood Vigilante: attack pings opp ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    v = _put_on_battlefield(game, p1, "Neighborhood Vigilante")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': v.id, 'attacker': v.id, 'controller': p1.id},
+        source=v.id,
+    ))
+    new = game.state.event_log[before:]
+    pings = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == v.id
+    ]
+    assert pings, f"Expected attack ping on opp; got {_emitted_types(game)[-10:]}"
+
+
+def test_rooftop_sidekick_etb_scrys():
+    print("\n=== Rooftop Sidekick: ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    s = _put_on_battlefield(game, p1, "Rooftop Sidekick")
+    new = game.state.event_log[before:]
+    scrys = [
+        e for e in new
+        if e.type == EventType.SCRY
+        and e.payload.get('reason') == 'rooftop_sidekick'
+        and e.source == s.id
+    ]
+    assert scrys, f"Expected SCRY on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_alley_wall_crawler_etb_drains_opp():
+    print("\n=== Alley Wall-Crawler: ETB drains opp ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    a = _put_on_battlefield(game, p1, "Alley Wall-Crawler")
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == a.id
+    ]
+    assert drains, f"Expected ETB drain on opp; got {_emitted_types(game)[-10:]}"
+
+
+def test_petty_mugger_attack_makes_opp_discard():
+    print("\n=== Petty Mugger: attack opp discard ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    m = _put_on_battlefield(game, p1, "Petty Mugger")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': m.id, 'attacker': m.id, 'controller': p1.id},
+        source=m.id,
+    ))
+    new = game.state.event_log[before:]
+    discards = [
+        e for e in new
+        if e.type == EventType.DISCARD
+        and e.payload.get('player') == p2.id
+        and e.source == m.id
+    ]
+    assert discards, f"Expected DISCARD on attack; got {_emitted_types(game)[-10:]}"
+
+
+def test_symbiote_larva_death_drains_opp():
+    print("\n=== Symbiote Larva: death drain ===")
+    from src.engine import CardType
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    larva = _put_on_battlefield(game, p1, "Symbiote Larva")
+    before = len(game.state.event_log)
+    # Send it to graveyard so death trigger fires.
+    gy_id = f'graveyard_{p1.id}'
+    game.emit(Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': larva.id},
+        source=larva.id,
+    ))
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == larva.id
+    ]
+    assert drains, f"Expected death drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_klyntar_scout_etb_surveils():
+    print("\n=== Klyntar Scout: ETB surveil ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    k = _put_on_battlefield(game, p1, "Klyntar Scout")
+    new = game.state.event_log[before:]
+    surveils = [
+        e for e in new
+        if e.type == EventType.SURVEIL
+        and e.payload.get('reason') == 'klyntar_scout'
+        and e.source == k.id
+    ]
+    assert surveils, f"Expected SURVEIL on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_hand_ninja_attack_mills_opp():
+    print("\n=== Hand Ninja: attack mill ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    n = _put_on_battlefield(game, p1, "Hand Ninja")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': n.id, 'attacker': n.id, 'controller': p1.id},
+        source=n.id,
+    ))
+    new = game.state.event_log[before:]
+    mills = [
+        e for e in new
+        if e.type == EventType.MILL
+        and e.payload.get('player') == p2.id
+        and e.source == n.id
+    ]
+    assert mills, f"Expected MILL on attack; got {_emitted_types(game)[-10:]}"
+
+
+def test_vulture_initiate_etb_drains_opp():
+    print("\n=== Vulture Initiate: ETB drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    v = _put_on_battlefield(game, p1, "Vulture Initiate")
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == v.id
+    ]
+    assert drains, f"Expected ETB drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_oscorp_enforcer_etb_makes_opp_discard():
+    print("\n=== Oscorp Enforcer: ETB opp discard ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    e = _put_on_battlefield(game, p1, "Oscorp Enforcer")
+    new = game.state.event_log[before:]
+    discards = [
+        ev for ev in new
+        if ev.type == EventType.DISCARD
+        and ev.payload.get('player') == p2.id
+        and ev.source == e.id
+    ]
+    assert discards, f"Expected DISCARD on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_shocker_goon_etb_drains_opp():
+    print("\n=== Shocker Goon: ETB drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    s = _put_on_battlefield(game, p1, "Shocker Goon")
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.source == s.id
+    ]
+    assert drains, f"Expected ETB drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_symbiote_brood_attack_mills_opp():
+    print("\n=== Symbiote Brood: attack mill ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    b = _put_on_battlefield(game, p1, "Symbiote Brood")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': b.id, 'attacker': b.id, 'controller': p1.id},
+        source=b.id,
+    ))
+    new = game.state.event_log[before:]
+    mills = [
+        e for e in new
+        if e.type == EventType.MILL
+        and e.payload.get('player') == p2.id
+        and e.source == b.id
+    ]
+    assert mills, f"Expected MILL on attack; got {_emitted_types(game)[-10:]}"
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 
