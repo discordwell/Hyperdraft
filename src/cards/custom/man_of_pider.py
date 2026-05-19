@@ -917,6 +917,7 @@ SYMBIOTE_BOND = make_enchantment(
     name="Symbiote Bond",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
+    subtypes={"Aura"},
     text="Enchant creature. Enchanted creature gets +2/+2 and has menace. It's a Symbiote in addition to its other types. When enchanted creature dies, return Symbiote Bond to your hand."
 )
 
@@ -2504,6 +2505,7 @@ GENETIC_MUTATION = make_enchantment(
     name="Genetic Mutation",
     mana_cost="{1}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
+    subtypes={"Aura"},
     text="Enchanted creature gets +3/+3 and has trample. When enchanted creature dies, create a 3/3 green Mutant creature token."
 )
 
@@ -2647,6 +2649,7 @@ WEB_COCOON = make_enchantment(
     name="Web Cocoon",
     mana_cost="{1}{G}{W}",
     colors={Color.GREEN, Color.WHITE},
+    subtypes={"Aura"},
     text="Enchant creature. Enchanted creature can't attack or block. When enchanted creature leaves the battlefield, draw a card."
 )
 
