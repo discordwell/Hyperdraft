@@ -700,6 +700,235 @@ def test_sukuna_finger_end_step_tutors_with_four_fingers():
 
 
 # ============================================================================
+# Phase A2 (slice 3) — decision-axis flips (2026-05-19)
+#
+# Each card surfaces a DISTINCT decision-axis fingerprint JJK has never
+# had. Tests verify the interceptors load and the expected pipeline
+# events (TARGET_REQUIRED / pending_choice install) fire on ETB.
+# ============================================================================
+
+
+# ----- Domain Expansion: Malevolent Shrine (modal-ETB) -----
+
+
+def test_domain_malevolent_shrine_loads():
+    print("\n=== Domain Expansion: Malevolent Shrine: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    dom = _put_on_battlefield(game, p1, "Domain Expansion: Malevolent Shrine")
+    assert dom.zone == ZoneType.BATTLEFIELD
+    assert dom.interceptor_ids, "Expected modal-ETB interceptor"
+
+
+def test_domain_malevolent_shrine_etb_opens_modal_choice():
+    """ETB installs a modal_with_targeting pending_choice with 3 modes."""
+    print("\n=== Domain Expansion: Malevolent Shrine: modal pending ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    dom = _put_on_battlefield(game, p1, "Domain Expansion: Malevolent Shrine")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice after ETB"
+    assert pc.source_id == dom.id
+    assert pc.choice_type == "modal_with_targeting"
+    assert pc.player == p1.id
+    assert len(pc.options) == 3, f"Expected 3 modes; got {len(pc.options)}"
+
+
+# ----- Yuta Okkotsu, Rika Unbound (targeted-ETB + info pulse) -----
+
+
+def test_yuta_okkotsu_rika_unbound_loads():
+    print("\n=== Yuta Okkotsu, Rika Unbound: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    yuta = _put_on_battlefield(game, p1, "Yuta Okkotsu, Rika Unbound")
+    assert yuta.zone == ZoneType.BATTLEFIELD
+    # Flying-grant + targeted-ETB + info-pulse closure = 3+ interceptors.
+    assert len(yuta.interceptor_ids) >= 2, (
+        f"Expected at least 2 interceptors; got {len(yuta.interceptor_ids)}"
+    )
+    assert has_ability(yuta, 'flying', game.state), "Expected flying"
+
+
+def test_yuta_okkotsu_etb_emits_target_required_and_info():
+    """ETB emits TARGET_REQUIRED with opponent_creature filter + a
+    TARGET_CHOSEN info event from the supplementary hook."""
+    print("\n=== Yuta Okkotsu: ETB target + info pulse ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    yuta = _put_on_battlefield(game, p1, "Yuta Okkotsu, Rika Unbound")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == yuta.id
+        and e.payload.get('target_filter') == 'opponent_creature'
+    ]
+    assert target_reqs, (
+        f"Expected opponent_creature TARGET_REQUIRED; "
+        f"recent={[e.type.name for e in new[-10:]]}"
+    )
+    info_events = [
+        e for e in new
+        if e.type == EventType.TARGET_CHOSEN and e.payload.get('source') == yuta.id
+    ]
+    assert info_events, "Expected TARGET_CHOSEN info pulse on Yuta ETB"
+
+
+# ----- Black Flash Cascade (divided damage ETB) -----
+
+
+def test_black_flash_cascade_loads():
+    print("\n=== Black Flash Cascade: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    bfc = _put_on_battlefield(game, p1, "Black Flash Cascade")
+    assert bfc.zone == ZoneType.BATTLEFIELD
+    assert bfc.interceptor_ids, "Expected divided-damage ETB interceptor"
+
+
+def test_black_flash_cascade_etb_emits_divided_damage_target_required():
+    """ETB emits TARGET_REQUIRED with divide_amount=5 and damage effect."""
+    print("\n=== Black Flash Cascade: ETB distribute damage ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    bfc = _put_on_battlefield(game, p1, "Black Flash Cascade")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == bfc.id
+        and e.payload.get('effect') == 'damage'
+    ]
+    assert target_reqs, (
+        f"Expected damage TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    payload = target_reqs[0].payload
+    assert payload.get('divide_amount') == 5, (
+        f"Expected divide_amount=5; got {payload.get('divide_amount')}"
+    )
+
+
+# ----- Mahito, Idle Transfiguration (sacrifice choice from ETB) -----
+
+
+def test_mahito_idle_transfiguration_loads():
+    print("\n=== Mahito, Idle Transfiguration: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    mahito = _put_on_battlefield(game, p1, "Mahito, Idle Transfiguration")
+    assert mahito.zone == ZoneType.BATTLEFIELD
+    assert mahito.interceptor_ids, "Expected ETB interceptor"
+    assert has_ability(mahito, 'menace', game.state), "Expected menace"
+
+
+def test_mahito_etb_with_opp_creature_opens_sacrifice_choice():
+    """ETB opens a sacrifice pending_choice on the opponent who controls
+    a creature."""
+    print("\n=== Mahito: ETB opens sacrifice choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Plant an opp creature first.
+    _put_on_battlefield(game, p2, "Jujutsu Trainee")
+    mahito = _put_on_battlefield(game, p1, "Mahito, Idle Transfiguration")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected sacrifice pending_choice"
+    assert pc.source_id == mahito.id
+    assert pc.choice_type == "sacrifice"
+    assert pc.player == p2.id, f"Expected sacrificer=p2; got {pc.player}"
+
+
+def test_mahito_etb_empty_opponent_board_no_crash():
+    """ETB with no opp creatures returns cleanly, no choice installed."""
+    print("\n=== Mahito: empty opp board no-op ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    mahito = _put_on_battlefield(game, p1, "Mahito, Idle Transfiguration")
+    assert mahito.zone == ZoneType.BATTLEFIELD
+    # No opp creatures means no sacrifice prompt triggered for Mahito.
+    pc = game.state.pending_choice
+    if pc is not None:
+        assert pc.source_id != mahito.id, (
+            "Mahito should not install a choice with empty opp board"
+        )
+
+
+# ----- Hakari Kinji, Idle Death Gamble (top-N land pick) -----
+
+
+def test_hakari_idle_death_gamble_loads():
+    print("\n=== Hakari Kinji, Idle Death Gamble: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    hakari = _put_on_battlefield(game, p1, "Hakari Kinji, Idle Death Gamble")
+    assert hakari.zone == ZoneType.BATTLEFIELD
+    assert hakari.interceptor_ids, "Expected ETB interceptor"
+    assert has_ability(hakari, 'haste', game.state), "Expected haste"
+
+
+def test_hakari_empty_library_no_crash():
+    """ETB with empty library returns [] without crashing."""
+    print("\n=== Hakari: empty library no-op ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    hakari = _put_on_battlefield(game, p1, "Hakari Kinji, Idle Death Gamble")
+    assert hakari.zone == ZoneType.BATTLEFIELD
+
+
+# ----- Toji Fushiguro, Heavenly Pact (targeted attack trigger) -----
+
+
+def test_toji_heavenly_pact_loads():
+    print("\n=== Toji Fushiguro, Heavenly Pact: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    toji = _put_on_battlefield(game, p1, "Toji Fushiguro, Heavenly Pact")
+    assert toji.zone == ZoneType.BATTLEFIELD
+    # First-strike grant + targeted-attack trigger = 2 interceptors.
+    assert len(toji.interceptor_ids) >= 2, (
+        f"Expected at least 2 interceptors; got {len(toji.interceptor_ids)}"
+    )
+    assert has_ability(toji, 'first strike', game.state), "Expected first strike"
+
+
+def test_toji_heavenly_pact_attack_emits_target_required():
+    """Attack emits TARGET_REQUIRED with opponent_creature filter + damage
+    effect."""
+    print("\n=== Toji: attack triggers spear-strike ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    toji = _put_on_battlefield(game, p1, "Toji Fushiguro, Heavenly Pact")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': toji.id, 'attacker': toji.id, 'controller': p1.id},
+        source=toji.id,
+    ))
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == toji.id
+        and e.payload.get('effect') == 'damage'
+        and e.payload.get('target_filter') == 'opponent_creature'
+    ]
+    assert target_reqs, (
+        f"Expected damage TARGET_REQUIRED on attack; "
+        f"recent={[e.type.name for e in new[-10:]]}"
+    )
+    payload = target_reqs[0].payload
+    assert payload.get('effect_params', {}).get('amount') == 2, (
+        f"Expected damage amount=2; got {payload.get('effect_params')}"
+    )
+
+
+# ============================================================================
 # Runner
 # ============================================================================
 

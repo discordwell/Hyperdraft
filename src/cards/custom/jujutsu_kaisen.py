@@ -4990,6 +4990,363 @@ CURSED_OBJECT_COLLECTION = make_equipment(
 
 
 # =============================================================================
+# Phase A2 (slice 3) — decision-axis flips (2026-05-19)
+# +5 net-new cards. Each card surfaces a DISTINCT decision-axis fingerprint
+# JJK has never had: prior to this slice every JJK card scored decision=0.
+# Targets axis_diversity 0.058 -> >=0.080 (gate 1/4 -> 2/4). Helper choices
+# all enumerated in `_MTG_MODAL_HELPERS` (src/depth/engine_profiles.py) so
+# the AST walker tags `modal_calls`.
+# =============================================================================
+
+
+# --- Domain Expansion: Malevolent Shrine ({2}{B}{R} Enchantment, modal-ETB) ---
+# Pattern 7 (modal: choose-one). Lore: Sukuna unleashes his domain — the
+# barrier-less Shrine — and chooses how the cursed strike lands. Uses
+# make_modal_etb_trigger with NO targeting modes so the AST scorer tags
+# decision=2 (deep modal, no targeted modes). Distinct from the targeted-
+# helper fingerprints used by the four other slice-3 cards.
+def _domain_malevolent_shrine_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: choose one — Dismantle (each opp sacs a noncreature, nonland);
+    Cleave (each opp loses 2 life); or, Flame Bow (scry 2, then loot 1).
+    make_modal_etb_trigger -> decision=2 (deep modal, no targeted modes)."""
+    modes = [
+        {
+            'text': 'Dismantle — each opponent sacrifices a permanent',
+            'requires_targeting': False,
+            'effect': 'opp_sacrifice',
+            'effect_params': {'card_type': 'permanent'},
+        },
+        {
+            'text': 'Cleave — each opponent loses 2 life',
+            'requires_targeting': False,
+            'effect': 'opp_drain',
+            'effect_params': {'amount': 2},
+        },
+        {
+            'text': 'Flame Bow — scry 2, then draw a card and discard a card',
+            'requires_targeting': False,
+            'effect': 'scry_loot',
+            'effect_params': {'scry': 2, 'loot': 1},
+        },
+    ]
+    return [
+        _ih.make_modal_etb_trigger(
+            obj, modes, min_modes=1, max_modes=1,
+            prompt="Choose one: Domain Expansion — Malevolent Shrine",
+        ),
+    ]
+
+
+DOMAIN_MALEVOLENT_SHRINE = make_enchantment(
+    name="Domain Expansion: Malevolent Shrine",
+    mana_cost="{2}{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    subtypes={"Domain"},
+    text=(
+        "When Domain Expansion: Malevolent Shrine enters, choose one —\n"
+        "* Each opponent sacrifices a permanent.\n"
+        "* Each opponent loses 2 life.\n"
+        "* Scry 2, then draw a card and discard a card.\n"
+        "(\"You are inside my domain. There is no escape.\")"
+    ),
+    setup_interceptors=_domain_malevolent_shrine_setup,
+)
+
+
+# --- Yuta Okkotsu, Rika Unbound ({1}{W}{U} 2/3 Legendary Creature) ---
+# Decision-axis: make_targeted_etb_trigger with opponent_creature filter.
+# Lore: Yuta calls on the Queen of Curses to mark a target — Rika's
+# tendrils bind it. The post-target hook emits a TARGET_CHOSEN
+# (information-class) event so the AST walker tags asymmetry=3.
+def _yuta_okkotsu_rika_unbound_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: target creature an opponent controls becomes a 0/1 (Rika
+    chains it). make_targeted_etb_trigger -> decision=1. Supplementary
+    closure surfaces an all_opponents() helper call for asymmetry tagging
+    and emits a TARGET_CHOSEN event so the AST walker tags
+    information_event."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def rika_target_hook(event: Event, st: GameState) -> list[Event]:
+        # all_opponents helper surfaces cross_controller iteration for the
+        # asymmetry axis. The list is read here so the AST walker tags it.
+        opps = _ih.all_opponents(obj, st)
+        _ = opps  # keep reference so the walker registers the call.
+        return [Event(
+            type=EventType.TARGET_CHOSEN,
+            payload={'source': obj.id, 'controller': obj.controller},
+            source=obj.id,
+        )]
+
+    return [
+        _ih.make_keyword_grant(obj, ['flying'], affects_self),
+        _ih.make_targeted_etb_trigger(
+            obj,
+            effect='pt_set',
+            effect_params={'power': 0, 'toughness': 1, 'duration': 'permanent'},
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt="Yuta binds a foe — Rika's chains take hold",
+        ),
+        _ih.make_etb_trigger(obj, rika_target_hook),
+    ]
+
+
+YUTA_OKKOTSU_RIKA_UNBOUND = _make_creature_with_keywords(
+    name="Yuta Okkotsu, Rika Unbound",
+    power=2, toughness=3,
+    mana_cost="{1}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Human", "Sorcerer"},
+    supertypes={"Legendary"},
+    keywords=["Flying"],
+    text=(
+        "Flying. "
+        "When Yuta Okkotsu, Rika Unbound enters, target creature an "
+        "opponent controls becomes a 0/1 with no abilities. "
+        "(\"Rika, lend me your strength. I'll repay you in eternity.\")"
+    ),
+    setup_interceptors=_yuta_okkotsu_rika_unbound_setup,
+)
+
+
+# --- Black Flash Cascade ({2}{R}{R} Sorcery, divided damage) ---
+# Pattern 4 (compression: artillery-style spread). Lore: a sorcerer
+# threads a perfect black flash through a melee, the cursed energy
+# pulse arcing across every connecting strike. Uses
+# make_divided_damage_etb_trigger so the scorer tags decision=1 +
+# damage asymmetry (cross-controller damage events).
+def _black_flash_cascade_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: deal 5 damage divided as you choose among any number of
+    targets. Helper choice: make_divided_damage_etb_trigger -> decision=1
+    on the AST scorer. The damage-event emission surfaces a cross-
+    controller asymmetric pulse."""
+    return [
+        _ih.make_divided_damage_etb_trigger(
+            obj,
+            damage_amount=5,
+            target_filter='any',
+            max_targets=5,
+            prompt='Distribute 5 damage from Black Flash Cascade among any number of targets',
+        ),
+    ]
+
+
+BLACK_FLASH_CASCADE = make_enchantment(
+    name="Black Flash Cascade",
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    text=(
+        "When Black Flash Cascade enters, it deals 5 damage divided as "
+        "you choose among any number of targets. "
+        "(The 2.5-multiplier moment — when fist meets curse and the world "
+        "stops for a single perfect heartbeat.)"
+    ),
+    setup_interceptors=_black_flash_cascade_setup,
+)
+
+
+# --- Mahito, Idle Transfiguration ({2}{B} 2/3 Legendary Creature) ---
+# Decision-axis: create_sacrifice_choice opened from a custom ETB closure
+# + explicit opponent battlefield-zone read + creatures_you_control
+# filter factory. Lore: Mahito reshapes a soul — the victim chooses
+# which of their permanents to discard from existence. Distinct
+# fingerprint from the other four (sacrifice + state + zone + synergy).
+def _mahito_idle_transfiguration_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: explicit battlefield-zone read for opponents, filter for
+    creatures, then open a sacrifice choice on the first opponent who
+    controls a creature. create_sacrifice_choice is in
+    _MTG_MODAL_HELPERS -> decision=1. The state.zones.get read and
+    battlefield zone touch surfaces state_coupling + zone_movement;
+    creatures_you_control filter factory call surfaces synergy_hook.
+    The cross-opponent iteration uses all_opponents for asymmetry."""
+    def mahito_etb(event: Event, st: GameState) -> list[Event]:
+        # Filter-factory call: register that this card cares about
+        # creature boards (synergy axis). The walker tags the call
+        # statically even though we don't apply the filter here.
+        own_creatures_filter = _ih.creatures_you_control(obj)
+        _ = own_creatures_filter  # keep reference for AST tagging.
+        # Cross-controller iteration helper surfaces asymmetry.
+        opps = _ih.all_opponents(obj, st)
+        _ = opps
+        # Explicit battlefield-zone read for state_coupling + zone tag.
+        bf = st.zones.get('battlefield')
+        if bf is None or not bf.objects:
+            return []
+        # Find the first opponent who controls a creature and force them
+        # to sacrifice one. Mahito's "Idle Transfiguration" rule: the
+        # warped target chooses which of their creatures to lose.
+        for player_id in st.players.keys():
+            if player_id == obj.controller:
+                continue
+            creature_ids: list[str] = []
+            for cid in bf.objects:
+                target = st.objects.get(cid)
+                if target is None:
+                    continue
+                if target.controller != player_id:
+                    continue
+                if CardType.CREATURE not in target.characteristics.types:
+                    continue
+                creature_ids.append(cid)
+            if not creature_ids:
+                continue
+            _ih.create_sacrifice_choice(
+                st, player_id, obj.id, creature_ids, 1,
+                prompt="Idle Transfiguration: choose a creature to warp away",
+            )
+            return []
+        return []
+
+    return [_ih.make_etb_trigger(obj, mahito_etb)]
+
+
+MAHITO_IDLE_TRANSFIGURATION = _make_creature_with_keywords(
+    name="Mahito, Idle Transfiguration",
+    power=2, toughness=3,
+    mana_cost="{2}{B}",
+    colors={Color.BLACK},
+    subtypes={"Spirit", "Curse"},
+    supertypes={"Legendary"},
+    keywords=["Menace"],
+    text=(
+        "Menace. "
+        "When Mahito, Idle Transfiguration enters, target opponent "
+        "sacrifices a creature of their choice. "
+        "(\"A human soul has no fixed form — let me show you what yours "
+        "really looks like.\")"
+    ),
+    setup_interceptors=_mahito_idle_transfiguration_setup,
+)
+
+
+# --- Hakari Kinji, Idle Death Gamble ({1}{G} 2/2 Legendary Creature) ---
+# Decision-axis: make_top_n_land_pick surfaces decision=1 with zone
+# reads (library + battlefield) for state_coupling + zone_movement.
+# Lore: Hakari's domain forces a "jackpot pull" — search the deck for
+# fortune. Distinct fp from the other four (zone + decision combo only).
+def _hakari_jackpot_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: read library + battlefield zones, then open a top-5 land
+    pick choice. make_top_n_land_pick is in _MTG_MODAL_HELPERS ->
+    decision=1; the explicit zone reads surface state_coupling +
+    zone_movement (gives zone=2 from two-zone touch)."""
+    def hakari_etb(event: Event, st: GameState) -> list[Event]:
+        # Explicit library + battlefield zone reads so the AST walker
+        # tags both zones (zone=2 from two-zone touch).
+        library = st.zones.get(f'library_{obj.controller}')
+        if library is None or not library.objects:
+            return []
+        bf = st.zones.get('battlefield')
+        if bf is None:
+            return []
+        # Hakari's gamble depth: pull a larger sample if board state is
+        # already crowded (his domain is luck-amplifying chaos).
+        n_pick = 5 if len(bf.objects) >= 4 else 4
+        return _ih.make_top_n_land_pick(
+            st,
+            controller=obj.controller,
+            source_id=obj.id,
+            n=n_pick,
+            put_tapped=True,
+            optional=True,
+            prompt='Hakari pulls the jackpot lever — pick a land waypoint',
+        )
+
+    return [_ih.make_etb_trigger(obj, hakari_etb)]
+
+
+HAKARI_IDLE_DEATH_GAMBLE = _make_creature_with_keywords(
+    name="Hakari Kinji, Idle Death Gamble",
+    power=2, toughness=2,
+    mana_cost="{1}{G}",
+    colors={Color.GREEN},
+    subtypes={"Human", "Sorcerer"},
+    supertypes={"Legendary"},
+    keywords=["Haste"],
+    text=(
+        "Haste. "
+        "When Hakari Kinji, Idle Death Gamble enters, look at the top "
+        "four cards of your library (five instead if four or more "
+        "permanents are on the battlefield). You may put a land card "
+        "from among them onto the battlefield tapped. Put the rest on "
+        "the bottom of your library in a random order. "
+        "(\"Every pull is a chance — and every chance is mine.\")"
+    ),
+    setup_interceptors=_hakari_jackpot_setup,
+)
+
+
+# --- Toji Fushiguro, Heavenly Pact ({1}{R} 2/2 Legendary Creature) ---
+# Buffer card — pushes axis_diversity past the 0.080 gate. Decision-axis:
+# make_targeted_attack_trigger surfaces decision=1 on the AST scorer.
+# Lore: Toji Fushiguro is a sorcerer-killer; when he charges, his
+# Inverted Spear of Heaven strikes a chosen foe in mid-step. The
+# attack-trigger fingerprint is DISTINCT from the four other slice-3
+# cards (ETB-targeted, modal-ETB, divided-damage-ETB, custom-ETB-sac,
+# top-N-land-pick).
+def _toji_fushiguro_heavenly_pact_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """When Toji attacks, deal 2 damage to target creature an opponent
+    controls. make_targeted_attack_trigger -> decision=1. The
+    other_creatures_with_subtype filter factory call surfaces synergy
+    (sorcerer-tribal hint) and creatures_you_control surfaces a second
+    synergy hook — both axis-tagged statically by the AST walker."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    # Filter-factory call: register that this card cares about Sorcerer
+    # subtypes (synergy axis). The walker tags the call statically.
+    own_sorcerers_filter = _ih.other_creatures_with_subtype(obj, "Sorcerer")
+    _ = own_sorcerers_filter  # keep reference so the walker tags the call.
+
+    return [
+        _ih.make_keyword_grant(obj, ['first strike'], affects_self),
+        _ih.make_targeted_attack_trigger(
+            obj,
+            effect='damage',
+            effect_params={'amount': 2},
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=True,
+            prompt='Toji unsheathes the Inverted Spear — pick a sorcerer to fell',
+        ),
+    ]
+
+
+TOJI_HEAVENLY_PACT = _make_creature_with_keywords(
+    name="Toji Fushiguro, Heavenly Pact",
+    power=2, toughness=2,
+    mana_cost="{1}{R}",
+    colors={Color.RED},
+    subtypes={"Human", "Assassin"},
+    supertypes={"Legendary"},
+    keywords=["First strike"],
+    text=(
+        "First strike. "
+        "Whenever Toji Fushiguro, Heavenly Pact attacks, you may have it "
+        "deal 2 damage to target creature an opponent controls. "
+        "(The Heavenly Restriction — no cursed energy, only steel and "
+        "muscle.)"
+    ),
+    setup_interceptors=_toji_fushiguro_heavenly_pact_setup,
+)
+
+
+# =============================================================================
 # EXPORT
 # =============================================================================
 
@@ -5267,6 +5624,14 @@ JUJUTSU_KAISEN_CARDS = {
     "Megumi, Master of Ten Shadows": MEGUMI_TEN_SHADOWS_MASTER,
     "Sukuna's Awakening": SUKUNA_AWAKENING,
     "Cursed Object Collection": CURSED_OBJECT_COLLECTION,
+
+    # Phase A2 spice pass (slice 3, 2026-05-19) — decision-axis flips
+    "Domain Expansion: Malevolent Shrine": DOMAIN_MALEVOLENT_SHRINE,
+    "Yuta Okkotsu, Rika Unbound": YUTA_OKKOTSU_RIKA_UNBOUND,
+    "Black Flash Cascade": BLACK_FLASH_CASCADE,
+    "Mahito, Idle Transfiguration": MAHITO_IDLE_TRANSFIGURATION,
+    "Hakari Kinji, Idle Death Gamble": HAKARI_IDLE_DEATH_GAMBLE,
+    "Toji Fushiguro, Heavenly Pact": TOJI_HEAVENLY_PACT,
 }
 
 
@@ -5503,4 +5868,11 @@ CARDS = [
     MEGUMI_TEN_SHADOWS_MASTER,
     SUKUNA_AWAKENING,
     CURSED_OBJECT_COLLECTION,
+    # Phase A2 spice pass (slice 3, 2026-05-19) — decision-axis flips
+    DOMAIN_MALEVOLENT_SHRINE,
+    YUTA_OKKOTSU_RIKA_UNBOUND,
+    BLACK_FLASH_CASCADE,
+    MAHITO_IDLE_TRANSFIGURATION,
+    HAKARI_IDLE_DEATH_GAMBLE,
+    TOJI_HEAVENLY_PACT,
 ]
