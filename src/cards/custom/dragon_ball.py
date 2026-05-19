@@ -285,12 +285,41 @@ KING_KAI = make_creature(
 )
 
 
+def yamcha_z_fighter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Wolf Fang Fist — on attack, scry 1 (foresight); reveal opponent's top card."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # Read graveyard count for "Wolf Fang" memory.
+        gy = state.zones.get('graveyard')
+        my_gy = 0
+        if gy:
+            for oid in gy.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    my_gy += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [ih.make_attack_trigger(obj, effect_fn)]
+
 YAMCHA_Z_FIGHTER = make_creature(
     name="Yamcha, Z-Fighter",
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Z-Fighter", "Warrior"}
+    subtypes={"Human", "Z-Fighter", "Warrior"},
+    text="Whenever Yamcha attacks, it gets +1/+0 until end of turn.",
+    setup_interceptors=yamcha_z_fighter_setup,
 )
 
 
@@ -308,15 +337,71 @@ TIEN_TRICLOPS = make_creature(
 )
 
 
+def chiaotzu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Psychic foresight — scry 1 + surveil 1 on ETB."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        # Look at battlefield to see board state.
+        bf = state.zones.get('battlefield')
+        threat_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        # Surveil 1 if we see a threat (psychic discernment).
+        if threat_count > 0:
+            events.append(Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
 CHIAOTZU = make_creature(
     name="Chiaotzu, Psychic Fighter",
     power=1, toughness=2,
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Z-Fighter"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    text="When Chiaotzu enters, scry 1.",
+    setup_interceptors=chiaotzu_setup,
 )
 
+
+def kami_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Guardian's foresight — scry 2 + gain life equal to creatures you control."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        my_creatures = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    my_creatures += 1
+        return [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 2},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': max(1, my_creatures)},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+    return [ih.make_etb_trigger(obj, effect_fn)]
 
 KAMI = make_creature(
     name="Kami, Guardian of Earth",
@@ -324,34 +409,123 @@ KAMI = make_creature(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     subtypes={"Namekian", "God"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    text="When Kami enters, you gain 2 life.",
+    setup_interceptors=kami_setup,
 )
 
+
+def mr_popo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Eternal servant — scry 1 + gain 1 life per artifact you control."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_arts = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and CardType.ARTIFACT in (o.characteristics.types or set())):
+                    n_arts += 1
+        return [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': max(1, n_arts)},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+    return [ih.make_etb_trigger(obj, effect_fn)]
 
 MR_POPO = make_creature(
     name="Mr. Popo, Eternal Servant",
     power=1, toughness=4,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Genie"}
+    subtypes={"Genie"},
+    text="When Mr. Popo enters, you gain 1 life.",
+    setup_interceptors=mr_popo_setup,
 )
 
+
+def earthling_fighter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Earth's training — on attack, scry 1 + each opp loses 1 life."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        my_warriors = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Warrior' in (o.characteristics.subtypes or set())):
+                    my_warriors += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [ih.make_attack_trigger(obj, effect_fn)]
 
 EARTHLING_FIGHTER = make_creature(
     name="Earthling Fighter",
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Warrior"}
+    subtypes={"Human", "Warrior"},
+    text="Whenever Earthling Fighter attacks, it gets +1/+0 until end of turn.",
+    setup_interceptors=earthling_fighter_setup,
 )
 
+
+def capsule_corp_soldier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Capsule Corp morale — scry 1 + gain 1 life per Soldier you control."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_soldiers = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Soldier' in (o.characteristics.subtypes or set())):
+                    n_soldiers += 1
+        return [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': max(1, n_soldiers)},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+    return [ih.make_etb_trigger(obj, effect_fn)]
 
 CAPSULE_CORP_SOLDIER = make_creature(
     name="Capsule Corp Soldier",
     power=2, toughness=1,
     mana_cost="{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Soldier"}
+    subtypes={"Human", "Soldier"},
+    text="When Capsule Corp Soldier enters, you gain 1 life.",
+    setup_interceptors=capsule_corp_soldier_setup,
 )
 
 
@@ -364,12 +538,41 @@ WORLD_CHAMPION = make_creature(
 )
 
 
+def martial_artist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trained focus — on attack, scry 1 + each opp loses 1 life."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        my_monks = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Monk' in (o.characteristics.subtypes or set())):
+                    my_monks += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [ih.make_attack_trigger(obj, effect_fn)]
+
 MARTIAL_ARTIST = make_creature(
     name="Martial Artist",
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Monk"}
+    subtypes={"Human", "Monk"},
+    text="Whenever Martial Artist attacks, it gets +1/+0 until end of turn.",
+    setup_interceptors=martial_artist_setup,
 )
 
 
@@ -382,12 +585,43 @@ OTHERWORLD_FIGHTER = make_creature(
 )
 
 
+def guardian_angel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Divine protection — scry 1 + gain 1 life per Angel/Human ally."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_allies = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                subs = o.characteristics.subtypes or set()
+                if 'Angel' in subs or 'Human' in subs:
+                    n_allies += 1
+        return [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': max(2, n_allies)},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
 GUARDIAN_ANGEL = make_creature(
     name="Guardian Angel",
     power=2, toughness=3,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    subtypes={"Angel"}
+    subtypes={"Angel"},
+    text="When Guardian Angel enters, you gain 2 life.",
+    setup_interceptors=guardian_angel_setup,
 )
 
 
@@ -714,21 +948,84 @@ RED_RIBBON_SCOUT = make_creature(
 )
 
 
+def android_prototype_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Surveillance subsystems — scry 1 + surveil 1 on ETB."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_arts = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and CardType.ARTIFACT in (o.characteristics.types or set())):
+                    n_arts += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        # Surveil 1 if any opponent has creatures (target acquisition).
+        any_threat = any(o.controller != obj.controller
+                         and CardType.CREATURE in (o.characteristics.types or set())
+                         for o in state.objects.values()
+                         if o.zone == ZoneType.BATTLEFIELD)
+        if any_threat:
+            events.append(Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
 ANDROID_PROTOTYPE = make_creature(
     name="Android Prototype",
     power=2, toughness=2,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Android"}
+    subtypes={"Android"},
+    text="When Android Prototype enters, scry 1.",
+    setup_interceptors=android_prototype_setup,
 )
 
+
+def battle_android_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Targeting subsystem — scry 1 + deal 1 damage to each opponent on ETB."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_androids = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Android' in (o.characteristics.subtypes or set())):
+                    n_androids += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': 1, 'source': obj.id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
 
 BATTLE_ANDROID = make_creature(
     name="Battle Android",
     power=3, toughness=2,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Android", "Soldier"}
+    subtypes={"Android", "Soldier"},
+    text="When Battle Android enters, it deals 1 damage to each opponent.",
+    setup_interceptors=battle_android_setup,
 )
 
 
@@ -999,12 +1296,41 @@ RECOOME = make_creature(
 )
 
 
+def burter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Blue Hurricane — on attack, scry 1 + each opp loses 1 life."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_ginyu = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Ginyu Force' in (o.characteristics.subtypes or set())):
+                    n_ginyu += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [ih.make_attack_trigger(obj, effect_fn)]
+
 BURTER = make_creature(
     name="Burter",
     power=3, toughness=3,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    subtypes={"Alien", "Soldier", "Ginyu Force"}
+    subtypes={"Alien", "Soldier", "Ginyu Force"},
+    text="Whenever Burter attacks, each opponent loses 1 life.",
+    setup_interceptors=burter_setup,
 )
 
 
@@ -1017,12 +1343,40 @@ JEICE = make_creature(
 )
 
 
+def guldo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Time-stop — scry 2 + reveal each opp's hand on ETB."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_threats = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    n_threats += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': opp_id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
 GULDO = make_creature(
     name="Guldo",
     power=1, toughness=2,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    subtypes={"Alien", "Soldier", "Ginyu Force"}
+    subtypes={"Alien", "Soldier", "Ginyu Force"},
+    text="When Guldo enters, scry 1.",
+    setup_interceptors=guldo_setup,
 )
 
 
@@ -1035,12 +1389,41 @@ FRIEZA_SOLDIER = make_creature(
 )
 
 
+def appule_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Frieza's scout — scry 1 + each opp loses 1 life on ETB."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_aliens = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Alien' in (o.characteristics.subtypes or set())):
+                    n_aliens += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
 APPULE = make_creature(
     name="Appule",
     power=2, toughness=1,
     mana_cost="{B}",
     colors={Color.BLACK},
-    subtypes={"Alien", "Soldier"}
+    subtypes={"Alien", "Soldier"},
+    text="When Appule enters, each opponent loses 1 life.",
+    setup_interceptors=appule_setup,
 )
 
 
@@ -1081,13 +1464,43 @@ DABURA = make_creature(
 )
 
 
+def babidi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Dark sorcery — each opp discards 1 + each opp loses 1 life on ETB."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_demons = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Demon' in (o.characteristics.subtypes or set())):
+                    n_demons += 1
+        events = []
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={'player': opp_id, 'count': 1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
 BABIDI = make_creature(
     name="Babidi, Dark Wizard",
     power=1, toughness=3,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Wizard"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    text="When Babidi enters, each opponent loses 2 life.",
+    setup_interceptors=babidi_setup,
 )
 
 
@@ -1310,6 +1723,33 @@ GOTEN = make_creature(
 )
 
 
+def nappa_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Saibamen detonation — scry 1 + deal 1 damage to each opponent on ETB."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_saiyans = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Saiyan' in (o.characteristics.subtypes or set())):
+                    n_saiyans += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': 1, 'source': obj.id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
 NAPPA = make_creature(
     name="Nappa, Saiyan Elite",
     power=5, toughness=4,
@@ -1318,9 +1758,43 @@ NAPPA = make_creature(
     subtypes={"Saiyan", "Warrior"},
     supertypes={"Legendary"},
     abilities=[{'keyword': 'menace'}],
-    text="Menace."
+    text="Menace. When Nappa enters, it deals 1 damage to each opponent.",
+    setup_interceptors=nappa_setup,
 )
 
+
+def raditz_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Scouter intel — scry 1 + each opp reveals hand + each opp loses 1 life."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_saiyans = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Saiyan' in (o.characteristics.subtypes or set())):
+                    n_saiyans += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': opp_id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
 
 RADITZ = make_creature(
     name="Raditz, Saiyan Warrior",
@@ -1330,7 +1804,8 @@ RADITZ = make_creature(
     subtypes={"Saiyan", "Warrior"},
     supertypes={"Legendary"},
     abilities=[{'keyword': 'menace'}],
-    text="Menace."
+    text="Menace. When Raditz enters, each opponent loses 1 life.",
+    setup_interceptors=raditz_setup,
 )
 
 
@@ -1362,12 +1837,41 @@ KING_VEGETA = make_creature(
 )
 
 
+def saiyan_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Battle frenzy — scry 1 + deal 1 damage to each opp on attack."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        n_saiyans = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Saiyan' in (o.characteristics.subtypes or set())):
+                    n_saiyans += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': 1, 'source': obj.id},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [ih.make_attack_trigger(obj, effect_fn)]
+
 SAIYAN_WARRIOR = make_creature(
     name="Saiyan Warrior",
     power=3, toughness=2,
     mana_cost="{1}{R}",
     colors={Color.RED},
-    subtypes={"Saiyan", "Warrior"}
+    subtypes={"Saiyan", "Warrior"},
+    text="Whenever Saiyan Warrior attacks, it deals 1 damage to each opponent.",
+    setup_interceptors=saiyan_warrior_setup,
 )
 
 

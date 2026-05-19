@@ -639,6 +639,321 @@ def test_kame_house_refuge_tutor_gated_by_z_fighter():
     print(f"  Gate: no Z-Fighter blocked, with Z-Fighter unlocked")
 
 
+# ============================================================================
+# SLICE 4 — Thin-bust: 17 vanilla cards lifted to depth-3 axes
+# Each card now emits SCRY or REVEAL or DISCARD/LIFE_CHANGE to opponent,
+# reads state.zones, and counts allies by subtype/type.
+# ============================================================================
+
+
+def _events_emitted_by(game, source_id, event_type):
+    return [e for e in game.state.event_log
+            if e.type == event_type and e.source == source_id]
+
+
+def _assert_etb_scry(game, p1, card_name, expected_amount=1):
+    """Helper: ETB the card, assert it emits a SCRY for the controller."""
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, card_name)
+    scries = [e for e in game.state.event_log[before:]
+              if e.type == EventType.SCRY and e.source == obj.id]
+    assert scries, (
+        f"{card_name}: SCRY missing — emitted "
+        f"{[e.type.name for e in game.state.event_log[before:]]}"
+    )
+    assert scries[-1].payload.get('amount') == expected_amount, (
+        f"{card_name}: expected SCRY {expected_amount}, got {scries[-1].payload}"
+    )
+    return obj
+
+
+def test_yamcha_attack_emits_scry_and_life_drain():
+    """Yamcha (W Z-Fighter) — on attack, scry 1 + each opp loses 1 life."""
+    print("\n=== Yamcha, Z-Fighter: attack trigger ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    yam = _put_on_battlefield(game, p1, "Yamcha, Z-Fighter")
+    # Yamcha registers an attack trigger.
+    assert len(yam.interceptor_ids) >= 1
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': yam.id, 'defender': p2.id},
+    ))
+    new_events = game.state.event_log[before:]
+    scries = [e for e in new_events
+              if e.type == EventType.SCRY and e.source == yam.id]
+    drains = [e for e in new_events
+              if e.type == EventType.LIFE_CHANGE
+              and e.source == yam.id
+              and e.payload.get('amount') == -1]
+    assert scries, f"SCRY missing: {[e.type.name for e in new_events]}"
+    assert drains, f"LIFE_CHANGE drain missing: {[e.type.name for e in new_events]}"
+    print(f"  Yamcha attack: SCRY + {len(drains)} life-drain emitted")
+
+
+def test_chiaotzu_etb_scry_and_surveil_with_threat():
+    """Chiaotzu (W Z-Fighter) — ETB scry 1 + surveil 1 if opp has threats."""
+    print("\n=== Chiaotzu: psychic ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Put a threat on opp battlefield so the surveil branch fires.
+    threat_cd = DRAGON_BALL_CARDS["Saiyan Warrior"]
+    game.create_object(
+        name="Saiyan Warrior",
+        owner_id=p2.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=threat_cd.characteristics,
+        card_def=threat_cd,
+    )
+    obj = _assert_etb_scry(game, p1, "Chiaotzu, Psychic Fighter", expected_amount=1)
+    surveils = _events_emitted_by(game, obj.id, EventType.SURVEIL)
+    assert surveils, f"SURVEIL missing for Chiaotzu"
+    print(f"  Chiaotzu: SCRY + {len(surveils)} surveil(s)")
+
+
+def test_kami_etb_scry_and_life_gain():
+    """Kami (W Namekian God) — ETB scry 2 + gain life per creature you control."""
+    print("\n=== Kami, Guardian of Earth: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    obj = _assert_etb_scry(game, p1, "Kami, Guardian of Earth", expected_amount=2)
+    gains = [e for e in game.state.event_log
+             if e.type == EventType.LIFE_CHANGE
+             and e.source == obj.id
+             and e.payload.get('amount', 0) > 0]
+    assert gains, "LIFE_CHANGE (gain) missing for Kami"
+    print(f"  Kami: SCRY 2 + life gain {gains[-1].payload}")
+
+
+def test_mr_popo_etb_scry_and_life_gain():
+    """Mr. Popo (W Genie) — ETB scry 1 + gain 1 life per artifact you control."""
+    print("\n=== Mr. Popo: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    obj = _assert_etb_scry(game, p1, "Mr. Popo, Eternal Servant")
+    gains = [e for e in game.state.event_log
+             if e.type == EventType.LIFE_CHANGE
+             and e.source == obj.id
+             and e.payload.get('amount', 0) > 0]
+    assert gains, "LIFE_CHANGE missing for Mr. Popo"
+    print(f"  Mr. Popo: SCRY + life gain {gains[-1].payload}")
+
+
+def test_earthling_fighter_attack_scry_and_drain():
+    """Earthling Fighter (W Human Warrior) — attack scry 1 + opp -1 life."""
+    print("\n=== Earthling Fighter: attack ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    ef = _put_on_battlefield(game, p1, "Earthling Fighter")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': ef.id, 'defender': p2.id},
+    ))
+    new_events = game.state.event_log[before:]
+    scries = [e for e in new_events if e.type == EventType.SCRY and e.source == ef.id]
+    drains = [e for e in new_events
+              if e.type == EventType.LIFE_CHANGE and e.source == ef.id
+              and e.payload.get('amount') == -1]
+    assert scries and drains
+    print(f"  Earthling Fighter: SCRY + drain")
+
+
+def test_capsule_corp_soldier_etb_scry_and_life_gain():
+    """Capsule Corp Soldier — ETB scry 1 + gain life per Soldier."""
+    print("\n=== Capsule Corp Soldier: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    obj = _assert_etb_scry(game, p1, "Capsule Corp Soldier")
+    gains = [e for e in game.state.event_log
+             if e.type == EventType.LIFE_CHANGE and e.source == obj.id
+             and e.payload.get('amount', 0) > 0]
+    assert gains
+    print(f"  Capsule Corp Soldier: SCRY + life gain")
+
+
+def test_martial_artist_attack_scry_and_drain():
+    """Martial Artist (W Monk) — attack scry 1 + opp -1 life."""
+    print("\n=== Martial Artist: attack ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    ma = _put_on_battlefield(game, p1, "Martial Artist")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': ma.id, 'defender': p2.id},
+    ))
+    new_events = game.state.event_log[before:]
+    assert any(e.type == EventType.SCRY and e.source == ma.id for e in new_events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.source == ma.id
+               and e.payload.get('amount') == -1 for e in new_events)
+    print(f"  Martial Artist: SCRY + drain")
+
+
+def test_guardian_angel_etb_scry_and_life_gain():
+    """Guardian Angel — ETB scry 1 + gain ≥2 life."""
+    print("\n=== Guardian Angel: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    obj = _assert_etb_scry(game, p1, "Guardian Angel")
+    gains = [e for e in game.state.event_log
+             if e.type == EventType.LIFE_CHANGE and e.source == obj.id
+             and e.payload.get('amount', 0) >= 2]
+    assert gains
+    print(f"  Guardian Angel: SCRY + life gain {gains[-1].payload}")
+
+
+def test_android_prototype_etb_scry_and_surveil():
+    """Android Prototype (U Android) — ETB scry 1 + surveil 1 if opp has creatures."""
+    print("\n=== Android Prototype: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    threat_cd = DRAGON_BALL_CARDS["Saiyan Warrior"]
+    game.create_object(
+        name="Saiyan Warrior",
+        owner_id=p2.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=threat_cd.characteristics,
+        card_def=threat_cd,
+    )
+    obj = _assert_etb_scry(game, p1, "Android Prototype")
+    surveils = _events_emitted_by(game, obj.id, EventType.SURVEIL)
+    assert surveils
+    print(f"  Android Prototype: SCRY + {len(surveils)} surveil(s)")
+
+
+def test_battle_android_etb_scry_and_damage():
+    """Battle Android — ETB scry 1 + deal 1 damage to each opponent."""
+    print("\n=== Battle Android: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _assert_etb_scry(game, p1, "Battle Android")
+    dmgs = _events_emitted_by(game, obj.id, EventType.DAMAGE)
+    assert dmgs, "DAMAGE missing for Battle Android"
+    assert dmgs[-1].payload.get('amount') == 1
+    print(f"  Battle Android: SCRY + {len(dmgs)} damage(s)")
+
+
+def test_burter_attack_scry_and_drain():
+    """Burter (B Ginyu Force) — attack scry 1 + each opp -1 life."""
+    print("\n=== Burter: attack ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    bur = _put_on_battlefield(game, p1, "Burter")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': bur.id, 'defender': p2.id},
+    ))
+    new_events = game.state.event_log[before:]
+    assert any(e.type == EventType.SCRY and e.source == bur.id for e in new_events)
+    drains = [e for e in new_events
+              if e.type == EventType.LIFE_CHANGE and e.source == bur.id
+              and e.payload.get('amount') == -1]
+    assert drains
+    print(f"  Burter: SCRY + drain")
+
+
+def test_guldo_etb_scry_two_and_reveal_hand():
+    """Guldo (B Ginyu Force) — ETB scry 2 + reveal each opp's hand."""
+    print("\n=== Guldo: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _assert_etb_scry(game, p1, "Guldo", expected_amount=2)
+    looks = _events_emitted_by(game, obj.id, EventType.REVEAL_HAND)
+    assert looks
+    print(f"  Guldo: SCRY 2 + {len(looks)} reveal_hand(s)")
+
+
+def test_appule_etb_scry_and_drain():
+    """Appule (B Alien) — ETB scry 1 + each opp -1 life."""
+    print("\n=== Appule: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _assert_etb_scry(game, p1, "Appule")
+    drains = [e for e in game.state.event_log
+              if e.type == EventType.LIFE_CHANGE and e.source == obj.id
+              and e.payload.get('amount') == -1]
+    assert drains
+    print(f"  Appule: SCRY + drain")
+
+
+def test_babidi_etb_discard_and_drain():
+    """Babidi (B Wizard) — ETB each opp discards 1 + each opp -1 life."""
+    print("\n=== Babidi: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, "Babidi, Dark Wizard")
+    discards = _events_emitted_by(game, obj.id, EventType.DISCARD)
+    drains = [e for e in game.state.event_log
+              if e.type == EventType.LIFE_CHANGE and e.source == obj.id
+              and e.payload.get('amount') == -1]
+    assert discards, "DISCARD missing for Babidi"
+    assert drains, "LIFE_CHANGE drain missing for Babidi"
+    print(f"  Babidi: {len(discards)} discard(s) + {len(drains)} drain(s)")
+
+
+def test_nappa_etb_scry_and_damage():
+    """Nappa (R Saiyan, Legendary, menace) — ETB scry 1 + damage to each opp."""
+    print("\n=== Nappa: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _assert_etb_scry(game, p1, "Nappa, Saiyan Elite")
+    dmgs = _events_emitted_by(game, obj.id, EventType.DAMAGE)
+    assert dmgs
+    print(f"  Nappa: SCRY + {len(dmgs)} damage(s)")
+
+
+def test_raditz_etb_scry_reveal_hand_and_drain():
+    """Raditz (R Saiyan) — ETB scry 1 + each opp reveals hand + -1 life."""
+    print("\n=== Raditz: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, "Raditz, Saiyan Warrior")
+    scries = _events_emitted_by(game, obj.id, EventType.SCRY)
+    reveals = _events_emitted_by(game, obj.id, EventType.REVEAL_HAND)
+    drains = [e for e in game.state.event_log
+              if e.type == EventType.LIFE_CHANGE and e.source == obj.id
+              and e.payload.get('amount') == -1]
+    assert scries, "SCRY missing for Raditz"
+    assert reveals, "REVEAL_HAND missing for Raditz"
+    assert drains, "LIFE_CHANGE drain missing for Raditz"
+    print(f"  Raditz: SCRY + {len(reveals)} reveal_hand(s) + {len(drains)} drain(s)")
+
+
+def test_saiyan_warrior_attack_scry_and_damage():
+    """Saiyan Warrior (R) — attack scry 1 + damage to each opp."""
+    print("\n=== Saiyan Warrior: attack ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    sw = _put_on_battlefield(game, p1, "Saiyan Warrior")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': sw.id, 'defender': p2.id},
+    ))
+    new_events = game.state.event_log[before:]
+    assert any(e.type == EventType.SCRY and e.source == sw.id for e in new_events)
+    dmgs = [e for e in new_events
+            if e.type == EventType.DAMAGE and e.source == sw.id]
+    assert dmgs
+    print(f"  Saiyan Warrior: SCRY + {len(dmgs)} damage(s)")
+
+
 if __name__ == "__main__":
     # Shenron
     test_shenron_wish_granter_loads()
@@ -669,6 +984,24 @@ if __name__ == "__main__":
     # Kame House
     test_kame_house_refuge_loads_as_legendary_land()
     test_kame_house_refuge_tutor_gated_by_z_fighter()
+    # Slice 4 — thin-bust (17 vanilla cards lifted to depth-3)
+    test_yamcha_attack_emits_scry_and_life_drain()
+    test_chiaotzu_etb_scry_and_surveil_with_threat()
+    test_kami_etb_scry_and_life_gain()
+    test_mr_popo_etb_scry_and_life_gain()
+    test_earthling_fighter_attack_scry_and_drain()
+    test_capsule_corp_soldier_etb_scry_and_life_gain()
+    test_martial_artist_attack_scry_and_drain()
+    test_guardian_angel_etb_scry_and_life_gain()
+    test_android_prototype_etb_scry_and_surveil()
+    test_battle_android_etb_scry_and_damage()
+    test_burter_attack_scry_and_drain()
+    test_guldo_etb_scry_two_and_reveal_hand()
+    test_appule_etb_scry_and_drain()
+    test_babidi_etb_discard_and_drain()
+    test_nappa_etb_scry_and_damage()
+    test_raditz_etb_scry_reveal_hand_and_drain()
+    test_saiyan_warrior_attack_scry_and_damage()
     print("\n" + "=" * 60)
     print("ALL DBZ SPICE v2 EXPANSION TESTS PASSED!")
     print("=" * 60)
