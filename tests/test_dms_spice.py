@@ -607,6 +607,234 @@ def test_hashira_meeting_resolve_emits_search():
 
 
 # ============================================================================
+# SLICE 5 (2026-05-19) — Thin-bust: 15 vanilla cards lifted to multi-axis depth.
+# Each card emits a SCRY/SURVEIL info event and a cross-controller asym event
+# (LIFE_CHANGE or DAMAGE to each opponent) on ETB or attack.
+# ============================================================================
+
+
+def _slice5_etb_assert_info_and_asym(
+    card_name: str,
+    *,
+    info_event: EventType,
+    asym_event: EventType = EventType.LIFE_CHANGE,
+    asym_amount_sign: int = -1,
+):
+    """Assert ETB on `card_name` emits an info event and a cross-controller asym."""
+    print(f"\n=== slice5 ETB {card_name}: info={info_event.name} asym={asym_event.name} ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, card_name)
+    new = game.state.event_log[before:]
+    infos = [e for e in new if e.type == info_event and e.source == obj.id]
+    assert infos, f"{card_name}: expected {info_event.name}; emitted={[e.type.name for e in new]}"
+    asyms = [
+        e for e in new
+        if e.type == asym_event and e.source == obj.id
+        and e.payload.get('player') == p2.id
+        and (asym_amount_sign == 0 or
+             (asym_amount_sign < 0 and e.payload.get('amount', 0) < 0) or
+             (asym_amount_sign > 0 and e.payload.get('amount', 0) > 0))
+    ]
+    if asym_event == EventType.DAMAGE:
+        asyms = [
+            e for e in new
+            if e.type == EventType.DAMAGE and e.source == obj.id
+            and e.payload.get('target') == p2.id
+        ]
+    assert asyms, (
+        f"{card_name}: expected {asym_event.name} targeting opp; "
+        f"emitted={[(e.type.name, e.payload) for e in new]}"
+    )
+    return obj
+
+
+def _slice5_attack_assert_info_and_asym(
+    card_name: str,
+    *,
+    info_event: EventType = EventType.SCRY,
+    asym_event: EventType = EventType.LIFE_CHANGE,
+):
+    """Assert attack trigger on `card_name` emits info + cross-controller asym."""
+    print(f"\n=== slice5 attack {card_name}: info={info_event.name} asym={asym_event.name} ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': obj.id, 'attacker': obj.id, 'controller': p1.id},
+        source=obj.id,
+    ))
+    new = game.state.event_log[before:]
+    infos = [e for e in new if e.type == info_event and e.source == obj.id]
+    assert infos, f"{card_name}: expected {info_event.name}; emitted={[e.type.name for e in new]}"
+    if asym_event == EventType.DAMAGE:
+        asyms = [
+            e for e in new
+            if e.type == EventType.DAMAGE and e.source == obj.id
+            and e.payload.get('target') == p2.id
+        ]
+    else:
+        asyms = [
+            e for e in new
+            if e.type == asym_event and e.source == obj.id
+            and e.payload.get('player') == p2.id
+            and e.payload.get('amount', 0) < 0
+        ]
+    assert asyms, (
+        f"{card_name}: expected {asym_event.name} targeting opp; "
+        f"emitted={[(e.type.name, e.payload) for e in new]}"
+    )
+    return obj
+
+
+def test_slice5_rookie_slayer_etb_scry_and_lifegain():
+    obj = _slice5_etb_assert_info_and_asym(
+        "Rookie Slayer", info_event=EventType.SCRY, asym_event=EventType.LIFE_CHANGE,
+    ) if False else None
+    # Rookie's drain only fires if 2+ Slayers; assert scry + lifegain instead.
+    print("\n=== slice5 ETB Rookie Slayer ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, "Rookie Slayer")
+    new = game.state.event_log[before:]
+    scries = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    gains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.source == obj.id
+        and e.payload.get('player') == p1.id
+        and e.payload.get('amount', 0) > 0
+    ]
+    assert scries, f"Rookie: SCRY missing"
+    assert gains, f"Rookie: own LIFE_CHANGE gain missing"
+
+
+def test_slice5_trained_slayer_attack_scry_and_drain():
+    _slice5_attack_assert_info_and_asym(
+        "Trained Slayer", info_event=EventType.SCRY, asym_event=EventType.LIFE_CHANGE,
+    )
+
+
+def test_slice5_veteran_slayer_etb_scry_and_lifegain():
+    print("\n=== slice5 ETB Veteran Slayer ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, "Veteran Slayer")
+    new = game.state.event_log[before:]
+    scries = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    gains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.source == obj.id
+        and e.payload.get('player') == p1.id
+        and e.payload.get('amount', 0) > 0
+    ]
+    assert scries, "Veteran: SCRY missing"
+    assert gains, "Veteran: lifegain missing"
+
+
+def test_slice5_fledgling_demon_etb_surveil_and_drain():
+    _slice5_etb_assert_info_and_asym(
+        "Fledgling Demon", info_event=EventType.SURVEIL, asym_event=EventType.LIFE_CHANGE,
+    )
+
+
+def test_slice5_bloodthirsty_demon_attack_scry_and_drain():
+    _slice5_attack_assert_info_and_asym(
+        "Bloodthirsty Demon", info_event=EventType.SCRY, asym_event=EventType.LIFE_CHANGE,
+    )
+
+
+def test_slice5_ancient_demon_etb_surveil_and_drain():
+    _slice5_etb_assert_info_and_asym(
+        "Ancient Demon", info_event=EventType.SURVEIL, asym_event=EventType.LIFE_CHANGE,
+    )
+
+
+def test_slice5_corps_messenger_etb_scry_alone():
+    """Corps Messenger only drains opps if 2+ Slayers; baseline scry should still fire."""
+    print("\n=== slice5 ETB Corps Messenger ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, "Corps Messenger")
+    new = game.state.event_log[before:]
+    scries = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scries and scries[0].payload.get('amount') == 2, (
+        f"Corps Messenger: expected SCRY 2; got {[(e.type.name, e.payload) for e in new]}"
+    )
+
+
+def test_slice5_dawn_patrol_etb_scry_and_drain():
+    _slice5_etb_assert_info_and_asym(
+        "Dawn Patrol", info_event=EventType.SCRY, asym_event=EventType.LIFE_CHANGE,
+    )
+
+
+def test_slice5_corps_instructor_etb_scry_and_drain():
+    _slice5_etb_assert_info_and_asym(
+        "Corps Instructor", info_event=EventType.SCRY, asym_event=EventType.LIFE_CHANGE,
+    )
+
+
+def test_slice5_corps_veteran_etb_scry_and_drain():
+    _slice5_etb_assert_info_and_asym(
+        "Corps Veteran", info_event=EventType.SCRY, asym_event=EventType.LIFE_CHANGE,
+    )
+
+
+def test_slice5_mist_walker_attack_surveil_and_drain():
+    _slice5_attack_assert_info_and_asym(
+        "Mist Walker", info_event=EventType.SURVEIL, asym_event=EventType.LIFE_CHANGE,
+    )
+
+
+def test_slice5_flame_dancer_etb_scry_and_damage():
+    _slice5_etb_assert_info_and_asym(
+        "Flame Dancer", info_event=EventType.SCRY, asym_event=EventType.DAMAGE,
+    )
+
+
+def test_slice5_fire_breathing_student_attack_scry_and_damage():
+    _slice5_attack_assert_info_and_asym(
+        "Fire Breathing Student", info_event=EventType.SCRY, asym_event=EventType.DAMAGE,
+    )
+
+
+def test_slice5_forest_tracker_etb_scry_and_drain():
+    _slice5_etb_assert_info_and_asym(
+        "Forest Tracker", info_event=EventType.SCRY, asym_event=EventType.LIFE_CHANGE,
+    )
+
+
+def test_slice5_blade_master_etb_scry_and_lifegain():
+    """Blade Master only drains opps if it controls an Equipment; baseline scry+lifegain should fire."""
+    print("\n=== slice5 ETB Blade Master ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, "Blade Master")
+    new = game.state.event_log[before:]
+    scries = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    gains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.source == obj.id
+        and e.payload.get('player') == p1.id
+        and e.payload.get('amount', 0) > 0
+    ]
+    assert scries, "Blade Master: SCRY missing"
+    assert gains, "Blade Master: lifegain missing"
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 

@@ -1126,6 +1126,152 @@ def test_smoker_vice_admiral_attack_emits_tap_target_required():
     print(f"  TARGET_REQUIRED (tap): {len(target_reqs)}")
 
 
+# ============================================================================
+# SLICE 5 (2026-05-19) — Thin-bust: 18 vanilla cards lifted to multi-axis depth.
+# Pirate/Marine flavor. Each card emits a SCRY/SURVEIL info event and a
+# cross-controller asym event (LIFE_CHANGE to each opp) on ETB or attack.
+# ============================================================================
+
+
+def _slice5_etb_info_and_drain(card_name: str, *, info_event: EventType):
+    """Assert ETB on `card_name` emits an info event and at least one opp LIFE_CHANGE drain."""
+    print(f"\n=== slice5 ETB {card_name}: info={info_event.name} drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, card_name)
+    new = game.state.event_log[before:]
+    infos = [e for e in new if e.type == info_event and e.source == obj.id]
+    assert infos, f"{card_name}: expected {info_event.name}; emitted={[e.type.name for e in new]}"
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE and e.source == obj.id
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount', 0) < 0
+    ]
+    assert drains, (
+        f"{card_name}: expected opp LIFE_CHANGE drain; "
+        f"emitted={[(e.type.name, e.payload) for e in new]}"
+    )
+
+
+def _slice5_attack_info_and_drain(card_name: str, *, info_event: EventType = EventType.SCRY):
+    """Assert attack on `card_name` emits an info event and at least one opp LIFE_CHANGE drain."""
+    print(f"\n=== slice5 attack {card_name}: info={info_event.name} drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': obj.id, 'attacker': obj.id, 'controller': p1.id},
+        source=obj.id,
+    ))
+    new = game.state.event_log[before:]
+    infos = [e for e in new if e.type == info_event and e.source == obj.id]
+    assert infos, f"{card_name}: expected {info_event.name}; emitted={[e.type.name for e in new]}"
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE and e.source == obj.id
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount', 0) < 0
+    ]
+    assert drains, (
+        f"{card_name}: expected opp LIFE_CHANGE drain on attack; "
+        f"emitted={[(e.type.name, e.payload) for e in new]}"
+    )
+
+
+def test_slice5_east_blue_pirate_attack_scry_and_drain():
+    _slice5_attack_info_and_drain("East Blue Pirate", info_event=EventType.SCRY)
+
+
+def test_slice5_drum_island_sentry_attack_scry_and_drain():
+    _slice5_attack_info_and_drain("Drum Island Sentry", info_event=EventType.SCRY)
+
+
+def test_slice5_sea_patrol_pirate_attack_scry_and_drain():
+    _slice5_attack_info_and_drain("Sea Patrol Pirate", info_event=EventType.SCRY)
+
+
+def test_slice5_drum_island_sailor_attack_scry_and_drain():
+    _slice5_attack_info_and_drain("Drum Island Sailor", info_event=EventType.SCRY)
+
+
+def test_slice5_marine_patrol_attack_scry_and_drain():
+    _slice5_attack_info_and_drain("Marine Patrol", info_event=EventType.SCRY)
+
+
+def test_slice5_skypiea_warrior_attack_scry_and_drain():
+    _slice5_attack_info_and_drain("Skypiea Warrior", info_event=EventType.SCRY)
+
+
+def test_slice5_alabasta_guard_etb_scry_and_lifegain():
+    """Alabasta drains only if 2+ Soldiers — baseline scry + lifegain should always fire."""
+    print("\n=== slice5 ETB Alabasta Guard ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, "Alabasta Guard")
+    new = game.state.event_log[before:]
+    scries = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    gains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.source == obj.id
+        and e.payload.get('player') == p1.id
+        and e.payload.get('amount', 0) > 0
+    ]
+    assert scries, "Alabasta: SCRY missing"
+    assert gains, "Alabasta: lifegain missing"
+
+
+def test_slice5_baroque_works_assassin_etb_surveil_and_drain():
+    _slice5_etb_info_and_drain("Baroque Works Assassin", info_event=EventType.SURVEIL)
+
+
+def test_slice5_skypiean_warrior_etb_scry_and_drain():
+    _slice5_etb_info_and_drain("Skypiean Warrior", info_event=EventType.SCRY)
+
+
+def test_slice5_shandian_fighter_attack_scry_and_drain():
+    _slice5_attack_info_and_drain("Shandian Fighter", info_event=EventType.SCRY)
+
+
+def test_slice5_marine_captain_etb_scry_and_drain():
+    _slice5_etb_info_and_drain("Marine Captain", info_event=EventType.SCRY)
+
+
+def test_slice5_impel_down_guard_etb_scry_and_drain():
+    _slice5_etb_info_and_drain("Impel Down Guard", info_event=EventType.SCRY)
+
+
+def test_slice5_marine_soldier_etb_scry_and_drain():
+    _slice5_etb_info_and_drain("Marine Soldier", info_event=EventType.SCRY)
+
+
+def test_slice5_fishman_warrior_etb_scry_and_drain():
+    _slice5_etb_info_and_drain("Fishman Warrior", info_event=EventType.SCRY)
+
+
+def test_slice5_baroque_works_agent_etb_surveil_and_drain():
+    _slice5_etb_info_and_drain("Baroque Works Agent", info_event=EventType.SURVEIL)
+
+
+def test_slice5_shadow_puppet_etb_surveil_and_drain():
+    _slice5_etb_info_and_drain("Shadow Puppet", info_event=EventType.SURVEIL)
+
+
+def test_slice5_onigashima_guard_etb_surveil_and_drain():
+    _slice5_etb_info_and_drain("Onigashima Guard", info_event=EventType.SURVEIL)
+
+
+def test_slice5_giant_warrior_etb_scry_and_drain():
+    _slice5_etb_info_and_drain("Giant Warrior", info_event=EventType.SCRY)
+
+
 if __name__ == "__main__":
     # Kaido
     test_kaido_awakened_loads_legendary_dragon()
@@ -1178,6 +1324,25 @@ if __name__ == "__main__":
     test_nico_robin_etb_with_library_lands_opens_choice()
     test_smoker_vice_admiral_loads_legendary_marine()
     test_smoker_vice_admiral_attack_emits_tap_target_required()
+    # Slice 5 — thin-bust multi-axis
+    test_slice5_east_blue_pirate_attack_scry_and_drain()
+    test_slice5_drum_island_sentry_attack_scry_and_drain()
+    test_slice5_sea_patrol_pirate_attack_scry_and_drain()
+    test_slice5_drum_island_sailor_attack_scry_and_drain()
+    test_slice5_marine_patrol_attack_scry_and_drain()
+    test_slice5_skypiea_warrior_attack_scry_and_drain()
+    test_slice5_alabasta_guard_etb_scry_and_lifegain()
+    test_slice5_baroque_works_assassin_etb_surveil_and_drain()
+    test_slice5_skypiean_warrior_etb_scry_and_drain()
+    test_slice5_shandian_fighter_attack_scry_and_drain()
+    test_slice5_marine_captain_etb_scry_and_drain()
+    test_slice5_impel_down_guard_etb_scry_and_drain()
+    test_slice5_marine_soldier_etb_scry_and_drain()
+    test_slice5_fishman_warrior_etb_scry_and_drain()
+    test_slice5_baroque_works_agent_etb_surveil_and_drain()
+    test_slice5_shadow_puppet_etb_surveil_and_drain()
+    test_slice5_onigashima_guard_etb_surveil_and_drain()
+    test_slice5_giant_warrior_etb_scry_and_drain()
     print("\n" + "=" * 60)
     print("ALL ONE PIECE SPICE v2 EXPANSION TESTS PASSED!")
     print("=" * 60)
