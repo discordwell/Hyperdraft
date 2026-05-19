@@ -2265,11 +2265,60 @@ NANO_GAUNTLET = make_equipment(
     equip_cost="{2}"
 )
 
+# --- Chitauri Scepter: Helper-5 rewire -------------------------------------
+# +2/+0 + granted trigger "combat damage to player → gain control of one of
+# their creatures until end of turn." Uses threaten_creature() for the
+# canonical control+untap+haste EOT package. Greedy first-eligible picker.
+def _chitauri_scepter_combat_damage_to_player_filter(
+    event: Event, state: GameState, target_id: str
+) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    return event.payload.get('target') in state.players
+
+
+def _chitauri_scepter_threaten_effect(
+    target_obj: GameObject, event: Event, state: GameState
+) -> list[Event]:
+    from src.cards.interceptor_helpers import threaten_creature
+    victim_player = event.payload.get('target')
+    if not victim_player:
+        return []
+    for o in state.objects.values():
+        if o.controller != victim_player:
+            continue
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if o.characteristics is None:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        return threaten_creature(
+            target_id=o.id,
+            new_controller=target_obj.controller,
+            source_id=target_obj.id,
+        )
+    return []
+
+
 CHITAURI_SCEPTER = make_equipment(
     name="Chitauri Scepter",
     mana_cost="{3}",
-    text="Equipped creature gets +2/+0 and has 'Whenever this creature deals combat damage to a player, gain control of target creature that player controls until end of turn.'",
-    equip_cost="{3}"
+    text="Equipped creature gets +2/+0. Whenever equipped creature deals combat damage to a player, gain control of a creature that player controls until end of turn.",
+    equip_cost="{3}",
+    setup_interceptors=make_equipment_setup(
+        power_mod=2, toughness_mod=0,
+        equip_cost="{3}",
+        granted_triggered_abilities={
+            "event_filter": _chitauri_scepter_combat_damage_to_player_filter,
+            "effect_fn": _chitauri_scepter_threaten_effect,
+            "description": "Combat damage to player → threaten one of their creatures",
+        },
+    ),
 )
 
 CLOAK_OF_LEVITATION = make_equipment(
