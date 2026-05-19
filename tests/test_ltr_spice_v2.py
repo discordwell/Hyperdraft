@@ -1302,6 +1302,939 @@ def test_khazad_dum_veteran_etb_solo_no_drain_slice5():
 
 
 # ============================================================================
+# Slice-9 median-lift tests (2026-05-19): one assertion per buffed vanilla
+# card driving LTR median_depth 0 -> >= 2. Each test puts the card on the
+# battlefield (or invokes its resolve handler for instants/sorceries) and
+# asserts the expected SCRY/SURVEIL info event + a cross-controller effect
+# (LIFE_CHANGE / DAMAGE / MILL / DISCARD / REVEAL_HAND).
+# ============================================================================
+
+
+def _s9_setup_with_library_card(p1):
+    """Plant a library card so SCRY/SURVEIL helpers proceed past empty-library guards."""
+    return None  # SCRY/SURVEIL emit regardless; some helpers need it though.
+
+
+def _s9_assert_etb_with_event(game, obj, expected_type, p1, p2,
+                              info_type=None, opp_effect_payload_key='player'):
+    """Helper: assert the card emitted info_type (SCRY/SURVEIL) and expected_type
+    against p2 from obj.id. Returns the matching events."""
+    new = game.state.event_log
+    info_evs = []
+    if info_type is not None:
+        info_evs = [e for e in new if e.type == info_type and e.source == obj.id]
+        assert info_evs, f"Expected {info_type.name} from {obj.id}; events={[e.type.name for e in new[-15:]]}"
+    if expected_type == EventType.LIFE_CHANGE:
+        opp_evs = [e for e in new if e.type == expected_type
+                   and e.payload.get(opp_effect_payload_key) == p2.id
+                   and e.payload.get('amount', 0) < 0
+                   and e.source == obj.id]
+    elif expected_type == EventType.DAMAGE:
+        opp_evs = [e for e in new if e.type == expected_type
+                   and e.payload.get('target') == p2.id
+                   and e.source == obj.id]
+    elif expected_type == EventType.MILL:
+        opp_evs = [e for e in new if e.type == expected_type
+                   and e.payload.get('player') == p2.id
+                   and e.source == obj.id]
+    elif expected_type == EventType.DISCARD:
+        opp_evs = [e for e in new if e.type == expected_type
+                   and e.payload.get('player') == p2.id
+                   and e.source == obj.id]
+    elif expected_type == EventType.REVEAL_HAND:
+        opp_evs = [e for e in new if e.type == expected_type
+                   and e.payload.get('player') == p2.id
+                   and e.source == obj.id]
+    else:
+        opp_evs = []
+    assert opp_evs, f"Expected {expected_type.name} against p2 from {obj.id}; events={[e.type.name for e in new[-15:]]}"
+    return info_evs, opp_evs
+
+
+def _s9_etb_card(card_name):
+    """Spin up a game, put the named card under p1, return (game, p1, p2, obj)."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    return game, p1, p2, obj
+
+
+def _s9_attack(card_name):
+    """Spin up a game, put the named card under p1, emit ATTACK_DECLARED."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': obj.id, 'defender': p2.id},
+        source=obj.id, controller=obj.controller,
+    ))
+    return game, p1, p2, obj
+
+
+# --- WHITE creature/enchantment tests ----------------------------------------
+
+
+def test_knights_of_dol_amroth_attack_scry_drain_s9():
+    print("\n=== Slice-9: Knights of Dol Amroth — attack scry + drain ===")
+    game, p1, p2, obj = _s9_attack("Knights of Dol Amroth")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_rohirrim_lancer_attack_drain_s9():
+    print("\n=== Slice-9: Rohirrim Lancer — attack drain ===")
+    game, p1, p2, obj = _s9_attack("Rohirrim Lancer")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2)
+
+
+def test_dunedain_healer_etb_scry_and_gain_s9():
+    print("\n=== Slice-9: Dunedain Healer — ETB scry + heal ===")
+    game, p1, p2, obj = _s9_etb_card("Dunedain Healer")
+    scrys = [e for e in game.state.event_log if e.type == EventType.SCRY and e.source == obj.id]
+    gains = [e for e in game.state.event_log if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0
+             and e.source == obj.id]
+    assert scrys, "Expected SCRY"
+    assert gains, "Expected life gain"
+
+
+def test_oath_of_eorl_etb_scry_drain_s9():
+    print("\n=== Slice-9: Oath of Eorl — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Oath of Eorl")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_the_white_tree_etb_scry_drain_s9():
+    print("\n=== Slice-9: The White Tree — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("The White Tree")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+# --- WHITE spell resolve tests ----------------------------------------------
+
+
+def _s9_resolve(fn_name):
+    """Pull a resolve fn out of the lotr_module."""
+    fn = getattr(lotr_module, fn_name)
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = fn([], game.state)
+    return events, p1, p2
+
+
+def test_shield_of_the_west_resolve_s9():
+    print("\n=== Slice-9: Shield of the West resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_shield_of_the_west")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_charge_of_the_rohirrim_resolve_s9():
+    print("\n=== Slice-9: Charge of the Rohirrim resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_charge_of_the_rohirrim")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) == -2 for e in events)
+
+
+def test_gondorian_discipline_resolve_s9():
+    print("\n=== Slice-9: Gondorian Discipline resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_gondorian_discipline")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_rally_the_west_resolve_s9():
+    print("\n=== Slice-9: Rally the West resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_rally_the_west")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_elendils_courage_resolve_s9():
+    print("\n=== Slice-9: Elendil's Courage resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_elendils_courage")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_valiant_stand_resolve_s9():
+    print("\n=== Slice-9: Valiant Stand resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_valiant_stand")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_mustering_of_gondor_resolve_s9():
+    print("\n=== Slice-9: Mustering of Gondor resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_mustering_of_gondor")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) == -2 for e in events)
+
+
+def test_ride_to_ruin_resolve_s9():
+    print("\n=== Slice-9: Ride to Ruin resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_ride_to_ruin")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) == -3 for e in events)
+
+
+def test_restoration_of_the_king_resolve_s9():
+    print("\n=== Slice-9: Restoration of the King resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_restoration_of_the_king")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_dawn_over_minas_tirith_resolve_s9():
+    print("\n=== Slice-9: Dawn Over Minas Tirith resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_dawn_over_minas_tirith")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) == -2 for e in events)
+
+
+# --- BLUE creature/enchantment tests ----------------------------------------
+
+
+def test_arwen_evenstar_etb_scry_drain_s9():
+    print("\n=== Slice-9: Arwen, Evenstar — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Arwen, Evenstar")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_lorien_sentinel_etb_scry_drain_s9():
+    print("\n=== Slice-9: Lorien Sentinel — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Lorien Sentinel")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_rivendell_scholar_etb_surveil_mill_s9():
+    print("\n=== Slice-9: Rivendell Scholar — ETB surveil + mill ===")
+    game, p1, p2, obj = _s9_etb_card("Rivendell Scholar")
+    _s9_assert_etb_with_event(game, obj, EventType.MILL, p1, p2, EventType.SURVEIL)
+
+
+def test_grey_havens_navigator_etb_scry_drain_s9():
+    print("\n=== Slice-9: Grey Havens Navigator — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Grey Havens Navigator")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_elvish_seer_etb_scry_mill_s9():
+    print("\n=== Slice-9: Elvish Seer — ETB scry + mill ===")
+    game, p1, p2, obj = _s9_etb_card("Elvish Seer")
+    _s9_assert_etb_with_event(game, obj, EventType.MILL, p1, p2, EventType.SCRY)
+
+
+def test_silvan_tracker_etb_surveil_drain_s9():
+    print("\n=== Slice-9: Silvan Tracker — ETB surveil + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Silvan Tracker")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SURVEIL)
+
+
+def test_imladris_guardian_etb_scry_drain_s9():
+    print("\n=== Slice-9: Imladris Guardian — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Imladris Guardian")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_keeper_of_the_mirror_etb_surveil_drain_s9():
+    print("\n=== Slice-9: Keeper of the Mirror — ETB surveil + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Keeper of the Mirror")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SURVEIL)
+
+
+def test_mirror_of_galadriel_etb_scry_mill_s9():
+    print("\n=== Slice-9: Mirror of Galadriel — ETB scry + mill ===")
+    game, p1, p2, obj = _s9_etb_card("Mirror of Galadriel")
+    _s9_assert_etb_with_event(game, obj, EventType.MILL, p1, p2, EventType.SCRY)
+
+
+def test_light_of_earendil_etb_scry_drain_s9():
+    print("\n=== Slice-9: Light of Earendil — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Light of Earendil")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_elven_sanctuary_etb_scry_drain_s9():
+    print("\n=== Slice-9: Elven Sanctuary — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Elven Sanctuary")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+# --- BLUE spell resolve tests -----------------------------------------------
+
+
+def test_foresight_of_the_elves_resolve_s9():
+    print("\n=== Slice-9: Foresight of the Elves resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_foresight_of_the_elves")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_elven_wisdom_resolve_s9():
+    print("\n=== Slice-9: Elven Wisdom resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_elven_wisdom")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_mists_of_lorien_resolve_s9():
+    print("\n=== Slice-9: Mists of Lorien resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_mists_of_lorien")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_visions_of_the_palantir_resolve_s9():
+    print("\n=== Slice-9: Visions of the Palantir resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_visions_of_the_palantir")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.REVEAL_HAND and e.payload.get('player') == p2.id for e in events)
+
+
+def test_elronds_rejection_resolve_s9():
+    print("\n=== Slice-9: Elrond's Rejection resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_elronds_rejection")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) == -2 for e in events)
+
+
+def test_silver_flow_resolve_s9():
+    print("\n=== Slice-9: Silver Flow resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_silver_flow")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_council_of_elrond_resolve_s9():
+    print("\n=== Slice-9: Council of Elrond resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_council_of_elrond")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_words_of_the_eldar_resolve_s9():
+    print("\n=== Slice-9: Words of the Eldar resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_words_of_the_eldar")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_sailing_to_valinor_resolve_s9():
+    print("\n=== Slice-9: Sailing to Valinor resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_sailing_to_valinor")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_memory_of_ages_resolve_s9():
+    print("\n=== Slice-9: Memory of Ages resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_memory_of_ages")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+# --- BLACK creature/enchantment tests ---------------------------------------
+
+
+def test_witch_king_etb_surveil_drain_s9():
+    print("\n=== Slice-9: Witch-king of Angmar — ETB surveil + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Witch-king of Angmar")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SURVEIL)
+
+
+def test_grima_wormtongue_etb_surveil_discard_s9():
+    print("\n=== Slice-9: Grima Wormtongue — ETB surveil + discard ===")
+    game, p1, p2, obj = _s9_etb_card("Grima Wormtongue")
+    _s9_assert_etb_with_event(game, obj, EventType.DISCARD, p1, p2, EventType.SURVEIL)
+
+
+def test_orc_warrior_attack_drain_s9():
+    print("\n=== Slice-9: Orc Warrior — attack drain ===")
+    game, p1, p2, obj = _s9_attack("Orc Warrior")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2)
+
+
+def test_uruk_hai_berserker_etb_surveil_drain_s9():
+    print("\n=== Slice-9: Uruk-hai Berserker — ETB surveil + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Uruk-hai Berserker")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SURVEIL)
+
+
+def test_mordor_siege_engine_etb_surveil_drain_s9():
+    print("\n=== Slice-9: Mordor Siege Engine — ETB surveil + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Mordor Siege Engine")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SURVEIL)
+
+
+def test_haradrim_assassin_etb_surveil_drain_s9():
+    print("\n=== Slice-9: Haradrim Assassin — ETB surveil + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Haradrim Assassin")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SURVEIL)
+
+
+def test_morgul_knight_attack_surveil_drain_s9():
+    print("\n=== Slice-9: Morgul Knight — attack surveil + drain ===")
+    game, p1, p2, obj = _s9_attack("Morgul Knight")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SURVEIL)
+
+
+def test_shadow_of_the_east_etb_surveil_drain_s9():
+    print("\n=== Slice-9: Shadow of the East — ETB surveil + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Shadow of the East")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SURVEIL)
+
+
+def test_the_ring_tempts_etb_surveil_discard_s9():
+    print("\n=== Slice-9: The Ring Tempts You — ETB surveil + discard ===")
+    game, p1, p2, obj = _s9_etb_card("The Ring Tempts You")
+    _s9_assert_etb_with_event(game, obj, EventType.DISCARD, p1, p2, EventType.SURVEIL)
+
+
+# --- BLACK spell resolve tests ----------------------------------------------
+
+
+def test_shadow_of_mordor_resolve_s9():
+    print("\n=== Slice-9: Shadow of Mordor resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_shadow_of_mordor")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_corruption_spreads_resolve_s9():
+    print("\n=== Slice-9: Corruption Spreads resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_corruption_spreads")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.DISCARD and e.payload.get('player') == p2.id for e in events)
+
+
+def test_morgul_blade_resolve_s9():
+    print("\n=== Slice-9: Morgul Blade resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_morgul_blade")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) == -3 for e in events)
+
+
+def test_dark_whispers_resolve_s9():
+    print("\n=== Slice-9: Dark Whispers resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_dark_whispers")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.DISCARD and e.payload.get('player') == p2.id for e in events)
+
+
+def test_treachery_of_isengard_resolve_s9():
+    print("\n=== Slice-9: Treachery of Isengard resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_treachery_of_isengard")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.DISCARD and e.payload.get('player') == p2.id for e in events)
+
+
+def test_saurons_command_resolve_s9():
+    print("\n=== Slice-9: Sauron's Command resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_saurons_command")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) == -2 for e in events)
+
+
+def test_march_of_the_orcs_resolve_s9():
+    print("\n=== Slice-9: March of the Orcs resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_march_of_the_orcs")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) == -3 for e in events)
+
+
+def test_harvest_of_souls_resolve_s9():
+    print("\n=== Slice-9: Harvest of Souls resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_harvest_of_souls")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_corruption_of_power_resolve_s9():
+    print("\n=== Slice-9: Corruption of Power resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_corruption_of_power")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.DISCARD and e.payload.get('player') == p2.id for e in events)
+
+
+def test_ritual_of_morgoth_resolve_s9():
+    print("\n=== Slice-9: Ritual of Morgoth resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_ritual_of_morgoth")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+# --- RED creature/enchantment tests -----------------------------------------
+
+
+def test_iron_hills_warrior_attack_damage_s9():
+    print("\n=== Slice-9: Iron Hills Warrior — attack scry + damage ===")
+    game, p1, p2, obj = _s9_attack("Iron Hills Warrior")
+    _s9_assert_etb_with_event(game, obj, EventType.DAMAGE, p1, p2, EventType.SCRY)
+
+
+def test_dwarf_berserker_attack_damage_s9():
+    print("\n=== Slice-9: Dwarf Berserker — attack damage ===")
+    game, p1, p2, obj = _s9_attack("Dwarf Berserker")
+    _s9_assert_etb_with_event(game, obj, EventType.DAMAGE, p1, p2)
+
+
+def test_mountain_guard_etb_scry_drain_s9():
+    print("\n=== Slice-9: Mountain Guard — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Mountain Guard")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_warg_rider_attack_damage_s9():
+    print("\n=== Slice-9: Warg Rider — attack damage ===")
+    game, p1, p2, obj = _s9_attack("Warg Rider")
+    _s9_assert_etb_with_event(game, obj, EventType.DAMAGE, p1, p2)
+
+
+def test_dragon_of_the_north_etb_scry_damage_s9():
+    print("\n=== Slice-9: Dragon of the North — ETB scry + damage ===")
+    game, p1, p2, obj = _s9_etb_card("Dragon of the North")
+    _s9_assert_etb_with_event(game, obj, EventType.DAMAGE, p1, p2, EventType.SCRY)
+
+
+def test_fire_drake_etb_scry_damage_s9():
+    print("\n=== Slice-9: Fire Drake — ETB scry + damage ===")
+    game, p1, p2, obj = _s9_etb_card("Fire Drake")
+    _s9_assert_etb_with_event(game, obj, EventType.DAMAGE, p1, p2, EventType.SCRY)
+
+
+def test_moria_goblin_attack_drain_s9():
+    print("\n=== Slice-9: Moria Goblin — attack scry + drain ===")
+    game, p1, p2, obj = _s9_attack("Moria Goblin")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_fires_of_mount_doom_etb_scry_damage_s9():
+    print("\n=== Slice-9: Fires of Mount Doom — ETB scry + damage ===")
+    game, p1, p2, obj = _s9_etb_card("Fires of Mount Doom")
+    _s9_assert_etb_with_event(game, obj, EventType.DAMAGE, p1, p2, EventType.SCRY)
+
+
+def test_wrath_of_the_dwarves_etb_scry_damage_s9():
+    print("\n=== Slice-9: Wrath of the Dwarves — ETB scry + damage ===")
+    game, p1, p2, obj = _s9_etb_card("Wrath of the Dwarves")
+    _s9_assert_etb_with_event(game, obj, EventType.DAMAGE, p1, p2, EventType.SCRY)
+
+
+# --- RED spell resolve tests ------------------------------------------------
+
+
+def test_flame_of_anor_resolve_s9():
+    print("\n=== Slice-9: Flame of Anor resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_flame_of_anor")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id and e.payload.get('amount') == 3 for e in events)
+
+
+def test_dwarven_rage_resolve_s9():
+    print("\n=== Slice-9: Dwarven Rage resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_dwarven_rage")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_dragons_breath_resolve_s9():
+    print("\n=== Slice-9: Dragon's Breath resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_dragons_breath")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id and e.payload.get('amount') == 4 for e in events)
+
+
+def test_forge_fire_resolve_s9():
+    print("\n=== Slice-9: Forge Fire resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_forge_fire")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_battle_cry_of_erebor_resolve_s9():
+    print("\n=== Slice-9: Battle Cry of Erebor resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_battle_cry_of_erebor")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_smash_the_gate_resolve_s9():
+    print("\n=== Slice-9: Smash the Gate resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_smash_the_gate")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_siege_of_erebor_resolve_s9():
+    print("\n=== Slice-9: Siege of Erebor resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_siege_of_erebor")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id and e.payload.get('amount') == 4 for e in events)
+
+
+def test_dragon_fire_resolve_s9():
+    print("\n=== Slice-9: Dragon Fire resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_dragon_fire")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id and e.payload.get('amount') == 5 for e in events)
+
+
+def test_call_of_the_mountain_resolve_s9():
+    print("\n=== Slice-9: Call of the Mountain resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_call_of_the_mountain")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) == -2 for e in events)
+
+
+def test_delving_the_mines_resolve_s9():
+    print("\n=== Slice-9: Delving the Mines resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_delving_the_mines")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+# --- GREEN creature/enchantment tests ---------------------------------------
+
+
+def test_samwise_the_brave_etb_scry_gain_s9():
+    print("\n=== Slice-9: Samwise the Brave — ETB scry + gain ===")
+    game, p1, p2, obj = _s9_etb_card("Samwise, the Brave")
+    scrys = [e for e in game.state.event_log if e.type == EventType.SCRY and e.source == obj.id]
+    gains = [e for e in game.state.event_log if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 and e.source == obj.id]
+    assert scrys, "Expected SCRY"
+    assert gains, "Expected life gain"
+
+
+def test_gwaihir_wind_lord_etb_scry_drain_s9():
+    print("\n=== Slice-9: Gwaihir, Wind Lord — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Gwaihir, Wind Lord")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_quickbeam_attack_drain_s9():
+    print("\n=== Slice-9: Quickbeam — attack drain ===")
+    game, p1, p2, obj = _s9_attack("Quickbeam, Bregalad")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_ent_sapling_etb_scry_gain_s9():
+    print("\n=== Slice-9: Ent Sapling — ETB scry + gain ===")
+    game, p1, p2, obj = _s9_etb_card("Ent Sapling")
+    scrys = [e for e in game.state.event_log if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys, "Expected SCRY"
+
+
+def test_hobbiton_gardener_etb_scry_gain_s9():
+    print("\n=== Slice-9: Hobbiton Gardener — ETB scry + gain ===")
+    game, p1, p2, obj = _s9_etb_card("Hobbiton Gardener")
+    scrys = [e for e in game.state.event_log if e.type == EventType.SCRY and e.source == obj.id]
+    gains = [e for e in game.state.event_log if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 and e.source == obj.id]
+    assert scrys, "Expected SCRY"
+    assert gains, "Expected life gain"
+
+
+def test_fangorn_guardian_etb_scry_drain_s9():
+    print("\n=== Slice-9: Fangorn Guardian — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Fangorn Guardian")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_great_eagle_etb_scry_drain_s9():
+    print("\n=== Slice-9: Great Eagle — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Great Eagle")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_oliphaunt_etb_scry_drain_s9():
+    print("\n=== Slice-9: Oliphaunt — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Oliphaunt")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_radagast_companion_etb_scry_gain_s9():
+    print("\n=== Slice-9: Radagast's Companion — ETB scry + gain ===")
+    game, p1, p2, obj = _s9_etb_card("Radagast's Companion")
+    scrys = [e for e in game.state.event_log if e.type == EventType.SCRY and e.source == obj.id]
+    gains = [e for e in game.state.event_log if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 and e.source == obj.id]
+    assert scrys, "Expected SCRY"
+    assert gains, "Expected life gain"
+
+
+def test_huorn_etb_scry_drain_s9():
+    print("\n=== Slice-9: Huorn — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Huorn")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_heart_of_fangorn_etb_scry_drain_s9():
+    print("\n=== Slice-9: Heart of Fangorn — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Heart of Fangorn")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_second_breakfast_etb_scry_gain_s9():
+    print("\n=== Slice-9: Second Breakfast — ETB scry + gain ===")
+    game, p1, p2, obj = _s9_etb_card("Second Breakfast")
+    scrys = [e for e in game.state.event_log if e.type == EventType.SCRY and e.source == obj.id]
+    gains = [e for e in game.state.event_log if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 and e.source == obj.id]
+    assert scrys, "Expected SCRY"
+    assert gains, "Expected life gain"
+
+
+# --- GREEN spell resolve tests ----------------------------------------------
+
+
+def test_strength_of_nature_resolve_s9():
+    print("\n=== Slice-9: Strength of Nature resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_strength_of_nature")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_hobbits_cunning_resolve_s9():
+    print("\n=== Slice-9: Hobbit's Cunning resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_hobbits_cunning")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_entish_fury_resolve_s9():
+    print("\n=== Slice-9: Entish Fury resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_entish_fury")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) == -3 for e in events)
+
+
+def test_gift_of_the_shire_resolve_s9():
+    print("\n=== Slice-9: Gift of the Shire resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_gift_of_the_shire")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_eagles_are_coming_resolve_s9():
+    print("\n=== Slice-9: The Eagles Are Coming resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_eagles_are_coming")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) == -3 for e in events)
+
+
+def test_natures_reclamation_resolve_s9():
+    print("\n=== Slice-9: Nature's Reclamation resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_natures_reclamation")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_last_march_of_the_ents_resolve_s9():
+    print("\n=== Slice-9: Last March of the Ents resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_last_march_of_the_ents")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) == -4 for e in events)
+
+
+def test_shire_harvest_resolve_s9():
+    print("\n=== Slice-9: Shire Harvest resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_shire_harvest")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_party_in_the_shire_resolve_s9():
+    print("\n=== Slice-9: Party in the Shire resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_party_in_the_shire")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_isengard_unleashed_resolve_s9():
+    print("\n=== Slice-9: Isengard Unleashed resolve ===")
+    events, p1, p2 = _s9_resolve("_ltr_s9_resolve_isengard_unleashed")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) == -4 for e in events)
+
+
+# --- ARTIFACT tests ---------------------------------------------------------
+
+
+def test_vilya_etb_scry_drain_s9():
+    print("\n=== Slice-9: Vilya — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Vilya, Ring of Air")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_narya_etb_scry_damage_s9():
+    print("\n=== Slice-9: Narya — ETB scry + damage ===")
+    game, p1, p2, obj = _s9_etb_card("Narya, Ring of Fire")
+    _s9_assert_etb_with_event(game, obj, EventType.DAMAGE, p1, p2, EventType.SCRY)
+
+
+def test_phial_of_galadriel_etb_scry_gain_s9():
+    print("\n=== Slice-9: Phial of Galadriel — ETB scry + gain ===")
+    game, p1, p2, obj = _s9_etb_card("Phial of Galadriel")
+    scrys = [e for e in game.state.event_log if e.type == EventType.SCRY and e.source == obj.id]
+    gains = [e for e in game.state.event_log if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 and e.source == obj.id]
+    assert scrys, "Expected SCRY"
+    assert gains, "Expected life gain"
+
+
+def test_palantir_of_orthanc_etb_surveil_reveal_s9():
+    print("\n=== Slice-9: Palantir of Orthanc — ETB surveil + reveal ===")
+    game, p1, p2, obj = _s9_etb_card("Palantir of Orthanc")
+    _s9_assert_etb_with_event(game, obj, EventType.REVEAL_HAND, p1, p2, EventType.SURVEIL)
+
+
+def test_horn_of_gondor_etb_scry_drain_s9():
+    print("\n=== Slice-9: Horn of Gondor — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Horn of Gondor")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_ring_of_barahir_etb_scry_gain_s9():
+    print("\n=== Slice-9: Ring of Barahir — ETB scry + gain ===")
+    game, p1, p2, obj = _s9_etb_card("Ring of Barahir")
+    scrys = [e for e in game.state.event_log if e.type == EventType.SCRY and e.source == obj.id]
+    gains = [e for e in game.state.event_log if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 and e.source == obj.id]
+    assert scrys, "Expected SCRY"
+    assert gains, "Expected life gain"
+
+
+def test_morgul_sword_etb_surveil_drain_s9():
+    print("\n=== Slice-9: Morgul Sword — ETB surveil + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Morgul Sword")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SURVEIL)
+
+
+def test_dwarven_axe_etb_scry_damage_s9():
+    print("\n=== Slice-9: Dwarven Axe — ETB scry + damage ===")
+    game, p1, p2, obj = _s9_etb_card("Dwarven Axe")
+    _s9_assert_etb_with_event(game, obj, EventType.DAMAGE, p1, p2, EventType.SCRY)
+
+
+def test_elven_bow_etb_scry_drain_s9():
+    print("\n=== Slice-9: Elven Bow — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Elven Bow")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_orc_blade_etb_surveil_drain_s9():
+    print("\n=== Slice-9: Orc Blade — ETB surveil + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Orc Blade")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SURVEIL)
+
+
+# --- LAND tests -------------------------------------------------------------
+
+
+def test_rivendell_land_etb_scry_gain_s9():
+    print("\n=== Slice-9: Rivendell (land) — ETB scry + gain ===")
+    game, p1, p2, obj = _s9_etb_card("Rivendell")
+    scrys = [e for e in game.state.event_log if e.type == EventType.SCRY and e.source == obj.id]
+    gains = [e for e in game.state.event_log if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 and e.source == obj.id]
+    assert scrys, "Expected SCRY"
+    assert gains, "Expected life gain"
+
+
+def test_the_shire_land_etb_scry_gain_s9():
+    print("\n=== Slice-9: The Shire (land) — ETB scry + gain ===")
+    game, p1, p2, obj = _s9_etb_card("The Shire")
+    scrys = [e for e in game.state.event_log if e.type == EventType.SCRY and e.source == obj.id]
+    gains = [e for e in game.state.event_log if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 and e.source == obj.id]
+    assert scrys, "Expected SCRY"
+    assert gains, "Expected life gain"
+
+
+def test_minas_tirith_land_etb_scry_drain_s9():
+    print("\n=== Slice-9: Minas Tirith (land) — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Minas Tirith")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_mordor_land_etb_surveil_drain_s9():
+    print("\n=== Slice-9: Mordor (land) — ETB surveil + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Mordor, Land of Shadow")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SURVEIL)
+
+
+def test_erebor_land_etb_scry_damage_s9():
+    print("\n=== Slice-9: Erebor (land) — ETB scry + damage ===")
+    game, p1, p2, obj = _s9_etb_card("Erebor, the Lonely Mountain")
+    _s9_assert_etb_with_event(game, obj, EventType.DAMAGE, p1, p2, EventType.SCRY)
+
+
+def test_helms_deep_land_etb_scry_gain_s9():
+    print("\n=== Slice-9: Helm's Deep (land) — ETB scry + gain ===")
+    game, p1, p2, obj = _s9_etb_card("Helm's Deep")
+    scrys = [e for e in game.state.event_log if e.type == EventType.SCRY and e.source == obj.id]
+    gains = [e for e in game.state.event_log if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 and e.source == obj.id]
+    assert scrys, "Expected SCRY"
+    assert gains, "Expected life gain"
+
+
+def test_isengard_land_etb_surveil_discard_s9():
+    print("\n=== Slice-9: Isengard (land) — ETB surveil + discard ===")
+    game, p1, p2, obj = _s9_etb_card("Isengard")
+    _s9_assert_etb_with_event(game, obj, EventType.DISCARD, p1, p2, EventType.SURVEIL)
+
+
+def test_fangorn_land_etb_scry_drain_s9():
+    print("\n=== Slice-9: Fangorn Forest (land) — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Fangorn Forest")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_mount_doom_land_etb_surveil_damage_s9():
+    print("\n=== Slice-9: Mount Doom (land) — ETB surveil + damage ===")
+    game, p1, p2, obj = _s9_etb_card("Mount Doom")
+    _s9_assert_etb_with_event(game, obj, EventType.DAMAGE, p1, p2, EventType.SURVEIL)
+
+
+def test_weathertop_land_etb_scry_drain_s9():
+    print("\n=== Slice-9: Weathertop (land) — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Weathertop")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_osgiliath_land_etb_scry_drain_s9():
+    print("\n=== Slice-9: Osgiliath (land) — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Osgiliath, Fallen City")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_grey_havens_land_etb_scry_drain_s9():
+    print("\n=== Slice-9: Grey Havens (land) — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Grey Havens")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+def test_mines_of_moria_land_etb_surveil_mill_s9():
+    print("\n=== Slice-9: Mines of Moria (land) — ETB surveil + mill ===")
+    game, p1, p2, obj = _s9_etb_card("Mines of Moria")
+    _s9_assert_etb_with_event(game, obj, EventType.MILL, p1, p2, EventType.SURVEIL)
+
+
+def test_edoras_land_etb_scry_drain_s9():
+    print("\n=== Slice-9: Edoras (land) — ETB scry + drain ===")
+    game, p1, p2, obj = _s9_etb_card("Edoras")
+    _s9_assert_etb_with_event(game, obj, EventType.LIFE_CHANGE, p1, p2, EventType.SCRY)
+
+
+
+# ============================================================================
 # Runner — direct execution without pytest
 # ============================================================================
 
