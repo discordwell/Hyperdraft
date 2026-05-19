@@ -4079,12 +4079,43 @@ INVERTED_SPEAR_OF_HEAVEN = make_equipment(
 )
 
 
+# --- Playful Cloud: Helper-5 rewire ----------------------------------------
+# +3/+0 + granted trigger "deals combat damage → untap the equipped creature."
+def _playful_cloud_combat_damage_filter(
+    event: Event, state: GameState, target_id: str
+) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    return bool(event.payload.get('combat', False))
+
+
+def _playful_cloud_untap_effect(
+    target_obj: GameObject, event: Event, state: GameState
+) -> list[Event]:
+    return [Event(
+        type=EventType.UNTAP,
+        payload={'object_id': target_obj.id},
+        source=target_obj.id,
+    )]
+
+
 PLAYFUL_CLOUD = make_equipment(
     name="Playful Cloud",
     mana_cost="{2}",
     text="Equipped creature gets +3/+0. Whenever equipped creature deals combat damage, untap it.",
     equip_cost="{1}",
-    subtypes={"Cursed"}
+    subtypes={"Cursed"},
+    setup_interceptors=_ih.make_equipment_setup(
+        power_mod=3, toughness_mod=0,
+        equip_cost="{1}",
+        granted_triggered_abilities={
+            "event_filter": _playful_cloud_combat_damage_filter,
+            "effect_fn": _playful_cloud_untap_effect,
+            "description": "Combat damage → untap equipped creature",
+        },
+    ),
 )
 
 
@@ -4097,12 +4128,48 @@ SLAUGHTER_DEMON = make_equipment(
 )
 
 
+# --- Split Soul Katana: Helper-5 rewire ------------------------------------
+# +2/+1 + granted trigger "deals combat damage to player → that player discards."
+def _split_soul_combat_damage_to_player_filter(
+    event: Event, state: GameState, target_id: str
+) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    return event.payload.get('target') in state.players
+
+
+def _split_soul_discard_effect(
+    target_obj: GameObject, event: Event, state: GameState
+) -> list[Event]:
+    victim = event.payload.get('target')
+    if not victim:
+        return []
+    return [Event(
+        type=EventType.DISCARD,
+        payload={'player': victim, 'amount': 1},
+        source=target_obj.id,
+    )]
+
+
 SPLIT_SOUL_KATANA = make_equipment(
     name="Split Soul Katana",
     mana_cost="{2}",
     text="Equipped creature gets +2/+1. Whenever equipped creature deals combat damage to a player, that player discards a card.",
     equip_cost="{1}",
-    subtypes={"Cursed"}
+    subtypes={"Cursed"},
+    setup_interceptors=_ih.make_equipment_setup(
+        power_mod=2, toughness_mod=1,
+        equip_cost="{1}",
+        granted_triggered_abilities={
+            "event_filter": _split_soul_combat_damage_to_player_filter,
+            "effect_fn": _split_soul_discard_effect,
+            "description": "Combat damage to player → that player discards a card",
+        },
+    ),
 )
 
 
@@ -4115,12 +4182,49 @@ DRAGON_BONE = make_equipment(
 )
 
 
+# --- Festering Life Sword: Helper-5 rewire ---------------------------------
+# +2/+0 + deathtouch + granted trigger "deals damage → you gain that much life."
+# Filter matches both combat and non-combat damage as printed.
+def _festering_life_damage_filter(
+    event: Event, state: GameState, target_id: str
+) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    amt = event.payload.get('amount', 0) or 0
+    return amt > 0
+
+
+def _festering_life_gain_effect(
+    target_obj: GameObject, event: Event, state: GameState
+) -> list[Event]:
+    amt = event.payload.get('amount', 0) or 0
+    if amt <= 0:
+        return []
+    return [Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': target_obj.controller, 'amount': amt},
+        source=target_obj.id,
+    )]
+
+
 FESTERING_LIFE_SWORD = make_equipment(
     name="Festering Life Sword",
     mana_cost="{2}{B}",
     text="Equipped creature gets +2/+0 and has deathtouch. Whenever equipped creature deals damage, you gain that much life.",
     equip_cost="{2}",
-    subtypes={"Cursed"}
+    subtypes={"Cursed"},
+    setup_interceptors=_ih.make_equipment_setup(
+        power_mod=2, toughness_mod=0,
+        keywords=["deathtouch"],
+        equip_cost="{2}",
+        granted_triggered_abilities={
+            "event_filter": _festering_life_damage_filter,
+            "effect_fn": _festering_life_gain_effect,
+            "description": "Damage dealt → controller gains that much life",
+        },
+    ),
 )
 
 
