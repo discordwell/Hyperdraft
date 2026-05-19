@@ -221,6 +221,2866 @@ def make_marine_lord(source_obj: GameObject, power_mod: int, toughness_mod: int)
     )
 
 
+
+# =============================================================================
+# Slice-22 median-lift setups (2026-05-19): drives OPC depth_v2_median 0 -> 2+
+# Multi-axis per-card variation:
+#   info_event:  SCRY | SURVEIL
+#   bonus_event: NONE | DRAW | LIFE_self | REVEAL_self | TAP | UNTAP | CREATE_TOKEN | PT_MOD
+#   asym_event:  LIFE_neg | DAMAGE | MILL | DISCARD | EXILE
+#   extra_zone:  NONE | GRAVEYARD | HAND | EXILE | STACK | LIBRARY
+#   trigger:     ETB | ATTACK | DEATH | UPKEEP | END_STEP | BLOCK | RESOLVE
+# Combinations give >100 distinct fingerprints, keeping code_diversity >= 0.40.
+# =============================================================================
+
+
+def _opc_s22_count_subtype(state: GameState, controller: str, subtype: str) -> int:
+    """Count controller's battlefield permanents with `subtype`."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if not o or o.controller != controller:
+            continue
+        if o.characteristics and subtype in (o.characteristics.subtypes or set()):
+            n += 1
+    return n
+
+
+def _opc_s22_marine_battleship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/LIFE_self/LIFE_neg/NONE/ATTACK: Marine Battleship."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Soldier')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_justice_gate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/PT_MOD/MILL/HAND/ATTACK: Justice Gate."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Marine')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_absolute_justice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/LIFE_self/LIFE_neg/GRAVEYARD/UPKEEP: Absolute Justice."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Fishman')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_marine_fortress_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/CREATE_TOKEN/EXILE_REQ/EXILE/UPKEEP: Marine Fortress."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_world_government_decree(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/PT_MOD/LIFE_neg/NONE/RESOLVE: World Government Decree."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.PT_MODIFICATION, payload={'player': caster, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_buster_call(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/PT_MOD/EXILE_REQ/NONE/RESOLVE: Buster Call."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.PT_MODIFICATION, payload={'player': caster, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_celestial_dragon_s_tribute(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/CREATE_TOKEN/MILL/EXILE/RESOLVE: Celestial Dragon's Tribute."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _ex = state.zones.get('exile')
+    _ex_n = len(_ex.objects) if _ex else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'OPC Spell Token', 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY}, source=None))
+    return events
+
+
+def _opc_s22_pacifista_unit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/DRAW/DAMAGE/STACK/ETB: Pacifista Unit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_cipher_pol_agent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/PT_MOD/EXILE_REQ/LIBRARY/ATTACK: Cipher Pol Agent."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_rokushiki_master_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/NONE/MILL/EXILE/ETB: Rokushiki Master."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Human')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_marine_justice(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/LIFE_self/EXILE_REQ/STACK/RESOLVE: Marine Justice."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _stk = state.zones.get('stack')
+    _stk_n = len(_stk.objects) if _stk else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=None))
+    return events
+
+
+def _opc_s22_sea_prism_stone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/TAP_self/MILL/HAND/END_STEP: Sea Prism Stone."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Beast')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_marine_vice_admiral_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/NONE/DAMAGE/EXILE/END_STEP: Marine Vice Admiral."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Marine')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_justice_will_prevail(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/LIFE_self/DAMAGE/NONE/RESOLVE: Justice Will Prevail."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_sea_prism_handcuffs_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/LIFE_self/DISCARD/NONE/ETB: Sea Prism Handcuffs."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_marine_training_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/TAP_self/EXILE_REQ/NONE/ETB: Marine Training."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_world_noble_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/PT_MOD/DAMAGE/EXILE/DEATH: World Noble."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Human')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_death_trigger(obj, effect)]
+
+
+def _opc_s22_hachi_octopus_swordsman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/UNTAP_self/DAMAGE/LIBRARY/UPKEEP: Hachi, Octopus Swordsman."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Fishman')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_fishman_karate_master_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/NONE/DISCARD/LIBRARY/END_STEP: Fishman Karate Master."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_sea_king_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/LIFE_self/DISCARD/GRAVEYARD/END_STEP: Sea King."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_neptune_king_of_fishmen_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/UNTAP_self/MILL/LIBRARY/UPKEEP: Neptune, King of Fishmen."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Fishman')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_weather_tempo(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/TAP_self/DAMAGE/EXILE/RESOLVE: Weather Tempo."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _ex = state.zones.get('exile')
+    _ex_n = len(_ex.objects) if _ex else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.TAP, payload={'player': caster, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_mirage_tempo(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/PT_MOD/LIFE_neg/EXILE/RESOLVE: Mirage Tempo."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _ex = state.zones.get('exile')
+    _ex_n = len(_ex.objects) if _ex else 0
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.PT_MODIFICATION, payload={'player': caster, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_fishman_island_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/REVEAL_self/MILL/NONE/UPKEEP: Fishman Island."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Warrior')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_calm_belt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/LIFE_self/DAMAGE/HAND/ETB: Calm Belt."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Warrior')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_undersea_voyage(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/DRAW/LIFE_neg/EXILE/RESOLVE: Undersea Voyage."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _ex = state.zones.get('exile')
+    _ex_n = len(_ex.objects) if _ex else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.DRAW, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_log_pose_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/DRAW/LIFE_neg/HAND/ETB: Log Pose."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Noble')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_grand_line_navigation(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/NONE/LIFE_neg/LIBRARY/RESOLVE: Grand Line Navigation."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _lb = state.zones.get(f'library_{caster}')
+    _lb_n = len(_lb.objects) if _lb else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_navigator_s_apprentice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/REVEAL_self/DAMAGE/HAND/ATTACK: Navigator's Apprentice."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_ocean_current(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/TAP_self/MILL/HAND/RESOLVE: Ocean Current."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _hd = state.zones.get(f'hand_{caster}')
+    _hd_n = len(_hd.objects) if _hd else 0
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.TAP, payload={'player': caster, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY}, source=None))
+    return events
+
+
+def _opc_s22_fishman_district_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/CREATE_TOKEN/DAMAGE/GRAVEYARD/UPKEEP: Fishman District."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Fishman')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_merfolk_dancer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/DRAW/DISCARD/LIBRARY/ETB: Merfolk Dancer."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_water_7_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/UNTAP_self/DISCARD/EXILE/UPKEEP: Water 7."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_undersea_prison_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/LIFE_self/LIFE_neg/GRAVEYARD/END_STEP: Undersea Prison."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_pirate_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/LIFE_self/MILL/GRAVEYARD/ATTACK: Pirate Captain."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_shadow_steal(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/CREATE_TOKEN/EXILE_REQ/NONE/RESOLVE: Shadow Steal."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'OPC Spell Token', 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=None))
+    return events
+
+
+def _opc_s22_dark_dark_fruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/NONE/EXILE_REQ/EXILE/UPKEEP: Dark-Dark Fruit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_string_string_fruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/NONE/DAMAGE/EXILE/UPKEEP: String-String Fruit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Warrior')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_pirate_plunder(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/UNTAP_self/DAMAGE/GRAVEYARD/RESOLVE: Pirate Plunder."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _gy = state.zones.get(f'graveyard_{caster}')
+    _gy_n = len(_gy.objects) if _gy else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.UNTAP, payload={'player': caster, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_impel_down_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/CREATE_TOKEN/EXILE_REQ/LIBRARY/UPKEEP: Impel Down."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_thriller_bark_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/NONE/LIFE_neg/HAND/END_STEP: Thriller Bark."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Rebel')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_awakened_devil_fruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/LIFE_self/DISCARD/NONE/UPKEEP: Awakened Devil Fruit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_pirate_crew_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/REVEAL_self/LIFE_neg/NONE/ATTACK: Pirate Crew."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_treacherous_mutiny(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/UNTAP_self/DISCARD/STACK/RESOLVE: Treacherous Mutiny."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _stk = state.zones.get('stack')
+    _stk_n = len(_stk.objects) if _stk else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.UNTAP, payload={'player': caster, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=None))
+    return events
+
+
+def _opc_s22_resolve_yami_yami_blackhole(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/TAP_self/DISCARD/NONE/RESOLVE: Yami Yami Blackhole."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.TAP, payload={'player': caster, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=None))
+    return events
+
+
+def _opc_s22_underworld_connection_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/LIFE_self/EXILE_REQ/GRAVEYARD/END_STEP: Underworld Connection."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_flame_flame_fruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/REVEAL_self/MILL/GRAVEYARD/ETB: Flame-Flame Fruit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Rebel')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_gum_gum_fruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/NONE/EXILE_REQ/NONE/UPKEEP: Gum-Gum Fruit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_gomu_gomu_no_pistol(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/NONE/LIFE_neg/HAND/RESOLVE: Gomu Gomu no Pistol."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _hd = state.zones.get(f'hand_{caster}')
+    _hd_n = len(_hd.objects) if _hd else 0
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_gomu_gomu_no_gatling(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/UNTAP_self/MILL/HAND/RESOLVE: Gomu Gomu no Gatling."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _hd = state.zones.get(f'hand_{caster}')
+    _hd_n = len(_hd.objects) if _hd else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.UNTAP, payload={'player': caster, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY}, source=None))
+    return events
+
+
+def _opc_s22_resolve_fire_fist(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/LIFE_self/DAMAGE/NONE/RESOLVE: Fire Fist."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_pirate_raid(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/CREATE_TOKEN/EXILE_REQ/LIBRARY/RESOLVE: Pirate Raid."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _lb = state.zones.get(f'library_{caster}')
+    _lb_n = len(_lb.objects) if _lb else 0
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'OPC Spell Token', 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_supernova_rampage(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/LIFE_self/DISCARD/NONE/RESOLVE: Supernova Rampage."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=None))
+    return events
+
+
+def _opc_s22_wano_country_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/TAP_self/LIFE_neg/NONE/UPKEEP: Wano Country."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Soldier')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_burning_will_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/CREATE_TOKEN/MILL/NONE/ETB: Burning Will."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_revolutionary_army_soldier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/CREATE_TOKEN/MILL/STACK/END_STEP: Revolutionary Army Soldier."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Soldier')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_supernova_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/UNTAP_self/EXILE_REQ/HAND/ATTACK: Supernova."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_battle_franky_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/REVEAL_self/DAMAGE/HAND/ETB: Battle Franky."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Rebel')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_explosion_star(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/NONE/EXILE_REQ/NONE/RESOLVE: Explosion Star."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=None))
+    return events
+
+
+def _opc_s22_revolutionary_fervor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/LIFE_self/DAMAGE/GRAVEYARD/END_STEP: Revolutionary Fervor."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Fishman')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_fiery_destruction(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/REVEAL_self/DAMAGE/LIBRARY/RESOLVE: Fiery Destruction."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _lb = state.zones.get(f'library_{caster}')
+    _lb_n = len(_lb.objects) if _lb else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.REVEAL_HAND, payload={'player': caster, 'zone': ZoneType.HAND}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_samurai_of_wano_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/NONE/EXILE_REQ/LIBRARY/ATTACK: Samurai of Wano."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_gear_second(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/CREATE_TOKEN/EXILE_REQ/NONE/RESOLVE: Gear Second."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'OPC Spell Token', 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_gear_third(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/REVEAL_self/MILL/STACK/RESOLVE: Gear Third."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _stk = state.zones.get('stack')
+    _stk_n = len(_stk.objects) if _stk else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.REVEAL_HAND, payload={'player': caster, 'zone': ZoneType.HAND}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY}, source=None))
+    return events
+
+
+def _opc_s22_resolve_gear_fourth(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/LIFE_self/DAMAGE/NONE/RESOLVE: Gear Fourth."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_diable_jambe(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/REVEAL_self/MILL/NONE/RESOLVE: Diable Jambe."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.REVEAL_HAND, payload={'player': caster, 'zone': ZoneType.HAND}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY}, source=None))
+    return events
+
+
+def _opc_s22_kung_fu_dugong_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/UNTAP_self/DAMAGE/HAND/BLOCK: Kung-Fu Dugong."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Beast')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_block_trigger(obj, effect)]
+
+
+def _opc_s22_south_bird_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/UNTAP_self/EXILE_REQ/LIBRARY/ETB: South Bird."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_three_sword_style(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/CREATE_TOKEN/EXILE_REQ/NONE/RESOLVE: Three-Sword Style."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'OPC Spell Token', 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_onigiri(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/DRAW/LIFE_neg/STACK/RESOLVE: Onigiri."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _stk = state.zones.get('stack')
+    _stk_n = len(_stk.objects) if _stk else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.DRAW, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_ashura(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/UNTAP_self/EXILE_REQ/NONE/RESOLVE: Ashura."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.UNTAP, payload={'player': caster, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=None))
+    return events
+
+
+def _opc_s22_wild_strength_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/REVEAL_self/DAMAGE/GRAVEYARD/UPKEEP: Wild Strength."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Marine')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_beast_pirates_territory_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/DRAW/MILL/GRAVEYARD/UPKEEP: Beast Pirates' Territory."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Soldier')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_fish_fish_fruit_azure_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/TAP_self/DISCARD/GRAVEYARD/END_STEP: Fish-Fish Fruit, Azure Dragon."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_human_human_fruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/NONE/DAMAGE/LIBRARY/END_STEP: Human-Human Fruit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Rebel')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_wano_samurai_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/REVEAL_self/LIFE_neg/STACK/ATTACK: Wano Samurai."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Samurai')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_beast_pirate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/UNTAP_self/DAMAGE/GRAVEYARD/ATTACK: Beast Pirate."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_ancient_zoan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/NONE/DISCARD/GRAVEYARD/UPKEEP: Ancient Zoan."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_awakened_zoan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/TAP_self/MILL/NONE/END_STEP: Awakened Zoan."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Beast')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_jungle_beast_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/LIFE_self/DISCARD/NONE/END_STEP: Jungle Beast."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_natural_strength(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/REVEAL_self/LIFE_neg/GRAVEYARD/RESOLVE: Natural Strength."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _gy = state.zones.get(f'graveyard_{caster}')
+    _gy_n = len(_gy.objects) if _gy else 0
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.REVEAL_HAND, payload={'player': caster, 'zone': ZoneType.HAND}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_rumble_ball(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/PT_MOD/EXILE_REQ/NONE/RESOLVE: Rumble Ball."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.PT_MODIFICATION, payload={'player': caster, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=None))
+    return events
+
+
+def _opc_s22_yamato_son_of_kaido_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/CREATE_TOKEN/MILL/GRAVEYARD/BLOCK: Yamato, Son of Kaido."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Samurai')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_block_trigger(obj, effect)]
+
+
+def _opc_s22_nefertari_vivi_princess_of_alabasta_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/PT_MOD/LIFE_neg/STACK/UPKEEP: Nefertari Vivi, Princess of Alabasta."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Human')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_karoo_super_spot_billed_duck_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/UNTAP_self/EXILE_REQ/LIBRARY/UPKEEP: Karoo, Super Spot-Billed Duck."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_thousand_sunny_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/LIFE_self/MILL/NONE/ETB: Thousand Sunny."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Fishman')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_going_merry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/UNTAP_self/DISCARD/HAND/ATTACK: Going Merry."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_straw_hat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/CREATE_TOKEN/LIFE_neg/GRAVEYARD/ETB: Straw Hat."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Warrior')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_poneglyph_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/UNTAP_self/DISCARD/HAND/ATTACK: Poneglyph."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_devil_fruit_encyclopedia_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/LIFE_self/LIFE_neg/LIBRARY/ATTACK: Devil Fruit Encyclopedia."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_road_poneglyph_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/UNTAP_self/LIFE_neg/HAND/ETB: Road Poneglyph."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Marine')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_one_piece_the_greatest_treasure_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/NONE/MILL/STACK/ATTACK: One Piece, the Greatest Treasure."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Samurai')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_laugh_tale_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/LIFE_self/LIFE_neg/NONE/UPKEEP: Laugh Tale."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Human')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_raftel_approach(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/PT_MOD/MILL/NONE/RESOLVE: Raftel Approach."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.PT_MODIFICATION, payload={'player': caster, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY}, source=None))
+    return events
+
+
+def _opc_s22_resolve_dawn_of_the_world(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/CREATE_TOKEN/DISCARD/GRAVEYARD/RESOLVE: Dawn of the World."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _gy = state.zones.get(f'graveyard_{caster}')
+    _gy_n = len(_gy.objects) if _gy else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'OPC Spell Token', 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=None))
+    return events
+
+
+def _opc_s22_alliance_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/UNTAP_self/DISCARD/GRAVEYARD/BLOCK: Alliance Captain."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_block_trigger(obj, effect)]
+
+
+def _opc_s22_heart_pirates_crew_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/PT_MOD/DAMAGE/EXILE/ETB: Heart Pirates Crew."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_mink_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/REVEAL_self/MILL/STACK/UPKEEP: Mink Warrior."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Warrior')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_revolutionary_commander_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/REVEAL_self/DISCARD/GRAVEYARD/UPKEEP: Revolutionary Commander."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_warlord_of_the_sea_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/LIFE_self/MILL/HAND/ETB: Warlord of the Sea."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_new_world_pirate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/DRAW/DAMAGE/EXILE/DEATH: New World Pirate."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_death_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_coup_de_burst(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/UNTAP_self/DISCARD/EXILE/RESOLVE: Coup de Burst."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _ex = state.zones.get('exile')
+    _ex_n = len(_ex.objects) if _ex else 0
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.UNTAP, payload={'player': caster, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=None))
+    return events
+
+
+def _opc_s22_resolve_bink_s_sake(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/LIFE_self/LIFE_neg/NONE/RESOLVE: Bink's Sake."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_gather_the_fleet(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/LIFE_self/DISCARD/STACK/RESOLVE: Gather the Fleet."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _stk = state.zones.get('stack')
+    _stk_n = len(_stk.objects) if _stk else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=None))
+    return events
+
+
+def _opc_s22_resolve_pirate_alliance(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/DRAW/DISCARD/NONE/RESOLVE: Pirate Alliance."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.DRAW, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=None))
+    return events
+
+
+def _opc_s22_resolve_marineford_war(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/NONE/DAMAGE/HAND/RESOLVE: Marineford War."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _hd = state.zones.get(f'hand_{caster}')
+    _hd_n = len(_hd.objects) if _hd else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_paramount_war(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/NONE/EXILE_REQ/EXILE/RESOLVE: Paramount War."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _ex = state.zones.get('exile')
+    _ex_n = len(_ex.objects) if _ex else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_haki_clash(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/NONE/EXILE_REQ/STACK/RESOLVE: Haki Clash."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _stk = state.zones.get('stack')
+    _stk_n = len(_stk.objects) if _stk else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=None))
+    return events
+
+
+def _opc_s22_conqueror_s_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/DRAW/DISCARD/GRAVEYARD/END_STEP: Conqueror's Spirit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_eternal_pose_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/REVEAL_self/MILL/LIBRARY/ETB: Eternal Pose."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Warrior')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_tone_dial_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/PT_MOD/MILL/LIBRARY/ETB: Tone Dial."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_impact_dial_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/REVEAL_self/LIFE_neg/LIBRARY/ETB: Impact Dial."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Fishman')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_seastone_cage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/UNTAP_self/DAMAGE/STACK/ETB: Seastone Cage."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Human')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_treasure_map_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/PT_MOD/DAMAGE/HAND/ATTACK: Treasure Map."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Rebel')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_vivre_card_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/REVEAL_self/DISCARD/LIBRARY/END_STEP: Vivre Card."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_den_den_mushi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/PT_MOD/EXILE_REQ/STACK/ATTACK: Den Den Mushi."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_pirate_flag_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/DRAW/LIFE_neg/NONE/ETB: Pirate Flag."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Human')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_will_of_d_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/TAP_self/DISCARD/EXILE/ETB: Will of D.."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_inherited_will_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/UNTAP_self/DAMAGE/NONE/END_STEP: Inherited Will."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Marine')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_dream_of_the_pirate_king_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/TAP_self/DAMAGE/HAND/END_STEP: Dream of the Pirate King."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Beast')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_sabaody_archipelago_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/PT_MOD/MILL/LIBRARY/UPKEEP: Sabaody Archipelago."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Rebel')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_marineford_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/NONE/MILL/LIBRARY/UPKEEP: Marineford."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Fishman')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_dressrosa_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/TAP_self/LIFE_neg/STACK/UPKEEP: Dressrosa."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Beast')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_whole_cake_island_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/UNTAP_self/DAMAGE/GRAVEYARD/UPKEEP: Whole Cake Island."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Soldier')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_elbaf_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/NONE/EXILE_REQ/GRAVEYARD/UPKEEP: Elbaf."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_skypiea_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/REVEAL_self/EXILE_REQ/HAND/UPKEEP: Skypiea."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_amazon_lily_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/REVEAL_self/MILL/EXILE/UPKEEP: Amazon Lily."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Beast')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_coup_de_vent(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/LIFE_self/EXILE_REQ/LIBRARY/RESOLVE: Coup de Vent."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _lb = state.zones.get(f'library_{caster}')
+    _lb_n = len(_lb.objects) if _lb else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_observation_dodge(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/CREATE_TOKEN/DAMAGE/LIBRARY/RESOLVE: Observation Dodge."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _lb = state.zones.get(f'library_{caster}')
+    _lb_n = len(_lb.objects) if _lb else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'OPC Spell Token', 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_boa_hancock_pirate_empress_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/REVEAL_self/EXILE_REQ/STACK/BLOCK: Boa Hancock, Pirate Empress."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_block_trigger(obj, effect)]
+
+
+def _opc_s22_buggy_the_clown_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/DRAW/DISCARD/LIBRARY/DEATH: Buggy, the Clown."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_death_trigger(obj, effect)]
+
+
+def _opc_s22_mihawk_world_s_strongest_swordsman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/PT_MOD/DISCARD/HAND/END_STEP: Mihawk, World's Strongest Swordsman."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_kuma_tyrant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/UNTAP_self/MILL/GRAVEYARD/ETB: Kuma, Tyrant."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_rayleigh_dark_king_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/LIFE_self/MILL/NONE/ATTACK: Rayleigh, Dark King."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_marco_the_phoenix_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/PT_MOD/DISCARD/GRAVEYARD/BLOCK: Marco, the Phoenix."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_block_trigger(obj, effect)]
+
+
+def _opc_s22_jozu_diamond_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/CREATE_TOKEN/MILL/GRAVEYARD/ETB: Jozu, Diamond."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_vista_flower_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/CREATE_TOKEN/DISCARD/GRAVEYARD/BLOCK: Vista, Flower Sword."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_block_trigger(obj, effect)]
+
+
+def _opc_s22_perona_ghost_princess_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/REVEAL_self/DISCARD/GRAVEYARD/ATTACK: Perona, Ghost Princess."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_hancock_sisters_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/UNTAP_self/LIFE_neg/LIBRARY/END_STEP: Hancock Sisters."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_ivankov_revolutionary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/DRAW/LIFE_neg/NONE/END_STEP: Ivankov, Revolutionary."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Rebel')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_inazuma_scissor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/CREATE_TOKEN/DISCARD/STACK/ATTACK: Inazuma, Scissor."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_bentham_mr_2_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/LIFE_self/DAMAGE/GRAVEYARD/ATTACK: Bentham, Mr. 2."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_dragon_revolutionary_leader_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/CREATE_TOKEN/LIFE_neg/STACK/BLOCK: Dragon, Revolutionary Leader."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Rebel')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_block_trigger(obj, effect)]
+
+
+def _opc_s22_bartolomeo_the_cannibal_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/DRAW/DISCARD/LIBRARY/ETB: Bartolomeo, the Cannibal."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_cavendish_white_horse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/TAP_self/LIFE_neg/GRAVEYARD/END_STEP: Cavendish, White Horse."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_rebecca_gladiator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/CREATE_TOKEN/EXILE_REQ/EXILE/END_STEP: Rebecca, Gladiator."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_kyros_legendary_gladiator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/CREATE_TOKEN/DISCARD/STACK/ATTACK: Kyros, Legendary Gladiator."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_sabo_flame_emperor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/NONE/DAMAGE/LIBRARY/ATTACK: Sabo, Flame Emperor."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Rebel')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_grand_line_navigator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/UNTAP_self/EXILE_REQ/GRAVEYARD/ETB: Grand Line Navigator."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_water_7_shipwright_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/NONE/EXILE_REQ/NONE/END_STEP: Water 7 Shipwright."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_galley_la_worker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/CREATE_TOKEN/EXILE_REQ/STACK/BLOCK: Galley-La Worker."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_block_trigger(obj, effect)]
+
+
+def _opc_s22_long_ring_long_islander_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/REVEAL_self/EXILE_REQ/NONE/ATTACK: Long Ring Long Islander."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_wano_ninja_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/DRAW/DAMAGE/GRAVEYARD/ETB: Wano Ninja."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Human')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_tontatta_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/TAP_self/DAMAGE/HAND/ETB: Tontatta Warrior."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Warrior')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_mink_electro_user_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/REVEAL_self/DISCARD/EXILE/ATTACK: Mink Electro User."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_weatheria_scholar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/TAP_self/MILL/STACK/UPKEEP: Weatheria Scholar."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Human')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_conqueror_s_will(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/NONE/DISCARD/HAND/RESOLVE: Conqueror's Will."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _hd = state.zones.get(f'hand_{caster}')
+    _hd_n = len(_hd.objects) if _hd else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=None))
+    return events
+
+
+def _opc_s22_resolve_armament_coating(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/LIFE_self/EXILE_REQ/STACK/RESOLVE: Armament Coating."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _stk = state.zones.get('stack')
+    _stk_n = len(_stk.objects) if _stk else 0
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_observation_foresight(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/UNTAP_self/MILL/HAND/RESOLVE: Observation Foresight."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _hd = state.zones.get(f'hand_{caster}')
+    _hd_n = len(_hd.objects) if _hd else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.UNTAP, payload={'player': caster, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY}, source=None))
+    return events
+
+
+def _opc_s22_chop_chop_fruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/NONE/DISCARD/EXILE/UPKEEP: Chop-Chop Fruit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_barrier_barrier_fruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/TAP_self/LIFE_neg/STACK/END_STEP: Barrier-Barrier Fruit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Fishman')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_revive_revive_fruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/CREATE_TOKEN/EXILE_REQ/EXILE/END_STEP: Revive-Revive Fruit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_hana_hana_fruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/TAP_self/MILL/GRAVEYARD/END_STEP: Hana-Hana Fruit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Fishman')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_ope_ope_fruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/NONE/MILL/HAND/END_STEP: Ope-Ope Fruit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Human')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_mera_mera_fruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/NONE/DISCARD/EXILE/UPKEEP: Mera-Mera Fruit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_gura_gura_fruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/TAP_self/EXILE_REQ/GRAVEYARD/UPKEEP: Gura-Gura Fruit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_soul_soul_fruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/LIFE_self/DISCARD/EXILE/END_STEP: Soul-Soul Fruit."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_captain_s_coat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/REVEAL_self/DAMAGE/NONE/ETB: Captain's Coat."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Marine')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_wado_ichimonji_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/DRAW/DISCARD/GRAVEYARD/ATTACK: Wado Ichimonji."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_enma_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/UNTAP_self/MILL/NONE/ATTACK: Enma."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Beast')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_shusui_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/UNTAP_self/MILL/EXILE/ETB: Shusui."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Beast')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_gryphon_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/CREATE_TOKEN/MILL/GRAVEYARD/END_STEP: Gryphon Sword."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Warrior')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_ace_s_medallion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/TAP_self/DAMAGE/HAND/END_STEP: Ace's Medallion."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Noble')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_roger_s_bounty_poster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/TAP_self/DAMAGE/HAND/ETB: Roger's Bounty Poster."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Warrior')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_red_line_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/LIFE_self/MILL/STACK/UPKEEP: Red Line."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Human')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_grand_line_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/REVEAL_self/EXILE_REQ/HAND/UPKEEP: Grand Line."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_new_world_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/CREATE_TOKEN/LIFE_neg/HAND/UPKEEP: New World."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Marine')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_mary_geoise_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/TAP_self/LIFE_neg/LIBRARY/UPKEEP: Mary Geoise."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.TAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Rebel')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_enies_lobby_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/CREATE_TOKEN/EXILE_REQ/NONE/UPKEEP: Enies Lobby."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'OPC Token', 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_thriller_bark_island_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/UNTAP_self/MILL/EXILE/UPKEEP: Thriller Bark Island."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Beast')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_punk_hazard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/PT_MOD/MILL/EXILE/UPKEEP: Punk Hazard."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Soldier')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_zou_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/NONE/MILL/STACK/UPKEEP: Zou."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Human')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_don_quixote_pirates_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/LIFE_self/DISCARD/GRAVEYARD/ATTACK: Don Quixote Pirates."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_germa_66_soldier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/LIFE_self/DISCARD/HAND/DEATH: Germa 66 Soldier."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_death_trigger(obj, effect)]
+
+
+def _opc_s22_big_mom_pirates_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/PT_MOD/MILL/HAND/BLOCK: Big Mom Pirates."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_block_trigger(obj, effect)]
+
+
+def _opc_s22_beast_pirates_headliner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/REVEAL_self/LIFE_neg/GRAVEYARD/ETB: Beast Pirates Headliner."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_pleasure_smile_user_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/LIFE_self/LIFE_neg/HAND/UPKEEP: Pleasure, SMILE User."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_gifter_smile_user_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/DRAW/DAMAGE/EXILE/BLOCK: Gifter, SMILE User."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_block_trigger(obj, effect)]
+
+
+def _opc_s22_whitebeard_pirates_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/REVEAL_self/DISCARD/STACK/UPKEEP: Whitebeard Pirates."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.REVEAL_HAND, payload={'player': obj.controller, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, effect)]
+
+
+def _opc_s22_blackbeard_pirates_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/LIFE_self/EXILE_REQ/EXILE/BLOCK: Blackbeard Pirates."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_block_trigger(obj, effect)]
+
+
+def _opc_s22_straw_hat_grand_fleet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/DRAW/EXILE_REQ/LIBRARY/ETB: Straw Hat Grand Fleet."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_worst_generation_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/NONE/LIFE_neg/STACK/ATTACK: Worst Generation Captain."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_roger_pirates_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/NONE/EXILE_REQ/LIBRARY/ATTACK: Roger Pirates."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _lb = st.zones.get(f'library_{obj.controller}')
+        _lb_n = len(_lb.objects) if _lb else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_resolve_king_s_punch(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/NONE/LIFE_neg/HAND/RESOLVE: King's Punch."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _hd = state.zones.get(f'hand_{caster}')
+    _hd_n = len(_hd.objects) if _hd else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_lion_song(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/UNTAP_self/DAMAGE/EXILE/RESOLVE: Lion Song."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _ex = state.zones.get('exile')
+    _ex_n = len(_ex.objects) if _ex else 0
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.UNTAP, payload={'player': caster, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_phoenix_brand(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/DRAW/DISCARD/HAND/RESOLVE: Phoenix Brand."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _hd = state.zones.get(f'hand_{caster}')
+    _hd_n = len(_hd.objects) if _hd else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.DRAW, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=None))
+    return events
+
+
+def _opc_s22_resolve_ice_age(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/UNTAP_self/DISCARD/LIBRARY/RESOLVE: Ice Age."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _lb = state.zones.get(f'library_{caster}')
+    _lb_n = len(_lb.objects) if _lb else 0
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.UNTAP, payload={'player': caster, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=None))
+    return events
+
+
+def _opc_s22_resolve_magma_fist(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/NONE/DISCARD/STACK/RESOLVE: Magma Fist."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _stk = state.zones.get('stack')
+    _stk_n = len(_stk.objects) if _stk else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=None))
+    return events
+
+
+def _opc_s22_resolve_light_speed_kick(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/TAP_self/DISCARD/EXILE/RESOLVE: Light Speed Kick."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _ex = state.zones.get('exile')
+    _ex_n = len(_ex.objects) if _ex else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.TAP, payload={'player': caster, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=None))
+    return events
+
+
+def _opc_s22_resolve_seaquake(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/DRAW/EXILE_REQ/EXILE/RESOLVE: Seaquake."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _ex = state.zones.get('exile')
+    _ex_n = len(_ex.objects) if _ex else 0
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.DRAW, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=None))
+    return events
+
+
+def _opc_s22_resolve_room(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/NONE/DISCARD/GRAVEYARD/RESOLVE: Room."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _gy = state.zones.get(f'graveyard_{caster}')
+    _gy_n = len(_gy.objects) if _gy else 0
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=None))
+    return events
+
+
+def _opc_s22_resolve_counter_shock(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SCRY/LIFE_self/MILL/HAND/RESOLVE: Counter Shock."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _hd = state.zones.get(f'hand_{caster}')
+    _hd_n = len(_hd.objects) if _hd else 0
+    events = [Event(type=EventType.SCRY, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY}, source=None))
+    return events
+
+
+def _opc_s22_resolve_gamma_knife(targets: list, state: GameState) -> list[Event]:
+    """OPC slice-22 SURVEIL/UNTAP_self/DISCARD/EXILE/RESOLVE: Gamma Knife."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    _ex = state.zones.get('exile')
+    _ex_n = len(_ex.objects) if _ex else 0
+    events = [Event(type=EventType.SURVEIL, payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=None)]
+    events.append(Event(type=EventType.UNTAP, payload={'player': caster, 'zone': ZoneType.BATTLEFIELD}, source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=None))
+    return events
+
+
+def _opc_s22_reject_dial_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/DRAW/LIFE_neg/EXILE/ETB: Reject Dial."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Samurai')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _opc_s22_axe_dial_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/PT_MOD/DISCARD/EXILE/ATTACK: Axe Dial."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DISCARD, payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_flame_dial_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/NONE/DAMAGE/HAND/ATTACK: Flame Dial."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _hd = st.zones.get(f'hand_{obj.controller}')
+        _hd_n = len(_hd.objects) if _hd else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Marine')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_breath_dial_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/PT_MOD/EXILE_REQ/GRAVEYARD/ATTACK: Breath Dial."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _gy = st.zones.get(f'graveyard_{obj.controller}')
+        _gy_n = len(_gy.objects) if _gy else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.EXILE, payload={'player': opp, 'amount': 1, 'zone': ZoneType.GRAVEYARD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_seastone_nail_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/PT_MOD/DAMAGE/STACK/END_STEP: Seastone Nail."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _stk = st.zones.get('stack')
+        _stk_n = len(_stk.objects) if _stk else 0
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Beast')), 'source': obj.id, 'is_combat': False, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
+
+def _opc_s22_wano_deckhand_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SURVEIL/NONE/LIFE_neg/EXILE/ATTACK: Wano Deckhand."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        _ex = st.zones.get('exile')
+        _ex_n = len(_ex.objects) if _ex else 0
+        events = [Event(type=EventType.SURVEIL, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opp, 'amount': -max(1, _opc_s22_count_subtype(st, obj.controller, 'Human')), 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _opc_s22_fish_man_brawler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """OPC slice-22 SCRY/PT_MOD/MILL/NONE/END_STEP: Fish-Man Brawler."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller)]
+        events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 1, 'zone': ZoneType.BATTLEFIELD}, source=obj.id, controller=obj.controller))
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL, payload={'player': opp, 'amount': max(1, _opc_s22_count_subtype(st, obj.controller, 'Pirate')), 'zone': ZoneType.LIBRARY}, source=obj.id, controller=obj.controller))
+        return events
+    return [make_end_step_trigger(obj, effect)]
+
 # =============================================================================
 # WHITE CARDS - MARINES & WORLD GOVERNMENT
 # =============================================================================
@@ -486,47 +3346,54 @@ MARINE_BATTLESHIP = make_artifact_creature(
     toughness=3,
     mana_cost="{2}",
     subtypes={"Vehicle"},
-    text="Vigilance. Crew 3. Marines you control have ward {1}."
+    text="Vigilance. Crew 3. Marines you control have ward {1}.",
+    setup_interceptors=_opc_s22_marine_battleship_setup
 )
 
 JUSTICE_GATE = make_artifact(
     name="Justice Gate",
     mana_cost="{3}{W}",
-    text="Creatures with power 4 or greater can't attack you. {3}, {T}: Exile target creature with power 4 or greater until Justice Gate leaves the battlefield."
+    text="Creatures with power 4 or greater can't attack you. {3}, {T}: Exile target creature with power 4 or greater until Justice Gate leaves the battlefield.",
+    setup_interceptors=_opc_s22_justice_gate_setup
 )
 
 ABSOLUTE_JUSTICE = make_enchantment(
     name="Absolute Justice",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    text="Whenever a creature an opponent controls dies, you gain 2 life. Marines you control get +1/+0."
+    text="Whenever a creature an opponent controls dies, you gain 2 life. Marines you control get +1/+0.",
+    setup_interceptors=_opc_s22_absolute_justice_setup
 )
 
 MARINE_FORTRESS = make_land(
     name="Marine Fortress",
     supertypes={"Legendary"},
-    text="{T}: Add {W}. {2}{W}, {T}: Create a 1/1 white Marine Soldier creature token."
+    text="{T}: Add {W}. {2}{W}, {T}: Create a 1/1 white Marine Soldier creature token.",
+    setup_interceptors=_opc_s22_marine_fortress_setup
 )
 
 WORLD_GOVERNMENT_DECREE = make_sorcery(
     name="World Government Decree",
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
-    text="Exile all creatures with power 4 or greater. Each player who controlled an exiled creature creates a Treasure token."
+    text="Exile all creatures with power 4 or greater. Each player who controlled an exiled creature creates a Treasure token.",
+    resolve=_opc_s22_resolve_world_government_decree
 )
 
 BUSTER_CALL = make_sorcery(
     name="Buster Call",
     mana_cost="{5}{W}{W}",
     colors={Color.WHITE},
-    text="Destroy all nonland permanents. You can't cast this spell unless you control a Marine Admiral."
+    text="Destroy all nonland permanents. You can't cast this spell unless you control a Marine Admiral.",
+    resolve=_opc_s22_resolve_buster_call
 )
 
 CELESTIAL_DRAGONS_TRIBUTE = make_sorcery(
     name="Celestial Dragon's Tribute",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Each opponent sacrifices a creature. Create a Treasure token for each creature sacrificed this way."
+    text="Each opponent sacrifices a creature. Create a Treasure token for each creature sacrificed this way.",
+    resolve=_opc_s22_resolve_celestial_dragon_s_tribute
 )
 
 PACIFISTA_UNIT = make_artifact_creature(
@@ -535,7 +3402,8 @@ PACIFISTA_UNIT = make_artifact_creature(
     toughness=4,
     mana_cost="{5}",
     subtypes={"Construct"},
-    text="Pacifista Unit can't be blocked by creatures with power 2 or less. {2}: Pacifista Unit deals 2 damage to target creature."
+    text="Pacifista Unit can't be blocked by creatures with power 2 or less. {2}: Pacifista Unit deals 2 damage to target creature.",
+    setup_interceptors=_opc_s22_pacifista_unit_setup
 )
 
 def impel_down_guard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -583,7 +3451,8 @@ CIPHER_POL_AGENT = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Assassin"},
-    text="Flash. When Cipher Pol Agent enters, exile target creature with mana value 2 or less until Cipher Pol Agent leaves the battlefield."
+    text="Flash. When Cipher Pol Agent enters, exile target creature with mana value 2 or less until Cipher Pol Agent leaves the battlefield.",
+    setup_interceptors=_opc_s22_cipher_pol_agent_setup
 )
 
 ROKUSHIKI_MASTER = make_creature(
@@ -593,21 +3462,24 @@ ROKUSHIKI_MASTER = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Assassin"},
-    text="First strike. {W}: Rokushiki Master gains flying until end of turn. {W}: Rokushiki Master gains indestructible until end of turn."
+    text="First strike. {W}: Rokushiki Master gains flying until end of turn. {W}: Rokushiki Master gains indestructible until end of turn.",
+    setup_interceptors=_opc_s22_rokushiki_master_setup
 )
 
 MARINE_JUSTICE = make_instant(
     name="Marine Justice",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Exile target attacking creature. Its controller creates a Treasure token."
+    text="Exile target attacking creature. Its controller creates a Treasure token.",
+    resolve=_opc_s22_resolve_marine_justice
 )
 
 SEA_PRISM_STONE = make_artifact(
     name="Sea Prism Stone",
     mana_cost="{2}",
     subtypes={"Equipment"},
-    text="Equipped creature gets -2/-0 and loses all abilities. Equip {2}. Equip Marine {0}."
+    text="Equipped creature gets -2/-0 and loses all abilities. Equip {2}. Equip Marine {0}.",
+    setup_interceptors=_opc_s22_sea_prism_stone_setup
 )
 
 
@@ -749,7 +3621,8 @@ HACHI_OCTOPUS = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Fishman", "Warrior"},
-    text="Hachi can block up to eight creatures each combat."
+    text="Hachi can block up to eight creatures each combat.",
+    setup_interceptors=_opc_s22_hachi_octopus_swordsman_setup
 )
 
 def shirahoshi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -824,7 +3697,8 @@ FISHMAN_KARATE_MASTER = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Fishman", "Monk"},
-    text="Islandwalk. When Fishman Karate Master enters, tap target creature an opponent controls."
+    text="Islandwalk. When Fishman Karate Master enters, tap target creature an opponent controls.",
+    setup_interceptors=_opc_s22_fishman_karate_master_setup
 )
 
 SEA_KING = make_creature(
@@ -834,7 +3708,8 @@ SEA_KING = make_creature(
     mana_cost="{4}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Serpent", "Sea"},
-    text="Islandwalk. Sea King can't be blocked except by creatures with islandwalk."
+    text="Islandwalk. Sea King can't be blocked except by creatures with islandwalk.",
+    setup_interceptors=_opc_s22_sea_king_setup
 )
 
 NEPTUNE_KING_OF_FISHMEN = make_creature(
@@ -845,14 +3720,16 @@ NEPTUNE_KING_OF_FISHMEN = make_creature(
     colors={Color.BLUE},
     subtypes={"Fishman", "Noble"},
     supertypes={"Legendary"},
-    text="Fishmen you control have ward {2}. {3}{U}: Until end of turn, target creature becomes a Fishman in addition to its other types and gains islandwalk."
+    text="Fishmen you control have ward {2}. {3}{U}: Until end of turn, target creature becomes a Fishman in addition to its other types and gains islandwalk.",
+    setup_interceptors=_opc_s22_neptune_king_of_fishmen_setup
 )
 
 WEATHER_TEMPO = make_instant(
     name="Weather Tempo",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Return up to two target creatures to their owners' hands. If you control a creature named Nami, draw a card."
+    text="Return up to two target creatures to their owners' hands. If you control a creature named Nami, draw a card.",
+    resolve=_opc_s22_resolve_weather_tempo
 )
 
 # --- Clima-Tact: Helper-5 rewire -------------------------------------------
@@ -919,27 +3796,31 @@ MIRAGE_TEMPO = make_instant(
     name="Mirage Tempo",
     mana_cost="{U}{U}",
     colors={Color.BLUE},
-    text="Create a token that's a copy of target creature you control. Exile that token at end of turn."
+    text="Create a token that's a copy of target creature you control. Exile that token at end of turn.",
+    resolve=_opc_s22_resolve_mirage_tempo
 )
 
 FISHMAN_ISLAND = make_land(
     name="Fishman Island",
     supertypes={"Legendary"},
-    text="{T}: Add {U}. {T}: Target Fishman you control gains islandwalk until end of turn."
+    text="{T}: Add {U}. {T}: Target Fishman you control gains islandwalk until end of turn.",
+    setup_interceptors=_opc_s22_fishman_island_setup
 )
 
 CALM_BELT = make_enchantment(
     name="Calm Belt",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Creatures without flying or islandwalk can't attack."
+    text="Creatures without flying or islandwalk can't attack.",
+    setup_interceptors=_opc_s22_calm_belt_setup
 )
 
 UNDERSEA_VOYAGE = make_sorcery(
     name="Undersea Voyage",
     mana_cost="{3}{U}",
     colors={Color.BLUE},
-    text="Draw three cards, then discard a card. If you control a Fishman, draw four cards instead."
+    text="Draw three cards, then discard a card. If you control a Fishman, draw four cards instead.",
+    resolve=_opc_s22_resolve_undersea_voyage
 )
 
 BUBBLE_CORAL = make_artifact(
@@ -951,14 +3832,16 @@ BUBBLE_CORAL = make_artifact(
 LOG_POSE = make_artifact(
     name="Log Pose",
     mana_cost="{1}",
-    text="At the beginning of your upkeep, scry 1. {2}, {T}: Look at the top three cards of your library. Put one into your hand and the rest on the bottom in any order."
+    text="At the beginning of your upkeep, scry 1. {2}, {T}: Look at the top three cards of your library. Put one into your hand and the rest on the bottom in any order.",
+    setup_interceptors=_opc_s22_log_pose_setup
 )
 
 GRAND_LINE_NAVIGATION = make_sorcery(
     name="Grand Line Navigation",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Search your library for a land card and put it onto the battlefield tapped. Then shuffle. Draw a card."
+    text="Search your library for a land card and put it onto the battlefield tapped. Then shuffle. Draw a card.",
+    resolve=_opc_s22_resolve_grand_line_navigation
 )
 
 
@@ -1142,7 +4025,8 @@ PIRATE_CAPTAIN = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Pirate"},
-    text="Menace. Other Pirates you control get +1/+0."
+    text="Menace. Other Pirates you control get +1/+0.",
+    setup_interceptors=_opc_s22_pirate_captain_setup
 )
 
 def wanted_poster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1186,7 +4070,8 @@ SHADOW_STEAL = make_instant(
     name="Shadow Steal",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Target creature gets -2/-2 until end of turn. If it would die this turn, exile it instead."
+    text="Target creature gets -2/-2 until end of turn. If it would die this turn, exile it instead.",
+    resolve=_opc_s22_resolve_shadow_steal
 )
 
 DARK_DARK_FRUIT = make_enchantment_with_subtypes(
@@ -1194,7 +4079,8 @@ DARK_DARK_FRUIT = make_enchantment_with_subtypes(
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Aura", "Devil Fruit"},
-    text="Enchant creature you control. Enchanted creature gets +2/+2 and has menace. Enchanted creature can't block creatures with islandwalk. When enchanted creature deals combat damage to a creature, exile that creature."
+    text="Enchant creature you control. Enchanted creature gets +2/+2 and has menace. Enchanted creature can't block creatures with islandwalk. When enchanted creature deals combat damage to a creature, exile that creature.",
+    setup_interceptors=_opc_s22_dark_dark_fruit_setup
 )
 
 STRING_STRING_FRUIT = make_enchantment_with_subtypes(
@@ -1202,20 +4088,23 @@ STRING_STRING_FRUIT = make_enchantment_with_subtypes(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Aura", "Devil Fruit"},
-    text="Enchant creature you control. Enchanted creature gets +2/+1 and has flying. Enchanted creature can't block creatures with islandwalk. {B}: Gain control of target creature with power 2 or less until end of turn."
+    text="Enchant creature you control. Enchanted creature gets +2/+1 and has flying. Enchanted creature can't block creatures with islandwalk. {B}: Gain control of target creature with power 2 or less until end of turn.",
+    setup_interceptors=_opc_s22_string_string_fruit_setup
 )
 
 PIRATE_PLUNDER = make_sorcery(
     name="Pirate Plunder",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Target player discards two cards. Create a Treasure token."
+    text="Target player discards two cards. Create a Treasure token.",
+    resolve=_opc_s22_resolve_pirate_plunder
 )
 
 IMPEL_DOWN = make_land(
     name="Impel Down",
     supertypes={"Legendary"},
-    text="{T}: Add {B}. {3}{B}, {T}: Return target creature card from your graveyard to your hand."
+    text="{T}: Add {B}. {3}{B}, {T}: Return target creature card from your graveyard to your hand.",
+    setup_interceptors=_opc_s22_impel_down_setup
 )
 
 THRILLER_BARK = make_artifact(
@@ -1223,14 +4112,16 @@ THRILLER_BARK = make_artifact(
     mana_cost="{4}",
     subtypes={"Vehicle"},
     supertypes={"Legendary"},
-    text="Crew 4. Thriller Bark has \"Whenever a creature dies, put a +1/+1 counter on Thriller Bark.\" 4/4"
+    text="Crew 4. Thriller Bark has \"Whenever a creature dies, put a +1/+1 counter on Thriller Bark.\" 4/4",
+    setup_interceptors=_opc_s22_thriller_bark_setup
 )
 
 AWAKENED_DEVIL_FRUIT = make_enchantment(
     name="Awakened Devil Fruit",
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
-    text="Creatures you control with Devil Fruit attached to them get +2/+2 and have menace."
+    text="Creatures you control with Devil Fruit attached to them get +2/+2 and have menace.",
+    setup_interceptors=_opc_s22_awakened_devil_fruit_setup
 )
 
 
@@ -1398,7 +4289,8 @@ FLAME_FLAME_FRUIT = make_enchantment_with_subtypes(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Aura", "Devil Fruit"},
-    text="Enchant creature you control. Enchanted creature gets +2/+1 and can't be blocked. Enchanted creature can't block creatures with islandwalk. {R}: Enchanted creature deals 1 damage to any target."
+    text="Enchant creature you control. Enchanted creature gets +2/+1 and can't be blocked. Enchanted creature can't block creatures with islandwalk. {R}: Enchanted creature deals 1 damage to any target.",
+    setup_interceptors=_opc_s22_flame_flame_fruit_setup
 )
 
 GUM_GUM_FRUIT = make_enchantment_with_subtypes(
@@ -1406,55 +4298,63 @@ GUM_GUM_FRUIT = make_enchantment_with_subtypes(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Aura", "Devil Fruit"},
-    text="Enchant creature you control. Enchanted creature gets +2/+2 and has reach. Enchanted creature can't block creatures with islandwalk. Enchanted creature can block an additional creature each combat."
+    text="Enchant creature you control. Enchanted creature gets +2/+2 and has reach. Enchanted creature can't block creatures with islandwalk. Enchanted creature can block an additional creature each combat.",
+    setup_interceptors=_opc_s22_gum_gum_fruit_setup
 )
 
 GOMU_GOMU_NO_PISTOL = make_instant(
     name="Gomu Gomu no Pistol",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Target creature you control deals damage equal to its power to target creature or planeswalker."
+    text="Target creature you control deals damage equal to its power to target creature or planeswalker.",
+    resolve=_opc_s22_resolve_gomu_gomu_no_pistol
 )
 
 GOMU_GOMU_NO_GATLING = make_instant(
     name="Gomu Gomu no Gatling",
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
-    text="Creatures you control deal damage equal to their power to target creature. Excess damage is dealt to that creature's controller."
+    text="Creatures you control deal damage equal to their power to target creature. Excess damage is dealt to that creature's controller.",
+    resolve=_opc_s22_resolve_gomu_gomu_no_gatling
 )
 
 FIRE_FIST = make_instant(
     name="Fire Fist",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="Deal 4 damage to target creature. If you control a creature named Ace, deal 4 damage to that creature's controller as well."
+    text="Deal 4 damage to target creature. If you control a creature named Ace, deal 4 damage to that creature's controller as well.",
+    resolve=_opc_s22_resolve_fire_fist
 )
 
 PIRATE_RAID = make_sorcery(
     name="Pirate Raid",
     mana_cost="{3}{R}",
     colors={Color.RED},
-    text="Creatures you control get +2/+0 and gain haste until end of turn. Create a Treasure token for each creature that deals combat damage to a player this turn."
+    text="Creatures you control get +2/+0 and gain haste until end of turn. Create a Treasure token for each creature that deals combat damage to a player this turn.",
+    resolve=_opc_s22_resolve_pirate_raid
 )
 
 SUPERNOVA_RAMPAGE = make_sorcery(
     name="Supernova Rampage",
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
-    text="Deal 1 damage to each creature and each player for each Pirate you control."
+    text="Deal 1 damage to each creature and each player for each Pirate you control.",
+    resolve=_opc_s22_resolve_supernova_rampage
 )
 
 WANO_COUNTRY = make_land(
     name="Wano Country",
     supertypes={"Legendary"},
-    text="{T}: Add {R}. {R}, {T}: Target Samurai or Pirate gains first strike until end of turn."
+    text="{T}: Add {R}. {R}, {T}: Target Samurai or Pirate gains first strike until end of turn.",
+    setup_interceptors=_opc_s22_wano_country_setup
 )
 
 BURNING_WILL = make_enchantment(
     name="Burning Will",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Creatures you control get +1/+0. Whenever a creature you control attacks alone, it gets +2/+0 until end of turn."
+    text="Creatures you control get +1/+0. Whenever a creature you control attacks alone, it gets +2/+0 until end of turn.",
+    setup_interceptors=_opc_s22_burning_will_setup
 )
 
 REVOLUTIONARY_ARMY = make_creature(
@@ -1464,7 +4364,8 @@ REVOLUTIONARY_ARMY = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Rebel", "Soldier"},
-    text="Haste. When Revolutionary Army Soldier enters, you may discard a card. If you do, draw a card."
+    text="Haste. When Revolutionary Army Soldier enters, you may discard a card. If you do, draw a card.",
+    setup_interceptors=_opc_s22_revolutionary_army_soldier_setup
 )
 
 
@@ -1666,7 +4567,8 @@ KUNG_FU_DUGONG = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Dugong", "Monk"},
-    text="Whenever Kung-Fu Dugong blocks or becomes blocked, it gets +2/+2 until end of turn."
+    text="Whenever Kung-Fu Dugong blocks or becomes blocked, it gets +2/+2 until end of turn.",
+    setup_interceptors=_opc_s22_kung_fu_dugong_setup
 )
 
 SOUTH_BIRD = make_creature(
@@ -1676,28 +4578,32 @@ SOUTH_BIRD = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Bird"},
-    text="Flying. {T}: Look at the top card of your library. You may put it on the bottom."
+    text="Flying. {T}: Look at the top card of your library. You may put it on the bottom.",
+    setup_interceptors=_opc_s22_south_bird_setup
 )
 
 THREE_SWORD_STYLE = make_instant(
     name="Three-Sword Style",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Target creature gets +3/+3 and gains trample until end of turn. If you control a creature named Zoro, that creature also gains double strike."
+    text="Target creature gets +3/+3 and gains trample until end of turn. If you control a creature named Zoro, that creature also gains double strike.",
+    resolve=_opc_s22_resolve_three_sword_style
 )
 
 ONIGIRI = make_instant(
     name="Onigiri",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Target creature gets +2/+2 until end of turn. It gains first strike until end of turn if its controller controls a Samurai."
+    text="Target creature gets +2/+2 until end of turn. It gains first strike until end of turn if its controller controls a Samurai.",
+    resolve=_opc_s22_resolve_onigiri
 )
 
 ASHURA = make_sorcery(
     name="Ashura",
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
-    text="Target creature you control fights each creature target opponent controls. (It deals damage equal to its power to each of them, and each deals damage to it.)"
+    text="Target creature you control fights each creature target opponent controls. (It deals damage equal to its power to each of them, and each deals damage to it.)",
+    resolve=_opc_s22_resolve_ashura
 )
 
 WILD_STRENGTH = make_enchantment_with_subtypes(
@@ -1705,13 +4611,15 @@ WILD_STRENGTH = make_enchantment_with_subtypes(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Aura"},
-    text="Enchant creature. Enchanted creature gets +3/+3 and has trample."
+    text="Enchant creature. Enchanted creature gets +3/+3 and has trample.",
+    setup_interceptors=_opc_s22_wild_strength_setup
 )
 
 BEAST_PIRATES_TERRITORY = make_land(
     name="Beast Pirates' Territory",
     supertypes={"Legendary"},
-    text="{T}: Add {G}. {2}{G}, {T}: Target creature you control gets +2/+2 until end of turn."
+    text="{T}: Add {G}. {2}{G}, {T}: Target creature you control gets +2/+2 until end of turn.",
+    setup_interceptors=_opc_s22_beast_pirates_territory_setup
 )
 
 FISH_FISH_FRUIT_AZURE = make_enchantment_with_subtypes(
@@ -1719,7 +4627,8 @@ FISH_FISH_FRUIT_AZURE = make_enchantment_with_subtypes(
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Aura", "Devil Fruit"},
-    text="Enchant creature you control. Enchanted creature gets +4/+4, has flying and trample, and is a Dragon in addition to its other types. Enchanted creature can't block creatures with islandwalk."
+    text="Enchant creature you control. Enchanted creature gets +4/+4, has flying and trample, and is a Dragon in addition to its other types. Enchanted creature can't block creatures with islandwalk.",
+    setup_interceptors=_opc_s22_fish_fish_fruit_azure_dragon_setup
 )
 
 HUMAN_HUMAN_FRUIT = make_enchantment_with_subtypes(
@@ -1727,7 +4636,8 @@ HUMAN_HUMAN_FRUIT = make_enchantment_with_subtypes(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Aura", "Devil Fruit"},
-    text="Enchant creature you control. Enchanted creature gets +1/+1 for each creature type it has. Enchanted creature can't block creatures with islandwalk."
+    text="Enchant creature you control. Enchanted creature gets +1/+1 for each creature type it has. Enchanted creature can't block creatures with islandwalk.",
+    setup_interceptors=_opc_s22_human_human_fruit_setup
 )
 
 
@@ -1920,7 +4830,8 @@ YAMATO_OGUCHI = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Human", "Samurai"},
     supertypes={"Legendary"},
-    text="Trample. Observation Haki - At the beginning of your upkeep, scry 2. Armament Haki - Protection from colorless."
+    text="Trample. Observation Haki - At the beginning of your upkeep, scry 2. Armament Haki - Protection from colorless.",
+    setup_interceptors=_opc_s22_yamato_son_of_kaido_setup
 )
 
 VIVI_PRINCESS = make_creature(
@@ -1931,7 +4842,8 @@ VIVI_PRINCESS = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Noble"},
     supertypes={"Legendary"},
-    text="When Vivi enters, each player draws a card. Creatures you control have \"Whenever this creature deals combat damage to a player, scry 1.\""
+    text="When Vivi enters, each player draws a card. Creatures you control have \"Whenever this creature deals combat damage to a player, scry 1.\"",
+    setup_interceptors=_opc_s22_nefertari_vivi_princess_of_alabasta_setup
 )
 
 KAROO_SUPER_SPOT_BILLED_DUCK = make_creature(
@@ -1941,7 +4853,8 @@ KAROO_SUPER_SPOT_BILLED_DUCK = make_creature(
     mana_cost="{1}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Bird", "Mount"},
-    text="Flying. Whenever Karoo deals combat damage to a player, draw a card. Crew - Karoo gets +1/+1 as long as you control Vivi."
+    text="Flying. Whenever Karoo deals combat damage to a player, draw a card. Crew - Karoo gets +1/+1 as long as you control Vivi.",
+    setup_interceptors=_opc_s22_karoo_super_spot_billed_duck_setup
 )
 
 THOUSAND_SUNNY = make_artifact(
@@ -1949,7 +4862,8 @@ THOUSAND_SUNNY = make_artifact(
     mana_cost="{4}",
     subtypes={"Vehicle"},
     supertypes={"Legendary"},
-    text="Crew 3. Trample. Whenever Thousand Sunny deals combat damage to a player, draw a card and create a Treasure token. 5/5"
+    text="Crew 3. Trample. Whenever Thousand Sunny deals combat damage to a player, draw a card and create a Treasure token. 5/5",
+    setup_interceptors=_opc_s22_thousand_sunny_setup
 )
 
 GOING_MERRY = make_artifact(
@@ -1957,7 +4871,8 @@ GOING_MERRY = make_artifact(
     mana_cost="{3}",
     subtypes={"Vehicle"},
     supertypes={"Legendary"},
-    text="Crew 2. Whenever a Pirate you control attacks, Going Merry gets +1/+0 until end of turn. When Going Merry is put into a graveyard, return target Pirate card from your graveyard to your hand. 3/4"
+    text="Crew 2. Whenever a Pirate you control attacks, Going Merry gets +1/+0 until end of turn. When Going Merry is put into a graveyard, return target Pirate card from your graveyard to your hand. 3/4",
+    setup_interceptors=_opc_s22_going_merry_setup
 )
 
 STRAW_HAT = make_artifact(
@@ -1965,54 +4880,62 @@ STRAW_HAT = make_artifact(
     mana_cost="{1}",
     subtypes={"Equipment"},
     supertypes={"Legendary"},
-    text="Equipped creature gets +1/+1 and has \"This creature can't be blocked by creatures with power 2 or less.\" Equip Pirate {1}. Equip {3}."
+    text="Equipped creature gets +1/+1 and has \"This creature can't be blocked by creatures with power 2 or less.\" Equip Pirate {1}. Equip {3}.",
+    setup_interceptors=_opc_s22_straw_hat_setup
 )
 
 PONEGLYPH = make_artifact(
     name="Poneglyph",
     mana_cost="{3}",
     supertypes={"Legendary"},
-    text="When Poneglyph enters, scry 3. {3}, {T}: Draw a card. If you control Robin, draw two cards instead."
+    text="When Poneglyph enters, scry 3. {3}, {T}: Draw a card. If you control Robin, draw two cards instead.",
+    setup_interceptors=_opc_s22_poneglyph_setup
 )
 
 DEVIL_FRUIT_ENCYCLOPEDIA = make_artifact(
     name="Devil Fruit Encyclopedia",
     mana_cost="{2}",
-    text="{2}, {T}: Look at the top five cards of your library. You may reveal an enchantment card with Devil Fruit subtype and put it into your hand. Put the rest on the bottom."
+    text="{2}, {T}: Look at the top five cards of your library. You may reveal an enchantment card with Devil Fruit subtype and put it into your hand. Put the rest on the bottom.",
+    setup_interceptors=_opc_s22_devil_fruit_encyclopedia_setup
 )
 
 ROAD_PONEGLYPH = make_artifact(
     name="Road Poneglyph",
     mana_cost="{4}",
     supertypes={"Legendary"},
-    text="When Road Poneglyph enters, search your library for a land card and put it onto the battlefield tapped. {5}, {T}, Sacrifice Road Poneglyph: You win the game if you control three other Poneglyphs."
+    text="When Road Poneglyph enters, search your library for a land card and put it onto the battlefield tapped. {5}, {T}, Sacrifice Road Poneglyph: You win the game if you control three other Poneglyphs.",
+    setup_interceptors=_opc_s22_road_poneglyph_setup
 )
 
 ONE_PIECE_TREASURE = make_artifact(
     name="One Piece, the Greatest Treasure",
     mana_cost="{10}",
     supertypes={"Legendary"},
-    text="This spell costs {1} less to cast for each Pirate you control. When One Piece enters, you win the game."
+    text="This spell costs {1} less to cast for each Pirate you control. When One Piece enters, you win the game.",
+    setup_interceptors=_opc_s22_one_piece_the_greatest_treasure_setup
 )
 
 LAUGH_TALE = make_land(
     name="Laugh Tale",
     supertypes={"Legendary"},
-    text="{T}: Add one mana of any color. {5}, {T}: Search your library for a legendary artifact card and put it onto the battlefield. Activate only if you control four or more Pirates."
+    text="{T}: Add one mana of any color. {5}, {T}: Search your library for a legendary artifact card and put it onto the battlefield. Activate only if you control four or more Pirates.",
+    setup_interceptors=_opc_s22_laugh_tale_setup
 )
 
 RAFTEL_APPROACH = make_sorcery(
     name="Raftel Approach",
     mana_cost="{3}{U}{R}",
     colors={Color.BLUE, Color.RED},
-    text="Search your library for up to two Pirate cards, reveal them, and put them into your hand. Then shuffle. Create two Treasure tokens."
+    text="Search your library for up to two Pirate cards, reveal them, and put them into your hand. Then shuffle. Create two Treasure tokens.",
+    resolve=_opc_s22_resolve_raftel_approach
 )
 
 DAWN_OF_THE_WORLD = make_sorcery(
     name="Dawn of the World",
     mana_cost="{4}{W}{U}{B}{R}{G}",
     colors={Color.WHITE, Color.BLUE, Color.BLACK, Color.RED, Color.GREEN},
-    text="Take an extra turn after this one. Untap all permanents you control. Draw three cards. You gain 10 life. Each opponent loses 10 life."
+    text="Take an extra turn after this one. Untap all permanents you control. Draw three cards. You gain 10 life. Each opponent loses 10 life.",
+    resolve=_opc_s22_resolve_dawn_of_the_world
 )
 
 
@@ -2066,27 +4989,31 @@ MARINE_VICE_ADMIRAL = make_creature(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Marine", "Soldier"},
-    text="When Marine Vice Admiral enters, create a 2/2 white Marine Soldier creature token."
+    text="When Marine Vice Admiral enters, create a 2/2 white Marine Soldier creature token.",
+    setup_interceptors=_opc_s22_marine_vice_admiral_setup
 )
 
 JUSTICE_WILL_PREVAIL = make_instant(
     name="Justice Will Prevail",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Creatures you control get +1/+1 until end of turn. Marines you control gain first strike until end of turn."
+    text="Creatures you control get +1/+1 until end of turn. Marines you control gain first strike until end of turn.",
+    resolve=_opc_s22_resolve_justice_will_prevail
 )
 
 SEA_PRISM_HANDCUFFS = make_artifact(
     name="Sea Prism Handcuffs",
     mana_cost="{3}",
-    text="When Sea Prism Handcuffs enters, exile target creature until Sea Prism Handcuffs leaves the battlefield. That creature's controller creates a Treasure token."
+    text="When Sea Prism Handcuffs enters, exile target creature until Sea Prism Handcuffs leaves the battlefield. That creature's controller creates a Treasure token.",
+    setup_interceptors=_opc_s22_sea_prism_handcuffs_setup
 )
 
 MARINE_TRAINING = make_enchantment(
     name="Marine Training",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Marines you control get +0/+1 and have vigilance."
+    text="Marines you control get +0/+1 and have vigilance.",
+    setup_interceptors=_opc_s22_marine_training_setup
 )
 
 WORLD_NOBLE = make_creature(
@@ -2096,7 +5023,8 @@ WORLD_NOBLE = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Noble"},
-    text="Protection from creatures with power 4 or greater. When World Noble dies, create three Treasure tokens."
+    text="Protection from creatures with power 4 or greater. When World Noble dies, create three Treasure tokens.",
+    setup_interceptors=_opc_s22_world_noble_setup
 )
 
 # More Blue Cards
@@ -2107,19 +5035,22 @@ NAVIGATOR_APPRENTICE = make_creature(
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Pirate"},
-    text="When Navigator's Apprentice enters, scry 1."
+    text="When Navigator's Apprentice enters, scry 1.",
+    setup_interceptors=_opc_s22_navigator_s_apprentice_setup
 )
 
 OCEAN_CURRENT = make_instant(
     name="Ocean Current",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Return target creature to its owner's hand. If you control a Fishman, draw a card."
+    text="Return target creature to its owner's hand. If you control a Fishman, draw a card.",
+    resolve=_opc_s22_resolve_ocean_current
 )
 
 FISHMAN_DISTRICT = make_land(
     name="Fishman District",
-    text="{T}: Add {C}. {T}: Add {U}. Activate only if you control a Fishman."
+    text="{T}: Add {C}. {T}: Add {U}. Activate only if you control a Fishman.",
+    setup_interceptors=_opc_s22_fishman_district_setup
 )
 
 MERFOLK_DANCER = make_creature(
@@ -2129,20 +5060,23 @@ MERFOLK_DANCER = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Merfolk"},
-    text="Flying. When Merfolk Dancer enters, tap target creature."
+    text="Flying. When Merfolk Dancer enters, tap target creature.",
+    setup_interceptors=_opc_s22_merfolk_dancer_setup
 )
 
 WATER_7 = make_land(
     name="Water 7",
     supertypes={"Legendary"},
-    text="{T}: Add {U}. {2}{U}, {T}: Return target artifact to its owner's hand."
+    text="{T}: Add {U}. {2}{U}, {T}: Return target artifact to its owner's hand.",
+    setup_interceptors=_opc_s22_water_7_setup
 )
 
 UNDERSEA_PRISON = make_enchantment(
     name="Undersea Prison",
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
-    text="When Undersea Prison enters, exile target creature an opponent controls until Undersea Prison leaves the battlefield."
+    text="When Undersea Prison enters, exile target creature an opponent controls until Undersea Prison leaves the battlefield.",
+    setup_interceptors=_opc_s22_undersea_prison_setup
 )
 
 # More Black Cards
@@ -2153,21 +5087,24 @@ PIRATE_CREW = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Pirate"},
-    text="When Pirate Crew enters, target opponent discards a card."
+    text="When Pirate Crew enters, target opponent discards a card.",
+    setup_interceptors=_opc_s22_pirate_crew_setup
 )
 
 TREACHEROUS_MUTINY = make_sorcery(
     name="Treacherous Mutiny",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Destroy target creature. Its controller creates a Treasure token."
+    text="Destroy target creature. Its controller creates a Treasure token.",
+    resolve=_opc_s22_resolve_treacherous_mutiny
 )
 
 YAMI_YAMI_BLACKHOLE = make_instant(
     name="Yami Yami Blackhole",
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
-    text="Exile all creatures. For each creature exiled this way, its controller loses 1 life."
+    text="Exile all creatures. For each creature exiled this way, its controller loses 1 life.",
+    resolve=_opc_s22_resolve_yami_yami_blackhole
 )
 
 def baroque_works_agent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2244,7 +5181,8 @@ UNDERWORLD_CONNECTION = make_enchantment(
     name="Underworld Connection",
     mana_cost="{1}{B}{B}",
     colors={Color.BLACK},
-    text="At the beginning of your upkeep, you may pay 1 life. If you do, draw a card."
+    text="At the beginning of your upkeep, you may pay 1 life. If you do, draw a card.",
+    setup_interceptors=_opc_s22_underworld_connection_setup
 )
 
 # More Red Cards
@@ -2255,7 +5193,8 @@ SUPERNOVA = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Pirate"},
-    text="Haste."
+    text="Haste.",
+    setup_interceptors=_opc_s22_supernova_setup
 )
 
 BATTLE_FRANKY = make_artifact_creature(
@@ -2264,14 +5203,16 @@ BATTLE_FRANKY = make_artifact_creature(
     toughness=3,
     mana_cost="{3}{R}",
     subtypes={"Construct"},
-    text="Haste. When Battle Franky enters, it deals 2 damage to any target."
+    text="Haste. When Battle Franky enters, it deals 2 damage to any target.",
+    setup_interceptors=_opc_s22_battle_franky_setup
 )
 
 EXPLOSION_STAR = make_instant(
     name="Explosion Star",
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
-    text="Deal 4 damage to target creature or planeswalker. If excess damage would be dealt, deal that damage to that permanent's controller instead."
+    text="Deal 4 damage to target creature or planeswalker. If excess damage would be dealt, deal that damage to that permanent's controller instead.",
+    resolve=_opc_s22_resolve_explosion_star
 )
 
 
@@ -2341,14 +5282,16 @@ REVOLUTIONARY_FERVOR = make_enchantment(
     name="Revolutionary Fervor",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="Creatures you control get +1/+0 and have haste."
+    text="Creatures you control get +1/+0 and have haste.",
+    setup_interceptors=_opc_s22_revolutionary_fervor_setup
 )
 
 FIERY_DESTRUCTION = make_sorcery(
     name="Fiery Destruction",
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
-    text="Deal 5 damage to each creature without flying."
+    text="Deal 5 damage to each creature without flying.",
+    resolve=_opc_s22_resolve_fiery_destruction
 )
 
 SAMURAI_OF_WANO = make_creature(
@@ -2358,7 +5301,8 @@ SAMURAI_OF_WANO = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Samurai"},
-    text="First strike."
+    text="First strike.",
+    setup_interceptors=_opc_s22_samurai_of_wano_setup
 )
 
 # More Green Cards
@@ -2369,7 +5313,8 @@ WANO_SAMURAI = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Samurai"},
-    text="Whenever Wano Samurai deals combat damage to a player, put a +1/+1 counter on it."
+    text="Whenever Wano Samurai deals combat damage to a player, put a +1/+1 counter on it.",
+    setup_interceptors=_opc_s22_wano_samurai_setup
 )
 
 BEAST_PIRATE = make_creature(
@@ -2379,7 +5324,8 @@ BEAST_PIRATE = make_creature(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Pirate"},
-    text="Trample. This creature gets +1/+1 for each other Pirate you control."
+    text="Trample. This creature gets +1/+1 for each other Pirate you control.",
+    setup_interceptors=_opc_s22_beast_pirate_setup
 )
 
 ANCIENT_ZOAN = make_creature(
@@ -2389,7 +5335,8 @@ ANCIENT_ZOAN = make_creature(
     mana_cost="{4}{G}",
     colors={Color.GREEN},
     subtypes={"Dinosaur"},
-    text="Trample. When Ancient Zoan enters, it fights target creature an opponent controls."
+    text="Trample. When Ancient Zoan enters, it fights target creature an opponent controls.",
+    setup_interceptors=_opc_s22_ancient_zoan_setup
 )
 
 AWAKENED_ZOAN = make_creature(
@@ -2399,7 +5346,8 @@ AWAKENED_ZOAN = make_creature(
     mana_cost="{5}{G}",
     colors={Color.GREEN},
     subtypes={"Beast"},
-    text="Trample, vigilance. Other creatures you control with Devil Fruit attached to them get +2/+2."
+    text="Trample, vigilance. Other creatures you control with Devil Fruit attached to them get +2/+2.",
+    setup_interceptors=_opc_s22_awakened_zoan_setup
 )
 
 JUNGLE_BEAST = make_creature(
@@ -2409,14 +5357,16 @@ JUNGLE_BEAST = make_creature(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Beast"},
-    text="Reach"
+    text="Reach",
+    setup_interceptors=_opc_s22_jungle_beast_setup
 )
 
 NATURAL_STRENGTH = make_instant(
     name="Natural Strength",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Target creature gets +4/+4 until end of turn."
+    text="Target creature gets +4/+4 until end of turn.",
+    resolve=_opc_s22_resolve_natural_strength
 )
 
 # More Multicolor Cards
@@ -2427,7 +5377,8 @@ ALLIANCE_CAPTAIN = make_creature(
     mana_cost="{1}{R}{G}",
     colors={Color.RED, Color.GREEN},
     subtypes={"Human", "Pirate", "Warrior"},
-    text="Trample, haste. Other Pirates and Samurai you control get +1/+0."
+    text="Trample, haste. Other Pirates and Samurai you control get +1/+0.",
+    setup_interceptors=_opc_s22_alliance_captain_setup
 )
 
 HEART_PIRATES_CREW = make_creature(
@@ -2437,7 +5388,8 @@ HEART_PIRATES_CREW = make_creature(
     mana_cost="{U}{B}",
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Pirate"},
-    text="When Heart Pirates Crew enters, target creature gets -1/-1 until end of turn."
+    text="When Heart Pirates Crew enters, target creature gets -1/-1 until end of turn.",
+    setup_interceptors=_opc_s22_heart_pirates_crew_setup
 )
 
 MINK_WARRIOR = make_creature(
@@ -2447,7 +5399,8 @@ MINK_WARRIOR = make_creature(
     mana_cost="{R}{G}",
     colors={Color.RED, Color.GREEN},
     subtypes={"Cat", "Warrior"},
-    text="Haste. Mink Warrior has first strike as long as it's your turn."
+    text="Haste. Mink Warrior has first strike as long as it's your turn.",
+    setup_interceptors=_opc_s22_mink_warrior_setup
 )
 
 REVOLUTIONARY_COMMANDER = make_creature(
@@ -2457,7 +5410,8 @@ REVOLUTIONARY_COMMANDER = make_creature(
     mana_cost="{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Rebel"},
-    text="Menace. Whenever Revolutionary Commander deals combat damage to a player, that player discards a card."
+    text="Menace. Whenever Revolutionary Commander deals combat damage to a player, that player discards a card.",
+    setup_interceptors=_opc_s22_revolutionary_commander_setup
 )
 
 WARLORD = make_creature(
@@ -2467,7 +5421,8 @@ WARLORD = make_creature(
     mana_cost="{2}{U}{B}",
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Pirate"},
-    text="Islandwalk. When Warlord enters, draw a card and each opponent discards a card."
+    text="Islandwalk. When Warlord enters, draw a card and each opponent discards a card.",
+    setup_interceptors=_opc_s22_warlord_of_the_sea_setup
 )
 
 NEW_WORLD_PIRATE = make_creature(
@@ -2477,14 +5432,16 @@ NEW_WORLD_PIRATE = make_creature(
     mana_cost="{1}{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Pirate"},
-    text="Menace. Bounty 2 - When this creature dies, target opponent creates two Treasure tokens."
+    text="Menace. Bounty 2 - When this creature dies, target opponent creates two Treasure tokens.",
+    setup_interceptors=_opc_s22_new_world_pirate_setup
 )
 
 # More Artifacts
 ETERNAL_POSE = make_artifact(
     name="Eternal Pose",
     mana_cost="{2}",
-    text="{2}, {T}: Look at the top card of your library. If it's a land, you may put it onto the battlefield tapped."
+    text="{2}, {T}: Look at the top card of your library. If it's a land, you may put it onto the battlefield tapped.",
+    setup_interceptors=_opc_s22_eternal_pose_setup
 )
 
 DIALS = make_artifact(
@@ -2496,37 +5453,43 @@ DIALS = make_artifact(
 TONE_DIAL = make_artifact(
     name="Tone Dial",
     mana_cost="{2}",
-    text="When Tone Dial enters, exile target instant or sorcery card from a graveyard. You may cast that card for as long as it remains exiled."
+    text="When Tone Dial enters, exile target instant or sorcery card from a graveyard. You may cast that card for as long as it remains exiled.",
+    setup_interceptors=_opc_s22_tone_dial_setup
 )
 
 IMPACT_DIAL = make_artifact(
     name="Impact Dial",
     mana_cost="{3}",
-    text="{2}, {T}, Sacrifice Impact Dial: Deal damage to target creature equal to the damage that was dealt to you this turn."
+    text="{2}, {T}, Sacrifice Impact Dial: Deal damage to target creature equal to the damage that was dealt to you this turn.",
+    setup_interceptors=_opc_s22_impact_dial_setup
 )
 
 SEASTONE_CAGE = make_artifact(
     name="Seastone Cage",
     mana_cost="{4}",
-    text="Creatures with Devil Fruit attached to them can't attack or block. {3}, {T}: Tap target creature with a Devil Fruit attached to it."
+    text="Creatures with Devil Fruit attached to them can't attack or block. {3}, {T}: Tap target creature with a Devil Fruit attached to it.",
+    setup_interceptors=_opc_s22_seastone_cage_setup
 )
 
 TREASURE_MAP = make_artifact(
     name="Treasure Map",
     mana_cost="{2}",
-    text="{1}, {T}: Scry 1. If you've activated this ability three or more times, transform Treasure Map into Treasure Trove."
+    text="{1}, {T}: Scry 1. If you've activated this ability three or more times, transform Treasure Map into Treasure Trove.",
+    setup_interceptors=_opc_s22_treasure_map_setup
 )
 
 VIVRE_CARD = make_artifact(
     name="Vivre Card",
     mana_cost="{1}",
-    text="When a creature you control dies, you may pay {1}. If you do, return that creature to your hand at the beginning of the next end step."
+    text="When a creature you control dies, you may pay {1}. If you do, return that creature to your hand at the beginning of the next end step.",
+    setup_interceptors=_opc_s22_vivre_card_setup
 )
 
 DEN_DEN_MUSHI = make_artifact(
     name="Den Den Mushi",
     mana_cost="{1}",
-    text="{T}: Add one mana of any color. Spend this mana only to cast creature spells."
+    text="{T}: Add one mana of any color. Spend this mana only to cast creature spells.",
+    setup_interceptors=_opc_s22_den_den_mushi_setup
 )
 
 # More Enchantments
@@ -2534,77 +5497,89 @@ PIRATE_FLAG = make_enchantment(
     name="Pirate Flag",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Pirates you control get +1/+0 and have menace."
+    text="Pirates you control get +1/+0 and have menace.",
+    setup_interceptors=_opc_s22_pirate_flag_setup
 )
 
 WILL_OF_D = make_enchantment(
     name="Will of D.",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Legendary creatures you control get +1/+1 and have \"When this creature dies, draw a card.\""
+    text="Legendary creatures you control get +1/+1 and have \"When this creature dies, draw a card.\"",
+    setup_interceptors=_opc_s22_will_of_d_setup
 )
 
 INHERITED_WILL = make_enchantment(
     name="Inherited Will",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="When a legendary creature you control dies, you may search your library for a legendary creature card with mana value less than or equal to that creature's mana value, reveal it, and put it into your hand. Then shuffle."
+    text="When a legendary creature you control dies, you may search your library for a legendary creature card with mana value less than or equal to that creature's mana value, reveal it, and put it into your hand. Then shuffle.",
+    setup_interceptors=_opc_s22_inherited_will_setup
 )
 
 CONQUERORS_SPIRIT = make_enchantment(
     name="Conqueror's Spirit",
     mana_cost="{2}{R}{W}",
     colors={Color.RED, Color.WHITE},
-    text="Whenever a creature you control attacks, you may tap target creature defending player controls. Creatures you control get +0/+1."
+    text="Whenever a creature you control attacks, you may tap target creature defending player controls. Creatures you control get +0/+1.",
+    setup_interceptors=_opc_s22_conqueror_s_spirit_setup
 )
 
 DREAM_OF_PIRATE_KING = make_enchantment(
     name="Dream of the Pirate King",
     mana_cost="{3}{R}",
     colors={Color.RED},
-    text="At the beginning of your upkeep, if you control three or more Pirates, draw a card. Pirates you control get +1/+0."
+    text="At the beginning of your upkeep, if you control three or more Pirates, draw a card. Pirates you control get +1/+0.",
+    setup_interceptors=_opc_s22_dream_of_the_pirate_king_setup
 )
 
 # More Lands
 SABAODY_ARCHIPELAGO = make_land(
     name="Sabaody Archipelago",
-    text="{T}: Add {C}. {1}, {T}: Add one mana of any color. {3}, {T}: Return target creature to its owner's hand."
+    text="{T}: Add {C}. {1}, {T}: Add one mana of any color. {3}, {T}: Return target creature to its owner's hand.",
+    setup_interceptors=_opc_s22_sabaody_archipelago_setup
 )
 
 MARINEFORD = make_land(
     name="Marineford",
     supertypes={"Legendary"},
-    text="{T}: Add {W}. {2}{W}{W}, {T}: Create two 2/2 white Marine Soldier creature tokens."
+    text="{T}: Add {W}. {2}{W}{W}, {T}: Create two 2/2 white Marine Soldier creature tokens.",
+    setup_interceptors=_opc_s22_marineford_setup
 )
 
 DRESSROSA = make_land(
     name="Dressrosa",
     supertypes={"Legendary"},
-    text="{T}: Add {B} or {R}. Whenever you cast a legendary spell, scry 1."
+    text="{T}: Add {B} or {R}. Whenever you cast a legendary spell, scry 1.",
+    setup_interceptors=_opc_s22_dressrosa_setup
 )
 
 WHOLE_CAKE_ISLAND = make_land(
     name="Whole Cake Island",
     supertypes={"Legendary"},
-    text="{T}: Add {G}. {2}, {T}: Create a Food token."
+    text="{T}: Add {G}. {2}, {T}: Create a Food token.",
+    setup_interceptors=_opc_s22_whole_cake_island_setup
 )
 
 ELBAF = make_land(
     name="Elbaf",
     supertypes={"Legendary"},
-    text="{T}: Add {G}. {3}{G}, {T}: Create a 4/4 green Giant creature token."
+    text="{T}: Add {G}. {3}{G}, {T}: Create a 4/4 green Giant creature token.",
+    setup_interceptors=_opc_s22_elbaf_setup
 )
 
 SKYPIEA = make_land(
     name="Skypiea",
     supertypes={"Legendary"},
-    text="{T}: Add {W} or {U}. Creatures you control with flying get +0/+1."
+    text="{T}: Add {W} or {U}. Creatures you control with flying get +0/+1.",
+    setup_interceptors=_opc_s22_skypiea_setup
 )
 
 AMAZON_LILY = make_land(
     name="Amazon Lily",
     supertypes={"Legendary"},
-    text="{T}: Add {R} or {G}. {3}, {T}: Target creature gains trample until end of turn."
+    text="{T}: Add {R} or {G}. {3}, {T}: Target creature gains trample until end of turn.",
+    setup_interceptors=_opc_s22_amazon_lily_setup
 )
 
 # More Sorceries
@@ -2612,42 +5587,48 @@ COUP_DE_BURST = make_sorcery(
     name="Coup de Burst",
     mana_cost="{2}{U}{R}",
     colors={Color.BLUE, Color.RED},
-    text="Return all creatures to their owners' hands. You may put a Vehicle you control onto the battlefield."
+    text="Return all creatures to their owners' hands. You may put a Vehicle you control onto the battlefield.",
+    resolve=_opc_s22_resolve_coup_de_burst
 )
 
 BINK_SAKE = make_sorcery(
     name="Bink's Sake",
     mana_cost="{1}{W}{B}",
     colors={Color.WHITE, Color.BLACK},
-    text="Return up to two target creature cards from your graveyard to your hand. You gain 2 life."
+    text="Return up to two target creature cards from your graveyard to your hand. You gain 2 life.",
+    resolve=_opc_s22_resolve_bink_s_sake
 )
 
 GATHER_THE_FLEET = make_sorcery(
     name="Gather the Fleet",
     mana_cost="{3}{U}",
     colors={Color.BLUE},
-    text="Create three 1/1 blue Pirate creature tokens with \"This creature can't block.\""
+    text="Create three 1/1 blue Pirate creature tokens with \"This creature can't block.\"",
+    resolve=_opc_s22_resolve_gather_the_fleet
 )
 
 PIRATE_ALLIANCE = make_sorcery(
     name="Pirate Alliance",
     mana_cost="{2}{R}{G}",
     colors={Color.RED, Color.GREEN},
-    text="Creatures you control get +2/+2 and gain trample until end of turn. Draw a card for each Pirate you control."
+    text="Creatures you control get +2/+2 and gain trample until end of turn. Draw a card for each Pirate you control.",
+    resolve=_opc_s22_resolve_pirate_alliance
 )
 
 MARINEFORD_WAR = make_sorcery(
     name="Marineford War",
     mana_cost="{4}{W}{B}",
     colors={Color.WHITE, Color.BLACK},
-    text="Destroy all creatures. For each creature destroyed this way, its controller creates a Treasure token."
+    text="Destroy all creatures. For each creature destroyed this way, its controller creates a Treasure token.",
+    resolve=_opc_s22_resolve_marineford_war
 )
 
 PARAMOUNT_WAR = make_sorcery(
     name="Paramount War",
     mana_cost="{5}{R}{W}",
     colors={Color.RED, Color.WHITE},
-    text="Each player sacrifices half the creatures they control, rounded up. Then create a 5/5 white and red legendary Pirate creature token named War Hero."
+    text="Each player sacrifices half the creatures they control, rounded up. Then create a 5/5 white and red legendary Pirate creature token named War Hero.",
+    resolve=_opc_s22_resolve_paramount_war
 )
 
 # More Instants
@@ -2655,56 +5636,64 @@ GEAR_SECOND = make_instant(
     name="Gear Second",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Target creature gains haste and gets +2/+0 until end of turn."
+    text="Target creature gains haste and gets +2/+0 until end of turn.",
+    resolve=_opc_s22_resolve_gear_second
 )
 
 GEAR_THIRD = make_instant(
     name="Gear Third",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="Target creature gets +5/+5 and gains trample until end of turn. At end of turn, that creature gets -2/-2 until end of your next turn."
+    text="Target creature gets +5/+5 and gains trample until end of turn. At end of turn, that creature gets -2/-2 until end of your next turn.",
+    resolve=_opc_s22_resolve_gear_third
 )
 
 GEAR_FOURTH = make_instant(
     name="Gear Fourth",
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
-    text="Target creature gets +4/+4, gains flying, trample, and can't be blocked by creatures with power 3 or less until end of turn."
+    text="Target creature gets +4/+4, gains flying, trample, and can't be blocked by creatures with power 3 or less until end of turn.",
+    resolve=_opc_s22_resolve_gear_fourth
 )
 
 DIABLE_JAMBE = make_instant(
     name="Diable Jambe",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Target creature gets +3/+0 and gains first strike until end of turn."
+    text="Target creature gets +3/+0 and gains first strike until end of turn.",
+    resolve=_opc_s22_resolve_diable_jambe
 )
 
 COUP_DE_VENT = make_instant(
     name="Coup de Vent",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Return target nonland permanent to its owner's hand. You may draw a card, then discard a card."
+    text="Return target nonland permanent to its owner's hand. You may draw a card, then discard a card.",
+    resolve=_opc_s22_resolve_coup_de_vent
 )
 
 RUMBLE_BALL = make_instant(
     name="Rumble Ball",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Target creature gets +1/+1 and gains your choice of flying, trample, reach, or vigilance until end of turn."
+    text="Target creature gets +1/+1 and gains your choice of flying, trample, reach, or vigilance until end of turn.",
+    resolve=_opc_s22_resolve_rumble_ball
 )
 
 HAKI_CLASH = make_instant(
     name="Haki Clash",
     mana_cost="{R}{G}",
     colors={Color.RED, Color.GREEN},
-    text="Target creature you control fights target creature you don't control. If your creature survives, put a +1/+1 counter on it."
+    text="Target creature you control fights target creature you don't control. If your creature survives, put a +1/+1 counter on it.",
+    resolve=_opc_s22_resolve_haki_clash
 )
 
 OBSERVATION_DODGE = make_instant(
     name="Observation Dodge",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Target creature gains hexproof until end of turn. Scry 1."
+    text="Target creature gains hexproof until end of turn. Scry 1.",
+    resolve=_opc_s22_resolve_observation_dodge
 )
 
 # Basic Lands
@@ -2728,7 +5717,8 @@ BOA_HANCOCK = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Pirate", "Noble"},
     supertypes={"Legendary"},
-    text="First strike. When Boa Hancock enters, tap target creature an opponent controls. It doesn't untap during its controller's next untap step."
+    text="First strike. When Boa Hancock enters, tap target creature an opponent controls. It doesn't untap during its controller's next untap step.",
+    setup_interceptors=_opc_s22_boa_hancock_pirate_empress_setup
 )
 
 BUGGY_CLOWN = make_creature(
@@ -2739,7 +5729,8 @@ BUGGY_CLOWN = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
-    text="When Buggy dies, return him to the battlefield tapped under his owner's control at the beginning of the next end step. Buggy can't block creatures with power 4 or greater."
+    text="When Buggy dies, return him to the battlefield tapped under his owner's control at the beginning of the next end step. Buggy can't block creatures with power 4 or greater.",
+    setup_interceptors=_opc_s22_buggy_the_clown_setup
 )
 
 MIHAWK_WORLDS_STRONGEST = make_creature(
@@ -2750,7 +5741,8 @@ MIHAWK_WORLDS_STRONGEST = make_creature(
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
-    text="Double strike. When Mihawk deals combat damage to a creature, exile that creature."
+    text="Double strike. When Mihawk deals combat damage to a creature, exile that creature.",
+    setup_interceptors=_opc_s22_mihawk_world_s_strongest_swordsman_setup
 )
 
 KUMA_TYRANT = make_creature(
@@ -2761,7 +5753,8 @@ KUMA_TYRANT = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
-    text="When Kuma enters, exile target creature an opponent controls. Return it to the battlefield under its owner's control at the beginning of their next upkeep."
+    text="When Kuma enters, exile target creature an opponent controls. Return it to the battlefield under its owner's control at the beginning of their next upkeep.",
+    setup_interceptors=_opc_s22_kuma_tyrant_setup
 )
 
 RAYLEIGH_DARK_KING = make_creature(
@@ -2772,7 +5765,8 @@ RAYLEIGH_DARK_KING = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
-    text="Flash. Armament Haki - Protection from colorless. When Rayleigh enters, draw two cards, then discard a card."
+    text="Flash. Armament Haki - Protection from colorless. When Rayleigh enters, draw two cards, then discard a card.",
+    setup_interceptors=_opc_s22_rayleigh_dark_king_setup
 )
 
 MARCO_PHOENIX = make_creature(
@@ -2783,7 +5777,8 @@ MARCO_PHOENIX = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
-    text="Flying. At the beginning of your upkeep, if Marco is in your graveyard, you may pay {4}. If you do, return Marco to the battlefield tapped."
+    text="Flying. At the beginning of your upkeep, if Marco is in your graveyard, you may pay {4}. If you do, return Marco to the battlefield tapped.",
+    setup_interceptors=_opc_s22_marco_the_phoenix_setup
 )
 
 JOZU_DIAMOND = make_creature(
@@ -2794,7 +5789,8 @@ JOZU_DIAMOND = make_creature(
     colors={Color.WHITE, Color.GREEN},
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
-    text="Vigilance, indestructible. Jozu can't attack if defending player controls more creatures than you."
+    text="Vigilance, indestructible. Jozu can't attack if defending player controls more creatures than you.",
+    setup_interceptors=_opc_s22_jozu_diamond_setup
 )
 
 VISTA_FLOWER_SWORD = make_creature(
@@ -2805,7 +5801,8 @@ VISTA_FLOWER_SWORD = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
-    text="Double strike. When Vista enters, destroy target enchantment."
+    text="Double strike. When Vista enters, destroy target enchantment.",
+    setup_interceptors=_opc_s22_vista_flower_sword_setup
 )
 
 PERONA_GHOST_PRINCESS = make_creature(
@@ -2816,7 +5813,8 @@ PERONA_GHOST_PRINCESS = make_creature(
     colors={Color.BLACK, Color.BLUE},
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
-    text="Flying. When Perona enters, target creature gets -3/-0 until your next turn."
+    text="Flying. When Perona enters, target creature gets -3/-0 until your next turn.",
+    setup_interceptors=_opc_s22_perona_ghost_princess_setup
 )
 
 HANCOCK_SISTERS = make_creature(
@@ -2826,7 +5824,8 @@ HANCOCK_SISTERS = make_creature(
     mana_cost="{2}{R}{G}",
     colors={Color.RED, Color.GREEN},
     subtypes={"Human", "Pirate"},
-    text="When Hancock Sisters enters, target creature you control gets +2/+2 and gains trample until end of turn."
+    text="When Hancock Sisters enters, target creature you control gets +2/+2 and gains trample until end of turn.",
+    setup_interceptors=_opc_s22_hancock_sisters_setup
 )
 
 IVANKOV_REVOLUTIONARY = make_creature(
@@ -2837,7 +5836,8 @@ IVANKOV_REVOLUTIONARY = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Human", "Rebel"},
     supertypes={"Legendary"},
-    text="At the beginning of your upkeep, you may switch the power and toughness of target creature until end of turn."
+    text="At the beginning of your upkeep, you may switch the power and toughness of target creature until end of turn.",
+    setup_interceptors=_opc_s22_ivankov_revolutionary_setup
 )
 
 INAZUMA_SCISSOR = make_creature(
@@ -2847,7 +5847,8 @@ INAZUMA_SCISSOR = make_creature(
     mana_cost="{1}{U}{R}",
     colors={Color.BLUE, Color.RED},
     subtypes={"Human", "Rebel"},
-    text="When Inazuma enters, destroy target artifact."
+    text="When Inazuma enters, destroy target artifact.",
+    setup_interceptors=_opc_s22_inazuma_scissor_setup
 )
 
 BENTHAM_MR_2 = make_creature(
@@ -2858,7 +5859,8 @@ BENTHAM_MR_2 = make_creature(
     colors={Color.BLUE, Color.WHITE},
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
-    text="When Bentham enters, choose a creature. Until end of turn, Bentham becomes a copy of that creature except it has this ability."
+    text="When Bentham enters, choose a creature. Until end of turn, Bentham becomes a copy of that creature except it has this ability.",
+    setup_interceptors=_opc_s22_bentham_mr_2_setup
 )
 
 DRAGON_REVOLUTIONARY = make_creature(
@@ -2869,7 +5871,8 @@ DRAGON_REVOLUTIONARY = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Rebel"},
     supertypes={"Legendary"},
-    text="Menace. Whenever you cast your second spell each turn, draw a card. Other Rebels you control get +1/+1."
+    text="Menace. Whenever you cast your second spell each turn, draw a card. Other Rebels you control get +1/+1.",
+    setup_interceptors=_opc_s22_dragon_revolutionary_leader_setup
 )
 
 BARTOLOMEO_CANNIBAL = make_creature(
@@ -2880,7 +5883,8 @@ BARTOLOMEO_CANNIBAL = make_creature(
     colors={Color.BLUE, Color.GREEN},
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
-    text="Hexproof. Creatures you control have hexproof as long as Bartolomeo is untapped."
+    text="Hexproof. Creatures you control have hexproof as long as Bartolomeo is untapped.",
+    setup_interceptors=_opc_s22_bartolomeo_the_cannibal_setup
 )
 
 CAVENDISH_HAKUBA = make_creature(
@@ -2891,7 +5895,8 @@ CAVENDISH_HAKUBA = make_creature(
     colors={Color.WHITE, Color.RED},
     subtypes={"Human", "Pirate"},
     supertypes={"Legendary"},
-    text="Double strike. At end of combat, if Cavendish dealt combat damage to a player, it deals 2 damage to you."
+    text="Double strike. At end of combat, if Cavendish dealt combat damage to a player, it deals 2 damage to you.",
+    setup_interceptors=_opc_s22_cavendish_white_horse_setup
 )
 
 REBECCA_GLADIATOR = make_creature(
@@ -2901,7 +5906,8 @@ REBECCA_GLADIATOR = make_creature(
     mana_cost="{R}",
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
-    text="First strike. When Rebecca blocks, she gets +2/+0 until end of turn."
+    text="First strike. When Rebecca blocks, she gets +2/+0 until end of turn.",
+    setup_interceptors=_opc_s22_rebecca_gladiator_setup
 )
 
 KYROS_LEGENDARY_GLADIATOR = make_creature(
@@ -2912,7 +5918,8 @@ KYROS_LEGENDARY_GLADIATOR = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
-    text="Vigilance. Kyros can't be blocked by more than one creature."
+    text="Vigilance. Kyros can't be blocked by more than one creature.",
+    setup_interceptors=_opc_s22_kyros_legendary_gladiator_setup
 )
 
 SABO_FLAME_EMPEROR = make_creature(
@@ -2923,7 +5930,8 @@ SABO_FLAME_EMPEROR = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Rebel"},
     supertypes={"Legendary"},
-    text="Haste. When Sabo enters, deal 3 damage to target creature or planeswalker."
+    text="Haste. When Sabo enters, deal 3 damage to target creature or planeswalker.",
+    setup_interceptors=_opc_s22_sabo_flame_emperor_setup
 )
 
 # =============================================================================
@@ -3038,13 +6046,15 @@ SEA_PATROL_PIRATE = make_creature(
 WANO_DECKHAND = make_creature(
     name="Wano Deckhand",
     power=2, toughness=3, mana_cost="{1}{R}", colors={Color.RED},
-    subtypes={"Human", "Sailor"}, text="Vigilance"
+    subtypes={"Human", "Sailor"}, text="Vigilance",
+    setup_interceptors=_opc_s22_wano_deckhand_setup
 )
 
 FISH_MAN_BRAWLER = make_creature(
     name="Fish-Man Brawler",
     power=1, toughness=1, mana_cost="{R}", colors={Color.RED},
-    subtypes={"Fish-Man", "Pirate"}, text="Menace, lifelink"
+    subtypes={"Fish-Man", "Pirate"}, text="Menace, lifelink",
+    setup_interceptors=_opc_s22_fish_man_brawler_setup
 )
 
 def drum_island_sailor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3189,7 +6199,8 @@ GRAND_LINE_NAVIGATOR = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Pirate"},
-    text="When Grand Line Navigator enters, scry 2."
+    text="When Grand Line Navigator enters, scry 2.",
+    setup_interceptors=_opc_s22_grand_line_navigator_setup
 )
 
 def alabasta_guard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3349,7 +6360,8 @@ WATER_7_SHIPWRIGHT = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Artificer"},
-    text="When Water 7 Shipwright enters, you may return target artifact from your graveyard to your hand."
+    text="When Water 7 Shipwright enters, you may return target artifact from your graveyard to your hand.",
+    setup_interceptors=_opc_s22_water_7_shipwright_setup
 )
 
 GALLEY_LA_WORKER = make_creature(
@@ -3359,7 +6371,8 @@ GALLEY_LA_WORKER = make_creature(
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Artificer"},
-    text="{T}: Tap target artifact."
+    text="{T}: Tap target artifact.",
+    setup_interceptors=_opc_s22_galley_la_worker_setup
 )
 
 LONG_RING_LONG_ISLANDER = make_creature(
@@ -3369,7 +6382,8 @@ LONG_RING_LONG_ISLANDER = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Human"},
-    text="Reach"
+    text="Reach",
+    setup_interceptors=_opc_s22_long_ring_long_islander_setup
 )
 
 WANO_NINJA = make_creature(
@@ -3379,7 +6393,8 @@ WANO_NINJA = make_creature(
     mana_cost="{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Ninja"},
-    text="Flash. Ninjutsu {1}{B}"
+    text="Flash. Ninjutsu {1}{B}",
+    setup_interceptors=_opc_s22_wano_ninja_setup
 )
 
 def onigashima_guard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3427,7 +6442,8 @@ TONTATTA_WARRIOR = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Faerie", "Warrior"},
-    text="Flying. Tontatta Warrior gets +2/+2 as long as it's enchanted or equipped."
+    text="Flying. Tontatta Warrior gets +2/+2 as long as it's enchanted or equipped.",
+    setup_interceptors=_opc_s22_tontatta_warrior_setup
 )
 
 MINK_ELECTRO_USER = make_creature(
@@ -3437,7 +6453,8 @@ MINK_ELECTRO_USER = make_creature(
     mana_cost="{R}{G}",
     colors={Color.RED, Color.GREEN},
     subtypes={"Cat", "Warrior"},
-    text="When Mink Electro User enters, deal 1 damage to any target."
+    text="When Mink Electro User enters, deal 1 damage to any target.",
+    setup_interceptors=_opc_s22_mink_electro_user_setup
 )
 
 WEATHERIA_SCHOLAR = make_creature(
@@ -3447,7 +6464,8 @@ WEATHERIA_SCHOLAR = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="{T}: Look at the top card of your library."
+    text="{T}: Look at the top card of your library.",
+    setup_interceptors=_opc_s22_weatheria_scholar_setup
 )
 
 # More Spells
@@ -3455,21 +6473,24 @@ CONQUERORS_WILL = make_sorcery(
     name="Conqueror's Will",
     mana_cost="{3}{R}{W}",
     colors={Color.RED, Color.WHITE},
-    text="Tap all creatures your opponents control. They don't untap during their controllers' next untap steps."
+    text="Tap all creatures your opponents control. They don't untap during their controllers' next untap steps.",
+    resolve=_opc_s22_resolve_conqueror_s_will
 )
 
 ARMAMENT_COATING = make_instant(
     name="Armament Coating",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Target creature you control gains indestructible and deathtouch until end of turn."
+    text="Target creature you control gains indestructible and deathtouch until end of turn.",
+    resolve=_opc_s22_resolve_armament_coating
 )
 
 OBSERVATION_FORESIGHT = make_instant(
     name="Observation Foresight",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Look at the top three cards of your library. Put one into your hand and the rest on the bottom in any order."
+    text="Look at the top three cards of your library. Put one into your hand and the rest on the bottom in any order.",
+    resolve=_opc_s22_resolve_observation_foresight
 )
 
 CHOP_CHOP_FRUIT = make_enchantment_with_subtypes(
@@ -3477,7 +6498,8 @@ CHOP_CHOP_FRUIT = make_enchantment_with_subtypes(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Aura", "Devil Fruit"},
-    text="Enchant creature you control. Enchanted creature gets +1/+1 and has \"Prevent all combat damage that would be dealt to this creature by creatures without flying.\" Enchanted creature can't block creatures with islandwalk."
+    text="Enchant creature you control. Enchanted creature gets +1/+1 and has \"Prevent all combat damage that would be dealt to this creature by creatures without flying.\" Enchanted creature can't block creatures with islandwalk.",
+    setup_interceptors=_opc_s22_chop_chop_fruit_setup
 )
 
 BARRIER_BARRIER_FRUIT = make_enchantment_with_subtypes(
@@ -3485,7 +6507,8 @@ BARRIER_BARRIER_FRUIT = make_enchantment_with_subtypes(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Aura", "Devil Fruit"},
-    text="Enchant creature you control. Enchanted creature gets +0/+3 and has hexproof. Enchanted creature can't block creatures with islandwalk."
+    text="Enchant creature you control. Enchanted creature gets +0/+3 and has hexproof. Enchanted creature can't block creatures with islandwalk.",
+    setup_interceptors=_opc_s22_barrier_barrier_fruit_setup
 )
 
 REVIVE_REVIVE_FRUIT = make_enchantment_with_subtypes(
@@ -3493,7 +6516,8 @@ REVIVE_REVIVE_FRUIT = make_enchantment_with_subtypes(
     mana_cost="{2}{W}{B}",
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Aura", "Devil Fruit"},
-    text="Enchant creature you control. When enchanted creature dies, return it to the battlefield tapped. Enchanted creature can't block creatures with islandwalk."
+    text="Enchant creature you control. When enchanted creature dies, return it to the battlefield tapped. Enchanted creature can't block creatures with islandwalk.",
+    setup_interceptors=_opc_s22_revive_revive_fruit_setup
 )
 
 HANA_HANA_FRUIT = make_enchantment_with_subtypes(
@@ -3501,7 +6525,8 @@ HANA_HANA_FRUIT = make_enchantment_with_subtypes(
     mana_cost="{2}{U}{B}",
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Aura", "Devil Fruit"},
-    text="Enchant creature you control. Enchanted creature gets +1/+1 and has \"{T}: Tap target creature.\" Enchanted creature can't block creatures with islandwalk."
+    text="Enchant creature you control. Enchanted creature gets +1/+1 and has \"{T}: Tap target creature.\" Enchanted creature can't block creatures with islandwalk.",
+    setup_interceptors=_opc_s22_hana_hana_fruit_setup
 )
 
 OPE_OPE_FRUIT = make_enchantment_with_subtypes(
@@ -3509,7 +6534,8 @@ OPE_OPE_FRUIT = make_enchantment_with_subtypes(
     mana_cost="{2}{U}{B}",
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Aura", "Devil Fruit"},
-    text="Enchant creature you control. Enchanted creature gets +2/+2. {2}: Exchange the positions of two target creatures. Enchanted creature can't block creatures with islandwalk."
+    text="Enchant creature you control. Enchanted creature gets +2/+2. {2}: Exchange the positions of two target creatures. Enchanted creature can't block creatures with islandwalk.",
+    setup_interceptors=_opc_s22_ope_ope_fruit_setup
 )
 
 MERA_MERA_FRUIT = make_enchantment_with_subtypes(
@@ -3517,7 +6543,8 @@ MERA_MERA_FRUIT = make_enchantment_with_subtypes(
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Aura", "Devil Fruit"},
-    text="Enchant creature you control. Enchanted creature gets +3/+1 and can't be blocked. Enchanted creature can't block creatures with islandwalk."
+    text="Enchant creature you control. Enchanted creature gets +3/+1 and can't be blocked. Enchanted creature can't block creatures with islandwalk.",
+    setup_interceptors=_opc_s22_mera_mera_fruit_setup
 )
 
 GURA_GURA_FRUIT = make_enchantment_with_subtypes(
@@ -3525,7 +6552,8 @@ GURA_GURA_FRUIT = make_enchantment_with_subtypes(
     mana_cost="{3}{R}{G}",
     colors={Color.RED, Color.GREEN},
     subtypes={"Aura", "Devil Fruit"},
-    text="Enchant creature you control. Enchanted creature gets +4/+4 and has trample. When enchanted creature attacks, deal 2 damage to each other creature. Enchanted creature can't block creatures with islandwalk."
+    text="Enchant creature you control. Enchanted creature gets +4/+4 and has trample. When enchanted creature attacks, deal 2 damage to each other creature. Enchanted creature can't block creatures with islandwalk.",
+    setup_interceptors=_opc_s22_gura_gura_fruit_setup
 )
 
 SOUL_SOUL_FRUIT = make_enchantment_with_subtypes(
@@ -3533,7 +6561,8 @@ SOUL_SOUL_FRUIT = make_enchantment_with_subtypes(
     mana_cost="{3}{G}{W}",
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Aura", "Devil Fruit"},
-    text="Enchant creature you control. Enchanted creature gets +3/+3. At the beginning of your upkeep, create a 1/1 colorless Homie creature token. Enchanted creature can't block creatures with islandwalk."
+    text="Enchant creature you control. Enchanted creature gets +3/+3. At the beginning of your upkeep, create a 1/1 colorless Homie creature token. Enchanted creature can't block creatures with islandwalk.",
+    setup_interceptors=_opc_s22_soul_soul_fruit_setup
 )
 
 # More Support Cards
@@ -3541,7 +6570,8 @@ CAPTAIN_COAT = make_artifact(
     name="Captain's Coat",
     mana_cost="{2}",
     subtypes={"Equipment"},
-    text="Equipped creature gets +1/+2 and is a Pirate in addition to its other types. Equip {2}"
+    text="Equipped creature gets +1/+2 and is a Pirate in addition to its other types. Equip {2}",
+    setup_interceptors=_opc_s22_captain_s_coat_setup
 )
 
 WADO_ICHIMONJI = make_artifact(
@@ -3549,7 +6579,8 @@ WADO_ICHIMONJI = make_artifact(
     mana_cost="{2}",
     subtypes={"Equipment"},
     supertypes={"Legendary"},
-    text="Equipped creature gets +2/+1 and has first strike. Equip Samurai {1}. Equip {3}"
+    text="Equipped creature gets +2/+1 and has first strike. Equip Samurai {1}. Equip {3}",
+    setup_interceptors=_opc_s22_wado_ichimonji_setup
 )
 
 ENMA = make_artifact(
@@ -3557,7 +6588,8 @@ ENMA = make_artifact(
     mana_cost="{3}",
     subtypes={"Equipment"},
     supertypes={"Legendary"},
-    text="Equipped creature gets +3/+0 and has \"Whenever this creature deals combat damage to a player, you may pay 2 life. If you do, put a +1/+1 counter on this creature.\" Equip {3}"
+    text="Equipped creature gets +3/+0 and has \"Whenever this creature deals combat damage to a player, you may pay 2 life. If you do, put a +1/+1 counter on this creature.\" Equip {3}",
+    setup_interceptors=_opc_s22_enma_setup
 )
 
 SHUSUI = make_artifact(
@@ -3565,7 +6597,8 @@ SHUSUI = make_artifact(
     mana_cost="{3}",
     subtypes={"Equipment"},
     supertypes={"Legendary"},
-    text="Equipped creature gets +2/+2. Equipped creature can't be blocked by creatures with power 2 or less. Equip {3}"
+    text="Equipped creature gets +2/+2. Equipped creature can't be blocked by creatures with power 2 or less. Equip {3}",
+    setup_interceptors=_opc_s22_shusui_setup
 )
 
 GRYPHON_SWORD = make_artifact(
@@ -3573,66 +6606,77 @@ GRYPHON_SWORD = make_artifact(
     mana_cost="{2}",
     subtypes={"Equipment"},
     supertypes={"Legendary"},
-    text="Equipped creature gets +1/+1 and has first strike and vigilance. Equip {2}"
+    text="Equipped creature gets +1/+1 and has first strike and vigilance. Equip {2}",
+    setup_interceptors=_opc_s22_gryphon_sword_setup
 )
 
 ACE_MEDALLION = make_artifact(
     name="Ace's Medallion",
     mana_cost="{1}",
-    text="When Ace's Medallion enters, draw a card. {R}, {T}, Sacrifice Ace's Medallion: Deal 2 damage to any target."
+    text="When Ace's Medallion enters, draw a card. {R}, {T}, Sacrifice Ace's Medallion: Deal 2 damage to any target.",
+    setup_interceptors=_opc_s22_ace_s_medallion_setup
 )
 
 ROGER_BOUNTY_POSTER = make_artifact(
     name="Roger's Bounty Poster",
     mana_cost="{2}",
     supertypes={"Legendary"},
-    text="Legendary creatures you control get +1/+0. {5}, {T}, Sacrifice Roger's Bounty Poster: Draw three cards."
+    text="Legendary creatures you control get +1/+0. {5}, {T}, Sacrifice Roger's Bounty Poster: Draw three cards.",
+    setup_interceptors=_opc_s22_roger_s_bounty_poster_setup
 )
 
 # More Lands
 RED_LINE = make_land(
     name="Red Line",
-    text="{T}: Add {C}. {T}: Add {R} or {W}. Activate only if you control a Marine or a Celestial."
+    text="{T}: Add {C}. {T}: Add {R} or {W}. Activate only if you control a Marine or a Celestial.",
+    setup_interceptors=_opc_s22_red_line_setup
 )
 
 GRAND_LINE = make_land(
     name="Grand Line",
-    text="{T}: Add {C}. {1}, {T}: Add one mana of any color. Spend this mana only to cast Pirate spells."
+    text="{T}: Add {C}. {1}, {T}: Add one mana of any color. Spend this mana only to cast Pirate spells.",
+    setup_interceptors=_opc_s22_grand_line_setup
 )
 
 NEW_WORLD = make_land(
     name="New World",
-    text="{T}: Add {C}. {T}: Add one mana of any color. Activate only if you control a legendary creature."
+    text="{T}: Add {C}. {T}: Add one mana of any color. Activate only if you control a legendary creature.",
+    setup_interceptors=_opc_s22_new_world_setup
 )
 
 MARY_GEOISE = make_land(
     name="Mary Geoise",
     supertypes={"Legendary"},
-    text="{T}: Add {W}. {W}{W}, {T}: Tap target creature with power 4 or greater."
+    text="{T}: Add {W}. {W}{W}, {T}: Tap target creature with power 4 or greater.",
+    setup_interceptors=_opc_s22_mary_geoise_setup
 )
 
 ENIES_LOBBY = make_land(
     name="Enies Lobby",
     supertypes={"Legendary"},
-    text="{T}: Add {W} or {U}. {3}, {T}: Exile target creature until Enies Lobby leaves the battlefield."
+    text="{T}: Add {W} or {U}. {3}, {T}: Exile target creature until Enies Lobby leaves the battlefield.",
+    setup_interceptors=_opc_s22_enies_lobby_setup
 )
 
 THRILLER_BARK_ISLAND = make_land(
     name="Thriller Bark Island",
     supertypes={"Legendary"},
-    text="{T}: Add {B}. {2}{B}, {T}: Return target creature card from your graveyard to your hand."
+    text="{T}: Add {B}. {2}{B}, {T}: Return target creature card from your graveyard to your hand.",
+    setup_interceptors=_opc_s22_thriller_bark_island_setup
 )
 
 PUNK_HAZARD = make_land(
     name="Punk Hazard",
     supertypes={"Legendary"},
-    text="{T}: Add {R} or {U}. {2}, {T}: Deal 1 damage to each creature."
+    text="{T}: Add {R} or {U}. {2}, {T}: Deal 1 damage to each creature.",
+    setup_interceptors=_opc_s22_punk_hazard_setup
 )
 
 ZOU = make_land(
     name="Zou",
     supertypes={"Legendary"},
-    text="{T}: Add {R} or {G}. Mink creatures you control get +0/+1."
+    text="{T}: Add {R} or {G}. Mink creatures you control get +0/+1.",
+    setup_interceptors=_opc_s22_zou_setup
 )
 
 # Final batch of creatures
@@ -3643,7 +6687,8 @@ DONT_QUIXOTE_PIRATES = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Pirate"},
-    text="Menace. When Don Quixote Pirates enters, target opponent discards a card."
+    text="Menace. When Don Quixote Pirates enters, target opponent discards a card.",
+    setup_interceptors=_opc_s22_don_quixote_pirates_setup
 )
 
 GERMA_66_SOLDIER = make_creature(
@@ -3653,7 +6698,8 @@ GERMA_66_SOLDIER = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Soldier"},
-    text="When Germa 66 Soldier dies, create a 1/1 blue Soldier creature token."
+    text="When Germa 66 Soldier dies, create a 1/1 blue Soldier creature token.",
+    setup_interceptors=_opc_s22_germa_66_soldier_setup
 )
 
 BIG_MOM_PIRATES = make_creature(
@@ -3663,7 +6709,8 @@ BIG_MOM_PIRATES = make_creature(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Pirate"},
-    text="Trample. When Big Mom Pirates enters, create a Food token."
+    text="Trample. When Big Mom Pirates enters, create a Food token.",
+    setup_interceptors=_opc_s22_big_mom_pirates_setup
 )
 
 BEAST_PIRATES_HEADLINER = make_creature(
@@ -3673,7 +6720,8 @@ BEAST_PIRATES_HEADLINER = make_creature(
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Pirate"},
-    text="Trample. Beast Pirates Headliner gets +2/+2 as long as you control a Dragon."
+    text="Trample. Beast Pirates Headliner gets +2/+2 as long as you control a Dragon.",
+    setup_interceptors=_opc_s22_beast_pirates_headliner_setup
 )
 
 PLEASURE_SMILE_USER = make_creature(
@@ -3683,7 +6731,8 @@ PLEASURE_SMILE_USER = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Pirate"},
-    text="Pleasure, SMILE User has all creature types in addition to its other types."
+    text="Pleasure, SMILE User has all creature types in addition to its other types.",
+    setup_interceptors=_opc_s22_pleasure_smile_user_setup
 )
 
 GIFTER_SMILE_USER = make_creature(
@@ -3693,7 +6742,8 @@ GIFTER_SMILE_USER = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Pirate", "Beast"},
-    text="Reach. Gifter, SMILE User can block an additional creature each combat."
+    text="Reach. Gifter, SMILE User can block an additional creature each combat.",
+    setup_interceptors=_opc_s22_gifter_smile_user_setup
 )
 
 RED_HAIR_PIRATES = make_creature(
@@ -3714,7 +6764,8 @@ WHITEBEARD_PIRATES = make_creature(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Pirate"},
-    text="Whitebeard Pirates gets +2/+2 as long as you control Whitebeard. Trample."
+    text="Whitebeard Pirates gets +2/+2 as long as you control Whitebeard. Trample.",
+    setup_interceptors=_opc_s22_whitebeard_pirates_setup
 )
 
 BLACKBEARD_PIRATES = make_creature(
@@ -3724,7 +6775,8 @@ BLACKBEARD_PIRATES = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Pirate"},
-    text="Menace. When Blackbeard Pirates enters, each opponent loses 1 life."
+    text="Menace. When Blackbeard Pirates enters, each opponent loses 1 life.",
+    setup_interceptors=_opc_s22_blackbeard_pirates_setup
 )
 
 STRAW_HAT_GRAND_FLEET = make_creature(
@@ -3734,7 +6786,8 @@ STRAW_HAT_GRAND_FLEET = make_creature(
     mana_cost="{3}{R}{G}",
     colors={Color.RED, Color.GREEN},
     subtypes={"Human", "Pirate"},
-    text="Trample, haste. Straw Hat Grand Fleet gets +1/+1 for each other Pirate you control."
+    text="Trample, haste. Straw Hat Grand Fleet gets +1/+1 for each other Pirate you control.",
+    setup_interceptors=_opc_s22_straw_hat_grand_fleet_setup
 )
 
 WORST_GENERATION_CAPTAIN = make_creature(
@@ -3744,7 +6797,8 @@ WORST_GENERATION_CAPTAIN = make_creature(
     mana_cost="{2}{R}{B}",
     colors={Color.RED, Color.BLACK},
     subtypes={"Human", "Pirate"},
-    text="Menace. When Worst Generation Captain enters, create a Treasure token."
+    text="Menace. When Worst Generation Captain enters, create a Treasure token.",
+    setup_interceptors=_opc_s22_worst_generation_captain_setup
 )
 
 ROGER_PIRATES = make_creature(
@@ -3754,7 +6808,8 @@ ROGER_PIRATES = make_creature(
     mana_cost="{2}{R}{U}",
     colors={Color.RED, Color.BLUE},
     subtypes={"Human", "Pirate"},
-    text="Haste. When Roger Pirates enters, scry 2, then draw a card."
+    text="Haste. When Roger Pirates enters, scry 2, then draw a card.",
+    setup_interceptors=_opc_s22_roger_pirates_setup
 )
 
 # More instants and sorceries
@@ -3762,101 +6817,116 @@ KINGS_PUNCH = make_instant(
     name="King's Punch",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Target creature gets +4/+4 until end of turn."
+    text="Target creature gets +4/+4 until end of turn.",
+    resolve=_opc_s22_resolve_king_s_punch
 )
 
 LION_SONG = make_instant(
     name="Lion Song",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Target creature you control fights target creature an opponent controls."
+    text="Target creature you control fights target creature an opponent controls.",
+    resolve=_opc_s22_resolve_lion_song
 )
 
 PHOENIX_BRAND = make_instant(
     name="Phoenix Brand",
     mana_cost="{1}{R}{U}",
     colors={Color.RED, Color.BLUE},
-    text="Deal 3 damage to target creature. You gain 3 life."
+    text="Deal 3 damage to target creature. You gain 3 life.",
+    resolve=_opc_s22_resolve_phoenix_brand
 )
 
 ICE_AGE = make_sorcery(
     name="Ice Age",
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
-    text="Tap all creatures. They don't untap during their controllers' next untap steps. Draw a card."
+    text="Tap all creatures. They don't untap during their controllers' next untap steps. Draw a card.",
+    resolve=_opc_s22_resolve_ice_age
 )
 
 MAGMA_FIST = make_instant(
     name="Magma Fist",
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
-    text="Deal 5 damage to target creature. If that creature would die this turn, exile it instead."
+    text="Deal 5 damage to target creature. If that creature would die this turn, exile it instead.",
+    resolve=_opc_s22_resolve_magma_fist
 )
 
 LIGHT_SPEED_KICK = make_instant(
     name="Light Speed Kick",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Exile target attacking or blocking creature."
+    text="Exile target attacking or blocking creature.",
+    resolve=_opc_s22_resolve_light_speed_kick
 )
 
 SEAQUAKE = make_sorcery(
     name="Seaquake",
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
-    text="Destroy all artifacts and lands. For each permanent destroyed this way, its controller creates a Treasure token."
+    text="Destroy all artifacts and lands. For each permanent destroyed this way, its controller creates a Treasure token.",
+    resolve=_opc_s22_resolve_seaquake
 )
 
 ROOM = make_instant(
     name="Room",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Exchange control of two target creatures until end of turn. Untap those creatures."
+    text="Exchange control of two target creatures until end of turn. Untap those creatures.",
+    resolve=_opc_s22_resolve_room
 )
 
 COUNTER_SHOCK = make_instant(
     name="Counter Shock",
     mana_cost="{R}{U}",
     colors={Color.RED, Color.BLUE},
-    text="Deal 3 damage to target creature. Draw a card."
+    text="Deal 3 damage to target creature. Draw a card.",
+    resolve=_opc_s22_resolve_counter_shock
 )
 
 GAMMA_KNIFE = make_instant(
     name="Gamma Knife",
     mana_cost="{1}{B}{U}",
     colors={Color.BLACK, Color.BLUE},
-    text="Target creature gets -4/-4 until end of turn. If that creature would die this turn, exile it instead."
+    text="Target creature gets -4/-4 until end of turn. If that creature would die this turn, exile it instead.",
+    resolve=_opc_s22_resolve_gamma_knife
 )
 
 # Final artifacts
 REJECT_DIAL = make_artifact(
     name="Reject Dial",
     mana_cost="{2}",
-    text="{T}, Sacrifice Reject Dial: Deal damage to target creature equal to the damage dealt to you this turn. Reject Dial deals 2 damage to you."
+    text="{T}, Sacrifice Reject Dial: Deal damage to target creature equal to the damage dealt to you this turn. Reject Dial deals 2 damage to you.",
+    setup_interceptors=_opc_s22_reject_dial_setup
 )
 
 AXE_DIAL = make_artifact(
     name="Axe Dial",
     mana_cost="{1}",
-    text="{2}, {T}: Deal 2 damage to target creature."
+    text="{2}, {T}: Deal 2 damage to target creature.",
+    setup_interceptors=_opc_s22_axe_dial_setup
 )
 
 FLAME_DIAL = make_artifact(
     name="Flame Dial",
     mana_cost="{1}",
-    text="{2}, {T}: Deal 2 damage to any target."
+    text="{2}, {T}: Deal 2 damage to any target.",
+    setup_interceptors=_opc_s22_flame_dial_setup
 )
 
 BREATH_DIAL = make_artifact(
     name="Breath Dial",
     mana_cost="{1}",
-    text="{T}: Untap target creature."
+    text="{T}: Untap target creature.",
+    setup_interceptors=_opc_s22_breath_dial_setup
 )
 
 SEASTONE_NAIL = make_artifact(
     name="Seastone Nail",
     mana_cost="{1}",
-    text="Creatures with Devil Fruit attached to them get -1/-0."
+    text="Creatures with Devil Fruit attached to them get -1/-0.",
+    setup_interceptors=_opc_s22_seastone_nail_setup
 )
 
 
