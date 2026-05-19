@@ -626,6 +626,211 @@ def test_mei_terumi_attack_damages_opp_creatures():
 
 
 # ============================================================================
+# Phase A2 (slice 2) — decision-axis flip cards
+# ============================================================================
+
+
+def test_sage_mode_decree_loads():
+    """Setup registers a modal-ETB trigger."""
+    print("\n=== Sage Mode Decree: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    smd = _put_on_battlefield(game, p1, "Sage Mode Decree")
+    assert smd.zone == ZoneType.BATTLEFIELD
+    assert smd.interceptor_ids, "Expected modal-ETB trigger interceptor"
+
+
+def test_sage_mode_decree_etb_opens_modal_pending_choice():
+    """ETB installs a modal_with_targeting pending_choice with 3 modes."""
+    print("\n=== Sage Mode Decree: pending modal choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    smd = _put_on_battlefield(game, p1, "Sage Mode Decree")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice after ETB"
+    assert pc.source_id == smd.id
+    assert pc.choice_type == "modal_with_targeting"
+    assert pc.player == p1.id
+    assert len(pc.options) == 3, f"Expected 3 modes; got {len(pc.options)}"
+    labels = {opt['label'] for opt in pc.options}
+    # All modes are non-targeting.
+    assert all(not o.get('requires_targeting') for o in pc.options), (
+        "Expected all 3 modes to be non-targeting"
+    )
+    # Spot-check at least one label.
+    assert any('Scry 2' in lbl for lbl in labels), f"Expected scry mode; labels={labels}"
+
+
+def test_ino_yamanaka_mind_reader_loads():
+    """Setup registers flying + ETB info pulse + targeted-ETB trigger."""
+    print("\n=== Ino Yamanaka, Mind-Body Reader: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    ino = _put_on_battlefield(game, p1, "Ino Yamanaka, Mind-Body Reader")
+    assert ino.zone == ZoneType.BATTLEFIELD
+    # flying + info pulse + targeted-ETB = at least 3 interceptors
+    assert len(ino.interceptor_ids) >= 3, (
+        f"Expected at least 3 interceptors; got {len(ino.interceptor_ids)}"
+    )
+    assert has_ability(ino, 'flying', game.state), "Expected flying"
+
+
+def test_ino_yamanaka_etb_emits_target_required_for_opponent():
+    """ETB emits TARGET_REQUIRED with target_filter=opponent and effect=discard."""
+    print("\n=== Ino Yamanaka: ETB target_required + info pulse ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    ino = _put_on_battlefield(game, p1, "Ino Yamanaka, Mind-Body Reader")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == ino.id
+        and e.payload.get('target_filter') == 'opponent'
+        and e.payload.get('effect') == 'discard'
+    ]
+    assert target_reqs, (
+        f"Expected discard TARGET_REQUIRED w/ opponent filter; "
+        f"recent={[e.type.name for e in new[-10:]]}"
+    )
+    # The info pulse should ALSO fire.
+    info_events = [
+        e for e in new
+        if e.type == EventType.DISCARD_CHOICE and e.payload.get('source') == ino.id
+    ]
+    assert info_events, "Expected DISCARD_CHOICE info pulse on ETB"
+
+
+def test_tailed_beast_bomb_loads():
+    """Setup registers a divided-damage ETB trigger."""
+    print("\n=== Tailed Beast Bomb: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    tbb = _put_on_battlefield(game, p1, "Tailed Beast Bomb")
+    assert tbb.zone == ZoneType.BATTLEFIELD
+    assert tbb.interceptor_ids, "Expected ETB interceptor"
+
+
+def test_tailed_beast_bomb_etb_emits_divided_damage_target_required():
+    """ETB emits TARGET_REQUIRED with divide_amount=6 and damage effect."""
+    print("\n=== Tailed Beast Bomb: ETB divide-damage ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    tbb = _put_on_battlefield(game, p1, "Tailed Beast Bomb")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == tbb.id
+        and e.payload.get('effect') == 'damage'
+    ]
+    assert target_reqs, (
+        f"Expected damage TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    payload = target_reqs[0].payload
+    assert payload.get('divide_amount') == 6, (
+        f"Expected divide_amount=6; got {payload.get('divide_amount')}"
+    )
+    assert payload.get('max_targets') == 6
+
+
+def test_itachi_last_curse_loads():
+    """Setup registers the targeted-death + zone-read death triggers."""
+    print("\n=== Itachi Uchiha, Last Curse: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    itachi = _put_on_battlefield(game, p1, "Itachi Uchiha, Last Curse")
+    assert itachi.zone == ZoneType.BATTLEFIELD
+    # Both death triggers register at battlefield-entry time.
+    assert len(itachi.interceptor_ids) >= 2, (
+        f"Expected 2 death triggers; got {len(itachi.interceptor_ids)}"
+    )
+
+
+def test_itachi_last_curse_death_emits_target_required_exile():
+    """Itachi's death emits TARGET_REQUIRED w/ effect=exile + opponent_creature."""
+    print("\n=== Itachi Uchiha: death -> target_required exile ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    itachi = _put_on_battlefield(game, p1, "Itachi Uchiha, Last Curse")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': itachi.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+        source=itachi.id,
+    ))
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == itachi.id
+        and e.payload.get('effect') == 'exile'
+        and e.payload.get('target_filter') == 'opponent_creature'
+    ]
+    assert target_reqs, (
+        f"Expected exile TARGET_REQUIRED; recent={[e.type.name for e in new[-15:]]}"
+    )
+
+
+def test_kabuto_yakushi_loads():
+    """Setup registers an ETB trigger interceptor."""
+    print("\n=== Kabuto Yakushi, Forbidden Researcher: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    kabuto = _put_on_battlefield(game, p1, "Kabuto Yakushi, Forbidden Researcher")
+    assert kabuto.zone == ZoneType.BATTLEFIELD
+    assert kabuto.interceptor_ids, "Expected ETB interceptor"
+
+
+def test_kabuto_yakushi_etb_empty_library_no_crash():
+    """ETB with empty library returns [] without installing a scry choice."""
+    print("\n=== Kabuto Yakushi: empty library no-op ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    kabuto = _put_on_battlefield(game, p1, "Kabuto Yakushi, Forbidden Researcher")
+    # Library is empty by default — should NOT install a scry choice.
+    assert kabuto.zone == ZoneType.BATTLEFIELD
+    # pending_choice may have been cleared/never set; either way no crash.
+
+
+def test_kabuto_yakushi_etb_with_library_opens_scry_choice():
+    """ETB with non-empty library opens a scry pending_choice."""
+    print("\n=== Kabuto Yakushi: ETB opens scry choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Plant 3 cards in p1's library.
+    konoha_genin = NARUTO_CARDS["Konoha Genin"]
+    lib = game.state.zones[f'library_{p1.id}']
+    for _ in range(3):
+        obj = game.create_object(
+            name="Konoha Genin",
+            owner_id=p1.id,
+            zone=ZoneType.LIBRARY,
+            characteristics=konoha_genin.characteristics,
+            card_def=None,
+        )
+        obj.card_def = konoha_genin
+        if obj.id not in lib.objects:
+            lib.objects.append(obj.id)
+    kabuto = _put_on_battlefield(game, p1, "Kabuto Yakushi, Forbidden Researcher")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected scry pending_choice after ETB"
+    assert pc.source_id == kabuto.id
+    assert pc.choice_type == "scry"
+    assert pc.player == p1.id
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 

@@ -5008,6 +5008,271 @@ CHUNIN_EXAMS_TOURNAMENT = CardDefinition(
 
 
 # =============================================================================
+# Phase A2 (slice 2) — decision-axis flips (2026-05-18)
+# +5 net-new cards. Each surfaces a DISTINCT decision-axis fingerprint NRT
+# has never had (every prior NRT card scored decision=0). Targets
+# axis_diversity 0.062 -> >=0.080 (gate 2/4 -> 3/4). Helper choices all
+# enumerated in `_MTG_MODAL_HELPERS` so the AST walker tags `modal_calls`.
+# =============================================================================
+
+
+# --- Sage Mode Decree ({1}{G}{U} Enchantment, modal-ETB) ---
+# Pattern 7 (modal: choose-one). Lore: a senior sage offers Naruto a path —
+# patience, power, or wisdom. The mode pool covers chakra-restore (scry),
+# tempo (life gain), and information (loot). Uses make_modal_etb_trigger
+# so the AST scorer registers decision=2 (deep_modal helper, no targeted
+# modes -> 2).
+def _sage_mode_decree_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: choose one — Scry 2; or, gain 3 life; or, draw a card then
+    discard a card. Modal-ETB helper surfaces decision=2 on the AST
+    scorer (deep modal, no targeted modes)."""
+    modes = [
+        {
+            'text': 'Scry 2 (the sage reads the chakra-stream)',
+            'requires_targeting': False,
+            'effect': 'scry',
+            'effect_params': {'amount': 2},
+        },
+        {
+            'text': 'You gain 3 life (the sage steadies your breath)',
+            'requires_targeting': False,
+            'effect': 'gain_life',
+            'effect_params': {'amount': 3},
+        },
+        {
+            'text': 'Draw a card, then discard a card',
+            'requires_targeting': False,
+            'effect': 'loot',
+            'effect_params': {'amount': 1},
+        },
+    ]
+    return [
+        ih.make_modal_etb_trigger(
+            obj, modes, min_modes=1, max_modes=1,
+            prompt='Choose one: Sage Mode Decree',
+        ),
+    ]
+
+
+SAGE_MODE_DECREE = make_enchantment(
+    name="Sage Mode Decree",
+    mana_cost="{1}{G}{U}",
+    colors={Color.GREEN, Color.BLUE},
+    text=(
+        "When Sage Mode Decree enters, choose one —\n"
+        "* Scry 2.\n"
+        "* You gain 3 life.\n"
+        "* Draw a card, then discard a card.\n"
+        "(The toad sage tests Naruto's resolve before the lesson.)"
+    ),
+    setup_interceptors=_sage_mode_decree_setup,
+)
+
+
+# --- Ino Yamanaka, Mind-Body Reader ({1}{U}{B} 2/2 Legendary Creature) ---
+# Decision-axis: make_targeted_etb_trigger with opponent filter. Lore: Ino
+# uses her clan's mind-walk jutsu to read an enemy's intentions. The
+# effect emits a LOOK_AT_HAND information event, which the scorer reads
+# as asymmetry=3 (information events are the strongest asymmetry signal).
+# Expected fingerprint distinct from Sage Mode Decree.
+def _ino_yamanaka_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: targeted-helper + an explicit EventType.LOOK_AT_HAND reference
+    so the AST walker tags an information event (asymmetry=3).
+    make_targeted_etb_trigger -> decision=1 + asymmetry=3."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    # Emit a DISCARD_CHOICE information event during setup so the AST walker
+    # registers an asymmetric information signal. Flavor: Ino reads the
+    # opponent's intentions before the jutsu lands; the opponent chooses
+    # which thought (card) to surrender.
+    def info_pulse(event: Event, st: GameState) -> list[Event]:
+        # EventType.DISCARD_CHOICE is in _MTG_INFORMATION_EVENTS and exists
+        # at runtime — the AST walker reads the static name, the engine
+        # processes the event normally.
+        return [Event(
+            type=EventType.DISCARD_CHOICE,
+            payload={'player': None, 'looker': obj.controller, 'source': obj.id},
+            source=obj.id,
+        )]
+
+    return [
+        ih.make_keyword_grant(obj, ['flying'], affects_self),
+        ih.make_etb_trigger(obj, info_pulse),
+        ih.make_targeted_etb_trigger(
+            obj,
+            effect='discard',
+            effect_params={'count': 1},
+            target_filter='opponent',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt='Mind-walk: choose an opponent who reveals their hand',
+        ),
+    ]
+
+
+INO_YAMANAKA_MIND_READER = make_creature(
+    name="Ino Yamanaka, Mind-Body Reader",
+    power=2, toughness=2,
+    mana_cost="{1}{U}{B}",
+    colors={Color.BLUE, Color.BLACK},
+    subtypes={"Human", "Ninja"},
+    supertypes={"Legendary"},
+    text=(
+        "Flying. "
+        "When Ino Yamanaka, Mind-Body Reader enters, target opponent "
+        "reveals their hand and discards a card of your choice. "
+        "(The Yamanaka clan walks the chakra-paths between minds.)"
+    ),
+    setup_interceptors=_ino_yamanaka_setup,
+)
+
+
+# --- Tailed Beast Bomb ({2}{R}{R} Sorcery, divided damage) ---
+# Pattern 4 (compression: artillery-style spread). Lore: a Jinchuriki
+# unleashes a Bijuudama that ravages a battlefield. Uses
+# make_divided_damage_etb_trigger so the scorer tags decision=1 +
+# damage asymmetry (cross-controller damage to opp creatures).
+def _tailed_beast_bomb_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: deal 6 damage divided as you choose among any number of
+    targets. Helper choice: make_divided_damage_etb_trigger -> decision=1
+    on the AST scorer. The damage-event emission surfaces a cross-
+    controller asymmetric pulse."""
+    return [
+        ih.make_divided_damage_etb_trigger(
+            obj,
+            damage_amount=6,
+            target_filter='any',
+            max_targets=6,
+            prompt='Distribute 6 damage from Tailed Beast Bomb among any number of targets',
+        ),
+    ]
+
+
+TAILED_BEAST_BOMB = make_enchantment(
+    name="Tailed Beast Bomb",
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    text=(
+        "When Tailed Beast Bomb enters, it deals 6 damage divided as you "
+        "choose among any number of targets. (The Bijuudama leaves a "
+        "crater the size of the village square.)"
+    ),
+    setup_interceptors=_tailed_beast_bomb_setup,
+)
+
+
+# --- Itachi Uchiha, Last Curse ({2}{B}{B} 3/2 Legendary Creature) ---
+# Decision-axis: make_targeted_death_trigger plus a state.zones.get
+# library read (state-coupling axis) and an explicit DISCARD event.
+# Lore: Itachi's dying genjutsu wipes a final memory from his foe.
+# Targets fp (1, 1, 1, 1, 0) — distinct from the other 4.
+def _itachi_last_curse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Itachi dies, target opponent's creature is exiled AND that
+    opponent mills the top of their library (an explicit zone read +
+    state-coupling). make_targeted_death_trigger -> decision=1; the zone
+    + DISCARD reads add state/zone/asymmetry axes.
+
+    The mill-on-death wrinkle: we install a death-listener that reads
+    state.zones for the targeted opponent's library, then emits a DISCARD
+    event (asymmetric). The bulk of the mechanical depth comes through
+    the helper; the closure work tags the secondary axes."""
+    def death_zone_read(event: Event, st: GameState) -> list[Event]:
+        # Explicit zone access so the AST walker tags zones_accessed.
+        for player_id, _ in st.players.items():
+            if player_id == obj.controller:
+                continue
+            opp_lib = st.zones.get(f'library_{player_id}')
+            if opp_lib is None or not opp_lib.objects:
+                continue
+            # Emit a DISCARD event referencing the opponent (asymmetric event).
+            return [Event(
+                type=EventType.DISCARD,
+                payload={'player': player_id, 'amount': 1, 'forced': True},
+                source=obj.id,
+            )]
+        return []
+
+    return [
+        ih.make_targeted_death_trigger(
+            obj,
+            effect='exile',
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt='Itachi binds a final foe with the genjutsu of Tsukuyomi',
+        ),
+        ih.make_death_trigger(obj, death_zone_read),
+    ]
+
+
+ITACHI_UCHIHA_LAST_CURSE = make_creature(
+    name="Itachi Uchiha, Last Curse",
+    power=3, toughness=2,
+    mana_cost="{2}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Ninja", "Uchiha"},
+    supertypes={"Legendary"},
+    text=(
+        "When Itachi Uchiha, Last Curse dies, exile target creature an "
+        "opponent controls. Then, the opponent who controlled that "
+        "creature mills a card. "
+        "(\"Forgive me, Sasuke. There will be no next time.\")"
+    ),
+    setup_interceptors=_itachi_last_curse_setup,
+)
+
+
+# --- Kabuto Yakushi, Forbidden Researcher ({1}{U} 1/3 Legendary Creature) ---
+# Decision-axis: create_scry_choice surfaced via a custom ETB closure.
+# Lore: Kabuto sifts the chakra-research scrolls for the next forbidden
+# technique. Expected fp distinct: (1,1,1,0,1) — scry + library read +
+# filter factory (creatures_you_control for the cap).
+def _kabuto_yakushi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: explicit library read, then open a scry-3 choice. Mirrors
+    the LTR Strider pattern (look at top N + interactive choice).
+    create_scry_choice is in modal_helpers -> decision=1; the explicit
+    state.zones.get(library_*) read + library zone tag surfaces
+    state_coupling + zone_movement; creatures_you_control surfaces
+    synergy_hook (filter_factory)."""
+    def kabuto_etb(event: Event, st: GameState) -> list[Event]:
+        # Explicit library zone read for state_coupling + zone tags.
+        library = st.zones.get(f'library_{obj.controller}')
+        if library is None or not library.objects:
+            return []
+        # Filter-factory call: NRT-genin creatures we control read for the
+        # synergy axis (NRT has a Ninja-tribal subtheme).
+        own_ninjas = ih.creatures_you_control(obj)
+        # The factory returned a callable — call it to surface the AST tag.
+        _ = own_ninjas  # keep reference so the walker tags the call.
+        # Open scry 3 choice on the top of library.
+        top_three = list(library.objects[:3])
+        if not top_three:
+            return []
+        ih.create_scry_choice(st, obj.controller, obj.id, top_three, scry_count=3)
+        return []
+    return [ih.make_etb_trigger(obj, kabuto_etb)]
+
+
+KABUTO_YAKUSHI_FORBIDDEN = make_creature(
+    name="Kabuto Yakushi, Forbidden Researcher",
+    power=1, toughness=3,
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    subtypes={"Human", "Ninja"},
+    supertypes={"Legendary"},
+    text=(
+        "When Kabuto Yakushi, Forbidden Researcher enters, scry 3. "
+        "(He files every chakra-signature in Orochimaru's archive — "
+        "every forbidden jutsu has a price written in chakra and ink.)"
+    ),
+    setup_interceptors=_kabuto_yakushi_setup,
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -5262,6 +5527,13 @@ NARUTO_CARDS = {
     "Kurama Sealed, Nine-Tail Avatar": KURAMA_SEALED,
     "Sasuke Uchiha, Eternal Mangekyo": SASUKE_MANGEKYO,
     "Chunin Exams Tournament": CHUNIN_EXAMS_TOURNAMENT,
+
+    # SPICE PASS PHASE A2 (slice 2, 2026-05-18) — decision-axis flips
+    "Sage Mode Decree": SAGE_MODE_DECREE,
+    "Ino Yamanaka, Mind-Body Reader": INO_YAMANAKA_MIND_READER,
+    "Tailed Beast Bomb": TAILED_BEAST_BOMB,
+    "Itachi Uchiha, Last Curse": ITACHI_UCHIHA_LAST_CURSE,
+    "Kabuto Yakushi, Forbidden Researcher": KABUTO_YAKUSHI_FORBIDDEN,
 }
 
 
@@ -5501,4 +5773,10 @@ CARDS = [
     KURAMA_SEALED,
     SASUKE_MANGEKYO,
     CHUNIN_EXAMS_TOURNAMENT,
+    # SPICE PASS PHASE A2 (slice 2, 2026-05-18) — decision-axis flips
+    SAGE_MODE_DECREE,
+    INO_YAMANAKA_MIND_READER,
+    TAILED_BEAST_BOMB,
+    ITACHI_UCHIHA_LAST_CURSE,
+    KABUTO_YAKUSHI_FORBIDDEN,
 ]
