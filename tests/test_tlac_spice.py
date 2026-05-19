@@ -39,6 +39,7 @@ from src.engine import (
 )
 from src.engine.queries import has_ability
 from src.cards.custom.penultimate_avatar import AVATAR_TLA_CUSTOM_CARDS
+from src.cards.custom import penultimate_avatar as tlac_module
 
 
 def _put_on_battlefield(game, player, card_name):
@@ -860,6 +861,630 @@ def test_hakoda_selfless_commander_etb_draws_card():
         and e.payload.get('player') == p1.id
     ]
     assert draws, "Expected DRAW for Hakoda ETB"
+
+
+# ============================================================================
+# Slice-20 median-lift tests (2026-05-19): one assertion per buffed vanilla
+# card driving TLAC median_depth 0 -> >= 2. Each test puts the card on the
+# battlefield (or invokes its resolve handler for instants/sorceries) and
+# asserts the expected SCRY/SURVEIL info event + a cross-controller effect
+# (LIFE_CHANGE / DAMAGE / MILL / DISCARD) or a self life-gain.
+# ============================================================================
+
+
+def _s20_etb_card(card_name):
+    """Spin up a game, put the named card under p1, return (game, p1, p2, obj)."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    return game, p1, p2, obj
+
+
+def _s20_attack_card(card_name):
+    """Spin up a game, put the named card under p1, emit ATTACK_DECLARED."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': obj.id, 'defender': p2.id},
+        source=obj.id, controller=obj.controller,
+    ))
+    return game, p1, p2, obj
+
+
+def _s20_upkeep_card(card_name):
+    """Spin up a game, put the named card under p1, emit PHASE_START upkeep."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    game.state.active_player = p1.id
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'active_player': p1.id},
+    ))
+    return game, p1, p2, obj
+
+
+def _s20_assert_info_and_opp(game, obj, p2, *, info_type, opp_type):
+    """Assert info_type (SCRY/SURVEIL) emitted by obj + a cross-controller effect."""
+    new = game.state.event_log
+    info_evs = [e for e in new if e.type == info_type and e.source == obj.id]
+    assert info_evs, (
+        f"Expected {info_type.name} from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+    if opp_type == EventType.LIFE_CHANGE:
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.payload.get('amount', 0) < 0
+                   and e.source == obj.id]
+    elif opp_type == EventType.DAMAGE:
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('target') == p2.id
+                   and e.source == obj.id]
+    elif opp_type in (EventType.MILL, EventType.DISCARD):
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.source == obj.id]
+    else:
+        opp_evs = []
+    assert opp_evs, (
+        f"Expected {opp_type.name} against p2 from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+
+
+def _s20_assert_gain(game, obj):
+    """Assert a positive LIFE_CHANGE on obj.controller from obj.id."""
+    new = game.state.event_log
+    gain_evs = [e for e in new if e.type == EventType.LIFE_CHANGE
+                and e.payload.get('player') == obj.controller
+                and e.payload.get('amount', 0) > 0
+                and e.source == obj.id]
+    assert gain_evs, (
+        f"Expected LIFE_CHANGE > 0 on controller from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+
+
+def _s20_resolve(fn_name):
+    """Pull a resolve fn out of the penultimate_avatar module, prep state, call it."""
+    fn = getattr(tlac_module, fn_name)
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = fn([], game.state)
+    return events, p1, p2
+
+
+# --- Creatures buffed ---
+
+def test_hama_bloodbender_etb_surveil_drain_s20():
+    g, p1, p2, obj = _s20_etb_card("Hama, Bloodbender")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_serpents_pass_horror_attack_scry_mill_s20():
+    g, p1, p2, obj = _s20_attack_card("Serpent's Pass Horror")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.MILL)
+
+
+def test_water_tribe_healer_etb_scry_drain_s20():
+    g, p1, p2, obj = _s20_etb_card("Water Tribe Healer")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_firebending_student_attack_scry_damage_s20():
+    g, p1, p2, obj = _s20_attack_card("Firebending Student")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_fire_nation_cadets_attack_scry_damage_s20():
+    g, p1, p2, obj = _s20_attack_card("Fire Nation Cadets")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_earth_kingdom_farmer_etb_scry_gain_s20():
+    g, p1, p2, obj = _s20_etb_card("Earth Kingdom Farmer")
+    _s20_assert_gain(g, obj)
+
+
+def test_spirit_vine_etb_scry_gain_s20():
+    g, p1, p2, obj = _s20_etb_card("Spirit Vine")
+    _s20_assert_gain(g, obj)
+
+
+def test_oasis_hermit_etb_scry_gain_s20():
+    g, p1, p2, obj = _s20_etb_card("Oasis Hermit")
+    _s20_assert_gain(g, obj)
+
+
+# --- Enchantments buffed ---
+
+def test_peaceful_sanctuary_upkeep_scry_drain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Peaceful Sanctuary")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_spirit_corruption_upkeep_surveil_drain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Spirit Corruption")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_fire_nation_prison_etb_surveil_discard_s20():
+    g, p1, p2, obj = _s20_etb_card("Fire Nation Prison")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_lake_laogai_etb_surveil_mill_s20():
+    g, p1, p2, obj = _s20_etb_card("Lake Laogai")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_fire_wall_upkeep_scry_damage_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Fire Wall")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_wild_growth_upkeep_scry_gain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Wild Growth")
+    _s20_assert_gain(g, obj)
+
+
+# --- Artifacts buffed ---
+
+def test_meteorite_sword_etb_scry_damage_s20():
+    g, p1, p2, obj = _s20_etb_card("Meteorite Sword")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_spirit_oasis_upkeep_scry_gain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Spirit Oasis")
+    _s20_assert_gain(g, obj)
+
+
+def test_water_pouch_etb_scry_gain_s20():
+    g, p1, p2, obj = _s20_etb_card("Water Pouch")
+    _s20_assert_gain(g, obj)
+
+
+def test_fire_nation_helm_etb_scry_damage_s20():
+    g, p1, p2, obj = _s20_etb_card("Fire Nation Helm")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_moonstone_etb_surveil_mill_s20():
+    g, p1, p2, obj = _s20_etb_card("Moonstone")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_drill_attack_scry_damage_s20():
+    g, p1, p2, obj = _s20_attack_card("The Drill")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_cactus_juice_etb_surveil_drain_s20():
+    g, p1, p2, obj = _s20_etb_card("Cactus Juice")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_submarine_attack_surveil_mill_s20():
+    g, p1, p2, obj = _s20_attack_card("Fire Nation Submarine")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_chi_blocker_gloves_etb_surveil_discard_s20():
+    g, p1, p2, obj = _s20_etb_card("Chi Blocker Gloves")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_platinum_mech_suit_attack_scry_damage_s20():
+    g, p1, p2, obj = _s20_attack_card("Platinum Mech Suit")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_spirit_cannon_etb_scry_damage_s20():
+    g, p1, p2, obj = _s20_etb_card("Spirit Cannon")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_metalbending_cable_etb_scry_drain_s20():
+    g, p1, p2, obj = _s20_etb_card("Metalbending Cable")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- Lands buffed ---
+
+def test_air_temple_upkeep_scry_gain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Air Temple")
+    _s20_assert_gain(g, obj)
+
+
+def test_ba_sing_se_upkeep_scry_drain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Ba Sing Se")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_fire_nation_capital_upkeep_scry_damage_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Fire Nation Capital")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_spirit_world_gate_upkeep_surveil_mill_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Spirit World Gate")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_water_tribe_village_upkeep_scry_gain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Water Tribe Village")
+    _s20_assert_gain(g, obj)
+
+
+def test_fire_nation_outpost_upkeep_scry_drain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Fire Nation Outpost")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_earth_kingdom_fortress_upkeep_scry_gain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Earth Kingdom Fortress")
+    _s20_assert_gain(g, obj)
+
+
+def test_omashu_upkeep_scry_drain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Omashu")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_ember_island_upkeep_scry_damage_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Ember Island")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_fog_of_lost_souls_upkeep_surveil_mill_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Fog of Lost Souls")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_southern_air_temple_upkeep_scry_gain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Southern Air Temple")
+    _s20_assert_gain(g, obj)
+
+
+def test_western_air_temple_upkeep_scry_drain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Western Air Temple")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_kyoshi_island_upkeep_scry_drain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Kyoshi Island")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_boiling_rock_prison_upkeep_surveil_discard_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Boiling Rock Prison")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_serpents_pass_upkeep_surveil_mill_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Serpent's Pass")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_foggy_swamp_upkeep_surveil_gain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Foggy Swamp")
+    _s20_assert_gain(g, obj)
+
+
+def test_si_wong_desert_upkeep_scry_damage_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Si Wong Desert")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_northern_water_tribe_capital_upkeep_scry_gain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Northern Water Tribe Capital")
+    _s20_assert_gain(g, obj)
+
+
+def test_republic_city_upkeep_scry_drain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Republic City")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_pro_bending_arena_upkeep_scry_damage_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Pro-Bending Arena")
+    _s20_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_spirit_portal_upkeep_surveil_gain_s20():
+    g, p1, p2, obj = _s20_upkeep_card("Spirit Portal")
+    _s20_assert_gain(g, obj)
+
+
+# --- Instants & Sorceries (resolve= handlers) ---
+
+def test_resolve_airbenders_reversal_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_airbenders_reversal")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_resolve_airbending_lesson_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_airbending_lesson")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_resolve_avatars_wrath_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_avatars_wrath")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_resolve_destined_confrontation_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_destined_confrontation")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_resolve_enter_the_avatar_state_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_enter_the_avatar_state")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_resolve_fancy_footwork_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_fancy_footwork")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_resolve_gather_the_white_lotus_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_gather_the_white_lotus")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_resolve_abandon_attachments_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_abandon_attachments")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.DISCARD and e.payload.get('player') == p2.id for e in events)
+
+
+def test_resolve_accumulate_wisdom_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_accumulate_wisdom")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_resolve_boomerang_basics_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_boomerang_basics")
+    assert any(e.type == EventType.SCRY for e in events)
+
+
+def test_resolve_moon_spirit_blessing_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_moon_spirit_blessing")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_resolve_ocean_spirit_fury_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_ocean_spirit_fury")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_resolve_waterbending_lesson_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_waterbending_lesson")
+    assert any(e.type == EventType.SCRY for e in events)
+
+
+def test_resolve_monastic_discipline_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_monastic_discipline")
+    assert any(e.type == EventType.SCRY for e in events)
+
+
+def test_resolve_winds_of_change_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_winds_of_change")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_resolve_lion_turtle_blessing_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_lion_turtle_blessing")
+    assert any(e.type == EventType.SCRY for e in events)
+
+
+def test_resolve_unagi_attack_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_unagi_attack")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_resolve_wisdom_of_ages_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_wisdom_of_ages")
+    assert any(e.type == EventType.SCRY for e in events)
+
+
+def test_resolve_mist_veil_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_mist_veil")
+    assert any(e.type == EventType.SCRY for e in events)
+
+
+def test_resolve_thought_manipulation_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_thought_manipulation")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_resolve_spirit_vision_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_spirit_vision")
+    assert any(e.type == EventType.SCRY for e in events)
+
+
+def test_resolve_water_whip_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_water_whip")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_resolve_crashing_waves_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_crashing_waves")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_resolve_ice_shield_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_ice_shield")
+    assert any(e.type == EventType.SCRY for e in events)
+
+
+def test_resolve_restoration_ritual_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_restoration_ritual")
+    assert any(e.type == EventType.SCRY for e in events)
+
+
+def test_resolve_azula_always_lies_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_azula_always_lies")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_resolve_dai_li_indoctrination_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_dai_li_indoctrination")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.DISCARD and e.payload.get('player') == p2.id for e in events)
+
+
+def test_resolve_day_of_black_sun_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_day_of_black_sun")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_resolve_deadly_precision_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_deadly_precision")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_resolve_epic_downfall_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_epic_downfall")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_resolve_fatal_fissure_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_fatal_fissure")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_resolve_bloodbending_lesson_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_bloodbending_lesson")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_resolve_shadow_of_the_past_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_shadow_of_the_past")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_resolve_cruel_ambition_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_cruel_ambition")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_resolve_bumi_bash_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_bumi_bash")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_resolve_combustion_technique_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_combustion_technique")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_resolve_firebending_lesson_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_firebending_lesson")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_resolve_fire_nation_attacks_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_fire_nation_attacks")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_resolve_lightning_redirection_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_lightning_redirection")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_resolve_sozins_comet_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_sozins_comet")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_resolve_agni_kai_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_agni_kai")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_resolve_dragon_dance_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_dragon_dance")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_resolve_volcanic_eruption_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_volcanic_eruption")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_resolve_rage_of_fire_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_rage_of_fire")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_resolve_lightning_bolt_lesson_s20():
+    events, p1, p2 = _s20_resolve("_tlac_resolve_lightning_bolt_lesson")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
 
 
 # ============================================================================
