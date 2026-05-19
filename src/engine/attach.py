@@ -109,15 +109,38 @@ ATTACH_EVENT_HANDLERS = {
 
 
 def _cleanup_filter(event: Event, state: GameState) -> bool:
-    """Catch ZONE_CHANGE leaving battlefield."""
-    if event.type != EventType.ZONE_CHANGE:
-        return False
-    payload = event.payload
-    from_zone = payload.get("from_zone_type")
-    to_zone = payload.get("to_zone_type")
-    if from_zone is None:
-        return False
-    return from_zone == ZoneType.BATTLEFIELD and to_zone != ZoneType.BATTLEFIELD
+    """Catch any leaves-battlefield event.
+
+    Three event paths can land a permanent in graveyard / exile:
+    - ``ZONE_CHANGE`` (bounce, library tutor, replacement effects)
+    - ``OBJECT_DESTROYED`` (the standard destroy path; ``_handle_object_destroyed``
+      mutates ``obj.zone`` directly without emitting a ZONE_CHANGE event)
+    - ``SACRIFICE`` (parallel to OBJECT_DESTROYED; same shape)
+
+    For ZONE_CHANGE we require from_zone=BATTLEFIELD so we don't fire on
+    library shuffles or hand-to-stack motion. For OBJECT_DESTROYED /
+    SACRIFICE we accept the event whenever its target has actually left
+    the battlefield (the RESOLVE phase has already moved the object by
+    the time REACT runs).
+    """
+    if event.type == EventType.ZONE_CHANGE:
+        payload = event.payload
+        from_zone = payload.get("from_zone_type")
+        to_zone = payload.get("to_zone_type")
+        if from_zone is None:
+            return False
+        return from_zone == ZoneType.BATTLEFIELD and to_zone != ZoneType.BATTLEFIELD
+    if event.type in (EventType.OBJECT_DESTROYED, EventType.SACRIFICE):
+        obj_id = event.payload.get("object_id")
+        if not obj_id:
+            return False
+        obj = state.objects.get(obj_id)
+        if obj is None:
+            return False
+        # By REACT phase, RESOLVE has moved the obj to its destination zone.
+        # We only want to fire when the object actually left the battlefield.
+        return obj.zone != ZoneType.BATTLEFIELD
+    return False
 
 
 def _cleanup_handler(event: Event, state: GameState) -> InterceptorResult:
@@ -140,14 +163,19 @@ def _cleanup_handler(event: Event, state: GameState) -> InterceptorResult:
 
     def _revoke_triggered_stash(host_state: Any) -> None:
         """Pop any granted-triggered interceptor IDs stashed on ``host_state``
-        from ``state.interceptors``. Mirrors what
-        ``_make_attached_triggered_ability_listener`` would have done if its
-        REACT branch hadn't been filtered out by leaves-battlefield gating."""
+        from ``state.interceptors``, and clear any death-trigger spec stash.
+        Mirrors what ``_make_attached_triggered_ability_listener`` would do
+        if its REACT branch hadn't been filtered out by leaves-battlefield
+        gating."""
         ids = list(getattr(host_state, "_granted_triggered_ability_ids", []) or [])
         for int_id in ids:
             state.interceptors.pop(int_id, None)
         try:
             delattr(host_state, "_granted_triggered_ability_ids")
+        except AttributeError:
+            pass
+        try:
+            delattr(host_state, "_aura_death_specs")
         except AttributeError:
             pass
 
@@ -166,8 +194,25 @@ def _cleanup_handler(event: Event, state: GameState) -> InterceptorResult:
                 delattr(attached.state, "_granted_ability_targets")
             except AttributeError:
                 pass
+            # Helper 5: invoke any death-trigger specs stashed by an Aura on
+            # this dying creature. Must fire BEFORE the triggered-ability
+            # stash is revoked. The spec's effect_fn signature is the
+            # standard (target_obj, event, state) -> list[Event], with
+            # target_obj being the dying creature (`obj` here).
+            death_specs = list(
+                getattr(attached.state, "_aura_death_specs", None) or []
+            )
+            for spec in death_specs:
+                effect_fn = spec.get("effect_fn")
+                if not callable(effect_fn):
+                    continue
+                try:
+                    fired = effect_fn(obj, event, state) or []
+                except Exception:
+                    fired = []
+                new_events.extend(fired)
             # Helper 5: revoke granted triggered abilities stashed on the
-            # equipment / aura side.
+            # equipment / aura side. Also clears _aura_death_specs.
             _revoke_triggered_stash(attached.state)
         new_events.append(Event(
             type=EventType.UNATTACH,

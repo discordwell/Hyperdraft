@@ -8022,21 +8022,47 @@ def _make_attached_triggered_ability_listener(
     triggered ability on whichever creature ``source_obj`` is attached to.
 
     Parallel to ``src.engine.attach.make_granted_abilities_listener`` (which
-    handles *activated* abilities). Each spec is a dict::
+    handles *activated* abilities). Each spec is a dict.
+
+    Three spec shapes are supported via the optional ``trigger_on`` field:
+
+    Default (``trigger_on`` omitted or ``None``) — general triggered ability
+    on the attached creature::
 
         {
             "event_filter": Callable[[Event, GameState, str], bool],
             "effect_fn":    Callable[[GameObject, Event, GameState], list[Event]],
-            "description":  str,                 # optional, for logs/tests
-            "duration":     "while_on_battlefield",  # optional; default
+            "description":  str,                 # optional
+            "duration":     "while_on_battlefield",  # optional default
             "one_shot":     False,               # optional
         }
 
-    The granted Interceptor IDs are stashed on
-    ``source_obj.state._granted_triggered_ability_ids`` so UNATTACH (or the
-    equipment leaving the battlefield) can revoke them. ``grant_triggered_ability``
-    registers each Interceptor on ``state.interceptors``; revocation simply
-    pops them out.
+    ``trigger_on="death"`` — fires when the enchanted creature dies. Fires
+    synchronously from ``src.engine.attach::_cleanup_handler`` BEFORE
+    revocation so it can see the dying creature's state::
+
+        {
+            "trigger_on": "death",
+            "effect_fn":  Callable[[GameObject, Event, GameState], list[Event]],
+            "description": str,
+        }
+
+    ``trigger_on="enchanted_controller_upkeep"`` — fires at the beginning
+    of the enchanted creature's *current* controller's upkeep. Re-reads
+    ``attached_to.controller`` per fire so post-control-change auras still
+    target the right player::
+
+        {
+            "trigger_on": "enchanted_controller_upkeep",
+            "effect_fn":  Callable[[GameObject, Event, GameState], list[Event]],
+            "description": str,
+        }
+
+    The granted Interceptor IDs (for the default and upkeep cases) are
+    stashed on ``source_obj.state._granted_triggered_ability_ids`` so UNATTACH
+    can revoke them. Death specs are stashed separately on
+    ``source_obj.state._aura_death_specs`` and consumed by
+    ``_cleanup_handler``.
     """
     normalized = _normalise_triggered_specs(specs) if specs is not None else []
     if not normalized:
@@ -8066,6 +8092,68 @@ def _make_attached_triggered_ability_listener(
             delattr(source.state, "_granted_triggered_ability_ids")
         except AttributeError:
             pass
+        # Clear death-spec stash too (synchronous handler in
+        # _cleanup_handler reads this; an UNATTACH without a death event
+        # should clear it so re-attach starts clean).
+        try:
+            delattr(source.state, "_aura_death_specs")
+        except AttributeError:
+            pass
+
+    def _install_upkeep_trigger(target: GameObject, source: GameObject,
+                                state: GameState, effect_fn) -> str:
+        """Install a PHASE_START 'upkeep' interceptor that filters on the
+        attached creature's CURRENT controller (re-read per fire so a
+        post-attach control change is honored)."""
+        int_id = new_id()
+
+        def upkeep_filter(event: Event, st: GameState) -> bool:
+            if event.type != EventType.PHASE_START:
+                return False
+            phase = event.payload.get('phase') or event.payload.get('step')
+            if phase != 'upkeep':
+                return False
+            active = event.payload.get('active_player') or getattr(st, 'active_player', None)
+            src = st.objects.get(source_id)
+            if not src or src.zone != ZoneType.BATTLEFIELD:
+                return False
+            attached_id = getattr(src.state, 'attached_to', None)
+            if not attached_id:
+                return False
+            attached = st.objects.get(attached_id)
+            if not attached:
+                return False
+            return active == attached.controller
+
+        def upkeep_handler(event: Event, st: GameState) -> InterceptorResult:
+            src = st.objects.get(source_id)
+            attached_id = getattr(src.state, 'attached_to', None) if src else None
+            attached = st.objects.get(attached_id) if attached_id else None
+            if not attached:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            try:
+                new_events = effect_fn(attached, event, st) or []
+            except Exception:
+                new_events = []
+            if not new_events:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=new_events,
+            )
+
+        interceptor = Interceptor(
+            id=int_id,
+            source=source_id,
+            controller=controller_id,
+            priority=InterceptorPriority.REACT,
+            filter=upkeep_filter,
+            handler=upkeep_handler,
+            duration='while_on_battlefield',
+        )
+        interceptor.timestamp = state.next_timestamp()
+        state.interceptors[int_id] = interceptor
+        return int_id
 
     def _handler(event: Event, state: GameState) -> InterceptorResult:
         source = state.objects.get(source_id)
@@ -8082,18 +8170,33 @@ def _make_attached_triggered_ability_listener(
             # If we were granting to a prior target, revoke first.
             _revoke(state, source)
             granted_ids: list[str] = []
+            death_specs: list[dict] = []
             for spec in normalized:
-                interceptor = grant_triggered_ability(
-                    target,
-                    source,
-                    state,
-                    event_filter=spec["event_filter"],
-                    effect_fn=spec["effect_fn"],
-                    duration=spec.get("duration", "while_on_battlefield"),
-                    one_shot=bool(spec.get("one_shot", False)),
-                )
-                granted_ids.append(interceptor.id)
-            setattr(source.state, "_granted_triggered_ability_ids", granted_ids)
+                kind = spec.get("trigger_on")
+                if kind == "death":
+                    # Stash for synchronous fire from _cleanup_handler when
+                    # the attached creature dies.
+                    death_specs.append(spec)
+                elif kind == "enchanted_controller_upkeep":
+                    int_id = _install_upkeep_trigger(
+                        target, source, state, spec["effect_fn"],
+                    )
+                    granted_ids.append(int_id)
+                else:
+                    interceptor = grant_triggered_ability(
+                        target,
+                        source,
+                        state,
+                        event_filter=spec["event_filter"],
+                        effect_fn=spec["effect_fn"],
+                        duration=spec.get("duration", "while_on_battlefield"),
+                        one_shot=bool(spec.get("one_shot", False)),
+                    )
+                    granted_ids.append(interceptor.id)
+            if granted_ids:
+                setattr(source.state, "_granted_triggered_ability_ids", granted_ids)
+            if death_specs:
+                setattr(source.state, "_aura_death_specs", death_specs)
             return InterceptorResult(action=InterceptorAction.PASS)
 
         # UNATTACH or ZONE_CHANGE leaving battlefield: revoke.
@@ -8113,8 +8216,14 @@ def _make_attached_triggered_ability_listener(
 
 def _normalise_triggered_specs(specs: Any) -> list[dict]:
     """Coerce ``specs`` to a list of dicts. Accepts a single dict, a list
-    of dicts, or None. Filters out entries missing ``event_filter`` or
-    ``effect_fn`` so a malformed spec doesn't blow up at runtime."""
+    of dicts, or None. Validates each spec by ``trigger_on`` kind:
+
+    - default (no ``trigger_on``): requires both ``event_filter`` and
+      ``effect_fn`` to be callable.
+    - ``trigger_on="death"`` / ``"enchanted_controller_upkeep"``: requires
+      ``effect_fn``; ``event_filter`` is optional (the helper installs the
+      filter itself based on the ``trigger_on`` kind).
+    """
     if specs is None:
         return []
     if isinstance(specs, dict):
@@ -8123,7 +8232,14 @@ def _normalise_triggered_specs(specs: Any) -> list[dict]:
     for s in specs:
         if not isinstance(s, dict):
             continue
-        if not callable(s.get("event_filter")) or not callable(s.get("effect_fn")):
+        if not callable(s.get("effect_fn")):
+            continue
+        kind = s.get("trigger_on")
+        if kind in ("death", "enchanted_controller_upkeep"):
+            # event_filter not required for these kinds.
+            result.append(s)
+            continue
+        if not callable(s.get("event_filter")):
             continue
         result.append(s)
     return result

@@ -320,6 +320,14 @@ in-place — power, toughness, name, subtypes, types).
 
 24. **New SEARCH_LIBRARY payload filters (2026-05-18 — Helper 2):** `card_name_any: list[str]` and `mana_value_max: int` now compose with the existing `card_type` / `subtype` / `subtypes_any` filters. Use them for tutors named cards from a finite list ("Search for Heart Container / Bomb Bag / Hookshot / …") and for MV-capped tutors ("Equipment with mana value 3 or less"). All filters AND together. The `mana_value_max` filter uses `ManaCost.parse(cost).mana_value`; X counts as 0. The `mana_value_max` follow-up resolves the SEARCH_LIBRARY engine gap noted by Link, Hero of the Wild during the ZLD Phase A1 review.
 
+25. **Aura granted-trigger shapes (2026-05-18 — Helper 5 round 2):** `make_aura_setup(granted_triggered_abilities=...)` and `make_equipment_setup(granted_triggered_abilities=...)` accept three spec kinds, dispatched on an optional `trigger_on` key:
+    - default (no `trigger_on`) — general triggered ability on the attached creature; spec needs `event_filter(event, state, target_id)` and `effect_fn(target_obj, event, state)`.
+    - `trigger_on="death"` — "when enchanted creature dies, do X". Fires synchronously from `src/engine/attach.py::_cleanup_handler` BEFORE revocation, so the dying creature's characteristics (power, controller, subtypes) are still readable. Only needs `effect_fn`; no `event_filter`. The Aura falls off naturally after via CR 704.5n.
+    - `trigger_on="enchanted_controller_upkeep"` — "at the beginning of enchanted creature's controller's upkeep, do X". The filter re-reads `attached_to.controller` per fire so post-control-change auras still target the right player. Only needs `effect_fn`.
+    Underlying cleanup change: `_cleanup_filter` in `src/engine/attach.py` now also matches `OBJECT_DESTROYED` and `SACRIFICE` (not just `ZONE_CHANGE`) — `_handle_object_destroyed` mutates `obj.zone` directly without emitting a ZONE_CHANGE, so the pre-fix system handler was a dead letter on the death path. Now fires correctly for all leaves-battlefield mechanisms.
+
+26. **PendingChoice from death triggers (2026-05-18 — verified, no new code needed):** death triggers fire during REACT before `_cleanup_departed_interceptors` runs, so the dying creature is in graveyard but `get_power(obj, state)` / `obj.characteristics` are still intact. A death trigger's `effect_fn` can therefore call `create_target_creature_choice(state, player_id, source_id, filter_fn=..., effect_fn=...)` to open a battlefield-creature PendingChoice — the helper opens the choice, the chooser picks, and the actual effect fires on resolution. Pattern verified by DBZ SUPER_SAIYAN_AURA / PA AVATAR_DESTINY shapes (mill-equal-to-power on death).
+
 ## Testing patterns
 
 Mirror `tests/test_star_wars_spice.py` shape. The standard helper:
