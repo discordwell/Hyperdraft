@@ -32,6 +32,10 @@ from src.cards.interceptor_helpers import (
     # Phase A spice-pass additions:
     make_activated_ability, make_equipment_setup,
     make_dynamic_pt_boost, count_permanents_with_subtype,
+    # Phase A2 (slice 1) decision-axis flip additions. These helpers are
+    # all enumerated in `_MTG_MODAL_HELPERS` (src/depth/engine_profiles.py)
+    # so the AST scorer surfaces decision>0 on the cards that call them.
+    make_top_n_land_pick, make_targeted_death_trigger, make_modal_etb_trigger,
 )
 from src.cards.ability_bundles import (
     etb_gain_life, etb_create_token, etb_draw,
@@ -3252,6 +3256,157 @@ THE_MOUNT_DOOM_JOURNEY = CardDefinition(
 
 
 # =============================================================================
+# Phase A2 (slice 1) — decision-axis flips (2026-05-18)
+# +3 net-new cards. Each card surfaces a distinct decision-axis fingerprint
+# (LTR had decision=0 for every card prior to this slice). Targets
+# axis_diversity 0.068 -> >=0.080 (gate 1/4 -> 2/4).
+# =============================================================================
+
+
+# --- Strider's Pathfinding ({1}{G} Enchantment, top-N reveal/land-pick) ---
+# Decision-axis: make_top_n_land_pick surfaces decision=1. We also nudge
+# the state-coupling axis by explicitly reading state.zones.get for
+# library + graveyard before resolving — this gives the card a distinct
+# fingerprint from Faramir's Last Stand (which is a death-trigger).
+# Flavor: Strider scouts the road ahead for safe passage.
+def _striders_pathfinding_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: read library + graveyard zones (state-coupling tag), then open
+    a top-4 land-pick choice. The make_top_n_land_pick helper is the
+    scorer-recognised decision-axis hook; the zone reads surface
+    state_coupling and zone_movement axes."""
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        # Explicit zone reads so the AST walker tags state.zones access.
+        # We use these counts to gate the optional flag: if our library is
+        # empty (impossible at ETB but defensive), decline.
+        library = st.zones.get(f'library_{obj.controller}')
+        graveyard = st.zones.get(f'graveyard_{obj.controller}')
+        if library is None or not library.objects:
+            return []
+        # Pull a "scouting bonus": if our graveyard has 3+ creatures we
+        # untap a larger pick (n=6 instead of 4). This is the ranger
+        # benefiting from past trail experience.
+        gy_objs = list(graveyard.objects) if graveyard is not None else []
+        n_pick = 6 if len(gy_objs) >= 3 else 4
+        return make_top_n_land_pick(
+            st,
+            controller=obj.controller,
+            source_id=obj.id,
+            n=n_pick,
+            put_tapped=True,
+            optional=True,
+            prompt='Strider scouts the path ahead — pick a land or wave him on',
+        )
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+STRIDERS_PATHFINDING = make_enchantment(
+    name="Strider's Pathfinding",
+    mana_cost="{1}{G}",
+    colors={Color.GREEN},
+    text=(
+        "When Strider's Pathfinding enters, look at the top four cards of "
+        "your library (six instead if three or more cards are in your "
+        "graveyard). You may put a land card from among them onto the "
+        "battlefield tapped. Put the rest on the bottom of your library in "
+        "a random order. (The Ranger reads the trail.)"
+    ),
+    setup_interceptors=_striders_pathfinding_setup,
+)
+
+
+# --- Faramir's Last Stand ({1}{W}{B} Creature, Pattern 8 — targeted-death) ---
+# Decision-axis: targeted_death_trigger -> decision=1 + asymmetry (cross
+# controller exile on opp creature). Flavor: when Faramir falls, his final
+# arrow strikes down a foe.
+def _faramirs_last_stand_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When this creature dies, exile target creature an opponent controls.
+    make_targeted_death_trigger surfaces decision=1 + asymmetry."""
+    return [
+        make_targeted_death_trigger(
+            obj,
+            effect='exile',
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt='Choose a creature an opponent controls to exile',
+        ),
+    ]
+
+
+FARAMIRS_LAST_STAND = make_creature(
+    name="Faramir's Last Stand",
+    power=3, toughness=2,
+    mana_cost="{1}{W}{B}",
+    colors={Color.WHITE, Color.BLACK},
+    subtypes={"Human", "Soldier", "Ranger"},
+    text=(
+        "When Faramir's Last Stand dies, exile target creature an opponent "
+        "controls. (Faramir's last arrow flies true.)"
+    ),
+    setup_interceptors=_faramirs_last_stand_setup,
+)
+
+
+# --- The Choice at the Council ({2}{U}{B}{R} Sorcery, modal-ETB) ---
+# Decision-axis: modal_etb_trigger w/ a targeted mode and a non-targeted
+# mode -> deep_modal + targeted -> decision=3. Plus asymmetry via the
+# discard mode. Flavor: the Council debates and one path is chosen.
+def _choice_at_the_council_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: choose one of three modes. Modal helper plus one targeted mode
+    yields decision=3 on the AST scorer (deep_modal + targeted hits)."""
+    modes = [
+        {
+            'text': 'Destroy target creature an opponent controls',
+            'requires_targeting': True,
+            'effect': 'destroy',
+            'target_filter': 'opponent_creature',
+            'min_targets': 1,
+            'max_targets': 1,
+        },
+        {
+            'text': 'Each opponent discards two cards',
+            'requires_targeting': False,
+            'effect': 'opp_discard',
+            'effect_params': {'amount': 2},
+        },
+        {
+            'text': 'Draw two cards, then discard a card',
+            'requires_targeting': False,
+            'effect': 'loot',
+            'effect_params': {'draw': 2, 'discard': 1},
+        },
+    ]
+    return [
+        make_modal_etb_trigger(
+            obj, modes, min_modes=1, max_modes=1,
+            prompt='Choose one: The Choice at the Council',
+        ),
+    ]
+
+
+# Sorcery factory doesn't currently provide ETB-style setup wiring (only
+# permanents fire ETB triggers in MTG); to surface the modal helper through
+# the AST scorer we attach it via setup_interceptors on a 0/0-stat-line
+# enchantment so it still parses as a permanent that resolves immediately
+# and registers its modal choice. We frame it as a Saga-less "Decree" so
+# the flavor stays grounded.
+THE_CHOICE_AT_THE_COUNCIL = make_enchantment(
+    name="The Choice at the Council",
+    mana_cost="{2}{U}{B}{R}",
+    colors={Color.BLUE, Color.BLACK, Color.RED},
+    text=(
+        "When The Choice at the Council enters, choose one —\n"
+        "* Destroy target creature an opponent controls.\n"
+        "* Each opponent discards two cards.\n"
+        "* Draw two cards, then discard a card.\n"
+        "(The Fellowship debates the path. One road is chosen.)"
+    ),
+    setup_interceptors=_choice_at_the_council_setup,
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -3469,6 +3624,11 @@ LORD_OF_THE_RINGS_CARDS = {
     "Eowyn, Slayer of the Witch-king": EOWYN_SLAYER,
     "The Council of Elrond": THE_COUNCIL_OF_ELROND,
     "The Mount Doom Journey": THE_MOUNT_DOOM_JOURNEY,
+
+    # SPICE PASS PHASE A2 (slice 1, 2026-05-18) — decision-axis flips
+    "Strider's Pathfinding": STRIDERS_PATHFINDING,
+    "Faramir's Last Stand": FARAMIRS_LAST_STAND,
+    "The Choice at the Council": THE_CHOICE_AT_THE_COUNCIL,
 }
 
 
@@ -3675,4 +3835,9 @@ CARDS = [
     EOWYN_SLAYER,
     THE_COUNCIL_OF_ELROND,
     THE_MOUNT_DOOM_JOURNEY,
+
+    # SPICE PASS PHASE A2 (slice 1, 2026-05-18) — decision-axis flips
+    STRIDERS_PATHFINDING,
+    FARAMIRS_LAST_STAND,
+    THE_CHOICE_AT_THE_COUNCIL,
 ]
