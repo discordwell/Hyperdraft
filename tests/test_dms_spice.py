@@ -33,6 +33,7 @@ from src.engine import (
 )
 from src.engine.queries import has_ability
 from src.cards.custom.demon_slayer import DEMON_SLAYER_CARDS
+from src.cards.custom import demon_slayer as demon_slayer_module
 
 
 def _put_on_battlefield(game, player, card_name):
@@ -1333,6 +1334,817 @@ def test_mizunoto_trial_recruitment_etb_opens_discard_choice_on_opp():
     assert pc.choice_type == "discard"
     assert pc.player == p2.id, f"Discard choice should be on opp; got {pc.player}"
     print(f"  PendingChoice: {pc.choice_type}; player: {pc.player}")
+
+
+# ============================================================================
+# Slice-12 median-lift tests (2026-05-19): one assertion per buffed vanilla
+# card driving DMS median_depth 0 -> >= 2. Each test puts the card on the
+# battlefield (or invokes its resolve handler for instants/sorceries) and
+# asserts the expected SCRY/SURVEIL info event + a cross-controller effect
+# (LIFE_CHANGE / DAMAGE / MILL / DISCARD / REVEAL_HAND).
+# ============================================================================
+
+
+def _s12_etb_card(card_name):
+    """Spin up a game, put the named card under p1, return (game, p1, p2, obj)."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    return game, p1, p2, obj
+
+
+def _s12_assert_info_and_opp(game, obj, p2, *, info_type, opp_type):
+    """Assert info_type (SCRY/SURVEIL) emitted by obj + a cross-controller effect.
+    For LIFE_CHANGE we require amount < 0; for DAMAGE we require target == p2.id."""
+    new = list(game.state.event_log)
+    info_evs = [e for e in new if e.type == info_type and e.source == obj.id]
+    assert info_evs, (
+        f"Expected {info_type.name} from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+    if opp_type == EventType.LIFE_CHANGE:
+        opp_evs = [e for e in new if e.type == EventType.LIFE_CHANGE
+                   and e.payload.get('player') == p2.id
+                   and e.payload.get('amount', 0) < 0
+                   and e.source == obj.id]
+    elif opp_type == EventType.DAMAGE:
+        opp_evs = [e for e in new if e.type == EventType.DAMAGE
+                   and e.payload.get('target') == p2.id
+                   and e.source == obj.id]
+    elif opp_type in (EventType.MILL, EventType.DISCARD, EventType.REVEAL_HAND):
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.source == obj.id]
+    else:
+        opp_evs = []
+    assert opp_evs, (
+        f"Expected {opp_type.name} against p2 from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+
+
+def _s12_resolve(fn_name):
+    """Pull a resolve fn out of the demon_slayer module, prep a 2-player state, call it."""
+    fn = getattr(demon_slayer_module, fn_name)
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = fn([], game.state)
+    return events, p1, p2
+
+
+def _s12_assert_resolve_info(events, expected_info_type):
+    assert any(e.type == expected_info_type for e in events), (
+        f"Expected {expected_info_type.name} in resolve events; "
+        f"got {[e.type.name for e in events]}"
+    )
+
+
+def _s12_assert_resolve_opp(events, p2, opp_type):
+    if opp_type == EventType.LIFE_CHANGE:
+        assert any(e.type == EventType.LIFE_CHANGE
+                   and e.payload.get('player') == p2.id
+                   and e.payload.get('amount', 0) < 0 for e in events), (
+            f"Expected drain on p2 in resolve; got {[(e.type.name, e.payload) for e in events]}"
+        )
+    elif opp_type == EventType.DAMAGE:
+        assert any(e.type == EventType.DAMAGE
+                   and e.payload.get('target') == p2.id for e in events), (
+            f"Expected damage on p2 in resolve; got {[(e.type.name, e.payload) for e in events]}"
+        )
+    elif opp_type in (EventType.MILL, EventType.DISCARD, EventType.REVEAL_HAND):
+        assert any(e.type == opp_type and e.payload.get('player') == p2.id for e in events), (
+            f"Expected {opp_type.name} on p2; got {[(e.type.name, e.payload) for e in events]}"
+        )
+
+
+# --- Permanent (ETB) tests --------------------------------------------------
+
+
+def test_corps_solidarity_resolve_s12():
+    print("\n=== Slice-12: Corps Solidarity resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_corps_solidarity")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+def test_breath_of_recovery_resolve_s12():
+    print("\n=== Slice-12: Breath of Recovery resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_breath_of_recovery")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+def test_sunlight_protection_resolve_s12():
+    print("\n=== Slice-12: Sunlight Protection resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_sunlight_protection")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+def test_corps_training_resolve_s12():
+    print("\n=== Slice-12: Corps Training resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_corps_training")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+def test_recovery_at_estate_resolve_s12():
+    print("\n=== Slice-12: Recovery at the Estate resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_recovery_at_estate")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+def test_pillar_of_strength_resolve_s12():
+    print("\n=== Slice-12: Pillar of Strength resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_pillar_of_strength")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+def test_hashira_training_resolve_s12():
+    print("\n=== Slice-12: Hashira Training resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_hashira_training")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+
+
+def test_first_breath_resolve_s12():
+    print("\n=== Slice-12: First Breath resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_first_breath")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+def test_slayer_coordination_resolve_s12():
+    print("\n=== Slice-12: Slayer Coordination resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_slayer_coordination")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+def test_dawn_breaks_resolve_s12():
+    print("\n=== Slice-12: Dawn Breaks resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_dawn_breaks")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+
+
+def test_demon_slayer_strike_resolve_s12():
+    print("\n=== Slice-12: Demon Slayer's Strike resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_demon_slayer_strike")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+# --- White permanents ---
+
+
+def test_total_concentration_constant_etb_s12():
+    print("\n=== Slice-12: Total Concentration Constant ETB scry+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Total Concentration Constant")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_sworn_protector_etb_s12():
+    print("\n=== Slice-12: Sworn Protector ETB scry+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Sworn Protector")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_ubuyashiki_blessing_etb_s12():
+    print("\n=== Slice-12: Ubuyashiki Blessing ETB scry+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Ubuyashiki Blessing")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_demon_slayer_corps_banner_etb_s12():
+    print("\n=== Slice-12: Demon Slayer Corps Banner ETB scry+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Demon Slayer Corps Banner")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_wisteria_incense_etb_s12():
+    print("\n=== Slice-12: Wisteria Incense ETB scry+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Wisteria Incense")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_demon_mark_bearer_etb_s12():
+    print("\n=== Slice-12: Demon Slayer Mark Bearer ETB scry+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Demon Slayer Mark Bearer")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_corps_medic_etb_s12():
+    print("\n=== Slice-12: Corps Medic ETB scry+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Corps Medic")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_demon_hunters_vow_etb_s12():
+    print("\n=== Slice-12: Demon Hunter's Vow ETB scry+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Demon Hunter's Vow")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- Blue resolve handlers ---
+
+
+def test_water_surface_slash_resolve_s12():
+    print("\n=== Slice-12: Water Surface Slash resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_water_surface_slash")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.MILL)
+
+
+def test_water_wheel_resolve_s12():
+    print("\n=== Slice-12: Water Wheel resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_water_wheel")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.MILL)
+
+
+def test_flowing_dance_resolve_s12():
+    print("\n=== Slice-12: Flowing Dance resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_flowing_dance")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.MILL)
+
+
+def test_obscuring_clouds_resolve_s12():
+    print("\n=== Slice-12: Obscuring Clouds resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_obscuring_clouds")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.MILL)
+
+
+def test_whirlpool_technique_resolve_s12():
+    print("\n=== Slice-12: Whirlpool Technique resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_whirlpool_technique")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.MILL)
+
+
+def test_waterfall_basin_resolve_s12():
+    print("\n=== Slice-12: Waterfall Basin resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_waterfall_basin")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.MILL)
+
+
+def test_dead_calm_resolve_s12():
+    print("\n=== Slice-12: Dead Calm resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_dead_calm")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.MILL)
+
+
+def test_drop_ripple_thrust_resolve_s12():
+    print("\n=== Slice-12: Drop Ripple Thrust resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_drop_ripple_thrust")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.MILL)
+
+
+def test_splashing_water_flow_resolve_s12():
+    print("\n=== Slice-12: Splashing Water Flow resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_splashing_water_flow")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.MILL)
+
+
+def test_eleventh_form_resolve_s12():
+    print("\n=== Slice-12: Eleventh Form: Dead Calm resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_eleventh_form")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.MILL)
+
+
+def test_mist_clone_resolve_s12():
+    print("\n=== Slice-12: Mist Clone resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_mist_clone")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.MILL)
+
+
+def test_water_form_strike_resolve_s12():
+    print("\n=== Slice-12: Water Form Strike resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_water_form_strike")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.MILL)
+
+
+def test_mist_shroud_resolve_s12():
+    print("\n=== Slice-12: Mist Shroud resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_mist_shroud")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.MILL)
+
+
+def test_hashira_wisdom_resolve_s12():
+    print("\n=== Slice-12: Hashira's Wisdom resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_hashira_wisdom")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.MILL)
+
+
+# --- Blue permanents ---
+
+
+def test_mist_breathing_form_etb_s12():
+    print("\n=== Slice-12: Mist Breathing Form ETB surveil+mill ===")
+    g, p1, p2, obj = _s12_etb_card("Mist Breathing Form")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_constant_flux_etb_s12():
+    print("\n=== Slice-12: Constant Flux ETB surveil+mill ===")
+    g, p1, p2, obj = _s12_etb_card("Constant Flux")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_water_surface_etb_s12():
+    print("\n=== Slice-12: Water Surface ETB surveil+mill ===")
+    g, p1, p2, obj = _s12_etb_card("Water Surface")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_water_breathing_master_etb_s12():
+    print("\n=== Slice-12: Water Breathing Master ETB surveil+mill ===")
+    g, p1, p2, obj = _s12_etb_card("Water Breathing Master")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+# --- Black resolve handlers ---
+
+
+def test_demonic_transformation_resolve_s12():
+    print("\n=== Slice-12: Demonic Transformation resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_demonic_transformation")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.DISCARD)
+
+
+def test_blood_demon_art_destruction_resolve_s12():
+    print("\n=== Slice-12: Blood Demon Art: Destruction resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_blood_demon_art_destruction")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.DISCARD)
+
+
+def test_muzans_blood_resolve_s12():
+    print("\n=== Slice-12: Muzan's Blood resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_muzans_blood")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+def test_demon_consumption_resolve_s12():
+    print("\n=== Slice-12: Demon Consumption resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_demon_consumption")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.DISCARD)
+
+
+def test_temptation_of_eternity_resolve_s12():
+    print("\n=== Slice-12: Temptation of Eternity resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_temptation_of_eternity")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.DISCARD)
+
+
+def test_blood_demon_nightmare_resolve_s12():
+    print("\n=== Slice-12: Blood Demon Art: Nightmare resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_blood_demon_nightmare")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.DISCARD)
+
+
+def test_devour_humans_resolve_s12():
+    print("\n=== Slice-12: Devour Humans resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_devour_humans")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+def test_blood_moon_ritual_resolve_s12():
+    print("\n=== Slice-12: Blood Moon Ritual resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_blood_moon_ritual")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+def test_demon_regeneration_resolve_s12():
+    print("\n=== Slice-12: Demon Regeneration resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_demon_regeneration")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+
+
+def test_midnight_hunt_resolve_s12():
+    print("\n=== Slice-12: Midnight Hunt resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_midnight_hunt")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.DISCARD)
+
+
+# --- Black permanents ---
+
+
+def test_nightmare_blood_art_etb_s12():
+    print("\n=== Slice-12: Nightmare Blood Art ETB surveil+discard ===")
+    g, p1, p2, obj = _s12_etb_card("Nightmare Blood Art")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_endless_night_etb_s12():
+    print("\n=== Slice-12: Endless Night ETB surveil+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Endless Night")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_demon_blood_frenzy_etb_s12():
+    print("\n=== Slice-12: Demon Blood Frenzy ETB surveil+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Demon Blood Frenzy")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- Red resolve handlers ---
+
+
+def test_thunderclap_flash_resolve_s12():
+    print("\n=== Slice-12: Thunderclap and Flash resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_thunderclap_flash")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+def test_flame_unknowing_fire_resolve_s12():
+    print("\n=== Slice-12: Flame Breathing: Unknowing Fire resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_flame_unknowing_fire")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+def test_flame_rengoku_resolve_s12():
+    print("\n=== Slice-12: Flame Breathing: Rengoku resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_flame_rengoku")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+def test_sixfold_resolve_s12():
+    print("\n=== Slice-12: Sixfold resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_sixfold")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+def test_heat_of_battle_resolve_s12():
+    print("\n=== Slice-12: Heat of Battle resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_heat_of_battle")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+def test_explosive_blood_resolve_s12():
+    print("\n=== Slice-12: Explosive Blood resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_explosive_blood")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+def test_set_heart_ablaze_resolve_s12():
+    print("\n=== Slice-12: Set Your Heart Ablaze resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_set_heart_ablaze")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+def test_flaming_blade_resolve_s12():
+    print("\n=== Slice-12: Flaming Blade resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_flaming_blade")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+def test_godspeed_resolve_s12():
+    print("\n=== Slice-12: Godspeed resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_godspeed")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+def test_raging_inferno_resolve_s12():
+    print("\n=== Slice-12: Raging Inferno resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_raging_inferno")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+def test_fiery_assault_resolve_s12():
+    print("\n=== Slice-12: Fiery Assault resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_fiery_assault")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+def test_blood_art_explosion_resolve_s12():
+    print("\n=== Slice-12: Blood Art: Explosion resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_blood_art_explosion")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+# --- Red permanents ---
+
+
+def test_burning_determination_etb_s12():
+    print("\n=== Slice-12: Burning Determination ETB scry+damage ===")
+    g, p1, p2, obj = _s12_etb_card("Burning Determination")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_thunder_breathing_form_etb_s12():
+    print("\n=== Slice-12: Thunder Breathing Form ETB scry+damage ===")
+    g, p1, p2, obj = _s12_etb_card("Thunder Breathing Form")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_thunder_breathing_student_etb_s12():
+    print("\n=== Slice-12: Thunder Breathing Student ETB scry+damage ===")
+    g, p1, p2, obj = _s12_etb_card("Thunder Breathing Student")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_flame_breathing_master_etb_s12():
+    print("\n=== Slice-12: Flame Breathing Master ETB scry+damage ===")
+    g, p1, p2, obj = _s12_etb_card("Flame Breathing Master")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_flame_tigers_etb_s12():
+    print("\n=== Slice-12: Flame Tigers ETB scry+damage ===")
+    g, p1, p2, obj = _s12_etb_card("Flame Tigers")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+# --- Green resolve handlers ---
+
+
+def test_beast_breathing_fang_resolve_s12():
+    print("\n=== Slice-12: Beast Breathing: Fang resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_beast_breathing_fang")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+def test_beast_slice_resolve_s12():
+    print("\n=== Slice-12: Beast Breathing: Crazy Cutting resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_beast_slice")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+def test_devour_whole_resolve_s12():
+    print("\n=== Slice-12: Devour Whole resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_devour_whole")
+    _s12_assert_resolve_info(events, EventType.SURVEIL)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+def test_primal_fury_resolve_s12():
+    print("\n=== Slice-12: Primal Fury resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_primal_fury")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+def test_serpentine_coil_resolve_s12():
+    print("\n=== Slice-12: Serpentine Coil resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_serpentine_coil")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+def test_wisteria_bloom_resolve_s12():
+    print("\n=== Slice-12: Wisteria Bloom resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_wisteria_bloom")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+def test_nature_sense_resolve_s12():
+    print("\n=== Slice-12: Spatial Awareness resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_nature_sense")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+def test_beast_sense_resolve_s12():
+    print("\n=== Slice-12: Beast Sense resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_beast_sense")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+def test_wild_charge_resolve_s12():
+    print("\n=== Slice-12: Wild Charge resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_wild_charge")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+def test_demon_pursuit_resolve_s12():
+    print("\n=== Slice-12: Demon Pursuit resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_demon_pursuit")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.LIFE_CHANGE)
+
+
+def test_serpent_strike_resolve_s12():
+    print("\n=== Slice-12: Serpent Strike resolve ===")
+    events, p1, p2 = _s12_resolve("_dms_resolve_serpent_strike")
+    _s12_assert_resolve_info(events, EventType.SCRY)
+    _s12_assert_resolve_opp(events, p2, EventType.DAMAGE)
+
+
+# --- Green permanents ---
+
+
+def test_serpent_breathing_form_etb_s12():
+    print("\n=== Slice-12: Serpent Breathing Form ETB scry+damage ===")
+    g, p1, p2, obj = _s12_etb_card("Serpent Breathing Form")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_wild_instinct_etb_s12():
+    print("\n=== Slice-12: Wild Instinct ETB scry+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Wild Instinct")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_overgrowth_technique_etb_s12():
+    print("\n=== Slice-12: Overgrowth Technique ETB scry (gain) ===")
+    g, p1, p2, obj = _s12_etb_card("Overgrowth Technique")
+    new = list(g.state.event_log)
+    info_evs = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert info_evs, f"Expected SCRY from {obj.id}; got {[e.type.name for e in new[-15:]]}"
+
+
+def test_wisteria_guardian_etb_s12():
+    print("\n=== Slice-12: Wisteria Guardian ETB scry+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Wisteria Guardian")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- Artifact permanents (ETB) ---
+
+
+def test_wisteria_poison_etb_s12():
+    print("\n=== Slice-12: Wisteria Poison ETB surveil+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Wisteria Poison")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_kasugai_crow_etb_s12():
+    print("\n=== Slice-12: Kasugai Crow ETB scry+reveal ===")
+    g, p1, p2, obj = _s12_etb_card("Kasugai Crow")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.REVEAL_HAND)
+
+
+def test_swordsmith_tools_etb_s12():
+    print("\n=== Slice-12: Swordsmith's Tools ETB scry (gain) ===")
+    g, p1, p2, obj = _s12_etb_card("Swordsmith's Tools")
+    new = list(g.state.event_log)
+    info_evs = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert info_evs, f"Expected SCRY from {obj.id}"
+
+
+def test_muzans_blood_vial_etb_s12():
+    print("\n=== Slice-12: Muzan's Blood Vial ETB surveil+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Muzan's Blood Vial")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_demon_art_focus_etb_s12():
+    print("\n=== Slice-12: Demon Art Focus ETB surveil+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Demon Art Focus")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_corps_supply_depot_etb_s12():
+    print("\n=== Slice-12: Corps Supply Depot ETB scry (gain) ===")
+    g, p1, p2, obj = _s12_etb_card("Corps Supply Depot")
+    new = list(g.state.event_log)
+    info_evs = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert info_evs, f"Expected SCRY from {obj.id}"
+
+
+def test_training_dummy_etb_s12():
+    print("\n=== Slice-12: Training Dummy ETB scry+damage ===")
+    g, p1, p2, obj = _s12_etb_card("Training Dummy")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_healing_potion_etb_s12():
+    print("\n=== Slice-12: Healing Potion ETB scry+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Healing Potion")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_demon_compass_etb_s12():
+    print("\n=== Slice-12: Demon Compass ETB surveil+reveal ===")
+    g, p1, p2, obj = _s12_etb_card("Demon Compass")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.REVEAL_HAND)
+
+
+def test_signal_flare_etb_s12():
+    print("\n=== Slice-12: Signal Flare ETB scry+damage ===")
+    g, p1, p2, obj = _s12_etb_card("Signal Flare")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+# --- Land permanents (ETB on land) ---
+
+
+def test_butterfly_estate_land_etb_s12():
+    print("\n=== Slice-12: Butterfly Estate ETB scry (gain) ===")
+    g, p1, p2, obj = _s12_etb_card("Butterfly Estate")
+    new = list(g.state.event_log)
+    info_evs = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert info_evs, f"Expected SCRY from {obj.id}"
+
+
+def test_mt_sagiri_etb_s12():
+    print("\n=== Slice-12: Mt. Sagiri ETB scry+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Mt. Sagiri")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_infinity_castle_etb_s12():
+    print("\n=== Slice-12: Infinity Castle ETB surveil+mill ===")
+    g, p1, p2, obj = _s12_etb_card("Infinity Castle")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_flame_training_grounds_etb_s12():
+    print("\n=== Slice-12: Flame Training Grounds ETB scry+damage ===")
+    g, p1, p2, obj = _s12_etb_card("Flame Training Grounds")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_wisteria_forest_etb_s12():
+    print("\n=== Slice-12: Wisteria Forest ETB scry+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Wisteria Forest")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_swordsmith_village_etb_s12():
+    print("\n=== Slice-12: Swordsmith Village ETB scry (gain) ===")
+    g, p1, p2, obj = _s12_etb_card("Swordsmith Village")
+    new = list(g.state.event_log)
+    info_evs = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert info_evs, f"Expected SCRY from {obj.id}"
+
+
+def test_demon_slayer_hq_etb_s12():
+    print("\n=== Slice-12: Demon Slayer Headquarters ETB scry+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Demon Slayer Headquarters")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_final_selection_mt_etb_s12():
+    print("\n=== Slice-12: Final Selection Mountain ETB scry+damage ===")
+    g, p1, p2, obj = _s12_etb_card("Final Selection Mountain")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_entertainment_district_etb_s12():
+    print("\n=== Slice-12: Entertainment District ETB surveil+mill ===")
+    g, p1, p2, obj = _s12_etb_card("Entertainment District")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_mugen_train_etb_s12():
+    print("\n=== Slice-12: Mugen Train ETB surveil+drain ===")
+    g, p1, p2, obj = _s12_etb_card("Mugen Train")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_demon_lair_etb_s12():
+    print("\n=== Slice-12: Demon Lair ETB surveil+mill ===")
+    g, p1, p2, obj = _s12_etb_card("Demon Lair")
+    _s12_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_hashira_estate_etb_s12():
+    print("\n=== Slice-12: Hashira Estate ETB scry (gain) ===")
+    g, p1, p2, obj = _s12_etb_card("Hashira Estate")
+    new = list(g.state.event_log)
+    info_evs = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert info_evs, f"Expected SCRY from {obj.id}"
 
 
 # ============================================================================

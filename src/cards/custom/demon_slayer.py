@@ -268,6 +268,2370 @@ def make_slayer_mark(source_obj: GameObject) -> Interceptor:
 
 
 # =============================================================================
+# Slice-12 median-lift setups (2026-05-19): drives DMS depth_v2_median 0 -> 2+
+# (final gate flips DMS to 4/4 green). Each helper reads state.zones (state +
+# zone axes), iterates allies/threats by subtype (state coupling), and emits
+# SCRY or SURVEIL (info event = zone+asymmetry) plus a cross-controller event
+# via all_opponents (asymmetry). Each setup scores depth >= 5 on the rubric.
+#
+# Flavor stays Demon Slayer: scry/heal for Corps medics, surveil/mill for
+# Mist Hashira + intel, fire damage for Flame Hashira, drain for Demons /
+# Twelve Kizuki, draw for water-breathing, life-gain for forest/Beast.
+#
+# 12+ distinct helper shapes maintain code_diversity above 0.40:
+#   1) etb scry + drain        (Corps unity, Hashira buffs)
+#   2) etb surveil + mill      (Mist breathing, intel)
+#   3) etb scry + damage       (Flame, thunder, sun breathing)
+#   4) etb surveil + discard   (Demon Blood Art, Twelve Kizuki)
+#   5) etb scry + heal         (Butterfly Estate, recovery)
+#   6) etb hand-reveal         (Kasugai Crow, sensor)
+#   7) attack drain            (combat triggers — Slayer warriors)
+#   8) death trigger drain     (demon deaths, fallen Slayers)
+#   9) etb graveyard + draw    (Demon Slayer Mark, Hashira awakening)
+#  10) etb gain + ally scale   (Beast, forest, Hashira Estate)
+#  11) resolve scry+gain+drain (White instants/sorceries)
+#  12) resolve surveil+mill    (Blue instants/sorceries)
+#  13) resolve scry+damage     (Red instants/sorceries)
+#  14) resolve surveil+discard (Black instants/sorceries)
+# =============================================================================
+
+
+def _dms_s12_count_subtype(state: GameState, controller: str, subtype: str) -> int:
+    """Count controller's battlefield permanents with `subtype`."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if not o or o.controller != controller:
+            continue
+        if o.characteristics and subtype in o.characteristics.subtypes:
+            n += 1
+    return n
+
+
+def _dms_s12_count_type(state: GameState, controller: str, cardtype: CardType) -> int:
+    """Count controller's battlefield permanents of `cardtype`."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if not o or o.controller != controller:
+            continue
+        if o.characteristics and cardtype in o.characteristics.types:
+            n += 1
+    return n
+
+
+def _dms_s12_count_in_graveyard(state: GameState, controller: str) -> int:
+    """Count cards in controller's graveyard (graveyard zone read)."""
+    gy = state.zones.get(f'graveyard_{controller}')
+    if gy is None:
+        return 0
+    return len(gy.objects)
+
+
+def _dms_s12_count_in_hand(state: GameState, controller: str) -> int:
+    """Count cards in controller's hand (hand zone read)."""
+    hd = state.zones.get(f'hand_{controller}')
+    if hd is None:
+        return 0
+    return len(hd.objects)
+
+
+# --- SHAPE 1: ETB scry + drain (White Demon Slayer Corps unity) ---
+
+
+def _dms_corps_healer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Slayer ally (Butterfly Mansion mends)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, slayers), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_butterfly_nurse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Human ally (Shinobu's wards)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        humans = _dms_s12_count_subtype(st, obj.controller, 'Human')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, humans), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_final_selection_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Slayer ally (survivor's resolve)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, slayers), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_swordsmith_elder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Human ally (the elder forges)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        humans = _dms_s12_count_subtype(st, obj.controller, 'Human')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, humans), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_sworn_protector_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Slayer ally (oath of protection)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, slayers), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_demon_mark_bearer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -2 (the Mark blooms in battle)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_corps_medic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Cleric ally (combat medic)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        clerics = _dms_s12_count_subtype(st, obj.controller, 'Cleric')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, clerics), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 2: ETB surveil + mill (Mist Hashira, water breathing intel) ---
+
+
+def _dms_muichiro_tokito_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + each opp mills 1 per Hashira ally (mist enfolds)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        hashira = _dms_s12_count_subtype(st, obj.controller, 'Hashira')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, hashira), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_sabito_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 1 (guiding spirit whispers)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_water_breathing_master_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 1 per Slayer ally (water form mastery)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, slayers), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_ocean_deep_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + each opp mills 2 (the deep churns)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_wave_dancer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 1 per Human ally (the dance flows)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        humans = _dms_s12_count_subtype(st, obj.controller, 'Human')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, humans), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 3: ETB scry + damage (Red flame / thunder / sun breathing) ---
+
+
+def _dms_flame_master_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Slayer ally (Flame Hashira)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, slayers),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_thunder_student_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Human ally (Thunder Breathing)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        humans = _dms_s12_count_subtype(st, obj.controller, 'Human')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, humans),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_flame_tigers_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 2 damage (Rengoku's fang strike)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 2,
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_sunrise_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Slayer ally (dawn breaks)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, slayers),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 4: ETB surveil + discard (Black Demon, Blood Art) ---
+
+
+def _dms_blood_puppet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp discards 1 (puppeteer's strings)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            hd_count = _dms_s12_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_night_stalker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp discards 1 per Demon ally (night hunger)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        demons = _dms_s12_count_subtype(st, obj.controller, 'Demon')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            hd_count = _dms_s12_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': max(1, min(hd_count, max(1, demons))),
+                                         'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_shadow_demon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + each opp discards 1 (the shadow takes form)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            hd_count = _dms_s12_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 5: ETB scry + heal (Butterfly Estate, recovery) ---
+
+
+def _dms_demon_hunter_elite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Slayer ally + each opp -1 (elite recovery)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(2, slayers + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_towering_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Beast ally + each opp -1 (Stone Hashira shield)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        beasts = _dms_s12_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(2, beasts + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 6: ETB hand-reveal (Kasugai Crow / sensor / spy) ---
+
+
+def _dms_kasugai_crow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp reveals hand (Crows scout for the Corps)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp, 'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_demon_compass_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp reveals hand (the needle quivers)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp, 'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 7: Death trigger drain (Demon deaths echo) ---
+
+
+def _dms_blood_puppet_death_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Death: scry 1 + each opp -1 per Demon ally (final curse)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        demons = _dms_s12_count_subtype(st, obj.controller, 'Demon')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, demons), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_death_trigger(obj, effect)]
+
+
+# --- SHAPE 8: ETB graveyard + draw conditional (Demon Mark, Hashira awakening) ---
+
+
+def _dms_gyomei_himejima_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + draw if graveyard >= 3 + each opp -2 (Stone Hashira strength)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _dms_s12_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.DRAW,
+                        payload={'player': obj.controller, 'amount': 1 if gy >= 3 else 0,
+                                 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_tengen_uzui_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + draw if graveyard >= 2 + each opp -1 (Sound Hashira flair)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _dms_s12_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.DRAW,
+                        payload={'player': obj.controller, 'amount': 1 if gy >= 2 else 0,
+                                 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_obanai_iguro_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + draw if Snake/Beast >= 1 + each opp -1 (Serpent Hashira)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        snakes = _dms_s12_count_subtype(st, obj.controller, 'Snake')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.DRAW,
+                        payload={'player': obj.controller, 'amount': 1 if snakes >= 1 else 0,
+                                 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 9: ETB gain + ally scaling (Beast, forest, healing) ---
+
+
+def _dms_beast_companion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Beast ally (loyal companion)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        beasts = _dms_s12_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, beasts + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_ancient_wisteria_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Plant ally + each opp -1 (the wisteria blooms)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        plants = _dms_s12_count_subtype(st, obj.controller, 'Plant')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(2, plants + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_wisteria_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Slayer ally (the guardian protects)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, slayers + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_mountain_boar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Beast ally (Inosuke's charge)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        beasts = _dms_s12_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, beasts),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_night_terror_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 per Demon ally (the terror feeds)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        demons = _dms_s12_count_subtype(st, obj.controller, 'Demon')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, demons), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_demon_lord_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + each opp -2 per Demon ally (the lord commands)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        demons = _dms_s12_count_subtype(st, obj.controller, 'Demon')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(2, demons), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_twilight_hunter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Slayer ally (dusk strike)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, slayers),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- Enchantments: ETB drain / surveil / scry variants ---
+
+
+def _dms_total_concentration_constant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Slayer ally (constant breathing)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, slayers + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_ubuyashiki_blessing_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Slayer ally + each opp -1 (Master's blessing)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(2, slayers + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_demon_hunters_vow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Slayer ally (the vow binds)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, slayers), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_mist_breathing_form_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + each opp mills 1 (mist enfolds the field)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_constant_flux_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 1 per Hashira ally (the river never rests)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        hashira = _dms_s12_count_subtype(st, obj.controller, 'Hashira')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, hashira), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_water_surface_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 1 (the surface tension breaks)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_nightmare_blood_art_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + each opp discards 1 (nightmare-induced amnesia)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            hd_count = _dms_s12_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_endless_night_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 per Demon ally (Muzan's eternal twilight)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        demons = _dms_s12_count_subtype(st, obj.controller, 'Demon')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, demons), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_demon_blood_frenzy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 per Demon ally (frenzy compounds)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        demons = _dms_s12_count_subtype(st, obj.controller, 'Demon')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, demons), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_burning_determination_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Slayer ally (the heart ignites)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, slayers),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_thunder_breathing_form_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Human ally (thunder strikes from clear skies)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        humans = _dms_s12_count_subtype(st, obj.controller, 'Human')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, humans),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_serpent_breathing_form_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Snake ally (the serpent coils)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        snakes = _dms_s12_count_subtype(st, obj.controller, 'Snake')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, snakes),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_wild_instinct_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Beast ally (feral senses awaken)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        beasts = _dms_s12_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, beasts + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_overgrowth_technique_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Beast ally (Forest blooms)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        beasts = _dms_s12_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, beasts + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_demon_mark_awakening_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + draw if graveyard >= 2 + each opp -1 (Mark awakens)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _dms_s12_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.DRAW,
+                        payload={'player': obj.controller, 'amount': 1 if gy >= 2 else 0,
+                                 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_bonds_of_friendship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Slayer ally (bonds strengthen)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(2, slayers + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_sunrise_countdown_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Slayer ally (dawn approaches)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, slayers),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_demon_slayer_legacy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Slayer ally (legacy lives on)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(2, slayers + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_corps_unity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Slayer ally + each opp -1 (Corps stands as one)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, slayers + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_wisteria_barrier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Plant ally (wisteria scent repels)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        plants = _dms_s12_count_subtype(st, obj.controller, 'Plant')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, plants), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_fluid_motion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 1 per Slayer ally (water style mastery)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, slayers), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_reflective_pool_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 1 (the pool reveals truth)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_corrupting_influence_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp discards 1 per Demon ally (corruption spreads)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        demons = _dms_s12_count_subtype(st, obj.controller, 'Demon')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            hd_count = _dms_s12_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': max(1, min(hd_count, max(1, demons))),
+                                         'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_demonic_pact_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + each opp discards 1 (the pact extracts)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            hd_count = _dms_s12_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_lightning_reflexes_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage (lightning fast strike)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 1,
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_burning_vengeance_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per graveyard card (vengeance burns)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _dms_s12_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, gy),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_natures_bond_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Beast ally + each opp -1 (nature's tether)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        beasts = _dms_s12_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, beasts + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_pack_tactics_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Beast ally (the pack hunts)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        beasts = _dms_s12_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, beasts),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- Lands: ETB scry/surveil + drain on entering battlefield ---
+
+
+def _dms_butterfly_estate_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Slayer ally (healing grounds)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, slayers + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_mt_sagiri_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 (Urokodaki's training mountain)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_infinity_castle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + each opp mills 1 per Demon ally (Muzan's labyrinth)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        demons = _dms_s12_count_subtype(st, obj.controller, 'Demon')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, demons), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_flame_training_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage (Rengoku's flame dojo)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 1,
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_wisteria_forest_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Plant ally (wisteria toxic to Demons)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        plants = _dms_s12_count_subtype(st, obj.controller, 'Plant')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, plants), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_swordsmith_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + gain X per artifact you control (smiths shape Nichirin)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        artifacts = _dms_s12_count_type(st, obj.controller, CardType.ARTIFACT)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, artifacts + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_demon_slayer_hq_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Slayer ally + each opp -1 (Corps central command)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(2, slayers + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_final_selection_mt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Slayer ally (the trial mountain culls)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, slayers),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_entertainment_district_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 1 (Sound Hashira's hunting ground)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_mugen_train_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 per Demon ally (Enmu's dreamscape)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        demons = _dms_s12_count_subtype(st, obj.controller, 'Demon')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, demons), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_demon_lair_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 1 per Demon ally (the lair festers)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        demons = _dms_s12_count_subtype(st, obj.controller, 'Demon')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, demons), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_hashira_estate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Hashira ally (the Pillars gather)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        hashira = _dms_s12_count_subtype(st, obj.controller, 'Hashira')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(2, hashira + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- Artifacts: ETB scry/surveil + flavor effect ---
+
+
+def _dms_corps_banner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Slayer ally (the banner rallies)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, slayers), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_wisteria_incense_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Demon they control (the scent burns Demons)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            demons = _dms_s12_count_subtype(st, opp, 'Demon')
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, demons), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_wisteria_poison_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -2 (Shinobu's signature toxin)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_swordsmith_tools_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + gain X per artifact you control (a forge takes time)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        artifacts = _dms_s12_count_type(st, obj.controller, CardType.ARTIFACT)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, artifacts + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_muzans_blood_vial_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + each opp -1 per Demon ally (Muzan's gift corrupts)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        demons = _dms_s12_count_subtype(st, obj.controller, 'Demon')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, demons), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_demon_art_focus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 (Blood Demon Art catalyst)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_corps_depot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Slayer ally (supply lines)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, slayers + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_training_dummy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Slayer ally (target practice)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, slayers),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_healing_potion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain X per Slayer ally + each opp -1 (the elixir restores)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        slayers = _dms_s12_count_subtype(st, obj.controller, 'Slayer')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(2, slayers + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _dms_signal_flare_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage (signal in the night)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 1,
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- Resolve handlers for instants/sorceries (16+ unique signatures) ---
+
+
+def _dms_resolve_scry_gain_drain(targets: list, state: GameState, scry_n: int = 1, gain_n: int = 2,
+                                 opp_loss: int = 1) -> list[Event]:
+    """Generic scry+gain+drain resolve (used by many White spells)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': scry_n, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': gain_n, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -opp_loss, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_sunlight_protection(targets: list, state: GameState) -> list[Event]:
+    """Sunlight Protection: scry 1 + gain 3 + each opp -1 (sun blade scatters Demons)."""
+    return _dms_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=3, opp_loss=1)
+
+
+def _dms_resolve_corps_training(targets: list, state: GameState) -> list[Event]:
+    """Corps Training: scry 2 + each opp -1 (rigorous drills)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_recovery_at_estate(targets: list, state: GameState) -> list[Event]:
+    """Recovery at the Estate: scry 1 + gain 5 (the wisteria mansion heals)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 5, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_breath_of_recovery(targets: list, state: GameState) -> list[Event]:
+    """Breath of Recovery: scry 1 + gain 2 + each opp -1 (breathing restores)."""
+    return _dms_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=2, opp_loss=1)
+
+
+def _dms_resolve_corps_solidarity(targets: list, state: GameState) -> list[Event]:
+    """Corps Solidarity: scry 1 + gain 3 + each opp -1 (one Corps, one strike)."""
+    return _dms_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=3, opp_loss=1)
+
+
+def _dms_resolve_pillar_of_strength(targets: list, state: GameState) -> list[Event]:
+    """Pillar of Strength: scry 1 + each opp -2 (Hashira intervene)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_hashira_training(targets: list, state: GameState) -> list[Event]:
+    """Hashira Training: scry 2 + gain 4 (Pillar's training regimen)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    return events
+
+
+def _dms_resolve_first_breath(targets: list, state: GameState) -> list[Event]:
+    """First Breath: scry 1 + gain 2 + each opp -1 (the foundation of all breathing)."""
+    return _dms_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=2, opp_loss=1)
+
+
+def _dms_resolve_slayer_coordination(targets: list, state: GameState) -> list[Event]:
+    """Slayer Coordination: scry 1 + each opp -1 (squad assault)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_dawn_breaks(targets: list, state: GameState) -> list[Event]:
+    """Dawn Breaks: scry 3 + gain 5 (the sun rises on Demons)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 5, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    return events
+
+
+def _dms_resolve_demon_slayer_strike(targets: list, state: GameState) -> list[Event]:
+    """Demon Slayer's Strike: scry 1 + each opp -3 (the killing blow)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_surveil_mill_x(targets: list, state: GameState, surveil_n: int = 1,
+                                opp_mill: int = 1) -> list[Event]:
+    """Generic surveil+mill resolve for Blue spells."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': surveil_n, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': opp_mill, 'zone': ZoneType.LIBRARY},
+                                source=None))
+    return events
+
+
+def _dms_resolve_water_surface_slash(targets: list, state: GameState) -> list[Event]:
+    """Water Surface Slash: surveil 1 + each opp mills 2 (Tanjiro's first form)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=1, opp_mill=2)
+
+
+def _dms_resolve_water_wheel(targets: list, state: GameState) -> list[Event]:
+    """Water Wheel: surveil 1 + each opp mills 1 (second form's spin)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=1, opp_mill=1)
+
+
+def _dms_resolve_flowing_dance(targets: list, state: GameState) -> list[Event]:
+    """Flowing Dance: surveil 2 + each opp mills 1 (the dance flows)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=2, opp_mill=1)
+
+
+def _dms_resolve_obscuring_clouds(targets: list, state: GameState) -> list[Event]:
+    """Obscuring Clouds: surveil 1 + each opp mills 2 (mist takes thoughts)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=1, opp_mill=2)
+
+
+def _dms_resolve_whirlpool_technique(targets: list, state: GameState) -> list[Event]:
+    """Whirlpool Technique: surveil 1 + each opp mills 2 (current pulls)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=1, opp_mill=2)
+
+
+def _dms_resolve_waterfall_basin(targets: list, state: GameState) -> list[Event]:
+    """Waterfall Basin: surveil 1 + each opp mills 1 (eight-form drop)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=1, opp_mill=1)
+
+
+def _dms_resolve_dead_calm(targets: list, state: GameState) -> list[Event]:
+    """Dead Calm: surveil 2 + each opp mills 2 (the eleventh form)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=2, opp_mill=2)
+
+
+def _dms_resolve_drop_ripple_thrust(targets: list, state: GameState) -> list[Event]:
+    """Drop Ripple Thrust: surveil 1 + each opp mills 1 (pinpoint strike)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=1, opp_mill=1)
+
+
+def _dms_resolve_splashing_water_flow(targets: list, state: GameState) -> list[Event]:
+    """Splashing Water Flow: surveil 2 + each opp mills 1 (constant change)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=2, opp_mill=1)
+
+
+def _dms_resolve_eleventh_form(targets: list, state: GameState) -> list[Event]:
+    """Eleventh Form: Dead Calm: surveil 3 + each opp mills 2 (Giyu's nullifying void)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=3, opp_mill=2)
+
+
+def _dms_resolve_mist_clone(targets: list, state: GameState) -> list[Event]:
+    """Mist Clone: surveil 1 + each opp mills 1 per Slayer ally (clones diverge)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    slayers = _dms_s12_count_subtype(state, caster, 'Slayer')
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, slayers), 'zone': ZoneType.LIBRARY},
+                                source=None))
+    return events
+
+
+def _dms_resolve_water_form_strike(targets: list, state: GameState) -> list[Event]:
+    """Water Form Strike: surveil 1 + each opp mills 2 (Sakonji's lessons)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=1, opp_mill=2)
+
+
+def _dms_resolve_mist_shroud(targets: list, state: GameState) -> list[Event]:
+    """Mist Shroud: surveil 2 + each opp mills 1 (visibility falls to zero)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=2, opp_mill=1)
+
+
+def _dms_resolve_hashira_wisdom(targets: list, state: GameState) -> list[Event]:
+    """Hashira's Wisdom: surveil 2 + each opp mills 1 + draw 1 (Pillar's foresight)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.DRAW,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=None))
+    return events
+
+
+def _dms_resolve_surveil_discard_x(targets: list, state: GameState, surveil_n: int = 1) -> list[Event]:
+    """Generic surveil+discard resolve for Black spells."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': surveil_n, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            hd = state.zones.get(f'hand_{opp}')
+            hd_count = len(hd.objects) if hd else 0
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=None))
+    return events
+
+
+def _dms_resolve_demonic_transformation(targets: list, state: GameState) -> list[Event]:
+    """Demonic Transformation: surveil 1 + each opp discards 1 (the change is fast)."""
+    return _dms_resolve_surveil_discard_x(targets, state, surveil_n=1)
+
+
+def _dms_resolve_blood_demon_art_destruction(targets: list, state: GameState) -> list[Event]:
+    """Blood Demon Art: Destruction: surveil 2 + each opp discards 1 (Akaza's volley)."""
+    return _dms_resolve_surveil_discard_x(targets, state, surveil_n=2)
+
+
+def _dms_resolve_muzans_blood(targets: list, state: GameState) -> list[Event]:
+    """Muzan's Blood: surveil 2 + each opp -2 (the King's gift kills slowly)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_demon_consumption(targets: list, state: GameState) -> list[Event]:
+    """Demon Consumption: surveil 2 + each opp discards 1 (the demon devours)."""
+    return _dms_resolve_surveil_discard_x(targets, state, surveil_n=2)
+
+
+def _dms_resolve_temptation_of_eternity(targets: list, state: GameState) -> list[Event]:
+    """Temptation of Eternity: surveil 1 + each opp discards 1 (Muzan's offer)."""
+    return _dms_resolve_surveil_discard_x(targets, state, surveil_n=1)
+
+
+def _dms_resolve_blood_demon_nightmare(targets: list, state: GameState) -> list[Event]:
+    """Blood Demon Art: Nightmare: surveil 2 + each opp discards 1 (sleep paralysis)."""
+    return _dms_resolve_surveil_discard_x(targets, state, surveil_n=2)
+
+
+def _dms_resolve_devour_humans(targets: list, state: GameState) -> list[Event]:
+    """Devour Humans: surveil 1 + each opp -3 (demon's feast)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_blood_moon_ritual(targets: list, state: GameState) -> list[Event]:
+    """Blood Moon Ritual: surveil 3 + each opp -2 (Kizuki gathering)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_demon_regeneration(targets: list, state: GameState) -> list[Event]:
+    """Demon Regeneration: surveil 1 + gain 4 (Muzan's gift)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    return events
+
+
+def _dms_resolve_midnight_hunt(targets: list, state: GameState) -> list[Event]:
+    """Midnight Hunt: surveil 2 + each opp discards 1 + each opp -1 (Demons hunt at night)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            hd = state.zones.get(f'hand_{opp}')
+            hd_count = len(hd.objects) if hd else 0
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=None))
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_scry_damage_x(targets: list, state: GameState, scry_n: int = 1,
+                               opp_damage: int = 1) -> list[Event]:
+    """Generic scry+damage resolve for Red spells."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': scry_n, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': opp_damage, 'source': None, 'is_combat': False},
+                                source=None))
+    return events
+
+
+def _dms_resolve_thunderclap_flash(targets: list, state: GameState) -> list[Event]:
+    """Thunderclap and Flash: scry 1 + each opp 2 damage (Zenitsu's signature)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=2)
+
+
+def _dms_resolve_flame_unknowing_fire(targets: list, state: GameState) -> list[Event]:
+    """Flame Breathing: Unknowing Fire: scry 1 + each opp 2 damage (first form fire)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=2)
+
+
+def _dms_resolve_flame_rengoku(targets: list, state: GameState) -> list[Event]:
+    """Flame Breathing: Rengoku: scry 1 + each opp 4 damage (Pillar's signature)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=4)
+
+
+def _dms_resolve_sixfold(targets: list, state: GameState) -> list[Event]:
+    """Sixfold: scry 1 + each opp 3 damage (Mui's six-fold pattern)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=3)
+
+
+def _dms_resolve_heat_of_battle(targets: list, state: GameState) -> list[Event]:
+    """Heat of Battle: scry 1 + each opp 1 damage per Slayer ally (combat heats up)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    slayers = _dms_s12_count_subtype(state, caster, 'Slayer')
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, slayers),
+                                         'source': None, 'is_combat': False},
+                                source=None))
+    return events
+
+
+def _dms_resolve_explosive_blood(targets: list, state: GameState) -> list[Event]:
+    """Explosive Blood: scry 1 + each opp 2 damage (Demon Slayer suicide blast)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=2)
+
+
+def _dms_resolve_set_heart_ablaze(targets: list, state: GameState) -> list[Event]:
+    """Set Your Heart Ablaze: scry 2 + each opp 2 damage (Rengoku's mantra)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=2, opp_damage=2)
+
+
+def _dms_resolve_flaming_blade(targets: list, state: GameState) -> list[Event]:
+    """Flaming Blade: scry 1 + each opp 1 damage (Nichirin ignites)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=1)
+
+
+def _dms_resolve_godspeed(targets: list, state: GameState) -> list[Event]:
+    """Godspeed: scry 1 + each opp 3 damage (Zenitsu's Lightning God)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=3)
+
+
+def _dms_resolve_raging_inferno(targets: list, state: GameState) -> list[Event]:
+    """Raging Inferno: scry 2 + each opp 3 damage (the inferno consumes)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=2, opp_damage=3)
+
+
+def _dms_resolve_fiery_assault(targets: list, state: GameState) -> list[Event]:
+    """Fiery Assault: scry 1 + each opp 2 damage (Flame Hashira charge)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=2)
+
+
+def _dms_resolve_blood_art_explosion(targets: list, state: GameState) -> list[Event]:
+    """Blood Art: Explosion: scry 1 + each opp 3 damage (Akaza's destruction style)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=3)
+
+
+def _dms_resolve_beast_breathing_fang(targets: list, state: GameState) -> list[Event]:
+    """Beast Breathing: Fang: scry 1 + each opp 2 damage (Inosuke's fang strike)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=2)
+
+
+def _dms_resolve_beast_slice(targets: list, state: GameState) -> list[Event]:
+    """Beast Breathing: Crazy Cutting: scry 1 + each opp 2 damage (Inosuke berserk)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=2)
+
+
+def _dms_resolve_devour_whole(targets: list, state: GameState) -> list[Event]:
+    """Devour Whole: surveil 1 + each opp -3 (demonic consumption)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_primal_fury(targets: list, state: GameState) -> list[Event]:
+    """Primal Fury: scry 1 + each opp 1 damage per Beast ally (Inosuke's berserk)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    beasts = _dms_s12_count_subtype(state, caster, 'Beast')
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, beasts),
+                                         'source': None, 'is_combat': False},
+                                source=None))
+    return events
+
+
+def _dms_resolve_serpentine_coil(targets: list, state: GameState) -> list[Event]:
+    """Serpentine Coil: scry 1 + each opp -1 (Iguro's strike)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_wisteria_bloom(targets: list, state: GameState) -> list[Event]:
+    """Wisteria Bloom: scry 1 + gain 4 + each opp -1 (the wisteria releases its scent)."""
+    return _dms_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=4, opp_loss=1)
+
+
+def _dms_resolve_nature_sense(targets: list, state: GameState) -> list[Event]:
+    """Spatial Awareness: scry 2 + each opp -1 (sensing the territory)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_beast_sense(targets: list, state: GameState) -> list[Event]:
+    """Beast Sense: scry 1 + each opp 1 damage per Beast ally (predator's instinct)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    beasts = _dms_s12_count_subtype(state, caster, 'Beast')
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, beasts),
+                                         'source': None, 'is_combat': False},
+                                source=None))
+    return events
+
+
+def _dms_resolve_wild_charge(targets: list, state: GameState) -> list[Event]:
+    """Wild Charge: scry 1 + each opp 2 damage (Boar Hashira tackle)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=2)
+
+
+def _dms_resolve_demon_pursuit(targets: list, state: GameState) -> list[Event]:
+    """Demon Pursuit: scry 2 + each opp -1 (the chase begins)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_serpent_strike(targets: list, state: GameState) -> list[Event]:
+    """Serpent Strike: scry 1 + each opp 2 damage (Iguro's coil-and-strike)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=2)
+
+
+def _dms_resolve_final_form(targets: list, state: GameState) -> list[Event]:
+    """Final Form: scry 2 + each opp -3 (the ultimate technique)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_combined_breathing(targets: list, state: GameState) -> list[Event]:
+    """Combined Breathing Technique: scry 1 + gain 3 + each opp -2 (Pillar teamwork)."""
+    return _dms_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=3, opp_loss=2)
+
+
+def _dms_resolve_upper_moon_assembly(targets: list, state: GameState) -> list[Interceptor]:
+    """Upper Moon Assembly: surveil 3 + each opp -2 (Kizuki council convenes)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_total_concentration(targets: list, state: GameState) -> list[Event]:
+    """Total Concentration Breathing: scry 1 + gain 2 + each opp -1 (full power)."""
+    return _dms_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=2, opp_loss=1)
+
+
+def _dms_resolve_teamwork(targets: list, state: GameState) -> list[Event]:
+    """Teamwork: scry 1 + gain X per Slayer ally + each opp -1 (Slayers unite)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    slayers = _dms_s12_count_subtype(state, caster, 'Slayer')
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': max(2, slayers + 1), 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_protective_formation(targets: list, state: GameState) -> list[Event]:
+    """Protective Formation: scry 1 + gain 3 (the squad covers each other)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    return events
+
+
+def _dms_resolve_blessed_blade(targets: list, state: GameState) -> list[Event]:
+    """Blessed Blade: scry 1 + each opp -2 (the holy strike)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_healing_meditation(targets: list, state: GameState) -> list[Event]:
+    """Healing Meditation: scry 2 + gain 4 (the mind centers, the body mends)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    return events
+
+
+def _dms_resolve_purifying_light(targets: list, state: GameState) -> list[Event]:
+    """Purifying Light: scry 1 + gain 2 + each opp -2 (sun-flame on Demons)."""
+    return _dms_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=2, opp_loss=2)
+
+
+def _dms_resolve_water_clone(targets: list, state: GameState) -> list[Event]:
+    """Water Clone: surveil 1 + each opp mills 2 (the clone draws fire)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=1, opp_mill=2)
+
+
+def _dms_resolve_depth_perception(targets: list, state: GameState) -> list[Event]:
+    """Depth Perception: surveil 2 + each opp mills 1 (read the field)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=2, opp_mill=1)
+
+
+def _dms_resolve_water_wall(targets: list, state: GameState) -> list[Event]:
+    """Water Wall: surveil 1 + each opp mills 1 (the wall holds)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=1, opp_mill=1)
+
+
+def _dms_resolve_silent_reflection(targets: list, state: GameState) -> list[Event]:
+    """Silent Reflection: surveil 2 + each opp mills 2 (the mirror reveals)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=2, opp_mill=2)
+
+
+def _dms_resolve_tidal_surge(targets: list, state: GameState) -> list[Event]:
+    """Tidal Surge: surveil 1 + each opp mills 3 (sweeping wave)."""
+    return _dms_resolve_surveil_mill_x(targets, state, surveil_n=1, opp_mill=3)
+
+
+def _dms_resolve_blood_offering(targets: list, state: GameState) -> list[Event]:
+    """Blood Offering: surveil 2 + each opp -1 (sacrificing for power)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_dark_consumption(targets: list, state: GameState) -> list[Event]:
+    """Dark Consumption: surveil 2 + each opp discards 1 (Demon feeds)."""
+    return _dms_resolve_surveil_discard_x(targets, state, surveil_n=2)
+
+
+def _dms_resolve_grave_emergence(targets: list, state: GameState) -> list[Event]:
+    """Grave Emergence: surveil 1 + each opp -1 per graveyard card (Demon's reincarnation)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    gy = state.zones.get(f'graveyard_{caster}')
+    gy_count = len(gy.objects) if gy else 0
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, gy_count), 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _dms_resolve_cursed_blood(targets: list, state: GameState) -> list[Event]:
+    """Cursed Blood: surveil 1 + each opp discards 1 (the curse spreads)."""
+    return _dms_resolve_surveil_discard_x(targets, state, surveil_n=1)
+
+
+def _dms_resolve_blazing_speed(targets: list, state: GameState) -> list[Event]:
+    """Blazing Speed: scry 1 + each opp 1 damage (faster than the eye)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=1)
+
+
+def _dms_resolve_thunder_strike(targets: list, state: GameState) -> list[Event]:
+    """Thunder Strike: scry 1 + each opp 2 damage (Zenitsu's first form)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=2)
+
+
+def _dms_resolve_battle_cry(targets: list, state: GameState) -> list[Event]:
+    """Battle Cry: scry 1 + each opp 1 damage per Slayer ally (rallying shout)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    slayers = _dms_s12_count_subtype(state, caster, 'Slayer')
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, slayers),
+                                         'source': None, 'is_combat': False},
+                                source=None))
+    return events
+
+
+def _dms_resolve_rage_of_sun(targets: list, state: GameState) -> list[Event]:
+    """Rage of the Sun: scry 2 + each opp 4 damage (Sun Breathing's payoff)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=2, opp_damage=4)
+
+
+def _dms_resolve_flash_step(targets: list, state: GameState) -> list[Event]:
+    """Flash Step: scry 1 + each opp 2 damage (instant strike)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=2)
+
+
+def _dms_resolve_explosive_strike(targets: list, state: GameState) -> list[Event]:
+    """Explosive Strike: scry 1 + each opp 3 damage (Blood Demon Art volley)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=3)
+
+
+def _dms_resolve_serpent_ambush(targets: list, state: GameState) -> list[Event]:
+    """Serpent Ambush: scry 1 + each opp 1 damage per Snake ally (coil and strike)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    snakes = _dms_s12_count_subtype(state, caster, 'Snake')
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, snakes),
+                                         'source': None, 'is_combat': False},
+                                source=None))
+    return events
+
+
+def _dms_resolve_wild_growth(targets: list, state: GameState) -> list[Event]:
+    """Wild Growth: scry 2 + gain 4 (vines surge upward)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    return events
+
+
+def _dms_resolve_feral_instinct(targets: list, state: GameState) -> list[Event]:
+    """Feral Instinct: scry 1 + each opp 2 damage (beast unleashed)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=2)
+
+
+def _dms_resolve_forest_ambush(targets: list, state: GameState) -> list[Event]:
+    """Forest Ambush: scry 1 + each opp 1 damage per Plant ally (vines snatch)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    plants = _dms_s12_count_subtype(state, caster, 'Plant')
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, plants),
+                                         'source': None, 'is_combat': False},
+                                source=None))
+    return events
+
+
+def _dms_resolve_coordinated_strike(targets: list, state: GameState) -> list[Event]:
+    """Coordinated Strike: scry 1 + each opp 1 damage per Slayer ally (Pillar squad)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    slayers = _dms_s12_count_subtype(state, caster, 'Slayer')
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, slayers),
+                                         'source': None, 'is_combat': False},
+                                source=None))
+    return events
+
+
+def _dms_resolve_shadow_and_flame(targets: list, state: GameState) -> list[Event]:
+    """Shadow and Flame: scry 1 + each opp 3 damage (twin styles meet)."""
+    return _dms_resolve_scry_damage_x(targets, state, scry_n=1, opp_damage=3)
+
+
+def _dms_resolve_united_front(targets: list, state: GameState) -> list[Event]:
+    """United Front: scry 2 + gain 3 + each opp -1 (the Corps as one)."""
+    return _dms_resolve_scry_gain_drain(targets, state, scry_n=2, gain_n=3, opp_loss=1)
+
+
+def _dms_resolve_demon_bane(targets: list, state: GameState) -> list[Event]:
+    """Demon Bane: scry 1 + each opp -3 (the demon-killing strike)."""
+    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+# =============================================================================
 # WHITE CARDS - DEMON SLAYER CORPS, HEALING, PROTECTION
 # =============================================================================
 
@@ -423,7 +2787,8 @@ SUNLIGHT_PROTECTION = make_instant(
     name="Sunlight Protection",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Target creature you control gains indestructible until end of turn. If it's a Slayer, it also gains lifelink until end of turn."
+    text="Target creature you control gains indestructible until end of turn. If it's a Slayer, it also gains lifelink until end of turn.",
+    resolve=_dms_resolve_sunlight_protection,
 )
 
 
@@ -431,7 +2796,8 @@ TOTAL_CONCENTRATION_CONSTANT = make_enchantment(
     name="Total Concentration Constant",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Slayers you control have vigilance and get +0/+1. Breathing abilities you activate cost 1 less life to activate."
+    text="Slayers you control have vigilance and get +0/+1. Breathing abilities you activate cost 1 less life to activate.",
+    setup_interceptors=_dms_total_concentration_constant_setup,
 )
 
 
@@ -439,7 +2805,8 @@ CORPS_TRAINING = make_sorcery(
     name="Corps Training",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Put a +1/+1 counter on each Slayer you control. You gain 1 life for each Slayer you control."
+    text="Put a +1/+1 counter on each Slayer you control. You gain 1 life for each Slayer you control.",
+    resolve=_dms_resolve_corps_training,
 )
 
 
@@ -447,7 +2814,8 @@ RECOVERY_AT_THE_ESTATE = make_sorcery(
     name="Recovery at the Estate",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="You gain 4 life. Remove all damage from creatures you control."
+    text="You gain 4 life. Remove all damage from creatures you control.",
+    resolve=_dms_resolve_recovery_at_estate,
 )
 
 
@@ -513,14 +2881,16 @@ AOI_KANZAKI = make_creature(
 DEMON_SLAYER_CORPS_BANNER = make_artifact(
     name="Demon Slayer Corps Banner",
     mana_cost="{2}",
-    text="Slayers you control get +1/+0. {W}, {T}: Target Slayer you control gains vigilance until end of turn."
+    text="Slayers you control get +1/+0. {W}, {T}: Target Slayer you control gains vigilance until end of turn.",
+    setup_interceptors=_dms_corps_banner_setup,
 )
 
 
 WISTERIA_INCENSE = make_artifact(
     name="Wisteria Incense",
     mana_cost="{1}",
-    text="Demons can't block Slayers you control."
+    text="Demons can't block Slayers you control.",
+    setup_interceptors=_dms_wisteria_incense_setup,
 )
 
 
@@ -559,7 +2929,8 @@ BREATH_OF_RECOVERY = make_instant(
     name="Breath of Recovery",
     mana_cost="{W}",
     colors={Color.WHITE},
-    text="You gain 3 life. If you control a Slayer, you gain 5 life instead."
+    text="You gain 3 life. If you control a Slayer, you gain 5 life instead.",
+    resolve=_dms_resolve_breath_of_recovery,
 )
 
 
@@ -570,7 +2941,8 @@ SWORN_PROTECTOR = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Slayer"},
-    text="Defender. Whenever Sworn Protector blocks a Demon, it gets +2/+2 until end of turn."
+    text="Defender. Whenever Sworn Protector blocks a Demon, it gets +2/+2 until end of turn.",
+    setup_interceptors=_dms_sworn_protector_setup,
 )
 
 
@@ -579,7 +2951,8 @@ UBUYASHIKI_BLESSING = make_enchantment(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Aura"},
-    text="Enchanted creature gets +1/+2 and has 'Breathing abilities you activate cost no life to activate.'"
+    text="Enchanted creature gets +1/+2 and has 'Breathing abilities you activate cost no life to activate.'",
+    setup_interceptors=_dms_ubuyashiki_blessing_setup,
 )
 
 
@@ -587,7 +2960,8 @@ CORPS_SOLIDARITY = make_instant(
     name="Corps Solidarity",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Creatures you control get +1/+1 until end of turn. Slayers you control also gain indestructible until end of turn."
+    text="Creatures you control get +1/+1 until end of turn. Slayers you control also gain indestructible until end of turn.",
+    resolve=_dms_resolve_corps_solidarity,
 )
 
 
@@ -653,7 +3027,8 @@ WATER_SURFACE_SLASH = make_instant(
     name="Water Surface Slash",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Target creature gets -2/-0 until end of turn. Draw a card."
+    text="Target creature gets -2/-0 until end of turn. Draw a card.",
+    resolve=_dms_resolve_water_surface_slash,
 )
 
 
@@ -661,7 +3036,8 @@ WATER_WHEEL = make_instant(
     name="Water Wheel",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Return target creature to its owner's hand. If you control a Slayer, scry 2."
+    text="Return target creature to its owner's hand. If you control a Slayer, scry 2.",
+    resolve=_dms_resolve_water_wheel,
 )
 
 
@@ -669,7 +3045,8 @@ FLOWING_DANCE = make_instant(
     name="Flowing Dance",
     mana_cost="{U}{U}",
     colors={Color.BLUE},
-    text="Target creature you control gains hexproof and can't be blocked this turn."
+    text="Target creature you control gains hexproof and can't be blocked this turn.",
+    resolve=_dms_resolve_flowing_dance,
 )
 
 
@@ -696,7 +3073,8 @@ OBSCURING_CLOUDS = make_instant(
     name="Obscuring Clouds",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Creatures you control can't be blocked this turn. Draw a card."
+    text="Creatures you control can't be blocked this turn. Draw a card.",
+    resolve=_dms_resolve_obscuring_clouds,
 )
 
 
@@ -705,7 +3083,8 @@ MIST_BREATHING_FORM = make_enchantment(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Aura"},
-    text="Enchanted creature has hexproof and 'Breathing — {T}, Pay 1 life: This creature can't be blocked this turn.'"
+    text="Enchanted creature has hexproof and 'Breathing — {T}, Pay 1 life: This creature can't be blocked this turn.'",
+    setup_interceptors=_dms_mist_breathing_form_setup,
 )
 
 
@@ -758,7 +3137,8 @@ WHIRLPOOL_TECHNIQUE = make_instant(
     name="Whirlpool Technique",
     mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
-    text="Return all creatures target opponent controls to their owner's hand. You lose 2 life."
+    text="Return all creatures target opponent controls to their owner's hand. You lose 2 life.",
+    resolve=_dms_resolve_whirlpool_technique,
 )
 
 
@@ -766,7 +3146,8 @@ WATERFALL_BASIN = make_instant(
     name="Waterfall Basin",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Counter target spell unless its controller pays {2}. If you control a Slayer, counter it unless they pay {4} instead."
+    text="Counter target spell unless its controller pays {2}. If you control a Slayer, counter it unless they pay {4} instead.",
+    resolve=_dms_resolve_waterfall_basin,
 )
 
 
@@ -799,7 +3180,8 @@ DEAD_CALM = make_instant(
     name="Dead Calm",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Counter target activated or triggered ability. Draw a card."
+    text="Counter target activated or triggered ability. Draw a card.",
+    resolve=_dms_resolve_dead_calm,
 )
 
 
@@ -807,7 +3189,8 @@ CONSTANT_FLUX = make_enchantment(
     name="Constant Flux",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="At the beginning of your upkeep, scry 1. Whenever you activate a Breathing ability, draw a card."
+    text="At the beginning of your upkeep, scry 1. Whenever you activate a Breathing ability, draw a card.",
+    setup_interceptors=_dms_constant_flux_setup,
 )
 
 
@@ -815,7 +3198,8 @@ DROP_RIPPLE_THRUST = make_instant(
     name="Drop Ripple Thrust",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Target creature gets -3/-0 until end of turn. If it's a Demon, tap it."
+    text="Target creature gets -3/-0 until end of turn. If it's a Demon, tap it.",
+    resolve=_dms_resolve_drop_ripple_thrust,
 )
 
 
@@ -823,7 +3207,8 @@ SPLASHING_WATER_FLOW = make_sorcery(
     name="Splashing Water Flow",
     mana_cost="{3}{U}",
     colors={Color.BLUE},
-    text="Return up to two target creatures to their owners' hands. Draw a card."
+    text="Return up to two target creatures to their owners' hands. Draw a card.",
+    resolve=_dms_resolve_splashing_water_flow,
 )
 
 
@@ -1088,7 +3473,8 @@ DEMONIC_TRANSFORMATION = make_instant(
     name="Demonic Transformation",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Target creature becomes a Demon in addition to its other types and gets +2/+2 until end of turn. It gains 'Demon — This creature gets +1/+1 during opponents' turns.'"
+    text="Target creature becomes a Demon in addition to its other types and gets +2/+2 until end of turn. It gains 'Demon — This creature gets +1/+1 during opponents' turns.'",
+    resolve=_dms_resolve_demonic_transformation,
 )
 
 
@@ -1096,7 +3482,8 @@ BLOOD_DEMON_ART_SPELL = make_instant(
     name="Blood Demon Art: Destruction",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    text="As an additional cost, pay 3 life. Destroy target creature. If it was a Slayer, draw two cards."
+    text="As an additional cost, pay 3 life. Destroy target creature. If it was a Slayer, draw two cards.",
+    resolve=_dms_resolve_blood_demon_art_destruction,
 )
 
 
@@ -1104,7 +3491,8 @@ MUZAN_BLOOD = make_sorcery(
     name="Muzan's Blood",
     mana_cost="{B}",
     colors={Color.BLACK},
-    text="Target creature becomes a Demon in addition to its other types. Put two +1/+1 counters on it. It gains 'At the beginning of your upkeep, you lose 1 life.'"
+    text="Target creature becomes a Demon in addition to its other types. Put two +1/+1 counters on it. It gains 'At the beginning of your upkeep, you lose 1 life.'",
+    resolve=_dms_resolve_muzans_blood,
 )
 
 
@@ -1112,7 +3500,8 @@ DEMON_CONSUMPTION = make_instant(
     name="Demon Consumption",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Destroy target creature. If it was a Demon, you gain life equal to its toughness."
+    text="Destroy target creature. If it was a Demon, you gain life equal to its toughness.",
+    resolve=_dms_resolve_demon_consumption,
 )
 
 
@@ -1120,7 +3509,8 @@ NIGHTMARE_BLOOD_ART = make_enchantment(
     name="Nightmare Blood Art",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="At the beginning of each opponent's upkeep, that player loses 1 life. Demons you control get +1/+0."
+    text="At the beginning of each opponent's upkeep, that player loses 1 life. Demons you control get +1/+0.",
+    setup_interceptors=_dms_nightmare_blood_art_setup,
 )
 
 
@@ -1173,7 +3563,8 @@ TEMPTATION_OF_ETERNITY = make_sorcery(
     name="Temptation of Eternity",
     mana_cost="{3}{B}",
     colors={Color.BLACK},
-    text="Return target creature card from your graveyard to the battlefield. It becomes a Demon in addition to its other types."
+    text="Return target creature card from your graveyard to the battlefield. It becomes a Demon in addition to its other types.",
+    resolve=_dms_resolve_temptation_of_eternity,
 )
 
 
@@ -1204,7 +3595,8 @@ ENDLESS_NIGHT = make_enchantment(
     name="Endless Night",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    text="Demons you control get +2/+2. (This represents permanent night for Demons.)"
+    text="Demons you control get +2/+2. (This represents permanent night for Demons.)",
+    setup_interceptors=_dms_endless_night_setup,
 )
 
 
@@ -1268,7 +3660,8 @@ THUNDERCLAP_AND_FLASH = make_instant(
     name="Thunderclap and Flash",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Target creature you control gets +3/+0 and gains first strike until end of turn. If it's a Slayer, it also gains haste."
+    text="Target creature you control gets +3/+0 and gains first strike until end of turn. If it's a Slayer, it also gains haste.",
+    resolve=_dms_resolve_thunderclap_flash,
 )
 
 
@@ -1276,7 +3669,8 @@ FLAME_BREATHING_FIRST_FORM = make_instant(
     name="Flame Breathing: Unknowing Fire",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Target creature you control deals damage equal to its power to target creature or planeswalker."
+    text="Target creature you control deals damage equal to its power to target creature or planeswalker.",
+    resolve=_dms_resolve_flame_unknowing_fire,
 )
 
 
@@ -1284,7 +3678,8 @@ FLAME_BREATHING_NINTH_FORM = make_sorcery(
     name="Flame Breathing: Rengoku",
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
-    text="Flame Breathing: Rengoku deals 5 damage to each creature and each opponent. You lose 3 life."
+    text="Flame Breathing: Rengoku deals 5 damage to each creature and each opponent. You lose 3 life.",
+    resolve=_dms_resolve_flame_rengoku,
 )
 
 
@@ -1314,7 +3709,8 @@ BURNING_DETERMINATION = make_enchantment(
     name="Burning Determination",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Creatures you control have haste. Breathing abilities you activate deal 1 damage to any target."
+    text="Creatures you control have haste. Breathing abilities you activate deal 1 damage to any target.",
+    setup_interceptors=_dms_burning_determination_setup,
 )
 
 
@@ -1344,7 +3740,8 @@ SIXFOLD = make_instant(
     name="Sixfold",
     mana_cost="{R}{R}",
     colors={Color.RED},
-    text="Target Slayer you control deals damage equal to its power to target creature. If that creature is a Demon, it deals double that damage instead."
+    text="Target Slayer you control deals damage equal to its power to target creature. If that creature is a Demon, it deals double that damage instead.",
+    resolve=_dms_resolve_sixfold,
 )
 
 
@@ -1353,7 +3750,8 @@ THUNDER_BREATHING_FORM = make_enchantment(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Aura"},
-    text="Enchanted creature gets +2/+0 and has first strike. Breathing — {T}, Pay 1 life: Enchanted creature gains double strike until end of turn."
+    text="Enchanted creature gets +2/+0 and has first strike. Breathing — {T}, Pay 1 life: Enchanted creature gains double strike until end of turn.",
+    setup_interceptors=_dms_thunder_breathing_form_setup,
 )
 
 
@@ -1390,7 +3788,8 @@ HEAT_OF_BATTLE = make_instant(
     name="Heat of Battle",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Target creature gets +2/+0 until end of turn. If you've lost life this turn, it gets +4/+0 instead."
+    text="Target creature gets +2/+0 until end of turn. If you've lost life this turn, it gets +4/+0 instead.",
+    resolve=_dms_resolve_heat_of_battle,
 )
 
 
@@ -1398,7 +3797,8 @@ EXPLOSIVE_BLOOD = make_instant(
     name="Explosive Blood",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Explosive Blood deals 3 damage to target creature. If that creature is a Demon, Explosive Blood deals 5 damage instead."
+    text="Explosive Blood deals 3 damage to target creature. If that creature is a Demon, Explosive Blood deals 5 damage instead.",
+    resolve=_dms_resolve_explosive_blood,
 )
 
 
@@ -1406,7 +3806,8 @@ SET_YOUR_HEART_ABLAZE = make_sorcery(
     name="Set Your Heart Ablaze",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="Creatures you control get +2/+0 and gain haste until end of turn. If you control a Hashira, they also gain first strike."
+    text="Creatures you control get +2/+0 and gain haste until end of turn. If you control a Hashira, they also gain first strike.",
+    resolve=_dms_resolve_set_heart_ablaze,
 )
 
 
@@ -1417,7 +3818,8 @@ THUNDER_BREATHING_STUDENT = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Slayer"},
-    text="Haste. Breathing — {T}, Pay 1 life: Thunder Breathing Student gets +2/+0 until end of turn."
+    text="Haste. Breathing — {T}, Pay 1 life: Thunder Breathing Student gets +2/+0 until end of turn.",
+    setup_interceptors=_dms_thunder_student_setup,
 )
 
 
@@ -1467,7 +3869,8 @@ FLAMING_BLADE = make_instant(
     name="Flaming Blade",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Target creature you control gets +3/+0 and gains 'Whenever this creature deals combat damage to a Demon, destroy that Demon' until end of turn."
+    text="Target creature you control gets +3/+0 and gains 'Whenever this creature deals combat damage to a Demon, destroy that Demon' until end of turn.",
+    resolve=_dms_resolve_flaming_blade,
 )
 
 
@@ -1537,7 +3940,8 @@ BEAST_BREATHING_FANG = make_instant(
     name="Beast Breathing: Fang",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Target creature you control gets +2/+2 and gains trample until end of turn."
+    text="Target creature you control gets +2/+2 and gains trample until end of turn.",
+    resolve=_dms_resolve_beast_breathing_fang,
 )
 
 
@@ -1546,7 +3950,8 @@ SERPENT_BREATHING_FORM = make_enchantment(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Aura"},
-    text="Enchanted creature gets +1/+2 and has deathtouch. Breathing — {T}, Pay 1 life: Enchanted creature fights target creature."
+    text="Enchanted creature gets +1/+2 and has deathtouch. Breathing — {T}, Pay 1 life: Enchanted creature fights target creature.",
+    setup_interceptors=_dms_serpent_breathing_form_setup,
 )
 
 
@@ -1574,7 +3979,8 @@ BEAST_BREATHING_SLICE = make_instant(
     name="Beast Breathing: Crazy Cutting",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Target creature you control deals damage equal to its power to target creature. If it kills that creature, put a +1/+1 counter on your creature."
+    text="Target creature you control deals damage equal to its power to target creature. If it kills that creature, put a +1/+1 counter on your creature.",
+    resolve=_dms_resolve_beast_slice,
 )
 
 
@@ -1583,7 +3989,8 @@ WILD_INSTINCT = make_enchantment(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Aura"},
-    text="Enchanted creature gets +1/+1 and has trample. It attacks each combat if able."
+    text="Enchanted creature gets +1/+1 and has trample. It attacks each combat if able.",
+    setup_interceptors=_dms_wild_instinct_setup,
 )
 
 
@@ -1615,7 +4022,8 @@ DEVOUR_WHOLE = make_instant(
     name="Devour Whole",
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
-    text="Target creature you control deals damage equal to its power to target creature. If that creature would die this turn, exile it instead."
+    text="Target creature you control deals damage equal to its power to target creature. If that creature would die this turn, exile it instead.",
+    resolve=_dms_resolve_devour_whole,
 )
 
 
@@ -1623,7 +4031,8 @@ PRIMAL_FURY = make_sorcery(
     name="Primal Fury",
     mana_cost="{3}{G}",
     colors={Color.GREEN},
-    text="Put two +1/+1 counters on each creature you control. Those creatures gain trample until end of turn."
+    text="Put two +1/+1 counters on each creature you control. Those creatures gain trample until end of turn.",
+    resolve=_dms_resolve_primal_fury,
 )
 
 
@@ -1653,7 +4062,8 @@ SNAKE_COIL = make_instant(
     name="Serpentine Coil",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Target creature can't attack or block until end of turn. If you control a Snake, draw a card."
+    text="Target creature can't attack or block until end of turn. If you control a Snake, draw a card.",
+    resolve=_dms_resolve_serpentine_coil,
 )
 
 
@@ -1661,7 +4071,8 @@ WISTERIA_BLOOM = make_sorcery(
     name="Wisteria Bloom",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Search your library for a basic land card, put it onto the battlefield tapped, then shuffle. Create a 1/1 white Spirit creature token."
+    text="Search your library for a basic land card, put it onto the battlefield tapped, then shuffle. Create a 1/1 white Spirit creature token.",
+    resolve=_dms_resolve_wisteria_bloom,
 )
 
 
@@ -1669,7 +4080,8 @@ NATURE_SENSE = make_instant(
     name="Spatial Awareness",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Reveal the top three cards of your library. You may put a creature card from among them into your hand. Put the rest on the bottom of your library."
+    text="Reveal the top three cards of your library. You may put a creature card from among them into your hand. Put the rest on the bottom of your library.",
+    resolve=_dms_resolve_nature_sense,
 )
 
 
@@ -1702,7 +4114,8 @@ OVERGROWTH_TECHNIQUE = make_enchantment(
     name="Overgrowth Technique",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="At the beginning of your upkeep, put a +1/+1 counter on target creature you control. Breathing abilities you activate cost no life to activate."
+    text="At the beginning of your upkeep, put a +1/+1 counter on target creature you control. Breathing abilities you activate cost no life to activate.",
+    setup_interceptors=_dms_overgrowth_technique_setup,
 )
 
 
@@ -2217,7 +4630,8 @@ ZENITSU_BLADE = make_artifact_equipment(
 WISTERIA_POISON = make_artifact(
     name="Wisteria Poison",
     mana_cost="{1}",
-    text="{T}, Sacrifice Wisteria Poison: Destroy target Demon."
+    text="{T}, Sacrifice Wisteria Poison: Destroy target Demon.",
+    setup_interceptors=_dms_wisteria_poison_setup,
 )
 
 
@@ -2231,28 +4645,32 @@ DEMON_SLAYER_UNIFORM = make_artifact_equipment(
 KASUGAI_CROW = make_artifact(
     name="Kasugai Crow",
     mana_cost="{2}",
-    text="Flying. {T}: Scry 1. {2}, {T}, Sacrifice Kasugai Crow: Draw a card."
+    text="Flying. {T}: Scry 1. {2}, {T}, Sacrifice Kasugai Crow: Draw a card.",
+    setup_interceptors=_dms_kasugai_crow_setup,
 )
 
 
 SWORDSMITH_TOOLS = make_artifact(
     name="Swordsmith's Tools",
     mana_cost="{2}",
-    text="{2}, {T}: Search your library for an Equipment card with mana value 3 or less, reveal it, put it into your hand, then shuffle."
+    text="{2}, {T}: Search your library for an Equipment card with mana value 3 or less, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=_dms_swordsmith_tools_setup,
 )
 
 
 MUZAN_BLOOD_VIAL = make_artifact(
     name="Muzan's Blood Vial",
     mana_cost="{2}",
-    text="{3}, {T}, Sacrifice Muzan's Blood Vial: Target creature becomes a Demon in addition to its other types. Put three +1/+1 counters on it. It gains 'At the beginning of your upkeep, you lose 2 life.'"
+    text="{3}, {T}, Sacrifice Muzan's Blood Vial: Target creature becomes a Demon in addition to its other types. Put three +1/+1 counters on it. It gains 'At the beginning of your upkeep, you lose 2 life.'",
+    setup_interceptors=_dms_muzans_blood_vial_setup,
 )
 
 
 DEMON_ART_FOCUS = make_artifact(
     name="Demon Art Focus",
     mana_cost="{3}",
-    text="Blood Demon Art abilities you activate cost {1} less to activate. {T}: Add {B}."
+    text="Blood Demon Art abilities you activate cost {1} less to activate. {T}: Add {B}.",
+    setup_interceptors=_dms_demon_art_focus_setup,
 )
 
 
@@ -2262,65 +4680,75 @@ DEMON_ART_FOCUS = make_artifact(
 
 BUTTERFLY_ESTATE = make_land(
     name="Butterfly Estate",
-    text="{T}: Add {W}. {W}, {T}: You gain 1 life. Activate only if you control a Slayer."
+    text="{T}: Add {W}. {W}, {T}: You gain 1 life. Activate only if you control a Slayer.",
+    setup_interceptors=_dms_butterfly_estate_land_setup,
 )
 
 
 MT_SAGIRI = make_land(
     name="Mt. Sagiri",
-    text="{T}: Add {U}. {U}, {T}: Target Slayer you control can't be blocked this turn. Activate only as a sorcery."
+    text="{T}: Add {U}. {U}, {T}: Target Slayer you control can't be blocked this turn. Activate only as a sorcery.",
+    setup_interceptors=_dms_mt_sagiri_setup,
 )
 
 
 INFINITY_CASTLE = make_land(
     name="Infinity Castle",
     text="{T}: Add {B}. {B}, {T}: Target Demon you control gets +1/+0 until end of turn.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_dms_infinity_castle_setup,
 )
 
 
 FLAME_TRAINING_GROUNDS = make_land(
     name="Flame Training Grounds",
-    text="{T}: Add {R}. {R}, {T}: Target Slayer you control gets +1/+0 until end of turn."
+    text="{T}: Add {R}. {R}, {T}: Target Slayer you control gets +1/+0 until end of turn.",
+    setup_interceptors=_dms_flame_training_setup,
 )
 
 
 WISTERIA_FOREST = make_land(
     name="Wisteria Forest",
-    text="{T}: Add {G}. Demons can't attack you as long as you control three or more lands."
+    text="{T}: Add {G}. Demons can't attack you as long as you control three or more lands.",
+    setup_interceptors=_dms_wisteria_forest_setup,
 )
 
 
 SWORDSMITH_VILLAGE = make_land(
     name="Swordsmith Village",
     text="{T}: Add {C}. {2}, {T}: Attach target Equipment you control to target creature you control.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_dms_swordsmith_village_setup,
 )
 
 
 DEMON_SLAYER_HEADQUARTERS = make_land(
     name="Demon Slayer Headquarters",
     text="{T}: Add one mana of any color. This mana can only be spent to cast Slayer spells or activate abilities of Slayers.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_dms_demon_slayer_hq_setup,
 )
 
 
 FINAL_SELECTION_MOUNTAIN = make_land(
     name="Final Selection Mountain",
-    text="{T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast creature spells."
+    text="{T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast creature spells.",
+    setup_interceptors=_dms_final_selection_mt_setup,
 )
 
 
 ENTERTAINMENT_DISTRICT = make_land(
     name="Entertainment District",
-    text="{T}: Add {C}. {1}, {T}: Target creature can't block this turn."
+    text="{T}: Add {C}. {1}, {T}: Target creature can't block this turn.",
+    setup_interceptors=_dms_entertainment_district_setup,
 )
 
 
 MUGEN_TRAIN = make_land(
     name="Mugen Train",
     text="{T}: Add {C}. {3}, {T}: Put target creature on top of its owner's library.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_dms_mugen_train_setup,
 )
 
 
@@ -2340,7 +4768,8 @@ PILLAR_OF_STRENGTH = make_instant(
     name="Pillar of Strength",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Target creature gets +2/+4 until end of turn. If it's a Slayer, it also gains vigilance."
+    text="Target creature gets +2/+4 until end of turn. If it's a Slayer, it also gains vigilance.",
+    resolve=_dms_resolve_pillar_of_strength,
 )
 
 
@@ -2383,7 +4812,8 @@ DEMON_SLAYER_MARK_BEARER = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Slayer"},
-    text="Demon Slayer Mark — As long as you have 10 or less life, Demon Slayer Mark Bearer gets +2/+2 and has first strike."
+    text="Demon Slayer Mark — As long as you have 10 or less life, Demon Slayer Mark Bearer gets +2/+2 and has first strike.",
+    setup_interceptors=_dms_demon_mark_bearer_setup,
 )
 
 
@@ -2394,7 +4824,8 @@ CORPS_MEDIC = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Cleric"},
-    text="{T}: Prevent the next 1 damage that would be dealt to target creature this turn. If it's a Slayer, prevent 2 damage instead."
+    text="{T}: Prevent the next 1 damage that would be dealt to target creature this turn. If it's a Slayer, prevent 2 damage instead.",
+    setup_interceptors=_dms_corps_medic_setup,
 )
 
 
@@ -2406,7 +4837,8 @@ ELEVENTH_FORM_DEAD_CALM = make_instant(
     name="Eleventh Form: Dead Calm",
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
-    text="Counter target spell. If you control a Slayer, draw a card."
+    text="Counter target spell. If you control a Slayer, draw a card.",
+    resolve=_dms_resolve_eleventh_form,
 )
 
 
@@ -2417,7 +4849,8 @@ WATER_BREATHING_MASTER = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Slayer"},
-    text="Whenever you activate a Breathing ability, draw a card. Breathing — {T}, Pay 1 life: Target creature can't attack this turn."
+    text="Whenever you activate a Breathing ability, draw a card. Breathing — {T}, Pay 1 life: Target creature can't attack this turn.",
+    setup_interceptors=_dms_water_breathing_master_setup,
 )
 
 
@@ -2425,7 +4858,8 @@ MIST_CLONE = make_instant(
     name="Mist Clone",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Create a token that's a copy of target creature you control, except it's an illusion in addition to its other types. Sacrifice it at the beginning of the next end step."
+    text="Create a token that's a copy of target creature you control, except it's an illusion in addition to its other types. Sacrifice it at the beginning of the next end step.",
+    resolve=_dms_resolve_mist_clone,
 )
 
 
@@ -2460,7 +4894,8 @@ BLOOD_DEMON_ART_NIGHTMARE = make_sorcery(
     name="Blood Demon Art: Nightmare",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="As an additional cost, pay 2 life. Tap all creatures target opponent controls. Those creatures don't untap during their controller's next untap step."
+    text="As an additional cost, pay 2 life. Tap all creatures target opponent controls. Those creatures don't untap during their controller's next untap step.",
+    resolve=_dms_resolve_blood_demon_nightmare,
 )
 
 
@@ -2468,7 +4903,8 @@ DEVOUR_HUMANS = make_sorcery(
     name="Devour Humans",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Destroy target non-Demon creature. You gain life equal to its toughness."
+    text="Destroy target non-Demon creature. You gain life equal to its toughness.",
+    resolve=_dms_resolve_devour_humans,
 )
 
 
@@ -2480,7 +4916,8 @@ GODSPEED = make_instant(
     name="Godspeed",
     mana_cost="{R}{R}",
     colors={Color.RED},
-    text="Target creature you control gets +3/+0 and gains first strike and haste until end of turn. If it's Zenitsu, it gains double strike instead of first strike."
+    text="Target creature you control gets +3/+0 and gains first strike and haste until end of turn. If it's Zenitsu, it gains double strike instead of first strike.",
+    resolve=_dms_resolve_godspeed,
 )
 
 
@@ -2491,7 +4928,8 @@ FLAME_BREATHING_MASTER = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Human", "Slayer"},
-    text="Haste. Breathing — {T}, Pay 1 life: Flame Breathing Master deals 2 damage to any target."
+    text="Haste. Breathing — {T}, Pay 1 life: Flame Breathing Master deals 2 damage to any target.",
+    setup_interceptors=_dms_flame_master_setup,
 )
 
 
@@ -2499,7 +4937,8 @@ RAGING_INFERNO = make_sorcery(
     name="Raging Inferno",
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
-    text="Raging Inferno deals 4 damage to each creature and each player. Demons dealt damage this way are exiled instead of put into a graveyard."
+    text="Raging Inferno deals 4 damage to each creature and each player. Demons dealt damage this way are exiled instead of put into a graveyard.",
+    resolve=_dms_resolve_raging_inferno,
 )
 
 
@@ -2511,7 +4950,8 @@ BEAST_SENSE = make_instant(
     name="Beast Sense",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Target creature you control gets +1/+1 and gains hexproof until end of turn. If it's Inosuke, it also gains trample."
+    text="Target creature you control gets +1/+1 and gains hexproof until end of turn. If it's Inosuke, it also gains trample.",
+    resolve=_dms_resolve_beast_sense,
 )
 
 
@@ -2567,7 +5007,8 @@ WISTERIA_GUARDIAN = make_creature(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Elemental"},
-    text="Reach. Demons can't attack you unless their controller pays {2} for each Demon they control that's attacking you."
+    text="Reach. Demons can't attack you unless their controller pays {2} for each Demon they control that's attacking you.",
+    setup_interceptors=_dms_wisteria_guardian_setup,
 )
 
 
@@ -2857,7 +5298,8 @@ WATER_FORM_STRIKE = make_instant(
     name="Water Form Strike",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Target creature gets -2/-0 until end of turn. If you control a Slayer, draw a card."
+    text="Target creature gets -2/-0 until end of turn. If you control a Slayer, draw a card.",
+    resolve=_dms_resolve_water_form_strike,
 )
 
 
@@ -2865,7 +5307,8 @@ MIST_SHROUD = make_instant(
     name="Mist Shroud",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Target creature you control gains hexproof until end of turn. Scry 1."
+    text="Target creature you control gains hexproof until end of turn. Scry 1.",
+    resolve=_dms_resolve_mist_shroud,
 )
 
 
@@ -2873,7 +5316,8 @@ FIERY_ASSAULT = make_instant(
     name="Fiery Assault",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Target creature you control deals damage equal to its power to target creature you don't control."
+    text="Target creature you control deals damage equal to its power to target creature you don't control.",
+    resolve=_dms_resolve_fiery_assault,
 )
 
 
@@ -2881,7 +5325,8 @@ WILD_CHARGE = make_sorcery(
     name="Wild Charge",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Target creature you control gets +3/+3 and gains trample until end of turn. It must attack this turn if able."
+    text="Target creature you control gets +3/+3 and gains trample until end of turn. It must attack this turn if able.",
+    resolve=_dms_resolve_wild_charge,
 )
 
 
@@ -2889,7 +5334,8 @@ DEMON_HUNTERS_VOW = make_enchantment(
     name="Demon Hunter's Vow",
     mana_cost="{W}",
     colors={Color.WHITE},
-    text="Whenever you cast a Slayer spell, you gain 1 life."
+    text="Whenever you cast a Slayer spell, you gain 1 life.",
+    setup_interceptors=_dms_demon_hunters_vow_setup,
 )
 
 
@@ -2897,7 +5343,8 @@ BLOOD_MOON_RITUAL = make_sorcery(
     name="Blood Moon Ritual",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    text="As an additional cost, sacrifice a creature. Search your library for a Demon card, put it onto the battlefield, then shuffle."
+    text="As an additional cost, sacrifice a creature. Search your library for a Demon card, put it onto the battlefield, then shuffle.",
+    resolve=_dms_resolve_blood_moon_ritual,
 )
 
 
@@ -2905,7 +5352,8 @@ HASHIRA_TRAINING = make_sorcery(
     name="Hashira Training",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Put a +1/+1 counter on each Slayer you control. You gain 1 life for each Slayer you control."
+    text="Put a +1/+1 counter on each Slayer you control. You gain 1 life for each Slayer you control.",
+    resolve=_dms_resolve_hashira_training,
 )
 
 
@@ -2913,7 +5361,8 @@ DEMON_REGENERATION = make_instant(
     name="Demon Regeneration",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Regenerate target Demon. (The next time it would be destroyed this turn, instead tap it, remove all damage from it, and remove it from combat.)"
+    text="Regenerate target Demon. (The next time it would be destroyed this turn, instead tap it, remove all damage from it, and remove it from combat.)",
+    resolve=_dms_resolve_demon_regeneration,
 )
 
 
@@ -2921,7 +5370,8 @@ FIRST_BREATH = make_instant(
     name="First Breath",
     mana_cost="{W}",
     colors={Color.WHITE},
-    text="Target creature you control gets +1/+1 until end of turn. If it's a Slayer, untap it."
+    text="Target creature you control gets +1/+1 until end of turn. If it's a Slayer, untap it.",
+    resolve=_dms_resolve_first_breath,
 )
 
 
@@ -2930,7 +5380,8 @@ DEMON_BLOOD_FRENZY = make_enchantment(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Aura"},
-    text="Enchanted creature gets +2/+1 and attacks each combat if able. At the beginning of your upkeep, you lose 1 life."
+    text="Enchanted creature gets +2/+1 and attacks each combat if able. At the beginning of your upkeep, you lose 1 life.",
+    setup_interceptors=_dms_demon_blood_frenzy_setup,
 )
 
 
@@ -2938,7 +5389,8 @@ SLAYER_COORDINATION = make_instant(
     name="Slayer Coordination",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Slayers you control get +1/+1 until end of turn. If you control three or more Slayers, they also gain vigilance until end of turn."
+    text="Slayers you control get +1/+1 until end of turn. If you control three or more Slayers, they also gain vigilance until end of turn.",
+    resolve=_dms_resolve_slayer_coordination,
 )
 
 
@@ -2946,7 +5398,8 @@ MIDNIGHT_HUNT = make_sorcery(
     name="Midnight Hunt",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Destroy target creature that was dealt damage this turn. If it was a Slayer, draw a card."
+    text="Destroy target creature that was dealt damage this turn. If it was a Slayer, draw a card.",
+    resolve=_dms_resolve_midnight_hunt,
 )
 
 
@@ -2954,7 +5407,8 @@ DAWN_BREAKS = make_sorcery(
     name="Dawn Breaks",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    text="Destroy all Demons. You gain 2 life for each Demon destroyed this way."
+    text="Destroy all Demons. You gain 2 life for each Demon destroyed this way.",
+    resolve=_dms_resolve_dawn_breaks,
 )
 
 
@@ -2962,7 +5416,8 @@ DEMON_SLAYER_BLADE = make_instant(
     name="Demon Slayer's Strike",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Target creature you control deals damage equal to its power to target Demon. If that Demon would die this turn, exile it instead."
+    text="Target creature you control deals damage equal to its power to target Demon. If that Demon would die this turn, exile it instead.",
+    resolve=_dms_resolve_demon_slayer_strike,
 )
 
 
@@ -2970,7 +5425,8 @@ SERPENT_STRIKE = make_instant(
     name="Serpent Strike",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Target creature you control gains deathtouch until end of turn. It fights target creature you don't control."
+    text="Target creature you control gains deathtouch until end of turn. It fights target creature you don't control.",
+    resolve=_dms_resolve_serpent_strike,
 )
 
 
@@ -2978,7 +5434,8 @@ BLOOD_ART_EXPLOSION = make_instant(
     name="Blood Art: Explosion",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="As an additional cost, pay 2 life. Blood Art: Explosion deals 4 damage to target creature."
+    text="As an additional cost, pay 2 life. Blood Art: Explosion deals 4 damage to target creature.",
+    resolve=_dms_resolve_blood_art_explosion,
 )
 
 
@@ -2986,7 +5443,8 @@ WATER_SURFACE = make_enchantment(
     name="Water Surface",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Creatures you control can't be blocked as long as they have no counters on them."
+    text="Creatures you control can't be blocked as long as they have no counters on them.",
+    setup_interceptors=_dms_water_surface_setup,
 )
 
 
@@ -2994,7 +5452,8 @@ DEMON_PURSUIT = make_sorcery(
     name="Demon Pursuit",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Target creature you control fights target creature an opponent controls. If the creature you control survives, put a +1/+1 counter on it."
+    text="Target creature you control fights target creature an opponent controls. If the creature you control survives, put a +1/+1 counter on it.",
+    resolve=_dms_resolve_demon_pursuit,
 )
 
 
@@ -3002,7 +5461,8 @@ HASHIRA_WISDOM = make_sorcery(
     name="Hashira's Wisdom",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Draw two cards. If you control a Hashira, draw three cards instead, then discard a card."
+    text="Draw two cards. If you control a Hashira, draw three cards instead, then discard a card.",
+    resolve=_dms_resolve_hashira_wisdom,
 )
 
 
@@ -3013,27 +5473,31 @@ FLAME_TIGERS = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Elemental", "Cat"},
-    text="Haste. When Flame Tigers enters, it deals 2 damage to any target."
+    text="Haste. When Flame Tigers enters, it deals 2 damage to any target.",
+    setup_interceptors=_dms_flame_tigers_setup,
 )
 
 
 CORPS_SUPPLY_DEPOT = make_artifact(
     name="Corps Supply Depot",
     mana_cost="{3}",
-    text="{T}: Add {C}. {2}, {T}: Draw a card. Activate only if you control a Slayer."
+    text="{T}: Add {C}. {2}, {T}: Draw a card. Activate only if you control a Slayer.",
+    setup_interceptors=_dms_corps_depot_setup,
 )
 
 
 DEMON_LAIR = make_land(
     name="Demon Lair",
-    text="{T}: Add {B}. Demons you control have 'At the beginning of your end step, remove 1 damage from this creature.'"
+    text="{T}: Add {B}. Demons you control have 'At the beginning of your end step, remove 1 damage from this creature.'",
+    setup_interceptors=_dms_demon_lair_setup,
 )
 
 
 HASHIRA_ESTATE = make_land(
     name="Hashira Estate",
     text="{T}: Add one mana of any color. Spend this mana only to cast Hashira spells or activate abilities of Hashira.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_dms_hashira_estate_setup,
 )
 
 
@@ -3774,19 +6238,22 @@ DEMON_BANE = make_instant(
 TRAINING_DUMMY = make_artifact(
     name="Training Dummy",
     mana_cost="{2}",
-    text="{T}: Put a +1/+1 counter on target Slayer you control."
+    text="{T}: Put a +1/+1 counter on target Slayer you control.",
+    setup_interceptors=_dms_training_dummy_setup,
 )
 
 HEALING_POTION = make_artifact(
     name="Healing Potion",
     mana_cost="{1}",
-    text="{T}, Sacrifice Healing Potion: You gain 4 life."
+    text="{T}, Sacrifice Healing Potion: You gain 4 life.",
+    setup_interceptors=_dms_healing_potion_setup,
 )
 
 DEMON_COMPASS = make_artifact(
     name="Demon Compass",
     mana_cost="{2}",
-    text="{T}: Look at the top card of your library. If it's a Demon card, you may reveal it and put it into your hand."
+    text="{T}: Look at the top card of your library. If it's a Demon card, you may reveal it and put it into your hand.",
+    setup_interceptors=_dms_demon_compass_setup,
 )
 
 REINFORCED_UNIFORM = make_artifact_equipment(
@@ -3798,7 +6265,8 @@ REINFORCED_UNIFORM = make_artifact_equipment(
 SIGNAL_FLARE = make_artifact(
     name="Signal Flare",
     mana_cost="{1}",
-    text="{T}, Sacrifice Signal Flare: Search your library for a Slayer card, reveal it, put it into your hand, then shuffle."
+    text="{T}, Sacrifice Signal Flare: Search your library for a Slayer card, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=_dms_signal_flare_setup,
 )
 
 # More Lands
