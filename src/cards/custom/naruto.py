@@ -2452,6 +2452,7 @@ CURSE_OF_HATRED = make_enchantment(
     name="Curse of Hatred",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
+    subtypes={"Aura"},
     text="Enchant player. At the beginning of enchanted player's upkeep, they sacrifice a creature. If they can't, they lose 3 life."
 )
 
@@ -3008,6 +3009,7 @@ NINE_TAILS_CLOAK = make_enchantment(
     name="Nine-Tails Cloak",
     mana_cost="{2}{R}",
     colors={Color.RED},
+    subtypes={"Aura"},
     text="Enchant creature. Enchanted creature gets +3/+0 and has trample. At the beginning of your upkeep, you lose 2 life."
 )
 
@@ -4102,6 +4104,7 @@ SUSANOO = make_enchantment(
     name="Susanoo",
     mana_cost="{4}{U}{B}",
     colors={Color.BLUE, Color.BLACK},
+    subtypes={"Aura"},
     text="Enchant creature you control. Enchanted creature gets +5/+5 and has flying and indestructible."
 )
 
