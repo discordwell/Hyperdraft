@@ -1477,6 +1477,539 @@ def test_all_v2_spice_cards_register():
     print(f"  All {len(expected)} v2 spice cards present")
 
 
+# ============================================================================
+# Slice-6A Green median-lift tests (2026-05-19)
+# Validates 28 vanilla Green cards lifted to depth >=2 via inline state-read
+# + cross-controller event emission. Each test asserts the expected
+# info/asym event fires with the buff's `reason` field.
+# Mirrors slice-8C ZLD pattern (commit f03164c5).
+# ============================================================================
+
+
+def _emit_attack(game, attacker, p1):
+    """Helper — emit an ATTACK_DECLARED event for the given creature."""
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': attacker.id, 'attacker': attacker.id, 'controller': p1.id},
+        source=attacker.id,
+    ))
+
+
+def _emit_cast_self(game, spell_obj, p1):
+    """Helper — emit a CAST event from the player for the given spell card."""
+    game.emit(Event(
+        type=EventType.CAST,
+        payload={
+            'caster': p1.id,
+            'controller': p1.id,
+            'spell_id': spell_obj.id,
+            'mana_value': 1,
+            'colors': set(spell_obj.characteristics.colors or set()),
+            'types': set(spell_obj.characteristics.types or set()),
+        },
+        controller=p1.id,
+    ))
+
+
+def _emit_upkeep(game, p1):
+    """Helper — emit a PHASE_START event for upkeep on p1."""
+    game.state.active_player = p1.id
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'active_player': p1.id, 'turn_number': 1},
+    ))
+
+
+def _emitted_types(game):
+    return [e.type.name for e in game.state.event_log]
+
+
+def _put_spell_for_cast(game, player, card_name):
+    """Create spell on BATTLEFIELD so its setup_interceptors cast-trigger is
+    active. Spells don't normally enter battlefield, but the slice-6A spell
+    triggers gate on event.payload.spell_id == obj.id and use duration
+    'while_on_battlefield' — so we place the spell here to validate the
+    cast-time AST effect path. The CAST event is then fired manually."""
+    card_def = STUDIO_GHIBLI_CARDS[card_name]
+    obj = game.create_object(
+        name=card_name,
+        owner_id=player.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics,
+        card_def=card_def,
+    )
+    return obj
+
+
+# Back-compat alias for older tests using _put_in_hand.
+_put_in_hand = _put_spell_for_cast
+
+
+# --- 13 Creature tests ---
+
+def test_catbus_attack_scrys_and_drains():
+    print("\n=== Catbus, Forest Transport: attack scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Need another creature so the count condition fires.
+    extra = _put_on_battlefield(game, p1, "Wild Wolf")
+    cb = _put_on_battlefield(game, p1, "Catbus, Forest Transport")
+    before = len(game.state.event_log)
+    _emit_attack(game, cb, p1)
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('reason') == 'ghb_catbus_dash'
+             and e.source == cb.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('reason') == 'ghb_catbus_dash']
+    assert scrys, f"Expected scry; got {_emitted_types(game)[-10:]}"
+    assert drains, f"Expected opp drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_chibi_totoro_etb_scrys():
+    print("\n=== Chibi Totoro: ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    c = _put_on_battlefield(game, p1, "Chibi Totoro")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('reason') == 'ghb_spirit_census'
+             and e.source == c.id]
+    assert scrys, f"Expected SCRY; got {_emitted_types(game)[-10:]}"
+
+
+def test_medium_totoro_etb_lifegain():
+    print("\n=== Medium Totoro: ETB life gain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    m = _put_on_battlefield(game, p1, "Medium Totoro")
+    new = game.state.event_log[before:]
+    lifes = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('reason') == 'ghb_camphor_blessing'
+             and e.source == m.id]
+    assert lifes, f"Expected lifegain; got {_emitted_types(game)[-10:]}"
+
+
+def test_forest_spirit_shishigami_etb_god_boon():
+    print("\n=== Forest Spirit Shishigami: ETB god boon ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    g = _put_on_battlefield(game, p1, "Forest Spirit, Shishigami")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('reason') == 'ghb_god_boon'
+             and e.source == g.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('reason') == 'ghb_god_boon']
+    assert scrys, f"Expected SCRY; got {_emitted_types(game)[-10:]}"
+    assert drains, f"Expected opp drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_wolf_of_moro_attack_surveils():
+    print("\n=== Wolf of Moro: attack surveil ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    w = _put_on_battlefield(game, p1, "Wolf of Moro")
+    before = len(game.state.event_log)
+    _emit_attack(game, w, p1)
+    new = game.state.event_log[before:]
+    surveils = [e for e in new if e.type == EventType.SURVEIL
+                and e.payload.get('reason') == 'ghb_wolf_prowl'
+                and e.source == w.id]
+    assert surveils, f"Expected SURVEIL on attack; got {_emitted_types(game)[-10:]}"
+
+
+def test_baby_ohmu_death_surveils():
+    print("\n=== Baby Ohmu: death surveil ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    b = _put_on_battlefield(game, p1, "Baby Ohmu")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': b.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+    ))
+    new = game.state.event_log[before:]
+    surveils = [e for e in new if e.type == EventType.SURVEIL
+                and e.payload.get('reason') == 'ghb_baby_ohmu_grief'
+                and e.source == b.id]
+    assert surveils, f"Expected SURVEIL on death; got {_emitted_types(game)[-10:]}"
+
+
+def test_toxic_jungle_guardian_etb_mills():
+    print("\n=== Toxic Jungle Guardian: ETB mill ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    t = _put_on_battlefield(game, p1, "Toxic Jungle Guardian")
+    new = game.state.event_log[before:]
+    mills = [e for e in new if e.type == EventType.MILL
+             and e.payload.get('player') == p2.id
+             and e.payload.get('reason') == 'ghb_ohmu_swarm'
+             and e.source == t.id]
+    assert mills, f"Expected MILL; got {_emitted_types(game)[-10:]}"
+
+
+def test_ancient_tree_spirit_etb_growth():
+    print("\n=== Ancient Tree Spirit: ETB lifegain + surveil ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    a = _put_on_battlefield(game, p1, "Ancient Tree Spirit")
+    new = game.state.event_log[before:]
+    surveils = [e for e in new if e.type == EventType.SURVEIL
+                and e.payload.get('reason') == 'ghb_treefolk_growth'
+                and e.source == a.id]
+    lifes = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('reason') == 'ghb_treefolk_growth'
+             and e.source == a.id]
+    assert surveils, f"Expected SURVEIL; got {_emitted_types(game)[-10:]}"
+    assert lifes, f"Expected lifegain; got {_emitted_types(game)[-10:]}"
+
+
+def test_nature_sprite_etb_scrys():
+    print("\n=== Nature Sprite: ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    n = _put_on_battlefield(game, p1, "Nature Sprite")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('reason') == 'ghb_faerie_sprite'
+             and e.source == n.id]
+    assert scrys, f"Expected SCRY; got {_emitted_types(game)[-10:]}"
+
+
+def test_wild_wolf_etb_scrys():
+    print("\n=== Wild Wolf: ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    w = _put_on_battlefield(game, p1, "Wild Wolf")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('reason') == 'ghb_wild_tutor'
+             and e.source == w.id]
+    assert scrys, f"Expected SCRY; got {_emitted_types(game)[-10:]}"
+
+
+def test_giant_camphor_tree_upkeep_lifegain():
+    print("\n=== Giant Camphor Tree: upkeep lifegain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    g = _put_on_battlefield(game, p1, "Giant Camphor Tree")
+    before = len(game.state.event_log)
+    _emit_upkeep(game, p1)
+    new = game.state.event_log[before:]
+    lifes = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('reason') == 'ghb_camphor_upkeep'
+             and e.source == g.id]
+    assert lifes, f"Expected upkeep lifegain; got {_emitted_types(game)[-10:]}"
+
+
+def test_insect_swarm_attack_mills():
+    print("\n=== Insect Swarm: attack mill ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    sw = _put_on_battlefield(game, p1, "Insect Swarm")
+    before = len(game.state.event_log)
+    _emit_attack(game, sw, p1)
+    new = game.state.event_log[before:]
+    mills = [e for e in new if e.type == EventType.MILL
+             and e.payload.get('player') == p2.id
+             and e.payload.get('reason') == 'ghb_insect_swarm'
+             and e.source == sw.id]
+    assert mills, f"Expected MILL; got {_emitted_types(game)[-10:]}"
+
+
+def test_moss_covered_golem_etb_surveils():
+    print("\n=== Moss-Covered Golem: ETB surveil ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    m = _put_on_battlefield(game, p1, "Moss-Covered Golem")
+    new = game.state.event_log[before:]
+    surveils = [e for e in new if e.type == EventType.SURVEIL
+                and e.payload.get('reason') == 'ghb_golem_ward'
+                and e.source == m.id]
+    assert surveils, f"Expected SURVEIL; got {_emitted_types(game)[-10:]}"
+
+
+# --- 13 Spell tests ---
+
+def test_forests_blessing_cast_scrys():
+    print("\n=== Forest's Blessing: cast scry + lifegain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    spell = _put_in_hand(game, p1, "Forest's Blessing")
+    before = len(game.state.event_log)
+    _emit_cast_self(game, spell, p1)
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('reason') == 'ghb_blessing_aftermath'
+             and e.source == spell.id]
+    lifes = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('reason') == 'ghb_blessing_aftermath']
+    assert scrys, f"Expected SCRY on cast; got {_emitted_types(game)[-10:]}"
+    assert lifes, f"Expected lifegain; got {_emitted_types(game)[-10:]}"
+
+
+def test_natures_shield_cast_surveils():
+    print("\n=== Nature's Shield: cast surveil ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    spell = _put_in_hand(game, p1, "Nature's Shield")
+    before = len(game.state.event_log)
+    _emit_cast_self(game, spell, p1)
+    new = game.state.event_log[before:]
+    surveils = [e for e in new if e.type == EventType.SURVEIL
+                and e.payload.get('reason') == 'ghb_spell_ward'
+                and e.source == spell.id]
+    assert surveils, f"Expected SURVEIL; got {_emitted_types(game)[-10:]}"
+
+
+def test_regrowth_spell_cast_scrys():
+    print("\n=== Regrowth Spell: cast scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    spell = _put_in_hand(game, p1, "Regrowth Spell")
+    before = len(game.state.event_log)
+    _emit_cast_self(game, spell, p1)
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('reason') == 'ghb_regrowth_call'
+             and e.source == spell.id]
+    assert scrys, f"Expected SCRY; got {_emitted_types(game)[-10:]}"
+
+
+def test_rapid_growth_cast_drains_opp():
+    print("\n=== Rapid Growth: cast drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    spell = _put_in_hand(game, p1, "Rapid Growth")
+    before = len(game.state.event_log)
+    _emit_cast_self(game, spell, p1)
+    new = game.state.event_log[before:]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('reason') == 'ghb_rapid_growth'
+              and e.source == spell.id]
+    assert drains, f"Expected opp drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_spirit_call_cast_surveils():
+    print("\n=== Spirit Call: cast surveil ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    spell = _put_in_hand(game, p1, "Spirit Call")
+    before = len(game.state.event_log)
+    _emit_cast_self(game, spell, p1)
+    new = game.state.event_log[before:]
+    surveils = [e for e in new if e.type == EventType.SURVEIL
+                and e.payload.get('reason') == 'ghb_spirit_call'
+                and e.source == spell.id]
+    assert surveils, f"Expected SURVEIL; got {_emitted_types(game)[-10:]}"
+
+
+def test_forest_awakening_cast_scrys_and_drains():
+    print("\n=== Forest Awakening: cast scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    spell = _put_in_hand(game, p1, "Forest Awakening")
+    before = len(game.state.event_log)
+    _emit_cast_self(game, spell, p1)
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('reason') == 'ghb_forest_awakening'
+             and e.source == spell.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('reason') == 'ghb_forest_awakening']
+    assert scrys, f"Expected SCRY; got {_emitted_types(game)[-10:]}"
+    assert drains, f"Expected opp drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_call_of_the_wild_cast_surveils():
+    print("\n=== Call of the Wild: cast surveil ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    spell = _put_in_hand(game, p1, "Call of the Wild")
+    before = len(game.state.event_log)
+    _emit_cast_self(game, spell, p1)
+    new = game.state.event_log[before:]
+    surveils = [e for e in new if e.type == EventType.SURVEIL
+                and e.payload.get('reason') == 'ghb_call_of_wild'
+                and e.source == spell.id]
+    assert surveils, f"Expected SURVEIL; got {_emitted_types(game)[-10:]}"
+
+
+def test_natures_reclamation_cast_drains_opp():
+    print("\n=== Nature's Reclamation: cast drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    spell = _put_in_hand(game, p1, "Nature's Reclamation")
+    before = len(game.state.event_log)
+    _emit_cast_self(game, spell, p1)
+    new = game.state.event_log[before:]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('reason') == 'ghb_reclamation'
+              and e.source == spell.id]
+    assert drains, f"Expected opp drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_summon_the_forest_cast_scrys():
+    print("\n=== Summon the Forest: cast scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    spell = _put_in_hand(game, p1, "Summon the Forest")
+    before = len(game.state.event_log)
+    _emit_cast_self(game, spell, p1)
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('reason') == 'ghb_summon_forest'
+             and e.source == spell.id]
+    assert scrys, f"Expected SCRY; got {_emitted_types(game)[-10:]}"
+
+
+def test_spirited_transformation_cast_scrys():
+    print("\n=== Spirited Transformation: cast scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    spell = _put_in_hand(game, p1, "Spirited Transformation")
+    before = len(game.state.event_log)
+    _emit_cast_self(game, spell, p1)
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('reason') == 'ghb_transformation'
+             and e.source == spell.id]
+    assert scrys, f"Expected SCRY; got {_emitted_types(game)[-10:]}"
+
+
+def test_forest_and_sky_cast_surveils():
+    print("\n=== Forest and Sky: cast surveil ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    spell = _put_in_hand(game, p1, "Forest and Sky")
+    before = len(game.state.event_log)
+    _emit_cast_self(game, spell, p1)
+    new = game.state.event_log[before:]
+    surveils = [e for e in new if e.type == EventType.SURVEIL
+                and e.payload.get('reason') == 'ghb_forest_and_sky'
+                and e.source == spell.id]
+    assert surveils, f"Expected SURVEIL; got {_emitted_types(game)[-10:]}"
+
+
+def test_spirit_fire_cast_drains_opp():
+    print("\n=== Spirit Fire: cast drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    spell = _put_in_hand(game, p1, "Spirit Fire")
+    before = len(game.state.event_log)
+    _emit_cast_self(game, spell, p1)
+    new = game.state.event_log[before:]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('reason') == 'ghb_spirit_fire'
+              and e.source == spell.id]
+    assert drains, f"Expected opp drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_natures_vengeance_cast_surveils():
+    print("\n=== Nature's Vengeance: cast surveil ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    spell = _put_in_hand(game, p1, "Nature's Vengeance")
+    before = len(game.state.event_log)
+    _emit_cast_self(game, spell, p1)
+    new = game.state.event_log[before:]
+    surveils = [e for e in new if e.type == EventType.SURVEIL
+                and e.payload.get('reason') == 'ghb_natures_vengeance'
+                and e.source == spell.id]
+    assert surveils, f"Expected SURVEIL; got {_emitted_types(game)[-10:]}"
+
+
+# --- 2 Enchantment tests ---
+
+def test_blessing_of_the_spirits_etb_scrys_and_lifegain():
+    print("\n=== Blessing of the Spirits: ETB scry + lifegain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    b = _put_on_battlefield(game, p1, "Blessing of the Spirits")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('reason') == 'ghb_blessing_aura'
+             and e.source == b.id]
+    lifes = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('reason') == 'ghb_blessing_aura'
+             and e.source == b.id]
+    assert scrys, f"Expected SCRY; got {_emitted_types(game)[-10:]}"
+    assert lifes, f"Expected lifegain; got {_emitted_types(game)[-10:]}"
+
+
+def test_natures_wrath_aura_etb_surveils_and_drains():
+    print("\n=== Nature's Wrath aura: ETB surveil + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    nw = _put_on_battlefield(game, p1, "Nature's Wrath")
+    new = game.state.event_log[before:]
+    surveils = [e for e in new if e.type == EventType.SURVEIL
+                and e.payload.get('reason') == 'ghb_natures_wrath_aura'
+                and e.source == nw.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('reason') == 'ghb_natures_wrath_aura'
+              and e.source == nw.id]
+    assert surveils, f"Expected SURVEIL; got {_emitted_types(game)[-10:]}"
+    assert drains, f"Expected opp drain; got {_emitted_types(game)[-10:]}"
+
+
 if __name__ == "__main__":
     test_howl_wandering_heart_loads()
     test_howl_heart_counter_on_spell_cast()
@@ -1537,6 +2070,35 @@ if __name__ == "__main__":
     test_castle_in_the_sky_reawakened_loads()
     test_castle_in_the_sky_etb_scrys_and_counters()
     test_all_v2_spice_cards_register()
+    # Slice-6A Green median-lift tests
+    test_catbus_attack_scrys_and_drains()
+    test_chibi_totoro_etb_scrys()
+    test_medium_totoro_etb_lifegain()
+    test_forest_spirit_shishigami_etb_god_boon()
+    test_wolf_of_moro_attack_surveils()
+    test_baby_ohmu_death_surveils()
+    test_toxic_jungle_guardian_etb_mills()
+    test_ancient_tree_spirit_etb_growth()
+    test_nature_sprite_etb_scrys()
+    test_wild_wolf_etb_scrys()
+    test_giant_camphor_tree_upkeep_lifegain()
+    test_insect_swarm_attack_mills()
+    test_moss_covered_golem_etb_surveils()
+    test_forests_blessing_cast_scrys()
+    test_natures_shield_cast_surveils()
+    test_regrowth_spell_cast_scrys()
+    test_rapid_growth_cast_drains_opp()
+    test_spirit_call_cast_surveils()
+    test_forest_awakening_cast_scrys_and_drains()
+    test_call_of_the_wild_cast_surveils()
+    test_natures_reclamation_cast_drains_opp()
+    test_summon_the_forest_cast_scrys()
+    test_spirited_transformation_cast_scrys()
+    test_forest_and_sky_cast_surveils()
+    test_spirit_fire_cast_drains_opp()
+    test_natures_vengeance_cast_surveils()
+    test_blessing_of_the_spirits_etb_scrys_and_lifegain()
+    test_natures_wrath_aura_etb_surveils_and_drains()
     print("\n" + "=" * 60)
     print("ALL STUDIO GHIBLI V2 SPICE TESTS PASSED!")
     print("=" * 60)

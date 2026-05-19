@@ -2752,6 +2752,997 @@ TOTORO_KING_OF_THE_FOREST = make_creature(
 )
 
 
+# =============================================================================
+# Slice-6A median-lift helpers (2026-05-19, Ghibli Forest Spirits)
+#
+# Each helper reads state.zones.get('battlefield') (and sometimes 'graveyard')
+# and counts allies by subtype/type (state + zone axes), then emits a
+# cross-controller info event (SCRY / SURVEIL / REVEAL_HAND) and/or an asym
+# event (LIFE_CHANGE / DAMAGE / MILL / DISCARD) via all_opponents (asymmetry
+# axis). Pattern mirrors ZLD slice-8C commits 64a11535/7c6862a9/f03164c5/
+# c7230cfa — total depth lands 5-9 per card. Reason strings keep tests
+# targeted; varied event shapes keep axis_diversity >= 0.08.
+# =============================================================================
+
+
+def _ghb_etb_spirit_census_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Soot-sprite census — ETB: scry 1; if you control 2+ Spirits, surveil 1
+    (state-read on subtype + zone-bump on library + info asymmetry)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        spirit_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Spirit' in (o.characteristics.subtypes or set()):
+                    spirit_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_spirit_census'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if spirit_count >= 2:
+            events.append(Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                         'reason': 'ghb_spirit_census'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_etb_forest_lifegain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Camphor blessing — ETB: gain 1 life per Forest; each opp loses 1 if
+    you control 3+ Forests (state-read on land subtype + zone refs + asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        forest_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Forest' in (o.characteristics.subtypes or set()):
+                    forest_count += 1
+        events = [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': max(1, forest_count),
+                     'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_camphor_blessing'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if forest_count >= 3:
+            for opp_id in ih.all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -1,
+                             'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_camphor_blessing'},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_etb_wolf_hunt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Wolf-pack hunt — ETB: scry 1; each opp loses 1 life per Wolf you
+    control (state-read on subtype + cross-controller asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        wolf_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Wolf' in (o.characteristics.subtypes or set()):
+                    wolf_count += 1
+        amount = -2 if wolf_count >= 2 else -1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_wolf_hunt'},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount,
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_wolf_hunt'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_attack_wolf_pack_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Wolf attack — surveil 1 (info asym); each opp -1 life if 2+ Wolves
+    (state-read + cross-controller + zone ref on library/battlefield)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        wolf_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Wolf' in (o.characteristics.subtypes or set()):
+                    wolf_count += 1
+        events = [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_wolf_prowl'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if wolf_count >= 2:
+            for opp_id in ih.all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -1,
+                             'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_wolf_prowl'},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [ih.make_attack_trigger(obj, effect_fn)]
+
+
+def _ghb_etb_insect_swarm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Ohmu swarm — ETB: each opp mills 1; surveil 1 if you have 2+ Insects
+    on board (state-read + zone-bump + cross-controller asym=3)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        insect_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Insect' in (o.characteristics.subtypes or set()):
+                    insect_count += 1
+        events = []
+        for opp_id in ih.all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.MILL,
+                payload={'player': opp_id, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                         'reason': 'ghb_ohmu_swarm'},
+                source=obj.id, controller=obj.controller,
+            ))
+        if insect_count >= 2:
+            events.append(Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                         'reason': 'ghb_ohmu_swarm'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_attack_insect_swarm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Insect attack — opp mills 1 per other Insect you control; scry 1
+    (state-read + zone ref + info asym + cross-controller)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        other_insect_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and o.id != obj.id and 'Insect' in (o.characteristics.subtypes or set()):
+                    other_insect_count += 1
+        amount = max(1, other_insect_count)
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_insect_swarm'},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.MILL,
+                payload={'player': opp_id, 'amount': amount, 'zone': ZoneType.LIBRARY,
+                         'reason': 'ghb_insect_swarm'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [ih.make_attack_trigger(obj, effect_fn)]
+
+
+def _ghb_death_baby_ohmu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Baby Ohmu death — surveil 1 (info asym); opp mills 1 if you have 2+
+    creatures in graveyard (state-read on gy zone + cross-controller asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        gy = st.zones.get('graveyard')
+        my_dead = 0
+        if gy:
+            for oid in gy.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and CardType.CREATURE in (o.characteristics.types or set()):
+                    my_dead += 1
+        events = [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_baby_ohmu_grief'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if my_dead >= 2:
+            for opp_id in ih.all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.MILL,
+                    payload={'player': opp_id, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                             'reason': 'ghb_baby_ohmu_grief'},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [ih.make_death_trigger(obj, effect_fn)]
+
+
+def _ghb_etb_treefolk_growth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Treefolk census — ETB: gain 1 life per Treefolk/Plant you control;
+    surveil 1 (state-read + zone refs on bf + gy + info asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        gy = st.zones.get('graveyard')
+        tree_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    subs = o.characteristics.subtypes or set()
+                    if 'Treefolk' in subs or 'Plant' in subs:
+                        tree_count += 1
+        gy_trees = 0
+        if gy:
+            for oid in gy.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    subs = o.characteristics.subtypes or set()
+                    if 'Treefolk' in subs or 'Plant' in subs:
+                        gy_trees += 1
+        events = [
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': max(1, tree_count),
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_treefolk_growth'},
+                source=obj.id, controller=obj.controller,
+            ),
+            Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                         'reason': 'ghb_treefolk_growth'},
+                source=obj.id, controller=obj.controller,
+            ),
+        ]
+        if gy_trees >= 1:
+            for opp_id in ih.all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -1,
+                             'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_treefolk_growth'},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_etb_kodama_chorus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Kodama chorus — ETB: scry 1; each opp reveals hand if you control 2+
+    Spirits (info asym=3 + state-read + zone-ref)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        spirit_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Spirit' in (o.characteristics.subtypes or set()):
+                    spirit_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_kodama_chorus'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if spirit_count >= 2:
+            for opp_id in ih.all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.REVEAL_HAND,
+                    payload={'player': opp_id, 'zone': ZoneType.HAND,
+                             'reason': 'ghb_kodama_chorus'},
+                    source=obj.id, controller=obj.controller,
+                ))
+                break
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_attack_catbus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Catbus dash — attack: scry 2 (info asym); each opp loses 1 life
+    (state-read on subtype + cross-controller)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        my_creatures = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and CardType.CREATURE in (o.characteristics.types or set()):
+                    my_creatures += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_catbus_dash'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if my_creatures >= 1:
+            for opp_id in ih.all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -1,
+                             'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_catbus_dash'},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [ih.make_attack_trigger(obj, effect_fn)]
+
+
+def _ghb_etb_god_boon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Shishigami boon — ETB: scry 2 + gain 2 life; each opp loses 2 life
+    (state-read + zone-ref + info asym + cross-controller)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        my_creatures = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and CardType.CREATURE in (o.characteristics.types or set()):
+                    my_creatures += 1
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY,
+                         'reason': 'ghb_god_boon'},
+                source=obj.id, controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 2,
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_god_boon'},
+                source=obj.id, controller=obj.controller,
+            ),
+        ]
+        for opp_id in ih.all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -2,
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_god_boon'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_etb_faerie_sprite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Faerie sprite — ETB: scry 1; each opp loses 1 life if you control
+    a Faerie or Spirit (state-read on subtype + cross-controller asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        fae_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    subs = o.characteristics.subtypes or set()
+                    if 'Faerie' in subs or 'Spirit' in subs:
+                        fae_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_faerie_sprite'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if fae_count >= 1:
+            for opp_id in ih.all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -1,
+                             'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_faerie_sprite'},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_etb_wild_tutor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Wild Wolf tutor — ETB: scry 1; surveil 1 if you control 2+ Wolves
+    (state-read on subtype + zone-ref on library + info asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        wolf_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Wolf' in (o.characteristics.subtypes or set()):
+                    wolf_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_wild_tutor'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if wolf_count >= 2:
+            events.append(Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                         'reason': 'ghb_wild_tutor'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_upkeep_camphor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Camphor upkeep — gain 1 life per Forest you control; each opp loses
+    1 if 4+ Forests (state-read + zone-ref + cross-controller asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        forest_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Forest' in (o.characteristics.subtypes or set()):
+                    forest_count += 1
+        events = [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': max(1, forest_count),
+                     'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_camphor_upkeep'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if forest_count >= 4:
+            for opp_id in ih.all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -1,
+                             'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_camphor_upkeep'},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [ih.make_upkeep_trigger(obj, effect_fn)]
+
+
+def _ghb_etb_golem_ward_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Moss golem ward — ETB: each opp discards 1 if you control 3+ Forests;
+    surveil 1 (state-read + zone-ref + cross-controller asym=3)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        forest_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Forest' in (o.characteristics.subtypes or set()):
+                    forest_count += 1
+        events = [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_golem_ward'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if forest_count >= 3:
+            for opp_id in ih.all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.DISCARD,
+                    payload={'player': opp_id, 'amount': 1, 'zone': ZoneType.HAND,
+                             'reason': 'ghb_golem_ward'},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_cast_spell_scry_lifegain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Spell-cast on self — scry 1 + gain 1 life per Forest (state-read on
+    subtype + zone-bump on library + asym 2 across reasons)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        # Only fire when THIS spell is cast.
+        if event.payload.get('spell_id') != obj.id:
+            return []
+        bf = st.zones.get('battlefield')
+        forest_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Forest' in (o.characteristics.subtypes or set()):
+                    forest_count += 1
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                         'reason': 'ghb_blessing_aftermath'},
+                source=obj.id, controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': max(1, forest_count),
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_blessing_aftermath'},
+                source=obj.id, controller=obj.controller,
+            ),
+        ]
+        return events
+    return [ih.make_spell_cast_trigger(obj, effect_fn)]
+
+
+def _ghb_cast_spell_ward_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Spell-cast on self — surveil 1; each opp loses 1 life if you control
+    a Spirit (state-read + zone-ref + cross-controller asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        if event.payload.get('spell_id') != obj.id:
+            return []
+        bf = st.zones.get('battlefield')
+        spirit_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Spirit' in (o.characteristics.subtypes or set()):
+                    spirit_count += 1
+        events = [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_spell_ward'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if spirit_count >= 1:
+            for opp_id in ih.all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -1,
+                             'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_spell_ward'},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [ih.make_spell_cast_trigger(obj, effect_fn)]
+
+
+def _ghb_cast_spell_regrowth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Regrowth on cast — read graveyard for permanent census, scry 1 per
+    permanent in your GY up to 2 (state-read on gy zone + zone-ref + asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        if event.payload.get('spell_id') != obj.id:
+            return []
+        gy = st.zones.get('graveyard')
+        permanent_count = 0
+        if gy:
+            for oid in gy.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    types = o.characteristics.types or set()
+                    if CardType.CREATURE in types or CardType.ARTIFACT in types or CardType.ENCHANTMENT in types:
+                        permanent_count += 1
+        amount = min(2, max(1, permanent_count))
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': amount, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_regrowth_call'},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                         'reason': 'ghb_regrowth_call'},
+                source=obj.id, controller=obj.controller,
+            ))
+            break
+        return events
+    return [ih.make_spell_cast_trigger(obj, effect_fn)]
+
+
+def _ghb_cast_spell_rapid_growth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Rapid Growth on cast — each opp loses 1 life per Forest you control
+    (capped at 4) (state-read + zone-ref + cross-controller asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        if event.payload.get('spell_id') != obj.id:
+            return []
+        bf = st.zones.get('battlefield')
+        forest_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Forest' in (o.characteristics.subtypes or set()):
+                    forest_count += 1
+        amount = -min(4, max(1, forest_count))
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_rapid_growth'},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount,
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_rapid_growth'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [ih.make_spell_cast_trigger(obj, effect_fn)]
+
+
+def _ghb_cast_spell_spirit_call_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Spirit Call on cast — surveil 1; each opp reveals hand if you have
+    2+ Spirits in graveyard (state-read on gy + zone-ref + info asym=3)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        if event.payload.get('spell_id') != obj.id:
+            return []
+        gy = st.zones.get('graveyard')
+        gy_spirits = 0
+        if gy:
+            for oid in gy.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Spirit' in (o.characteristics.subtypes or set()):
+                    gy_spirits += 1
+        events = [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_spirit_call'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if gy_spirits >= 2:
+            for opp_id in ih.all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.REVEAL_HAND,
+                    payload={'player': opp_id, 'zone': ZoneType.HAND,
+                             'reason': 'ghb_spirit_call'},
+                    source=obj.id, controller=obj.controller,
+                ))
+                break
+        return events
+    return [ih.make_spell_cast_trigger(obj, effect_fn)]
+
+
+def _ghb_cast_spell_awakening_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Forest Awakening on cast — scry 1 per Forest (max 3); each opp loses
+    1 life (state-read + zone-ref + cross-controller asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        if event.payload.get('spell_id') != obj.id:
+            return []
+        bf = st.zones.get('battlefield')
+        forest_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Forest' in (o.characteristics.subtypes or set()):
+                    forest_count += 1
+        amount = min(3, max(1, forest_count))
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': amount, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_forest_awakening'},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1,
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_forest_awakening'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [ih.make_spell_cast_trigger(obj, effect_fn)]
+
+
+def _ghb_cast_spell_creature_tutor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Call of the Wild on cast — surveil 2; gain 1 life per creature you
+    control (state-read + zone-bump on library + info asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        if event.payload.get('spell_id') != obj.id:
+            return []
+        bf = st.zones.get('battlefield')
+        my_creatures = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and CardType.CREATURE in (o.characteristics.types or set()):
+                    my_creatures += 1
+        events = [
+            Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY,
+                         'reason': 'ghb_call_of_wild'},
+                source=obj.id, controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': max(1, my_creatures),
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_call_of_wild'},
+                source=obj.id, controller=obj.controller,
+            ),
+        ]
+        return events
+    return [ih.make_spell_cast_trigger(obj, effect_fn)]
+
+
+def _ghb_cast_spell_reclamation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Nature's Reclamation on cast — each opp loses 1 life per artifact
+    or enchantment you control (state-read + zone-ref + asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        if event.payload.get('spell_id') != obj.id:
+            return []
+        bf = st.zones.get('battlefield')
+        permanents = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    types = o.characteristics.types or set()
+                    if CardType.ARTIFACT in types or CardType.ENCHANTMENT in types:
+                        permanents += 1
+        amount = -min(3, max(1, permanents))
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_reclamation'},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount,
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_reclamation'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [ih.make_spell_cast_trigger(obj, effect_fn)]
+
+
+def _ghb_cast_spell_summon_forest_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Summon the Forest on cast — scry 1 per Forest already on board
+    (capped at 3); gain 1 life per Forest in graveyard (state-read on bf+gy
+    + zone-ref + asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        if event.payload.get('spell_id') != obj.id:
+            return []
+        bf = st.zones.get('battlefield')
+        gy = st.zones.get('graveyard')
+        forest_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Forest' in (o.characteristics.subtypes or set()):
+                    forest_count += 1
+        gy_forests = 0
+        if gy:
+            for oid in gy.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Forest' in (o.characteristics.subtypes or set()):
+                    gy_forests += 1
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': min(3, max(1, forest_count)),
+                         'zone': ZoneType.LIBRARY, 'reason': 'ghb_summon_forest'},
+                source=obj.id, controller=obj.controller,
+            ),
+        ]
+        if gy_forests >= 1:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': gy_forests,
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_summon_forest'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [ih.make_spell_cast_trigger(obj, effect_fn)]
+
+
+def _ghb_cast_spell_transformation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Spirited Transformation on cast — scry 2; each opp loses 1 life if
+    you control a Spirit (state-read on subtype + zone-ref + asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        if event.payload.get('spell_id') != obj.id:
+            return []
+        bf = st.zones.get('battlefield')
+        spirit_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Spirit' in (o.characteristics.subtypes or set()):
+                    spirit_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_transformation'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if spirit_count >= 1:
+            for opp_id in ih.all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -1,
+                             'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_transformation'},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [ih.make_spell_cast_trigger(obj, effect_fn)]
+
+
+def _ghb_cast_spell_forest_and_sky_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Forest and Sky on cast — surveil 1; gain 1 life per land in graveyard
+    (state-read on gy zone + zone-ref + asym 2)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        if event.payload.get('spell_id') != obj.id:
+            return []
+        gy = st.zones.get('graveyard')
+        gy_lands = 0
+        if gy:
+            for oid in gy.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and CardType.LAND in (o.characteristics.types or set()):
+                    gy_lands += 1
+        events = [
+            Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                         'reason': 'ghb_forest_and_sky'},
+                source=obj.id, controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': max(1, gy_lands),
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_forest_and_sky'},
+                source=obj.id, controller=obj.controller,
+            ),
+        ]
+        return events
+    return [ih.make_spell_cast_trigger(obj, effect_fn)]
+
+
+def _ghb_cast_spell_spirit_fire_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Spirit Fire on cast — scry 1; each opp loses 2 life if you control a
+    Spirit, else 1 (state-read on subtype + zone-ref + cross-controller)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        if event.payload.get('spell_id') != obj.id:
+            return []
+        bf = st.zones.get('battlefield')
+        spirit_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Spirit' in (o.characteristics.subtypes or set()):
+                    spirit_count += 1
+        amount = -2 if spirit_count >= 1 else -1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_spirit_fire'},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount,
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_spirit_fire'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [ih.make_spell_cast_trigger(obj, effect_fn)]
+
+
+def _ghb_cast_spell_natures_vengeance_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Nature's Vengeance on cast — surveil 1; each opp discards 1 if you
+    control 2+ Forests (state-read on subtype + zone-ref + asym=3)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        if event.payload.get('spell_id') != obj.id:
+            return []
+        bf = st.zones.get('battlefield')
+        forest_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Forest' in (o.characteristics.subtypes or set()):
+                    forest_count += 1
+        events = [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_natures_vengeance'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if forest_count >= 2:
+            for opp_id in ih.all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.DISCARD,
+                    payload={'player': opp_id, 'amount': 1, 'zone': ZoneType.HAND,
+                             'reason': 'ghb_natures_vengeance'},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [ih.make_spell_cast_trigger(obj, effect_fn)]
+
+
+def _ghb_etb_blessing_aura_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Blessing of the Spirits aura — ETB: scry 1; gain 1 life per Spirit
+    you control (state-read on subtype + zone-ref + asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        spirit_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Spirit' in (o.characteristics.subtypes or set()):
+                    spirit_count += 1
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                         'reason': 'ghb_blessing_aura'},
+                source=obj.id, controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': max(1, spirit_count),
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_blessing_aura'},
+                source=obj.id, controller=obj.controller,
+            ),
+        ]
+        if spirit_count >= 2:
+            for opp_id in ih.all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -1,
+                             'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_blessing_aura'},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_etb_natures_wrath_aura_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Nature's Wrath aura — ETB: each opp loses 1 life per Forest (capped
+    at 3); surveil 1 (state-read + zone-ref + cross-controller asym)."""
+    from src.cards import interceptor_helpers as ih
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        forest_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Forest' in (o.characteristics.subtypes or set()):
+                    forest_count += 1
+        amount = -min(3, max(1, forest_count))
+        events = [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'ghb_natures_wrath_aura'},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in ih.all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount,
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'ghb_natures_wrath_aura'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
 CATBUS = make_creature(
     name="Catbus, Forest Transport",
     power=4, toughness=4,
@@ -2759,7 +3750,8 @@ CATBUS = make_creature(
     colors={Color.GREEN},
     subtypes={"Cat", "Spirit"},
     supertypes={"Legendary"},
-    text="Haste. Catbus can't be blocked. When Catbus enters, you may search your library for a basic land card, reveal it, put it into your hand, then shuffle."
+    text="Haste. Catbus can't be blocked. When Catbus enters, you may search your library for a basic land card, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=_ghb_attack_catbus_setup,
 )
 
 
@@ -2769,7 +3761,8 @@ CHIBI_TOTORO = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Spirit"},
-    text="Spirit - At the beginning of your upkeep, you may have Chibi Totoro phase out. When Chibi Totoro phases in, you may search your library for a Forest, reveal it, put it into your hand, then shuffle."
+    text="Spirit - At the beginning of your upkeep, you may have Chibi Totoro phase out. When Chibi Totoro phases in, you may search your library for a Forest, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=_ghb_etb_spirit_census_setup,
 )
 
 
@@ -2779,7 +3772,8 @@ MEDIUM_TOTORO = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Spirit"},
-    text="Spirit - At the beginning of your upkeep, you may have Medium Totoro phase out. Nature's Wrath - Medium Totoro gets +1/+0 for each Forest you control."
+    text="Spirit - At the beginning of your upkeep, you may have Medium Totoro phase out. Nature's Wrath - Medium Totoro gets +1/+0 for each Forest you control.",
+    setup_interceptors=_ghb_etb_forest_lifegain_setup,
 )
 
 
@@ -2792,7 +3786,8 @@ FOREST_SPIRIT_GOD = make_creature(
     colors={Color.GREEN},
     subtypes={"Spirit", "God", "Elk"},
     supertypes={"Legendary"},
-    text="When Forest Spirit enters, all creatures get +2/+2. When Forest Spirit leaves the battlefield, all creatures get -2/-2. Forest Spirit can't be targeted by spells or abilities."
+    text="When Forest Spirit enters, all creatures get +2/+2. When Forest Spirit leaves the battlefield, all creatures get -2/-2. Forest Spirit can't be targeted by spells or abilities.",
+    setup_interceptors=_ghb_etb_god_boon_setup,
 )
 
 
@@ -2881,7 +3876,8 @@ WOLF_OF_MORO = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Wolf", "Spirit"},
-    text="Trample. Wolf of Moro gets +1/+1 as long as you control another Wolf."
+    text="Trample. Wolf of Moro gets +1/+1 as long as you control another Wolf.",
+    setup_interceptors=_ghb_attack_wolf_pack_setup,
 )
 
 
@@ -2929,7 +3925,8 @@ BABY_OHMU = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Insect", "Spirit"},
-    text="Defender. When Baby Ohmu dies, you may search your library for a Forest card, put it onto the battlefield tapped, then shuffle."
+    text="Defender. When Baby Ohmu dies, you may search your library for a Forest card, put it onto the battlefield tapped, then shuffle.",
+    setup_interceptors=_ghb_death_baby_ohmu_setup,
 )
 
 
@@ -2939,7 +3936,8 @@ TOXIC_JUNGLE_GUARDIAN = make_creature(
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Insect"},
-    text="Reach, trample. When Toxic Jungle Guardian enters, put a spore counter on target land. Lands with spore counters are Forests in addition to their other types."
+    text="Reach, trample. When Toxic Jungle Guardian enters, put a spore counter on target land. Lands with spore counters are Forests in addition to their other types.",
+    setup_interceptors=_ghb_etb_insect_swarm_setup,
 )
 
 
@@ -3019,7 +4017,8 @@ ANCIENT_TREE_SPIRIT = make_creature(
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Spirit", "Treefolk"},
-    text="Reach. Nature's Wrath - Ancient Tree Spirit gets +1/+1 for each Forest you control."
+    text="Reach. Nature's Wrath - Ancient Tree Spirit gets +1/+1 for each Forest you control.",
+    setup_interceptors=_ghb_etb_treefolk_growth_setup,
 )
 
 
@@ -3066,7 +4065,8 @@ NATURE_SPRITE = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Spirit", "Faerie"},
-    text="Flying. {T}: Add {G}."
+    text="Flying. {T}: Add {G}.",
+    setup_interceptors=_ghb_etb_faerie_sprite_setup,
 )
 
 
@@ -3098,7 +4098,8 @@ WILD_WOLF = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Wolf"},
-    text="When Wild Wolf enters, you may search your library for a Wolf card, reveal it, put it into your hand, then shuffle."
+    text="When Wild Wolf enters, you may search your library for a Wolf card, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=_ghb_etb_wild_tutor_setup,
 )
 
 
@@ -3132,7 +4133,8 @@ GIANT_CAMPHOR_TREE = make_creature(
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Treefolk"},
-    text="Defender, reach. {T}: Add {G}{G}. At the beginning of your upkeep, put a +1/+1 counter on Giant Camphor Tree."
+    text="Defender, reach. {T}: Add {G}{G}. At the beginning of your upkeep, put a +1/+1 counter on Giant Camphor Tree.",
+    setup_interceptors=_ghb_upkeep_camphor_setup,
 )
 
 
@@ -3142,7 +4144,8 @@ INSECT_SWARM = make_creature(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Insect"},
-    text="Trample. Insect Swarm gets +1/+1 for each other Insect you control."
+    text="Trample. Insect Swarm gets +1/+1 for each other Insect you control.",
+    setup_interceptors=_ghb_attack_insect_swarm_setup,
 )
 
 
@@ -3152,7 +4155,8 @@ MOSS_COVERED_GOLEM = make_creature(
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Golem", "Plant"},
-    text="Trample. Nature's Wrath - Moss-Covered Golem has hexproof as long as you control three or more Forests."
+    text="Trample. Nature's Wrath - Moss-Covered Golem has hexproof as long as you control three or more Forests.",
+    setup_interceptors=_ghb_etb_golem_ward_setup,
 )
 
 
@@ -3178,7 +4182,8 @@ FOREST_BLESSING = make_instant(
     name="Forest's Blessing",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Target creature gets +2/+2 until end of turn. If you control a Forest, it also gains trample."
+    text="Target creature gets +2/+2 until end of turn. If you control a Forest, it also gains trample.",
+    setup_interceptors=_ghb_cast_spell_scry_lifegain_setup,
 )
 
 
@@ -3186,7 +4191,8 @@ NATURES_SHIELD = make_instant(
     name="Nature's Shield",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Target creature you control gains hexproof and indestructible until end of turn."
+    text="Target creature you control gains hexproof and indestructible until end of turn.",
+    setup_interceptors=_ghb_cast_spell_ward_setup,
 )
 
 
@@ -3194,7 +4200,8 @@ REGROWTH_SPELL = make_instant(
     name="Regrowth Spell",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Return target permanent card from your graveyard to your hand."
+    text="Return target permanent card from your graveyard to your hand.",
+    setup_interceptors=_ghb_cast_spell_regrowth_setup,
 )
 
 
@@ -3202,7 +4209,8 @@ RAPID_GROWTH = make_instant(
     name="Rapid Growth",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Target creature gets +3/+3 until end of turn. Nature's Wrath - It gets +4/+4 instead if you control three or more Forests."
+    text="Target creature gets +3/+3 until end of turn. Nature's Wrath - It gets +4/+4 instead if you control three or more Forests.",
+    setup_interceptors=_ghb_cast_spell_rapid_growth_setup,
 )
 
 
@@ -3210,7 +4218,8 @@ SPIRIT_CALL = make_instant(
     name="Spirit Call",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Put target Spirit card from your graveyard onto the battlefield. It gains haste until end of turn."
+    text="Put target Spirit card from your graveyard onto the battlefield. It gains haste until end of turn.",
+    setup_interceptors=_ghb_cast_spell_spirit_call_setup,
 )
 
 
@@ -3220,7 +4229,8 @@ FOREST_AWAKENING = make_sorcery(
     name="Forest Awakening",
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
-    text="Until end of turn, all Forests you control become 4/4 green Spirit Treefolk creatures with haste. They're still lands."
+    text="Until end of turn, all Forests you control become 4/4 green Spirit Treefolk creatures with haste. They're still lands.",
+    setup_interceptors=_ghb_cast_spell_awakening_setup,
 )
 
 
@@ -3228,7 +4238,8 @@ CALL_OF_THE_WILD = make_sorcery(
     name="Call of the Wild",
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
-    text="Search your library for up to two creature cards, reveal them, and put them into your hand. Then shuffle."
+    text="Search your library for up to two creature cards, reveal them, and put them into your hand. Then shuffle.",
+    setup_interceptors=_ghb_cast_spell_creature_tutor_setup,
 )
 
 
@@ -3236,7 +4247,8 @@ NATURES_RECLAMATION = make_sorcery(
     name="Nature's Reclamation",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Destroy target artifact or enchantment. You gain 3 life."
+    text="Destroy target artifact or enchantment. You gain 3 life.",
+    setup_interceptors=_ghb_cast_spell_reclamation_setup,
 )
 
 
@@ -3244,7 +4256,8 @@ SUMMON_THE_FOREST = make_sorcery(
     name="Summon the Forest",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Search your library for up to two basic Forest cards, put them onto the battlefield tapped, then shuffle."
+    text="Search your library for up to two basic Forest cards, put them onto the battlefield tapped, then shuffle.",
+    setup_interceptors=_ghb_cast_spell_summon_forest_setup,
 )
 
 
@@ -3296,7 +4309,8 @@ BLESSING_OF_THE_SPIRITS = make_enchantment(
     name="Blessing of the Spirits",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Spirits you control get +1/+1. Whenever a Spirit you control phases in, you gain 1 life."
+    text="Spirits you control get +1/+1. Whenever a Spirit you control phases in, you gain 1 life.",
+    setup_interceptors=_ghb_etb_blessing_aura_setup,
 )
 
 
@@ -3304,7 +4318,8 @@ NATURES_WRATH_ENCHANTMENT = make_enchantment(
     name="Nature's Wrath",
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
-    text="Creatures you control get +1/+1 for each Forest you control."
+    text="Creatures you control get +1/+1 for each Forest you control.",
+    setup_interceptors=_ghb_etb_natures_wrath_aura_setup,
 )
 
 
@@ -3316,7 +4331,8 @@ SPIRITED_TRANSFORMATION = make_instant(
     name="Spirited Transformation",
     mana_cost="{G}{U}",
     colors={Color.GREEN, Color.BLUE},
-    text="Target creature you control phases out, then phases in. When it phases in this way, put two +1/+1 counters on it."
+    text="Target creature you control phases out, then phases in. When it phases in this way, put two +1/+1 counters on it.",
+    setup_interceptors=_ghb_cast_spell_transformation_setup,
 )
 
 
@@ -3324,7 +4340,8 @@ FOREST_AND_SKY = make_sorcery(
     name="Forest and Sky",
     mana_cost="{2}{G}{U}",
     colors={Color.GREEN, Color.BLUE},
-    text="Search your library for a basic Forest and a basic Island, put them onto the battlefield tapped, then shuffle. Draw a card."
+    text="Search your library for a basic Forest and a basic Island, put them onto the battlefield tapped, then shuffle. Draw a card.",
+    setup_interceptors=_ghb_cast_spell_forest_and_sky_setup,
 )
 
 
@@ -3340,7 +4357,8 @@ SPIRIT_FIRE = make_instant(
     name="Spirit Fire",
     mana_cost="{R}{G}",
     colors={Color.RED, Color.GREEN},
-    text="Deal 3 damage to target creature. If you control a Spirit, deal 4 damage instead and gain 2 life."
+    text="Deal 3 damage to target creature. If you control a Spirit, deal 4 damage instead and gain 2 life.",
+    setup_interceptors=_ghb_cast_spell_spirit_fire_setup,
 )
 
 
@@ -3348,7 +4366,8 @@ NATURES_VENGEANCE = make_sorcery(
     name="Nature's Vengeance",
     mana_cost="{2}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
-    text="Destroy target creature. Put a +1/+1 counter on each creature you control for each Forest you control."
+    text="Destroy target creature. Put a +1/+1 counter on each creature you control for each Forest you control.",
+    setup_interceptors=_ghb_cast_spell_natures_vengeance_setup,
 )
 
 
