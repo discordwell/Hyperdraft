@@ -3531,11 +3531,54 @@ ADVANCED_ODM_GEAR = make_equipment(
 )
 
 
+# --- Thunder Spear: Helper-5 rewire (combat damage to Titan → destroy) -----
+# Static +2/+0 plus a granted triggered ability that watches DAMAGE events
+# sourced by the attached creature where target is a Titan and combat=True.
+def _thunder_spear_combat_damage_to_titan_filter(
+    event: Event, state: GameState, target_id: str
+) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    tgt_id = event.payload.get('target')
+    if not tgt_id or tgt_id in state.players:
+        return False
+    tgt_obj = state.objects.get(tgt_id)
+    if tgt_obj is None or tgt_obj.characteristics is None:
+        return False
+    return 'Titan' in (tgt_obj.characteristics.subtypes or set())
+
+
+def _thunder_spear_destroy_titan_effect(
+    target_obj: GameObject, event: Event, state: GameState
+) -> list[Event]:
+    titan_id = event.payload.get('target')
+    if not titan_id:
+        return []
+    return [Event(
+        type=EventType.DESTROY,
+        payload={'object_id': titan_id, 'reason': 'thunder_spear_titan_buster'},
+        source=target_obj.id,
+    )]
+
+
 THUNDER_SPEAR = make_equipment(
     name="Thunder Spear",
     mana_cost="{2}",
     text="Equipped creature gets +2/+0. Whenever equipped creature deals combat damage to a Titan, destroy that Titan.",
-    equip_cost="{1}"
+    equip_cost="{1}",
+    setup_interceptors=ih.make_equipment_setup(
+        power_mod=2, toughness_mod=0,
+        equip_cost="{1}",
+        granted_triggered_abilities={
+            "event_filter": _thunder_spear_combat_damage_to_titan_filter,
+            "effect_fn": _thunder_spear_destroy_titan_effect,
+            "description": "Combat damage to Titan → destroy that Titan",
+        },
+    ),
 )
 
 
