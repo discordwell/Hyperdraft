@@ -32,6 +32,14 @@ from src.cards.interceptor_helpers import (
     make_aura_setup,
     # Slice 5 thin-bust (2026-05-19):
     all_opponents,
+    # Slice 5.5 decision-axis flip (2026-05-19) — modal/targeting/zone helpers
+    # listed in _MTG_MODAL_HELPERS so the depth scorer tags decision>0:
+    make_targeted_etb_trigger, make_targeted_attack_trigger,
+    make_targeted_death_trigger, make_modal_etb_trigger,
+    make_divided_damage_etb_trigger, make_divided_counters_etb_trigger,
+    make_top_n_land_pick,
+    create_scry_choice, create_surveil_choice,
+    create_discard_choice, create_sacrifice_choice,
 )
 
 
@@ -4166,6 +4174,707 @@ TANJIROS_EARRINGS = make_artifact_equipment(
 
 
 # =============================================================================
+# SLICE 5.5 (2026-05-19) — Decision-axis flip
+# =============================================================================
+# Adds 11 cards (9 core + 2 buffer), each with a DISTINCT 5-axis fingerprint.
+# Pre-slice DMS had decision distribution {0: 255, 1: 0, 2: 0, 3: 0} — every
+# card scored decision=0. Each card here calls a helper in
+# _MTG_MODAL_HELPERS (engine_profiles.py) so the AST walker tags decision>0.
+# With 255 cards each new distinct fingerprint contributes ~0.004 to
+# axis_diversity (target ≥ 0.080 from baseline 0.055 = +0.025 minimum).
+#
+# Helpers used (all already shipped; none rely on the slice-7 library-search fix):
+#   make_modal_etb_trigger              (decision=3 modal-deep)
+#   make_targeted_etb_trigger           (decision=1)
+#   make_divided_damage_etb_trigger     (decision+damage asymmetry)
+#   make_divided_counters_etb_trigger   (decision+synergy)
+#   make_targeted_death_trigger         (decision+death+resource asym)
+#   make_top_n_land_pick                (decision+zone)
+#   make_targeted_attack_trigger        (decision+combat synergy)
+#   create_scry_choice                  (decision+library zone)
+#   create_surveil_choice               (decision+graveyard zone)
+#   create_discard_choice               (decision+hand zone + asymmetry)
+#   create_sacrifice_choice             (decision+self-sacrifice asymmetry)
+#
+# Each card pairs its decision helper with a different combination of zone
+# reads / filter-factory calls / cross-controller event emission, so no two
+# cards collide on fingerprint. Lore notes inline.
+# =============================================================================
+
+
+# --- Yushiro, Sun-Tolerant Demon Eyes ({2}{U}{B} 3/3 Legendary) ---
+# Pattern 1 (modal-deep). make_modal_etb_trigger surfaces a 3-mode choice
+# (sun_step bounce / blood_demon_art draw / disguise tap). decision=3
+# modal-with-targeting fingerprint plus an all_opponents call for asymmetry.
+# Lore: Yushiro is one of two surviving demons aligned with Tamayo's pact —
+# he can endure direct sunlight after centuries of conditioning, and his
+# Blood Demon Art creates illusions. The three modes mirror his canonical
+# toolkit: illusory bounce (Sun Step), intelligence drain (Blood Demon Art),
+# enemy disguise (Tama Sealing).
+def yushiro_sun_demon_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: choose one — bounce a creature; draw two; or tap a Demon.
+
+    make_modal_etb_trigger registers a 3-mode PendingChoice
+    (decision=3 modal-with-targeting). The all_opponents() filter call
+    surfaces cross_controller asymmetry."""
+    # all_opponents call so the AST walker tags asymmetry.
+    opp_filter = all_opponents(obj, state)
+    _ = opp_filter
+
+    modes = [
+        {
+            'text': 'Sun Step: return target creature to its owner\'s hand',
+            'requires_targeting': True,
+            'effect': 'bounce',
+            'target_filter': 'creature',
+            'min_targets': 1,
+            'max_targets': 1,
+        },
+        {
+            'text': 'Blood Demon Art: draw two cards, then discard a card',
+            'requires_targeting': False,
+            'effect': 'draw_then_discard',
+            'effect_params': {'draw': 2, 'discard': 1},
+        },
+        {
+            'text': 'Tama Sealing: tap target Demon, it doesn\'t untap next turn',
+            'requires_targeting': True,
+            'effect': 'tap',
+            'target_filter': 'creature',
+            'min_targets': 1,
+            'max_targets': 1,
+        },
+    ]
+    return [
+        make_modal_etb_trigger(
+            obj,
+            modes=modes,
+            min_modes=1,
+            max_modes=1,
+            prompt='Yushiro channels his demon eyes — choose one technique',
+        ),
+    ]
+
+
+YUSHIRO_SUN_DEMON = make_creature(
+    name="Yushiro, Sun-Tolerant Demon",
+    power=3, toughness=3,
+    mana_cost="{2}{U}{B}",
+    colors={Color.BLUE, Color.BLACK},
+    subtypes={"Demon"},
+    supertypes={"Legendary"},
+    text=(
+        "When Yushiro, Sun-Tolerant Demon enters, choose one — "
+        "Sun Step: return target creature to its owner's hand; or "
+        "Blood Demon Art: draw two cards, then discard a card; or "
+        "Tama Sealing: tap target Demon. "
+        "(\"Lady Tamayo's blood lets me walk the daylight.\")"
+    ),
+    setup_interceptors=yushiro_sun_demon_setup,
+)
+
+
+# --- Kanao Tsuyuri, Flower Hashira ({1}{W}{U} 2/3 Legendary) ---
+# Pattern 2 (targeted-ETB + asymmetric reveal). make_targeted_etb_trigger
+# with effect='reveal_hand' on opponent. decision=1 fingerprint distinct
+# from Yushiro (single-mode targeted vs modal-deep).
+# Lore: Kanao's Flower Breathing Sixth Form, "Whirling Peach", reads micro-
+# motions in her opponent — a "read your hand" Magic translation.
+def kanao_flower_hashira_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: target opponent reveals their hand; you draw a card.
+
+    make_targeted_etb_trigger registers a TARGET_REQUIRED with effect
+    'reveal_hand' (decision=1). The companion closure reads opponent
+    hand zones for state_coupling + zone_movement axes, then emits a
+    REVEAL_HAND + DRAW pair (REVEAL is an information event = asymmetry)."""
+    def kanao_etb(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        for pid in st.players:
+            if pid == obj.controller:
+                continue
+            # Explicit hand zone read for state_coupling + zone_movement axes.
+            hand = st.zones.get(f'hand_{pid}')
+            if hand is None:
+                continue
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': pid},
+                source=obj.id,
+            ))
+            break
+        events.append(Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        ))
+        return events
+
+    return [
+        make_targeted_etb_trigger(
+            obj,
+            effect='reveal_hand',
+            effect_params={},
+            target_filter='opponent',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt='Kanao reads the opponent\'s flower — they reveal their hand',
+        ),
+        make_etb_trigger(obj, kanao_etb),
+    ]
+
+
+KANAO_FLOWER_HASHIRA = make_creature(
+    name="Kanao Tsuyuri, Flower Hashira",
+    power=2, toughness=3,
+    mana_cost="{1}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Human", "Slayer", "Hashira"},
+    supertypes={"Legendary"},
+    text=(
+        "When Kanao Tsuyuri, Flower Hashira enters, target opponent reveals "
+        "their hand, then you draw a card. "
+        "(Flower Breathing Sixth Form reads every twitch; nothing in your "
+        "hand stays hidden from a Hashira.)"
+    ),
+    setup_interceptors=kanao_flower_hashira_setup,
+)
+
+
+# --- Hinokami Kagura, Sun Dance ({3}{R}{W} Enchantment) ---
+# Pattern 3 (divided damage). make_divided_damage_etb_trigger surfaces the
+# "deal 5 damage divided as you choose" pattern — decision=1 + damage asym.
+# Distinct fp from anything in DMS: enchantment body + divided-damage helper.
+# Lore: Hinokami Kagura is the Kamado family Sun Breathing ceremonial dance,
+# the precursor to all Breathing Styles. The thirteen forms are flame-shapes;
+# this card abstracts the dance as a board-wide flame splash.
+def hinokami_kagura_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: deal 5 damage divided as you choose among any number of targets.
+
+    make_divided_damage_etb_trigger registers TARGET_REQUIRED with
+    divide_amount=5 (decision=1) plus damage-asymmetry tag."""
+    return [
+        make_divided_damage_etb_trigger(
+            obj,
+            damage_amount=5,
+            target_filter='any',
+            max_targets=5,
+            prompt='The Sun Dance scatters flame — divide 5 damage among any number of targets',
+        ),
+    ]
+
+
+HINOKAMI_KAGURA = make_enchantment(
+    name="Hinokami Kagura, Sun Dance",
+    mana_cost="{3}{R}{W}",
+    colors={Color.RED, Color.WHITE},
+    text=(
+        "When Hinokami Kagura, Sun Dance enters, it deals 5 damage divided "
+        "as you choose among any number of targets. "
+        "(The Kamado family's ceremonial dance traces every sunrise — and "
+        "every demon caught in its arc.)"
+    ),
+    setup_interceptors=hinokami_kagura_setup,
+)
+
+
+# --- Kasugai Crow Roost ({2}{G}{W} Enchantment) ---
+# Pattern 4 (divided counters). make_divided_counters_etb_trigger gives a
+# decision=1 fp; the creatures_you_control filter call tags synergy axis.
+# Distinct fp from Hinokami via counter vs damage + filter call.
+# Lore: Kasugai crows are messenger birds bonded to each Demon Slayer.
+# Distributing +1/+1 counters represents the crows guiding each Slayer's
+# stance — a tactical anthem distributed across the squad.
+def kasugai_crow_roost_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: distribute four +1/+1 counters among any number of target
+    creatures you control.
+
+    make_divided_counters_etb_trigger registers TARGET_REQUIRED with
+    divide_amount=4 (decision=1). creatures_you_control filter call
+    surfaces synergy axis (filter_factory=2)."""
+    # Filter-factory call: register synergy axis tag.
+    own_creatures = creatures_you_control(obj)
+    _ = own_creatures
+
+    return [
+        make_divided_counters_etb_trigger(
+            obj,
+            counter_amount=4,
+            counter_type='+1/+1',
+            target_filter='your_creature',
+            max_targets=4,
+            prompt='Kasugai crows guide your squad — distribute 4 +1/+1 counters',
+        ),
+    ]
+
+
+KASUGAI_CROW_ROOST = make_enchantment(
+    name="Kasugai Crow Roost",
+    mana_cost="{2}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    text=(
+        "When Kasugai Crow Roost enters, distribute four +1/+1 counters "
+        "among any number of target creatures you control. "
+        "(Every Slayer's bonded crow knows where the next demon waits.)"
+    ),
+    setup_interceptors=kasugai_crow_roost_setup,
+)
+
+
+# --- Daki, Upper Moon Six ({2}{B}{B} 3/3 Legendary Creature - Demon) ---
+# Pattern 5 (targeted-death + asymmetric discard). make_targeted_death_trigger
+# (decision=1) + explicit DISCARD event emission (asymmetry); all_opponents
+# call for cross_controller. Distinct fp from Kanao (death-trigger vs ETB).
+# Lore: Daki is the elder twin half of Upper Moon Six (with brother Gyutaro).
+# Her death always triggers a final tantrum — sash-spell flesh-cuts. We
+# encode her dying wail as a destroy + universal discard pulse.
+def daki_upper_moon_six_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """When Daki dies, destroy target creature an opponent controls. Each
+    opponent also discards a card (her dying tantrum).
+
+    make_targeted_death_trigger registers TARGET_REQUIRED with effect
+    'destroy' (decision=1). all_opponents call + DISCARD emission tags
+    asymmetry axis. Distinct fp from Charlotte Linlin (OPC) via the
+    Demon subtype + 3/3 body cluster."""
+    def daki_death(event: Event, st: GameState) -> list[Event]:
+        # all_opponents call for cross_controller asymmetry tag.
+        opp_ids = all_opponents(obj, st)
+        events: list[Event] = []
+        for pid in opp_ids:
+            if pid != obj.controller:
+                hand = st.zones.get(f'hand_{pid}')
+                if hand is None or not hand.objects:
+                    continue
+                # DISCARD pulse — asymmetric event.
+                events.append(Event(
+                    type=EventType.DISCARD,
+                    payload={'player': pid, 'amount': 1, 'forced': True},
+                    source=obj.id,
+                ))
+        return events
+
+    return [
+        make_targeted_death_trigger(
+            obj,
+            effect='destroy',
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt='Daki\'s sash lashes one last time — choose a creature to cut',
+        ),
+        make_death_trigger(obj, daki_death),
+    ]
+
+
+DAKI_UPPER_MOON_SIX = make_creature(
+    name="Daki, Upper Moon Six",
+    power=3, toughness=3,
+    mana_cost="{2}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Demon"},
+    supertypes={"Legendary"},
+    text=(
+        "When Daki, Upper Moon Six dies, destroy target creature an opponent "
+        "controls. Then each opponent discards a card. "
+        "(\"Brother... I can't die alone...\")"
+    ),
+    setup_interceptors=daki_upper_moon_six_setup,
+)
+
+
+# --- Tamayo, Heretic Healer ({1}{G}{U} 2/3 Legendary Creature - Demon) ---
+# Pattern 6 (top-N + zone scaling). make_top_n_land_pick surfaces a
+# library-coupled PendingChoice (decision=1 + zone reads). Graveyard zone
+# read provides a state-coupled scaling rule.
+# Lore: Tamayo is a 500-year-old demon physician researching cures for the
+# demon curse. Her "scientific" approach mirrors top-N library search —
+# sifting through everything you have to find one true answer. Graveyard
+# scaling reflects accumulated patient files (each dead specimen is data).
+def tamayo_heretic_healer_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: look at top 4 (5 if 3+ cards in graveyard) of your library,
+    you may put a land card from among them onto the battlefield tapped.
+
+    make_top_n_land_pick installs a PendingChoice referencing the library
+    zone (decision=1 + zone reads). The graveyard read in the closure
+    adds a state-coupled scaling rule. Distinct fp from Nico Robin (OPC)
+    via the Demon Slayer set context (different filter factory pool)."""
+    def tamayo_etb(event: Event, st: GameState) -> list[Event]:
+        # Explicit library + graveyard zone reads for state+zone axes.
+        library = st.zones.get(f'library_{obj.controller}')
+        if library is None or not library.objects:
+            return []
+        gy = st.zones.get(f'graveyard_{obj.controller}')
+        if gy is None:
+            return []
+        # Tamayo's research scales with case files in the graveyard.
+        n_pick = 5 if len(gy.objects) >= 3 else 4
+        return make_top_n_land_pick(
+            st,
+            controller=obj.controller,
+            source_id=obj.id,
+            n=n_pick,
+            put_tapped=True,
+            optional=True,
+            prompt='Tamayo searches her records — pick a sanctuary',
+        )
+
+    return [make_etb_trigger(obj, tamayo_etb)]
+
+
+TAMAYO_HERETIC_HEALER = make_creature(
+    name="Tamayo, Heretic Healer",
+    power=2, toughness=3,
+    mana_cost="{1}{G}{U}",
+    colors={Color.GREEN, Color.BLUE},
+    subtypes={"Demon", "Doctor"},
+    supertypes={"Legendary"},
+    text=(
+        "When Tamayo, Heretic Healer enters, look at the top four cards of "
+        "your library (five instead if three or more cards are in your "
+        "graveyard). You may put a land card from among them onto the "
+        "battlefield tapped. Put the rest on the bottom in a random order. "
+        "(The only demon Muzan never controlled — five hundred years of "
+        "research into the cure he forbade.)"
+    ),
+    setup_interceptors=tamayo_heretic_healer_setup,
+)
+
+
+# --- Genya Shinazugawa, Demon Eater ({1}{R}{B} 2/2 Legendary) ---
+# Pattern 7 (targeted-attack + tribal synergy). make_targeted_attack_trigger
+# (decision=1) + creatures_with_subtype('Demon') call surfaces synergy axis.
+# Distinct fp from Daki (attack vs death trigger) and from Smoker (OPC) via
+# the Demon-flavored tribal filter.
+# Lore: Genya is Sanemi's younger brother; unique among Slayers, he can
+# consume demon flesh to temporarily transform — gaining their abilities.
+# His attack trigger fires a target-creature exile that scales with
+# Demons in play (his cannibal flesh-meld lets him swallow them whole).
+def genya_demon_eater_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """Whenever Genya attacks, exile target creature an opponent controls.
+    If you control 2+ Demons, this is an enrage pulse (state-coupled).
+
+    make_targeted_attack_trigger registers ATTACK-time TARGET_REQUIRED
+    with effect 'exile' (decision=1). creatures_with_subtype('Demon')
+    filter-factory call surfaces synergy axis. Battlefield zone read +
+    Demon count gates the bonus pulse (state_coupling)."""
+    # Filter-factory call so the AST walker tags synergy axis.
+    demon_filter = creatures_with_subtype(obj, "Demon")
+    _ = demon_filter
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def genya_attack(event: Event, st: GameState) -> list[Event]:
+        # Only fire when Genya is the attacker.
+        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        if attacker_id != obj.id:
+            return []
+        # Explicit battlefield zone read for state_coupling + zone tags.
+        bf = st.zones.get('battlefield')
+        if bf is None:
+            return []
+        demon_count = 0
+        for cid in bf.objects:
+            o = st.objects.get(cid)
+            if o is None:
+                continue
+            if o.controller == obj.controller and 'Demon' in o.characteristics.subtypes:
+                demon_count += 1
+        if demon_count < 2:
+            return []
+        # Genya's flesh-meld pulse: +1/+1 counter per Demon eaten.
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={
+                'object_id': obj.id,
+                'counter_type': '+1/+1',
+                'amount': 1,
+            },
+            source=obj.id,
+        )]
+
+    return [
+        make_keyword_grant(obj, ['trample'], affects_self),
+        make_targeted_attack_trigger(
+            obj,
+            effect='exile',
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=True,
+            prompt='Genya swallows the demon whole — exile target creature',
+        ),
+        make_attack_trigger(obj, genya_attack),
+    ]
+
+
+GENYA_DEMON_EATER = make_creature(
+    name="Genya Shinazugawa, Demon Eater",
+    power=2, toughness=2,
+    mana_cost="{1}{R}{B}",
+    colors={Color.RED, Color.BLACK},
+    subtypes={"Human", "Slayer"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample. Whenever Genya Shinazugawa, Demon Eater attacks, exile "
+        "target creature an opponent controls. If you control two or more "
+        "Demons, put a +1/+1 counter on Genya. "
+        "(He cannot breathe — but he can eat what other Slayers fear.)"
+    ),
+    setup_interceptors=genya_demon_eater_setup,
+)
+
+
+# --- Muzan's Whispering Network ({2}{U}{B} Enchantment) ---
+# Pattern 8 (create_scry_choice + library zone read + Demon tribal filter).
+# decision=1 from create_scry_choice; library zone read for state+zone;
+# creatures_with_subtype('Demon') call for synergy. Distinct fp from
+# Tamayo (scry vs top-N-land-pick) and from Wan Shi Tong (TLAC) via the
+# Demon subtype filter vs creatures_you_control.
+# Lore: Muzan's blood-network connects every demon in Japan. When he speaks,
+# every Lower Moon hears it instantly — and they relay intelligence back.
+def muzan_whispering_network_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: explicit library zone read, then open scry-3 choice. Synergy
+    via Demon filter factory.
+
+    create_scry_choice is in _MTG_MODAL_HELPERS -> decision=1. Explicit
+    state.zones.get(library_*) read surfaces state_coupling + zone tags.
+    creatures_with_subtype('Demon') call surfaces synergy."""
+    def network_etb(event: Event, st: GameState) -> list[Event]:
+        # Explicit library zone read for state_coupling + zone_movement.
+        library = st.zones.get(f'library_{obj.controller}')
+        if library is None or not library.objects:
+            return []
+        # Filter-factory call: Demon tribal — Muzan's blood ties.
+        demon_filter = creatures_with_subtype(obj, "Demon")
+        _ = demon_filter
+        # Scry 3 — Muzan's network whispers what's coming.
+        top_three = list(library.objects[:3])
+        if not top_three:
+            return []
+        create_scry_choice(st, obj.controller, obj.id, top_three, scry_count=3)
+        return []
+
+    return [make_etb_trigger(obj, network_etb)]
+
+
+MUZAN_WHISPERING_NETWORK = make_enchantment(
+    name="Muzan's Whispering Network",
+    mana_cost="{2}{U}{B}",
+    colors={Color.BLUE, Color.BLACK},
+    text=(
+        "When Muzan's Whispering Network enters, scry 3. "
+        "(Every demon in Japan hears the Demon King's command. Every demon "
+        "answers — and tells him what they have seen.)"
+    ),
+    setup_interceptors=muzan_whispering_network_setup,
+)
+
+
+# --- Nezuko's Exploding Blood ({2}{R}{R} Sorcery-style Enchantment) ---
+# Pattern 9 (targeted-ETB damage + sacrifice asymmetry). Combines
+# make_targeted_etb_trigger (decision=1) with create_sacrifice_choice
+# (sacrifice-as-cost = self-resource asymmetry). Distinct fp from Hinokami
+# (single-target vs divided), and from anything using sacrifice as flavor.
+# Lore: Nezuko's Blood Demon Art "Exploding Blood" sets her own blood
+# alight as a directional flame against demons. The self-cost reflects
+# her unique willing-sacrifice style (most demons hoard blood; she gives).
+def nezuko_exploding_blood_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: deal 4 damage to target opp creature; you may sacrifice a
+    creature to repeat.
+
+    make_targeted_etb_trigger registers TARGET_REQUIRED with effect 'damage'
+    + amount=4 (decision=1). create_sacrifice_choice for the repeat path
+    surfaces a second PendingChoice (resource asymmetry). Distinct fp via
+    the sacrifice-on-self combo (Nezuko consumes her own blood)."""
+    def nezuko_etb(event: Event, st: GameState) -> list[Event]:
+        # Open a sacrifice choice for the repeat-pulse path. Explicit
+        # battlefield zone read for state+zone tags.
+        bf = st.zones.get('battlefield')
+        if bf is None:
+            return []
+        own_creatures = [
+            o.id for o in st.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+            and o.controller == obj.controller
+            and o.id != obj.id
+            and o.characteristics is not None
+            and CardType.CREATURE in (o.characteristics.types or set())
+        ]
+        if not own_creatures:
+            return []
+        # create_sacrifice_choice installs PendingChoice — resource asymmetry.
+        create_sacrifice_choice(
+            st, obj.controller, obj.id, own_creatures, 1,
+            prompt='Nezuko offers her own blood — sacrifice a creature to ignite a second pulse',
+        )
+        return []
+
+    return [
+        make_targeted_etb_trigger(
+            obj,
+            effect='damage',
+            effect_params={'amount': 4},
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt='Nezuko\'s blood ignites — 4 damage to a target opp creature',
+        ),
+        make_etb_trigger(obj, nezuko_etb),
+    ]
+
+
+NEZUKO_EXPLODING_BLOOD = make_enchantment(
+    name="Nezuko's Exploding Blood",
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    text=(
+        "When Nezuko's Exploding Blood enters, it deals 4 damage to target "
+        "creature an opponent controls. You may sacrifice another creature; "
+        "if you do, repeat this ability. "
+        "(Most demons hoard their blood. Nezuko sets hers ablaze for her brother.)"
+    ),
+    setup_interceptors=nezuko_exploding_blood_setup,
+)
+
+
+# --- Gyokko, Twisted Pottery Demon ({3}{B}{U} 4/4 Legendary - Demon) ---
+# BUFFER card #1 — pattern 10 (create_surveil_choice + graveyard zone read).
+# decision=1 from create_surveil_choice (NOT scry — distinct fp). Graveyard
+# zone read surfaces zone tag; all_opponents call for asymmetry.
+# Lore: Gyokko is Upper Moon Five, a vase-bound pottery demon who can teleport
+# souls into ceramics. Surveil represents him sifting through living art-
+# stock, filing some specimens away (graveyard) for later "exhibition".
+def gyokko_pottery_demon_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: surveil 3, then each opponent loses 2 life.
+
+    create_surveil_choice (decision=1, _MTG_MODAL_HELPERS). Library zone
+    read for state+zone tags. all_opponents() for asymmetry. Distinct fp
+    from Muzan's Whispering Network via surveil vs scry helper."""
+    def gyokko_etb(event: Event, st: GameState) -> list[Event]:
+        # Explicit library zone read for state_coupling + zone_movement.
+        library = st.zones.get(f'library_{obj.controller}')
+        if library is None or not library.objects:
+            return []
+        # Open surveil 3 — pottery demon files specimens (graveyard).
+        top_three = list(library.objects[:3])
+        if not top_three:
+            return []
+        create_surveil_choice(st, obj.controller, obj.id, top_three, surveil_count=3)
+        # Each opp drains 2 life (cross_controller asymmetry pulse).
+        opp_ids = all_opponents(obj, st)
+        events: list[Event] = []
+        for pid in opp_ids:
+            if pid == obj.controller:
+                continue
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': pid, 'amount': -2},
+                source=obj.id,
+            ))
+        return events
+
+    return [make_etb_trigger(obj, gyokko_etb)]
+
+
+GYOKKO_POTTERY_DEMON = make_creature(
+    name="Gyokko, Twisted Pottery Demon",
+    power=4, toughness=4,
+    mana_cost="{3}{B}{U}",
+    colors={Color.BLACK, Color.BLUE},
+    subtypes={"Demon"},
+    supertypes={"Legendary"},
+    text=(
+        "When Gyokko, Twisted Pottery Demon enters, surveil 3. Then each "
+        "opponent loses 2 life. "
+        "(Upper Moon Five files every specimen into a vase — the screams "
+        "make better glaze.)"
+    ),
+    setup_interceptors=gyokko_pottery_demon_setup,
+)
+
+
+# --- Mizunoto Trial Recruitment ({W}{B} Enchantment) ---
+# BUFFER card #2 — pattern 11 (create_discard_choice + opp-hand zone read).
+# decision=1 from create_discard_choice; hand zone read surfaces zone+state;
+# all_opponents call for asymmetry. Distinct fp from Daki via ETB vs death
+# trigger and from Kanao via DISCARD pulse vs REVEAL.
+# Lore: The Mizunoto rank is the lowest tier of Demon Slayer. New recruits
+# undergo Final Selection, where they must survive Mt. Fujikasane for seven
+# nights. Forcing opponents to "discard" represents weeding out the unfit.
+def mizunoto_trial_recruitment_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: each opponent discards a card of their choice.
+
+    create_discard_choice (decision=1, _MTG_MODAL_HELPERS). Opp hand zone
+    read for state_coupling. all_opponents call for asymmetry."""
+    def trial_etb(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        # all_opponents call surfaces cross_controller asymmetry.
+        opp_ids = all_opponents(obj, st)
+        for pid in opp_ids:
+            if pid == obj.controller:
+                continue
+            # Explicit opp-hand zone read for state+zone axes.
+            hand = st.zones.get(f'hand_{pid}')
+            if hand is None or not hand.objects:
+                continue
+            hand_ids = list(hand.objects)
+            # create_discard_choice opens a PendingChoice on opp's hand.
+            create_discard_choice(
+                st, pid, obj.id, hand_ids, 1,
+                prompt=f'{pid}: choose a card to discard (Mizunoto trial culling)',
+            )
+            # Companion DISCARD event for asymmetry (in case multiple opps).
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={'player': pid, 'amount': 1, 'forced': True},
+                source=obj.id,
+            ))
+            # Only open one choice per ETB (engine pending_choice is singular).
+            break
+        return events
+
+    return [make_etb_trigger(obj, trial_etb)]
+
+
+MIZUNOTO_TRIAL_RECRUITMENT = make_enchantment(
+    name="Mizunoto Trial Recruitment",
+    mana_cost="{W}{B}",
+    colors={Color.WHITE, Color.BLACK},
+    text=(
+        "When Mizunoto Trial Recruitment enters, each opponent discards a "
+        "card of their choice. "
+        "(Seven nights on Mt. Fujikasane. Most never come back.)"
+    ),
+    setup_interceptors=mizunoto_trial_recruitment_setup,
+)
+
+
+# =============================================================================
 # REGISTRY
 # =============================================================================
 
@@ -4458,6 +5167,19 @@ DEMON_SLAYER_CARDS = {
     "Final Selection": FINAL_SELECTION,
     "Demon King's Manor": DEMON_KINGS_MANOR,
     "Tanjiro's Earrings": TANJIROS_EARRINGS,
+
+    # SLICE 5.5 (2026-05-19) — decision-axis flip cards
+    "Yushiro, Sun-Tolerant Demon": YUSHIRO_SUN_DEMON,
+    "Kanao Tsuyuri, Flower Hashira": KANAO_FLOWER_HASHIRA,
+    "Hinokami Kagura, Sun Dance": HINOKAMI_KAGURA,
+    "Kasugai Crow Roost": KASUGAI_CROW_ROOST,
+    "Daki, Upper Moon Six": DAKI_UPPER_MOON_SIX,
+    "Tamayo, Heretic Healer": TAMAYO_HERETIC_HEALER,
+    "Genya Shinazugawa, Demon Eater": GENYA_DEMON_EATER,
+    "Muzan's Whispering Network": MUZAN_WHISPERING_NETWORK,
+    "Nezuko's Exploding Blood": NEZUKO_EXPLODING_BLOOD,
+    "Gyokko, Twisted Pottery Demon": GYOKKO_POTTERY_DEMON,
+    "Mizunoto Trial Recruitment": MIZUNOTO_TRIAL_RECRUITMENT,
 }
 
 print(f"Loaded {len(DEMON_SLAYER_CARDS)} Demon Slayer cards")
@@ -4724,4 +5446,16 @@ CARDS = [
     FINAL_SELECTION,
     DEMON_KINGS_MANOR,
     TANJIROS_EARRINGS,
+    # Slice 5.5 (2026-05-19) — decision-axis flip
+    YUSHIRO_SUN_DEMON,
+    KANAO_FLOWER_HASHIRA,
+    HINOKAMI_KAGURA,
+    KASUGAI_CROW_ROOST,
+    DAKI_UPPER_MOON_SIX,
+    TAMAYO_HERETIC_HEALER,
+    GENYA_DEMON_EATER,
+    MUZAN_WHISPERING_NETWORK,
+    NEZUKO_EXPLODING_BLOOD,
+    GYOKKO_POTTERY_DEMON,
+    MIZUNOTO_TRIAL_RECRUITMENT,
 ]

@@ -835,6 +835,507 @@ def test_slice5_blade_master_etb_scry_and_lifegain():
 
 
 # ============================================================================
+# SLICE 5.5 (2026-05-19) — decision-axis flip tests
+# ============================================================================
+# Each test below proves the new card installs a brand-new TARGET_REQUIRED /
+# PendingChoice surface (decision axis > 0). Tests do NOT resolve choices —
+# resolution requires AI auto-pick or full UI plumbing.
+# ============================================================================
+
+
+# ----------------------------------------------------------------------------
+# Yushiro, Sun-Tolerant Demon — modal-ETB (decision=3 modal-deep)
+# ----------------------------------------------------------------------------
+
+def test_yushiro_sun_demon_loads():
+    """Loads as a legendary Demon with a modal ETB interceptor."""
+    print("\n=== Yushiro Sun Demon: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    yu = _put_on_battlefield(game, p1, "Yushiro, Sun-Tolerant Demon")
+    chars = yu.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Demon' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert yu.interceptor_ids, f"Expected ETB interceptor; got {yu.interceptor_ids}"
+    print(f"  Interceptors: {len(yu.interceptor_ids)}; subtypes={chars.subtypes}")
+
+
+def test_yushiro_sun_demon_etb_opens_modal_choice():
+    """ETB installs a modal_with_targeting pending_choice with 3 modes."""
+    print("\n=== Yushiro Sun Demon: modal choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    yu = _put_on_battlefield(game, p1, "Yushiro, Sun-Tolerant Demon")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice after ETB"
+    assert pc.source_id == yu.id
+    assert pc.choice_type == "modal_with_targeting"
+    assert pc.player == p1.id
+    assert len(pc.options) == 3, f"Expected 3 modes; got {len(pc.options)}"
+    print(f"  Modes: {[opt.get('label') for opt in pc.options]}")
+
+
+# ----------------------------------------------------------------------------
+# Kanao Tsuyuri, Flower Hashira — targeted-ETB + DRAW (decision=1)
+# ----------------------------------------------------------------------------
+
+def test_kanao_flower_hashira_loads():
+    """Loads as a legendary Slayer/Hashira with ETB interceptors."""
+    print("\n=== Kanao Flower Hashira: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    kn = _put_on_battlefield(game, p1, "Kanao Tsuyuri, Flower Hashira")
+    chars = kn.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Hashira' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert kn.interceptor_ids, "Expected ETB interceptors"
+    print(f"  Interceptors: {len(kn.interceptor_ids)}")
+
+
+def test_kanao_flower_hashira_etb_emits_target_required_and_draw():
+    """ETB emits a TARGET_REQUIRED for an opponent + a DRAW for self."""
+    print("\n=== Kanao Flower Hashira: ETB target+draw ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    kn = _put_on_battlefield(game, p1, "Kanao Tsuyuri, Flower Hashira")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == kn.id
+        and e.payload.get('effect') == 'reveal_hand'
+    ]
+    assert target_reqs, (
+        f"Expected reveal_hand TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    assert target_reqs[0].payload.get('target_filter') == 'opponent'
+    draws = [e for e in new
+             if e.type == EventType.DRAW
+             and e.source == kn.id
+             and e.payload.get('player') == p1.id]
+    assert draws, f"Expected DRAW for controller; new={[e.type.name for e in new[-10:]]}"
+    print(f"  TARGET_REQUIRED: {len(target_reqs)}; DRAW: {len(draws)}")
+
+
+# ----------------------------------------------------------------------------
+# Hinokami Kagura, Sun Dance — divided damage (decision=1)
+# ----------------------------------------------------------------------------
+
+def test_hinokami_kagura_loads():
+    """Loads as a Red/White enchantment with ETB interceptor."""
+    print("\n=== Hinokami Kagura: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    hk = _put_on_battlefield(game, p1, "Hinokami Kagura, Sun Dance")
+    assert CardType.ENCHANTMENT in hk.characteristics.types
+    assert hk.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(hk.interceptor_ids)}")
+
+
+def test_hinokami_kagura_etb_emits_divided_damage_target_required():
+    """ETB emits TARGET_REQUIRED with divide_amount=5 and damage effect."""
+    print("\n=== Hinokami Kagura: ETB divided 5 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    hk = _put_on_battlefield(game, p1, "Hinokami Kagura, Sun Dance")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == hk.id
+        and e.payload.get('effect') == 'damage'
+    ]
+    assert target_reqs, (
+        f"Expected damage TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    payload = target_reqs[0].payload
+    assert payload.get('divide_amount') == 5, (
+        f"Expected divide_amount=5; got {payload.get('divide_amount')}"
+    )
+    print(f"  divide_amount: {payload.get('divide_amount')}")
+
+
+# ----------------------------------------------------------------------------
+# Kasugai Crow Roost — divided counters (decision=1 + synergy)
+# ----------------------------------------------------------------------------
+
+def test_kasugai_crow_roost_loads():
+    """Loads as a Green/White enchantment with ETB interceptor."""
+    print("\n=== Kasugai Crow Roost: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    kcr = _put_on_battlefield(game, p1, "Kasugai Crow Roost")
+    assert CardType.ENCHANTMENT in kcr.characteristics.types
+    assert kcr.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(kcr.interceptor_ids)}")
+
+
+def test_kasugai_crow_roost_etb_emits_counter_add_target_required():
+    """ETB emits TARGET_REQUIRED with divide_amount=4 and counter_add effect."""
+    print("\n=== Kasugai Crow Roost: ETB distribute counters ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    kcr = _put_on_battlefield(game, p1, "Kasugai Crow Roost")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == kcr.id
+        and e.payload.get('effect') == 'counter_add'
+    ]
+    assert target_reqs, (
+        f"Expected counter_add TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    payload = target_reqs[0].payload
+    assert payload.get('divide_amount') == 4, (
+        f"Expected divide_amount=4; got {payload.get('divide_amount')}"
+    )
+    assert payload.get('target_filter') == 'your_creature'
+    print(f"  divide_amount: {payload.get('divide_amount')}; filter: {payload.get('target_filter')}")
+
+
+# ----------------------------------------------------------------------------
+# Daki, Upper Moon Six — targeted death + asymmetric discard
+# ----------------------------------------------------------------------------
+
+def test_daki_upper_moon_six_loads():
+    """Loads as a legendary Demon with death-trigger interceptors."""
+    print("\n=== Daki Upper Moon Six: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    dk = _put_on_battlefield(game, p1, "Daki, Upper Moon Six")
+    chars = dk.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Demon' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert len(dk.interceptor_ids) >= 2, (
+        f"Expected >=2 (targeted-death + death listener); got {len(dk.interceptor_ids)}"
+    )
+    print(f"  Interceptors: {len(dk.interceptor_ids)}")
+
+
+def test_daki_death_emits_target_required_and_discard():
+    """On death, emits TARGET_REQUIRED for destroy + DISCARD on opp hand."""
+    print("\n=== Daki: death trigger ===")
+    from src.engine import Characteristics
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Plant a card in p2's hand so DISCARD pulse has something to bite.
+    junk_chars = Characteristics(
+        types={CardType.CREATURE}, subtypes={"Pirate"}, power=1, toughness=1,
+    )
+    game.create_object(
+        name="Spare", owner_id=p2.id, zone=ZoneType.HAND,
+        characteristics=junk_chars, card_def=None,
+    )
+    dk = _put_on_battlefield(game, p1, "Daki, Upper Moon Six")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': dk.id,
+            'from_zone': 'battlefield',
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+            'reason': 'destroy',
+        },
+        source=dk.id,
+    ))
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == dk.id
+        and e.payload.get('effect') == 'destroy'
+    ]
+    assert target_reqs, (
+        f"Expected destroy TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    assert target_reqs[0].payload.get('target_filter') == 'opponent_creature'
+    discards = [
+        e for e in new
+        if e.type == EventType.DISCARD
+        and e.payload.get('player') == p2.id
+        and e.source == dk.id
+    ]
+    assert discards, f"Expected DISCARD on p2; new={[e.type.name for e in new[-10:]]}"
+    print(f"  TARGET_REQUIRED: {len(target_reqs)}; DISCARD: {len(discards)}")
+
+
+# ----------------------------------------------------------------------------
+# Tamayo, Heretic Healer — top-N + zone-coupling
+# ----------------------------------------------------------------------------
+
+def test_tamayo_heretic_healer_loads():
+    """Loads as a legendary Demon Doctor with ETB interceptor."""
+    print("\n=== Tamayo Heretic Healer: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    tm = _put_on_battlefield(game, p1, "Tamayo, Heretic Healer")
+    chars = tm.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Doctor' in chars.subtypes
+    assert 'Demon' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert tm.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(tm.interceptor_ids)}; subtypes={chars.subtypes}")
+
+
+def test_tamayo_etb_empty_library_no_op():
+    """ETB with empty library doesn't crash and doesn't install a choice."""
+    print("\n=== Tamayo: empty library no-op ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Library is empty by default in this harness.
+    tm = _put_on_battlefield(game, p1, "Tamayo, Heretic Healer")
+    assert tm.zone == ZoneType.BATTLEFIELD
+    print(f"  No-crash; pending_choice={game.state.pending_choice}")
+
+
+def test_tamayo_etb_with_library_lands_opens_choice():
+    """ETB with a land on top of library installs a PendingChoice."""
+    print("\n=== Tamayo: library lands -> choice ===")
+    from src.engine import Characteristics
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Plant a land in p1's library so the helper has something to pick.
+    lib = game.state.zones[f'library_{p1.id}']
+    land_chars = Characteristics(types={CardType.LAND}, subtypes={"Island"})
+    land_obj = game.create_object(
+        name="Test Island", owner_id=p1.id, zone=ZoneType.LIBRARY,
+        characteristics=land_chars, card_def=None,
+    )
+    if land_obj.id not in lib.objects:
+        lib.objects.append(land_obj.id)
+    tm = _put_on_battlefield(game, p1, "Tamayo, Heretic Healer")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice installed by top-N land pick"
+    assert pc.source_id == tm.id, f"Choice source should be Tamayo; got {pc.source_id}"
+    print(f"  PendingChoice type: {pc.choice_type}; source: {pc.source_id}")
+
+
+# ----------------------------------------------------------------------------
+# Genya Shinazugawa, Demon Eater — targeted-attack trigger (decision=1)
+# ----------------------------------------------------------------------------
+
+def test_genya_demon_eater_loads():
+    """Loads as a legendary Slayer with trample + attack-trigger."""
+    print("\n=== Genya Demon Eater: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    gn = _put_on_battlefield(game, p1, "Genya Shinazugawa, Demon Eater")
+    chars = gn.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Slayer' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert len(gn.interceptor_ids) >= 2, (
+        f"Expected >=2 (trample kw + attack trigger); got {len(gn.interceptor_ids)}"
+    )
+    print(f"  Interceptors: {len(gn.interceptor_ids)}")
+
+
+def test_genya_attack_emits_exile_target_required():
+    """On attack, emits TARGET_REQUIRED with effect='exile' targeting opp creature."""
+    print("\n=== Genya: attack exile trigger ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    gn = _put_on_battlefield(game, p1, "Genya Shinazugawa, Demon Eater")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': gn.id, 'attacker': gn.id, 'controller': p1.id},
+        source=gn.id,
+    ))
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == gn.id
+        and e.payload.get('effect') == 'exile'
+        and e.payload.get('target_filter') == 'opponent_creature'
+    ]
+    assert target_reqs, (
+        f"Expected exile TARGET_REQUIRED on attack; new={[e.type.name for e in new[-10:]]}"
+    )
+    print(f"  TARGET_REQUIRED (exile): {len(target_reqs)}")
+
+
+# ----------------------------------------------------------------------------
+# Muzan's Whispering Network — create_scry_choice + library zone read
+# ----------------------------------------------------------------------------
+
+def test_muzan_whispering_network_loads():
+    """Loads as a Blue/Black enchantment with ETB interceptor."""
+    print("\n=== Muzan's Whispering Network: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    mwn = _put_on_battlefield(game, p1, "Muzan's Whispering Network")
+    assert CardType.ENCHANTMENT in mwn.characteristics.types
+    assert mwn.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(mwn.interceptor_ids)}")
+
+
+def test_muzan_whispering_network_etb_opens_scry_choice():
+    """ETB with cards in library installs a scry PendingChoice."""
+    print("\n=== Muzan's Whispering Network: scry choice ===")
+    from src.engine import Characteristics
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Plant 3 cards in p1's library so scry has something to look at.
+    lib = game.state.zones[f'library_{p1.id}']
+    for i in range(3):
+        chars = Characteristics(types={CardType.CREATURE}, subtypes={"Demon"}, power=1, toughness=1)
+        c = game.create_object(
+            name=f"Spare Demon {i}", owner_id=p1.id, zone=ZoneType.LIBRARY,
+            characteristics=chars, card_def=None,
+        )
+        if c.id not in lib.objects:
+            lib.objects.append(c.id)
+    mwn = _put_on_battlefield(game, p1, "Muzan's Whispering Network")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice (scry)"
+    assert pc.source_id == mwn.id
+    assert pc.choice_type == "scry"
+    print(f"  PendingChoice type: {pc.choice_type}; source: {pc.source_id}")
+
+
+# ----------------------------------------------------------------------------
+# Nezuko's Exploding Blood — targeted-ETB damage + sacrifice choice
+# ----------------------------------------------------------------------------
+
+def test_nezuko_exploding_blood_loads():
+    """Loads as a Red enchantment with ETB interceptors."""
+    print("\n=== Nezuko's Exploding Blood: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    neb = _put_on_battlefield(game, p1, "Nezuko's Exploding Blood")
+    assert CardType.ENCHANTMENT in neb.characteristics.types
+    assert neb.interceptor_ids, "Expected ETB interceptors"
+    print(f"  Interceptors: {len(neb.interceptor_ids)}")
+
+
+def test_nezuko_exploding_blood_etb_emits_damage_target_required():
+    """ETB emits a damage TARGET_REQUIRED with amount=4 and opp_creature filter."""
+    print("\n=== Nezuko's Exploding Blood: ETB damage TR ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    neb = _put_on_battlefield(game, p1, "Nezuko's Exploding Blood")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == neb.id
+        and e.payload.get('effect') == 'damage'
+    ]
+    assert target_reqs, (
+        f"Expected damage TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    assert target_reqs[0].payload.get('effect_params', {}).get('amount') == 4
+    print(f"  TARGET_REQUIRED (damage 4): {len(target_reqs)}")
+
+
+# ----------------------------------------------------------------------------
+# Gyokko, Twisted Pottery Demon — create_surveil_choice + drain
+# ----------------------------------------------------------------------------
+
+def test_gyokko_pottery_demon_loads():
+    """Loads as a legendary Demon with ETB interceptor."""
+    print("\n=== Gyokko Pottery Demon: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    gy = _put_on_battlefield(game, p1, "Gyokko, Twisted Pottery Demon")
+    chars = gy.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Demon' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert gy.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(gy.interceptor_ids)}")
+
+
+def test_gyokko_pottery_demon_etb_opens_surveil_choice_and_drains():
+    """ETB with cards in library installs a surveil PendingChoice + drains opp."""
+    print("\n=== Gyokko: surveil choice + drain ===")
+    from src.engine import Characteristics
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Plant 3 cards in p1's library so surveil has something to look at.
+    lib = game.state.zones[f'library_{p1.id}']
+    for i in range(3):
+        chars = Characteristics(types={CardType.CREATURE}, subtypes={"Demon"}, power=1, toughness=1)
+        c = game.create_object(
+            name=f"Vase Specimen {i}", owner_id=p1.id, zone=ZoneType.LIBRARY,
+            characteristics=chars, card_def=None,
+        )
+        if c.id not in lib.objects:
+            lib.objects.append(c.id)
+    before = len(game.state.event_log)
+    gy = _put_on_battlefield(game, p1, "Gyokko, Twisted Pottery Demon")
+    new = game.state.event_log[before:]
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice (surveil)"
+    assert pc.source_id == gy.id
+    assert pc.choice_type == "surveil"
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.source == gy.id
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount', 0) < 0
+    ]
+    assert drains, f"Expected opp LIFE_CHANGE drain; new={[e.type.name for e in new[-10:]]}"
+    print(f"  PendingChoice: {pc.choice_type}; drains: {len(drains)}")
+
+
+# ----------------------------------------------------------------------------
+# Mizunoto Trial Recruitment — create_discard_choice (opp hand)
+# ----------------------------------------------------------------------------
+
+def test_mizunoto_trial_recruitment_loads():
+    """Loads as a White/Black enchantment with ETB interceptor."""
+    print("\n=== Mizunoto Trial Recruitment: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    mtr = _put_on_battlefield(game, p1, "Mizunoto Trial Recruitment")
+    assert CardType.ENCHANTMENT in mtr.characteristics.types
+    assert mtr.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(mtr.interceptor_ids)}")
+
+
+def test_mizunoto_trial_recruitment_etb_opens_discard_choice_on_opp():
+    """ETB with a card in opp's hand installs a discard PendingChoice for opp."""
+    print("\n=== Mizunoto Trial: opp discard choice ===")
+    from src.engine import Characteristics
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Plant a card in p2's hand so discard has something to bite.
+    junk_chars = Characteristics(
+        types={CardType.CREATURE}, subtypes={"Slayer"}, power=1, toughness=1,
+    )
+    game.create_object(
+        name="Junk Recruit", owner_id=p2.id, zone=ZoneType.HAND,
+        characteristics=junk_chars, card_def=None,
+    )
+    mtr = _put_on_battlefield(game, p1, "Mizunoto Trial Recruitment")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice (discard)"
+    assert pc.source_id == mtr.id
+    assert pc.choice_type == "discard"
+    assert pc.player == p2.id, f"Discard choice should be on opp; got {pc.player}"
+    print(f"  PendingChoice: {pc.choice_type}; player: {pc.player}")
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 
