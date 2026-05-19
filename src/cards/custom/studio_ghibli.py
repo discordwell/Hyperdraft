@@ -32,6 +32,10 @@ from src.cards.text_render import (
     render_death_draw,
     render_attack_add_counters,
 )
+from src.cards.interceptor_helpers import (
+    # Helper 5 (catalog sweep, 2026-05-18): combat-damage triggers on attach.
+    make_equipment_setup,
+)
 from typing import Optional, Callable
 
 
@@ -3448,11 +3452,48 @@ LAPUTAN_AMULET = make_artifact(
 )
 
 
+# --- Crystal Necklace: Helper-5 rewire -------------------------------------
+# Granted trigger "combat damage to player → scry 1." No static P/T boost.
+def _crystal_necklace_combat_damage_to_player_filter(
+    event: Event, state: GameState, target_id: str
+) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    return event.payload.get('target') in state.players
+
+
+def _crystal_necklace_scry_effect(
+    target_obj: GameObject, event: Event, state: GameState
+) -> list[Event]:
+    return [Event(
+        type=EventType.ACTIVATE,
+        payload={
+            'action': 'scry',
+            'amount': 1,
+            'player': target_obj.controller,
+            'source': target_obj.id,
+        },
+        source=target_obj.id,
+    )]
+
+
 CRYSTAL_NECKLACE = make_artifact(
     name="Crystal Necklace",
     mana_cost="{1}",
     text="Equipped creature has 'Whenever this creature deals combat damage to a player, scry 1.' Equip {1}",
-    subtypes={"Equipment"}
+    subtypes={"Equipment"},
+    setup_interceptors=make_equipment_setup(
+        equip_cost="{1}",
+        granted_triggered_abilities={
+            "event_filter": _crystal_necklace_combat_damage_to_player_filter,
+            "effect_fn": _crystal_necklace_scry_effect,
+            "description": "Combat damage to player → controller scrys 1",
+        },
+    ),
 )
 
 
