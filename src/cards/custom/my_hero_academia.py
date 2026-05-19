@@ -648,11 +648,40 @@ SYMBOL_OF_HOPE = make_enchantment(
 )
 
 
+# --- Hero License (Aura tagging sweep, W22+) ---
+# Helper 5 wire: +1/+1 plus "combat damage to player → controller gains 2 life".
+def _hero_license_combat_dmg_to_player_filter(event: Event, state: GameState, target_id: str) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    return event.payload.get('target') in state.players
+
+
+def _hero_license_gain_life_effect(target_obj: GameObject, event: Event, state: GameState) -> list[Event]:
+    return [Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': target_obj.controller, 'amount': 2, 'source': target_obj.id},
+        source=target_obj.id,
+    )]
+
+
 HERO_LICENSE = make_enchantment(
     name="Hero License",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Enchanted creature gets +1/+1 and has 'Whenever this creature deals combat damage to a player, you gain 2 life.'"
+    subtypes={"Aura"},
+    text="Enchanted creature gets +1/+1 and has 'Whenever this creature deals combat damage to a player, you gain 2 life.'",
+    setup_interceptors=_ih.make_aura_setup(
+        power_mod=1, toughness_mod=1,
+        granted_triggered_abilities={
+            "event_filter": _hero_license_combat_dmg_to_player_filter,
+            "effect_fn": _hero_license_gain_life_effect,
+            "description": "Combat damage to player → +2 life",
+        },
+    ),
 )
 
 
@@ -660,6 +689,7 @@ PROVISIONAL_LICENSE = make_enchantment(
     name="Provisional License",
     mana_cost="{W}",
     colors={Color.WHITE},
+    subtypes={"Aura"},
     text="Enchanted creature gets +1/+0 and has vigilance."
 )
 
@@ -1635,6 +1665,7 @@ TRIGGER_DRUG = make_enchantment(
     name="Trigger Drug",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
+    subtypes={"Aura"},
     text="Enchanted creature gets +3/+1. At the beginning of your upkeep, it deals 1 damage to you."
 )
 
@@ -2060,11 +2091,44 @@ UNBREAKABLE_WILL = make_enchantment(
 )
 
 
+# --- Explosive Power (Aura tagging sweep, W22+) ---
+# Helper 5 wire: +2/+0 plus "attacks → 1 damage to defending player".
+def _explosive_power_attack_filter(event: Event, state: GameState, target_id: str) -> bool:
+    if event.type != EventType.ATTACK_DECLARED:
+        return False
+    return event.payload.get('attacker_id') == target_id
+
+
+def _explosive_power_zap_effect(target_obj: GameObject, event: Event, state: GameState) -> list[Event]:
+    defending_player = event.payload.get('defending_player')
+    if not defending_player:
+        return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={
+            'source': target_obj.id,
+            'target': defending_player,
+            'amount': 1,
+            'combat': False,
+        },
+        source=target_obj.id,
+    )]
+
+
 EXPLOSIVE_POWER = make_enchantment(
     name="Explosive Power",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Enchanted creature gets +2/+0. Whenever enchanted creature attacks, it deals 1 damage to defending player."
+    subtypes={"Aura"},
+    text="Enchanted creature gets +2/+0. Whenever enchanted creature attacks, it deals 1 damage to defending player.",
+    setup_interceptors=_ih.make_aura_setup(
+        power_mod=2, toughness_mod=0,
+        granted_triggered_abilities={
+            "event_filter": _explosive_power_attack_filter,
+            "effect_fn": _explosive_power_zap_effect,
+            "description": "Attacks → 1 damage to defending player",
+        },
+    ),
 )
 
 
@@ -2506,6 +2570,7 @@ ONE_FOR_ALL = make_enchantment(
     name="One For All",
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
+    subtypes={"Aura"},
     text="Enchanted creature gets +3/+3 and has 'At the beginning of your upkeep, put a +1/+1 counter on this creature.'"
 )
 
@@ -2514,6 +2579,7 @@ FULL_COWLING_AURA = make_enchantment(
     name="Full Cowling Mastery",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
+    subtypes={"Aura"},
     text="Enchanted creature gets +2/+2 and has trample and haste."
 )
 
