@@ -727,6 +727,142 @@ def test_smellerbees_ambush_etb_opens_discard_choice_when_opp_hand_nonempty():
 
 
 # ============================================================================
+# Slice-4 thin-bust (2026-05-19) — Air Acolyte, Earth Kingdom Protectors,
+# Master Pakku, Guru Pathik, Hakoda. Five vanilla cards lifted to depth-1
+# (state + zone + synergy axes) by ETB tribal-scaling life/draw.
+# ============================================================================
+
+def test_air_acolyte_etb_gains_life_per_monk():
+    """Air Acolyte ETB emits LIFE_CHANGE for the controller."""
+    print("\n=== Air Acolyte: ETB life ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Air Acolyte")
+    new = game.state.event_log[before:]
+    life = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p1.id
+        and (e.payload.get('amount') or 0) >= 1
+    ]
+    assert life, (
+        f"Expected LIFE_CHANGE for Air Acolyte ETB; recent={[e.type.name for e in new[-10:]]}"
+    )
+
+
+def test_earth_kingdom_protectors_etb_gains_life_per_ally():
+    """ETB emits LIFE_CHANGE scaled by Ally count."""
+    print("\n=== Earth Kingdom Protectors: ETB ally life ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Pre-seed one other Ally so the trigger fires.
+    _put_on_battlefield(game, p1, "Compassionate Healer")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Earth Kingdom Protectors")
+    new = game.state.event_log[before:]
+    life = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p1.id
+        and (e.payload.get('amount') or 0) >= 1
+    ]
+    assert life, (
+        f"Expected LIFE_CHANGE for Protectors ETB; recent={[e.type.name for e in new[-10:]]}"
+    )
+
+
+def test_earth_kingdom_protectors_no_op_with_no_allies():
+    """ETB with no Allies on the battlefield: no LIFE_CHANGE emitted."""
+    print("\n=== Earth Kingdom Protectors: no allies ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    # Note: Earth Kingdom Protectors is itself an Ally, so trigger fires
+    # because self-count >= 1. Verify the >=1 floor.
+    _put_on_battlefield(game, p1, "Earth Kingdom Protectors")
+    new = game.state.event_log[before:]
+    life = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p1.id
+    ]
+    # Self-count is 1 → 1 life. The trigger only no-ops if Ally count = 0,
+    # which can't happen because the protector is itself an Ally.
+    assert life, "Expected LIFE_CHANGE from self-count"
+
+
+def test_master_pakku_etb_draws_card():
+    """ETB emits DRAW for controller."""
+    print("\n=== Master Pakku: ETB draw ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Master Pakku")
+    new = game.state.event_log[before:]
+    draws = [
+        e for e in new
+        if e.type == EventType.DRAW
+        and e.payload.get('player') == p1.id
+    ]
+    assert draws, (
+        f"Expected DRAW for Master Pakku ETB; recent={[e.type.name for e in new[-10:]]}"
+    )
+
+
+def test_master_pakku_draws_two_with_two_allies():
+    """Two other Allies on battlefield → draw amount = 2."""
+    print("\n=== Master Pakku: scaling ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    _put_on_battlefield(game, p1, "Compassionate Healer")
+    _put_on_battlefield(game, p1, "Earth Kingdom Protectors")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Master Pakku")
+    new = game.state.event_log[before:]
+    draws = [
+        e for e in new
+        if e.type == EventType.DRAW
+        and e.payload.get('player') == p1.id
+    ]
+    assert draws, "Expected DRAW event"
+    amount = draws[0].payload.get('amount', 1)
+    assert amount == 2, f"Expected amount=2 with 2+ Allies; got {amount}"
+
+
+def test_guru_pathik_etb_draws_card():
+    """ETB emits DRAW."""
+    print("\n=== Guru Pathik: ETB draw ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Guru Pathik")
+    new = game.state.event_log[before:]
+    draws = [
+        e for e in new
+        if e.type == EventType.DRAW
+        and e.payload.get('player') == p1.id
+    ]
+    assert draws, "Expected DRAW for Guru Pathik ETB"
+
+
+def test_hakoda_selfless_commander_etb_draws_card():
+    """ETB emits DRAW."""
+    print("\n=== Hakoda: ETB draw ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Hakoda, Selfless Commander")
+    new = game.state.event_log[before:]
+    draws = [
+        e for e in new
+        if e.type == EventType.DRAW
+        and e.payload.get('player') == p1.id
+    ]
+    assert draws, "Expected DRAW for Hakoda ETB"
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 

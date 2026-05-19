@@ -796,6 +796,116 @@ def test_hatsume_empty_library_no_op():
 
 
 # ============================================================================
+# Slice-4 thin-bust (2026-05-19) — Eager Sidekick, Analyst Hero, Aoyama
+# Three vanilla cards lifted to depth-1 (state + zone + synergy axes).
+# ============================================================================
+
+def test_eager_sidekick_etb_gains_life_for_each_hero():
+    """ETB emits LIFE_CHANGE scaled by Hero count (minimum 1)."""
+    print("\n=== Eager Sidekick: ETB Hero count life ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Pre-seed two Heroes so the sidekick rallies for 2 + self = 3.
+    _put_on_battlefield(game, p1, "Bakugo, Explosion Hero")
+    _put_on_battlefield(game, p1, "Native, Hero")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Eager Sidekick")
+    new = game.state.event_log[before:]
+    life_events = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p1.id
+        and (e.payload.get('amount') or 0) >= 1
+    ]
+    assert life_events, (
+        f"Expected LIFE_CHANGE for Sidekick ETB; recent={[e.type.name for e in new[-10:]]}"
+    )
+    # Sidekick itself is a Hero, so the count includes self → 3 Heroes total.
+    amount = life_events[0].payload.get('amount')
+    assert amount >= 2, f"Expected >=2 life (Hero scaling); got {amount}"
+
+
+def test_eager_sidekick_minimum_one_with_no_heroes():
+    """ETB with no other Heroes still emits 1 life (max(1, count))."""
+    print("\n=== Eager Sidekick: min 1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Eager Sidekick")
+    new = game.state.event_log[before:]
+    life_events = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p1.id
+    ]
+    assert life_events, "Expected at least one LIFE_CHANGE for the floor"
+    assert life_events[0].payload.get('amount') >= 1
+
+
+def test_analyst_hero_etb_draws_card():
+    """ETB emits DRAW for the controller."""
+    print("\n=== Analyst Hero: ETB draw ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Analyst Hero")
+    new = game.state.event_log[before:]
+    draws = [
+        e for e in new
+        if e.type == EventType.DRAW
+        and e.payload.get('player') == p1.id
+    ]
+    assert draws, (
+        f"Expected DRAW for Analyst Hero ETB; recent={[e.type.name for e in new[-10:]]}"
+    )
+
+
+def test_analyst_hero_doubles_with_two_other_heroes():
+    """Two other Heroes on battlefield → draw amount = 2."""
+    print("\n=== Analyst Hero: scaling ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    _put_on_battlefield(game, p1, "Bakugo, Explosion Hero")
+    _put_on_battlefield(game, p1, "Native, Hero")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Analyst Hero")
+    new = game.state.event_log[before:]
+    draws = [
+        e for e in new
+        if e.type == EventType.DRAW
+        and e.payload.get('player') == p1.id
+    ]
+    assert draws, "Expected DRAW event"
+    amount = draws[0].payload.get('amount', 1)
+    assert amount == 2, f"Expected amount=2 with 2+ Heroes; got {amount}"
+
+
+def test_aoyama_attack_deals_damage_to_each_opponent():
+    """Whenever Aoyama attacks, emit DAMAGE for each opponent."""
+    print("\n=== Aoyama: attack damages each opp ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    aoyama = _put_on_battlefield(game, p1, "Aoyama, Navel Laser")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': aoyama.id, 'attacker': aoyama.id,
+                 'controller': p1.id},
+        source=aoyama.id,
+    ))
+    new = game.state.event_log[before:]
+    damage_to_p2 = [
+        e for e in new
+        if e.type == EventType.DAMAGE
+        and e.payload.get('target') == p2.id
+    ]
+    assert damage_to_p2, (
+        f"Expected DAMAGE to p2 on Aoyama attack; recent={[e.type.name for e in new[-10:]]}"
+    )
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 

@@ -475,6 +475,26 @@ EARTH_KINGDOM_JAILER = make_creature(
     setup_interceptors=earth_kingdom_jailer_setup
 )
 
+# Slice-4 thin-bust (2026-05-19): lift from vanilla (0,0,0,0,0). Protectors
+# rally around an Ally — wire an ETB life-gain scaling with Allies you
+# control (capped to keep the buff minimal — flavor-thin, depth-thin lifted).
+def earth_kingdom_protectors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        if obj.zone != ZoneType.BATTLEFIELD:
+            return []
+        # Protectors rally around Allies — Ally tribal synergy.
+        ally_count = count_permanents_with_subtype(obj.controller, 'Ally', state)
+        if ally_count == 0:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': ally_count},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
 EARTH_KINGDOM_PROTECTORS = make_creature(
     name="Earth Kingdom Protectors",
     power=1,
@@ -482,7 +502,8 @@ EARTH_KINGDOM_PROTECTORS = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier", "Ally"},
-    text="Vigilance. Sacrifice this creature: Another target Ally you control gains indestructible until end of turn."
+    text="Vigilance. When Earth Kingdom Protectors enters, you gain 1 life for each Ally you control. Sacrifice this creature: Another target Ally you control gains indestructible until end of turn.",
+    setup_interceptors=earth_kingdom_protectors_setup,
 )
 
 # REBALANCE: Cost {W} -> {2}{W} (outlier; 4 keywords + Avatar typing on a 1-mana
@@ -542,6 +563,26 @@ GLIDER_STAFF = make_artifact(
     setup_interceptors=glider_staff_setup
 )
 
+# Slice-4 thin-bust (2026-05-19): lift from vanilla (0,0,0,0,0). Hakoda is
+# a selfless commander who looks ahead for his troops — wire ETB DRAW 1
+# (the printed "look at top card" ability without the cast-from-top wrinkle).
+def hakoda_selfless_commander_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        player = state.players.get(obj.controller)
+        if player is None or obj.zone != ZoneType.BATTLEFIELD:
+            return []
+        # The selfless commander surveys his Ally companions and plans ahead.
+        ally_count = count_permanents_with_subtype(obj.controller, 'Ally', state)
+        amount = 2 if ally_count >= 2 else 1
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': amount},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
 HAKODA_SELFLESS_COMMANDER = make_creature(
     name="Hakoda, Selfless Commander",
     power=3,
@@ -550,7 +591,8 @@ HAKODA_SELFLESS_COMMANDER = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Warrior", "Ally"},
     supertypes={"Legendary"},
-    text="Vigilance. You may look at the top card of your library any time. You may cast Ally spells from the top of your library."
+    text="Vigilance. When Hakoda enters, draw a card. If you control two or more other Allies, draw two cards instead. You may look at the top card of your library any time. You may cast Ally spells from the top of your library.",
+    setup_interceptors=hakoda_selfless_commander_setup,
 )
 
 def invasion_reinforcements_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -883,6 +925,26 @@ LIBRARY_GUARDIAN = make_creature(
     setup_interceptors=library_guardian_setup
 )
 
+# Slice-4 thin-bust (2026-05-19): lift from vanilla (0,0,0,0,0). Pakku is
+# the master waterbender of the Northern Water Tribe — wire a small ETB
+# DRAW (knowledge of waterbending forms), flavor for the legendary mythic.
+def master_pakku_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        player = state.players.get(obj.controller)
+        if player is None or obj.zone != ZoneType.BATTLEFIELD:
+            return []
+        # Pakku draws on the stored forms his Northern Water Tribe Allies bring.
+        ally_count = count_permanents_with_subtype(obj.controller, 'Ally', state)
+        amount = 2 if ally_count >= 2 else 1
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': amount},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
 MASTER_PAKKU = make_creature(
     name="Master Pakku",
     power=3,
@@ -891,7 +953,8 @@ MASTER_PAKKU = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Wizard", "Ally"},
     supertypes={"Legendary"},
-    text="Waterbend — {U}, {T}: Tap target creature. It doesn't untap during its controller's next untap step."
+    text="When Master Pakku enters, draw a card. If you control two or more other Allies, draw two cards instead. Waterbend — {U}, {T}: Tap target creature. It doesn't untap during its controller's next untap step.",
+    setup_interceptors=master_pakku_setup,
 )
 
 MOON_SPIRIT_BLESSING = make_instant(
@@ -2673,6 +2736,27 @@ PEACEFUL_SANCTUARY = make_enchantment(
     text="Creatures can't attack you unless their controller pays {2} for each creature attacking you."
 )
 
+# Slice-4 thin-bust (2026-05-19): lift from vanilla (0,0,0,0,0). Pathik is
+# a wise guru who guides through the chakras — wire ETB DRAW 1 (the gained
+# spiritual knowledge). The pre-existing tap ability is targeted and not
+# trivially expressible without the engine's full targeting flow.
+def guru_pathik_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        player = state.players.get(obj.controller)
+        if player is None or obj.zone != ZoneType.BATTLEFIELD:
+            return []
+        # The Guru's wisdom deepens when surrounded by other seekers.
+        monk_count = count_permanents_with_subtype(obj.controller, 'Monk', state)
+        amount = 2 if monk_count >= 2 else 1
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': amount},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
 GURU_PATHIK = make_creature(
     name="Guru Pathik",
     power=0,
@@ -2681,7 +2765,8 @@ GURU_PATHIK = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Monk"},
     supertypes={"Legendary"},
-    text="{T}: Target Avatar you control gains hexproof and lifelink until end of turn. Scry 1."
+    text="When Guru Pathik enters, draw a card. If you control two or more other Monks, draw two cards instead. {T}: Target Avatar you control gains hexproof and lifelink until end of turn. Scry 1.",
+    setup_interceptors=guru_pathik_setup,
 )
 
 LION_TURTLE_BLESSING = make_instant(
@@ -4095,6 +4180,28 @@ NOMAD_MUSICIAN = make_creature(
     setup_interceptors=nomad_musician_setup
 )
 
+# Slice-4 thin-bust (2026-05-19): lift from vanilla (0,0,0,0,0). Air
+# Acolytes meditate and find peace — wire a simple ETB life-gain (lifelink
+# from the printed text is keyword-only; engine doesn't surface it as state).
+from src.cards.interceptor_helpers import count_permanents_with_subtype  # noqa: E402
+
+def air_acolyte_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        player = state.players.get(obj.controller)
+        if player is None or obj.zone != ZoneType.BATTLEFIELD:
+            return []
+        # Monk tribal synergy — peace amplifies in shared meditation.
+        monk_count = count_permanents_with_subtype(obj.controller, 'Monk', state)
+        amount = max(1, monk_count)
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': amount},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
 AIR_ACOLYTE = make_creature(
     name="Air Acolyte",
     power=1,
@@ -4102,7 +4209,8 @@ AIR_ACOLYTE = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Monk"},
-    text="Lifelink. {2}{W}: Air Acolyte gains flying until end of turn."
+    text="Lifelink. When Air Acolyte enters, you gain 1 life for each Monk you control (minimum 1). {2}{W}: Air Acolyte gains flying until end of turn.",
+    setup_interceptors=air_acolyte_setup,
 )
 
 RESTORATION_RITUAL = make_sorcery(

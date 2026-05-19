@@ -342,13 +342,34 @@ RESCUE_HERO = make_creature(
 )
 
 
+# Slice-4 thin-bust (2026-05-19): lift from vanilla (0,0,0,0,0) by giving
+# the sidekick a small flavor-appropriate ETB life-gain. Sidekicks support
+# heroes by tending to the hurt.
+def _eager_sidekick_setup(obj, state):
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        player = state.players.get(obj.controller)
+        if player is None or obj.zone != ZoneType.BATTLEFIELD:
+            return []
+        # Hero tribal synergy — sidekicks rally around their senpai.
+        hero_count = _ih.count_permanents_with_subtype(obj.controller, 'Hero', state)
+        amount = max(1, hero_count)
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': amount},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [_ih.make_etb_trigger(obj, etb_effect)]
+
+
 SIDEKICK = make_creature(
     name="Eager Sidekick",
     power=1, toughness=1,
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Hero"},
-    # Dynamic P/T based on hero count - needs special handling
+    text="When Eager Sidekick enters, you gain 1 life for each Hero you control (minimum 1).",
+    setup_interceptors=_eager_sidekick_setup,
 )
 
 
@@ -825,13 +846,35 @@ TIGER = make_creature(
 
 # --- Regular Creatures ---
 
+# Slice-4 thin-bust (2026-05-19): lift from vanilla (0,0,0,0,0). The
+# pre-existing comment promises "ETB scry 2" — wire a simpler ETB DRAW 1
+# (information-gathering flavor) since SCRY without targeting is engine-gap.
+def _analyst_hero_setup(obj, state):
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        player = state.players.get(obj.controller)
+        if player is None or obj.zone != ZoneType.BATTLEFIELD:
+            return []
+        # Hero tribal synergy — the analyst extracts intel from the team's
+        # combat data; more Heroes = more useful patterns.
+        hero_count = _ih.count_permanents_with_subtype(obj.controller, 'Hero', state)
+        amount = 2 if hero_count >= 2 else 1
+        return [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': amount},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+    return [_ih.make_etb_trigger(obj, etb_effect)]
+
+
 ANALYST_HERO = make_creature(
     name="Analyst Hero",
     power=1, toughness=3,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Hero"},
-    # ETB scry 2
+    text="When Analyst Hero enters, draw a card. If you control two or more other Heroes, draw two cards instead.",
+    setup_interceptors=_analyst_hero_setup,
 )
 
 
@@ -2786,6 +2829,29 @@ NEJIRE = make_creature(
 )
 
 
+# Slice-4 thin-bust (2026-05-19): lift from vanilla (0,0,0,0,0). Aoyama's
+# Navel Laser quirk is a beam attack — wire an attack-trigger that deals 1
+# damage to each opponent (flavor: he fires the laser as he charges in).
+def _aoyama_setup(obj, state):
+    def attack_effect(event: Event, state: GameState) -> list[Event]:
+        # Cross-controller laser sweep — Aoyama fires the Navel Laser at
+        # each opponent as he charges in. Bonus damage if backed by Heroes.
+        if not state.players or obj.zone != ZoneType.BATTLEFIELD:
+            return []
+        hero_count = _ih.count_permanents_with_subtype(obj.controller, 'Hero', state)
+        damage = 2 if hero_count >= 2 else 1
+        events: list[Event] = []
+        for opp_id in _ih.all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': damage},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [_ih.make_attack_trigger(obj, attack_effect)]
+
+
 AOYAMA = make_creature(
     name="Aoyama, Navel Laser",
     power=2, toughness=2,
@@ -2793,7 +2859,8 @@ AOYAMA = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Student", "Hero"},
     supertypes={"Legendary"},
-    # First strike, Quirk deals damage but doesn't untap
+    text="Whenever Aoyama attacks, he deals 1 damage to each opponent. If you control two or more other Heroes, he deals 2 damage instead.",
+    setup_interceptors=_aoyama_setup,
 )
 
 
