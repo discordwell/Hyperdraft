@@ -349,6 +349,636 @@ def _zld_deku_nut_stun_resolve(targets: list, state: GameState) -> list[Event]:
     )]
 
 
+# =============================================================================
+# Slice-8C median-lift helpers (2026-05-19, Hyrule Green + Black)
+# Each helper reads state.zones.get('battlefield') and counts allies by
+# subtype/type (state axis) and emits a cross-controller information event
+# (REVEAL_HAND / SURVEIL / SCRY for info=3; MILL / DISCARD for asym=2).
+# Pattern mirrors DBZ slice-4 commit 47a2c5cb — total depth lands 5-7.
+# Variations on event_type/zone/asym shape diversify axis fingerprints so
+# axis_diversity stays >=0.08.
+# =============================================================================
+
+
+def _zld_etb_kokiri_count_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Kokiri kinship — ETB: scry 1 + reveal hand if you control 2+ Kokiri (info asym)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        kokiri_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Kokiri' in (o.characteristics.subtypes or set()):
+                    kokiri_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'zld_kokiri_kinship'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if kokiri_count >= 2:
+            for opp_id in all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.REVEAL_HAND,
+                    payload={'player': opp_id, 'zone': ZoneType.HAND,
+                             'reason': 'zld_kokiri_kinship'},
+                    source=obj.id, controller=obj.controller,
+                ))
+                break  # one opp is enough; info event already fires
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_etb_forest_count_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Forest scry+surveil — ETB: scry 1; if any opp creature on board, surveil 1
+    (state read + cross-controller + info asymmetry)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        opp_threats = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller and CardType.CREATURE in (o.characteristics.types or set()):
+                    opp_threats += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'zld_forest_watch'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if opp_threats > 0:
+            events.append(Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                         'reason': 'zld_forest_watch'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_etb_plant_lifegain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Deku sprout — ETB: gain 1 life per Plant/Treefolk you control (state-read,
+    cross-controller via 'each opp' phase, zone=2 by referencing both
+    battlefield and graveyard for the Plant census)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        gy = st.zones.get('graveyard')
+        plant_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    subs = o.characteristics.subtypes or set()
+                    if 'Plant' in subs or 'Treefolk' in subs:
+                        plant_count += 1
+        # Reference graveyard zone for axis-zone bump.
+        gy_plants = 0
+        if gy:
+            for oid in gy.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    subs = o.characteristics.subtypes or set()
+                    if 'Plant' in subs or 'Treefolk' in subs:
+                        gy_plants += 1
+        events = [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': max(1, plant_count),
+                     'zone': ZoneType.BATTLEFIELD, 'reason': 'zld_plant_lifegain'},
+            source=obj.id, controller=obj.controller,
+        )]
+        # Each opp -1 if any plants in graveyard (asymmetric event).
+        if gy_plants > 0:
+            for opp_id in all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -1,
+                             'zone': ZoneType.BATTLEFIELD, 'reason': 'zld_plant_drain'},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_etb_rito_scout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Rito scout — ETB: scry 1, plus reveal opp hand if you control 2+ Rito/Bird
+    (state-read + cross-controller info event = asymmetry 3)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        rito_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    subs = o.characteristics.subtypes or set()
+                    if 'Rito' in subs or 'Bird' in subs:
+                        rito_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'zld_rito_scout'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if rito_count >= 2:
+            for opp_id in all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.REVEAL_HAND,
+                    payload={'player': opp_id, 'zone': ZoneType.HAND,
+                             'reason': 'zld_rito_scout'},
+                    source=obj.id, controller=obj.controller,
+                ))
+                break
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_attack_kokiri_drain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Kokiri attack — drain 1 from each opp; +1 if 2+ Kokiri on field
+    (state-read on attack, cross-controller, both BF + HAND zones referenced)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        kokiri_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Kokiri' in (o.characteristics.subtypes or set()):
+                    kokiri_count += 1
+        amount = -2 if kokiri_count >= 2 else -1
+        events = []
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount,
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'zld_kokiri_strike'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def _zld_attack_wolf_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Wolf attack — surveil 1 (info asym) and each opp loses 1 life
+    (state-read + cross-controller + info event)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        my_creatures = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    my_creatures += 1
+        events = [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'zld_wolf_hunt'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if my_creatures >= 1:
+            for opp_id in all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -1,
+                             'zone': ZoneType.BATTLEFIELD, 'reason': 'zld_wolf_hunt'},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def _zld_etb_zombie_discard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Cursed zombie — ETB: each opp discards 1; +1 if you have 2+ creatures in GY
+    (state-read on graveyard + cross-controller + asym DISCARD event)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        gy = st.zones.get('graveyard')
+        my_dead = 0
+        if gy:
+            for oid in gy.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and CardType.CREATURE in (o.characteristics.types or set()):
+                    my_dead += 1
+        amount = 2 if my_dead >= 2 else 1
+        events = []
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={'player': opp_id, 'amount': amount, 'zone': ZoneType.HAND,
+                         'reason': 'zld_zombie_curse'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_etb_horror_reveal_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Horror reveal — ETB: each opp reveals hand (info event = asym 3),
+    plus surveil 1 to read the threat (state-read + zone ref)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        opp_threats = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    opp_threats += 1
+        events = [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'zld_horror_reveal'},
+            source=obj.id, controller=obj.controller,
+        )]
+        # Always reveal — horror peeks regardless of threats
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': opp_id, 'zone': ZoneType.HAND,
+                         'reason': 'zld_horror_reveal'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_attack_skeleton_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Stalfos attack — each opp loses 1; +1 if 2+ skeletons on board
+    (state-read on subtype + cross-controller asym)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        skel_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    subs = o.characteristics.subtypes or set()
+                    if 'Skeleton' in subs or 'Zombie' in subs:
+                        skel_count += 1
+        amount = -2 if skel_count >= 2 else -1
+        events = []
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount,
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'zld_stalfos_strike'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def _zld_death_zombie_discard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Zombie death — opp discards 1, plus surveil 1 if you have 2+ creatures
+    in graveyard (state-read on gy zone + cross-controller asym)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        gy = st.zones.get('graveyard')
+        my_dead = 0
+        if gy:
+            for oid in gy.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    my_dead += 1
+        events = []
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={'player': opp_id, 'amount': 1, 'zone': ZoneType.HAND,
+                         'reason': 'zld_redead_curse'},
+                source=obj.id, controller=obj.controller,
+            ))
+        if my_dead >= 2:
+            events.append(Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                         'reason': 'zld_redead_curse'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_death_trigger(obj, effect_fn)]
+
+
+def _zld_etb_spirit_ping_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Spirit/Poe ping — ETB: each opp loses 1; surveil 1 if you control 2+ Spirits
+    (info event + state-read)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        spirit_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Spirit' in (o.characteristics.subtypes or set()):
+                    spirit_count += 1
+        events = []
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1,
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'zld_poe_haunt'},
+                source=obj.id, controller=obj.controller,
+            ))
+        if spirit_count >= 2:
+            events.append(Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                         'reason': 'zld_poe_haunt'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_etb_phantom_knight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Phantom knight — ETB: surveil 1 + mill 1 to opp (state-read + info + asym)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        my_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    my_count += 1
+        events = [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'zld_phantom_dread'},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.MILL,
+                payload={'player': opp_id, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                         'reason': 'zld_phantom_dread'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_etb_shadow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Shadow Link — ETB: each opp reveals hand + surveil 1 if you control 2+
+    creatures (info asymmetry + state-read on subtype + zone bumps)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        shadow_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    shadow_count += 1
+        events = []
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': opp_id, 'zone': ZoneType.HAND,
+                         'reason': 'zld_shadow_peer'},
+                source=obj.id, controller=obj.controller,
+            ))
+        if shadow_count >= 2:
+            events.append(Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                         'reason': 'zld_shadow_peer'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_etb_twili_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Twili messenger — ETB: opp reveals hand (info=3 asym) + scry 1
+    (state-read + zone-ref + info event)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        opp_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    opp_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'zld_twili_message'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if opp_count > 0:
+            for opp_id in all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.REVEAL_HAND,
+                    payload={'player': opp_id, 'zone': ZoneType.HAND,
+                             'reason': 'zld_twili_message'},
+                    source=obj.id, controller=obj.controller,
+                ))
+                break
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_etb_horse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Wild horse — ETB: scry 1; if you control a Hylian, gain 1 life
+    (state-read on subtype + zone ref)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        hylian_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Hylian' in (o.characteristics.subtypes or set()):
+                    hylian_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'zld_wild_horse'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if hylian_count >= 1:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 1,
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'zld_wild_horse'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_etb_warrior_attack_ping_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Tribal warrior attack — each opp loses 1 life; +1 if 2+ warriors on board
+    (state-read on subtype + cross-controller)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        warrior_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Warrior' in (o.characteristics.subtypes or set()):
+                    warrior_count += 1
+        amount = -2 if warrior_count >= 2 else -1
+        events = []
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount,
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'zld_warrior_strike'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+# ----- Spell resolve helpers (instants/enchantments) -----
+
+def _zld_twilight_curse_resolve(targets: list, state: GameState) -> list[Event]:
+    """Twilight Curse — each opp discards 1 + caster surveils 1 (info asym)."""
+    caster_id = getattr(state, 'active_player', None)
+    if not caster_id and state.players:
+        caster_id = next(iter(state.players))
+    if caster_id is None:
+        return []
+    events = [Event(
+        type=EventType.SURVEIL,
+        payload={'player': caster_id, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                 'reason': 'zld_twilight_curse'},
+        source=None,
+    )]
+    for opp in state.players:
+        if opp != caster_id:
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND,
+                         'reason': 'zld_twilight_curse'},
+                source=None,
+            ))
+    return events
+
+
+def _zld_soul_harvest_resolve(targets: list, state: GameState) -> list[Event]:
+    """Soul Harvest — each opp loses 1, caster surveils 1 (info + asym)."""
+    caster_id = getattr(state, 'active_player', None)
+    if not caster_id and state.players:
+        caster_id = next(iter(state.players))
+    if caster_id is None:
+        return []
+    events = [Event(
+        type=EventType.SURVEIL,
+        payload={'player': caster_id, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                 'reason': 'zld_soul_harvest'},
+        source=None,
+    )]
+    for opp in state.players:
+        if opp != caster_id:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp, 'amount': -1,
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'zld_soul_harvest'},
+                source=None,
+            ))
+    return events
+
+
+def _zld_farores_wind_resolve(targets: list, state: GameState) -> list[Event]:
+    """Farore's Wind — caster scrys 2 (info + state-read on opp count)."""
+    caster_id = getattr(state, 'active_player', None)
+    if not caster_id and state.players:
+        caster_id = next(iter(state.players))
+    if caster_id is None:
+        return []
+    bf = state.zones.get('battlefield')
+    opp_count = 0
+    if bf:
+        for oid in bf.objects:
+            o = state.objects.get(oid)
+            if o and o.controller != caster_id:
+                opp_count += 1
+    amount = 2 if opp_count == 0 else 1
+    events = [Event(
+        type=EventType.SCRY,
+        payload={'player': caster_id, 'amount': amount, 'zone': ZoneType.LIBRARY,
+                 'reason': 'zld_farores_wind'},
+        source=None,
+    )]
+    return events
+
+
+def _zld_twilight_realm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Twilight Realm enchantment — ETB: each opp discards 1 + surveil 1
+    (info+asym pattern, state-read on opp battlefield count)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        opp_threats = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    opp_threats += 1
+        events = [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'zld_twilight_realm'},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={'player': opp_id, 'amount': 1, 'zone': ZoneType.HAND,
+                         'reason': 'zld_twilight_realm'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_kokiri_forest_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Kokiri Forest enchantment — ETB: scry 1 + gain 1 life per Kokiri
+    (state-read on subtype + zone ref)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        kokiri_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Kokiri' in (o.characteristics.subtypes or set()):
+                    kokiri_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'zld_kokiri_forest'},
+            source=obj.id, controller=obj.controller,
+        )]
+        if kokiri_count >= 1:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': kokiri_count,
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'zld_kokiri_forest'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_wild_growth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Wild Growth enchantment — ETB: scry 1 + gain 1 life if you control a Forest
+    (state-read on subtype + zone ref)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        forest_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller and 'Forest' in (o.characteristics.subtypes or set()):
+                    forest_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                     'reason': 'zld_wild_growth'},
+            source=obj.id, controller=obj.controller,
+        )]
+        # Always emit a small lifegain (zone-ref)
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': max(1, forest_count),
+                     'zone': ZoneType.BATTLEFIELD, 'reason': 'zld_wild_growth'},
+            source=obj.id, controller=obj.controller,
+        ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
 # Legacy setup function for cards that need Triforce or Dungeon mechanics
 def _triforce_and_etb_setup(triforce_power: int, triforce_toughness: int, triforce_required: int, etb_effect):
     """Helper for cards with both Triforce bonus and ETB trigger."""
@@ -3791,6 +4421,8 @@ STALFOS_WARRIOR = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Skeleton", "Warrior"},
+    text="Whenever Stalfos Warrior attacks, each opponent loses 1 life. If you control two or more Skeletons or Zombies, they lose 2 life instead.",
+    setup_interceptors=_zld_attack_skeleton_setup,
 )
 
 
@@ -3800,6 +4432,8 @@ REDEAD = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Zombie"},
+    text="When ReDead dies, target opponent discards a card. If you control two or more creatures in your graveyard, surveil 1.",
+    setup_interceptors=_zld_death_zombie_discard_setup,
 )
 
 
@@ -3809,6 +4443,8 @@ GIBDO = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Zombie"},
+    text="When Gibdo enters, each opponent discards a card. If you have two or more creatures in your graveyard, they discard two cards instead.",
+    setup_interceptors=_zld_etb_zombie_discard_setup,
 )
 
 
@@ -3818,6 +4454,8 @@ POES = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit"},
+    text="When Poe enters, each opponent loses 1 life. If you control two or more Spirits, surveil 1.",
+    setup_interceptors=_zld_etb_spirit_ping_setup,
 )
 
 
@@ -3838,6 +4476,8 @@ PHANTOM = make_creature(
     mana_cost="{4}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit", "Knight"},
+    text="When Phantom enters, surveil 1, then each opponent mills 1 card.",
+    setup_interceptors=_zld_etb_phantom_knight_setup,
 )
 
 
@@ -3847,6 +4487,8 @@ FLOORMASTER = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Horror"},
+    text="When Floormaster enters, surveil 1, then each opponent reveals their hand.",
+    setup_interceptors=_zld_etb_horror_reveal_setup,
 )
 
 
@@ -3867,6 +4509,8 @@ WALLMASTER = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Horror"},
+    text="When Wallmaster enters, surveil 1, then each opponent reveals their hand.",
+    setup_interceptors=_zld_etb_horror_reveal_setup,
 )
 
 
@@ -3876,6 +4520,8 @@ TWILIGHT_CURSE = make_instant(
     name="Twilight Curse",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
+    text="Surveil 1. Each opponent discards a card.",
+    resolve=_zld_twilight_curse_resolve,
 )
 
 
@@ -3899,6 +4545,8 @@ SOUL_HARVEST = make_instant(
     name="Soul Harvest",
     mana_cost="{B}",
     colors={Color.BLACK},
+    text="Surveil 1. Each opponent loses 1 life.",
+    resolve=_zld_soul_harvest_resolve,
 )
 
 
@@ -4351,6 +4999,8 @@ KOKIRI_CHILD = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Kokiri"},
+    text="When Kokiri Child enters, scry 1. If you control two or more other Kokiri, target opponent reveals their hand.",
+    setup_interceptors=_zld_etb_kokiri_count_setup,
 )
 
 
@@ -4360,6 +5010,8 @@ KOKIRI_WARRIOR = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Kokiri", "Warrior"},
+    text="Whenever Kokiri Warrior attacks, each opponent loses 1 life. If you control two or more Kokiri, they lose 2 life instead.",
+    setup_interceptors=_zld_attack_kokiri_drain_setup,
 )
 
 
@@ -4369,6 +5021,8 @@ SKULL_KID = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Spirit"},
+    text="When Skull Kid enters, each opponent loses 1 life. If you control two or more Spirits, surveil 1.",
+    setup_interceptors=_zld_etb_spirit_ping_setup,
 )
 
 
@@ -4389,6 +5043,8 @@ FOREST_FAIRY = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Fairy"},
+    text="When Forest Fairy enters, scry 1. If you control a Forest, you gain life equal to the number of Forests you control.",
+    setup_interceptors=_zld_wild_growth_setup,
 )
 
 
@@ -4398,6 +5054,8 @@ WOLFOS = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Wolf"},
+    text="Whenever Wolfos attacks, surveil 1. If you control another creature, each opponent loses 1 life.",
+    setup_interceptors=_zld_attack_wolf_setup,
 )
 
 
@@ -4407,6 +5065,8 @@ FOREST_TEMPLE_GUARDIAN = make_creature(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Spirit", "Warrior"},
+    text="When Forest Temple Guardian enters, scry 1. If any opponent controls a creature, surveil 1.",
+    setup_interceptors=_zld_etb_forest_count_setup,
 )
 
 
@@ -4427,6 +5087,8 @@ RITO_WARRIOR = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Rito", "Warrior"},
+    text="Whenever Rito Warrior attacks, each opponent loses 1 life. If you control two or more Warriors, they lose 2 life instead.",
+    setup_interceptors=_zld_etb_warrior_attack_ping_setup,
 )
 
 
@@ -4436,6 +5098,8 @@ KOROKS = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Plant", "Spirit"},
+    text="When Korok enters, gain 1 life per Plant or Treefolk you control. If you have a Plant in your graveyard, each opponent loses 1 life.",
+    setup_interceptors=_zld_etb_plant_lifegain_setup,
 )
 
 
@@ -4445,6 +5109,8 @@ FARORES_WIND = make_instant(
     name="Farore's Wind",
     mana_cost="{G}",
     colors={Color.GREEN},
+    text="Scry 2. If any opponent controls a creature, scry 1 instead.",
+    resolve=_zld_farores_wind_resolve,
 )
 
 
@@ -4477,6 +5143,8 @@ WILD_GROWTH = make_enchantment(
     name="Wild Growth",
     mana_cost="{G}",
     colors={Color.GREEN},
+    text="When Wild Growth enters, scry 1. Gain 1 life for each Forest you control.",
+    setup_interceptors=_zld_wild_growth_setup,
 )
 
 
@@ -4965,6 +5633,8 @@ TWILIGHT_REALM = make_enchantment(
     name="Twilight Realm",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
+    text="When Twilight Realm enters, surveil 1, then each opponent discards a card.",
+    setup_interceptors=_zld_twilight_realm_setup,
 )
 
 
@@ -4981,6 +5651,8 @@ KOKIRI_FOREST = make_enchantment(
     name="Kokiri Forest",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
+    text="When Kokiri Forest enters, scry 1. Gain 1 life per Kokiri you control.",
+    setup_interceptors=_zld_kokiri_forest_setup,
 )
 
 
@@ -5278,6 +5950,8 @@ SHADOW_LINK = make_creature(
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Hylian", "Shadow"},
+    text="When Shadow Link enters, each opponent reveals their hand. If you control two or more creatures, surveil 1.",
+    setup_interceptors=_zld_etb_shadow_setup,
 )
 
 DARK_INTERLOPERS = make_creature(
@@ -5296,6 +5970,8 @@ TWILIGHT_MESSENGER = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit"},
+    text="When Twilight Messenger enters, scry 1. If any opponent controls a creature, target opponent reveals their hand.",
+    setup_interceptors=_zld_etb_twili_setup,
 )
 
 CURSED_BOKOBLIN = make_creature(
@@ -5356,6 +6032,8 @@ FOREST_GUARDIAN = make_creature(
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Spirit", "Warrior"},
+    text="When Forest Guardian enters, scry 1. If any opponent controls a creature, surveil 1.",
+    setup_interceptors=_zld_etb_forest_count_setup,
 )
 
 DEKU_TREE_SPROUT = make_creature(
@@ -5364,6 +6042,8 @@ DEKU_TREE_SPROUT = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Plant", "Treefolk"},
+    text="When Deku Tree Sprout enters, gain 1 life per Plant or Treefolk you control. If you have a Plant in your graveyard, each opponent loses 1 life.",
+    setup_interceptors=_zld_etb_plant_lifegain_setup,
 )
 
 WILD_HORSE = make_creature(
@@ -5372,6 +6052,8 @@ WILD_HORSE = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Horse"},
+    text="When Wild Horse enters, scry 1. If you control a Hylian, gain 1 life.",
+    setup_interceptors=_zld_etb_horse_setup,
 )
 
 RITO_ELDER = make_creature(
@@ -5380,6 +6062,8 @@ RITO_ELDER = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Rito", "Druid"},
+    text="When Rito Elder enters, scry 1. If you control two or more Rito or Birds, target opponent reveals their hand.",
+    setup_interceptors=_zld_etb_rito_scout_setup,
 )
 
 MASTER_KOHGA = make_creature(

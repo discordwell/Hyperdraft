@@ -2109,6 +2109,529 @@ def test_bokoblin_horde_attack_drains_opp():
 
 
 # ============================================================================
+# Slice-8C Green + Black median-lift tests (2026-05-19)
+# Each test asserts the buffed card emits the expected info/asym event.
+# Pattern mirrors existing slice-4 tests above.
+# ============================================================================
+
+
+def _emit_attack(game, attacker, p1):
+    """Helper — emit an ATTACK_DECLARED event for the given creature."""
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': attacker.id, 'attacker': attacker.id, 'controller': p1.id},
+        source=attacker.id,
+    ))
+
+
+def test_kokiri_child_etb_scrys():
+    print("\n=== Kokiri Child: ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    k = _put_on_battlefield(game, p1, "Kokiri Child")
+    new = game.state.event_log[before:]
+    scrys = [
+        e for e in new
+        if e.type == EventType.SCRY
+        and e.payload.get('reason') == 'zld_kokiri_kinship'
+        and e.source == k.id
+    ]
+    assert scrys, f"Expected SCRY on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_kokiri_warrior_attack_drains_opp():
+    print("\n=== Kokiri Warrior: attack drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    k = _put_on_battlefield(game, p1, "Kokiri Warrior")
+    before = len(game.state.event_log)
+    _emit_attack(game, k, p1)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('reason') == 'zld_kokiri_strike'
+        and e.source == k.id
+    ]
+    assert drains, f"Expected attack drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_skull_kid_etb_drains_opp():
+    print("\n=== Skull Kid: ETB ping ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    s = _put_on_battlefield(game, p1, "Skull Kid")
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.payload.get('reason') == 'zld_poe_haunt'
+        and e.source == s.id
+    ]
+    assert drains, f"Expected ETB ping; got {_emitted_types(game)[-10:]}"
+
+
+def test_forest_fairy_etb_scrys():
+    print("\n=== Forest Fairy: ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    f = _put_on_battlefield(game, p1, "Forest Fairy")
+    new = game.state.event_log[before:]
+    scrys = [
+        e for e in new
+        if e.type == EventType.SCRY
+        and e.payload.get('reason') == 'zld_wild_growth'
+        and e.source == f.id
+    ]
+    assert scrys, f"Expected SCRY on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_wolfos_attack_surveils():
+    print("\n=== Wolfos: attack surveil ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    w = _put_on_battlefield(game, p1, "Wolfos")
+    before = len(game.state.event_log)
+    _emit_attack(game, w, p1)
+    new = game.state.event_log[before:]
+    surveils = [
+        e for e in new
+        if e.type == EventType.SURVEIL
+        and e.payload.get('reason') == 'zld_wolf_hunt'
+        and e.source == w.id
+    ]
+    assert surveils, f"Expected attack surveil; got {_emitted_types(game)[-10:]}"
+
+
+def test_forest_temple_guardian_etb_scrys():
+    print("\n=== Forest Temple Guardian: ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    g = _put_on_battlefield(game, p1, "Forest Temple Guardian")
+    new = game.state.event_log[before:]
+    scrys = [
+        e for e in new
+        if e.type == EventType.SCRY
+        and e.payload.get('reason') == 'zld_forest_watch'
+        and e.source == g.id
+    ]
+    assert scrys, f"Expected SCRY on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_rito_warrior_attack_drains():
+    print("\n=== Rito Warrior: attack drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    r = _put_on_battlefield(game, p1, "Rito Warrior")
+    before = len(game.state.event_log)
+    _emit_attack(game, r, p1)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('reason') == 'zld_warrior_strike'
+        and e.source == r.id
+    ]
+    assert drains, f"Expected attack drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_korok_etb_gains_life():
+    print("\n=== Korok: ETB lifegain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    k = _put_on_battlefield(game, p1, "Korok")
+    new = game.state.event_log[before:]
+    gains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p1.id
+        and e.payload.get('amount') >= 1
+        and e.payload.get('reason') == 'zld_plant_lifegain'
+        and e.source == k.id
+    ]
+    assert gains, f"Expected ETB lifegain; got {_emitted_types(game)[-10:]}"
+
+
+def test_forest_guardian_etb_scrys():
+    print("\n=== Forest Guardian: ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    g = _put_on_battlefield(game, p1, "Forest Guardian")
+    new = game.state.event_log[before:]
+    scrys = [
+        e for e in new
+        if e.type == EventType.SCRY
+        and e.payload.get('reason') == 'zld_forest_watch'
+        and e.source == g.id
+    ]
+    assert scrys, f"Expected SCRY on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_deku_tree_sprout_etb_lifegain():
+    print("\n=== Deku Tree Sprout: ETB lifegain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    d = _put_on_battlefield(game, p1, "Deku Tree Sprout")
+    new = game.state.event_log[before:]
+    gains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p1.id
+        and e.payload.get('amount') >= 1
+        and e.payload.get('reason') == 'zld_plant_lifegain'
+        and e.source == d.id
+    ]
+    assert gains, f"Expected ETB lifegain; got {_emitted_types(game)[-10:]}"
+
+
+def test_wild_horse_etb_scrys():
+    print("\n=== Wild Horse: ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    h = _put_on_battlefield(game, p1, "Wild Horse")
+    new = game.state.event_log[before:]
+    scrys = [
+        e for e in new
+        if e.type == EventType.SCRY
+        and e.payload.get('reason') == 'zld_wild_horse'
+        and e.source == h.id
+    ]
+    assert scrys, f"Expected SCRY on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_rito_elder_etb_scrys():
+    print("\n=== Rito Elder: ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    r = _put_on_battlefield(game, p1, "Rito Elder")
+    new = game.state.event_log[before:]
+    scrys = [
+        e for e in new
+        if e.type == EventType.SCRY
+        and e.payload.get('reason') == 'zld_rito_scout'
+        and e.source == r.id
+    ]
+    assert scrys, f"Expected SCRY on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_stalfos_warrior_attack_drains():
+    print("\n=== Stalfos Warrior: attack drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    s = _put_on_battlefield(game, p1, "Stalfos Warrior")
+    before = len(game.state.event_log)
+    _emit_attack(game, s, p1)
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('reason') == 'zld_stalfos_strike'
+        and e.source == s.id
+    ]
+    assert drains, f"Expected attack drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_redead_death_makes_opp_discard():
+    print("\n=== ReDead: death discard ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    r = _put_on_battlefield(game, p1, "ReDead")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': r.id},
+        source=r.id,
+    ))
+    new = game.state.event_log[before:]
+    discards = [
+        e for e in new
+        if e.type == EventType.DISCARD
+        and e.payload.get('player') == p2.id
+        and e.payload.get('reason') == 'zld_redead_curse'
+        and e.source == r.id
+    ]
+    assert discards, f"Expected death discard; got {_emitted_types(game)[-10:]}"
+
+
+def test_gibdo_etb_makes_opp_discard():
+    print("\n=== Gibdo: ETB discard ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    g = _put_on_battlefield(game, p1, "Gibdo")
+    new = game.state.event_log[before:]
+    discards = [
+        e for e in new
+        if e.type == EventType.DISCARD
+        and e.payload.get('player') == p2.id
+        and e.payload.get('reason') == 'zld_zombie_curse'
+        and e.source == g.id
+    ]
+    assert discards, f"Expected ETB discard; got {_emitted_types(game)[-10:]}"
+
+
+def test_poe_etb_drains_opp():
+    print("\n=== Poe: ETB drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    p = _put_on_battlefield(game, p1, "Poe")
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.payload.get('reason') == 'zld_poe_haunt'
+        and e.source == p.id
+    ]
+    assert drains, f"Expected ETB drain; got {_emitted_types(game)[-10:]}"
+
+
+def test_phantom_etb_surveils_and_mills():
+    print("\n=== Phantom: ETB surveil + mill ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    ph = _put_on_battlefield(game, p1, "Phantom")
+    new = game.state.event_log[before:]
+    surveils = [
+        e for e in new
+        if e.type == EventType.SURVEIL
+        and e.payload.get('reason') == 'zld_phantom_dread'
+        and e.source == ph.id
+    ]
+    mills = [
+        e for e in new
+        if e.type == EventType.MILL
+        and e.payload.get('player') == p2.id
+        and e.payload.get('reason') == 'zld_phantom_dread'
+        and e.source == ph.id
+    ]
+    assert surveils, f"Expected SURVEIL on ETB; got {_emitted_types(game)[-10:]}"
+    assert mills, f"Expected MILL on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_floormaster_etb_reveals_opp_hand():
+    print("\n=== Floormaster: ETB reveal hand ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    f = _put_on_battlefield(game, p1, "Floormaster")
+    new = game.state.event_log[before:]
+    reveals = [
+        e for e in new
+        if e.type == EventType.REVEAL_HAND
+        and e.payload.get('player') == p2.id
+        and e.payload.get('reason') == 'zld_horror_reveal'
+        and e.source == f.id
+    ]
+    assert reveals, f"Expected REVEAL_HAND on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_wallmaster_etb_reveals_opp_hand():
+    print("\n=== Wallmaster: ETB reveal hand ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    w = _put_on_battlefield(game, p1, "Wallmaster")
+    new = game.state.event_log[before:]
+    reveals = [
+        e for e in new
+        if e.type == EventType.REVEAL_HAND
+        and e.payload.get('player') == p2.id
+        and e.payload.get('reason') == 'zld_horror_reveal'
+        and e.source == w.id
+    ]
+    assert reveals, f"Expected REVEAL_HAND on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_shadow_link_etb_reveals_opp_hand():
+    print("\n=== Shadow Link: ETB reveal hand ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    s = _put_on_battlefield(game, p1, "Shadow Link")
+    new = game.state.event_log[before:]
+    reveals = [
+        e for e in new
+        if e.type == EventType.REVEAL_HAND
+        and e.payload.get('player') == p2.id
+        and e.payload.get('reason') == 'zld_shadow_peer'
+        and e.source == s.id
+    ]
+    assert reveals, f"Expected REVEAL_HAND on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_twilight_messenger_etb_scrys():
+    print("\n=== Twilight Messenger: ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    t = _put_on_battlefield(game, p1, "Twilight Messenger")
+    new = game.state.event_log[before:]
+    scrys = [
+        e for e in new
+        if e.type == EventType.SCRY
+        and e.payload.get('reason') == 'zld_twili_message'
+        and e.source == t.id
+    ]
+    assert scrys, f"Expected SCRY on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_twilight_curse_resolve_makes_opp_discard():
+    print("\n=== Twilight Curse: resolve discard ===")
+    from src.cards.custom.legend_of_zelda import _zld_twilight_curse_resolve
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = _zld_twilight_curse_resolve([], game.state)
+    discards = [
+        e for e in events
+        if e.type == EventType.DISCARD
+        and e.payload.get('player') == p2.id
+        and e.payload.get('reason') == 'zld_twilight_curse'
+    ]
+    surveils = [
+        e for e in events
+        if e.type == EventType.SURVEIL
+        and e.payload.get('player') == p1.id
+        and e.payload.get('reason') == 'zld_twilight_curse'
+    ]
+    assert discards, f"Expected DISCARD from resolve; got {events}"
+    assert surveils, f"Expected SURVEIL from resolve; got {events}"
+
+
+def test_soul_harvest_resolve_drains_opp():
+    print("\n=== Soul Harvest: resolve drain ===")
+    from src.cards.custom.legend_of_zelda import _zld_soul_harvest_resolve
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = _zld_soul_harvest_resolve([], game.state)
+    drains = [
+        e for e in events
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+        and e.payload.get('reason') == 'zld_soul_harvest'
+    ]
+    surveils = [
+        e for e in events
+        if e.type == EventType.SURVEIL
+        and e.payload.get('reason') == 'zld_soul_harvest'
+    ]
+    assert drains, f"Expected drain from resolve; got {events}"
+    assert surveils, f"Expected surveil from resolve; got {events}"
+
+
+def test_twilight_realm_etb_makes_opp_discard():
+    print("\n=== Twilight Realm: ETB discard ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    tr = _put_on_battlefield(game, p1, "Twilight Realm")
+    new = game.state.event_log[before:]
+    discards = [
+        e for e in new
+        if e.type == EventType.DISCARD
+        and e.payload.get('player') == p2.id
+        and e.payload.get('reason') == 'zld_twilight_realm'
+        and e.source == tr.id
+    ]
+    assert discards, f"Expected ETB DISCARD; got {_emitted_types(game)[-10:]}"
+
+
+def test_kokiri_forest_etb_scrys():
+    print("\n=== Kokiri Forest (Enchantment): ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    kf = _put_on_battlefield(game, p1, "Kokiri Forest (Enchantment)")
+    new = game.state.event_log[before:]
+    scrys = [
+        e for e in new
+        if e.type == EventType.SCRY
+        and e.payload.get('reason') == 'zld_kokiri_forest'
+        and e.source == kf.id
+    ]
+    assert scrys, f"Expected ETB SCRY; got {_emitted_types(game)[-10:]}"
+
+
+def test_wild_growth_etb_scrys():
+    print("\n=== Wild Growth: ETB scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    before = len(game.state.event_log)
+    wg = _put_on_battlefield(game, p1, "Wild Growth")
+    new = game.state.event_log[before:]
+    scrys = [
+        e for e in new
+        if e.type == EventType.SCRY
+        and e.payload.get('reason') == 'zld_wild_growth'
+        and e.source == wg.id
+    ]
+    assert scrys, f"Expected ETB SCRY; got {_emitted_types(game)[-10:]}"
+
+
+def test_farores_wind_resolve_scrys():
+    print("\n=== Farore's Wind: resolve scry ===")
+    from src.cards.custom.legend_of_zelda import _zld_farores_wind_resolve
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = _zld_farores_wind_resolve([], game.state)
+    scrys = [
+        e for e in events
+        if e.type == EventType.SCRY
+        and e.payload.get('player') == p1.id
+        and e.payload.get('reason') == 'zld_farores_wind'
+    ]
+    assert scrys, f"Expected SCRY from resolve; got {events}"
+
+
+# ============================================================================
 # Slice-8A median-lift tests (White + Multicolor)
 # Each test asserts the buffed card emits at least one of {SCRY, SURVEIL}
 # (info event, scores asym=3) plus a cross-controller asymmetric event.
