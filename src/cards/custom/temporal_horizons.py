@@ -39,7 +39,9 @@ from src.cards.interceptor_helpers import (
     make_end_step_trigger, make_counter_added_trigger,
     make_static_pt_boost, make_keyword_grant,
     make_attack_trigger, make_damage_trigger,
-    other_creatures_you_control, creatures_you_control, all_opponents
+    other_creatures_you_control, creatures_you_control, all_opponents,
+    # Helper 5 rewires (catalog sweep, 2026-05-18):
+    make_equipment_setup,
 )
 
 
@@ -2673,11 +2675,61 @@ CHRONO_COMPASS = make_artifact(
     text="{T}: Add {C}. {2}, {T}: Scry 2."
 )
 
+# --- Temporal Blade: Helper-5 rewire ---------------------------------------
+# +2/+1 + granted trigger "combat damage to player → put a time counter on a
+# permanent that player controls." Greedy first-eligible-permanent picker.
+def _temporal_blade_combat_damage_to_player_filter(
+    event: Event, state: GameState, target_id: str
+) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    return event.payload.get('target') in state.players
+
+
+def _temporal_blade_time_counter_effect(
+    target_obj: GameObject, event: Event, state: GameState
+) -> list[Event]:
+    victim_player = event.payload.get('target')
+    if not victim_player:
+        return []
+    # Greedy: first eligible permanent the victim controls (any type).
+    for o in state.objects.values():
+        if o.controller != victim_player:
+            continue
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if o.characteristics is None:
+            continue
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={
+                'object_id': o.id,
+                'counter_type': 'time',
+                'amount': 1,
+            },
+            source=target_obj.id,
+        )]
+    return []
+
+
 TEMPORAL_BLADE = make_artifact(
     name="Temporal Blade",
     mana_cost="{3}",
     subtypes={"Equipment"},
-    text="Equipped creature gets +2/+1. Whenever equipped creature deals combat damage to a player, put a time counter on target permanent that player controls. Equip {2}"
+    text="Equipped creature gets +2/+1. Whenever equipped creature deals combat damage to a player, put a time counter on a permanent that player controls. Equip {2}",
+    setup_interceptors=make_equipment_setup(
+        power_mod=2, toughness_mod=1,
+        equip_cost="{2}",
+        granted_triggered_abilities={
+            "event_filter": _temporal_blade_combat_damage_to_player_filter,
+            "effect_fn": _temporal_blade_time_counter_effect,
+            "description": "Combat damage to player → time counter on their permanent",
+        },
+    ),
 )
 
 TIME_CAPSULE = make_artifact(
