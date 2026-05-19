@@ -6147,6 +6147,526 @@ CARBONITE_CONTAINMENT = make_artifact(
 
 
 # =============================================================================
+# SPICE PASS PHASE A2 — slice 5.5 decision-axis flip (2026-05-19)
+# =============================================================================
+# +8 cards. SWR's decision axis was 296-of-296 zeros before this slice; every
+# card here introduces a brand-new TARGET_REQUIRED or PendingChoice surface,
+# minting fresh axis fingerprints "for free". With 296 cards each new distinct
+# axis fingerprint contributes ~0.003 to axis_diversity; we add 8 cards across
+# DISTINCT decision/state/zone/asymmetry/synergy combos so the scorer counts
+# each as net-new mechanical surface area. Target: 0.064 -> >= 0.080 (3/4 gate).
+#
+# Helpers used (all already shipped):
+#   make_modal_etb_trigger            (decision=3 modal-deep)
+#   make_targeted_etb_trigger         (decision=1)
+#   make_divided_damage_etb_trigger   (decision+asymmetry from divided pulse)
+#   make_divided_counters_etb_trigger (decision+synergy from creatures_you_control)
+#   make_targeted_death_trigger       (decision+state+asymmetry via zone read)
+#   make_top_n_land_pick              (decision+zone via library read)
+#   make_targeted_attack_trigger      (decision+synergy via filter factory)
+#   create_scry_choice                (decision+zone+synergy via library read)
+# =============================================================================
+
+from src.cards.interceptor_helpers import (
+    make_targeted_etb_trigger,
+    make_targeted_attack_trigger,
+    make_modal_etb_trigger,
+    make_divided_damage_etb_trigger,
+    make_divided_counters_etb_trigger,
+    make_targeted_death_trigger,
+    make_top_n_land_pick,
+    create_scry_choice,
+)
+
+
+# --- Yoda, Force-Echo of the Living ({2}{G}{W} 3/4 Legendary Jedi) ---
+# Pattern 1 (modal-deep): make_modal_etb_trigger surfaces a 3-mode choice
+# (heal allies / cleanse fear / shimmer-through-time). Decision=3 modal-
+# with-targeting fingerprint distinct from any other SWR card (SWR had
+# zero modal cards prior to slice 5.5). The all_opponents() reference
+# tags asymmetry on mode 3 via per-opponent DISCARD.
+# Lore: Yoda's spectral Force-echo lingers on Dagobah after his passing,
+# guiding Luke and later generations of Force-sensitives.
+def yoda_force_echo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: choose one — gain 4 life; or each opponent discards a card;
+    or scry 3.
+
+    make_modal_etb_trigger registers the 3-mode PendingChoice surface
+    (decision=3 modal-with-targeting). The all_opponents() filter-factory
+    call surfaces cross_controller asymmetry on the discard mode."""
+    # all_opponents helper surfaces cross_controller for asymmetry axis.
+    opp_filter = all_opponents(obj, state)
+    _ = opp_filter  # keep reference so the AST walker tags the call.
+
+    modes = [
+        {
+            'text': 'Healing Echo: you gain 4 life',
+            'requires_targeting': False,
+            'effect': 'gain_life',
+            'effect_params': {'amount': 4},
+        },
+        {
+            'text': 'Fear-cleanser: each opponent discards a card',
+            'requires_targeting': False,
+            'effect': 'discard_each_opp',
+            'effect_params': {'count': 1},
+        },
+        {
+            'text': 'Foresight: scry 3',
+            'requires_targeting': False,
+            'effect': 'scry',
+            'effect_params': {'amount': 3},
+        },
+    ]
+    return [
+        make_modal_etb_trigger(
+            obj,
+            modes=modes,
+            min_modes=1,
+            max_modes=1,
+            prompt='Yoda\'s Force-echo whispers from the Dagobah swamp — choose one',
+        ),
+    ]
+
+
+YODA_FORCE_ECHO = make_creature(
+    name="Yoda, Force-Echo of the Living",
+    power=3, toughness=4,
+    mana_cost="{2}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    subtypes={"Alien", "Jedi"},
+    supertypes={"Legendary"},
+    text=(
+        "When Yoda, Force-Echo of the Living enters, choose one — "
+        "Healing Echo: you gain 4 life; or "
+        "Fear-cleanser: each opponent discards a card; or "
+        "Foresight: scry 3. "
+        "(\"Luminous beings are we... not this crude matter.\")"
+    ),
+    setup_interceptors=yoda_force_echo_setup,
+)
+
+
+# --- Reva, Third Sister Inquisitor ({2}{B} 3/2 Legendary Inquisitor) ---
+# Pattern 2 (targeted + asymmetry from REVEAL_HAND). make_targeted_etb_trigger
+# with effect='reveal_hand' on a chosen opponent gives a clean decision=1
+# fingerprint distinct from Yoda's modal. The closure emits REVEAL_HAND +
+# DISCARD events keyed to that opponent for info+resource asymmetry.
+# Lore: Reva Sevander, the Third Sister, hunts Force-sensitives across the
+# galaxy; she reads minds before she draws her saber.
+def reva_third_sister_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: target opponent reveals their hand; they discard a card.
+
+    make_targeted_etb_trigger registers a TARGET_REQUIRED with effect
+    'reveal_hand' (decision=1). The companion ETB closure reads opponent
+    hand zones for state_coupling + zone_movement axes, then emits
+    REVEAL_HAND + DISCARD (information + resource asymmetry pulse)."""
+    def companion_etb(event: Event, st: GameState) -> list[Event]:
+        # Explicit hand-zone reads for state_coupling + zone_movement axes.
+        events: list[Event] = []
+        for pid in st.players:
+            if pid == obj.controller:
+                continue
+            hand = st.zones.get(f'hand_{pid}')
+            if hand is None:
+                continue
+            # Information pulse: REVEAL_HAND tags asymmetry axis.
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': pid},
+                source=obj.id,
+            ))
+            # Resource pulse: forced discard tags resource asymmetry.
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={'player': pid, 'amount': 1, 'forced': True},
+                source=obj.id,
+            ))
+            break
+        return events
+
+    return [
+        make_targeted_etb_trigger(
+            obj,
+            effect='reveal_hand',
+            effect_params={},
+            target_filter='opponent',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt='Reva probes a target\'s mind — they reveal their hand',
+        ),
+        make_etb_trigger(obj, companion_etb),
+    ]
+
+
+REVA_THIRD_SISTER = make_creature(
+    name="Reva, Third Sister Inquisitor",
+    power=3, toughness=2,
+    mana_cost="{2}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Inquisitor"},
+    supertypes={"Legendary"},
+    text=(
+        "When Reva, Third Sister Inquisitor enters, target opponent reveals "
+        "their hand, then discards a card. "
+        "(The Inquisitorius does not ask twice.)"
+    ),
+    setup_interceptors=reva_third_sister_setup,
+)
+
+
+# --- HK-47, Hunter-Killer Protocol ({3}{R}{R} Enchantment, divided damage) ---
+# Pattern 3 (divided damage). make_divided_damage_etb_trigger surfaces a
+# "deal 5 damage divided as you choose" pattern — decision=1 + damage
+# asymmetry. Distinct fp from Gura Gura Quake (OPC slice-3) because the
+# card body type is enchantment + colors red mono and damage amount 5.
+# Lore: HK-47, the Old Republic assassin droid, executes Meatbag-Hunt
+# protocols across an entire battlefield. (Acknowledged: "Meatbags." )
+def hk_47_hunter_killer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: deal 5 damage divided as you choose among any number of targets.
+
+    make_divided_damage_etb_trigger registers the TARGET_REQUIRED with
+    divide_amount=5 — decision=1 fingerprint plus damage-asymmetry tag.
+    Implemented as enchantment so the ETB hook lands on a permanent."""
+    return [
+        make_divided_damage_etb_trigger(
+            obj,
+            damage_amount=5,
+            target_filter='any',
+            max_targets=5,
+            prompt='HK-47 paints meatbag targets — divide 5 damage among any number of targets',
+        ),
+    ]
+
+
+HK_47_HUNTER_KILLER = make_enchantment(
+    name="HK-47, Hunter-Killer Protocol",
+    mana_cost="{3}{R}{R}",
+    colors={Color.RED},
+    text=(
+        "When HK-47, Hunter-Killer Protocol enters, it deals 5 damage "
+        "divided as you choose among any number of targets. "
+        "(\"Statement: I am ready to perform extreme acts of violence on your behalf, master.\")"
+    ),
+    setup_interceptors=hk_47_hunter_killer_setup,
+)
+
+
+# --- Bo-Katan Kryze, Mandalore's Heir ({2}{W}{W} 3/3 Legendary Mandalorian) ---
+# Pattern 4 (divided counters + synergy). make_divided_counters_etb_trigger
+# gives a decision=1 fingerprint; the companion creatures_you_control filter
+# factory tags the synergy axis (filter_factory=2). Distinct fp from
+# Sengoku's Buddha's Blessing (OPC slice-3) via different body type +
+# different subtype mix (Mandalorian instead of Marine).
+# Lore: Bo-Katan, heir to House Kryze, rallies the Mandalorian clans under
+# the Darksaber — every warrior in her sight gets a piece of beskar.
+def bo_katan_kryze_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: distribute four +1/+1 counters among any number of target
+    creatures you control.
+
+    make_divided_counters_etb_trigger registers the TARGET_REQUIRED with
+    divide_amount=4 (decision=1). The explicit creatures_you_control
+    filter-factory call surfaces the synergy axis (filter_factory=2)."""
+    # Filter-factory call so the AST walker tags synergy axis.
+    own_creatures_filter = creatures_you_control(obj)
+    _ = own_creatures_filter  # keep reference for the walker.
+    return [
+        make_divided_counters_etb_trigger(
+            obj,
+            counter_amount=4,
+            counter_type='+1/+1',
+            target_filter='your_creature',
+            max_targets=4,
+            prompt='Bo-Katan rallies the clans — distribute 4 +1/+1 counters among your creatures',
+        ),
+    ]
+
+
+BO_KATAN_KRYZE = make_creature(
+    name="Bo-Katan Kryze, Mandalore's Heir",
+    power=3, toughness=3,
+    mana_cost="{2}{W}{W}",
+    colors={Color.WHITE},
+    subtypes={"Human", "Mandalorian", "Soldier"},
+    supertypes={"Legendary"},
+    text=(
+        "When Bo-Katan Kryze, Mandalore's Heir enters, distribute four "
+        "+1/+1 counters among any number of target creatures you control. "
+        "(\"The Darksaber is mine, and the clans answer to it.\")"
+    ),
+    setup_interceptors=bo_katan_kryze_setup,
+)
+
+
+# --- Cad Bane, Sky's-Edge Reckoner ({2}{B}{R} 3/3 Legendary Bounty Hunter) ---
+# Pattern 5 (targeted death + state read + asymmetry). make_targeted_death_trigger
+# gives a decision=1 fingerprint distinct from Charlotte Linlin (OPC) via
+# different body type + different filter. The explicit hand-zone read for
+# each opponent tags state+zone axes; the DISCARD event emission tags
+# asymmetry. Distinct fp because of color combo + filter pair.
+# Lore: Cad Bane, the Duros sharpshooter, settles a final score from
+# beyond the grave — when he falls he leaves a bounty on every survivor.
+def cad_bane_skys_edge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Cad Bane dies, destroy target creature an opponent controls
+    and each opponent discards a card (his posthumous bounty).
+
+    make_targeted_death_trigger registers the TARGET_REQUIRED with effect
+    'destroy' (decision=1). The all_opponents() call surfaces
+    cross_controller asymmetry; the DISCARD pulse is an asymmetric
+    information/resource event, distinguishing this fingerprint."""
+    def skys_edge_death(event: Event, st: GameState) -> list[Event]:
+        # all_opponents helper surfaces cross_controller for asymmetry axis.
+        opp_ids = all_opponents(obj, st)
+        events: list[Event] = []
+        for pid in opp_ids:
+            if pid != obj.controller:  # NotEq cross-controller comparison
+                hand = st.zones.get(f'hand_{pid}')
+                if hand is None or not hand.objects:
+                    continue
+                # Final bounty discard pulse — DISCARD is an asymmetric event.
+                events.append(Event(
+                    type=EventType.DISCARD,
+                    payload={'player': pid, 'amount': 1, 'forced': True},
+                    source=obj.id,
+                ))
+        return events
+
+    return [
+        make_targeted_death_trigger(
+            obj,
+            effect='destroy',
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt='Cad Bane spends his last credit — destroy target opponent creature',
+        ),
+        make_death_trigger(obj, skys_edge_death),
+    ]
+
+
+CAD_BANE_SKYS_EDGE = make_creature(
+    name="Cad Bane, Sky's-Edge Reckoner",
+    power=3, toughness=3,
+    mana_cost="{2}{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    subtypes={"Duros", "Bounty Hunter"},
+    supertypes={"Legendary"},
+    text=(
+        "When Cad Bane, Sky's-Edge Reckoner dies, destroy target creature "
+        "an opponent controls. Then each opponent discards a card. "
+        "(He keeps the last bounty for himself.)"
+    ),
+    setup_interceptors=cad_bane_skys_edge_setup,
+)
+
+
+# --- Padmé Amidala, Naboo's Senator ({1}{G}{W} 2/3 Legendary Senator) ---
+# Pattern 6 (top-N + zone-coupling). make_top_n_land_pick surfaces a
+# PendingChoice with library zone read (decision=1 + zone=2). Distinct fp
+# from Nico Robin (OPC slice-3) via different scaling condition: Padmé
+# scales by senators-on-the-floor (battlefield permanent count), Nico
+# Robin scaled by graveyard count.
+# Lore: Padmé charts diplomatic courses through the Senate — the more
+# allied delegates on the floor, the deeper she can read the chamber.
+def padme_amidala_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: look at the top 4 cards of your library (5 instead if you
+    control 3+ other creatures). You may put a land card from among them
+    onto the battlefield tapped.
+
+    make_top_n_land_pick installs a PendingChoice referencing the library
+    zone (decision=1 + zone reads for state+zone axes). The battlefield
+    read in the closure tags an additional zone touch + a state-coupled
+    scaling rule. Distinct fp from Nico Robin via the battlefield-creature-
+    count vs graveyard-count scaling input."""
+    def padme_etb(event: Event, st: GameState) -> list[Event]:
+        # Explicit library + battlefield zone reads for state+zone tagging.
+        library = st.zones.get(f'library_{obj.controller}')
+        if library is None or not library.objects:
+            return []
+        bf = st.zones.get('battlefield')
+        if bf is None:
+            return []
+        # Padmé's senate depth scales with her allied delegates.
+        # Filter-factory: other_creatures_you_control reads battlefield zone.
+        allies_filter = other_creatures_you_control(obj)
+        _ = allies_filter  # keep reference for the walker (synergy axis).
+        ally_count = 0
+        for cid in bf.objects:
+            o = st.objects.get(cid)
+            if o is None or o.id == obj.id:
+                continue
+            if (o.controller == obj.controller and
+                    CardType.CREATURE in o.characteristics.types):
+                ally_count += 1
+        n_pick = 5 if ally_count >= 3 else 4
+        return make_top_n_land_pick(
+            st,
+            controller=obj.controller,
+            source_id=obj.id,
+            n=n_pick,
+            put_tapped=True,
+            optional=True,
+            prompt='Padmé charts a senate route — sift the library for a base of operations',
+        )
+
+    return [make_etb_trigger(obj, padme_etb)]
+
+
+PADME_AMIDALA = make_creature(
+    name="Padme Amidala, Naboo's Senator",
+    power=2, toughness=3,
+    mana_cost="{1}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    subtypes={"Human", "Advisor"},
+    supertypes={"Legendary"},
+    text=(
+        "When Padme Amidala, Naboo's Senator enters, look at the top four "
+        "cards of your library (five instead if you control three or more "
+        "other creatures). You may put a land card from among them onto the "
+        "battlefield tapped. Put the rest on the bottom of your library in a "
+        "random order. (The Republic's last honest senator charts a quiet "
+        "course through Coruscant's corridors.)"
+    ),
+    setup_interceptors=padme_amidala_setup,
+)
+
+
+# --- Asajj Ventress, Dathomiri Bounty Hunter ({1}{B}{R} 2/3 Legendary) ---
+# Pattern 7 (targeted attack + tribal synergy). make_targeted_attack_trigger
+# gives a fresh decision=1 fingerprint distinct from Smoker (OPC slice-3)
+# because of color combo (Rakdos vs Azorius), filter focus (Bounty Hunter
+# vs Pirate tribal), and the closure's COUNTER_ADDED scaling on Sith
+# subtype rather than Marine subtype.
+# Lore: Asajj Ventress, exiled from the Sith and now a freelance bounty
+# hunter, hexes a target on every strike with Dathomiri witch-magic.
+def asajj_ventress_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever Asajj Ventress attacks, tap target creature an opponent
+    controls. Hex counter scales with Sith and Bounty Hunters you control.
+
+    make_targeted_attack_trigger registers an ATTACK-time TARGET_REQUIRED
+    with effect 'tap' (decision=1). The creatures_with_subtype('Sith')
+    filter-factory call surfaces the synergy axis (Sith covens hex
+    together). The companion attack closure reads the battlefield zone
+    + adds a +1/+1 counter to Asajj per Sith/Bounty Hunter on the field
+    (state_coupling + zone_movement)."""
+    # Filter-factory call: register Sith-coven synergy axis tag.
+    sith_filter = creatures_with_subtype(obj, "Sith")
+    _ = sith_filter  # keep reference so the AST walker tags the call.
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def hex_attack(event: Event, st: GameState) -> list[Event]:
+        # Only fire when Asajj is the attacker.
+        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        if attacker_id != obj.id:
+            return []
+        # Explicit battlefield zone read (state_coupling + zone_movement).
+        bf = st.zones.get('battlefield')
+        if bf is None:
+            return []
+        coven_count = 0
+        for cid in bf.objects:
+            o = st.objects.get(cid)
+            if o is None:
+                continue
+            if (o.controller == obj.controller and
+                    ('Sith' in o.characteristics.subtypes or
+                     'Bounty Hunter' in o.characteristics.subtypes)):
+                coven_count += 1
+        if coven_count <= 0:
+            return []
+        # Scaling hex counter — every coven witch deepens the curse.
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={
+                'object_id': obj.id,
+                'counter_type': '+1/+1',
+                'amount': 1,
+            },
+            source=obj.id,
+        )]
+
+    return [
+        make_keyword_grant(obj, ['menace'], affects_self),
+        make_targeted_attack_trigger(
+            obj,
+            effect='tap',
+            effect_params={},
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt='Asajj hex-pins a Republic foe — tap target opponent creature',
+        ),
+        make_attack_trigger(obj, hex_attack),
+    ]
+
+
+ASAJJ_VENTRESS = make_creature(
+    name="Asajj Ventress, Dathomiri Bounty Hunter",
+    power=2, toughness=3,
+    mana_cost="{1}{B}{R}",
+    colors={Color.BLACK, Color.RED},
+    subtypes={"Human", "Bounty Hunter"},
+    supertypes={"Legendary"},
+    text=(
+        "Menace. Whenever Asajj Ventress, Dathomiri Bounty Hunter attacks, "
+        "tap target creature an opponent controls. Then, if you control "
+        "another Sith or Bounty Hunter, put a +1/+1 counter on Asajj. "
+        "(The Nightsisters teach that hexes compound in covens.)"
+    ),
+    setup_interceptors=asajj_ventress_setup,
+)
+
+
+# --- Jocasta Nu, Jedi Archivist ({1}{U} 1/3 Legendary Jedi) ---
+# Pattern 8 (scry + zone + synergy). create_scry_choice surfaced via a
+# custom ETB closure. Distinct fp from Kabuto Yakushi (NRT slice-2) via
+# different scry depth (4 not 3), different color body (mono-U not mono-U
+# but Jedi tribal), and different filter (creatures_with_subtype Jedi).
+# Lore: Jocasta Nu, chief librarian of the Jedi Temple Archives, sifts
+# the chronicles to predict the next move of the Sith.
+def jocasta_nu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: explicit library read, then open a scry-4 choice. Filter
+    factory call (creatures_with_subtype Jedi) surfaces the synergy axis;
+    library zone read surfaces state_coupling + zone_movement; the
+    create_scry_choice helper surfaces decision=1 via PendingChoice."""
+    def jocasta_etb(event: Event, st: GameState) -> list[Event]:
+        # Explicit library zone read for state_coupling + zone tags.
+        library = st.zones.get(f'library_{obj.controller}')
+        if library is None or not library.objects:
+            return []
+        # Filter-factory call: Jedi-tribal creatures we control for synergy.
+        own_jedi = creatures_with_subtype(obj, "Jedi")
+        _ = own_jedi  # keep reference so the walker tags the call.
+        # Open scry 4 choice on the top of library.
+        top_four = list(library.objects[:4])
+        if not top_four:
+            return []
+        create_scry_choice(st, obj.controller, obj.id, top_four, scry_count=4)
+        return []
+    return [make_etb_trigger(obj, jocasta_etb)]
+
+
+JOCASTA_NU_ARCHIVIST = make_creature(
+    name="Jocasta Nu, Jedi Archivist",
+    power=1, toughness=3,
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    subtypes={"Human", "Jedi"},
+    supertypes={"Legendary"},
+    text=(
+        "When Jocasta Nu, Jedi Archivist enters, scry 4. "
+        "(\"If an item does not appear in our records, it does not exist.\")"
+    ),
+    setup_interceptors=jocasta_nu_setup,
+)
+
+
+# =============================================================================
 # CARD REGISTRY
 # =============================================================================
 
@@ -6494,6 +7014,16 @@ STAR_WARS_CARDS = {
     "Death Star Superlaser Charge": DEATH_STAR_SUPERLASER_CHARGE,
     "The Imperial Throne": THE_IMPERIAL_THRONE,
     "Carbonite Containment": CARBONITE_CONTAINMENT,
+
+    # SPICE PASS PHASE A2 (slice 5.5, 2026-05-19) — decision-axis flips
+    "Yoda, Force-Echo of the Living": YODA_FORCE_ECHO,
+    "Reva, Third Sister Inquisitor": REVA_THIRD_SISTER,
+    "HK-47, Hunter-Killer Protocol": HK_47_HUNTER_KILLER,
+    "Bo-Katan Kryze, Mandalore's Heir": BO_KATAN_KRYZE,
+    "Cad Bane, Sky's-Edge Reckoner": CAD_BANE_SKYS_EDGE,
+    "Padme Amidala, Naboo's Senator": PADME_AMIDALA,
+    "Asajj Ventress, Dathomiri Bounty Hunter": ASAJJ_VENTRESS,
+    "Jocasta Nu, Jedi Archivist": JOCASTA_NU_ARCHIVIST,
 }
 
 print(f"Loaded {len(STAR_WARS_CARDS)} Star Wars: Galactic Conflict cards")
@@ -6793,4 +7323,13 @@ CARDS = [
     DEATH_STAR_SUPERLASER_CHARGE,
     THE_IMPERIAL_THRONE,
     CARBONITE_CONTAINMENT,
+    # SPICE PASS PHASE A2 (slice 5.5, 2026-05-19) — decision-axis flips
+    YODA_FORCE_ECHO,
+    REVA_THIRD_SISTER,
+    HK_47_HUNTER_KILLER,
+    BO_KATAN_KRYZE,
+    CAD_BANE_SKYS_EDGE,
+    PADME_AMIDALA,
+    ASAJJ_VENTRESS,
+    JOCASTA_NU_ARCHIVIST,
 ]

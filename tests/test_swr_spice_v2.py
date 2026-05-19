@@ -1140,6 +1140,421 @@ def test_kashyyyk_defender_etb_scry_2_and_life_gain():
 
 
 # ============================================================================
+# SPICE PASS PHASE A2 (slice 5.5, 2026-05-19) — decision-axis flip
+# Each test below proves that the new card installs a brand-new
+# PendingChoice / TARGET_REQUIRED surface (decision axis > 0). These tests
+# do NOT resolve the choices — they verify the surface emits, since
+# resolution requires either AI auto-pick or full UI plumbing.
+# ============================================================================
+
+
+# ----------------------------------------------------------------------------
+# Yoda, Force-Echo of the Living — modal-ETB (decision=3 modal-deep)
+# ----------------------------------------------------------------------------
+
+def test_yoda_force_echo_loads_legendary():
+    """Loads as a legendary Alien Jedi with a modal ETB interceptor."""
+    print("\n=== Yoda Force-Echo: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    yoda = _put_on_battlefield(game, p1, "Yoda, Force-Echo of the Living")
+    chars = yoda.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Jedi' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert yoda.interceptor_ids, f"Expected ETB interceptor; got {yoda.interceptor_ids}"
+    print(f"  Interceptors: {len(yoda.interceptor_ids)}; subtypes={chars.subtypes}")
+
+
+def test_yoda_force_echo_etb_opens_modal_choice():
+    """ETB installs a modal_with_targeting pending_choice with 3 modes."""
+    print("\n=== Yoda Force-Echo: modal choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    yoda = _put_on_battlefield(game, p1, "Yoda, Force-Echo of the Living")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice after ETB"
+    assert pc.source_id == yoda.id
+    assert pc.choice_type == "modal_with_targeting"
+    assert pc.player == p1.id
+    assert len(pc.options) == 3, f"Expected 3 modes; got {len(pc.options)}"
+    print(f"  Modes: {[opt.get('label') for opt in pc.options]}")
+
+
+# ----------------------------------------------------------------------------
+# Reva, Third Sister Inquisitor — targeted ETB (decision=1 + asymmetry)
+# ----------------------------------------------------------------------------
+
+def test_reva_third_sister_loads_legendary():
+    """Loads as a Black Human Inquisitor with ETB interceptors."""
+    print("\n=== Reva Third Sister: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    reva = _put_on_battlefield(game, p1, "Reva, Third Sister Inquisitor")
+    chars = reva.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Inquisitor' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert reva.interceptor_ids, "Expected ETB interceptors"
+    print(f"  Interceptors: {len(reva.interceptor_ids)}")
+
+
+def test_reva_third_sister_etb_emits_target_required_and_reveal():
+    """ETB emits a TARGET_REQUIRED reveal_hand + REVEAL_HAND on an opponent."""
+    print("\n=== Reva Third Sister: ETB target+reveal ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    reva = _put_on_battlefield(game, p1, "Reva, Third Sister Inquisitor")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == reva.id
+        and e.payload.get('effect') == 'reveal_hand'
+    ]
+    assert target_reqs, (
+        f"Expected reveal_hand TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    assert target_reqs[0].payload.get('target_filter') == 'opponent'
+    reveals = [e for e in new
+               if e.type == EventType.REVEAL_HAND
+               and e.source == reva.id
+               and e.payload.get('player') == p2.id]
+    assert reveals, f"Expected REVEAL_HAND on p2; new={[e.type.name for e in new[-10:]]}"
+    print(f"  TARGET_REQUIRED: {len(target_reqs)}; REVEAL_HAND: {len(reveals)}")
+
+
+# ----------------------------------------------------------------------------
+# HK-47, Hunter-Killer Protocol — divided damage (decision=1 + asymmetry)
+# ----------------------------------------------------------------------------
+
+def test_hk_47_hunter_killer_loads_enchantment():
+    """Loads as a Red enchantment with ETB interceptor."""
+    print("\n=== HK-47 Hunter-Killer: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    hk = _put_on_battlefield(game, p1, "HK-47, Hunter-Killer Protocol")
+    assert CardType.ENCHANTMENT in hk.characteristics.types
+    assert hk.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(hk.interceptor_ids)}")
+
+
+def test_hk_47_hunter_killer_etb_emits_divided_damage_target_required():
+    """ETB emits TARGET_REQUIRED with divide_amount=5 and damage effect."""
+    print("\n=== HK-47: ETB divided 5 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    hk = _put_on_battlefield(game, p1, "HK-47, Hunter-Killer Protocol")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == hk.id
+        and e.payload.get('effect') == 'damage'
+    ]
+    assert target_reqs, (
+        f"Expected damage TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    payload = target_reqs[0].payload
+    assert payload.get('divide_amount') == 5, (
+        f"Expected divide_amount=5; got {payload.get('divide_amount')}"
+    )
+    print(f"  divide_amount: {payload.get('divide_amount')}")
+
+
+# ----------------------------------------------------------------------------
+# Bo-Katan Kryze, Mandalore's Heir — divided counters (decision=1 + synergy)
+# ----------------------------------------------------------------------------
+
+def test_bo_katan_kryze_loads_legendary_mandalorian():
+    """Loads as a White legendary Mandalorian with ETB interceptor."""
+    print("\n=== Bo-Katan Kryze: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    bk = _put_on_battlefield(game, p1, "Bo-Katan Kryze, Mandalore's Heir")
+    chars = bk.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Mandalorian' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert bk.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(bk.interceptor_ids)}; subtypes={chars.subtypes}")
+
+
+def test_bo_katan_kryze_etb_emits_counter_add_target_required():
+    """ETB emits TARGET_REQUIRED with divide_amount=4 and counter_add effect."""
+    print("\n=== Bo-Katan Kryze: ETB distribute counters ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    bk = _put_on_battlefield(game, p1, "Bo-Katan Kryze, Mandalore's Heir")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == bk.id
+        and e.payload.get('effect') == 'counter_add'
+    ]
+    assert target_reqs, (
+        f"Expected counter_add TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    payload = target_reqs[0].payload
+    assert payload.get('divide_amount') == 4, (
+        f"Expected divide_amount=4; got {payload.get('divide_amount')}"
+    )
+    assert payload.get('target_filter') == 'your_creature'
+    print(f"  divide_amount: {payload.get('divide_amount')}; filter: {payload.get('target_filter')}")
+
+
+# ----------------------------------------------------------------------------
+# Cad Bane, Sky's-Edge Reckoner — targeted death + asymmetric discard
+# ----------------------------------------------------------------------------
+
+def test_cad_bane_skys_edge_loads_legendary_bounty_hunter():
+    """Loads as a Rakdos legendary Duros Bounty Hunter with death triggers."""
+    print("\n=== Cad Bane Sky's-Edge: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    cb = _put_on_battlefield(game, p1, "Cad Bane, Sky's-Edge Reckoner")
+    chars = cb.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Bounty Hunter' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert len(cb.interceptor_ids) >= 2, (
+        f"Expected >=2 (targeted-death + death listener); got {len(cb.interceptor_ids)}"
+    )
+    print(f"  Interceptors: {len(cb.interceptor_ids)}")
+
+
+def test_cad_bane_skys_edge_death_emits_target_required_and_discard():
+    """On death, emits TARGET_REQUIRED for destroy + DISCARD on opponent hand."""
+    print("\n=== Cad Bane Sky's-Edge: death trigger ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Drop a card into p2's hand so the DISCARD pulse has something to bite.
+    junk_chars = Characteristics(
+        types={CardType.CREATURE}, subtypes={"Soldier"}, power=1, toughness=1,
+    )
+    game.create_object(
+        name="Spare Trooper", owner_id=p2.id, zone=ZoneType.HAND,
+        characteristics=junk_chars, card_def=None,
+    )
+    cb = _put_on_battlefield(game, p1, "Cad Bane, Sky's-Edge Reckoner")
+    before = len(game.state.event_log)
+    # Simulate death: ZONE_CHANGE battlefield -> graveyard with reason='destroy'.
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': cb.id,
+            'from_zone': 'battlefield',
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+            'reason': 'destroy',
+        },
+        source=cb.id,
+    ))
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == cb.id
+        and e.payload.get('effect') == 'destroy'
+    ]
+    assert target_reqs, (
+        f"Expected destroy TARGET_REQUIRED on death; new={[e.type.name for e in new[-10:]]}"
+    )
+    assert target_reqs[0].payload.get('target_filter') == 'opponent_creature'
+    discards = [
+        e for e in new
+        if e.type == EventType.DISCARD
+        and e.payload.get('player') == p2.id
+        and e.source == cb.id
+    ]
+    assert discards, f"Expected DISCARD on p2; new={[e.type.name for e in new[-10:]]}"
+    print(f"  TARGET_REQUIRED: {len(target_reqs)}; DISCARD: {len(discards)}")
+
+
+# ----------------------------------------------------------------------------
+# Padmé Amidala, Naboo's Senator — top-N + zone-coupling
+# ----------------------------------------------------------------------------
+
+def test_padme_amidala_loads_legendary_advisor():
+    """Loads as a Selesnya legendary Human Advisor with ETB interceptor."""
+    print("\n=== Padmé Amidala: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    pa = _put_on_battlefield(game, p1, "Padme Amidala, Naboo's Senator")
+    chars = pa.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Advisor' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert pa.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(pa.interceptor_ids)}; subtypes={chars.subtypes}")
+
+
+def test_padme_amidala_etb_empty_library_no_op():
+    """ETB with empty library doesn't crash and doesn't install a choice."""
+    print("\n=== Padmé Amidala: empty library no-op ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    pa = _put_on_battlefield(game, p1, "Padme Amidala, Naboo's Senator")
+    assert pa.zone == ZoneType.BATTLEFIELD
+    pc = game.state.pending_choice
+    # No-crash is the contract; pc may or may not be set.
+    print(f"  No-crash; pending_choice={pc}")
+
+
+def test_padme_amidala_etb_with_library_lands_opens_choice():
+    """ETB with a land on top of library installs a PendingChoice."""
+    print("\n=== Padmé Amidala: library lands -> choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Plant a land in p1's library so the helper has something to pick.
+    lib = game.state.zones[f'library_{p1.id}']
+    land_chars = Characteristics(types={CardType.LAND}, subtypes={"Plains"})
+    land_obj = game.create_object(
+        name="Test Plains", owner_id=p1.id, zone=ZoneType.LIBRARY,
+        characteristics=land_chars, card_def=None,
+    )
+    if land_obj.id not in lib.objects:
+        lib.objects.append(land_obj.id)
+    pa = _put_on_battlefield(game, p1, "Padme Amidala, Naboo's Senator")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice installed by top-N land pick"
+    assert pc.source_id == pa.id, f"Choice source should be Padmé; got {pc.source_id}"
+    print(f"  PendingChoice type: {pc.choice_type}; source: {pc.source_id}")
+
+
+# ----------------------------------------------------------------------------
+# Asajj Ventress, Dathomiri Bounty Hunter — targeted attack trigger
+# ----------------------------------------------------------------------------
+
+def test_asajj_ventress_loads_legendary_bounty_hunter():
+    """Loads as a Rakdos legendary Bounty Hunter with menace + attack trigger."""
+    print("\n=== Asajj Ventress: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    av = _put_on_battlefield(game, p1, "Asajj Ventress, Dathomiri Bounty Hunter")
+    chars = av.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Bounty Hunter' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert len(av.interceptor_ids) >= 2, (
+        f"Expected >=2 (menace kw + attack trigger); got {len(av.interceptor_ids)}"
+    )
+    print(f"  Interceptors: {len(av.interceptor_ids)}")
+
+
+def test_asajj_ventress_attack_emits_tap_target_required():
+    """On attack, emits TARGET_REQUIRED with effect='tap' targeting opp creature."""
+    print("\n=== Asajj Ventress: attack tap trigger ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    av = _put_on_battlefield(game, p1, "Asajj Ventress, Dathomiri Bounty Hunter")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': av.id, 'attacker': av.id, 'controller': p1.id},
+        source=av.id,
+    ))
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == av.id
+        and e.payload.get('effect') == 'tap'
+        and e.payload.get('target_filter') == 'opponent_creature'
+    ]
+    assert target_reqs, (
+        f"Expected tap TARGET_REQUIRED on attack; new={[e.type.name for e in new[-10:]]}"
+    )
+    print(f"  TARGET_REQUIRED (tap): {len(target_reqs)}")
+
+
+# ----------------------------------------------------------------------------
+# Jocasta Nu, Jedi Archivist — scry-4 + library zone + Jedi synergy
+# ----------------------------------------------------------------------------
+
+def test_jocasta_nu_loads_legendary_jedi():
+    """Loads as a Blue legendary Human Jedi with ETB interceptor."""
+    print("\n=== Jocasta Nu: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    jn = _put_on_battlefield(game, p1, "Jocasta Nu, Jedi Archivist")
+    chars = jn.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Jedi' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert jn.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(jn.interceptor_ids)}; subtypes={chars.subtypes}")
+
+
+def test_jocasta_nu_etb_opens_scry_choice():
+    """ETB with cards in library installs a scry PendingChoice."""
+    print("\n=== Jocasta Nu: scry choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Plant 4 cards in p1's library so create_scry_choice has options.
+    lib = game.state.zones[f'library_{p1.id}']
+    base_chars = Characteristics(types={CardType.CREATURE}, subtypes={"Jedi"}, power=1, toughness=1)
+    for i in range(4):
+        c = game.create_object(
+            name=f"Library Card {i}", owner_id=p1.id, zone=ZoneType.LIBRARY,
+            characteristics=base_chars, card_def=None,
+        )
+        if c.id not in lib.objects:
+            lib.objects.append(c.id)
+    jn = _put_on_battlefield(game, p1, "Jocasta Nu, Jedi Archivist")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected scry pending_choice"
+    assert pc.choice_type == "scry", f"Expected scry; got {pc.choice_type}"
+    assert pc.source_id == jn.id
+    assert pc.callback_data.get('scry_count') == 4, (
+        f"Expected scry_count=4; got {pc.callback_data}"
+    )
+    print(f"  Scry choice with {len(pc.options)} option(s); count={pc.callback_data.get('scry_count')}")
+
+
+def test_jocasta_nu_etb_empty_library_no_op():
+    """ETB with empty library doesn't crash (and doesn't install a scry choice)."""
+    print("\n=== Jocasta Nu: empty library no-op ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Default library is empty.
+    jn = _put_on_battlefield(game, p1, "Jocasta Nu, Jedi Archivist")
+    assert jn.zone == ZoneType.BATTLEFIELD
+    print(f"  No-crash on empty library")
+
+
+# ----------------------------------------------------------------------------
+# Slice 5.5 registry hygiene
+# ----------------------------------------------------------------------------
+
+def test_swr_slice_5_5_all_cards_registered():
+    """All 8 slice-5.5 cards live in STAR_WARS_CARDS and are wired."""
+    print("\n=== Slice 5.5: registry ===")
+    expected = [
+        "Yoda, Force-Echo of the Living",
+        "Reva, Third Sister Inquisitor",
+        "HK-47, Hunter-Killer Protocol",
+        "Bo-Katan Kryze, Mandalore's Heir",
+        "Cad Bane, Sky's-Edge Reckoner",
+        "Padme Amidala, Naboo's Senator",
+        "Asajj Ventress, Dathomiri Bounty Hunter",
+        "Jocasta Nu, Jedi Archivist",
+    ]
+    missing = [n for n in expected if n not in STAR_WARS_CARDS]
+    assert not missing, f"Missing slice-5.5 entries: {missing}"
+    for name in expected:
+        cd = STAR_WARS_CARDS[name]
+        assert cd.setup_interceptors is not None, f"{name} should be wired"
+    print(f"  All {len(expected)} slice-5.5 cards present & wired")
+
+
+# ============================================================================
 # Runner — direct execution without pytest
 # ============================================================================
 
