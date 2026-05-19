@@ -30,6 +30,7 @@ from src.engine import (
 )
 from src.engine.queries import has_ability
 from src.cards.custom.man_of_pider import SPIDER_MAN_CUSTOM_CARDS
+from src.cards.custom import man_of_pider as spmc_module
 
 
 def _put_on_battlefield(game, player, card_name):
@@ -935,6 +936,683 @@ def test_symbiote_brood_attack_mills_opp():
         and e.source == b.id
     ]
     assert mills, f"Expected MILL on attack; got {_emitted_types(game)[-10:]}"
+
+
+# ============================================================================
+# Slice-13 median-lift tests (2026-05-19): one assertion per buffed vanilla
+# card driving SPMC median_depth 0 -> >= 2. Each test puts the card on the
+# battlefield (or invokes its resolve handler for instants/sorceries) and
+# asserts the expected SCRY/SURVEIL info event + a cross-controller effect
+# (LIFE_CHANGE / DAMAGE / MILL / DISCARD / REVEAL_HAND).
+# ============================================================================
+
+
+def _s13_etb_card(card_name):
+    """Spin up a game, put the named card under p1, return (game, p1, p2, obj)."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    return game, p1, p2, obj
+
+
+def _s13_attack(card_name):
+    """Spin up a game, put the named card under p1, emit ATTACK_DECLARED."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': obj.id, 'defender': p2.id},
+        source=obj.id, controller=obj.controller,
+    ))
+    return game, p1, p2, obj
+
+
+def _s13_assert_info_and_opp(game, obj, p2, *, info_type, opp_type):
+    """Assert info_type (SCRY/SURVEIL) emitted by obj + a cross-controller effect."""
+    new = game.state.event_log
+    info_evs = [e for e in new if e.type == info_type and e.source == obj.id]
+    assert info_evs, (
+        f"Expected {info_type.name} from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+    if opp_type == EventType.LIFE_CHANGE:
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.payload.get('amount', 0) < 0
+                   and e.source == obj.id]
+    elif opp_type == EventType.DAMAGE:
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('target') == p2.id
+                   and e.source == obj.id]
+    elif opp_type in (EventType.MILL, EventType.DISCARD, EventType.REVEAL_HAND):
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.source == obj.id]
+    else:
+        opp_evs = []
+    assert opp_evs, (
+        f"Expected {opp_type.name} against p2 from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+
+
+def _s13_resolve(fn_name):
+    """Pull a resolve fn out of the spmc module, prep a 2-player state, call it."""
+    fn = getattr(spmc_module, fn_name)
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = fn([], game.state)
+    return events, p1, p2
+
+
+# --- ETB tests (creatures, enchantments, artifacts, lands) ------------------
+
+
+def test_daily_bugle_photographer_etb_scry_drain_s13():
+    print("\n=== Slice-13: Daily Bugle Photographer ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Daily Bugle Photographer")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_dr_octopus_etb_surveil_mill_s13():
+    print("\n=== Slice-13: Dr. Octopus ETB surveil+mill ===")
+    g, p1, p2, obj = _s13_etb_card("Dr. Octopus, Otto Octavius")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_mysterio_etb_surveil_mill_s13():
+    print("\n=== Slice-13: Mysterio ETB surveil+mill ===")
+    g, p1, p2, obj = _s13_etb_card("Mysterio, Master of Illusion")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_the_lizard_etb_scry_drain_s13():
+    print("\n=== Slice-13: The Lizard ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("The Lizard")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_oscorp_scientist_etb_surveil_mill_s13():
+    print("\n=== Slice-13: Oscorp Scientist ETB surveil+mill ===")
+    g, p1, p2, obj = _s13_etb_card("Oscorp Scientist")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_mind_control_device_etb_surveil_mill_s13():
+    print("\n=== Slice-13: Mind Control Device ETB surveil+mill ===")
+    g, p1, p2, obj = _s13_etb_card("Mind Control Device")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_venom_lethal_protector_etb_surveil_drain_s13():
+    print("\n=== Slice-13: Venom, Lethal Protector ETB surveil+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Venom, Lethal Protector")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_green_goblin_etb_surveil_discard_s13():
+    print("\n=== Slice-13: Green Goblin ETB surveil+discard ===")
+    g, p1, p2, obj = _s13_etb_card("Green Goblin, Norman Osborn")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_hobgoblin_etb_surveil_discard_s13():
+    print("\n=== Slice-13: Hobgoblin ETB surveil+discard ===")
+    g, p1, p2, obj = _s13_etb_card("Hobgoblin")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_morbius_etb_surveil_drain_s13():
+    print("\n=== Slice-13: Morbius ETB surveil+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Morbius, the Living Vampire")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_symbiote_tendril_death_drain_s13():
+    print("\n=== Slice-13: Symbiote Tendril death drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    t = _put_on_battlefield(game, p1, "Symbiote Tendril")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': t.id},
+        source=t.id,
+    ))
+    new = game.state.event_log[before:]
+    drains = [e for e in new
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0
+              and e.source == t.id]
+    assert drains, f"Expected death drain; got {[e.type.name for e in new[-10:]]}"
+
+
+def test_crime_boss_etb_surveil_drain_s13():
+    print("\n=== Slice-13: Crime Boss ETB surveil+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Crime Boss")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_shocker_etb_scry_damage_s13():
+    print("\n=== Slice-13: Shocker ETB scry+damage ===")
+    g, p1, p2, obj = _s13_etb_card("Shocker")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_sandman_etb_scry_damage_s13():
+    print("\n=== Slice-13: Sandman ETB scry+damage ===")
+    g, p1, p2, obj = _s13_etb_card("Sandman")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_rhino_etb_scry_damage_s13():
+    print("\n=== Slice-13: Rhino ETB scry+damage ===")
+    g, p1, p2, obj = _s13_etb_card("Rhino")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_spider_hulk_etb_scry_drain_s13():
+    print("\n=== Slice-13: Spider-Hulk ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Spider-Hulk")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_spider_colony_etb_scry_drain_s13():
+    print("\n=== Slice-13: Spider Colony ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Spider Colony")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_forest_spider_etb_scry_drain_s13():
+    print("\n=== Slice-13: Forest Spider ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Forest Spider")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_prowler_etb_surveil_drain_s13():
+    print("\n=== Slice-13: Prowler ETB surveil+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Prowler")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_peni_parker_etb_surveil_mill_s13():
+    print("\n=== Slice-13: Peni Parker ETB surveil+mill ===")
+    g, p1, p2, obj = _s13_etb_card("Peni Parker")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_superior_spider_man_etb_surveil_mill_s13():
+    print("\n=== Slice-13: Superior Spider-Man ETB surveil+mill ===")
+    g, p1, p2, obj = _s13_etb_card("Superior Spider-Man")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_j_jonah_jameson_etb_scry_drain_s13():
+    print("\n=== Slice-13: J. Jonah Jameson ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("J. Jonah Jameson")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_harry_osborn_etb_surveil_drain_s13():
+    print("\n=== Slice-13: Harry Osborn ETB surveil+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Harry Osborn")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_felicia_hardy_etb_surveil_drain_s13():
+    print("\n=== Slice-13: Felicia Hardy ETB surveil+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Felicia Hardy")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_vulture_etb_surveil_drain_s13():
+    print("\n=== Slice-13: Vulture ETB surveil+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Vulture")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_beetle_etb_surveil_drain_s13():
+    print("\n=== Slice-13: Beetle ETB surveil+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Beetle")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_hammerhead_etb_surveil_discard_s13():
+    print("\n=== Slice-13: Hammerhead ETB surveil+discard ===")
+    g, p1, p2, obj = _s13_etb_card("Hammerhead")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_silver_sable_etb_scry_drain_s13():
+    print("\n=== Slice-13: Silver Sable ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Silver Sable")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_neighborhood_watch_etb_scry_drain_s13():
+    print("\n=== Slice-13: Neighborhood Watch ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Neighborhood Watch")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_uncle_ben_etb_scry_drain_s13():
+    print("\n=== Slice-13: Uncle Ben ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Uncle Ben")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_hired_muscle_etb_surveil_drain_s13():
+    print("\n=== Slice-13: Hired Muscle ETB surveil+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Hired Muscle")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- Enchantment tests -----------------------------------------------------
+
+
+def test_great_responsibility_etb_scry_drain_s13():
+    print("\n=== Slice-13: Great Responsibility ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Great Responsibility")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_advanced_web_formula_etb_surveil_mill_s13():
+    print("\n=== Slice-13: Advanced Web Formula ETB surveil+mill ===")
+    g, p1, p2, obj = _s13_etb_card("Advanced Web Formula")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_sinister_rage_etb_scry_damage_s13():
+    print("\n=== Slice-13: Sinister Rage ETB scry+damage ===")
+    g, p1, p2, obj = _s13_etb_card("Sinister Rage")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_web_trap_etb_scry_drain_s13():
+    print("\n=== Slice-13: Web Trap ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Web Trap")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_underworld_connections_etb_surveil_drain_s13():
+    print("\n=== Slice-13: Underworld Connections ETB surveil+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Underworld Connections")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_hunters_trap_etb_scry_drain_s13():
+    print("\n=== Slice-13: Hunter's Trap ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Hunter's Trap")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- Artifact tests --------------------------------------------------------
+
+
+def test_web_shooters_etb_scry_drain_s13():
+    print("\n=== Slice-13: Web Shooters ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Web Shooters")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_oscorp_tech_etb_surveil_mill_s13():
+    print("\n=== Slice-13: Oscorp Tech ETB surveil+mill ===")
+    g, p1, p2, obj = _s13_etb_card("Oscorp Tech")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_goblin_glider_etb_scry_damage_s13():
+    print("\n=== Slice-13: Goblin Glider ETB scry+damage ===")
+    g, p1, p2, obj = _s13_etb_card("Goblin Glider")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_iron_spider_suit_etb_scry_drain_s13():
+    print("\n=== Slice-13: Iron Spider Suit ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Iron Spider Suit")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_symbiote_sample_etb_surveil_drain_s13():
+    print("\n=== Slice-13: Symbiote Sample ETB surveil+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Symbiote Sample")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_daily_bugle_press_etb_scry_drain_s13():
+    print("\n=== Slice-13: Daily Bugle Press ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Daily Bugle Press")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_stark_tech_upgrade_etb_scry_drain_s13():
+    print("\n=== Slice-13: Stark Tech Upgrade ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Stark Tech Upgrade")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- Land tests ------------------------------------------------------------
+
+
+def test_new_york_city_etb_scry_drain_s13():
+    print("\n=== Slice-13: New York City ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("New York City")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_daily_bugle_building_etb_scry_drain_s13():
+    print("\n=== Slice-13: Daily Bugle Building ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Daily Bugle Building")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_oscorp_tower_etb_surveil_mill_s13():
+    print("\n=== Slice-13: Oscorp Tower ETB surveil+mill ===")
+    g, p1, p2, obj = _s13_etb_card("Oscorp Tower")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_fisk_tower_etb_surveil_drain_s13():
+    print("\n=== Slice-13: Fisk Tower ETB surveil+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Fisk Tower")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_hells_kitchen_etb_surveil_drain_s13():
+    print("\n=== Slice-13: Hell's Kitchen ETB surveil+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Hell's Kitchen")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_brooklyn_bridge_etb_scry_drain_s13():
+    print("\n=== Slice-13: Brooklyn Bridge ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Brooklyn Bridge")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_queens_neighborhood_etb_scry_drain_s13():
+    print("\n=== Slice-13: Queens Neighborhood ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Queens Neighborhood")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_stark_tower_etb_scry_drain_s13():
+    print("\n=== Slice-13: Stark Tower ETB scry+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Stark Tower")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_symbiote_planet_etb_surveil_drain_s13():
+    print("\n=== Slice-13: Symbiote Planet ETB surveil+drain ===")
+    g, p1, p2, obj = _s13_etb_card("Symbiote Planet")
+    _s13_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- Instant/Sorcery resolve tests -----------------------------------------
+
+
+def test_web_shield_resolve_s13():
+    print("\n=== Slice-13: Web Shield resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_web_shield")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_with_great_power_resolve_s13():
+    print("\n=== Slice-13: With Great Power resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_with_great_power")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 3 for e in events)
+
+
+def test_save_the_day_resolve_s13():
+    print("\n=== Slice-13: Save the Day resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_save_the_day")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) >= 3 for e in events)
+
+
+def test_spider_sense_alert_resolve_s13():
+    print("\n=== Slice-13: Spider-Sense Alert resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_spider_sense_alert")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_web_sling_resolve_s13():
+    print("\n=== Slice-13: Web Sling resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_web_sling")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_illusion_duplicate_resolve_s13():
+    print("\n=== Slice-13: Illusion Duplicate resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_illusion_duplicate")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_technological_breakthrough_resolve_s13():
+    print("\n=== Slice-13: Technological Breakthrough resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_technological_breakthrough")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_sinister_plot_resolve_s13():
+    print("\n=== Slice-13: Sinister Plot resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_sinister_plot")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.DISCARD and e.payload.get('player') == p2.id for e in events)
+
+
+def test_web_of_shadows_resolve_s13():
+    print("\n=== Slice-13: Web of Shadows resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_web_of_shadows")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.DISCARD and e.payload.get('player') == p2.id for e in events)
+
+
+def test_web_strike_resolve_s13():
+    print("\n=== Slice-13: Web Strike resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_web_strike")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_pumpkin_bomb_resolve_s13():
+    print("\n=== Slice-13: Pumpkin Bomb resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_pumpkin_bomb")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_goblin_glider_assault_resolve_s13():
+    print("\n=== Slice-13: Goblin Glider Assault resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_goblin_glider_assault")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_electric_discharge_resolve_s13():
+    print("\n=== Slice-13: Electric Discharge resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_electric_discharge")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_building_collapse_resolve_s13():
+    print("\n=== Slice-13: Building Collapse resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_building_collapse")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_venomous_bite_resolve_s13():
+    print("\n=== Slice-13: Venomous Bite resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_venomous_bite")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_spider_swarm_resolve_s13():
+    print("\n=== Slice-13: Spider Swarm resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_spider_swarm")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_primal_instinct_resolve_s13():
+    print("\n=== Slice-13: Primal Instinct resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_primal_instinct")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_jungle_ambush_resolve_s13():
+    print("\n=== Slice-13: Jungle Ambush resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_jungle_ambush")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_natures_wrath_resolve_s13():
+    print("\n=== Slice-13: Nature's Wrath resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_natures_wrath")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_spider_ham_attack_resolve_s13():
+    print("\n=== Slice-13: Spider-Ham Attack resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_spider_ham_attack")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_multiverse_portal_resolve_s13():
+    print("\n=== Slice-13: Multiverse Portal resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_multiverse_portal")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_dimension_hopping_resolve_s13():
+    print("\n=== Slice-13: Dimension Hopping resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_dimension_hopping")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_symbiote_invasion_resolve_s13():
+    print("\n=== Slice-13: Symbiote Invasion resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_symbiote_invasion")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.DISCARD and e.payload.get('player') == p2.id for e in events)
+
+
+def test_electro_shock_resolve_s13():
+    print("\n=== Slice-13: Electro Shock resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_electro_shock")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_spider_army_resolve_s13():
+    print("\n=== Slice-13: Spider Army resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_spider_army")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_spectacular_swing_resolve_s13():
+    print("\n=== Slice-13: Spectacular Swing resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_spectacular_swing")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_spider_sense_resolve_s13():
+    print("\n=== Slice-13: Spider-Sense resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_spider_sense")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_experiment_gone_wrong_resolve_s13():
+    print("\n=== Slice-13: Experiment Gone Wrong resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_experiment_gone_wrong")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_hologram_decoy_resolve_s13():
+    print("\n=== Slice-13: Hologram Decoy resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_hologram_decoy")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_symbiote_surge_resolve_s13():
+    print("\n=== Slice-13: Symbiote Surge resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_symbiote_surge")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.DISCARD and e.payload.get('player') == p2.id for e in events)
+
+
+def test_shock_therapy_resolve_s13():
+    print("\n=== Slice-13: Shock Therapy resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_shock_therapy")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_explosive_rampage_resolve_s13():
+    print("\n=== Slice-13: Explosive Rampage resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_explosive_rampage")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_goblin_army_resolve_s13():
+    print("\n=== Slice-13: Goblin Army resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_goblin_army")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_fire_punch_resolve_s13():
+    print("\n=== Slice-13: Fire Punch resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_fire_punch")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_radioactive_bite_resolve_s13():
+    print("\n=== Slice-13: Radioactive Bite resolve ===")
+    events, p1, p2 = _s13_resolve("_spmc_resolve_radioactive_bite")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
 
 
 # ============================================================================
