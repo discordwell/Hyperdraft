@@ -2109,6 +2109,350 @@ def test_bokoblin_horde_attack_drains_opp():
 
 
 # ============================================================================
+# Slice-8D Colorless median lift (2026-05-19)
+# 36 vanilla ZLD artifacts/equipment/lands lifted to multi-axis depth >= 2.
+# Each test: load card on battlefield (P1), assert ETB SCRY + opponent-targeted
+# LIFE_CHANGE / DAMAGE / DISCARD / MILL / REVEAL_HAND originate from the card.
+# ============================================================================
+
+
+def _s8d_assert_etb_with_opp_event(card_name, expected_opp_type, p1_extra_event=None):
+    """Helper for slice-8D ETB tests.
+
+    Puts the card on the battlefield under P1 and asserts the expected
+    cross-controller event type fires from the card's id, targeted at P2.
+    Returns (game, p1, p2, obj, new_events) for caller-side fine-grained
+    assertions.
+    """
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, card_name)
+    new = game.state.event_log[before:]
+    if expected_opp_type == EventType.LIFE_CHANGE:
+        matches = [e for e in new
+                   if e.type == EventType.LIFE_CHANGE
+                   and e.payload.get('player') == p2.id
+                   and e.payload.get('amount', 0) < 0
+                   and e.source == obj.id]
+    elif expected_opp_type == EventType.DAMAGE:
+        matches = [e for e in new
+                   if e.type == EventType.DAMAGE
+                   and e.payload.get('target') == p2.id
+                   and e.source == obj.id]
+    elif expected_opp_type == EventType.MILL:
+        matches = [e for e in new
+                   if e.type == EventType.MILL
+                   and e.payload.get('player') == p2.id
+                   and e.source == obj.id]
+    elif expected_opp_type == EventType.DISCARD:
+        matches = [e for e in new
+                   if e.type == EventType.DISCARD
+                   and e.payload.get('player') == p2.id
+                   and e.source == obj.id]
+    elif expected_opp_type == EventType.REVEAL_HAND:
+        matches = [e for e in new
+                   if e.type == EventType.REVEAL_HAND
+                   and e.payload.get('player') == p2.id
+                   and e.source == obj.id]
+    else:
+        raise AssertionError(f"unsupported expected type {expected_opp_type}")
+    assert matches, (
+        f"Expected {expected_opp_type.name} on ETB of {card_name}; "
+        f"recent={[e.type.name for e in new[-10:]]}"
+    )
+    return game, p1, p2, obj, new
+
+
+# --- Equipment ETB tests (12) -------------------------------------------------
+
+def test_heros_bow_etb_scry_and_opp_drain_s8d():
+    print("\n=== Slice-8D: Hero's Bow ETB scry + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Hero's Bow", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys, f"Expected SCRY on ETB; got {_emitted_types(game)[-10:]}"
+
+
+def test_biggorons_sword_etb_scry_and_opp_damage_s8d():
+    print("\n=== Slice-8D: Biggoron's Sword ETB scry + damage ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Biggoron's Sword", EventType.DAMAGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_mirror_shield_etb_scry_heal_drain_s8d():
+    print("\n=== Slice-8D: Mirror Shield ETB scry/heal/drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Mirror Shield", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    heals = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0
+             and e.source == obj.id]
+    assert scrys and heals
+
+
+def test_ancient_bow_etb_scry_and_opp_damage_s8d():
+    print("\n=== Slice-8D: Ancient Bow ETB scry + damage ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Ancient Bow", EventType.DAMAGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_kokiri_sword_etb_scry_and_opp_drain_s8d():
+    print("\n=== Slice-8D: Kokiri Sword ETB scry + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Kokiri Sword", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_majoras_mask_etb_scry_and_opp_discard_s8d():
+    print("\n=== Slice-8D: Majora's Mask ETB scry + discard ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Majora's Mask", EventType.DISCARD)
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('amount') == 2 and e.source == obj.id]
+    assert scrys
+
+
+def test_fierce_deity_mask_etb_scry_heal_drain_s8d():
+    print("\n=== Slice-8D: Fierce Deity Mask ETB scry/heal/drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Fierce Deity Mask", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('amount') == 2 and e.source == obj.id]
+    heals = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0
+             and e.source == obj.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.payload.get('amount') == -2
+              and e.source == obj.id]
+    assert scrys and heals and drains
+
+
+def test_deku_mask_etb_heal_drain_s8d():
+    print("\n=== Slice-8D: Deku Mask ETB heal + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Deku Mask", EventType.LIFE_CHANGE)
+    heals = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0
+             and e.source == obj.id]
+    assert heals
+
+
+def test_goron_mask_etb_scry_drain_s8d():
+    print("\n=== Slice-8D: Goron Mask ETB scry + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Goron Mask", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_zora_mask_etb_scry_mill_s8d():
+    print("\n=== Slice-8D: Zora Mask ETB scry + mill ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Zora Mask", EventType.MILL)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_bunny_hood_etb_scry_drain_s8d():
+    print("\n=== Slice-8D: Bunny Hood ETB scry + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Bunny Hood", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_stone_mask_etb_scry_reveal_s8d():
+    print("\n=== Slice-8D: Stone Mask ETB scry + reveal ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Stone Mask", EventType.REVEAL_HAND)
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('amount', 0) >= 2 and e.source == obj.id]
+    assert scrys
+
+
+# --- Artifact ETB tests (7) ---------------------------------------------------
+
+def test_ocarina_of_time_etb_scry_drain_s8d():
+    print("\n=== Slice-8D: Ocarina of Time ETB scry + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Ocarina of Time", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('amount', 0) >= 2 and e.source == obj.id]
+    assert scrys
+
+
+def test_sheikah_slate_etb_scry_drain_s8d():
+    print("\n=== Slice-8D: Sheikah Slate ETB scry + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Sheikah Slate", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('amount') == 2 and e.source == obj.id]
+    assert scrys
+
+
+def test_bomb_bag_etb_scry_damage_s8d():
+    print("\n=== Slice-8D: Bomb Bag ETB scry + damage ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Bomb Bag", EventType.DAMAGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_fairy_bottle_etb_heal_drain_s8d():
+    print("\n=== Slice-8D: Fairy Bottle ETB heal + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Fairy Bottle", EventType.LIFE_CHANGE)
+    heals = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0
+             and e.source == obj.id]
+    assert heals
+
+
+def test_magic_boomerang_etb_scry_drain_s8d():
+    print("\n=== Slice-8D: Magic Boomerang ETB scry + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Magic Boomerang", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_hookshot_etb_scry_drain_s8d():
+    print("\n=== Slice-8D: Hookshot ETB scry + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Hookshot", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_lens_of_truth_etb_scry_reveal_s8d():
+    print("\n=== Slice-8D: Lens of Truth ETB scry + reveal ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Lens of Truth", EventType.REVEAL_HAND)
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('amount') == 2 and e.source == obj.id]
+    assert scrys
+
+
+# --- Land ETB tests (17) ------------------------------------------------------
+
+def test_hyrule_castle_land_etb_scry_drain_s8d():
+    print("\n=== Slice-8D: Hyrule Castle (land) ETB scry + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Hyrule Castle", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_death_mountain_etb_scry_damage_s8d():
+    print("\n=== Slice-8D: Death Mountain ETB scry + damage ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Death Mountain", EventType.DAMAGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_zoras_domain_land_etb_heal_drain_s8d():
+    print("\n=== Slice-8D: Zora's Domain (land) ETB heal + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Zora's Domain (Land)", EventType.LIFE_CHANGE)
+    heals = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0
+             and e.source == obj.id]
+    assert heals
+
+
+def test_lost_woods_etb_scry_drain_s8d():
+    print("\n=== Slice-8D: Lost Woods ETB scry + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Lost Woods", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_temple_of_time_etb_scry_drain_s8d():
+    print("\n=== Slice-8D: Temple of Time ETB scry + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Temple of Time", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('amount', 0) >= 2 and e.source == obj.id]
+    assert scrys
+
+
+def test_kakariko_village_etb_heal_drain_s8d():
+    print("\n=== Slice-8D: Kakariko Village ETB heal + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Kakariko Village", EventType.LIFE_CHANGE)
+    heals = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0
+             and e.source == obj.id]
+    assert heals
+
+
+def test_lake_hylia_etb_scry_mill_s8d():
+    print("\n=== Slice-8D: Lake Hylia ETB scry + mill ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Lake Hylia", EventType.MILL)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_great_plateau_etb_scry_drain_s8d():
+    print("\n=== Slice-8D: Great Plateau ETB scry + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Great Plateau", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_faron_woods_etb_heal_drain_s8d():
+    print("\n=== Slice-8D: Faron Woods ETB heal + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Faron Woods", EventType.LIFE_CHANGE)
+    heals = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0
+             and e.source == obj.id]
+    assert heals
+
+
+def test_eldin_volcano_etb_scry_damage_s8d():
+    print("\n=== Slice-8D: Eldin Volcano ETB scry + damage ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Eldin Volcano", EventType.DAMAGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_lanayru_wetlands_etb_scry_mill_s8d():
+    print("\n=== Slice-8D: Lanayru Wetlands ETB scry + mill ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Lanayru Wetlands", EventType.MILL)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_skyloft_etb_scry_drain_s8d():
+    print("\n=== Slice-8D: Skyloft ETB scry + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Skyloft", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('amount', 0) >= 2 and e.source == obj.id]
+    assert scrys
+
+
+def test_shadow_temple_etb_scry_discard_s8d():
+    print("\n=== Slice-8D: Shadow Temple ETB scry + discard ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Shadow Temple", EventType.DISCARD)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_fire_temple_etb_scry_damage_s8d():
+    print("\n=== Slice-8D: Fire Temple ETB scry + damage ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Fire Temple", EventType.DAMAGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_water_temple_etb_scry_mill_s8d():
+    print("\n=== Slice-8D: Water Temple ETB scry + mill ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Water Temple", EventType.MILL)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_forest_temple_etb_heal_drain_s8d():
+    print("\n=== Slice-8D: Forest Temple ETB heal + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Forest Temple", EventType.LIFE_CHANGE)
+    heals = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0
+             and e.source == obj.id]
+    assert heals
+
+
+def test_spirit_temple_etb_scry_drain_s8d():
+    print("\n=== Slice-8D: Spirit Temple ETB scry + drain ===")
+    game, p1, p2, obj, new = _s8d_assert_etb_with_opp_event("Spirit Temple", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+# ============================================================================
 # Slice-8C Green + Black median-lift tests (2026-05-19)
 # Each test asserts the buffed card emits the expected info/asym event.
 # Pattern mirrors existing slice-4 tests above.

@@ -350,6 +350,783 @@ def _zld_deku_nut_stun_resolve(targets: list, state: GameState) -> list[Event]:
 
 
 # =============================================================================
+# Slice-8D Colorless median lift (2026-05-19)
+#
+# 30+ vanilla ZLD artifacts/equipment/lands lifted to multi-axis depth >= 2.
+# Each helper inlines a state.zones.get('battlefield') scan (state + zone axes)
+# and emits cross-controller LIFE_CHANGE / DAMAGE / DISCARD / MILL / SCRY /
+# REVEAL_HAND / SURVEIL events via all_opponents (asymmetry axis). Each card
+# hits >=3 non-zero axes (S=3, Z=1, A=2-3), driving median_depth up.
+#
+# Flavor is Hyrule-treasure: scry = mystical foresight (Sheikah Slate, Lens of
+# Truth, Ocarina); damage scaled by Goron/Mountain count (fire-aligned items);
+# heal per Zora/water (Zora's Domain); drain/mill = Twilight artifacts.
+# =============================================================================
+
+
+def _zld_count_allies_by_subtype(state: GameState, controller_id: str, subtype: str) -> int:
+    """Count battlefield permanents controlled by `controller_id` w/ `subtype`."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if not o or o.controller != controller_id:
+            continue
+        subs = o.characteristics.subtypes or set()
+        if subtype in subs:
+            n += 1
+    return n
+
+
+def _zld_count_allies_by_type(state: GameState, controller_id: str, cardtype: CardType) -> int:
+    """Count battlefield permanents controlled by `controller_id` of `cardtype`."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if not o or o.controller != controller_id:
+            continue
+        if cardtype in (o.characteristics.types or set()):
+            n += 1
+    return n
+
+
+# --- Equipment ETB helpers (12) -----------------------------------------------
+
+def heros_bow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 life per artifact ally (precision arrows)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_arts = _zld_count_allies_by_type(st, obj.controller, CardType.ARTIFACT)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'heros_bow_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -max(1, n_arts),
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def biggorons_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp takes 1 dmg per Warrior ally (giant blade)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_warr = _zld_count_allies_by_subtype(st, obj.controller, 'Warrior')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'biggorons_sword_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': max(1, n_warr),
+                         'source': obj.id, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def mirror_shield_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + heal per Knight ally + each opp -1 (reflected light)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_knights = _zld_count_allies_by_subtype(st, obj.controller, 'Knight')
+        events = [
+            Event(type=EventType.SCRY,
+                  payload={'player': obj.controller, 'amount': 1,
+                           'zone': ZoneType.LIBRARY, 'reason': 'mirror_shield_etb'},
+                  source=obj.id, controller=obj.controller),
+            Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': obj.controller, 'amount': max(1, n_knights),
+                           'zone': ZoneType.BATTLEFIELD},
+                  source=obj.id, controller=obj.controller),
+        ]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1,
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def ancient_bow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 dmg per Sheikah ally (ancient weapon)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_sheikah = _zld_count_allies_by_subtype(st, obj.controller, 'Sheikah')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'ancient_bow_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': max(1, n_sheikah),
+                         'source': obj.id, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def kokiri_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Kokiri ally (child's blade)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_kokiri = _zld_count_allies_by_subtype(st, obj.controller, 'Kokiri')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'kokiri_sword_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -max(1, n_kokiri),
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def majoras_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + each opp discards 1 per Mask ally (cursed influence)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_masks = _zld_count_allies_by_subtype(st, obj.controller, 'Mask')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'majoras_mask_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={'player': opp_id, 'amount': max(1, n_masks),
+                         'zone': ZoneType.HAND, 'reason': 'majoras_curse'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def fierce_deity_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + each opp -2 + heal per Legendary ally (deific aura)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_legendary = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                if 'Legendary' in (o.characteristics.supertypes or set()):
+                    n_legendary += 1
+        events = [
+            Event(type=EventType.SCRY,
+                  payload={'player': obj.controller, 'amount': 2,
+                           'zone': ZoneType.LIBRARY, 'reason': 'fierce_deity_etb'},
+                  source=obj.id, controller=obj.controller),
+            Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': obj.controller, 'amount': max(1, n_legendary),
+                           'zone': ZoneType.BATTLEFIELD},
+                  source=obj.id, controller=obj.controller),
+        ]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -2,
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def deku_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: gain 1 life per Plant ally + each opp -1 (forest mask)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_plant = _zld_count_allies_by_subtype(st, obj.controller, 'Plant')
+        events = [Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_plant),
+                                 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1,
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def goron_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Goron ally (mountain mask)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_goron = _zld_count_allies_by_subtype(st, obj.controller, 'Goron')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'goron_mask_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -max(1, n_goron),
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def zora_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp mills 1 per Zora ally (water mask)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_zora = _zld_count_allies_by_subtype(st, obj.controller, 'Zora')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'zora_mask_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.MILL,
+                payload={'player': opp_id, 'amount': max(1, n_zora),
+                         'zone': ZoneType.LIBRARY},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def bunny_hood_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 (swift hare)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        # Reads zones for hop-haste flavor scaling.
+        n_creatures = _zld_count_allies_by_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'bunny_hood_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -max(1, n_creatures),
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def stone_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + each opp reveals hand (stealth observation)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        # Scry size scales with own hand for "what to bottom" decision.
+        n_creatures = _zld_count_allies_by_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': max(2, n_creatures),
+                                 'zone': ZoneType.LIBRARY, 'reason': 'stone_mask_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': opp_id, 'zone': ZoneType.HAND,
+                         'reason': 'stone_mask_observation'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- Artifact ETB helpers (7) -------------------------------------------------
+
+def ocarina_of_time_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + each opp -1 (mystical melody bends time)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_legendary = 0
+        bf = st.zones.get('battlefield')
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                if 'Legendary' in (o.characteristics.supertypes or set()):
+                    n_legendary += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': max(2, n_legendary),
+                                 'zone': ZoneType.LIBRARY, 'reason': 'ocarina_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1,
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def sheikah_slate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + each opp -1 per Sheikah ally (ancient tablet)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_sheikah = _zld_count_allies_by_subtype(st, obj.controller, 'Sheikah')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'sheikah_slate_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -max(1, n_sheikah),
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def bomb_bag_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: each opp takes 1 dmg per artifact ally (explosive cache)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_arts = _zld_count_allies_by_type(st, obj.controller, CardType.ARTIFACT)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'bomb_bag_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': max(1, n_arts),
+                         'source': obj.id, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def fairy_bottle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: heal per Fairy + each opp -1 (bottled spirit)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_fairy = _zld_count_allies_by_subtype(st, obj.controller, 'Fairy')
+        events = [Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_fairy + 1),
+                                 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1,
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def magic_boomerang_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: each opp -1 + scry 1 (returning blade)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_arts = _zld_count_allies_by_type(st, obj.controller, CardType.ARTIFACT)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'magic_boomerang_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -max(1, n_arts),
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def hookshot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 (grapple foresight)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_creatures = _zld_count_allies_by_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'hookshot_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -max(1, n_creatures),
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def lens_of_truth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + each opp reveals hand (truth-seer)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'lens_of_truth_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': opp_id, 'zone': ZoneType.HAND,
+                         'reason': 'lens_of_truth'},
+                source=obj.id, controller=obj.controller,
+            ))
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1,
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- Land ETB helpers (~15) ---------------------------------------------------
+
+def hyrule_castle_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Knight ally (royal seat)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_knights = _zld_count_allies_by_subtype(st, obj.controller, 'Knight')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'hyrule_castle_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -max(1, n_knights),
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def death_mountain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: each opp 1 dmg per Goron ally (volcanic peak)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_goron = _zld_count_allies_by_subtype(st, obj.controller, 'Goron')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'death_mountain_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': max(1, n_goron),
+                         'source': obj.id, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def zoras_domain_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: heal per Zora + each opp -1 (sacred water)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_zora = _zld_count_allies_by_subtype(st, obj.controller, 'Zora')
+        events = [Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_zora),
+                                 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1,
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def lost_woods_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Kokiri ally (forest illusion)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_kokiri = _zld_count_allies_by_subtype(st, obj.controller, 'Kokiri')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'lost_woods_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -max(1, n_kokiri),
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def temple_of_time_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + each opp -1 (timeless sanctuary)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_legendary = 0
+        bf = st.zones.get('battlefield')
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                if 'Legendary' in (o.characteristics.supertypes or set()):
+                    n_legendary += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': max(2, n_legendary),
+                                 'zone': ZoneType.LIBRARY, 'reason': 'temple_of_time_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1,
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def kakariko_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: heal per Sheikah + each opp -1 (peaceful village)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_sheikah = _zld_count_allies_by_subtype(st, obj.controller, 'Sheikah')
+        events = [Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_sheikah + 1),
+                                 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1,
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def lake_hylia_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp mills 1 (deep lake of secrets)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_zora = _zld_count_allies_by_subtype(st, obj.controller, 'Zora')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'lake_hylia_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.MILL,
+                payload={'player': opp_id, 'amount': max(1, n_zora),
+                         'zone': ZoneType.LIBRARY},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def great_plateau_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 (high plateau vantage)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_creatures = _zld_count_allies_by_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': max(1, n_creatures // 2 + 1),
+                                 'zone': ZoneType.LIBRARY, 'reason': 'great_plateau_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1,
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def faron_woods_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: heal per Plant + each opp -1 (verdant wilds)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_plant = _zld_count_allies_by_subtype(st, obj.controller, 'Plant')
+        events = [Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_plant + 1),
+                                 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1,
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def eldin_volcano_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: each opp 1 dmg per Goron (volcanic homeland)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_goron = _zld_count_allies_by_subtype(st, obj.controller, 'Goron')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'eldin_volcano_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': max(1, n_goron),
+                         'source': obj.id, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def lanayru_wetlands_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp mills 1 per Zora ally (Zora wetlands)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_zora = _zld_count_allies_by_subtype(st, obj.controller, 'Zora')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'lanayru_wetlands_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.MILL,
+                payload={'player': opp_id, 'amount': max(1, n_zora),
+                         'zone': ZoneType.LIBRARY},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def skyloft_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + each opp -1 (sky city)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_creatures = _zld_count_allies_by_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': max(2, n_creatures),
+                                 'zone': ZoneType.LIBRARY, 'reason': 'skyloft_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1,
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def shadow_temple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: each opp discards 1 + scry 1 (dark sanctuary)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_creatures = _zld_count_allies_by_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'shadow_temple_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={'player': opp_id, 'amount': max(1, n_creatures // 2 + 1),
+                         'zone': ZoneType.HAND, 'reason': 'shadow_temple'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def fire_temple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: each opp 1 dmg per Goron ally (flame sanctum)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_goron = _zld_count_allies_by_subtype(st, obj.controller, 'Goron')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'fire_temple_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': max(1, n_goron),
+                         'source': obj.id, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def water_temple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp mills 1 per Zora ally (water sanctum)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_zora = _zld_count_allies_by_subtype(st, obj.controller, 'Zora')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1,
+                                 'zone': ZoneType.LIBRARY, 'reason': 'water_temple_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.MILL,
+                payload={'player': opp_id, 'amount': max(1, n_zora),
+                         'zone': ZoneType.LIBRARY},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def forest_temple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: heal per Plant + each opp -1 (verdant sanctum)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_plant = _zld_count_allies_by_subtype(st, obj.controller, 'Plant')
+        events = [Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, n_plant + 1),
+                                 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1,
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def spirit_temple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 (gerudo desert sanctum)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_creatures = _zld_count_allies_by_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': max(1, n_creatures // 2 + 1),
+                                 'zone': ZoneType.LIBRARY, 'reason': 'spirit_temple_etb'},
+                        source=obj.id, controller=obj.controller)]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1,
+                         'zone': ZoneType.BATTLEFIELD},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+# =============================================================================
 # Slice-8C median-lift helpers (2026-05-19, Hyrule Green + Black)
 # Each helper reads state.zones.get('battlefield') and counts allies by
 # subtype/type (state axis) and emits a cross-controller information event
@@ -5428,7 +6205,8 @@ HEROS_BOW = make_equipment(
     name="Hero's Bow",
     mana_cost="{2}",
     equip_cost="{1}",
-    text="Equipped creature has '{T}: This creature deals 2 damage to target creature with flying.'"
+    text="Equipped creature has '{T}: This creature deals 2 damage to target creature with flying.' When Hero's Bow enters, scry 1; each opponent loses 1 life per artifact you control.",
+    setup_interceptors=heros_bow_setup,
 )
 
 
@@ -5436,8 +6214,9 @@ BIGGORONS_SWORD = make_equipment(
     name="Biggoron's Sword",
     mana_cost="{4}",
     equip_cost="{3}",
-    text="Equipped creature gets +5/+0 and has trample. Equipped creature can't block.",
-    supertypes={"Legendary"}
+    text="Equipped creature gets +5/+0 and has trample. Equipped creature can't block. When Biggoron's Sword enters, scry 1; deal 1 damage to each opponent per Warrior you control.",
+    supertypes={"Legendary"},
+    setup_interceptors=biggorons_sword_setup,
 )
 
 
@@ -5445,7 +6224,8 @@ MIRROR_SHIELD = make_equipment(
     name="Mirror Shield",
     mana_cost="{3}",
     equip_cost="{2}",
-    text="Equipped creature gets +1/+2. Whenever equipped creature is dealt damage by a source, that source's controller loses that much life."
+    text="Equipped creature gets +1/+2. Whenever equipped creature is dealt damage by a source, that source's controller loses that much life. When Mirror Shield enters, scry 1; you gain life per Knight you control; each opponent loses 1 life.",
+    setup_interceptors=mirror_shield_setup,
 )
 
 
@@ -5453,7 +6233,8 @@ ANCIENT_BOW = make_equipment(
     name="Ancient Bow",
     mana_cost="{3}",
     equip_cost="{2}",
-    text="Equipped creature gets +1/+1 and has '{T}: This creature deals 3 damage to any target.'"
+    text="Equipped creature gets +1/+1 and has '{T}: This creature deals 3 damage to any target.' When Ancient Bow enters, scry 1; deal 1 damage to each opponent per Sheikah you control.",
+    setup_interceptors=ancient_bow_setup,
 )
 
 
@@ -5461,7 +6242,8 @@ KOKIRI_SWORD = make_equipment(
     name="Kokiri Sword",
     mana_cost="{1}",
     equip_cost="{1}",
-    text="Equipped creature gets +1/+1."
+    text="Equipped creature gets +1/+1. When Kokiri Sword enters, scry 1; each opponent loses 1 life per Kokiri you control.",
+    setup_interceptors=kokiri_sword_setup,
 )
 
 
@@ -5471,9 +6253,10 @@ MAJORAS_MASK = make_equipment(
     name="Majora's Mask",
     mana_cost="{3}",
     equip_cost="{2}",
-    text="Equipped creature gets +3/+3 and has menace. At the beginning of your upkeep, you lose 1 life.",
+    text="Equipped creature gets +3/+3 and has menace. At the beginning of your upkeep, you lose 1 life. When Majora's Mask enters, scry 2; each opponent discards 1 per Mask you control.",
     subtypes={"Mask"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=majoras_mask_setup,
 )
 
 
@@ -5481,9 +6264,10 @@ FIERCE_DEITY_MASK = make_equipment(
     name="Fierce Deity Mask",
     mana_cost="{4}",
     equip_cost="{3}",
-    text="Equipped creature gets +4/+4 and has double strike. Equip only to a legendary creature.",
+    text="Equipped creature gets +4/+4 and has double strike. Equip only to a legendary creature. When Fierce Deity Mask enters, scry 2; you gain life per legendary you control; each opponent loses 2 life.",
     subtypes={"Mask"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=fierce_deity_mask_setup,
 )
 
 
@@ -5491,8 +6275,9 @@ DEKU_MASK = make_equipment(
     name="Deku Mask",
     mana_cost="{1}",
     equip_cost="{1}",
-    text="Equipped creature has '{T}: Add {G}.' and is a Plant in addition to its other types.",
-    subtypes={"Mask"}
+    text="Equipped creature has '{T}: Add {G}.' and is a Plant in addition to its other types. When Deku Mask enters, gain life per Plant you control; each opponent loses 1 life.",
+    subtypes={"Mask"},
+    setup_interceptors=deku_mask_setup,
 )
 
 
@@ -5500,8 +6285,9 @@ GORON_MASK = make_equipment(
     name="Goron Mask",
     mana_cost="{2}",
     equip_cost="{2}",
-    text="Equipped creature gets +2/+2, has trample, and is a Goron in addition to its other types.",
-    subtypes={"Mask"}
+    text="Equipped creature gets +2/+2, has trample, and is a Goron in addition to its other types. When Goron Mask enters, scry 1; each opponent loses 1 life per Goron you control.",
+    subtypes={"Mask"},
+    setup_interceptors=goron_mask_setup,
 )
 
 
@@ -5509,8 +6295,9 @@ ZORA_MASK = make_equipment(
     name="Zora Mask",
     mana_cost="{2}",
     equip_cost="{2}",
-    text="Equipped creature gets +1/+2, can't be blocked, and is a Zora in addition to its other types.",
-    subtypes={"Mask"}
+    text="Equipped creature gets +1/+2, can't be blocked, and is a Zora in addition to its other types. When Zora Mask enters, scry 1; each opponent mills 1 per Zora you control.",
+    subtypes={"Mask"},
+    setup_interceptors=zora_mask_setup,
 )
 
 
@@ -5518,8 +6305,9 @@ BUNNY_HOOD = make_equipment(
     name="Bunny Hood",
     mana_cost="{1}",
     equip_cost="{1}",
-    text="Equipped creature gets +1/+0 and has haste.",
-    subtypes={"Mask"}
+    text="Equipped creature gets +1/+0 and has haste. When Bunny Hood enters, scry 1; each opponent loses 1 life per creature you control.",
+    subtypes={"Mask"},
+    setup_interceptors=bunny_hood_setup,
 )
 
 
@@ -5527,8 +6315,9 @@ STONE_MASK = make_equipment(
     name="Stone Mask",
     mana_cost="{2}",
     equip_cost="{1}",
-    text="Equipped creature has hexproof and can't attack or block.",
-    subtypes={"Mask"}
+    text="Equipped creature has hexproof and can't attack or block. When Stone Mask enters, scry 2 (more with more creatures); each opponent reveals their hand.",
+    subtypes={"Mask"},
+    setup_interceptors=stone_mask_setup,
 )
 
 
@@ -5537,44 +6326,50 @@ STONE_MASK = make_equipment(
 OCARINA_OF_TIME = make_artifact(
     name="Ocarina of Time",
     mana_cost="{3}",
-    text="{2}, {T}: Choose one - Return target creature to its owner's hand; or untap all creatures you control; or scry 3.",
-    supertypes={"Legendary"}
+    text="{2}, {T}: Choose one - Return target creature to its owner's hand; or untap all creatures you control; or scry 3. When Ocarina of Time enters, scry 2 (more with more legendaries); each opponent loses 1 life.",
+    supertypes={"Legendary"},
+    setup_interceptors=ocarina_of_time_setup,
 )
 
 
 SHEIKAH_SLATE = make_artifact(
     name="Sheikah Slate",
     mana_cost="{2}",
-    text="{T}: Look at the top card of your library. {1}, {T}: Scry 2.",
-    supertypes={"Legendary"}
+    text="{T}: Look at the top card of your library. {1}, {T}: Scry 2. When Sheikah Slate enters, scry 2; each opponent loses 1 life per Sheikah you control.",
+    supertypes={"Legendary"},
+    setup_interceptors=sheikah_slate_setup,
 )
 
 
 BOMB_BAG = make_artifact(
     name="Bomb Bag",
     mana_cost="{2}",
-    text="{2}, {T}: Bomb Bag deals 2 damage to any target."
+    text="{2}, {T}: Bomb Bag deals 2 damage to any target. When Bomb Bag enters, scry 1; deal 1 damage to each opponent per artifact you control.",
+    setup_interceptors=bomb_bag_setup,
 )
 
 
 FAIRY_BOTTLE = make_artifact(
     name="Fairy Bottle",
     mana_cost="{1}",
-    text="Sacrifice Fairy Bottle: You gain 5 life."
+    text="Sacrifice Fairy Bottle: You gain 5 life. When Fairy Bottle enters, gain life per Fairy you control; each opponent loses 1 life.",
+    setup_interceptors=fairy_bottle_setup,
 )
 
 
 MAGIC_BOOMERANG = make_artifact(
     name="Magic Boomerang",
     mana_cost="{2}",
-    text="{1}, {T}: Tap target creature. It doesn't untap during its controller's next untap step."
+    text="{1}, {T}: Tap target creature. It doesn't untap during its controller's next untap step. When Magic Boomerang enters, scry 1; each opponent loses 1 life per artifact you control.",
+    setup_interceptors=magic_boomerang_setup,
 )
 
 
 HOOKSHOT = make_artifact(
     name="Hookshot",
     mana_cost="{2}",
-    text="{2}, {T}: Put target creature you control on top of its owner's library. Draw a card."
+    text="{2}, {T}: Put target creature you control on top of its owner's library. Draw a card. When Hookshot enters, scry 1; each opponent loses 1 life per creature you control.",
+    setup_interceptors=hookshot_setup,
 )
 
 
@@ -5589,7 +6384,8 @@ HEART_CONTAINER_ARTIFACT = make_artifact(
 LENS_OF_TRUTH = make_artifact(
     name="Lens of Truth",
     mana_cost="{2}",
-    text="{1}, {T}: Look at target player's hand. You may look at face-down cards on the battlefield."
+    text="{1}, {T}: Look at target player's hand. You may look at face-down cards on the battlefield. When Lens of Truth enters, scry 2; each opponent reveals their hand and loses 1 life.",
+    setup_interceptors=lens_of_truth_setup,
 )
 
 
@@ -5689,29 +6485,33 @@ SPIRIT_TRACKS = make_enchantment(
 
 HYRULE_CASTLE = make_land(
     name="Hyrule Castle",
-    text="{T}: Add {W}. {2}, {T}: Create a 1/1 white Soldier creature token.",
-    supertypes={"Legendary"}
+    text="{T}: Add {W}. {2}, {T}: Create a 1/1 white Soldier creature token. When Hyrule Castle enters, scry 1; each opponent loses 1 life per Knight you control.",
+    supertypes={"Legendary"},
+    setup_interceptors=hyrule_castle_land_setup,
 )
 
 
 DEATH_MOUNTAIN = make_land(
     name="Death Mountain",
-    text="{T}: Add {R}. {T}: Add {R}{R}. Spend this mana only to cast Goron spells.",
-    supertypes={"Legendary"}
+    text="{T}: Add {R}. {T}: Add {R}{R}. Spend this mana only to cast Goron spells. When Death Mountain enters, scry 1; deal 1 damage to each opponent per Goron you control.",
+    supertypes={"Legendary"},
+    setup_interceptors=death_mountain_setup,
 )
 
 
 ZORAS_DOMAIN_LAND = make_land(
     name="Zora's Domain",
-    text="{T}: Add {U}. {2}, {T}: Target creature can't be blocked this turn.",
-    supertypes={"Legendary"}
+    text="{T}: Add {U}. {2}, {T}: Target creature can't be blocked this turn. When Zora's Domain enters, gain life per Zora you control; each opponent loses 1 life.",
+    supertypes={"Legendary"},
+    setup_interceptors=zoras_domain_land_setup,
 )
 
 
 LOST_WOODS = make_land(
     name="Lost Woods",
-    text="{T}: Add {G}. {T}: Add {G}{G}. Spend this mana only to cast Kokiri or Plant spells.",
-    supertypes={"Legendary"}
+    text="{T}: Add {G}. {T}: Add {G}{G}. Spend this mana only to cast Kokiri or Plant spells. When Lost Woods enters, scry 1; each opponent loses 1 life per Kokiri you control.",
+    supertypes={"Legendary"},
+    setup_interceptors=lost_woods_setup,
 )
 
 
@@ -5724,20 +6524,23 @@ GERUDO_DESERT = make_land(
 
 TEMPLE_OF_TIME = make_land(
     name="Temple of Time",
-    text="{T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast legendary spells.",
-    supertypes={"Legendary"}
+    text="{T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast legendary spells. When Temple of Time enters, scry 2 (more with more legendaries); each opponent loses 1 life.",
+    supertypes={"Legendary"},
+    setup_interceptors=temple_of_time_setup,
 )
 
 
 KAKARIKO_VILLAGE = make_land(
     name="Kakariko Village",
-    text="{T}: Add {W}. When Kakariko Village enters, you gain 1 life."
+    text="{T}: Add {W}. When Kakariko Village enters, you gain life per Sheikah you control; each opponent loses 1 life.",
+    setup_interceptors=kakariko_village_setup,
 )
 
 
 LAKE_HYLIA = make_land(
     name="Lake Hylia",
-    text="{T}: Add {U}. {2}, {T}: Draw a card, then discard a card."
+    text="{T}: Add {U}. {2}, {T}: Draw a card, then discard a card. When Lake Hylia enters, scry 1; each opponent mills 1 per Zora you control.",
+    setup_interceptors=lake_hylia_setup,
 )
 
 
@@ -5749,7 +6552,8 @@ LON_LON_RANCH = make_land(
 
 GREAT_PLATEAU = make_land(
     name="Great Plateau",
-    text="{T}: Add {C}. {3}, {T}: Add one mana of any color."
+    text="{T}: Add {C}. {3}, {T}: Add one mana of any color. When Great Plateau enters, scry 1 (more with more creatures); each opponent loses 1 life.",
+    setup_interceptors=great_plateau_setup,
 )
 
 
@@ -5761,19 +6565,22 @@ AKKALA_CITADEL = make_land(
 
 FARON_WOODS = make_land(
     name="Faron Woods",
-    text="{T}: Add {G}. {T}: Add {G}{G}. Spend this mana only to cast creature spells."
+    text="{T}: Add {G}. {T}: Add {G}{G}. Spend this mana only to cast creature spells. When Faron Woods enters, you gain life per Plant you control; each opponent loses 1 life.",
+    setup_interceptors=faron_woods_setup,
 )
 
 
 ELDIN_VOLCANO = make_land(
     name="Eldin Volcano",
-    text="{T}: Add {R}. Eldin Volcano enters tapped unless you control a Goron."
+    text="{T}: Add {R}. Eldin Volcano enters tapped unless you control a Goron. When Eldin Volcano enters, scry 1; deal 1 damage to each opponent per Goron you control.",
+    setup_interceptors=eldin_volcano_setup,
 )
 
 
 LANAYRU_WETLANDS = make_land(
     name="Lanayru Wetlands",
-    text="{T}: Add {U}. Lanayru Wetlands enters tapped unless you control a Zora."
+    text="{T}: Add {U}. Lanayru Wetlands enters tapped unless you control a Zora. When Lanayru Wetlands enters, scry 1; each opponent mills 1 per Zora you control.",
+    setup_interceptors=lanayru_wetlands_setup,
 )
 
 
@@ -5785,38 +6592,44 @@ LURELIN_VILLAGE = make_land(
 
 SKYLOFT = make_land(
     name="Skyloft",
-    text="{T}: Add {W} or {U}. {T}: Add {C}. Spend this mana only to activate abilities.",
-    supertypes={"Legendary"}
+    text="{T}: Add {W} or {U}. {T}: Add {C}. Spend this mana only to activate abilities. When Skyloft enters, scry 2 (more with more creatures); each opponent loses 1 life.",
+    supertypes={"Legendary"},
+    setup_interceptors=skyloft_setup,
 )
 
 
 SHADOW_TEMPLE = make_land(
     name="Shadow Temple",
-    text="{T}: Add {B}. {1}{B}, {T}: Target creature gets -1/-1 until end of turn."
+    text="{T}: Add {B}. {1}{B}, {T}: Target creature gets -1/-1 until end of turn. When Shadow Temple enters, scry 1; each opponent discards a card.",
+    setup_interceptors=shadow_temple_setup,
 )
 
 
 FIRE_TEMPLE = make_land(
     name="Fire Temple",
-    text="{T}: Add {R}. {1}{R}, {T}: Fire Temple deals 1 damage to any target."
+    text="{T}: Add {R}. {1}{R}, {T}: Fire Temple deals 1 damage to any target. When Fire Temple enters, scry 1; deal 1 damage to each opponent per Goron you control.",
+    setup_interceptors=fire_temple_setup,
 )
 
 
 WATER_TEMPLE = make_land(
     name="Water Temple",
-    text="{T}: Add {U}. {1}{U}, {T}: Tap target creature."
+    text="{T}: Add {U}. {1}{U}, {T}: Tap target creature. When Water Temple enters, scry 1; each opponent mills 1 per Zora you control.",
+    setup_interceptors=water_temple_setup,
 )
 
 
 FOREST_TEMPLE = make_land(
     name="Forest Temple",
-    text="{T}: Add {G}. {1}{G}, {T}: Target creature gets +1/+1 until end of turn."
+    text="{T}: Add {G}. {1}{G}, {T}: Target creature gets +1/+1 until end of turn. When Forest Temple enters, you gain life per Plant you control; each opponent loses 1 life.",
+    setup_interceptors=forest_temple_setup,
 )
 
 
 SPIRIT_TEMPLE = make_land(
     name="Spirit Temple",
-    text="{T}: Add {W} or {R}. {2}, {T}: Exile target card from a graveyard."
+    text="{T}: Add {W} or {R}. {2}, {T}: Exile target card from a graveyard. When Spirit Temple enters, scry 1 (more with more creatures); each opponent loses 1 life.",
+    setup_interceptors=spirit_temple_setup,
 )
 
 
