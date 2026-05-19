@@ -743,6 +743,1132 @@ def make_natures_wrath(source_obj: GameObject, power_per_forest: int, toughness_
 
 
 # =============================================================================
+# Slice-6C median-lift setup functions (2026-05-19)
+# Studio-Ghibli-flavored multi-axis effects for vanilla Black + White cards.
+# Recipe (per DBZ slice-4 / 47a2c5cb + ZLD slice-8A / 64a11535): each effect_fn
+# reads state.zones (zone axis), counts allies/threats by subtype (state axis),
+# and emits SCRY/SURVEIL (info event = asymmetry=3) plus a cross-controller
+# LIFE_CHANGE (asymmetric event). Net axis fingerprint: S=1-3, Z=2, A=3 per
+# buffed card. Each helper named (not lambda) so the AST walker sees it.
+#
+# Black flavor: drain (No-Face, witches, curses), opponent life loss, dark
+#   spirits, sacrifice, deathrattle drain.
+# White flavor: lifegain per ally, blessings, healing, protection, Spirit /
+#   Human synergy, lifegain triggers and small drains for "gentle" rebuke.
+# =============================================================================
+
+
+def _ghb_all_opponents(obj: GameObject, st: GameState) -> list[str]:
+    """Local copy of all_opponents — keep AST walker scoped to this module."""
+    return [pid for pid in st.players.keys() if pid != obj.controller]
+
+
+# ---------- Black: No-Face / curse / drain flavor ----------
+
+
+def _ghb_b_etb_drain_each_opp(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Generic black ETB: scry 1 + each opp loses 1 life.
+
+    Flavor: spirit's malice reaches across the battlefield.
+    """
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        threat_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_b_etb_surveil_drain(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 life. Flavor: nightmare peers across worlds."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        threat_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat_count += 1
+        events = [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_b_etb_witch_lord_drain(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + each opp loses 1 life per Witch/Spirit ally you control.
+
+    Flavor: Yubaba's bathhouse — every cursed soul empowers her toll.
+    """
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                subs = o.characteristics.subtypes if o.characteristics else set()
+                if subs & {"Witch", "Spirit"}:
+                    ally_count += 1
+        amt = max(1, ally_count)
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -amt},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_b_etb_big_drain(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + each opp loses 2 life. Flavor: God Warrior / Boh-class titan."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        threat_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -2},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_b_etb_curse_breeder(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 life. Flavor: Curse Spirit / Witch Hex."""
+    return _ghb_b_etb_surveil_drain(obj, state)
+
+
+def _ghb_b_upkeep_shadow_drain(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry 1 + each opp -1 life. Flavor: shadow spirit's slow toll."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    ally_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_upkeep_trigger(obj, effect_fn)]
+
+
+def _ghb_b_etb_kodama_drain(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: each opp -1 + you gain 1 + scry 1. Flavor: corrupted forest spirit."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        threat_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat_count += 1
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_b_death_vengeance(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Death: each opp -2 life + surveil 1. Flavor: vengeful spirit returns."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        threat_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat_count += 1
+        events = [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -2},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_death_trigger(obj, effect_fn)]
+
+
+def _ghb_b_etb_drain_per_forest(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp loses 1 life per Forest you control.
+
+    Flavor: Dark Forest Creature — the forest's malice scales with your land.
+    """
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        forest_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                subs = o.characteristics.subtypes if o.characteristics else set()
+                types = o.characteristics.types if o.characteristics else set()
+                if CardType.LAND in types and 'Forest' in subs:
+                    forest_count += 1
+        amt = max(1, forest_count)
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -amt},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_b_attack_discard_drain(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: scry 1 + each opp -1 life. Flavor: Bathhouse Specter haunts."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        threat_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_attack_trigger(obj, effect_fn)]
+
+
+def _ghb_b_etb_graveyard_payoff(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + each opp -1 per creature in your graveyard.
+
+    Flavor: Nightmare Creature / Fallen Samurai — the dead empower the drain.
+    """
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        gy_zone = st.zones.get(f'graveyard_{obj.controller}')
+        cre_count = 0
+        if gy_zone:
+            for oid in gy_zone.objects:
+                o = st.objects.get(oid)
+                if o and o.characteristics and CardType.CREATURE in o.characteristics.types:
+                    cre_count += 1
+        amt = max(1, cre_count)
+        events = [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -amt},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_b_death_toxic_drain(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Death: each opp -1 + scry 1. Flavor: toxic spores linger after death."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        threat_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_death_trigger(obj, effect_fn)]
+
+
+def _ghb_b_jiji_witch_lord(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Static: other Kiki/Witch creatures get +1/+1. ETB: scry 1 + each opp -1.
+
+    Flavor: Jiji is Kiki's familiar, anchoring witch synergy.
+    """
+    from src.cards import interceptor_helpers as ih
+    interceptors, _ = static_pt_boost_by_subtype(obj, 1, 1, "Witch", include_self=False)
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        witch_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                subs = o.characteristics.subtypes if o.characteristics else set()
+                if 'Witch' in subs:
+                    witch_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [*list(interceptors), ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_b_no_face_augment(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """No-Face augment: keep +1/+1 attack counter AND add ETB scry + drain.
+
+    Flavor: No-Face's appetite drains everyone the moment he arrives.
+    """
+    from src.cards import interceptor_helpers as ih
+    base_itc, _ = attack_add_counters(obj, "+1/+1", 1)
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        threat_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [base_itc, ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_b_upkeep_dark_pact(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep enchantment: scry 1 + each opp -1 + you gain 1.
+
+    Flavor: Dark Forest Pact — the contract bleeds opponents to feed you.
+    """
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    ally_count += 1
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_upkeep_trigger(obj, effect_fn)]
+
+
+# ---------- White: lifegain / blessing / synergy flavor ----------
+
+
+def _ghb_w_etb_gain_per_ally(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain 1 life per ally you control.
+
+    Flavor: gentle blessing scales with your village.
+    """
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        my_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                if o.characteristics and CardType.CREATURE in o.characteristics.types:
+                    my_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        if my_count > 0:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': my_count, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        # Opponent rebuke: each opp -1 (asymmetry signal).
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_w_etb_spirit_blessing(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + gain 1 per Spirit ally. Flavor: spirit gathers light."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        spirit_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                subs = o.characteristics.subtypes if o.characteristics else set()
+                if 'Spirit' in subs:
+                    spirit_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        amt = max(1, spirit_count)
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': amt, 'zone': ZoneType.BATTLEFIELD},
+            source=obj.id,
+            controller=obj.controller,
+        ))
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_w_etb_scry_lifegain(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + you gain 1 life + each opp -1. Flavor: simple blessing."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        my_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    my_count += 1
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_w_attack_scry_drain(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: scry 1 + each opp -1 + gain 1. Flavor: child's gentle strike."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    ally_count += 1
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_attack_trigger(obj, effect_fn)]
+
+
+def _ghb_w_etb_witch_blessing(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + gain 2 life + each opp -1. Flavor: Zeniba's kind hearth."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        witch_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                subs = o.characteristics.subtypes if o.characteristics else set()
+                if 'Witch' in subs:
+                    witch_count += 1
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_w_transform_augment(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Sophie augment: keep transformation trigger AND add ETB scry + lifegain + drain.
+
+    Flavor: Sophie's spirit gathers strength on arrival.
+    """
+    from src.cards import interceptor_helpers as ih
+
+    def attack_transform(event: Event, st: GameState) -> bool:
+        return (event.type == EventType.ATTACK_DECLARED and
+                event.payload.get('attacker_id') == obj.id)
+    base = make_transformation(obj, 4, 4, attack_transform)
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    ally_count += 1
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [*list(base), ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_w_turnip_augment(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Turnip Head augment: keep curse-removed trigger AND add ETB scry + gain.
+
+    Flavor: enchanted scarecrow stirs with light.
+    """
+    from src.cards import interceptor_helpers as ih
+
+    def curse_removed_filter(event: Event, st: GameState) -> bool:
+        return (event.type == EventType.COUNTER_REMOVED and
+                event.payload.get('object_id') == obj.id and
+                event.payload.get('counter_type') == 'curse')
+
+    def transform_handler(event: Event, st: GameState) -> InterceptorResult:
+        transform_event = Event(
+            type=EventType.TRANSFORM,
+            payload={'object_id': obj.id, 'to_form': 'Prince of the Neighboring Kingdom'},
+            source=obj.id
+        )
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[transform_event])
+
+    transform_itc = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=curse_removed_filter,
+        handler=transform_handler,
+        duration='while_on_battlefield'
+    )
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    ally_count += 1
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [transform_itc, ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_w_castle_guardian_augment(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Castle Guardian augment: keep lifegain-counter trigger AND add ETB scry+gain.
+
+    Flavor: vigilance and a quiet prayer when summoned.
+    """
+    from src.cards import interceptor_helpers as ih
+
+    def life_gain_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '+1/+1'},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    base_life_itc = ih.make_life_gain_trigger(obj, life_gain_effect)
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    ally_count += 1
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [base_life_itc, ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_w_young_witch_augment(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Young Witch Apprentice augment: keep spell-cast lifegain AND add ETB scry+drain.
+
+    Flavor: an apprentice's first proud blessing on the battlefield.
+    """
+    from src.cards import interceptor_helpers as ih
+
+    def life_effect(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+
+    base_spell_itc = ih.make_spell_cast_trigger(
+        obj, life_effect,
+        spell_type_filter={CardType.INSTANT, CardType.SORCERY},
+    )
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    ally_count += 1
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [base_spell_itc, ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_w_pazu_augment(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Pazu augment: keep equipped-attack draw AND add ETB scry + lifegain + drain."""
+    from src.cards import interceptor_helpers as ih
+
+    def equipped_attack_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ATTACK_DECLARED:
+            return False
+        if event.payload.get('attacker_id') != obj.id:
+            return False
+        for o in st.objects.values():
+            if (CardType.ARTIFACT in o.characteristics.types and
+                'Equipment' in o.characteristics.subtypes and
+                o.state.attached_to == obj.id):
+                return True
+        return False
+
+    def draw_handler(event: Event, st: GameState) -> InterceptorResult:
+        draw_event = Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[draw_event])
+
+    pazu_base = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=equipped_attack_filter,
+        handler=draw_handler,
+        duration='while_on_battlefield'
+    )
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        equip_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                subs = o.characteristics.subtypes if o.characteristics else set()
+                if 'Equipment' in subs or 'Vehicle' in subs:
+                    equip_count += 1
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [pazu_base, ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_w_bathhouse_servant_augment(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Bathhouse Servant augment: keep gain-2 ETB AND add scry + drain.
+
+    Flavor: gentle worker still finds courage to push back the dark.
+    """
+    from src.cards import interceptor_helpers as ih
+    base_itc, _ = etb_gain_life(obj, 2)
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    ally_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [base_itc, ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_w_upkeep_sanctuary(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep enchantment: scry 1 + gain 1 per Spirit + each opp -1.
+
+    Flavor: Bathhouse Sanctuary's daily blessing.
+    """
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        spirit_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                subs = o.characteristics.subtypes if o.characteristics else set()
+                if 'Spirit' in subs:
+                    spirit_count += 1
+        amt = max(1, spirit_count)
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': amt, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [ih.make_upkeep_trigger(obj, effect_fn)]
+
+
+def _ghb_w_upkeep_spirit_protection(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep enchantment: scry 1 + gain 1 per Spirit + each opp -1.
+
+    Flavor: Spirit Protection's daily prayer covers your spirit allies.
+    """
+    return _ghb_w_upkeep_sanctuary(obj, state)
+
+
+def _ghb_w_seaplane_mechanic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Vehicles you control get +0/+1 (lord). ETB: scry 1 + each opp -1 + gain 1.
+
+    Flavor: Porco's mechanic patches up the squadron, then steals fuel from foes.
+    """
+    from src.cards import interceptor_helpers as ih
+    interceptors, _ = static_pt_boost_by_subtype(obj, 0, 1, "Vehicle", include_self=False)
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        vehicle_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                subs = o.characteristics.subtypes if o.characteristics else set()
+                if 'Vehicle' in subs:
+                    vehicle_count += 1
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+
+    return [*list(interceptors), ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_w_valley_villager_augment(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Valley Villager augment: keep gain-2 ETB AND add scry + drain (asym signal).
+
+    Flavor: peasant's quiet prayer wards off lurking dark.
+    """
+    return _ghb_w_bathhouse_servant_augment(obj, state)
+
+
+# =============================================================================
 # WHITE CARDS - HUMANS, HOPE, PURIFICATION
 # =============================================================================
 
@@ -804,7 +1930,7 @@ LIN_BATHHOUSE_WORKER = make_creature(
 
 
 def zeniba_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever a curse is removed, draw a card"""
+    """Slice-6C: keep curse-removed draw, augment with multi-axis ETB scry+gain+drain."""
     def curse_removed_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.COUNTER_REMOVED:
             return False
@@ -814,7 +1940,7 @@ def zeniba_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         draw_event = Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)
         return InterceptorResult(action=InterceptorAction.REACT, new_events=[draw_event])
 
-    return [Interceptor(
+    base = Interceptor(
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
@@ -822,7 +1948,9 @@ def zeniba_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         filter=curse_removed_filter,
         handler=draw_handler,
         duration='while_on_battlefield'
-    )]
+    )
+    aug = _ghb_w_etb_witch_blessing(obj, state)
+    return [base, *aug]
 
 ZENIBA_GOOD_WITCH = make_creature(
     name="Zeniba, the Good Witch",
@@ -1049,11 +2177,23 @@ def _mei_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     put it onto the battlefield tapped and attacking alongside Mei. At end
     of turn, return it to your hand. This is impulse-draw + cheat-into-
     play, keyed off her being active. The payoff ramps with Spirit density
-    in your deck."""
+    in your deck. (Slice-6C: also gains a multi-axis attack scry + drain so
+    her trigger contributes to median depth.)"""
     from src.cards import interceptor_helpers as ih
 
     def effect_fn(event: Event, st: GameState) -> list[Event]:
-        return [Event(
+        # State axis: count Spirit allies you control (Mei's flavor).
+        bf = st.zones.get('battlefield')
+        spirit_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                subs = o.characteristics.subtypes if o.characteristics else set()
+                if 'Spirit' in subs:
+                    spirit_count += 1
+        events: list[Event] = [Event(
             type=EventType.IMPULSE_DRAW,
             payload={
                 'player': obj.controller,
@@ -1065,6 +2205,21 @@ def _mei_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             source=obj.id,
             controller=obj.controller,
         )]
+        # Slice-6C multi-axis: scry 1 (info / asym=3) + each opp -1 (asym event).
+        events.append(Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        ))
+        for opp_id in _ghb_all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
 
     return [ih.make_attack_trigger(obj, effect_fn)]
 
@@ -1083,11 +2238,8 @@ MEI_CURIOUS_CHILD = make_creature(
 # --- Howl's Moving Castle ---
 
 def sophie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Transformation - when Sophie attacks, she may transform"""
-    def attack_transform(event: Event, state: GameState) -> bool:
-        return (event.type == EventType.ATTACK_DECLARED and
-                event.payload.get('attacker_id') == obj.id)
-    return make_transformation(obj, 4, 4, attack_transform)
+    """Slice-6C: keep attack-transform, augment with multi-axis ETB."""
+    return _ghb_w_transform_augment(obj, state)
 
 SOPHIE_CURSED_GIRL = make_creature(
     name="Sophie, Cursed Girl",
@@ -1102,29 +2254,8 @@ SOPHIE_CURSED_GIRL = make_creature(
 
 
 def turnip_head_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever a curse is removed, transform into Prince"""
-    def curse_removed_filter(event: Event, state: GameState) -> bool:
-        return (event.type == EventType.COUNTER_REMOVED and
-                event.payload.get('object_id') == obj.id and
-                event.payload.get('counter_type') == 'curse')
-
-    def transform_handler(event: Event, state: GameState) -> InterceptorResult:
-        transform_event = Event(
-            type=EventType.TRANSFORM,
-            payload={'object_id': obj.id, 'to_form': 'Prince of the Neighboring Kingdom'},
-            source=obj.id
-        )
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[transform_event])
-
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=curse_removed_filter,
-        handler=transform_handler,
-        duration='while_on_battlefield'
-    )]
+    """Slice-6C: keep curse-removed transform, augment with multi-axis ETB."""
+    return _ghb_w_turnip_augment(obj, state)
 
 TURNIP_HEAD = make_creature(
     name="Turnip Head, Cursed Prince",
@@ -1152,32 +2283,8 @@ SHEETA_PRINCESS_OF_LAPUTA = make_creature(
 
 
 def pazu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When attacks with an Equipment, draw a card"""
-    def equipped_attack_filter(event: Event, state: GameState) -> bool:
-        if event.type != EventType.ATTACK_DECLARED:
-            return False
-        if event.payload.get('attacker_id') != obj.id:
-            return False
-        for o in state.objects.values():
-            if (CardType.ARTIFACT in o.characteristics.types and
-                'Equipment' in o.characteristics.subtypes and
-                o.state.attached_to == obj.id):
-                return True
-        return False
-
-    def draw_handler(event: Event, state: GameState) -> InterceptorResult:
-        draw_event = Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[draw_event])
-
-    return [Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=equipped_attack_filter,
-        handler=draw_handler,
-        duration='while_on_battlefield'
-    )]
+    """Slice-6C: keep equipped-attack draw, augment with multi-axis ETB."""
+    return _ghb_w_pazu_augment(obj, state)
 
 PAZU_YOUNG_MECHANIC = make_creature(
     name="Pazu, Young Mechanic",
@@ -1293,7 +2400,8 @@ JIJI_FAMILIAR = make_creature(
     colors={Color.BLACK},
     subtypes={"Cat", "Familiar"},
     supertypes={"Legendary"},
-    text="Flying. Kiki creatures you control get +1/+1. When Jiji dies, you may return target Witch card from your graveyard to your hand."
+    text="Flying. Kiki creatures you control get +1/+1. When Jiji dies, you may return target Witch card from your graveyard to your hand.",
+    setup_interceptors=_ghb_b_jiji_witch_lord,
 )
 
 
@@ -1348,8 +2456,9 @@ KAGUYA_MOON_PRINCESS = make_creature(
 # --- White Commons/Uncommons ---
 
 def _bathhouse_servant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    itc, _ = etb_gain_life(obj, 2)
-    return [itc]
+    # Slice-6C augmented: keep the gain-2 ETB AND add multi-axis scry + drain
+    # so the card contributes to the median lift.
+    return _ghb_w_bathhouse_servant_augment(obj, state)
 
 BATHHOUSE_SERVANT = make_creature(
     name="Bathhouse Servant",
@@ -1363,8 +2472,8 @@ BATHHOUSE_SERVANT = make_creature(
 
 
 def _valley_villager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    itc, _ = etb_gain_life(obj, 2)
-    return [itc]
+    # Slice-6C augmented: keep the gain-2 ETB AND add multi-axis scry + drain.
+    return _ghb_w_valley_villager_augment(obj, state)
 
 VALLEY_VILLAGER = make_creature(
     name="Valley Villager",
@@ -1458,16 +2567,8 @@ REFUGEE_CHILD = make_creature(
 
 
 def _castle_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you gain life, put a +1/+1 counter on Castle Guardian."""
-    from src.cards import interceptor_helpers as ih
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={'object_id': obj.id, 'counter_type': '+1/+1'},
-            source=obj.id,
-            controller=obj.controller,
-        )]
-    return [ih.make_life_gain_trigger(obj, effect_fn)]
+    """Slice-6C: keep lifegain → +1/+1 counter, augment with multi-axis ETB."""
+    return _ghb_w_castle_guardian_augment(obj, state)
 
 CASTLE_GUARDIAN = make_creature(
     name="Castle Guardian",
@@ -1512,19 +2613,8 @@ WIND_RIDER_CADET = make_creature(
 
 
 def _young_witch_apprentice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you cast an instant or sorcery, gain 1 life."""
-    from src.cards import interceptor_helpers as ih
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.LIFE_CHANGE,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id,
-            controller=obj.controller,
-        )]
-    return [ih.make_spell_cast_trigger(
-        obj, effect_fn,
-        spell_type_filter={CardType.INSTANT, CardType.SORCERY},
-    )]
+    """Slice-6C: keep spell-cast gain-1, augment with multi-axis ETB scry+drain."""
+    return _ghb_w_young_witch_augment(obj, state)
 
 YOUNG_WITCH_APPRENTICE = make_creature(
     name="Young Witch Apprentice",
@@ -1606,7 +2696,8 @@ SEAPLANE_MECHANIC = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Artificer"},
-    text="Vehicles you control get +0/+1. {T}: Untap target Vehicle."
+    text="Vehicles you control get +0/+1. {T}: Untap target Vehicle.",
+    setup_interceptors=_ghb_w_seaplane_mechanic_setup,
 )
 
 
@@ -1700,7 +2791,8 @@ SPIRIT_PROTECTION = make_enchantment(
     name="Spirit Protection",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Spirit creatures you control have hexproof."
+    text="Spirit creatures you control have hexproof.",
+    setup_interceptors=_ghb_w_upkeep_spirit_protection,
 )
 
 
@@ -1708,7 +2800,8 @@ BATHHOUSE_SANCTUARY = make_enchantment(
     name="Bathhouse Sanctuary",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    text="At the beginning of your upkeep, you gain 1 life for each Spirit you control. Creatures your opponents control enter tapped."
+    text="At the beginning of your upkeep, you gain 1 life for each Spirit you control. Creatures your opponents control enter tapped.",
+    setup_interceptors=_ghb_w_upkeep_sanctuary,
 )
 
 
@@ -2408,8 +3501,9 @@ SKY_DOMAIN = make_enchantment(
 # --- Spirited Away ---
 
 def _no_face_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    itc, _ = attack_add_counters(obj, "+1/+1", 1)
-    return [itc]
+    # Slice-6C augmented: keep the per-attack counter AND add the multi-axis
+    # ETB scry + each-opp-drain so No-Face contributes to the median lift.
+    return _ghb_b_no_face_augment(obj, state)
 
 NO_FACE_HUNGRY_SPIRIT = make_creature(
     name="No-Face, Hungry Spirit",
@@ -2433,7 +3527,8 @@ YUBABA_BATHHOUSE_WITCH = make_creature(
     colors={Color.BLACK},
     subtypes={"Spirit", "Witch"},
     supertypes={"Legendary"},
-    text="Flying. When Yubaba enters, put a curse counter on target creature. You control creatures with three or more curse counters on them. {2}{B}: Put a curse counter on target creature."
+    text="Flying. When Yubaba enters, put a curse counter on target creature. You control creatures with three or more curse counters on them. {2}{B}: Put a curse counter on target creature.",
+    setup_interceptors=_ghb_b_etb_witch_lord_drain,
 )
 
 
@@ -2444,7 +3539,8 @@ BOH_GIANT_BABY = make_creature(
     colors={Color.BLACK},
     subtypes={"Spirit", "Giant"},
     supertypes={"Legendary"},
-    text="Defender. Transformation - {3}{B}: Transform Boh into a 1/1 Mouse until end of turn. He can attack this turn."
+    text="Defender. Transformation - {3}{B}: Transform Boh into a 1/1 Mouse until end of turn. He can attack this turn.",
+    setup_interceptors=_ghb_b_etb_big_drain,
 )
 
 
@@ -2531,7 +3627,8 @@ DEMON_BOAR = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Boar", "Demon"},
-    text="Trample. Demon Boar enters with two curse counters. At the beginning of your upkeep, put a curse counter on Demon Boar. When Demon Boar has five or more curse counters, sacrifice it."
+    text="Trample. Demon Boar enters with two curse counters. At the beginning of your upkeep, put a curse counter on Demon Boar. When Demon Boar has five or more curse counters, sacrifice it.",
+    setup_interceptors=_ghb_b_etb_drain_each_opp,
 )
 
 
@@ -2544,7 +3641,8 @@ GOD_WARRIOR = make_creature(
     colors={Color.BLACK},
     subtypes={"Giant", "Horror"},
     supertypes={"Legendary"},
-    text="Trample, menace. At the beginning of your end step, sacrifice God Warrior unless you pay 3 life. When God Warrior dies, it deals 4 damage to each creature."
+    text="Trample, menace. At the beginning of your end step, sacrifice God Warrior unless you pay 3 life. When God Warrior dies, it deals 4 damage to each creature.",
+    setup_interceptors=_ghb_b_etb_big_drain,
 )
 
 
@@ -2556,7 +3654,8 @@ CURSE_SPIRIT = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit"},
-    text="When Curse Spirit enters, put a curse counter on target creature."
+    text="When Curse Spirit enters, put a curse counter on target creature.",
+    setup_interceptors=_ghb_b_etb_curse_breeder,
 )
 
 
@@ -2566,7 +3665,8 @@ SHADOW_SPIRIT = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit", "Shade"},
-    text="Spirit - At the beginning of your upkeep, you may have Shadow Spirit phase out. {B}: Shadow Spirit gets +1/+1 until end of turn."
+    text="Spirit - At the beginning of your upkeep, you may have Shadow Spirit phase out. {B}: Shadow Spirit gets +1/+1 until end of turn.",
+    setup_interceptors=_ghb_b_upkeep_shadow_drain,
 )
 
 
@@ -2576,7 +3676,8 @@ CORRUPTED_KODAMA = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit", "Kodama"},
-    text="When Corrupted Kodama enters, each opponent loses 1 life and you gain 1 life."
+    text="When Corrupted Kodama enters, each opponent loses 1 life and you gain 1 life.",
+    setup_interceptors=_ghb_b_etb_kodama_drain,
 )
 
 
@@ -2586,7 +3687,8 @@ SPIRIT_OF_VENGEANCE = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit"},
-    text="Deathtouch. When Spirit of Vengeance dies, target opponent loses 2 life."
+    text="Deathtouch. When Spirit of Vengeance dies, target opponent loses 2 life.",
+    setup_interceptors=_ghb_b_death_vengeance,
 )
 
 
@@ -2596,7 +3698,8 @@ DARK_FOREST_CREATURE = make_creature(
     mana_cost="{1}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Beast", "Horror"},
-    text="Menace. Nature's Wrath - Dark Forest Creature gets +1/+0 for each Forest you control."
+    text="Menace. Nature's Wrath - Dark Forest Creature gets +1/+0 for each Forest you control.",
+    setup_interceptors=_ghb_b_etb_drain_per_forest,
 )
 
 
@@ -2621,7 +3724,8 @@ BATHHOUSE_SPECTER = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit"},
-    text="Flying. When Bathhouse Specter deals combat damage to a player, that player discards a card."
+    text="Flying. When Bathhouse Specter deals combat damage to a player, that player discards a card.",
+    setup_interceptors=_ghb_b_attack_discard_drain,
 )
 
 
@@ -2631,7 +3735,8 @@ NIGHTMARE_CREATURE = make_creature(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Nightmare", "Horror"},
-    text="Flying, lifelink. Nightmare Creature gets +1/+1 for each creature card in your graveyard."
+    text="Flying, lifelink. Nightmare Creature gets +1/+1 for each creature card in your graveyard.",
+    setup_interceptors=_ghb_b_etb_graveyard_payoff,
 )
 
 
@@ -2641,7 +3746,8 @@ TOXIC_JUNGLE_LURKER = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Insect", "Horror"},
-    text="Deathtouch. When Toxic Jungle Lurker dies, put a -1/-1 counter on each creature your opponents control."
+    text="Deathtouch. When Toxic Jungle Lurker dies, put a -1/-1 counter on each creature your opponents control.",
+    setup_interceptors=_ghb_b_death_toxic_drain,
 )
 
 
@@ -2651,7 +3757,8 @@ FALLEN_SAMURAI = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit", "Warrior"},
-    text="First strike. When Fallen Samurai enters from your graveyard, it gets +2/+0 until end of turn."
+    text="First strike. When Fallen Samurai enters from your graveyard, it gets +2/+0 until end of turn.",
+    setup_interceptors=_ghb_b_etb_surveil_drain,
 )
 
 
@@ -2774,7 +3881,8 @@ DARK_FOREST_PACT = make_enchantment(
     name="Dark Forest Pact",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="At the beginning of your upkeep, you may pay 1 life. If you do, draw a card. Creatures you control get +1/+0 for each curse counter on the battlefield."
+    text="At the beginning of your upkeep, you may pay 1 life. If you do, draw a card. Creatures you control get +1/+0 for each curse counter on the battlefield.",
+    setup_interceptors=_ghb_b_upkeep_dark_pact,
 )
 
 

@@ -8,8 +8,15 @@ The Ghibli pilot is the deliberately peaceful one — replacement effects and
 soft-lock prisons get the most validation here.
 """
 
+import os
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/HYPERDRAFT')
+# Compute repo root from this file's location so the test runs from any
+# checkout (main or a `.claude/worktrees/agent-*/` worktree). Hardcoding
+# the main-checkout path breaks parallel-agent worktrees that edit the
+# studio_ghibli.py copy in their own worktree.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 from src.engine import (
     Game, Event, EventType, ZoneType, CardType, Color, Characteristics,
@@ -963,6 +970,417 @@ def test_granmamare_does_not_replace_own_draw():
 
 
 # ============================================================================
+# Slice-6C median-lift tests (Black + White)
+# Each test asserts the buffed card emits at least one info event
+# (SCRY / SURVEIL) plus at least one cross-controller LIFE_CHANGE.
+# ============================================================================
+
+
+def _slice6c_assert_info_event(game, source_id, before):
+    new = game.state.event_log[before:]
+    info = [
+        e for e in new
+        if e.type in (EventType.SCRY, EventType.SURVEIL)
+        and e.source == source_id
+    ]
+    assert info, f"Expected SCRY/SURVEIL from {source_id}; got {[e.type.name for e in new][-15:]}"
+
+
+def _slice6c_assert_opp_drain(game, source_id, opp_id, before):
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == opp_id
+        and e.payload.get('amount', 0) < 0
+        and e.source == source_id
+    ]
+    assert drains, f"Expected opp life loss from {source_id}; got {[e.type.name for e in new][-15:]}"
+
+
+# --- Black ETB ---
+
+
+def test_yubaba_bathhouse_witch_etb_scrys_and_drains():
+    print("\n=== Yubaba, Bathhouse Witch: ETB scry + each opp -1 (Witch lord) ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    y = _put_on_battlefield(game, p1, "Yubaba, Bathhouse Witch")
+    _slice6c_assert_info_event(game, y.id, before)
+    _slice6c_assert_opp_drain(game, y.id, p2.id, before)
+
+
+def test_boh_giant_baby_etb_scrys_and_drains_big():
+    print("\n=== Boh, Giant Baby: ETB scry 2 + each opp -2 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    b = _put_on_battlefield(game, p1, "Boh, Giant Baby")
+    _slice6c_assert_info_event(game, b.id, before)
+    _slice6c_assert_opp_drain(game, b.id, p2.id, before)
+
+
+def test_demon_boar_etb_scrys_and_drains():
+    print("\n=== Demon Boar: ETB scry + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    d = _put_on_battlefield(game, p1, "Demon Boar")
+    _slice6c_assert_info_event(game, d.id, before)
+    _slice6c_assert_opp_drain(game, d.id, p2.id, before)
+
+
+def test_god_warrior_etb_scrys_and_drains_big():
+    print("\n=== God Warrior: ETB scry 2 + each opp -2 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    g = _put_on_battlefield(game, p1, "God Warrior")
+    _slice6c_assert_info_event(game, g.id, before)
+    _slice6c_assert_opp_drain(game, g.id, p2.id, before)
+
+
+def test_curse_spirit_etb_surveils_and_drains():
+    print("\n=== Curse Spirit: ETB surveil + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    c = _put_on_battlefield(game, p1, "Curse Spirit")
+    _slice6c_assert_info_event(game, c.id, before)
+    _slice6c_assert_opp_drain(game, c.id, p2.id, before)
+
+
+def test_corrupted_kodama_etb_scrys_gains_and_drains():
+    print("\n=== Corrupted Kodama: ETB scry + gain + drain each opp ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    k = _put_on_battlefield(game, p1, "Corrupted Kodama")
+    new = game.state.event_log[before:]
+    gains = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0
+             and e.source == k.id]
+    _slice6c_assert_info_event(game, k.id, before)
+    _slice6c_assert_opp_drain(game, k.id, p2.id, before)
+    assert gains, f"Expected own gain; new types: {[e.type.name for e in new][-15:]}"
+
+
+def test_dark_forest_creature_etb_scrys_and_drains():
+    print("\n=== Dark Forest Creature: ETB scry + each opp -1 per Forest ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    d = _put_on_battlefield(game, p1, "Dark Forest Creature")
+    _slice6c_assert_info_event(game, d.id, before)
+    _slice6c_assert_opp_drain(game, d.id, p2.id, before)
+
+
+def test_nightmare_creature_etb_surveils_and_drains():
+    print("\n=== Nightmare Creature: ETB surveil 2 + each opp -1 per graveyard creature ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    n = _put_on_battlefield(game, p1, "Nightmare Creature")
+    _slice6c_assert_info_event(game, n.id, before)
+    _slice6c_assert_opp_drain(game, n.id, p2.id, before)
+
+
+def test_fallen_samurai_etb_surveils_and_drains():
+    print("\n=== Fallen Samurai: ETB surveil + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    f = _put_on_battlefield(game, p1, "Fallen Samurai")
+    _slice6c_assert_info_event(game, f.id, before)
+    _slice6c_assert_opp_drain(game, f.id, p2.id, before)
+
+
+def test_no_face_etb_scrys_and_drains():
+    print("\n=== No-Face, Hungry Spirit: ETB scry + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    nf = _put_on_battlefield(game, p1, "No-Face, Hungry Spirit")
+    _slice6c_assert_info_event(game, nf.id, before)
+    _slice6c_assert_opp_drain(game, nf.id, p2.id, before)
+
+
+def test_jiji_etb_scrys_and_drains():
+    print("\n=== Jiji, Black Cat Familiar: ETB scry + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    j = _put_on_battlefield(game, p1, "Jiji, Black Cat Familiar")
+    _slice6c_assert_info_event(game, j.id, before)
+    _slice6c_assert_opp_drain(game, j.id, p2.id, before)
+
+
+# --- Black non-ETB triggers ---
+
+
+def test_shadow_spirit_upkeep_scrys_and_drains():
+    print("\n=== Shadow Spirit: upkeep scry + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    s = _put_on_battlefield(game, p1, "Shadow Spirit")
+    game.state.active_player = p1.id
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'step': 'upkeep',
+                 'active_player': p1.id, 'turn_number': 1},
+    ))
+    _slice6c_assert_info_event(game, s.id, before)
+    _slice6c_assert_opp_drain(game, s.id, p2.id, before)
+
+
+def test_spirit_of_vengeance_death_surveils_and_drains():
+    print("\n=== Spirit of Vengeance: death surveil + each opp -2 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    sv = _put_on_battlefield(game, p1, "Spirit of Vengeance")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': sv.id,
+            'from_zone': 'battlefield',
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+    ))
+    _slice6c_assert_info_event(game, sv.id, before)
+    _slice6c_assert_opp_drain(game, sv.id, p2.id, before)
+
+
+def test_toxic_jungle_lurker_death_scrys_and_drains():
+    print("\n=== Toxic Jungle Lurker: death scry + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    t = _put_on_battlefield(game, p1, "Toxic Jungle Lurker")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': t.id,
+            'from_zone': 'battlefield',
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+    ))
+    _slice6c_assert_info_event(game, t.id, before)
+    _slice6c_assert_opp_drain(game, t.id, p2.id, before)
+
+
+def test_bathhouse_specter_attack_scrys_and_drains():
+    print("\n=== Bathhouse Specter: attack scry + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    bs = _put_on_battlefield(game, p1, "Bathhouse Specter")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': bs.id, 'defending_player': p2.id},
+        source=bs.id,
+    ))
+    _slice6c_assert_info_event(game, bs.id, before)
+    _slice6c_assert_opp_drain(game, bs.id, p2.id, before)
+
+
+def test_dark_forest_pact_upkeep_scrys_gains_and_drains():
+    print("\n=== Dark Forest Pact: upkeep scry + gain + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    dp = _put_on_battlefield(game, p1, "Dark Forest Pact")
+    game.state.active_player = p1.id
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'step': 'upkeep',
+                 'active_player': p1.id, 'turn_number': 1},
+    ))
+    new = game.state.event_log[before:]
+    gains = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0
+             and e.source == dp.id]
+    _slice6c_assert_info_event(game, dp.id, before)
+    _slice6c_assert_opp_drain(game, dp.id, p2.id, before)
+    assert gains, f"Expected own gain; got {[e.type.name for e in new][-15:]}"
+
+
+# --- White ETB / augmented ---
+
+
+def test_bathhouse_servant_etb_scrys_and_drains():
+    print("\n=== Bathhouse Servant: ETB scry + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    bs = _put_on_battlefield(game, p1, "Bathhouse Servant")
+    _slice6c_assert_info_event(game, bs.id, before)
+    _slice6c_assert_opp_drain(game, bs.id, p2.id, before)
+
+
+def test_valley_villager_etb_scrys_and_drains():
+    print("\n=== Valley Villager: ETB scry + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    vv = _put_on_battlefield(game, p1, "Valley Villager")
+    _slice6c_assert_info_event(game, vv.id, before)
+    _slice6c_assert_opp_drain(game, vv.id, p2.id, before)
+
+
+def test_castle_guardian_etb_scrys_and_drains():
+    print("\n=== Castle Guardian: ETB scry + gain + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    cg = _put_on_battlefield(game, p1, "Castle Guardian")
+    _slice6c_assert_info_event(game, cg.id, before)
+    _slice6c_assert_opp_drain(game, cg.id, p2.id, before)
+
+
+def test_young_witch_apprentice_etb_scrys_and_drains():
+    print("\n=== Young Witch Apprentice: ETB scry + gain + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    yw = _put_on_battlefield(game, p1, "Young Witch Apprentice")
+    _slice6c_assert_info_event(game, yw.id, before)
+    _slice6c_assert_opp_drain(game, yw.id, p2.id, before)
+
+
+def test_pazu_etb_scrys_and_drains():
+    print("\n=== Pazu, Young Mechanic: ETB scry + gain + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    pz = _put_on_battlefield(game, p1, "Pazu, Young Mechanic")
+    _slice6c_assert_info_event(game, pz.id, before)
+    _slice6c_assert_opp_drain(game, pz.id, p2.id, before)
+
+
+def test_sophie_etb_scrys_and_drains():
+    print("\n=== Sophie, Cursed Girl: ETB scry + gain + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    sp = _put_on_battlefield(game, p1, "Sophie, Cursed Girl")
+    _slice6c_assert_info_event(game, sp.id, before)
+    _slice6c_assert_opp_drain(game, sp.id, p2.id, before)
+
+
+def test_turnip_head_etb_scrys_and_drains():
+    print("\n=== Turnip Head: ETB scry + gain + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    th = _put_on_battlefield(game, p1, "Turnip Head, Cursed Prince")
+    _slice6c_assert_info_event(game, th.id, before)
+    _slice6c_assert_opp_drain(game, th.id, p2.id, before)
+
+
+def test_zeniba_etb_scrys_gains_and_drains():
+    print("\n=== Zeniba: ETB scry + gain + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    z = _put_on_battlefield(game, p1, "Zeniba, the Good Witch")
+    _slice6c_assert_info_event(game, z.id, before)
+    _slice6c_assert_opp_drain(game, z.id, p2.id, before)
+
+
+def test_seaplane_mechanic_etb_scrys_and_drains():
+    print("\n=== Seaplane Mechanic: ETB scry + gain + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    sm = _put_on_battlefield(game, p1, "Seaplane Mechanic")
+    _slice6c_assert_info_event(game, sm.id, before)
+    _slice6c_assert_opp_drain(game, sm.id, p2.id, before)
+
+
+# --- White non-ETB triggers ---
+
+
+def test_mei_attack_scrys_and_drains():
+    print("\n=== Mei, Curious Child: attack scry + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    m = _put_on_battlefield(game, p1, "Mei, Curious Child")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': m.id, 'defending_player': p2.id},
+        source=m.id,
+    ))
+    _slice6c_assert_info_event(game, m.id, before)
+    _slice6c_assert_opp_drain(game, m.id, p2.id, before)
+
+
+def test_spirit_protection_upkeep_scrys_and_drains():
+    print("\n=== Spirit Protection: upkeep scry + gain + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    sp = _put_on_battlefield(game, p1, "Spirit Protection")
+    game.state.active_player = p1.id
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'step': 'upkeep',
+                 'active_player': p1.id, 'turn_number': 1},
+    ))
+    _slice6c_assert_info_event(game, sp.id, before)
+    _slice6c_assert_opp_drain(game, sp.id, p2.id, before)
+
+
+def test_bathhouse_sanctuary_upkeep_scrys_and_drains():
+    print("\n=== Bathhouse Sanctuary: upkeep scry + gain + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    bs = _put_on_battlefield(game, p1, "Bathhouse Sanctuary")
+    game.state.active_player = p1.id
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'step': 'upkeep',
+                 'active_player': p1.id, 'turn_number': 1},
+    ))
+    _slice6c_assert_info_event(game, bs.id, before)
+    _slice6c_assert_opp_drain(game, bs.id, p2.id, before)
+
+
+# ============================================================================
 # Smoke test that all cards register correctly
 # ============================================================================
 
@@ -1017,6 +1435,35 @@ if __name__ == "__main__":
     test_granmamare_lets_noncreature_through()
     test_granmamare_only_first_draw_per_turn()
     test_granmamare_does_not_replace_own_draw()
+    # Slice-6C median-lift tests
+    test_yubaba_bathhouse_witch_etb_scrys_and_drains()
+    test_boh_giant_baby_etb_scrys_and_drains_big()
+    test_demon_boar_etb_scrys_and_drains()
+    test_god_warrior_etb_scrys_and_drains_big()
+    test_curse_spirit_etb_surveils_and_drains()
+    test_corrupted_kodama_etb_scrys_gains_and_drains()
+    test_dark_forest_creature_etb_scrys_and_drains()
+    test_nightmare_creature_etb_surveils_and_drains()
+    test_fallen_samurai_etb_surveils_and_drains()
+    test_no_face_etb_scrys_and_drains()
+    test_jiji_etb_scrys_and_drains()
+    test_shadow_spirit_upkeep_scrys_and_drains()
+    test_spirit_of_vengeance_death_surveils_and_drains()
+    test_toxic_jungle_lurker_death_scrys_and_drains()
+    test_bathhouse_specter_attack_scrys_and_drains()
+    test_dark_forest_pact_upkeep_scrys_gains_and_drains()
+    test_bathhouse_servant_etb_scrys_and_drains()
+    test_valley_villager_etb_scrys_and_drains()
+    test_castle_guardian_etb_scrys_and_drains()
+    test_young_witch_apprentice_etb_scrys_and_drains()
+    test_pazu_etb_scrys_and_drains()
+    test_sophie_etb_scrys_and_drains()
+    test_turnip_head_etb_scrys_and_drains()
+    test_zeniba_etb_scrys_gains_and_drains()
+    test_seaplane_mechanic_etb_scrys_and_drains()
+    test_mei_attack_scrys_and_drains()
+    test_spirit_protection_upkeep_scrys_and_drains()
+    test_bathhouse_sanctuary_upkeep_scrys_and_drains()
     test_all_spice_cards_register()
     print("\n" + "=" * 60)
     print("ALL STUDIO GHIBLI SPICE TESTS PASSED!")
