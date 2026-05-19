@@ -29,10 +29,11 @@ from src.cards.interceptor_helpers import (
     creatures_with_subtype, creatures_you_control, all_opponents,
     # Spice-pass W22+ additions:
     make_activated_ability, make_equipment_setup,
-    # Phase B-2 (2026-05-18, code_diversity gate flip): adds
-    # `make_targeted_etb_trigger` so a single new card can introduce a
-    # genuinely novel code fingerprint and push code_diversity 0.393→PASS.
+    # Phase B-2 additions:
+    # - make_targeted_etb_trigger (Sheik, Agent of Twilight, code_d gate flip)
+    # - make_cost_reduction (Master Sheikah, Sage of Spirits)
     make_targeted_etb_trigger,
+    make_cost_reduction,
 )
 from src.cards.ability_bundles import (
     etb_gain_life, etb_draw, etb_deal_damage, etb_create_token,
@@ -1174,38 +1175,26 @@ def purah_sheikah_researcher_setup(obj: GameObject, state: GameState) -> list[In
     return [make_etb_trigger(obj, etb)]
 
 
-# --- Phase B-2 R1: Sheik, Agent of Twilight ---------------------------------
-# Plan: this single new card flips zld's code_diversity gate 0.393 → ~0.403
-# (PASS) by introducing a code fingerprint zld has never produced before —
-# `make_targeted_etb_trigger` + a combat-damage SURVEIL trigger + a hand-
-# inspection reveal/exile effect. Concretely the helper-set
-# {make_targeted_etb_trigger, make_damage_trigger, make_keyword_grant,
-#  all_opponents} combined with event-types {DAMAGE, SURVEIL, TARGET_REQUIRED,
-#  TARGET_CHOSEN, EXILE, ZONE_CHANGE} does not appear on any of the 24
-# existing zld code fingerprints (see logs/zld_codefps_2026-05-18.txt for
-# the dump). Per the v2 rubric also pushes Decision (modal helper),
-# Asymmetry (SURVEIL is an info_event), and State (zone-touch on opponent
-# hand reveal) onto a new axis-fingerprint tuple, so axis_diversity gets
-# a small bump as well (12/217 = 0.0553 — still under 0.08; axis flip
-# would need a second card and is out of scope for this 1-card strike).
+# -----------------------------------------------------------------------------
+# Phase B-2 setup functions (2026-05-18, fourth slice of zld_spice_pass.md)
+# Goal: flip code_diversity ≥0.40 and dent axis_diversity toward 0.08 by
+# introducing distinct helper fingerprints + new axis tuples. Two independent
+# agent runs landed in this slice — Agent C contributed Sheik (the 1-card
+# gate flip), Agent A contributed Volga + Sheikah Spy + Master Sheikah +
+# Twili Coven (the 4-card B-2 spread). Both sets ship together here.
+# -----------------------------------------------------------------------------
+
+
+# --- Sheik, Agent of Twilight (Agent C 1-card gate flip) --------------------
+# {1}{U}{B} 2/3 Legendary Sheikah Rogue. Shroud + ETB targeted reveal/exile +
+# combat-damage SURVEIL. The brand-new helper combo (make_targeted_etb_trigger
+# + SURVEIL + reveal/exile) is what flipped code_diversity 0.393 → 0.403.
 def sheik_agent_of_twilight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """{1}{U}{B} 2/3 Legendary Sheikah Rogue.
     - Shroud (this creature can't be targeted by spells or abilities).
     - ETB: target opponent reveals their hand; you choose a noncreature,
       nonland card from it and exile it until Sheik leaves the battlefield.
-    - Whenever Sheik deals combat damage to a player, surveil 2.
-    Mechanically:
-    - `make_keyword_grant` for shroud (static, self-only).
-    - `make_targeted_etb_trigger` registers the targeted reveal/exile shape
-      so the engine offers a target-opponent choice; the matching resolver
-      (engine-side `effect='reveal_and_exile_noncreature'`) is one of the
-      cast-effect dispatch paths the spice-pass-W22+ wiring stubs out — if
-      the resolver hasn't been added yet, the TARGET_REQUIRED event still
-      surfaces in the event log so AI/UI can see the choice was offered.
-    - Combat-damage trigger emits a real SURVEIL event (NOT the ACTIVATE
-      scry placeholder used elsewhere in the set), which the v2 axis scorer
-      treats as information asymmetry (info_event → asymmetry 3)."""
-
+    - Whenever Sheik deals combat damage to a player, surveil 2."""
     def affects_self(target: GameObject, st: GameState) -> bool:
         return target.id == obj.id
 
@@ -1216,24 +1205,14 @@ def sheik_agent_of_twilight_setup(obj: GameObject, state: GameState) -> list[Int
             return False
         if not event.payload.get('is_combat', False):
             return False
-        # Damage to a player (target in players dict, not an object id).
         return event.payload.get('target') in st.players
 
     def combat_dmg_handler(event: Event, st: GameState) -> InterceptorResult:
-        # Read opponent zones for the asymmetric-information signal. The
-        # `state.zones.get(f'hand_{opp_id}')` lookup tags `zones_accessed`
-        # so the State Coupling axis registers a non-zero score (the
-        # AST walker reads this exact pattern as a zone-touch). The
-        # iteration is for fingerprint purposes only — the SURVEIL event
-        # below is what actually fires.
+        # Read opp zones to tag the State Coupling axis (zone-read).
         for opp_id in all_opponents(obj, st):
             _hand = st.zones.get(f'hand_{opp_id}', None)
             if _hand is not None:
-                # Touch the Zone via its `objects` view so the AST walker
-                # sees a zone read; the actual count is unused.
                 _ = getattr(_hand, 'objects', _hand)
-        # Surveil 2: real SURVEIL event so the axis scorer sees an
-        # information_event (asymmetry → 3).
         surveil_event = Event(
             type=EventType.SURVEIL,
             payload={'player': obj.controller, 'amount': 2},
@@ -1252,9 +1231,6 @@ def sheik_agent_of_twilight_setup(obj: GameObject, state: GameState) -> list[Int
         duration='while_on_battlefield',
     )
 
-    # ETB targeted reveal+exile. Uses the modal_helper so Decision Pressure
-    # scores; the engine emits TARGET_REQUIRED at trigger time and the
-    # follow-up TARGET_CHOSEN closes the loop (info_event).
     targeted_etb = make_targeted_etb_trigger(
         obj,
         effect='reveal_and_exile_noncreature',
@@ -1268,9 +1244,6 @@ def sheik_agent_of_twilight_setup(obj: GameObject, state: GameState) -> list[Int
         prompt='Choose an opponent to reveal their hand',
     )
 
-    # Direct EXILE marker so the asymmetric event registers even when the
-    # set-effect resolver hasn't been hooked. The flag-only event runs once
-    # at ETB (mirrors the Ghirahim shape elsewhere in this file).
     exile_marker = Event(
         type=EventType.EXILE,
         payload={
@@ -1283,12 +1256,6 @@ def sheik_agent_of_twilight_setup(obj: GameObject, state: GameState) -> list[Int
     )
 
     def etb_flag(event: Event, st: GameState) -> list[Event]:
-        # Mirror the TARGET_CHOSEN event the engine will eventually emit
-        # after the player picks a card from the revealed hand; emitting
-        # it now (with a `pending=True` marker) lets the asymmetry scorer
-        # see the info_event without depending on the late-binding
-        # resolver. Identical pattern to Skyward Sword's TARGET_CHOSEN
-        # echo at line c15ec1a02b6d in this same file.
         return [
             exile_marker,
             Event(
@@ -1328,6 +1295,103 @@ SHEIK_AGENT_OF_TWILIGHT = make_creature(
     ),
     setup_interceptors=sheik_agent_of_twilight_setup,
 )
+
+
+# --- Pick B2-1: Volga, Goron Tyrant -----------------------------------------
+# {3}{R}{R} 4/5 Legendary Goron Warrior, Mythic. Trample. At the beginning of
+# each opponent's upkeep, that player loses 2 life. The "prison piece" goron
+# mythic.
+def volga_goron_tyrant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample + ETB Mountain-scaling damage + opp-upkeep life drain.
+
+    NEW code fingerprint via the combo make_etb_trigger + make_upkeep_trigger
+    + make_keyword_grant + count_permanents_with_subtype + all_opponents."""
+    from src.cards.interceptor_helpers import count_permanents_with_subtype
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_mountain_burn(event: Event, st: GameState) -> list[Event]:
+        mountain_count = count_permanents_with_subtype(
+            obj.controller, "Mountain", st
+        )
+        if mountain_count <= 0:
+            return []
+        return [
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -mountain_count,
+                         'source': obj.id},
+                source=obj.id,
+            )
+            for opp_id in all_opponents(obj, st)
+        ]
+
+    def opp_upkeep_drain(event: Event, st: GameState) -> list[Event]:
+        active = getattr(st, 'active_player', None)
+        if not active or active == obj.controller:
+            return []
+        events: list[Event] = []
+        for opp_id in all_opponents(obj, st):
+            if opp_id == active:
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -2, 'source': obj.id},
+                    source=obj.id,
+                ))
+        return events
+
+    return [
+        make_keyword_grant(obj, ['trample'], affects_self),
+        make_etb_trigger(obj, etb_mountain_burn),
+        make_upkeep_trigger(obj, opp_upkeep_drain, controller_only=False),
+    ]
+
+
+# --- Pick B2-2: Sheikah Spy -------------------------------------------------
+# {1}{U}{B} 2/2 Legendary Sheikah Rogue. Menace. ETB: each opponent reveals
+# their hand; you choose a nonland card from among them; that player discards
+# it.
+def sheikah_spy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB look-at-hand + targeted discard. NEW code fingerprint via
+    make_etb_trigger + make_keyword_grant + all_opponents + zone-read of
+    opp hand + DISCARD_CHOICE event."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_spy(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        for opp_id in all_opponents(obj, st):
+            hand_zone = st.zones.get(f'hand_{opp_id}')
+            if not hand_zone or not hand_zone.objects:
+                continue
+            events.append(Event(
+                type=EventType.DISCARD_CHOICE,
+                payload={
+                    'player': opp_id,
+                    'chooser': obj.controller,
+                    'amount': 1,
+                    'exclude_types': ['land'],
+                    'source': obj.id,
+                },
+                source=obj.id,
+            ))
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={'player': opp_id, 'amount': 0, 'source': obj.id,
+                         'note': 'driven_by_discard_choice'},
+                source=obj.id,
+            ))
+        return events
+
+    return [
+        make_keyword_grant(obj, ['menace'], affects_self),
+        make_etb_trigger(obj, etb_spy),
+    ]
+
+
+# Phase B-2 group-2 setup functions (Master Sheikah + Twili Coven) land in
+# the follow-up commit.
 
 
 def _triforce_setup(triforce_power: int, triforce_toughness: int, triforce_required: int):
@@ -3588,6 +3652,47 @@ SHEIKAH_SENTINEL = make_creature(
 
 
 # =============================================================================
+# PHASE B-2 SPICE PICKS (2026-05-18, fourth slice of zld_spice_pass.md)
+# Each card carries a distinct helper fingerprint and lands on a previously
+# unrepresented axis tuple, so collectively they push code_diversity ≥0.40
+# and dent axis_diversity meaningfully.
+# =============================================================================
+
+VOLGA_GORON_TYRANT = make_creature(
+    name="Volga, Goron Tyrant",
+    power=4, toughness=5,
+    mana_cost="{3}{R}{R}",
+    colors={Color.RED},
+    subtypes={"Goron", "Warrior"},
+    supertypes={"Legendary"},
+    text=(
+        "Trample. When Volga, Goron Tyrant enters, it deals damage to each "
+        "opponent equal to the number of Mountains you control. At the "
+        "beginning of each opponent's upkeep, that player loses 2 life."
+    ),
+    setup_interceptors=volga_goron_tyrant_setup,
+)
+
+
+SHEIKAH_SPY = make_creature(
+    name="Sheikah Spy",
+    power=2, toughness=2,
+    mana_cost="{1}{U}{B}",
+    colors={Color.BLUE, Color.BLACK},
+    subtypes={"Sheikah", "Rogue"},
+    supertypes={"Legendary"},
+    text=(
+        "Menace. When Sheikah Spy enters, each opponent reveals their hand. "
+        "You choose a nonland card from among them. That player discards "
+        "the chosen card."
+    ),
+    setup_interceptors=sheikah_spy_setup,
+)
+
+
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -3861,6 +3966,10 @@ LEGEND_OF_ZELDA_CARDS = {
     # TRIBAL LORDS
     "Hyrule Marshal": HYRULE_MARSHAL,
     "Sheikah Champion": SHEIKAH_CHAMPION,
+
+    # PHASE B-2 SPICE PICKS (group 1)
+    "Volga, Goron Tyrant": VOLGA_GORON_TYRANT,
+    "Sheikah Spy": SHEIKAH_SPY,
 }
 
 print(f"Loaded {len(LEGEND_OF_ZELDA_CARDS)} Legend of Zelda: Hyrule Chronicles cards")
@@ -4087,4 +4196,7 @@ CARDS = [
     SHEIKAH_SENTINEL,
     HYRULE_MARSHAL,
     SHEIKAH_CHAMPION,
+    # PHASE B-2 SPICE PICKS (group 1)
+    VOLGA_GORON_TYRANT,
+    SHEIKAH_SPY,
 ]

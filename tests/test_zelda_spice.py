@@ -1305,6 +1305,195 @@ def test_sheik_noncombat_damage_does_not_surveil():
 
 
 # ============================================================================
+# Phase B-2 — Volga, Goron Tyrant
+# ============================================================================
+
+def test_volga_loads():
+    """Setup registers trample + ETB Mountain-burn + opp-upkeep drain."""
+    print("\n=== Volga: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    volga = _put_on_battlefield(game, p1, "Volga, Goron Tyrant")
+    assert volga.zone == ZoneType.BATTLEFIELD
+    # 3 interceptors: keyword_grant + etb_trigger + upkeep_trigger.
+    assert len(volga.interceptor_ids) >= 3, (
+        f"Expected keyword + etb + upkeep; got {len(volga.interceptor_ids)}"
+    )
+    assert has_ability(volga, 'trample', game.state)
+
+
+def test_volga_etb_mountain_burn_scales_with_mountains():
+    """ETB emits LIFE_CHANGE on each opp scaled by Mountain count."""
+    print("\n=== Volga: ETB Mountain burn ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Plant 3 Mountains for p1 so the ETB scales.
+    for _ in range(3):
+        _put_on_battlefield(game, p1, "Mountain")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Volga, Goron Tyrant")
+    new = game.state.event_log[before:]
+    burns = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount', 0) == -3
+        and e.payload.get('source') is not None
+    ]
+    assert burns, (
+        f"Expected ETB LIFE_CHANGE -3 to p2 (3 Mountains); "
+        f"got amounts {[e.payload.get('amount') for e in new if e.type == EventType.LIFE_CHANGE]}"
+    )
+
+
+def test_volga_etb_no_mountains_no_burn():
+    """Edge: with zero Mountains, ETB emits no LIFE_CHANGE (early return)."""
+    print("\n=== Volga: ETB no Mountains ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Volga, Goron Tyrant")
+    new = game.state.event_log[before:]
+    burns = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount', 0) < 0
+    ]
+    assert not burns, f"Expected no ETB burn with 0 Mountains; got {burns}"
+
+
+def test_volga_opp_upkeep_drains():
+    """Each opp upkeep emits a LIFE_CHANGE -2 on that opp."""
+    print("\n=== Volga: opp-upkeep drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Volga, Goron Tyrant")
+
+    before = len(game.state.event_log)
+    game.state.active_player = p2.id
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'active_player': p2.id},
+    ))
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount', 0) == -2
+    ]
+    assert drains, (
+        f"Expected -2 LIFE_CHANGE on p2 during their upkeep; "
+        f"got {[(e.type.name, e.payload) for e in new if e.type == EventType.LIFE_CHANGE]}"
+    )
+
+
+def test_volga_own_upkeep_no_drain():
+    """Edge: Volga's controller's upkeep does NOT drain anyone."""
+    print("\n=== Volga: own upkeep -> no drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Volga, Goron Tyrant")
+
+    before = len(game.state.event_log)
+    game.state.active_player = p1.id
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'active_player': p1.id},
+    ))
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('amount', 0) == -2
+        and e.payload.get('source') is not None
+    ]
+    # Volga shouldn't drain on its own controller's upkeep.
+    volga_drains = [
+        e for e in drains if e.payload.get('player') in (p1.id, p2.id)
+    ]
+    # We allow no drains here (the controller-only filter must skip).
+    assert not volga_drains, (
+        f"Volga should not drain on own upkeep; got {volga_drains}"
+    )
+
+
+# ============================================================================
+# Phase B-2 — Sheikah Spy
+# ============================================================================
+
+def test_sheikah_spy_loads():
+    """Setup registers menace + ETB discard-choice trigger."""
+    print("\n=== Sheikah Spy: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    spy = _put_on_battlefield(game, p1, "Sheikah Spy")
+    assert spy.zone == ZoneType.BATTLEFIELD
+    assert len(spy.interceptor_ids) >= 2, (
+        f"Expected keyword + etb; got {len(spy.interceptor_ids)}"
+    )
+    assert has_ability(spy, 'menace', game.state)
+
+
+def test_sheikah_spy_etb_emits_discard_choice_per_opp():
+    """ETB emits a DISCARD_CHOICE event per opponent with non-empty hand."""
+    print("\n=== Sheikah Spy: ETB discard choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Plant a card in p2's hand so the spy has something to target.
+    knight_def = LEGEND_OF_ZELDA_CARDS["Hyrule Knight"]
+    p2_hand = game.state.zones[f'hand_{p2.id}']
+    bob_card = game.create_object(
+        name="Hyrule Knight",
+        owner_id=p2.id,
+        zone=ZoneType.HAND,
+        characteristics=knight_def.characteristics,
+        card_def=knight_def,
+    )
+    if bob_card.id not in p2_hand.objects:
+        p2_hand.objects.append(bob_card.id)
+
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Sheikah Spy")
+    new = game.state.event_log[before:]
+    choices = [
+        e for e in new
+        if e.type == EventType.DISCARD_CHOICE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('chooser') == p1.id
+    ]
+    assert choices, (
+        f"Expected DISCARD_CHOICE on p2 with chooser p1; "
+        f"saw event types {[e.type.name for e in new if 'DISCARD' in e.type.name]}"
+    )
+
+
+def test_sheikah_spy_etb_skips_empty_hand_opp():
+    """Edge: if an opponent has no cards in hand, no DISCARD_CHOICE for them."""
+    print("\n=== Sheikah Spy: empty-hand opp skipped ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")  # p2 starts with empty hand
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Sheikah Spy")
+    new = game.state.event_log[before:]
+    choices = [
+        e for e in new
+        if e.type == EventType.DISCARD_CHOICE
+        and e.payload.get('player') == p2.id
+    ]
+    assert not choices, (
+        f"Expected NO DISCARD_CHOICE for empty-hand opp; got {choices}"
+    )
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 
