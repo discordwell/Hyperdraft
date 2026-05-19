@@ -2835,11 +2835,54 @@ DEKU_MASK = make_equipment(
 )
 
 
+# --- Bakugo's Grenade Gauntlets: Helper-5 rewire ---------------------------
+# +2/+0 + granted trigger "combat damage to player → 2 damage to that player."
+# Printed text says "target creature that player controls"; simplified to
+# face-damage as a v1 effect (creature-targeting from a trigger is Phase B-3).
+def _bakugo_gauntlets_combat_damage_to_player_filter(
+    event: Event, state: GameState, target_id: str
+) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    return event.payload.get('target') in state.players
+
+
+def _bakugo_gauntlets_grenade_effect(
+    target_obj: GameObject, event: Event, state: GameState
+) -> list[Event]:
+    victim = event.payload.get('target')
+    if not victim:
+        return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={
+            'source': target_obj.id,
+            'target': victim,
+            'amount': 2,
+            'combat': False,
+        },
+        source=target_obj.id,
+    )]
+
+
 BAKUGO_GAUNTLETS = make_equipment(
     name="Bakugo's Grenade Gauntlets",
     mana_cost="{3}",
     equip_cost="{2}",
-    text="Equipped creature gets +2/+0. Whenever equipped creature deals combat damage to a player, it deals 2 damage to target creature that player controls."
+    text="Equipped creature gets +2/+0. Whenever equipped creature deals combat damage to a player, it deals 2 damage to that player.",
+    setup_interceptors=_ih.make_equipment_setup(
+        power_mod=2, toughness_mod=0,
+        equip_cost="{2}",
+        granted_triggered_abilities={
+            "event_filter": _bakugo_gauntlets_combat_damage_to_player_filter,
+            "effect_fn": _bakugo_gauntlets_grenade_effect,
+            "description": "Combat damage to player → 2 grenade damage to that player",
+        },
+    ),
 )
 
 
