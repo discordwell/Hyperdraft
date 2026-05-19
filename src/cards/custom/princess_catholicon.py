@@ -3361,11 +3361,49 @@ VENUS_GOSPEL = make_equipment(
 )
 
 
+# --- Mage Masher: Helper-5 rewire ------------------------------------------
+# +2/+0 + granted trigger "combat damage to player → that player discards
+# at random." Random=True payload is the convention used elsewhere in the
+# codebase (see Zelda Skull Kid).
+def _mage_masher_combat_damage_to_player_filter(
+    event: Event, state: GameState, target_id: str
+) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    return event.payload.get('target') in state.players
+
+
+def _mage_masher_discard_random_effect(
+    target_obj: GameObject, event: Event, state: GameState
+) -> list[Event]:
+    victim = event.payload.get('target')
+    if not victim:
+        return []
+    return [Event(
+        type=EventType.DISCARD,
+        payload={'player': victim, 'amount': 1, 'random': True},
+        source=target_obj.id,
+    )]
+
+
 MAGE_MASHER = make_equipment(
     name="Mage Masher",
     mana_cost="{2}",
     text="Equipped creature gets +2/+0. Whenever equipped creature deals combat damage to a player, that player discards a card at random.",
-    equip_cost="{1}"
+    equip_cost="{1}",
+    setup_interceptors=make_equipment_setup(
+        power_mod=2, toughness_mod=0,
+        equip_cost="{1}",
+        granted_triggered_abilities={
+            "event_filter": _mage_masher_combat_damage_to_player_filter,
+            "effect_fn": _mage_masher_discard_random_effect,
+            "description": "Combat damage to player → that player discards at random",
+        },
+    ),
 )
 
 
