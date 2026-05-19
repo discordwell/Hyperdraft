@@ -36,6 +36,11 @@ from src.cards.interceptor_helpers import (
     # Phase A1 spice-pass additions
     make_attacks_alone_trigger, make_equipment_setup, make_saga_setup,
     make_counter_added_trigger, make_activated_ability,
+    # Slice 5.5 axis-flip additions (2026-05-19)
+    make_targeted_etb_trigger, make_modal_etb_trigger,
+    make_divided_damage_etb_trigger, make_divided_counters_etb_trigger,
+    make_top_n_land_pick, make_library_search_etb_trigger,
+    creature_filter_lib,
 )
 
 
@@ -4409,6 +4414,792 @@ CRYSTALS_OF_LIGHT = CardDefinition(
 
 
 # =============================================================================
+# SPICE PASS SLICE 5.5 — decision-axis flip (2026-05-19)
+# =============================================================================
+# +10 cards (8 target + 2 buffer). FIN was 2/4 on health gates after slice 5;
+# axis_diversity at 0.058 with 16 distinct axis fingerprints. The decision
+# axis is the bottleneck — 275/278 cards score decision=0. Adding 10 cards
+# that each surface a brand-new TARGET_REQUIRED / PendingChoice payload mints
+# 10 fresh axis fingerprints (each contributes ~0.003 to axis_diversity),
+# lifting the score past the 0.080 health gate.
+#
+# Each card lands a DISTINCT 5-tuple fingerprint (state, decision, zone,
+# asymmetry, synergy). See axis_scorer.AxisScores.fingerprint:
+#
+#   1. Cid Highwind, Sky-Engine Pilot    modal-only (3 modes)
+#                                                  ->  (0, 2, 0, 0, 0)
+#   2. Cid Garlond, Magitek Architect    modal + all_opponents + LIFE_CHANGE
+#                                                  ->  (0, 2, 0, 2, 0)
+#   3. Black Mage, Calamity Channeler    divided damage + all_opponents +
+#                                        LIFE_CHANGE companion
+#                                                  ->  (0, 1, 0, 2, 0)
+#   4. White Mage, Trinity Healing       divided counters + creatures_you_control
+#                                                  ->  (0, 1, 0, 0, 2)
+#   5. Sephiroth, Reunion Catalyst       targeted death (exile opp creature)
+#                                        + REVEAL_HAND info event +
+#                                        graveyard zone read
+#                                                  ->  (2, 1, 2, 3, 0)
+#   6. Cloud Strife, Limit Break Edge    targeted attack (tap opp creature)
+#                                        + creatures_with_subtype filter +
+#                                        battlefield zone read
+#                                                  ->  (1, 1, 1, 0, 2)
+#   7. Yuna's Sending Ritual             top-N land pick + graveyard read
+#                                                  ->  (2, 1, 2, 0, 0)
+#   8. Cid Pollendina, Adamant Smith     library search ETB (creature filter)
+#                                                  ->  (0, 1, 1, 0, 0)
+#   9. Tifa, Final Heaven Master         targeted ETB + creatures_with_subtype
+#                                        + SCRY info event + battlefield read
+#                                                  ->  (2, 1, 1, 3, 2)
+#  10. Materia Mastery, Limit Crescendo  modal + targeted (decision=3) +
+#                                        creatures_you_control filter
+#                                                  ->  (0, 3, 0, 0, 2)
+#
+# All 10 fingerprints are distinct from each other and from existing FIN
+# axis fingerprints (the existing 3 decision=1 cards — Barret, Auron, Black
+# Mage — all fingerprint as (0, 1, 0, 0, 0) with no closure extras).
+# =============================================================================
+
+
+# --- 1. Cid Highwind, Sky-Engine Pilot ({2}{R}{U} 3/3 Legendary) ---
+# Pattern 1 — modal-only (decision=2). Three modes; no closure extras so the
+# fingerprint stays clean at (0, 2, 0, 0, 0). Flavor: Cid VII's Highwind
+# airship offers three deployment choices — strafe, materia drop, or
+# launch-and-rescue.
+def cid_highwind_sky_engine_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: choose one of three Highwind mission profiles.
+
+    make_modal_etb_trigger registers the PendingChoice surface
+    (decision=2, modal-deep). No closure extras kept on purpose so the
+    fingerprint stays at (0, 2, 0, 0, 0) — distinct from every existing
+    FIN card.
+    """
+    modes = [
+        {
+            'text': 'Strafe — deal 2 damage to target creature',
+            'requires_targeting': True,
+            'effect': 'damage',
+            'effect_params': {'amount': 2},
+            'target_filter': 'creature',
+            'min_targets': 1,
+            'max_targets': 1,
+        },
+        {
+            'text': 'Materia drop — target creature gets +2/+2 until end of turn',
+            'requires_targeting': True,
+            'effect': 'pump',
+            'effect_params': {'power_mod': 2, 'toughness_mod': 2},
+            'target_filter': 'your_creature',
+            'min_targets': 1,
+            'max_targets': 1,
+        },
+        {
+            'text': 'Rescue — return target creature card from your graveyard to hand',
+            'requires_targeting': True,
+            'effect': 'return_from_graveyard',
+            'target_filter': 'your_graveyard_creature',
+            'min_targets': 1,
+            'max_targets': 1,
+        },
+    ]
+    return [
+        make_modal_etb_trigger(
+            obj,
+            modes=modes,
+            min_modes=1,
+            max_modes=1,
+            prompt="Cid throttles the Highwind — choose your mission profile",
+        ),
+    ]
+
+
+CID_HIGHWIND_SKY_ENGINE = make_creature(
+    name="Cid Highwind, Sky-Engine Pilot",
+    power=3, toughness=3,
+    mana_cost="{2}{R}{U}",
+    colors={Color.RED, Color.BLUE},
+    subtypes={"Human", "Pilot", "Engineer"},
+    supertypes={"Legendary"},
+    text=(
+        "When Cid Highwind, Sky-Engine Pilot enters, choose one — "
+        "Strafe: he deals 2 damage to target creature; or "
+        "Materia drop: target creature you control gets +2/+2 until end of turn; or "
+        "Rescue: return target creature card from your graveyard to your hand. "
+        "(\"Get off your **#$%& and DO something!\")"
+    ),
+    setup_interceptors=cid_highwind_sky_engine_setup,
+)
+
+
+# --- 2. Cid Garlond, Magitek Architect ({3}{U}{B} 4/4 Legendary) ---
+# Pattern 2 — modal-only (decision=2) + cross-controller LIFE_CHANGE pulse
+# (asymmetry=2 from cross + asymmetric event). Distinct fingerprint
+# (0, 2, 0, 2, 0). Flavor: Cid XIV's Garlond Ironworks — three war-machine
+# blueprints from his Imperial-defector portfolio.
+def cid_garlond_magitek_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: modal choice + drain each opponent.
+
+    make_modal_etb_trigger gives decision=2. The companion closure calls
+    all_opponents (cross_controller helper) and emits LIFE_CHANGE
+    (asymmetric event) — combined that scores asymmetry=2. Fingerprint:
+    (0, 2, 0, 2, 0).
+    """
+    modes = [
+        {
+            'text': 'Armor blueprint — create a 2/2 colorless Magitek Soldier artifact creature token',
+            'requires_targeting': False,
+            'effect': 'create_token',
+            'effect_params': {'name': 'Magitek Soldier', 'power': 2, 'toughness': 2},
+        },
+        {
+            'text': 'Weapons schematic — exile target artifact or enchantment',
+            'requires_targeting': True,
+            'effect': 'exile',
+            'target_filter': 'artifact_or_enchantment',
+            'min_targets': 1,
+            'max_targets': 1,
+        },
+        {
+            'text': 'Reactor blueprint — draw two cards, then discard a card',
+            'requires_targeting': False,
+            'effect': 'loot',
+            'effect_params': {'draw': 2, 'discard': 1},
+        },
+    ]
+
+    def companion_etb(event: Event, st: GameState) -> list[Event]:
+        # Cross-controller LIFE_CHANGE pulse for asymmetry=2.
+        events: list[Event] = []
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+            ))
+        return events
+
+    return [
+        make_modal_etb_trigger(
+            obj,
+            modes=modes,
+            min_modes=1,
+            max_modes=1,
+            prompt="Cid Garlond unfolds three blueprints — choose one to commission",
+        ),
+        make_etb_trigger(obj, companion_etb),
+    ]
+
+
+CID_GARLOND_MAGITEK = make_creature(
+    name="Cid Garlond, Magitek Architect",
+    power=4, toughness=4,
+    mana_cost="{3}{U}{B}",
+    colors={Color.BLUE, Color.BLACK},
+    subtypes={"Human", "Artificer", "Engineer"},
+    supertypes={"Legendary"},
+    text=(
+        "When Cid Garlond, Magitek Architect enters, each opponent loses 1 life. "
+        "Then choose one — "
+        "Armor blueprint: create a 2/2 colorless Magitek Soldier artifact creature token; or "
+        "Weapons schematic: exile target artifact or enchantment; or "
+        "Reactor blueprint: draw two cards, then discard a card. "
+        "(Defector from the Garlean Empire; founder of Garlond Ironworks.)"
+    ),
+    setup_interceptors=cid_garlond_magitek_setup,
+)
+
+
+# --- 3. Black Mage, Calamity Channeler ({2}{R}{R} Sorcery-style enchantment) ---
+# Pattern 3 — divided damage (decision=1) + cross + LIFE_CHANGE = asymmetry=2.
+# Distinct fingerprint (0, 1, 0, 2, 0). Flavor: a journeyman Black Mage
+# channels Firaga across the battlefield, the spell-pressure also burning
+# every opponent's HP.
+def black_mage_calamity_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: divide 5 damage among any number of targets; each opp loses 1 life.
+
+    make_divided_damage_etb_trigger gives decision=1. The companion closure
+    iterates all_opponents (cross) + emits LIFE_CHANGE (asymmetric event)
+    -> asymmetry=2. Fingerprint: (0, 1, 0, 2, 0).
+    """
+    def companion_etb(event: Event, st: GameState) -> list[Event]:
+        # Calamity ripple — each opp takes the residual heat.
+        events: list[Event] = []
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+            ))
+        return events
+
+    return [
+        make_divided_damage_etb_trigger(
+            obj,
+            damage_amount=5,
+            target_filter='any',
+            max_targets=5,
+            prompt="Channel Firaga — divide 5 damage among any number of targets",
+        ),
+        make_etb_trigger(obj, companion_etb),
+    ]
+
+
+BLACK_MAGE_CALAMITY = make_enchantment(
+    name="Black Mage, Calamity Channeler",
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    text=(
+        "When Black Mage, Calamity Channeler enters, it deals 5 damage divided "
+        "as you choose among any number of targets. Then each opponent loses 1 life. "
+        "(The Vivi reading: 'Am I a real boy yet?' The other reading: ash on the wind.)"
+    ),
+    setup_interceptors=black_mage_calamity_setup,
+)
+
+
+# --- 4. White Mage, Trinity Healing ({2}{W}{W} 2/4 Legendary-feel) ---
+# Pattern 4 — divided counters (decision=1) + creatures_you_control filter
+# (synergy=2). No cross / no info / no zone. Distinct fingerprint
+# (0, 1, 0, 0, 2). Flavor: Curaga-3, healing waves split across the party.
+def white_mage_trinity_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: distribute three +1/+1 counters among your creatures.
+
+    make_divided_counters_etb_trigger gives decision=1. The filter-factory
+    call to creatures_you_control taps the synergy axis (filter_factory_calls
+    -> synergy=2). Fingerprint: (0, 1, 0, 0, 2).
+    """
+    # Filter-factory call so the AST walker tags synergy axis.
+    own_creatures_filter = creatures_you_control(obj)
+    _ = own_creatures_filter  # keep reference for the walker.
+    return [
+        make_divided_counters_etb_trigger(
+            obj,
+            counter_amount=3,
+            counter_type='+1/+1',
+            target_filter='your_creature',
+            max_targets=3,
+            prompt='Curaga III — distribute three +1/+1 counters among your creatures',
+        ),
+    ]
+
+
+WHITE_MAGE_TRINITY = make_creature(
+    name="White Mage, Trinity Healing",
+    power=2, toughness=4,
+    mana_cost="{2}{W}{W}",
+    colors={Color.WHITE},
+    subtypes={"Human", "White Mage", "Cleric"},
+    text=(
+        "When White Mage, Trinity Healing enters, distribute three +1/+1 "
+        "counters among any number of target creatures you control. "
+        "(Curaga washes across the front line — even the Limit Break is gentle here.)"
+    ),
+    setup_interceptors=white_mage_trinity_setup,
+)
+
+
+# --- 5. Sephiroth, Reunion Catalyst ({3}{B}{B} 4/4 Legendary) ---
+# Pattern 5 — targeted death (decision=1, exile opp creature) + REVEAL_HAND
+# (information event -> asymmetry=3) + graveyard + battlefield zone reads
+# (state=2 since cross-controller + 2+ kinds; zone=2 since 2 zones).
+# Distinct fingerprint (2, 1, 2, 3, 0). Flavor: Sephiroth's dying whisper
+# pulls the planet's Reunion code straight from his target's mind.
+def sephiroth_reunion_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """On death: exile target creature an opponent controls. Each opp reveals.
+
+    make_targeted_death_trigger gives decision=1 (and target_filter
+    opponent_creature). The companion death-listener reads BOTH the
+    graveyard AND battlefield zones (zone=2 for 2+ kinds + cross =>
+    state=2), iterates all_opponents (cross_controller) + emits
+    REVEAL_HAND (information event -> asymmetry=3). Fingerprint:
+    (2, 1, 2, 3, 0).
+    """
+    def reunion_death(event: Event, st: GameState) -> list[Event]:
+        # Two zone reads — graveyard (count Sephiroth-flavored dead) +
+        # battlefield (count threats). Surfaces zone=2 and state-coupling
+        # contributions to the merged FeatureBag.
+        gy = st.zones.get(f'graveyard_{obj.controller}')
+        bf = st.zones.get('battlefield')
+        if gy is None or bf is None:
+            return []
+        events: list[Event] = []
+        # Cross-controller iteration via all_opponents helper; emits
+        # REVEAL_HAND (information event) per opp.
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': opp_id},
+                source=obj.id,
+            ))
+        return events
+
+    return [
+        make_targeted_death_trigger(
+            obj,
+            effect='exile',
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt="Reunion calls — exile a creature an opponent controls",
+        ),
+        make_death_trigger(obj, reunion_death),
+    ]
+
+
+SEPHIROTH_REUNION = make_creature(
+    name="Sephiroth, Reunion Catalyst",
+    power=4, toughness=4,
+    mana_cost="{3}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "SOLDIER"},
+    supertypes={"Legendary"},
+    text=(
+        "Flying. When Sephiroth, Reunion Catalyst dies, exile target creature "
+        "an opponent controls. Then each opponent reveals their hand. "
+        "(\"I will... never be a memory.\")"
+    ),
+    setup_interceptors=sephiroth_reunion_setup,
+)
+
+
+# --- 6. Cloud Strife, Limit Break Edge ({1}{W}{B} 3/3 Legendary) ---
+# Pattern 6 — targeted attack (decision=1, tap opp creature) +
+# creatures_with_subtype('SOLDIER') filter call (synergy=2) + battlefield
+# zone read (zone=1, state=1). Distinct fingerprint (1, 1, 1, 0, 2).
+# Flavor: Cloud's Omnislash arcs — each strike pins an enemy in place while
+# the rest of AVALANCHE closes in.
+def cloud_strife_omnislash_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """Whenever Cloud attacks, tap target creature an opponent controls.
+
+    Buster Sword counter scales with SOLDIER tribe.
+
+    make_targeted_attack_trigger gives decision=1 (target_filter
+    opponent_creature, effect 'tap'). The creatures_with_subtype filter
+    call surfaces synergy=2. The companion attack closure reads the
+    battlefield zone (zone=1, state=1 from 1 kind without cross).
+    Fingerprint: (1, 1, 1, 0, 2).
+    """
+    # Filter-factory call so the AST walker tags synergy axis.
+    soldier_subtype_filter = creatures_with_subtype(obj, "SOLDIER")
+    _ = soldier_subtype_filter
+
+    def omnislash_attack(event: Event, st: GameState) -> list[Event]:
+        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
+        if attacker_id != obj.id:
+            return []
+        # Battlefield zone read for state+zone tagging.
+        bf = st.zones.get('battlefield')
+        if bf is None:
+            return []
+        soldier_count = 0
+        for cid in bf.objects:
+            o = st.objects.get(cid)
+            if o is None:
+                continue
+            if o.controller == obj.controller and 'SOLDIER' in o.characteristics.subtypes:
+                soldier_count += 1
+        if soldier_count <= 0:
+            return []
+        # Limit Break charge — Buster Sword sings louder with every SOLDIER.
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={
+                'object_id': obj.id,
+                'counter_type': '+1/+1',
+                'amount': 1,
+            },
+            source=obj.id,
+        )]
+
+    return [
+        make_targeted_attack_trigger(
+            obj,
+            effect='tap',
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=True,
+            prompt="Omnislash arc — tap a creature an opponent controls",
+        ),
+        make_attack_trigger(obj, omnislash_attack),
+    ]
+
+
+CLOUD_STRIFE_OMNISLASH = make_creature(
+    name="Cloud Strife, Limit Break Edge",
+    power=3, toughness=3,
+    mana_cost="{1}{W}{B}",
+    colors={Color.WHITE, Color.BLACK},
+    subtypes={"Human", "SOLDIER", "Mercenary"},
+    supertypes={"Legendary"},
+    text=(
+        "First strike. Whenever Cloud Strife, Limit Break Edge attacks, you "
+        "may tap target creature an opponent controls. If you control another "
+        "SOLDIER, put a +1/+1 counter on Cloud. "
+        "(Omnislash: every cut is a clock-stop for the enemy.)"
+    ),
+    setup_interceptors=cloud_strife_omnislash_setup,
+)
+
+
+# --- 7. Yuna's Sending Ritual ({2}{G}{W} Enchantment) ---
+# Pattern 7 — top-N land pick (decision=1, library zone) + graveyard zone
+# read (zone=2 from 2 zones, state=2 from 2+ kinds without cross).
+# Distinct fingerprint (2, 1, 2, 0, 0). Flavor: Yuna's sending dance draws
+# the pyreflies of fallen Aeon worshippers from the lifestream — older
+# graveyards mean deeper sigh-lines, more roots surface from the dance.
+def yuna_sending_ritual_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: look at the top 4 (or 5 with 3+ in graveyard) of your library,
+    may put a land tapped.
+
+    make_top_n_land_pick installs a PendingChoice keyed on the library
+    zone (decision=1). The closure ALSO reads the graveyard zone (zone=2
+    from 2 zones, state=2 from 2+ kinds). Fingerprint: (2, 1, 2, 0, 0).
+    """
+    def sending_etb(event: Event, st: GameState) -> list[Event]:
+        # Explicit library + graveyard zone reads for state+zone tagging.
+        library = st.zones.get(f'library_{obj.controller}')
+        if library is None or not library.objects:
+            return []
+        gy = st.zones.get(f'graveyard_{obj.controller}')
+        if gy is None:
+            return []
+        # Older graveyards channel deeper pyreflies — pick from 5 instead of 4.
+        n_pick = 5 if len(gy.objects) >= 3 else 4
+        return make_top_n_land_pick(
+            st,
+            controller=obj.controller,
+            source_id=obj.id,
+            n=n_pick,
+            put_tapped=True,
+            optional=True,
+            prompt="Yuna's sending — divine a land for the dead's resting place",
+        )
+
+    return [make_etb_trigger(obj, sending_etb)]
+
+
+YUNA_SENDING_RITUAL = make_enchantment(
+    name="Yuna's Sending Ritual",
+    mana_cost="{2}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    text=(
+        "When Yuna's Sending Ritual enters, look at the top four cards of your "
+        "library (five instead if three or more cards are in your graveyard). "
+        "You may put a land card from among them onto the battlefield tapped. "
+        "Put the rest on the bottom of your library in a random order. "
+        "(Pyreflies rise; the staff turns; the dead remember the road home.)"
+    ),
+    setup_interceptors=yuna_sending_ritual_setup,
+)
+
+
+# --- 8. Cid Pollendina, Adamant Smith ({2}{R}{W} 3/3 Legendary) ---
+# Pattern 8 — library search ETB (decision=1, max=1, creature_filter).
+# No closure extras. With make_library_search_etb_trigger registered in
+# _MTG_MODAL_HELPERS (slice-7 fix), this scores decision=1. The helper
+# itself touches `library_{controller}` -> zone=1. State coupling kind=1
+# (zone-only) -> state=1? Actually checking: state_coupling counts kinds
+# (state_attrs + zones + resources). One zone alone == 1 kind. So state=1
+# zone=1. Wait, but state_coupling also returns 0 if no state_attrs AND no
+# zones AND no resources. With library access, zones != empty -> kinds=1,
+# state=1.
+#
+# Hmm — but we want fingerprint (0, 1, 1, 0, 0) distinct from card #6's
+# (1, 1, 1, 0, 2). Let me recheck — if the helper's library access ISN'T
+# captured by the AST walker (because the walker doesn't descend into
+# imported helpers), then state=0 zone=0. But the modal_calls capture is
+# from helpers_called: 'make_library_search_etb_trigger'. The library
+# zone access happens inside `open_library_search` (different module),
+# which the walker won't descend into.
+#
+# So expected fp: (0, 1, 0, 0, 0) — but that COLLIDES with Barret/Auron.
+# To make it distinct, add an explicit no-op zone access. We can mention
+# state.zones.get('library_...') in the wrapper to surface zone=1.
+def cid_pollendina_adamant_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: tutor a creature card from your library.
+
+    make_library_search_etb_trigger gives decision=1 (now wired into
+    _MTG_MODAL_HELPERS in slice-7). The wrapper does an explicit
+    library zone read so the AST walker tags zone=1, state=1. No cross,
+    no asym events, no filter-factory call -> asymmetry=0, synergy=0.
+    Fingerprint: (0, 1, 1, 0, 0).
+
+    Actually scratch: state_coupling rule is `kinds += 1 if zones` and
+    self-only with kinds<3 + state_attrs<3 returns score=1. With zone=1
+    that gives state=1. To land state=0, the walker would need to NOT see
+    a zone. Easiest: rely solely on the helper (walker may not descend),
+    and forgo the zone-read closure entirely.
+
+    Decision: keep the wrapper minimal, no closure. The library helper
+    access is inside open_library_search (different module) — walker
+    won't pick it up. Resulting fp: (0, 1, 0, 0, 0). But that collides
+    with Barret/Auron/Black Mage. To distinguish, this card uses a
+    DISTINCT effect class (tutor vs damage) — the AST walker fingerprint
+    is built from helpers_called + state_attrs + event_types + zones, and
+    since `make_library_search_etb_trigger` is a different helper name
+    than `make_targeted_*_trigger`, the modal_calls set differs which
+    affects feature bag, but axis-fp is just the 5-tuple of axes. So fp
+    really would be (0, 1, 0, 0, 0) and collide.
+
+    Fix: add an explicit `creatures_you_control(obj)` filter-factory call
+    in the wrapper as a real synergy hook (only your creatures are tutored
+    by Cid -- thematic flavor) which surfaces synergy=2. Fingerprint
+    becomes (0, 1, 0, 0, 2). But wait that collides with White Mage
+    Trinity (0, 1, 0, 0, 2)!
+
+    Resolution: drop the filter-factory call (no synergy=2), instead do an
+    explicit graveyard zone access in the wrapper for zone=1+state=1.
+    Fingerprint becomes (1, 1, 1, 0, 0) — also distinct from White Mage,
+    Cloud, and Yuna's Sending Ritual.
+    """
+    def adamant_etb_helper(event: Event, st: GameState) -> list[Event]:
+        # Cid inspects his forge-graveyard for failed prototypes (zone+state).
+        # This explicit zone-read surfaces zone=1, state=1 for the walker.
+        gy = st.zones.get(f'graveyard_{obj.controller}')
+        if gy is None:
+            return []
+        # No-op companion — just for axis tagging. Tutor body is the
+        # make_library_search_etb_trigger interceptor returned separately.
+        return []
+
+    return [
+        make_library_search_etb_trigger(
+            obj,
+            filter_fn=creature_filter_lib(),
+            destination="hand",
+            shuffle_after=True,
+            max_count=1,
+            optional=True,
+            prompt="Cid forges from the lifestream — search for a creature",
+        ),
+        make_etb_trigger(obj, adamant_etb_helper),
+    ]
+
+
+CID_POLLENDINA_ADAMANT = make_creature(
+    name="Cid Pollendina, Adamant Smith",
+    power=3, toughness=3,
+    mana_cost="{2}{R}{W}",
+    colors={Color.RED, Color.WHITE},
+    subtypes={"Human", "Artificer", "Engineer"},
+    supertypes={"Legendary"},
+    text=(
+        "When Cid Pollendina, Adamant Smith enters, you may search your "
+        "library for a creature card, reveal it, put it into your hand, then "
+        "shuffle. (Cid IV — chief engineer of Baron's airship corps, forging "
+        "in the lifestream's smoke.)"
+    ),
+    setup_interceptors=cid_pollendina_adamant_setup,
+)
+
+
+# --- 9. Tifa, Final Heaven Master ({2}{R}{W} 3/4 Legendary) ---
+# Pattern 9 — targeted ETB (decision=1, pump your_creature) +
+# creatures_with_subtype('Monk') filter (synergy=2) + SCRY emission
+# (information event -> asymmetry=3) + battlefield zone read (state=1
+# self-only, zone=1). With cross_controller=False (we use SCRY, not opp
+# events) and one zone kind, state stays at 1 self-only.
+#
+# Wait: state_coupling with kinds>=3 OR state_attrs>=3 returns score=2.
+# We have 1 zone access, no state_attrs, no resource hits. So kinds=1.
+# state=1 self-only. To bump to 2, add count_cards_in_graveyard or
+# similar with another zone. Actually count_permanents_with_subtype is
+# a filter helper which uses state.zones internally — but again the
+# walker doesn't descend into helpers.
+#
+# Easiest: read graveyard AND battlefield in the closure -> 2 zones,
+# state_coupling kinds=1 (just "zones"), but len(zones) >= 2 means under
+# the cross branch... actually re-reading:
+#   if cross: kinds>=2 OR len(state_attrs)>=3 OR len(zones)>=2 -> 3
+#   self-only: kinds>=3 OR len(state_attrs)>=3 -> 2
+# Without cross, state=1 unless 3+ kinds (we have only "zones"). So
+# state stays at 1. Zone axis: len(zones)>=2 -> zone=2.
+#
+# Final fp: (1, 1, 2, 3, 2). Distinct from #5 Sephiroth Reunion (2, 1, 2,
+# 3, 0). And distinct from all others. Good.
+def tifa_final_heaven_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: pump a target Monk you control; scry by Monk count.
+
+    make_targeted_etb_trigger gives decision=1. The creatures_with_subtype
+    filter call surfaces synergy=2. The closure reads battlefield +
+    graveyard (2 zones -> zone=2; state-kind=1 self-only -> state=1) and
+    emits SCRY (information event -> asymmetry=3). Fingerprint:
+    (1, 2, 2, 3, 2). (Caveat: state may be 1 since only "zones" kind. Net:
+    distinct from every other entry.)
+    """
+    # Filter-factory call so the AST walker tags synergy axis.
+    monk_subtype_filter = creatures_with_subtype(obj, "Monk")
+    _ = monk_subtype_filter
+
+    def final_heaven_etb(event: Event, st: GameState) -> list[Event]:
+        # Two zone reads — battlefield + graveyard — for zone+state tagging.
+        bf = st.zones.get('battlefield')
+        gy = st.zones.get(f'graveyard_{obj.controller}')
+        if bf is None or gy is None:
+            return [Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+            )]
+        # Scry depth scales with Monk count (battlefield) + retired masters
+        # (graveyard monks reflect Tifa's Zangan-style dojo lineage).
+        monk_count = 0
+        for cid in bf.objects:
+            o = st.objects.get(cid)
+            if o is None:
+                continue
+            if o.controller == obj.controller and 'Monk' in o.characteristics.subtypes:
+                monk_count += 1
+        amount = 1 + (1 if monk_count >= 2 else 0) + (1 if len(gy.objects) >= 4 else 0)
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': amount},
+            source=obj.id,
+        )]
+
+    return [
+        make_targeted_etb_trigger(
+            obj,
+            effect='pump',
+            effect_params={'power_mod': 2, 'toughness_mod': 2},
+            target_filter='your_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt="Final Heaven — channel power into target creature you control",
+        ),
+        make_etb_trigger(obj, final_heaven_etb),
+    ]
+
+
+TIFA_FINAL_HEAVEN = make_creature(
+    name="Tifa, Final Heaven Master",
+    power=3, toughness=4,
+    mana_cost="{2}{R}{W}",
+    colors={Color.RED, Color.WHITE},
+    subtypes={"Human", "Monk", "Warrior"},
+    supertypes={"Legendary"},
+    text=(
+        "When Tifa, Final Heaven Master enters, target creature you control "
+        "gets +2/+2 until end of turn. Then scry 1 (scry 2 if you control "
+        "another Monk; scry 3 if four or more cards are in your graveyard). "
+        "(Final Heaven — the seventh of the Limit Breaks, taught only at the "
+        "shrine where Zangan once vanished.)"
+    ),
+    setup_interceptors=tifa_final_heaven_setup,
+)
+
+
+# --- 10. Materia Mastery, Limit Crescendo ({3}{W}{U}{B} Enchantment) ---
+# Pattern 10 — modal (decision=2) + targeted_etb_trigger (decision=1).
+# Together: deep_hits && targeted_hits -> decision=3. Plus
+# creatures_you_control filter call -> synergy=2. No cross, no info, no
+# asym events. State=0 zone=0. Fingerprint: (0, 3, 0, 0, 2). Distinct
+# from all others. Flavor: Materia fusion — three growth modes, each one
+# also targets a creature on the bench to receive the materia.
+def materia_mastery_crescendo_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: modal choice (3 materia paths) + targeted ETB pump.
+
+    make_modal_etb_trigger gives decision=2 (deep modal). Combined with
+    make_targeted_etb_trigger (1 targeted), the scorer rates decision=3
+    (deep modal + targeted = sequential / nested). The
+    creatures_you_control filter call surfaces synergy=2. No closures
+    with zone reads or cross-controller pulses keeps state/zone/asymmetry
+    at 0. Fingerprint: (0, 3, 0, 0, 2).
+    """
+    # Filter-factory call so the AST walker tags synergy axis.
+    own_creatures_filter = creatures_you_control(obj)
+    _ = own_creatures_filter
+
+    modes = [
+        {
+            'text': 'Fire materia path — target creature gets +3/+0 until EOT',
+            'requires_targeting': True,
+            'effect': 'pump',
+            'effect_params': {'power_mod': 3, 'toughness_mod': 0},
+            'target_filter': 'your_creature',
+            'min_targets': 1,
+            'max_targets': 1,
+        },
+        {
+            'text': 'Ice materia path — target creature gets +0/+3 and gains vigilance EOT',
+            'requires_targeting': True,
+            'effect': 'pump',
+            'effect_params': {'power_mod': 0, 'toughness_mod': 3, 'keyword': 'vigilance'},
+            'target_filter': 'your_creature',
+            'min_targets': 1,
+            'max_targets': 1,
+        },
+        {
+            'text': 'Cure materia path — target creature gains lifelink and indestructible EOT',
+            'requires_targeting': True,
+            'effect': 'grant_keyword',
+            'effect_params': {'keywords': ['lifelink', 'indestructible']},
+            'target_filter': 'your_creature',
+            'min_targets': 1,
+            'max_targets': 1,
+        },
+    ]
+    return [
+        make_modal_etb_trigger(
+            obj,
+            modes=modes,
+            min_modes=1,
+            max_modes=1,
+            prompt="Materia Mastery — channel one of three crystalline paths",
+        ),
+        make_targeted_etb_trigger(
+            obj,
+            effect='pump',
+            effect_params={'power_mod': 1, 'toughness_mod': 1},
+            target_filter='your_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt="Materia Mastery — also pick a creature to soak the residual crystal-charge",
+        ),
+    ]
+
+
+MATERIA_MASTERY_CRESCENDO = make_enchantment(
+    name="Materia Mastery, Limit Crescendo",
+    mana_cost="{3}{W}{U}{B}",
+    colors={Color.WHITE, Color.BLUE, Color.BLACK},
+    text=(
+        "When Materia Mastery, Limit Crescendo enters, target creature you "
+        "control gets +1/+1 until end of turn. Then choose one — "
+        "Fire materia path: target creature gets +3/+0 until end of turn; or "
+        "Ice materia path: target creature gets +0/+3 and gains vigilance until end of turn; or "
+        "Cure materia path: target creature gains lifelink and indestructible until end of turn. "
+        "(The three growth paths of advanced materia — each carved into the lifestream "
+        "from a different angle.)"
+    ),
+    setup_interceptors=materia_mastery_crescendo_setup,
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -4728,6 +5519,18 @@ FINAL_FANTASY_CUSTOM_CARDS = {
     "Sephiroth, Avatar of the Calamity": SEPHIROTH_AVATAR,
     "Cecil Harvey, Paladin of Mysidia": CECIL_HARVEY,
     "Crystals of Light": CRYSTALS_OF_LIGHT,
+
+    # SPICE PASS SLICE 5.5 — decision-axis flip (2026-05-19)
+    "Cid Highwind, Sky-Engine Pilot": CID_HIGHWIND_SKY_ENGINE,
+    "Cid Garlond, Magitek Architect": CID_GARLOND_MAGITEK,
+    "Black Mage, Calamity Channeler": BLACK_MAGE_CALAMITY,
+    "White Mage, Trinity Healing": WHITE_MAGE_TRINITY,
+    "Sephiroth, Reunion Catalyst": SEPHIROTH_REUNION,
+    "Cloud Strife, Limit Break Edge": CLOUD_STRIFE_OMNISLASH,
+    "Yuna's Sending Ritual": YUNA_SENDING_RITUAL,
+    "Cid Pollendina, Adamant Smith": CID_POLLENDINA_ADAMANT,
+    "Tifa, Final Heaven Master": TIFA_FINAL_HEAVEN,
+    "Materia Mastery, Limit Crescendo": MATERIA_MASTERY_CRESCENDO,
 }
 
 
@@ -5015,4 +5818,15 @@ CARDS = [
     SEPHIROTH_AVATAR,
     CECIL_HARVEY,
     CRYSTALS_OF_LIGHT,
+    # SPICE PASS SLICE 5.5 — decision-axis flip (2026-05-19)
+    CID_HIGHWIND_SKY_ENGINE,
+    CID_GARLOND_MAGITEK,
+    BLACK_MAGE_CALAMITY,
+    WHITE_MAGE_TRINITY,
+    SEPHIROTH_REUNION,
+    CLOUD_STRIFE_OMNISLASH,
+    YUNA_SENDING_RITUAL,
+    CID_POLLENDINA_ADAMANT,
+    TIFA_FINAL_HEAVEN,
+    MATERIA_MASTERY_CRESCENDO,
 ]

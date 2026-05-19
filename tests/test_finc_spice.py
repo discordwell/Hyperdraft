@@ -925,6 +925,444 @@ def test_geomancer_etb_scrys_and_drains():
 
 
 # ============================================================================
+# Slice 5.5 — decision-axis flip (2026-05-19)
+# ============================================================================
+#
+# Each new card surfaces a brand-new decision/state/zone/asymmetry/synergy
+# fingerprint. Tests below verify the card LOADS and emits the right
+# TARGET_REQUIRED / PendingChoice / asymmetry / synergy events at ETB or
+# trigger-time. We do NOT resolve choices (resolution requires AI auto-pick
+# or full UI plumbing) — we just confirm the decision-axis surface fires.
+
+# ----------------------------------------------------------------------------
+# 1. Cid Highwind, Sky-Engine Pilot — modal-only (3 modes, decision=2)
+# ----------------------------------------------------------------------------
+
+def test_cid_highwind_sky_engine_loads():
+    """Loads as a legendary Human Pilot Engineer with a modal ETB interceptor."""
+    print("\n=== Cid Highwind Sky-Engine: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    cid = _put_on_battlefield(game, p1, "Cid Highwind, Sky-Engine Pilot")
+    chars = cid.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Pilot' in chars.subtypes
+    assert 'Engineer' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert cid.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(cid.interceptor_ids)}; subtypes={chars.subtypes}")
+
+
+def test_cid_highwind_sky_engine_etb_opens_modal_choice():
+    """ETB installs a modal_with_targeting PendingChoice with 3 modes."""
+    print("\n=== Cid Highwind Sky-Engine: 3-mode choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    cid = _put_on_battlefield(game, p1, "Cid Highwind, Sky-Engine Pilot")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice after ETB"
+    assert pc.source_id == cid.id
+    assert pc.choice_type == "modal_with_targeting"
+    assert len(pc.options) == 3, f"Expected 3 modes; got {len(pc.options)}"
+    print(f"  Modes: {[opt.get('label') for opt in pc.options]}")
+
+
+# ----------------------------------------------------------------------------
+# 2. Cid Garlond, Magitek Architect — modal + cross-controller drain
+# ----------------------------------------------------------------------------
+
+def test_cid_garlond_magitek_loads():
+    """Loads as a legendary Human Artificer Engineer with modal + cross ETBs."""
+    print("\n=== Cid Garlond Magitek: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    cid = _put_on_battlefield(game, p1, "Cid Garlond, Magitek Architect")
+    chars = cid.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Artificer' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert len(cid.interceptor_ids) >= 2, (
+        f"Expected >=2 interceptors (modal + drain companion); got {len(cid.interceptor_ids)}"
+    )
+    print(f"  Interceptors: {len(cid.interceptor_ids)}")
+
+
+def test_cid_garlond_magitek_etb_opens_modal_and_drains_each_opp():
+    """ETB installs a 3-mode modal AND drains each opp 1 life."""
+    print("\n=== Cid Garlond Magitek: modal + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    cid = _put_on_battlefield(game, p1, "Cid Garlond, Magitek Architect")
+    pc = game.state.pending_choice
+    assert pc is not None and pc.source_id == cid.id, (
+        f"Expected pending_choice from Garlond ETB; got {pc}"
+    )
+    assert pc.choice_type == "modal_with_targeting"
+    assert len(pc.options) == 3
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert drains, "Expected -1 life drain to each opp on Garlond ETB"
+    print(f"  Modes: {len(pc.options)}; drains to p2: {len(drains)}")
+
+
+# ----------------------------------------------------------------------------
+# 3. Black Mage, Calamity Channeler — divided damage + cross drain
+# ----------------------------------------------------------------------------
+
+def test_black_mage_calamity_loads():
+    """Loads as a Red enchantment with ETB interceptors."""
+    print("\n=== Black Mage Calamity: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    bmc = _put_on_battlefield(game, p1, "Black Mage, Calamity Channeler")
+    assert CardType.ENCHANTMENT in bmc.characteristics.types
+    assert len(bmc.interceptor_ids) >= 2, "Expected divided-damage + drain ETBs"
+    print(f"  Interceptors: {len(bmc.interceptor_ids)}")
+
+
+def test_black_mage_calamity_etb_emits_divided_damage_5_and_drains_each_opp():
+    """ETB emits TARGET_REQUIRED with divide_amount=5 + LIFE_CHANGE for opp."""
+    print("\n=== Black Mage Calamity: divided 5 + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    bmc = _put_on_battlefield(game, p1, "Black Mage, Calamity Channeler")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == bmc.id
+        and e.payload.get('effect') == 'damage'
+        and e.payload.get('divide_amount') == 5
+    ]
+    assert target_reqs, (
+        f"Expected damage TARGET_REQUIRED with divide_amount=5; got "
+        f"{[(e.type.name, e.payload.get('effect'), e.payload.get('divide_amount')) for e in new[-10:]]}"
+    )
+    drains = _events_after(game, before, EventType.LIFE_CHANGE, player=p2.id, amount=-1)
+    assert drains, "Expected -1 life to each opp"
+    print(f"  divided 5 to {target_reqs[0].payload.get('max_targets')} targets; opp drain: {len(drains)}")
+
+
+# ----------------------------------------------------------------------------
+# 4. White Mage, Trinity Healing — divided counters + creatures_you_control
+# ----------------------------------------------------------------------------
+
+def test_white_mage_trinity_loads():
+    """Loads as a White Mage Cleric with an ETB interceptor."""
+    print("\n=== White Mage Trinity: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    wmt = _put_on_battlefield(game, p1, "White Mage, Trinity Healing")
+    chars = wmt.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'White Mage' in chars.subtypes
+    assert wmt.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(wmt.interceptor_ids)}")
+
+
+def test_white_mage_trinity_etb_emits_counter_distribute_target_required():
+    """ETB emits TARGET_REQUIRED with effect=counter_add and divide_amount=3."""
+    print("\n=== White Mage Trinity: distribute counters ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    wmt = _put_on_battlefield(game, p1, "White Mage, Trinity Healing")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == wmt.id
+        and e.payload.get('effect') == 'counter_add'
+    ]
+    assert target_reqs, (
+        f"Expected counter_add TARGET_REQUIRED; got {[(e.type.name, e.payload.get('effect')) for e in new[-10:]]}"
+    )
+    payload = target_reqs[0].payload
+    assert payload.get('divide_amount') == 3, (
+        f"Expected divide_amount=3; got {payload.get('divide_amount')}"
+    )
+    assert payload.get('target_filter') == 'your_creature'
+    print(f"  divide_amount: {payload.get('divide_amount')}; filter: {payload.get('target_filter')}")
+
+
+# ----------------------------------------------------------------------------
+# 5. Sephiroth, Reunion Catalyst — targeted death + REVEAL_HAND info pulse
+# ----------------------------------------------------------------------------
+
+def test_sephiroth_reunion_loads():
+    """Loads as a legendary Human SOLDIER with death-trigger interceptors."""
+    print("\n=== Sephiroth Reunion: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    seph = _put_on_battlefield(game, p1, "Sephiroth, Reunion Catalyst")
+    chars = seph.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'SOLDIER' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert len(seph.interceptor_ids) >= 2, (
+        f"Expected >=2 (targeted death + companion); got {len(seph.interceptor_ids)}"
+    )
+    print(f"  Interceptors: {len(seph.interceptor_ids)}")
+
+
+def test_sephiroth_reunion_death_emits_target_required_and_reveal_hand():
+    """On death: TARGET_REQUIRED to exile opp creature + REVEAL_HAND each opp."""
+    print("\n=== Sephiroth Reunion: death exile + reveal ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    seph = _put_on_battlefield(game, p1, "Sephiroth, Reunion Catalyst")
+    before = len(game.state.event_log)
+    # Simulate death: ZONE_CHANGE battlefield -> graveyard.
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': seph.id,
+            'from_zone': 'battlefield',
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+            'reason': 'destroy',
+        },
+        source=seph.id,
+    ))
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == seph.id
+        and e.payload.get('effect') == 'exile'
+    ]
+    assert target_reqs, f"Expected exile TARGET_REQUIRED on death; got {[(e.type.name, e.payload.get('effect')) for e in new[-10:]]}"
+    assert target_reqs[0].payload.get('target_filter') == 'opponent_creature'
+    reveals = [
+        e for e in new
+        if e.type == EventType.REVEAL_HAND
+        and e.payload.get('player') == p2.id
+        and e.source == seph.id
+    ]
+    assert reveals, "Expected REVEAL_HAND on each opp on Sephiroth death"
+    print(f"  TARGET_REQUIRED: {len(target_reqs)}; REVEAL_HAND: {len(reveals)}")
+
+
+# ----------------------------------------------------------------------------
+# 6. Cloud Strife, Limit Break Edge — targeted attack + tribal counter
+# ----------------------------------------------------------------------------
+
+def test_cloud_strife_omnislash_loads():
+    """Loads as a legendary Human SOLDIER Mercenary with attack interceptors."""
+    print("\n=== Cloud Strife Omnislash: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    cloud = _put_on_battlefield(game, p1, "Cloud Strife, Limit Break Edge")
+    chars = cloud.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'SOLDIER' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert len(cloud.interceptor_ids) >= 2, (
+        f"Expected >=2 (targeted attack + companion); got {len(cloud.interceptor_ids)}"
+    )
+    print(f"  Interceptors: {len(cloud.interceptor_ids)}")
+
+
+def test_cloud_strife_omnislash_attack_emits_tap_target_required():
+    """On attack: TARGET_REQUIRED with effect='tap' targeting opp creature."""
+    print("\n=== Cloud Strife Omnislash: tap on attack ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    cloud = _put_on_battlefield(game, p1, "Cloud Strife, Limit Break Edge")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': cloud.id, 'attacker': cloud.id, 'controller': p1.id},
+        source=cloud.id,
+    ))
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == cloud.id
+        and e.payload.get('effect') == 'tap'
+    ]
+    assert target_reqs, f"Expected tap TARGET_REQUIRED; got {[(e.type.name, e.payload.get('effect')) for e in new[-10:]]}"
+    assert target_reqs[0].payload.get('target_filter') == 'opponent_creature'
+    print(f"  TARGET_REQUIRED: {len(target_reqs)}; effect=tap; filter=opponent_creature")
+
+
+# ----------------------------------------------------------------------------
+# 7. Yuna's Sending Ritual — top-N land pick + graveyard zone-scaling
+# ----------------------------------------------------------------------------
+
+def test_yuna_sending_ritual_loads():
+    """Loads as a Green/White enchantment with ETB interceptor."""
+    print("\n=== Yuna's Sending Ritual: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    ysr = _put_on_battlefield(game, p1, "Yuna's Sending Ritual")
+    assert CardType.ENCHANTMENT in ysr.characteristics.types
+    assert ysr.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(ysr.interceptor_ids)}")
+
+
+def test_yuna_sending_ritual_with_library_lands_opens_choice():
+    """ETB with a land on top of library installs a PendingChoice."""
+    print("\n=== Yuna's Sending Ritual: library lands -> choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Plant a land in p1's library so the top-N helper has something to pick.
+    lib = game.state.zones[f'library_{p1.id}']
+    from src.engine import Characteristics
+    land_chars = Characteristics(types={CardType.LAND}, subtypes={"Forest"})
+    land_obj = game.create_object(
+        name="Test Forest", owner_id=p1.id, zone=ZoneType.LIBRARY,
+        characteristics=land_chars, card_def=None,
+    )
+    if land_obj.id not in lib.objects:
+        lib.objects.append(land_obj.id)
+    ysr = _put_on_battlefield(game, p1, "Yuna's Sending Ritual")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice from top-N land pick"
+    assert pc.source_id == ysr.id, f"Choice source should be Yuna's Sending; got {pc.source_id}"
+    print(f"  PendingChoice type: {pc.choice_type}; source: {pc.source_id}")
+
+
+def test_yuna_sending_ritual_empty_library_no_op():
+    """ETB with empty library doesn't crash."""
+    print("\n=== Yuna's Sending Ritual: empty library no-op ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    ysr = _put_on_battlefield(game, p1, "Yuna's Sending Ritual")
+    assert ysr.zone == ZoneType.BATTLEFIELD
+    print(f"  No-crash on empty library; zone={ysr.zone}")
+
+
+# ----------------------------------------------------------------------------
+# 8. Cid Pollendina, Adamant Smith — library search ETB (creature)
+# ----------------------------------------------------------------------------
+
+def test_cid_pollendina_adamant_loads():
+    """Loads as a legendary Human Artificer Engineer with ETB interceptors."""
+    print("\n=== Cid Pollendina Adamant: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    cid = _put_on_battlefield(game, p1, "Cid Pollendina, Adamant Smith")
+    chars = cid.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Artificer' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert cid.interceptor_ids, "Expected ETB interceptor"
+    print(f"  Interceptors: {len(cid.interceptor_ids)}")
+
+
+def test_cid_pollendina_adamant_etb_opens_library_search():
+    """ETB installs a library-search PendingChoice (when library has cards)."""
+    print("\n=== Cid Pollendina Adamant: library search ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Plant a creature in p1's library so the tutor has a target.
+    lib = game.state.zones[f'library_{p1.id}']
+    from src.engine import Characteristics
+    creature_chars = Characteristics(
+        types={CardType.CREATURE}, subtypes={"Beast"}, power=2, toughness=2,
+    )
+    creat_obj = game.create_object(
+        name="Forge Mascot", owner_id=p1.id, zone=ZoneType.LIBRARY,
+        characteristics=creature_chars, card_def=None,
+    )
+    if creat_obj.id not in lib.objects:
+        lib.objects.append(creat_obj.id)
+    cid = _put_on_battlefield(game, p1, "Cid Pollendina, Adamant Smith")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice from library search"
+    assert pc.source_id == cid.id, f"Source should be Cid; got {pc.source_id}"
+    print(f"  PendingChoice type: {pc.choice_type}; options: {len(pc.options)}")
+
+
+# ----------------------------------------------------------------------------
+# 9. Tifa, Final Heaven Master — targeted ETB pump + SCRY by tribe count
+# ----------------------------------------------------------------------------
+
+def test_tifa_final_heaven_loads():
+    """Loads as a legendary Monk Warrior with ETB interceptors."""
+    print("\n=== Tifa Final Heaven Master: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    tifa = _put_on_battlefield(game, p1, "Tifa, Final Heaven Master")
+    chars = tifa.characteristics
+    assert CardType.CREATURE in chars.types
+    assert 'Monk' in chars.subtypes
+    assert 'Legendary' in (chars.supertypes or set())
+    assert len(tifa.interceptor_ids) >= 2, (
+        f"Expected >=2 (targeted pump + scry companion); got {len(tifa.interceptor_ids)}"
+    )
+    print(f"  Interceptors: {len(tifa.interceptor_ids)}")
+
+
+def test_tifa_final_heaven_etb_emits_pump_target_required_and_scry():
+    """ETB: TARGET_REQUIRED with effect=pump + SCRY emission."""
+    print("\n=== Tifa Final Heaven: pump + scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    tifa = _put_on_battlefield(game, p1, "Tifa, Final Heaven Master")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == tifa.id
+        and e.payload.get('effect') == 'pump'
+    ]
+    assert target_reqs, f"Expected pump TARGET_REQUIRED; got {[(e.type.name, e.payload.get('effect')) for e in new[-10:]]}"
+    assert target_reqs[0].payload.get('target_filter') == 'your_creature'
+    scrys = _events_after(game, before, EventType.SCRY, player=p1.id)
+    assert scrys, "Expected SCRY on Tifa ETB"
+    print(f"  TARGET_REQUIRED: {len(target_reqs)}; SCRY: {len(scrys)}")
+
+
+# ----------------------------------------------------------------------------
+# 10. Materia Mastery, Limit Crescendo — modal + targeted (decision=3)
+# ----------------------------------------------------------------------------
+
+def test_materia_mastery_crescendo_loads():
+    """Loads as a 3-color enchantment with modal + targeted ETBs."""
+    print("\n=== Materia Mastery Crescendo: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    mmc = _put_on_battlefield(game, p1, "Materia Mastery, Limit Crescendo")
+    assert CardType.ENCHANTMENT in mmc.characteristics.types
+    assert len(mmc.interceptor_ids) >= 2, (
+        f"Expected >=2 (modal + targeted); got {len(mmc.interceptor_ids)}"
+    )
+    print(f"  Interceptors: {len(mmc.interceptor_ids)}")
+
+
+def test_materia_mastery_crescendo_etb_emits_modal_and_pump_target_required():
+    """ETB: opens modal_with_targeting PendingChoice AND emits pump TARGET_REQUIRED."""
+    print("\n=== Materia Mastery Crescendo: modal + pump ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    mmc = _put_on_battlefield(game, p1, "Materia Mastery, Limit Crescendo")
+    pc = game.state.pending_choice
+    # The pending_choice will be the LAST modal/target one installed — depending
+    # on order it could be the targeted pump or the modal. Either way one
+    # PendingChoice exists.
+    assert pc is not None, "Expected pending_choice from Materia Mastery ETB"
+    assert pc.source_id == mmc.id, f"Choice source should be Materia Mastery; got {pc.source_id}"
+    new = game.state.event_log[before:]
+    pump_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == mmc.id
+        and e.payload.get('effect') == 'pump'
+    ]
+    assert pump_reqs, "Expected pump TARGET_REQUIRED from Materia Mastery"
+    print(f"  PendingChoice type: {pc.choice_type}; pump TARGET_REQUIRED: {len(pump_reqs)}")
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 
