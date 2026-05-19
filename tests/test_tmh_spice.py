@@ -1000,6 +1000,775 @@ def test_chrono_sentry_attack_scry_drain_slice55():
 
 
 # ============================================================================
+# Slice-17 median-lift tests (2026-05-19): one assertion per buffed vanilla
+# card driving TMH median_depth 0 -> >= 2. Each test puts the card on the
+# battlefield (or invokes its resolve handler for instants/sorceries) and
+# asserts the expected SCRY/SURVEIL info event + a cross-controller effect
+# (LIFE_CHANGE / DAMAGE / MILL / DISCARD).
+# ============================================================================
+
+from src.cards.custom import temporal_horizons as _tmh_mod
+
+
+def _s17_etb_card(card_name):
+    """Spin up a game, put the named card under p1, return (game, p1, p2, obj)."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    return game, p1, p2, obj
+
+
+def _s17_attack(card_name):
+    """Spin up a game, put the named card under p1, emit ATTACK_DECLARED."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': obj.id, 'defender': p2.id},
+        source=obj.id, controller=obj.controller,
+    ))
+    return game, p1, p2, obj
+
+
+def _s17_assert_info_and_opp(game, obj, p2, *, info_type, opp_type):
+    """Assert info_type (SCRY/SURVEIL) from obj + a cross-controller effect."""
+    new = game.state.event_log
+    info_evs = [e for e in new if e.type == info_type and e.source == obj.id]
+    assert info_evs, (
+        f"Expected {info_type.name} from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+    if opp_type == EventType.LIFE_CHANGE:
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.payload.get('amount', 0) < 0
+                   and e.source == obj.id]
+    elif opp_type == EventType.DAMAGE:
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('target') == p2.id
+                   and e.source == obj.id]
+    elif opp_type in (EventType.MILL, EventType.DISCARD):
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.source == obj.id]
+    else:
+        opp_evs = []
+    assert opp_evs, (
+        f"Expected {opp_type.name} against p2 from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+
+
+def _s17_resolve(fn_name):
+    """Pull a resolve fn from the tmh module, prep a 2-player state, call it."""
+    fn = getattr(_tmh_mod, fn_name)
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = fn([], game.state)
+    return events, p1, p2
+
+
+def _s17_assert_resolve(events, p2, *, info_type, opp_type):
+    """Assert resolve events contain info_type and opp_type targeting p2."""
+    info_evs = [e for e in events if e.type == info_type]
+    assert info_evs, f"Expected {info_type.name}; got {[e.type.name for e in events]}"
+    if opp_type == EventType.LIFE_CHANGE:
+        opp_evs = [e for e in events if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.payload.get('amount', 0) < 0]
+    elif opp_type == EventType.DAMAGE:
+        opp_evs = [e for e in events if e.type == opp_type
+                   and e.payload.get('target') == p2.id]
+    elif opp_type in (EventType.MILL, EventType.DISCARD):
+        opp_evs = [e for e in events if e.type == opp_type
+                   and e.payload.get('player') == p2.id]
+    else:
+        opp_evs = []
+    assert opp_evs, f"Expected {opp_type.name} vs p2; got {[(e.type.name, e.payload) for e in events]}"
+
+
+# ----- Slice-17: permanent (creature/enchantment/artifact/land) ETB tests ----
+
+
+def test_s17_moment_of_clarity_etb():
+    g, p1, p2, o = _s17_etb_card("Moment of Clarity")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_temporal_sanctuary_etb():
+    g, p1, p2, o = _s17_etb_card("Temporal Sanctuary")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_monastery_elder_etb():
+    g, p1, p2, o = _s17_etb_card("Monastery Elder")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_suspended_scout_etb():
+    g, p1, p2, o = _s17_etb_card("Suspended Scout")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_temporal_shade_etb():
+    g, p1, p2, o = _s17_etb_card("Temporal Shade")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_entropy_crawler_etb():
+    g, p1, p2, o = _s17_etb_card("Entropy Crawler")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_entropy_shade_etb():
+    g, p1, p2, o = _s17_etb_card("Entropy Shade")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_rift_runner_attack():
+    g, p1, p2, o = _s17_attack("Rift Runner")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_chrono_goblin_attack():
+    g, p1, p2, o = _s17_attack("Chrono Goblin")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_accelerated_striker_attack():
+    g, p1, p2, o = _s17_attack("Accelerated Striker")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_timeless_sapling_etb():
+    g, p1, p2, o = _s17_etb_card("Timeless Sapling")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_timeless_seedling_etb():
+    g, p1, p2, o = _s17_etb_card("Timeless Seedling")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_grove_tender_etb():
+    g, p1, p2, o = _s17_etb_card("Grove Tender")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_time_stop_field_etb():
+    g, p1, p2, o = _s17_etb_card("Time Stop Field")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+# Enchantment ETB / Upkeep variants
+def test_s17_temporal_grasp_etb():
+    g, p1, p2, o = _s17_etb_card("Temporal Grasp")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_temporal_roots_load():
+    # upkeep trigger — just confirm load + registered interceptor
+    g, p1, p2, o = _s17_etb_card("Temporal Roots")
+    assert o.interceptor_ids, "Expected upkeep interceptor"
+
+
+def test_s17_rift_portal_load():
+    g, p1, p2, o = _s17_etb_card("Rift Portal")
+    assert o.interceptor_ids, "Expected upkeep interceptor"
+
+
+def test_s17_eternal_cycle_load():
+    g, p1, p2, o = _s17_etb_card("Eternal Cycle")
+    assert o.interceptor_ids, "Expected upkeep interceptor"
+
+
+# Artifact ETB / Upkeep variants
+def test_s17_chrono_compass_load():
+    g, p1, p2, o = _s17_etb_card("Chrono Compass")
+    assert o.interceptor_ids, "Expected upkeep interceptor on Chrono Compass"
+
+
+def test_s17_time_capsule_load():
+    g, p1, p2, o = _s17_etb_card("Time Capsule")
+    assert o.interceptor_ids, "Expected upkeep interceptor on Time Capsule"
+
+
+def test_s17_rift_generator_etb():
+    g, p1, p2, o = _s17_etb_card("Rift Generator")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_aeon_stone_load():
+    g, p1, p2, o = _s17_etb_card("Aeon Stone")
+    assert o.interceptor_ids, "Expected upkeep interceptor"
+
+
+def test_s17_echo_chamber_load():
+    g, p1, p2, o = _s17_etb_card("Echo Chamber")
+    assert o.interceptor_ids, "Expected upkeep interceptor"
+
+
+def test_s17_time_crystal_load():
+    g, p1, p2, o = _s17_etb_card("Time Crystal")
+    assert o.interceptor_ids, "Expected upkeep interceptor"
+
+
+def test_s17_chrono_lens_load():
+    g, p1, p2, o = _s17_etb_card("Chrono Lens")
+    assert o.interceptor_ids, "Expected upkeep interceptor"
+
+
+def test_s17_temporal_prism_load():
+    g, p1, p2, o = _s17_etb_card("Temporal Prism")
+    assert o.interceptor_ids, "Expected upkeep interceptor"
+
+
+def test_s17_rift_key_etb():
+    g, p1, p2, o = _s17_etb_card("Rift Key")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_temporal_monument_load():
+    g, p1, p2, o = _s17_etb_card("Temporal Monument")
+    assert o.interceptor_ids, "Expected upkeep interceptor"
+
+
+def test_s17_accelerated_boots_load():
+    g, p1, p2, o = _s17_etb_card("Accelerated Boots")
+    assert o.interceptor_ids, "Expected equipment + attack interceptor"
+
+
+# Land ETB tests
+def test_s17_timeless_citadel_etb():
+    g, p1, p2, o = _s17_etb_card("Timeless Citadel")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_temporal_nexus_etb():
+    g, p1, p2, o = _s17_etb_card("Temporal Nexus")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.MILL)
+
+
+def test_s17_decay_wastes_etb():
+    g, p1, p2, o = _s17_etb_card("Decay Wastes")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_eternal_grove_etb():
+    g, p1, p2, o = _s17_etb_card("Eternal Grove")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_rift_chasm_etb():
+    g, p1, p2, o = _s17_etb_card("Rift Chasm")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_chrono_spire_etb():
+    g, p1, p2, o = _s17_etb_card("Chrono Spire")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_entropy_pool_etb():
+    g, p1, p2, o = _s17_etb_card("Entropy Pool")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_accelerated_plains_etb():
+    g, p1, p2, o = _s17_etb_card("Accelerated Plains")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_ancient_archive_etb():
+    g, p1, p2, o = _s17_etb_card("Ancient Archive")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_chrono_tower_etb():
+    g, p1, p2, o = _s17_etb_card("Chrono Tower")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_timeless_fortress_etb():
+    g, p1, p2, o = _s17_etb_card("Timeless Fortress")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_timeless_grove_etb():
+    g, p1, p2, o = _s17_etb_card("Timeless Grove")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_entropy_marsh_etb():
+    g, p1, p2, o = _s17_etb_card("Entropy Marsh")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_accelerated_peak_etb():
+    g, p1, p2, o = _s17_etb_card("Accelerated Peak")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_suspended_sanctuary_load():
+    g, p1, p2, o = _s17_etb_card("Suspended Sanctuary")
+    assert o.interceptor_ids, "Expected upkeep interceptor"
+
+
+def test_s17_rift_nexus_etb():
+    g, p1, p2, o = _s17_etb_card("Rift Nexus")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.MILL)
+
+
+def test_s17_temporal_oasis_etb():
+    g, p1, p2, o = _s17_etb_card("Temporal Oasis")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_decay_temple_etb():
+    g, p1, p2, o = _s17_etb_card("Decay Temple")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_eternal_cathedral_load():
+    g, p1, p2, o = _s17_etb_card("Eternal Cathedral")
+    assert o.interceptor_ids, "Expected upkeep interceptor"
+
+
+def test_s17_temporal_haven_load():
+    g, p1, p2, o = _s17_etb_card("Temporal Haven")
+    assert o.interceptor_ids, "Expected upkeep interceptor"
+
+
+def test_s17_suspended_citadel_etb():
+    g, p1, p2, o = _s17_etb_card("Suspended Citadel")
+    _s17_assert_info_and_opp(g, o, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_eternal_nexus_load():
+    g, p1, p2, o = _s17_etb_card("Eternal Nexus")
+    assert o.interceptor_ids, "Expected upkeep interceptor"
+
+
+# ----- Slice-17: resolve handlers (instants/sorceries) -----------------------
+
+
+# WHITE resolves
+def test_s17_chronicle_of_ages_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_chronicle_of_ages')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_preserved_memory_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_preserved_memory')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_dawn_of_new_era_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_dawn_of_new_era')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_moment_preserved_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_moment_preserved')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_divine_chronicle_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_divine_chronicle')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_ageless_army_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_ageless_army')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_temporal_blessing_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_blessing')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_timeless_prayer_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_timeless_prayer')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_temporal_strike_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_strike')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_temporal_ward_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_ward')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_suspended_army_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_suspended_army')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+# BLUE resolves
+def test_s17_temporal_loop_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_loop')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_rewind_moment_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_rewind_moment')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_glimpse_beyond_time_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_glimpse_beyond_time')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_chrono_shift_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_chrono_shift')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_paradox_strike_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_paradox_strike')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_time_fracture_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_time_fracture')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_echo_duplication_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_echo_duplication')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_temporal_mist_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_mist')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_temporal_disruption_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_disruption')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_suspended_wisdom_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_suspended_wisdom')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_s17_temporal_clone_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_clone')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_timeline_manipulation_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_timeline_manipulation')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_temporal_insight_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_insight')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_rift_surge_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_rift_surge')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.DAMAGE)
+
+
+# BLACK resolves
+def test_s17_timeless_decay_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_timeless_decay')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_fate_unwritten_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_fate_unwritten')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_stolen_moment_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_stolen_moment')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_s17_grave_timeline_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_grave_timeline')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_temporal_torment_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_torment')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_entropy_bolt_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_entropy_bolt')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.DAMAGE)
+
+
+def test_s17_entropy_cascade_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_entropy_cascade')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_decay_touch_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_decay_touch')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_entropy_wave_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_entropy_wave')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s17_temporal_drain_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_drain')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_entropy_plague_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_entropy_plague')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_life_drain_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_life_drain')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_entropys_touch_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_entropys_touch')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_temporal_vision_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_vision')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_entropy_ritual_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_entropy_ritual')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_rift_denial_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_rift_denial')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_entropy_grasp_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_entropy_grasp')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+# RED resolves
+def test_s17_temporal_storm_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_storm')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_shattered_timeline_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_shattered_timeline')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_chrono_fury_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_chrono_fury')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_blaze_through_time_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_blaze_through_time')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_echo_flames_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_echo_flames')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_accelerate_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_accelerate')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_temporal_blast_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_blast')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_temporal_inferno_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_inferno')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_accelerated_strike_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_accelerated_strike')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_echo_strike_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_echo_strike')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_rift_bolt_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_rift_bolt')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_temporal_fury_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_fury')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_suspended_lightning_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_suspended_lightning')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_rift_hammer_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_rift_hammer')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_accelerated_assault_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_accelerated_assault')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_chrono_spark_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_chrono_spark')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_chrono_blast_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_chrono_blast')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_accelerated_charge_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_accelerated_charge')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+# GREEN resolves
+def test_s17_temporal_growth_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_growth')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_nature_reclaims_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_nature_reclaims')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_temporal_bloom_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_bloom')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_growth_through_time_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_growth_through_time')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_chronicle_growth_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_chronicle_growth')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_eternal_bloom_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_eternal_bloom')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_timeless_vigor_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_timeless_vigor')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_temporal_harvest_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_harvest')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_primal_echo_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_primal_echo')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_growth_surge_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_growth_surge')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_growth_pulse_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_growth_pulse')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_timeless_growth_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_timeless_growth')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_primal_growth_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_primal_growth')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+# Multicolor resolves
+def test_s17_temporal_ambush_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_ambush')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_chrono_surge_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_chrono_surge')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_rift_eruption_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_rift_eruption')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_temporal_convergence_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_convergence')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_time_siphon_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_time_siphon')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_eternal_blessing_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_eternal_blessing')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s17_chrono_shatter_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_chrono_shatter')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s17_temporal_rebirth_resolve():
+    ev, p1, p2 = _s17_resolve('_tmh_resolve_temporal_rebirth')
+    _s17_assert_resolve(ev, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 
