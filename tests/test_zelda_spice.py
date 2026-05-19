@@ -1494,6 +1494,184 @@ def test_sheikah_spy_etb_skips_empty_hand_opp():
 
 
 # ============================================================================
+# Phase B-2 — Master Sheikah, Sage of Spirits
+# ============================================================================
+
+def test_master_sheikah_loads():
+    """Setup registers cost-reduction + ETB edict + lifelink + Spirit pump."""
+    print("\n=== Master Sheikah: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    sage = _put_on_battlefield(game, p1, "Master Sheikah, Sage of Spirits")
+    assert sage.zone == ZoneType.BATTLEFIELD
+    # 4+ interceptors: pt_boost + cost_reduction + etb_trigger + keyword_grant.
+    assert len(sage.interceptor_ids) >= 4, (
+        f"Expected >=4 interceptors; got {len(sage.interceptor_ids)}"
+    )
+    assert has_ability(sage, 'lifelink', game.state)
+
+
+def test_master_sheikah_etb_edicts_each_opp():
+    """ETB emits a SACRIFICE event targeting each opponent."""
+    print("\n=== Master Sheikah: ETB edict ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Master Sheikah, Sage of Spirits")
+    new = game.state.event_log[before:]
+    sacs = [
+        e for e in new
+        if e.type == EventType.SACRIFICE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('card_type') == 'creature'
+    ]
+    assert sacs, (
+        f"Expected SACRIFICE event on p2; "
+        f"saw types {[e.type.name for e in new]}"
+    )
+
+
+def test_master_sheikah_etb_lifegain_with_triforce():
+    """With Triforce-named cards in graveyard, ETB emits LIFE_CHANGE +N."""
+    print("\n=== Master Sheikah: ETB life gain scales w/ Triforce ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Plant 1 Triforce of Power into p1's graveyard.
+    tof_def = LEGEND_OF_ZELDA_CARDS["Triforce of Power"]
+    gy = game.state.zones[f'graveyard_{p1.id}']
+    tof = game.create_object(
+        name="Triforce of Power",
+        owner_id=p1.id,
+        zone=ZoneType.GRAVEYARD,
+        characteristics=tof_def.characteristics,
+        card_def=tof_def,
+    )
+    if tof.id not in gy.objects:
+        gy.objects.append(tof.id)
+
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Master Sheikah, Sage of Spirits")
+    new = game.state.event_log[before:]
+    gains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p1.id
+        and e.payload.get('amount', 0) >= 1
+    ]
+    assert gains, (
+        f"Expected LIFE_CHANGE +1 on p1 (1 Triforce in gy); "
+        f"saw {[(e.payload.get('player'), e.payload.get('amount')) for e in new if e.type == EventType.LIFE_CHANGE]}"
+    )
+
+
+def test_master_sheikah_spirit_pump():
+    """Other Spirits the controller controls get +1/+1."""
+    print("\n=== Master Sheikah: Spirit pump ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Light Spirit is a Spirit creature in ZLD.
+    spirit = _put_on_battlefield(game, p1, "Light Spirit")
+    base_p = get_power(spirit, game.state)
+    base_t = get_toughness(spirit, game.state)
+    _put_on_battlefield(game, p1, "Master Sheikah, Sage of Spirits")
+    new_p = get_power(spirit, game.state)
+    new_t = get_toughness(spirit, game.state)
+    assert new_p == base_p + 1 and new_t == base_t + 1, (
+        f"Expected +1/+1 on Spirit; got {base_p}/{base_t} -> {new_p}/{new_t}"
+    )
+
+
+# ============================================================================
+# Phase B-2 — Twili Coven
+# ============================================================================
+
+def test_twili_coven_loads():
+    """Setup registers a spell-cast trigger."""
+    print("\n=== Twili Coven: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    coven = _put_on_battlefield(game, p1, "Twili Coven")
+    assert coven.zone == ZoneType.BATTLEFIELD
+    assert coven.interceptor_ids, (
+        "Expected at least one spell-cast trigger interceptor"
+    )
+
+
+def test_twili_coven_spell_cast_pings_opp_and_surveils():
+    """On a CAST event, Twili Coven emits LIFE_CHANGE -1 on opp + SURVEIL 1."""
+    print("\n=== Twili Coven: spell-cast ping + surveil ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Twili Coven")
+
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.CAST,
+        payload={
+            'caster': p1.id,
+            'spell_id': 'dummy_spell_id',
+            'mana_value': 2,
+            'types': ['instant'],
+        },
+    ))
+    new = game.state.event_log[before:]
+    pings = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+    ]
+    surveils = [
+        e for e in new
+        if e.type == EventType.SURVEIL
+        and e.payload.get('player') == p1.id
+        and e.payload.get('amount') == 1
+    ]
+    assert pings, (
+        f"Expected -1 LIFE_CHANGE on opp; "
+        f"saw {[(e.type.name, e.payload) for e in new if e.type == EventType.LIFE_CHANGE]}"
+    )
+    assert surveils, (
+        f"Expected SURVEIL 1 on p1; "
+        f"saw {[(e.type.name, e.payload) for e in new if e.type == EventType.SURVEIL]}"
+    )
+
+
+def test_twili_coven_opp_cast_does_not_fire():
+    """Edge: with controller_only=True default, opp's spell cast must NOT fire."""
+    print("\n=== Twili Coven: opp-cast skipped ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Twili Coven")
+
+    before = len(game.state.event_log)
+    # p2 casts a spell — should NOT trigger Twili Coven.
+    game.emit(Event(
+        type=EventType.CAST,
+        payload={
+            'caster': p2.id,
+            'spell_id': 'dummy_opp_spell',
+            'mana_value': 1,
+            'types': ['instant'],
+        },
+    ))
+    new = game.state.event_log[before:]
+    pings = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('amount') == -1
+        and e.payload.get('player') == p2.id
+    ]
+    assert not pings, (
+        f"Twili Coven fired on opp's cast (controller_only should suppress); "
+        f"got {pings}"
+    )
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 

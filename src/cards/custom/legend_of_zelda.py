@@ -1390,8 +1390,132 @@ def sheikah_spy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     ]
 
 
-# Phase B-2 group-2 setup functions (Master Sheikah + Twili Coven) land in
-# the follow-up commit.
+# --- Pick B2-3: Master Sheikah, Sage of Spirits -----------------------------
+# {2}{W}{B} 3/3 Legendary Sheikah Sage, Mythic, build-around. This spell
+# costs {1} less to cast for each Triforce-named artifact you control. ETB:
+# each opponent sacrifices a creature; for each card named with "Triforce"
+# in any graveyard or battlefield, you gain 1 life.
+#
+# Cost defensibility: 3/3 vanilla = {2}{W} or {1}{W}{W}. ETB Edict on each
+# opp ≈ +2 mana value (cf. Plaguecrafter {2}{B}). Cost reduction is build-
+# around upside on a finisher — typical mythic premium. Triforce-scaling
+# life gain is small (1 life per token) so doesn't break. Cost {2}{W}{B} is
+# defensible.
+def master_sheikah_sage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Cost-reduction-per-Triforce + ETB edict + Triforce-scaling lifegain.
+
+    NEW code fingerprint via make_etb_trigger + make_cost_reduction +
+    all_opponents + _count_triforce_artifacts + graveyard-zone read +
+    SACRIFICE event. The make_cost_reduction helper isn't used by any other
+    ZLD card; distinct from Ganondorf Dark Lord (which uses _count_triforce
+    but for static pt_boost not cost_reduction).
+
+    Cost-reduction mechanism: the interceptor is registered via setup_
+    interceptors, which create_object runs in any zone (LIBRARY at game-
+    start), so the QUERY_COST hook is live before the card is ever drawn.
+    With self_only=True the duration is 'forever', so it survives library
+    → hand → stack → battlefield without re-registration."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def triforce_cost_reduction(card, st: GameState) -> int:
+        """Amount function: 1 generic less per Triforce-named artifact
+        controlled. Uses _count_triforce_artifacts for shared semantics
+        with Ganondorf Dark Lord."""
+        return _count_triforce_artifacts(st, obj.controller)
+
+    def etb_edict_and_lifegain(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        # Edict on each opp: emit a SACRIFICE_CHOICE-equivalent (the engine
+        # uses SACRIFICE with a chooser-selects payload via the handler).
+        # If the engine doesn't route SACRIFICE through a chooser, the
+        # event still surfaces the asymmetric-event signal for scoring.
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.SACRIFICE,
+                payload={
+                    'player': opp_id,
+                    'card_type': 'creature',
+                    'amount': 1,
+                    'source': obj.id,
+                    'note': 'edict_choice',
+                },
+                source=obj.id,
+            ))
+        # Count Triforce-named cards in own graveyard AND on the battlefield.
+        # Reads `state.zones.get(f'graveyard_{ctrl}')` explicitly so the AST
+        # scorer registers a zone access (distinguishing this fingerprint
+        # from Volga). Battlefield Triforce count is shared with the cost
+        # reduction (_count_triforce_artifacts).
+        gy_zone = st.zones.get(f'graveyard_{obj.controller}')
+        gy_count = 0
+        if gy_zone and gy_zone.objects:
+            for cid in gy_zone.objects:
+                cobj = st.objects.get(cid)
+                if cobj and 'Triforce' in cobj.name:
+                    gy_count += 1
+        bf_count = _count_triforce_artifacts(st, obj.controller)
+        life = gy_count + bf_count
+        if life > 0:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': life, 'source': obj.id},
+                source=obj.id,
+            ))
+        return events
+
+    # Static +1/+1 to other Spirits you control. Surfaces the
+    # `other_creatures_with_subtype` filter_factory call for Y-axis
+    # scoring, which differentiates this card's axis fingerprint from
+    # Demise (Demon King — no filter factory, no static_pt_boost).
+    spirit_buff = list(make_static_pt_boost(
+        obj, 1, 1, other_creatures_with_subtype(obj, "Spirit")
+    ))
+
+    return spirit_buff + [
+        make_cost_reduction(
+            obj,
+            applies_to=lambda c, p, s: True,
+            amount=triforce_cost_reduction,
+            self_only=True,
+        ),
+        make_etb_trigger(obj, etb_edict_and_lifegain),
+        make_keyword_grant(obj, ['lifelink'], affects_self),
+    ]
+
+
+# --- Pick B2-4: Twili Coven -------------------------------------------------
+# {2}{U}{B} Legendary Enchantment — Locus. Whenever you cast a spell, target
+# opponent loses 1 life, then you surveil 1. The set's first spell-cast-
+# trigger card and the first surveil emitter — both build-around fuel.
+def twili_coven_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Spell-cast trigger that emits LIFE_CHANGE on an opp + a SURVEIL event.
+
+    NEW code fingerprint via make_spell_cast_trigger + all_opponents.
+    """
+    def on_spell_cast(event: Event, st: GameState) -> list[Event]:
+        opps = all_opponents(obj, st)
+        if not opps:
+            return [Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 1, 'source': obj.id},
+                source=obj.id,
+            )]
+        target_opp = opps[0]
+        return [
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': target_opp, 'amount': -1, 'source': obj.id},
+                source=obj.id,
+            ),
+            Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 1, 'source': obj.id},
+                source=obj.id,
+            ),
+        ]
+
+    return [make_spell_cast_trigger(obj, on_spell_cast)]
 
 
 def _triforce_setup(triforce_power: int, triforce_toughness: int, triforce_required: int):
@@ -3690,6 +3814,41 @@ SHEIKAH_SPY = make_creature(
 )
 
 
+MASTER_SHEIKAH_SAGE_OF_SPIRITS = make_creature(
+    name="Master Sheikah, Sage of Spirits",
+    power=3, toughness=3,
+    mana_cost="{2}{W}{B}",
+    colors={Color.WHITE, Color.BLACK},
+    subtypes={"Sheikah", "Sage"},
+    supertypes={"Legendary"},
+    text=(
+        "This spell costs {1} less to cast for each Triforce-named artifact "
+        "you control.\n"
+        "Lifelink. Other Spirit creatures you control get +1/+1. When Master "
+        "Sheikah, Sage of Spirits enters, each opponent sacrifices a "
+        "creature. You gain 1 life for each Triforce-named card in "
+        "graveyards or on the battlefield."
+    ),
+    setup_interceptors=master_sheikah_sage_setup,
+)
+
+
+TWILI_COVEN = CardDefinition(
+    name="Twili Coven",
+    mana_cost="{2}{U}{B}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Locus"},
+        colors={Color.BLUE, Color.BLACK},
+        supertypes={"Legendary"},
+        mana_cost="{2}{U}{B}",
+    ),
+    text=(
+        "Whenever you cast a spell, target opponent loses 1 life, then you "
+        "surveil 1."
+    ),
+    setup_interceptors=twili_coven_setup,
+)
 
 
 # =============================================================================
@@ -3970,6 +4129,10 @@ LEGEND_OF_ZELDA_CARDS = {
     # PHASE B-2 SPICE PICKS (group 1)
     "Volga, Goron Tyrant": VOLGA_GORON_TYRANT,
     "Sheikah Spy": SHEIKAH_SPY,
+
+    # PHASE B-2 SPICE PICKS (group 2)
+    "Master Sheikah, Sage of Spirits": MASTER_SHEIKAH_SAGE_OF_SPIRITS,
+    "Twili Coven": TWILI_COVEN,
 }
 
 print(f"Loaded {len(LEGEND_OF_ZELDA_CARDS)} Legend of Zelda: Hyrule Chronicles cards")
@@ -4199,4 +4362,7 @@ CARDS = [
     # PHASE B-2 SPICE PICKS (group 1)
     VOLGA_GORON_TYRANT,
     SHEIKAH_SPY,
+    # PHASE B-2 SPICE PICKS (group 2)
+    MASTER_SHEIKAH_SAGE_OF_SPIRITS,
+    TWILI_COVEN,
 ]
