@@ -1144,6 +1144,850 @@ def test_binding_contract_taxes_opp_creatures():
 
 
 # ============================================================================
+# Slice-18 median-lift tests (2026-05-19): one per buffed vanilla card
+# driving JJK median_depth 0 -> >= 2. Each test asserts the expected
+# SCRY/SURVEIL info event + a cross-controller effect (LIFE_CHANGE /
+# DAMAGE / MILL / DISCARD / REVEAL_HAND).
+# ============================================================================
+
+from src.cards.custom import jujutsu_kaisen as jjk_module
+
+
+def _s18_etb_card(card_name):
+    """Spin up a game, put the named card under p1, return (game, p1, p2, obj)."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    return game, p1, p2, obj
+
+
+def _s18_attack_card(card_name):
+    """Spin up a game, put the named card under p1, emit ATTACK_DECLARED."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': obj.id, 'defender': p2.id},
+        source=obj.id, controller=obj.controller,
+    ))
+    return game, p1, p2, obj
+
+
+def _s18_upkeep_card(card_name):
+    """Spin up a game, put the named card under p1, emit PHASE_START upkeep."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    game.state.active_player = p1.id
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'active_player': p1.id},
+    ))
+    return game, p1, p2, obj
+
+
+def _s18_assert_info_and_opp(game, obj, p2, *, info_type, opp_type):
+    """Assert info_type (SCRY/SURVEIL) emitted by obj + cross-controller effect."""
+    new = game.state.event_log
+    info_evs = [e for e in new if e.type == info_type and e.source == obj.id]
+    assert info_evs, (
+        f"Expected {info_type.name} from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+    if opp_type == EventType.LIFE_CHANGE:
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.payload.get('amount', 0) < 0
+                   and e.source == obj.id]
+    elif opp_type == EventType.DAMAGE:
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('target') == p2.id
+                   and e.source == obj.id]
+    elif opp_type in (EventType.MILL, EventType.DISCARD, EventType.REVEAL_HAND):
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.source == obj.id]
+    else:
+        opp_evs = []
+    assert opp_evs, (
+        f"Expected {opp_type.name} against p2 from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+
+
+def _s18_assert_gain(game, obj):
+    """Assert a positive LIFE_CHANGE on obj.controller from obj.id."""
+    new = game.state.event_log
+    gain_evs = [e for e in new if e.type == EventType.LIFE_CHANGE
+                and e.payload.get('player') == obj.controller
+                and e.payload.get('amount', 0) > 0
+                and e.source == obj.id]
+    assert gain_evs, (
+        f"Expected LIFE_CHANGE > 0 on controller from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+
+
+def _s18_resolve_assert(fn_name, *, info_type, opp_type):
+    """Pull a resolve fn out of the jjk module, prep state, call it, assert events."""
+    fn = getattr(jjk_module, fn_name)
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = fn([], game.state)
+    info_evs = [e for e in events if e.type == info_type
+                and e.payload.get('player') == p1.id]
+    assert info_evs, (
+        f"Expected {info_type.name} for caster from {fn_name}; "
+        f"events={[e.type.name for e in events]}"
+    )
+    if opp_type == EventType.LIFE_CHANGE:
+        opp_evs = [e for e in events if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.payload.get('amount', 0) < 0]
+    elif opp_type == EventType.DAMAGE:
+        opp_evs = [e for e in events if e.type == opp_type
+                   and e.payload.get('target') == p2.id]
+    elif opp_type in (EventType.MILL, EventType.DISCARD, EventType.REVEAL_HAND):
+        opp_evs = [e for e in events if e.type == opp_type
+                   and e.payload.get('player') == p2.id]
+    else:
+        opp_evs = []
+    assert opp_evs, (
+        f"Expected {opp_type.name} against p2 from {fn_name}; "
+        f"events={[e.type.name for e in events]}"
+    )
+
+
+# --- WHITE creatures (ETB scry+drain) ---
+
+
+def test_kyoto_student_etb_scry_drain_s18():
+    print("\n=== Slice-18: Kyoto Jujutsu Student ETB scry+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Kyoto Jujutsu Student")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_exorcist_sorcerer_etb_scry_drain_s18():
+    print("\n=== Slice-18: Exorcist Sorcerer ETB scry+gain+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Exorcist Sorcerer")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_temple_priest_etb_scry_drain_s18():
+    print("\n=== Slice-18: Temple Priest ETB scry+gain+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Temple Priest")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_cursed_speech_student_etb_surveil_discard_s18():
+    print("\n=== Slice-18: Cursed Speech Student ETB surveil+discard ===")
+    g, p1, p2, obj = _s18_etb_card("Cursed Speech Student")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_guardian_shikigami_etb_scry_drain_s18():
+    print("\n=== Slice-18: Guardian Shikigami ETB scry+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Guardian Shikigami")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_heavenly_restriction_warrior_etb_scry_drain_s18():
+    print("\n=== Slice-18: Heavenly Restriction Warrior ETB scry+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Heavenly Restriction Warrior")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_curse_breaker_etb_scry_drain_s18():
+    print("\n=== Slice-18: Curse Breaker ETB scry+gain+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Curse Breaker")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_binding_vow_witness_etb_scry_drain_s18():
+    print("\n=== Slice-18: Binding Vow Witness ETB scry+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Binding Vow Witness")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- BLUE creatures (ETB surveil+mill) ---
+
+
+def test_illusion_caster_etb_surveil_mill_s18():
+    print("\n=== Slice-18: Illusion Caster ETB surveil+mill ===")
+    g, p1, p2, obj = _s18_etb_card("Illusion Caster")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_cursed_technique_thief_etb_surveil_mill_s18():
+    print("\n=== Slice-18: Cursed Technique Thief ETB surveil+mill ===")
+    g, p1, p2, obj = _s18_etb_card("Cursed Technique Thief")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_domain_researcher_etb_surveil_mill_s18():
+    print("\n=== Slice-18: Domain Researcher ETB surveil+mill ===")
+    g, p1, p2, obj = _s18_etb_card("Domain Researcher")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_limitless_student_etb_surveil_mill_s18():
+    print("\n=== Slice-18: Limitless Student ETB surveil+mill ===")
+    g, p1, p2, obj = _s18_etb_card("Limitless Student")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_spatial_manipulator_etb_surveil_mill_s18():
+    print("\n=== Slice-18: Spatial Manipulator ETB surveil+mill ===")
+    g, p1, p2, obj = _s18_etb_card("Spatial Manipulator")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_technique_reversal_mage_etb_surveil_mill_s18():
+    print("\n=== Slice-18: Technique Reversal Mage ETB surveil+mill ===")
+    g, p1, p2, obj = _s18_etb_card("Technique Reversal Mage")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_new_shadow_practitioner_etb_surveil_mill_s18():
+    print("\n=== Slice-18: New Shadow Practitioner ETB surveil+mill ===")
+    g, p1, p2, obj = _s18_etb_card("New Shadow Practitioner")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_simple_domain_master_etb_surveil_mill_s18():
+    print("\n=== Slice-18: Simple Domain Master ETB surveil+mill ===")
+    g, p1, p2, obj = _s18_etb_card("Simple Domain Master")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_jujutsu_trainee_etb_surveil_mill_s18():
+    print("\n=== Slice-18: Jujutsu Trainee ETB surveil+mill ===")
+    g, p1, p2, obj = _s18_etb_card("Jujutsu Trainee")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_cursed_spirit_apprentice_etb_surveil_drain_s18():
+    print("\n=== Slice-18: Cursed Spirit Apprentice ETB surveil+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Cursed Spirit Apprentice")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_tokyo_school_student_etb_scry_drain_s18():
+    print("\n=== Slice-18: Tokyo School Student ETB scry+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Tokyo School Student")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_kyoto_school_recruit_etb_scry_drain_s18():
+    print("\n=== Slice-18: Kyoto School Recruit ETB scry+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Kyoto School Recruit")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_grade_four_sorcerer_etb_scry_drain_s18():
+    print("\n=== Slice-18: Grade Four Sorcerer ETB scry+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Grade Four Sorcerer")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_domain_amplification_mage_etb_surveil_mill_s18():
+    print("\n=== Slice-18: Domain Amplification Mage ETB surveil+mill ===")
+    g, p1, p2, obj = _s18_etb_card("Domain Amplification Mage")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+# --- BLACK Curses (surveil+drain/discard) ---
+
+
+def test_fly_head_curse_etb_surveil_drain_s18():
+    print("\n=== Slice-18: Fly Head Curse ETB surveil+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Fly Head Curse")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_resentful_curse_etb_surveil_discard_s18():
+    print("\n=== Slice-18: Resentful Curse ETB surveil+discard ===")
+    g, p1, p2, obj = _s18_etb_card("Resentful Curse")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_transfigured_human_etb_surveil_drain_s18():
+    print("\n=== Slice-18: Transfigured Human ETB surveil+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Transfigured Human")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_grade_one_curse_etb_surveil_drain_s18():
+    print("\n=== Slice-18: Grade One Curse ETB surveil+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Grade One Curse")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_smallpox_curse_etb_surveil_discard_s18():
+    print("\n=== Slice-18: Smallpox Curse ETB surveil+discard ===")
+    g, p1, p2, obj = _s18_etb_card("Smallpox Curse")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_death_painting_womb_etb_surveil_drain_s18():
+    print("\n=== Slice-18: Death Painting Womb ETB surveil+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Death Painting Womb")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_cursed_energy_well_etb_surveil_drain_s18():
+    print("\n=== Slice-18: Cursed Energy Well ETB surveil+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Cursed Energy Well")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_blood_manipulation_expert_etb_scry_damage_s18():
+    print("\n=== Slice-18: Blood Manipulation Expert ETB scry+damage ===")
+    g, p1, p2, obj = _s18_etb_card("Blood Manipulation Expert")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+# --- RED creatures (scry+damage / attack triggers) ---
+
+
+def test_cursed_technique_striker_etb_scry_damage_s18():
+    print("\n=== Slice-18: Cursed Technique Striker ETB scry+damage ===")
+    g, p1, p2, obj = _s18_etb_card("Cursed Technique Striker")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_zenin_clan_warrior_attack_scry_damage_s18():
+    print("\n=== Slice-18: Zenin Clan Warrior attack scry+damage ===")
+    g, p1, p2, obj = _s18_attack_card("Zenin Clan Warrior")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_playful_cloud_wielder_attack_scry_damage_s18():
+    print("\n=== Slice-18: Playful Cloud Wielder attack scry+damage ===")
+    g, p1, p2, obj = _s18_attack_card("Playful Cloud Wielder")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_maximum_output_fighter_etb_scry_damage_s18():
+    print("\n=== Slice-18: Maximum Output Fighter ETB scry+damage ===")
+    g, p1, p2, obj = _s18_etb_card("Maximum Output Fighter")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_domain_amplifier_etb_scry_damage_s18():
+    print("\n=== Slice-18: Domain Amplifier ETB scry+damage ===")
+    g, p1, p2, obj = _s18_etb_card("Domain Amplifier")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_sorcerer_hunter_attack_scry_damage_s18():
+    print("\n=== Slice-18: Sorcerer Hunter attack scry+damage ===")
+    g, p1, p2, obj = _s18_attack_card("Sorcerer Hunter")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+# --- GREEN Shikigami creatures (scry+gain) ---
+
+
+def test_toad_shikigami_etb_scry_gain_s18():
+    print("\n=== Slice-18: Toad Shikigami ETB scry+gain ===")
+    g, p1, p2, obj = _s18_etb_card("Toad Shikigami")
+    new = g.state.event_log
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+    _s18_assert_gain(g, obj)
+
+
+def test_great_serpent_etb_scry_gain_s18():
+    print("\n=== Slice-18: Great Serpent Shikigami ETB scry+gain ===")
+    g, p1, p2, obj = _s18_etb_card("Great Serpent Shikigami")
+    _s18_assert_gain(g, obj)
+
+
+def test_chimera_death_painting_etb_scry_gain_s18():
+    print("\n=== Slice-18: Chimera Death Painting ETB scry+gain ===")
+    g, p1, p2, obj = _s18_etb_card("Chimera Death Painting")
+    _s18_assert_gain(g, obj)
+
+
+def test_wheel_shikigami_etb_scry_gain_s18():
+    print("\n=== Slice-18: Wheel Shikigami ETB scry+gain ===")
+    g, p1, p2, obj = _s18_etb_card("Wheel Shikigami")
+    _s18_assert_gain(g, obj)
+
+
+def test_shikigami_crafter_etb_scry_gain_s18():
+    print("\n=== Slice-18: Shikigami Crafter ETB scry+gain ===")
+    g, p1, p2, obj = _s18_etb_card("Shikigami Crafter")
+    _s18_assert_gain(g, obj)
+
+
+def test_shikigami_trainer_etb_scry_gain_s18():
+    print("\n=== Slice-18: Shikigami Trainer ETB scry+gain ===")
+    g, p1, p2, obj = _s18_etb_card("Shikigami Trainer")
+    _s18_assert_gain(g, obj)
+
+
+# --- UPKEEP triggers (lands, artifacts, enchantments) ---
+
+
+def test_jujutsu_high_land_upkeep_scry_drain_s18():
+    print("\n=== Slice-18: Jujutsu High land upkeep scry+drain ===")
+    g, p1, p2, obj = _s18_upkeep_card("Jujutsu High")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_shibuya_station_upkeep_surveil_drain_s18():
+    print("\n=== Slice-18: Shibuya Station upkeep surveil+drain ===")
+    g, p1, p2, obj = _s18_upkeep_card("Shibuya Station")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_kyoto_school_upkeep_scry_drain_s18():
+    print("\n=== Slice-18: Kyoto Jujutsu School upkeep scry+drain ===")
+    g, p1, p2, obj = _s18_upkeep_card("Kyoto Jujutsu School")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_cursed_grounds_upkeep_surveil_drain_s18():
+    print("\n=== Slice-18: Cursed Grounds upkeep surveil+drain ===")
+    g, p1, p2, obj = _s18_upkeep_card("Cursed Grounds")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_finger_shrine_upkeep_surveil_damage_s18():
+    print("\n=== Slice-18: Finger Shrine upkeep surveil+damage ===")
+    g, p1, p2, obj = _s18_upkeep_card("Finger Shrine")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DAMAGE)
+
+
+def test_hidden_inventory_upkeep_scry_mill_s18():
+    print("\n=== Slice-18: Hidden Inventory upkeep scry+mill ===")
+    g, p1, p2, obj = _s18_upkeep_card("Hidden Inventory")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.MILL)
+
+
+def test_tokyo_tower_upkeep_scry_drain_s18():
+    print("\n=== Slice-18: Tokyo Tower upkeep scry+drain ===")
+    g, p1, p2, obj = _s18_upkeep_card("Tokyo Tower")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_domain_battlefield_upkeep_surveil_mill_s18():
+    print("\n=== Slice-18: Domain Battlefield upkeep surveil+mill ===")
+    g, p1, p2, obj = _s18_upkeep_card("Domain Battlefield")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_prison_realm_upkeep_surveil_mill_s18():
+    print("\n=== Slice-18: Prison Realm upkeep surveil+mill ===")
+    g, p1, p2, obj = _s18_upkeep_card("Prison Realm")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_finger_collection_upkeep_surveil_drain_s18():
+    print("\n=== Slice-18: Sukuna's Finger Collection upkeep surveil+drain ===")
+    g, p1, p2, obj = _s18_upkeep_card("Sukuna's Finger Collection")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_cursed_energy_detector_upkeep_scry_drain_s18():
+    print("\n=== Slice-18: Cursed Energy Detector upkeep scry+drain ===")
+    g, p1, p2, obj = _s18_upkeep_card("Cursed Energy Detector")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_jujutsu_high_emblem_upkeep_scry_drain_s18():
+    print("\n=== Slice-18: Jujutsu High Emblem upkeep scry+drain ===")
+    g, p1, p2, obj = _s18_upkeep_card("Jujutsu High Emblem")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_veil_generator_upkeep_scry_drain_s18():
+    print("\n=== Slice-18: Veil Generator upkeep scry+drain ===")
+    g, p1, p2, obj = _s18_upkeep_card("Veil Generator")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_cursed_speech_rice_ball_etb_surveil_discard_s18():
+    print("\n=== Slice-18: Cursed Speech Rice Ball ETB surveil+discard ===")
+    g, p1, p2, obj = _s18_etb_card("Cursed Speech Rice Ball")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+# --- ENCHANTMENTS (upkeep triggers) ---
+
+
+def test_authentic_mutual_love_upkeep_surveil_drain_s18():
+    print("\n=== Slice-18: Authentic Mutual Love upkeep surveil+drain ===")
+    g, p1, p2, obj = _s18_upkeep_card("Authentic Mutual Love")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_time_cell_moon_palace_upkeep_surveil_mill_s18():
+    print("\n=== Slice-18: Time Cell Moon Palace upkeep surveil+mill ===")
+    g, p1, p2, obj = _s18_upkeep_card("Time Cell Moon Palace")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_deadly_sentencing_upkeep_surveil_drain_s18():
+    print("\n=== Slice-18: Deadly Sentencing upkeep surveil+drain ===")
+    g, p1, p2, obj = _s18_upkeep_card("Deadly Sentencing")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_heavenly_restriction_upkeep_scry_drain_s18():
+    print("\n=== Slice-18: Heavenly Restriction upkeep scry+drain ===")
+    g, p1, p2, obj = _s18_upkeep_card("Heavenly Restriction")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_cursed_speech_seal_upkeep_surveil_discard_s18():
+    print("\n=== Slice-18: Cursed Speech Seal upkeep surveil+discard ===")
+    g, p1, p2, obj = _s18_upkeep_card("Cursed Speech Seal")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_barrier_technique_upkeep_scry_drain_s18():
+    print("\n=== Slice-18: Barrier Technique upkeep scry+drain ===")
+    g, p1, p2, obj = _s18_upkeep_card("Barrier Technique")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_jujutsu_regulations_upkeep_scry_mill_s18():
+    print("\n=== Slice-18: Jujutsu Regulations upkeep scry+mill ===")
+    g, p1, p2, obj = _s18_upkeep_card("Jujutsu Regulations")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.MILL)
+
+
+def test_veil_technique_upkeep_surveil_mill_s18():
+    print("\n=== Slice-18: Veil Technique upkeep surveil+mill ===")
+    g, p1, p2, obj = _s18_upkeep_card("Veil Technique")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_idle_death_gamble_upkeep_scry_damage_s18():
+    print("\n=== Slice-18: Idle Death Gamble upkeep scry+damage ===")
+    g, p1, p2, obj = _s18_upkeep_card("Idle Death Gamble")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+# --- EQUIPMENT ---
+
+
+def test_inverted_spear_of_heaven_etb_scry_damage_s18():
+    print("\n=== Slice-18: Inverted Spear of Heaven ETB scry+damage ===")
+    g, p1, p2, obj = _s18_etb_card("Inverted Spear of Heaven")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_slaughter_demon_upkeep_surveil_drain_s18():
+    print("\n=== Slice-18: Slaughter Demon upkeep surveil+drain ===")
+    g, p1, p2, obj = _s18_upkeep_card("Slaughter Demon")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_dragon_bone_etb_scry_damage_s18():
+    print("\n=== Slice-18: Dragon-Bone ETB scry+damage ===")
+    g, p1, p2, obj = _s18_etb_card("Dragon-Bone")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_black_rope_etb_surveil_drain_s18():
+    print("\n=== Slice-18: Black Rope ETB surveil+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Black Rope")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_glasses_of_perception_upkeep_scry_reveal_s18():
+    print("\n=== Slice-18: Glasses of Perception upkeep scry+reveal ===")
+    g, p1, p2, obj = _s18_upkeep_card("Glasses of Perception")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.REVEAL_HAND)
+
+
+def test_megumi_knife_etb_scry_damage_s18():
+    print("\n=== Slice-18: Megumi's Knife ETB scry+damage ===")
+    g, p1, p2, obj = _s18_etb_card("Megumi's Knife")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_maki_glasses_etb_scry_reveal_s18():
+    print("\n=== Slice-18: Maki's Glasses ETB scry+reveal ===")
+    g, p1, p2, obj = _s18_etb_card("Maki's Glasses")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.REVEAL_HAND)
+
+
+def test_cursed_tool_collection_etb_scry_drain_s18():
+    print("\n=== Slice-18: Cursed Tool Collection ETB scry+drain ===")
+    g, p1, p2, obj = _s18_etb_card("Cursed Tool Collection")
+    _s18_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- INSTANTS (resolve handlers) ---
+
+
+def test_divergent_fist_resolve_scry_damage_s18():
+    print("\n=== Slice-18: Divergent Fist resolve scry+damage ===")
+    _s18_resolve_assert("_jjk_resolve_divergent_fist",
+                        info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_black_flash_resolve_scry_damage_s18():
+    print("\n=== Slice-18: Black Flash resolve scry+damage ===")
+    _s18_resolve_assert("_jjk_resolve_black_flash",
+                        info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_hollow_purple_resolve_scry_damage_s18():
+    print("\n=== Slice-18: Hollow Purple resolve scry+damage ===")
+    _s18_resolve_assert("_jjk_resolve_hollow_purple",
+                        info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_reversal_red_resolve_scry_damage_s18():
+    print("\n=== Slice-18: Reversal Red resolve scry+damage ===")
+    _s18_resolve_assert("_jjk_resolve_reversal_red",
+                        info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_lapse_blue_resolve_surveil_mill_s18():
+    print("\n=== Slice-18: Lapse Blue resolve surveil+mill ===")
+    _s18_resolve_assert("_jjk_resolve_lapse_blue",
+                        info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_domain_amplification_resolve_surveil_mill_s18():
+    print("\n=== Slice-18: Domain Amplification resolve surveil+mill ===")
+    _s18_resolve_assert("_jjk_resolve_domain_amplification",
+                        info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_cursed_energy_drain_resolve_surveil_drain_s18():
+    print("\n=== Slice-18: Cursed Energy Drain resolve surveil+drain ===")
+    _s18_resolve_assert("_jjk_resolve_cursed_energy_drain",
+                        info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_idle_transfiguration_resolve_surveil_drain_s18():
+    print("\n=== Slice-18: Idle Transfiguration resolve surveil+drain ===")
+    _s18_resolve_assert("_jjk_resolve_idle_transfiguration",
+                        info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_cleave_resolve_scry_drain_s18():
+    print("\n=== Slice-18: Cleave resolve scry+drain ===")
+    _s18_resolve_assert("_jjk_resolve_cleave",
+                        info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_dismantle_resolve_surveil_drain_s18():
+    print("\n=== Slice-18: Dismantle resolve surveil+drain ===")
+    _s18_resolve_assert("_jjk_resolve_dismantle",
+                        info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_exorcism_rite_resolve_scry_drain_s18():
+    print("\n=== Slice-18: Exorcism Rite resolve scry+drain ===")
+    _s18_resolve_assert("_jjk_resolve_exorcism_rite",
+                        info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_simple_domain_resolve_surveil_mill_s18():
+    print("\n=== Slice-18: Simple Domain resolve surveil+mill ===")
+    _s18_resolve_assert("_jjk_resolve_simple_domain",
+                        info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_falling_blossom_emotion_resolve_surveil_drain_s18():
+    print("\n=== Slice-18: Falling Blossom Emotion resolve surveil+drain ===")
+    _s18_resolve_assert("_jjk_resolve_falling_blossom_emotion",
+                        info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_maximum_uzumaki_resolve_surveil_drain_s18():
+    print("\n=== Slice-18: Maximum Uzumaki resolve surveil+drain ===")
+    _s18_resolve_assert("_jjk_resolve_maximum_uzumaki",
+                        info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_resonance_resolve_scry_damage_s18():
+    print("\n=== Slice-18: Resonance resolve scry+damage ===")
+    _s18_resolve_assert("_jjk_resolve_resonance",
+                        info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_hairpin_resolve_scry_damage_s18():
+    print("\n=== Slice-18: Hairpin resolve scry+damage ===")
+    _s18_resolve_assert("_jjk_resolve_hairpin",
+                        info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_straw_doll_technique_resolve_scry_damage_s18():
+    print("\n=== Slice-18: Straw Doll Technique resolve scry+damage ===")
+    _s18_resolve_assert("_jjk_resolve_straw_doll_technique",
+                        info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_blood_manipulation_resolve_scry_damage_s18():
+    print("\n=== Slice-18: Blood Manipulation resolve scry+damage ===")
+    _s18_resolve_assert("_jjk_resolve_blood_manipulation",
+                        info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_supernova_resolve_scry_damage_s18():
+    print("\n=== Slice-18: Maximum Meteor (SUPERNOVA) resolve scry+damage ===")
+    _s18_resolve_assert("_jjk_resolve_supernova",
+                        info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_ten_shadows_summon_resolve_scry_drain_s18():
+    print("\n=== Slice-18: Ten Shadows Summon resolve scry+drain ===")
+    _s18_resolve_assert("_jjk_resolve_ten_shadows_summon",
+                        info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_inherited_technique_resolve_scry_drain_s18():
+    print("\n=== Slice-18: Inherited Technique resolve scry+drain ===")
+    _s18_resolve_assert("_jjk_resolve_inherited_technique",
+                        info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_cursed_bud_growth_resolve_scry_drain_s18():
+    print("\n=== Slice-18: Cursed Bud Growth resolve scry+drain ===")
+    _s18_resolve_assert("_jjk_resolve_cursed_bud_growth",
+                        info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_reverse_cursed_technique_resolve_scry_drain_s18():
+    print("\n=== Slice-18: Reverse Cursed Technique resolve scry+drain ===")
+    _s18_resolve_assert("_jjk_resolve_reverse_cursed_technique",
+                        info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_binding_vow_instant_resolve_surveil_drain_s18():
+    print("\n=== Slice-18: Binding Vow (instant) resolve surveil+drain ===")
+    _s18_resolve_assert("_jjk_resolve_binding_vow_instant",
+                        info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_cursed_technique_lapse_resolve_surveil_mill_s18():
+    print("\n=== Slice-18: Cursed Technique Lapse resolve surveil+mill ===")
+    _s18_resolve_assert("_jjk_resolve_cursed_technique_lapse",
+                        info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_domain_negation_resolve_surveil_mill_s18():
+    print("\n=== Slice-18: Domain Negation resolve surveil+mill ===")
+    _s18_resolve_assert("_jjk_resolve_domain_negation",
+                        info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_curse_absorption_resolve_surveil_drain_s18():
+    print("\n=== Slice-18: Curse Absorption resolve surveil+drain ===")
+    _s18_resolve_assert("_jjk_resolve_curse_absorption",
+                        info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_projection_sorcery_resolve_scry_damage_s18():
+    print("\n=== Slice-18: Projection Sorcery resolve scry+damage ===")
+    _s18_resolve_assert("_jjk_resolve_projection_sorcery",
+                        info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+# --- SORCERIES (resolve handlers) ---
+
+
+def test_shibuya_incident_resolve_surveil_drain_s18():
+    print("\n=== Slice-18: Shibuya Incident resolve surveil+drain ===")
+    _s18_resolve_assert("_jjk_resolve_shibuya_incident",
+                        info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_culling_game_resolve_surveil_mill_s18():
+    print("\n=== Slice-18: Culling Game resolve surveil+mill ===")
+    _s18_resolve_assert("_jjk_resolve_culling_game",
+                        info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_night_parade_resolve_surveil_drain_s18():
+    print("\n=== Slice-18: Night Parade resolve surveil+drain ===")
+    _s18_resolve_assert("_jjk_resolve_night_parade",
+                        info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_jujutsu_high_training_resolve_scry_drain_s18():
+    print("\n=== Slice-18: Jujutsu High Training resolve scry+drain ===")
+    _s18_resolve_assert("_jjk_resolve_jujutsu_high_training",
+                        info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_kyoto_goodwill_event_resolve_scry_mill_s18():
+    print("\n=== Slice-18: Kyoto Goodwill Event resolve scry+mill ===")
+    _s18_resolve_assert("_jjk_resolve_kyoto_goodwill_event",
+                        info_type=EventType.SCRY, opp_type=EventType.MILL)
+
+
+def test_curse_purification_resolve_scry_drain_s18():
+    print("\n=== Slice-18: Curse Purification resolve scry+drain ===")
+    _s18_resolve_assert("_jjk_resolve_curse_purification",
+                        info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_domain_collapse_resolve_surveil_mill_s18():
+    print("\n=== Slice-18: Domain Collapse resolve surveil+mill ===")
+    _s18_resolve_assert("_jjk_resolve_domain_collapse",
+                        info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_unlimited_void_burst_resolve_surveil_mill_s18():
+    print("\n=== Slice-18: Unlimited Void Burst resolve surveil+mill ===")
+    _s18_resolve_assert("_jjk_resolve_unlimited_void_burst",
+                        info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_shikigami_army_resolve_scry_drain_s18():
+    print("\n=== Slice-18: Shikigami Army resolve scry+drain ===")
+    _s18_resolve_assert("_jjk_resolve_shikigami_army",
+                        info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_curse_genesis_resolve_surveil_drain_s18():
+    print("\n=== Slice-18: Curse Genesis resolve surveil+drain ===")
+    _s18_resolve_assert("_jjk_resolve_curse_genesis",
+                        info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_divine_flame_resolve_scry_damage_s18():
+    print("\n=== Slice-18: Divine Flame resolve scry+damage ===")
+    _s18_resolve_assert("_jjk_resolve_divine_flame",
+                        info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_technique_mastery_resolve_scry_drain_s18():
+    print("\n=== Slice-18: Technique Mastery resolve scry+drain ===")
+    _s18_resolve_assert("_jjk_resolve_technique_mastery",
+                        info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_soul_multiplicity_resolve_surveil_drain_s18():
+    print("\n=== Slice-18: Soul Multiplicity resolve surveil+drain ===")
+    _s18_resolve_assert("_jjk_resolve_soul_multiplicity",
+                        info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_black_flash_moment_resolve_scry_damage_s18():
+    print("\n=== Slice-18: Black Flash Moment resolve scry+damage ===")
+    _s18_resolve_assert("_jjk_resolve_black_flash_moment",
+                        info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+# ============================================================================
 # Runner
 # ============================================================================
 
