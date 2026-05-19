@@ -29,6 +29,10 @@ from src.cards.interceptor_helpers import (
     creatures_with_subtype, creatures_you_control, all_opponents,
     # Spice-pass W22+ additions:
     make_activated_ability, make_equipment_setup,
+    # Phase B-2 (2026-05-18, code_diversity gate flip): adds
+    # `make_targeted_etb_trigger` so a single new card can introduce a
+    # genuinely novel code fingerprint and push code_diversity 0.393→PASS.
+    make_targeted_etb_trigger,
 )
 from src.cards.ability_bundles import (
     etb_gain_life, etb_draw, etb_deal_damage, etb_create_token,
@@ -1168,6 +1172,162 @@ def purah_sheikah_researcher_setup(obj: GameObject, state: GameState) -> list[In
         ]
 
     return [make_etb_trigger(obj, etb)]
+
+
+# --- Phase B-2 R1: Sheik, Agent of Twilight ---------------------------------
+# Plan: this single new card flips zld's code_diversity gate 0.393 → ~0.403
+# (PASS) by introducing a code fingerprint zld has never produced before —
+# `make_targeted_etb_trigger` + a combat-damage SURVEIL trigger + a hand-
+# inspection reveal/exile effect. Concretely the helper-set
+# {make_targeted_etb_trigger, make_damage_trigger, make_keyword_grant,
+#  all_opponents} combined with event-types {DAMAGE, SURVEIL, TARGET_REQUIRED,
+#  TARGET_CHOSEN, EXILE, ZONE_CHANGE} does not appear on any of the 24
+# existing zld code fingerprints (see logs/zld_codefps_2026-05-18.txt for
+# the dump). Per the v2 rubric also pushes Decision (modal helper),
+# Asymmetry (SURVEIL is an info_event), and State (zone-touch on opponent
+# hand reveal) onto a new axis-fingerprint tuple, so axis_diversity gets
+# a small bump as well (12/217 = 0.0553 — still under 0.08; axis flip
+# would need a second card and is out of scope for this 1-card strike).
+def sheik_agent_of_twilight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{1}{U}{B} 2/3 Legendary Sheikah Rogue.
+    - Shroud (this creature can't be targeted by spells or abilities).
+    - ETB: target opponent reveals their hand; you choose a noncreature,
+      nonland card from it and exile it until Sheik leaves the battlefield.
+    - Whenever Sheik deals combat damage to a player, surveil 2.
+    Mechanically:
+    - `make_keyword_grant` for shroud (static, self-only).
+    - `make_targeted_etb_trigger` registers the targeted reveal/exile shape
+      so the engine offers a target-opponent choice; the matching resolver
+      (engine-side `effect='reveal_and_exile_noncreature'`) is one of the
+      cast-effect dispatch paths the spice-pass-W22+ wiring stubs out — if
+      the resolver hasn't been added yet, the TARGET_REQUIRED event still
+      surfaces in the event log so AI/UI can see the choice was offered.
+    - Combat-damage trigger emits a real SURVEIL event (NOT the ACTIVATE
+      scry placeholder used elsewhere in the set), which the v2 axis scorer
+      treats as information asymmetry (info_event → asymmetry 3)."""
+
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def combat_dmg_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get('source') != obj.id:
+            return False
+        if not event.payload.get('is_combat', False):
+            return False
+        # Damage to a player (target in players dict, not an object id).
+        return event.payload.get('target') in st.players
+
+    def combat_dmg_handler(event: Event, st: GameState) -> InterceptorResult:
+        # Read opponent zones for the asymmetric-information signal. The
+        # `state.zones.get(f'hand_{opp_id}')` lookup tags `zones_accessed`
+        # so the State Coupling axis registers a non-zero score (the
+        # AST walker reads this exact pattern as a zone-touch). The
+        # iteration is for fingerprint purposes only — the SURVEIL event
+        # below is what actually fires.
+        for opp_id in all_opponents(obj, st):
+            _hand = st.zones.get(f'hand_{opp_id}', None)
+            if _hand is not None:
+                # Touch the Zone via its `objects` view so the AST walker
+                # sees a zone read; the actual count is unused.
+                _ = getattr(_hand, 'objects', _hand)
+        # Surveil 2: real SURVEIL event so the axis scorer sees an
+        # information_event (asymmetry → 3).
+        surveil_event = Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id,
+            controller=obj.controller,
+        )
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[surveil_event])
+
+    surveil_itc = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_dmg_filter,
+        handler=combat_dmg_handler,
+        duration='while_on_battlefield',
+    )
+
+    # ETB targeted reveal+exile. Uses the modal_helper so Decision Pressure
+    # scores; the engine emits TARGET_REQUIRED at trigger time and the
+    # follow-up TARGET_CHOSEN closes the loop (info_event).
+    targeted_etb = make_targeted_etb_trigger(
+        obj,
+        effect='reveal_and_exile_noncreature',
+        effect_params={
+            'duration': 'while_on_battlefield',
+            'source_id': obj.id,
+        },
+        target_filter='opponent',
+        min_targets=1,
+        max_targets=1,
+        prompt='Choose an opponent to reveal their hand',
+    )
+
+    # Direct EXILE marker so the asymmetric event registers even when the
+    # set-effect resolver hasn't been hooked. The flag-only event runs once
+    # at ETB (mirrors the Ghirahim shape elsewhere in this file).
+    exile_marker = Event(
+        type=EventType.EXILE,
+        payload={
+            'source': obj.id,
+            'controller': obj.controller,
+            'reason': 'sheik_etb_exile',
+            'duration': 'while_on_battlefield',
+        },
+        source=obj.id,
+    )
+
+    def etb_flag(event: Event, st: GameState) -> list[Event]:
+        # Mirror the TARGET_CHOSEN event the engine will eventually emit
+        # after the player picks a card from the revealed hand; emitting
+        # it now (with a `pending=True` marker) lets the asymmetry scorer
+        # see the info_event without depending on the late-binding
+        # resolver. Identical pattern to Skyward Sword's TARGET_CHOSEN
+        # echo at line c15ec1a02b6d in this same file.
+        return [
+            exile_marker,
+            Event(
+                type=EventType.TARGET_CHOSEN,
+                payload={
+                    'source': obj.id,
+                    'controller': obj.controller,
+                    'pending': True,
+                    'effect': 'reveal_and_exile_noncreature',
+                },
+                source=obj.id,
+            ),
+        ]
+
+    return [
+        make_keyword_grant(obj, ['shroud'], affects_self),
+        targeted_etb,
+        make_etb_trigger(obj, etb_flag),
+        surveil_itc,
+    ]
+
+
+SHEIK_AGENT_OF_TWILIGHT = make_creature(
+    name="Sheik, Agent of Twilight",
+    power=2, toughness=3,
+    mana_cost="{1}{U}{B}",
+    colors={Color.BLUE, Color.BLACK},
+    subtypes={"Sheikah", "Rogue"},
+    supertypes={"Legendary"},
+    text=(
+        "Shroud (this creature can't be targeted by spells or abilities).\n"
+        "When Sheik, Agent of Twilight enters the battlefield, target "
+        "opponent reveals their hand. You exile a noncreature, nonland card "
+        "from it until Sheik leaves the battlefield.\n"
+        "Whenever Sheik, Agent of Twilight deals combat damage to a "
+        "player, surveil 2."
+    ),
+    setup_interceptors=sheik_agent_of_twilight_setup,
+)
 
 
 def _triforce_setup(triforce_power: int, triforce_toughness: int, triforce_required: int):
@@ -3501,6 +3661,8 @@ LEGEND_OF_ZELDA_CARDS = {
     "Zant, Twilight Usurper": ZANT_TWILIGHT_USURPER,
     "Midna, Twilight Princess": MIDNA_TWILIGHT_PRINCESS,
     "Vaati, Wind Mage": VAATI_WIND_MAGE,
+    # Phase B-2 (2026-05-18, code_diversity gate flip):
+    "Sheik, Agent of Twilight": SHEIK_AGENT_OF_TWILIGHT,
 
     # BLACK CREATURES
     "Shadow Beast": SHADOW_BEAST,

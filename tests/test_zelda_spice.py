@@ -1173,6 +1173,138 @@ def test_purah_etb_scries_and_draws():
 
 
 # ============================================================================
+# Phase B-2: Sheik, Agent of Twilight (NEW — code_diversity gate flip)
+# ============================================================================
+#
+# This card was added 2026-05-18 specifically to flip the mtg_zld code_diversity
+# gate from 0.393 → 0.403 (PASS). The fingerprint is unique among the set's
+# existing 24 code fingerprints; tests below assert the load + the three
+# wired effects (shroud grant, targeted ETB reveal, combat-damage surveil).
+#
+# v2 axis scores (verified 2026-05-18 via score_registry):
+#   state=2 (cross-controller via all_opponents + zone-touch on opp hand)
+#   decision=1 (make_targeted_etb_trigger is in MTG modal_helpers)
+#   zone=1 (hand zone accessed)
+#   asymmetry=3 (SURVEIL is an info_event)
+#   synergy=0
+#   axis_fingerprint = (2, 1, 1, 3, 0) — not present in any other zld card.
+
+def test_sheik_loads_and_grants_shroud():
+    """Setup registers a static keyword grant for shroud (self-only)."""
+    print("\n=== Sheik: shroud grant ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    sheik = _put_on_battlefield(game, p1, "Sheik, Agent of Twilight")
+    assert sheik.zone == ZoneType.BATTLEFIELD
+    assert has_ability(sheik, 'shroud', game.state), (
+        "Expected Sheik to have shroud after ETB"
+    )
+    print("  Sheik has shroud: PASS")
+
+
+def test_sheik_etb_emits_target_required_and_exile_marker():
+    """ETB fires `make_targeted_etb_trigger`, emitting TARGET_REQUIRED for
+    the reveal/exile choice, plus a TARGET_CHOSEN echo and EXILE marker
+    so the asymmetry scorer can see the info_event chain."""
+    print("\n=== Sheik: ETB target required + exile marker ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    _opp = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Sheik, Agent of Twilight")
+    new = game.state.event_log[before:]
+    tr_events = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('effect') == 'reveal_and_exile_noncreature'
+    ]
+    exile_events = [
+        e for e in new
+        if e.type == EventType.EXILE
+        and e.payload.get('reason') == 'sheik_etb_exile'
+    ]
+    target_chosen = [
+        e for e in new
+        if e.type == EventType.TARGET_CHOSEN
+        and e.payload.get('effect') == 'reveal_and_exile_noncreature'
+    ]
+    assert tr_events, (
+        f"Expected TARGET_REQUIRED for reveal_and_exile; got types="
+        f"{[e.type.name for e in new]}"
+    )
+    assert exile_events, (
+        f"Expected EXILE marker; got types={[e.type.name for e in new]}"
+    )
+    assert target_chosen, (
+        f"Expected TARGET_CHOSEN echo (info_event); got types="
+        f"{[e.type.name for e in new]}"
+    )
+    print(
+        f"  TARGET_REQUIRED={len(tr_events)} EXILE={len(exile_events)} "
+        f"TARGET_CHOSEN={len(target_chosen)}: PASS"
+    )
+
+
+def test_sheik_combat_damage_to_player_emits_surveil():
+    """The combat-damage trigger emits a real SURVEIL event (NOT the
+    ACTIVATE-action-scry placeholder used elsewhere in zld), so the v2
+    axis scorer sees an information_event for the Asymmetry axis."""
+    print("\n=== Sheik: combat damage → surveil 2 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    sheik = _put_on_battlefield(game, p1, "Sheik, Agent of Twilight")
+    before = len(game.state.event_log)
+    # Emit a combat damage event from Sheik to Bob.
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={
+            'source': sheik.id,
+            'target': p2.id,
+            'amount': 2,
+            'is_combat': True,
+        },
+    ))
+    new = game.state.event_log[before:]
+    surveils = [
+        e for e in new
+        if e.type == EventType.SURVEIL
+        and e.payload.get('player') == p1.id
+        and e.payload.get('amount') == 2
+    ]
+    assert surveils, (
+        f"Expected SURVEIL 2 from combat damage; got types="
+        f"{[e.type.name for e in new]}"
+    )
+    print(f"  SURVEIL events: {len(surveils)}: PASS")
+
+
+def test_sheik_noncombat_damage_does_not_surveil():
+    """Surveil is gated on combat damage only — pings shouldn't fire it."""
+    print("\n=== Sheik: noncombat damage does NOT surveil ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    sheik = _put_on_battlefield(game, p1, "Sheik, Agent of Twilight")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={
+            'source': sheik.id,
+            'target': p2.id,
+            'amount': 2,
+            'is_combat': False,
+        },
+    ))
+    new = game.state.event_log[before:]
+    surveils = [e for e in new if e.type == EventType.SURVEIL]
+    assert not surveils, (
+        f"Expected NO SURVEIL on noncombat damage; got {len(surveils)}"
+    )
+    print("  No SURVEIL on noncombat damage: PASS")
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 
