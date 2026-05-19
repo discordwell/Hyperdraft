@@ -2833,11 +2833,52 @@ ELECTROSTAFF = make_equipment(
 )
 
 
+# --- Slave Tracker: Helper-5 rewire ----------------------------------------
+# +1/+1 + granted trigger "combat damage to player → scry 2."
+# Printed text says "that player reveals their hand"; the engine has no
+# generic REVEAL event yet, so the closest in-spirit effect is "you peek
+# ahead" = scry 2 (intel-gathering theme preserved).
+def _slave_tracker_combat_damage_to_player_filter(
+    event: Event, state: GameState, target_id: str
+) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    return event.payload.get('target') in state.players
+
+
+def _slave_tracker_scry_effect(
+    target_obj: GameObject, event: Event, state: GameState
+) -> list[Event]:
+    return [Event(
+        type=EventType.ACTIVATE,
+        payload={
+            'action': 'scry',
+            'amount': 2,
+            'player': target_obj.controller,
+            'source': target_obj.id,
+        },
+        source=target_obj.id,
+    )]
+
+
 SLAVE_TRACKER = make_equipment(
     name="Slave Tracker",
     mana_cost="{1}",
     equip_cost="{1}",
-    text="Equipped creature gets +1/+1. Whenever equipped creature deals combat damage to a player, that player reveals their hand."
+    text="Equipped creature gets +1/+1. Whenever equipped creature deals combat damage to a player, scry 2.",
+    setup_interceptors=make_equipment_setup(
+        power_mod=1, toughness_mod=1,
+        equip_cost="{1}",
+        granted_triggered_abilities={
+            "event_filter": _slave_tracker_combat_damage_to_player_filter,
+            "effect_fn": _slave_tracker_scry_effect,
+            "description": "Combat damage to player → controller scrys 2",
+        },
+    ),
 )
 
 
