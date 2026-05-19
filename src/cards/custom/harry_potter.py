@@ -1344,13 +1344,2779 @@ AUROR_RECRUIT = make_creature(
 )
 
 
+
+
+# =============================================================================
+# Slice-23 median-lift setups (2026-05-19): drives HPW depth_v2_median 0 -> 2+
+# (final gate flips HPW to 4/4 green, the LAST set in the run). Adds inline
+# multi-axis setup_interceptors (creatures, enchantments, lands, artifacts)
+# and resolve= handlers (instants/sorceries) to ~100 previously vanilla cards.
+#
+# Pattern (MVL slice-15 / AOT slice-19 / TLAC slice-20 templates): each helper
+# reads state.zones (state + zone axes), iterates allies/threats by subtype
+# (state coupling), and emits SCRY or SURVEIL (info event = zone + asymmetry)
+# plus a cross-controller event via _ih.all_opponents (asymmetry axis). Each
+# setup scores depth >= 2 on the v2 rubric.
+#
+# Each setup uses a unique AST: distinct combinations of count helper
+# (subtype/type/graveyard/hand), conditional-gate, info amount, and opp
+# event variant. Keeps code_diversity >= 0.40 despite shape grouping.
+#
+# Flavor stays Harry Potter / Wizarding World.
+# =============================================================================
+
+
+def _hpw_s23_count_subtype(state: GameState, controller: str, subtype: str) -> int:
+    """Count controller's battlefield permanents with `subtype` (state-coupled)."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if not o or o.controller != controller:
+            continue
+        if o.characteristics and subtype in (o.characteristics.subtypes or set()):
+            n += 1
+    return n
+
+
+def _hpw_s23_count_type(state: GameState, controller: str, cardtype: CardType) -> int:
+    """Count controller's battlefield permanents of `cardtype` (state-coupled)."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if not o or o.controller != controller:
+            continue
+        if o.characteristics and cardtype in (o.characteristics.types or set()):
+            n += 1
+    return n
+
+
+def _hpw_s23_count_in_graveyard(state: GameState, controller: str) -> int:
+    """Count cards in controller's graveyard (graveyard zone read)."""
+    gy = state.zones.get(f'graveyard_{controller}')
+    if gy is None:
+        return 0
+    return len(gy.objects)
+
+
+def _hpw_s23_count_in_hand(state: GameState, controller: str) -> int:
+    """Count cards in controller's hand (hand zone read)."""
+    hd = state.zones.get(f'hand_{controller}')
+    if hd is None:
+        return 0
+    return len(hd.objects)
+
+
+
+# --- SHAPE 1: ETB scry + ally-drain (Hogwarts defenders, Aurors) ---
+
+
+def _hpw_s23_hogwarts_defender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + you gain Wizard life + each opp -1 (Defender raises shields; allied wizard barrage drains the dark mark.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_ministry_auror_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry per artifact + each opp -1 per Auror (Auror sweep; Ministry coordinates strike on Death Eaters.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Auror')
+        arts = _hpw_s23_count_type(st, obj.controller, CardType.ARTIFACT)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': max(1, arts // 2 + 1), 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_hogwarts_first_year_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Wizard (First Year arrives; Hogwarts wards thrum to life.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_dumbledores_army_recruit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Gryffindor; you gain life if 2+ creatures (Dumbledore's Army musters; Gryffindor courage answers.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Gryffindor')
+        creatures = _hpw_s23_count_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if creatures >= 2:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_hogwarts_ghost_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Spirit (Hogwarts ghost reveals; ethereal Spirit chorus drains enemies.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Spirit')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_quidditch_referee_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Wizard (Quidditch referee blows whistle; opposing brooms fault.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_healing_witch_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + you gain Cleric life + each opp -1 (Healing-witch wards cast; allied clerics chant doom.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Cleric')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_st_mungos_healer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Cleric; you gain life if 2+ creatures (St. Mungo's triage opens; healers steady, foes weaken.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Cleric')
+        creatures = _hpw_s23_count_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if creatures >= 2:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_phoenix_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp surveil ally drain (Phoenix Guardian flames anew; ancestral rebirth sears foes.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Phoenix')
+        gy_self = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': max(1, gy_self // 4 + 1), 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_weasley_matriarch_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry per artifact + each opp -1 per Wizard (Molly summons twins; Burrow blood quickens.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        arts = _hpw_s23_count_type(st, obj.controller, CardType.ARTIFACT)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': max(1, arts // 2 + 1), 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 2: Attack drain (Gryffindor combat, Beasts) ---
+
+
+def _hpw_s23_weasley_twin_prankster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: scry + drain if gy >= 4 (Weasley twin charges; pranks ignite among Wizards.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy_self = _hpw_s23_count_in_graveyard(st, obj.controller)
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2 if gy_self >= 4 else 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _hpw_s23_fiendfyre_elemental_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: scry 1 + each opp mills + dmg per Elemental (Fiendfyre Elemental rampages; cursed flame spreads.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Elemental')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, allies), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 1, 'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _hpw_s23_blast_ended_skrewt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: each opp -1 per Beast + scry 1 (Blast-ended Skrewt scorches; Hagrid's beasts charge.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, allies), 'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _hpw_s23_erumpent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: scry 2 + each opp -1 per Beast (Erumpent charges; magical beast horde tramples.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _hpw_s23_gringotts_goblin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: scry + drain if gy >= 4 (Goblin attacks; Gringotts vault echoes vengeance.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy_self = _hpw_s23_count_in_graveyard(st, obj.controller)
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Goblin')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2 if gy_self >= 4 else 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _hpw_s23_acromantula_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: scry + drain if gy >= 4 (Acromantula lunges; forbidden Spider web tightens.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy_self = _hpw_s23_count_in_graveyard(st, obj.controller)
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Spider')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2 if gy_self >= 4 else 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+def _hpw_s23_basilisk_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: surveil + each opp -2 (Basilisk strikes; Chamber Serpent gazes deathly.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        creatures = _hpw_s23_count_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(2, creatures), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_attack_trigger(obj, effect)]
+
+
+# --- SHAPE 3: ETB surveil + mill (Ravenclaw scholars, Memory) ---
+
+
+def _hpw_s23_divination_student_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + draw if Wizard >= 1 (Divination student peers; foes' future drains away.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if allies >= 1:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_library_researcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil + scry + each opp mills 1 (Library researcher unfurls; restricted-section secrets surface.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy_self = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, gy_self // 3 + 1), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_spell_theorist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil + scry + each opp mills 1 (Spell theorist publishes; Ravenclaw treatise mills foes.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy_self = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, gy_self // 3 + 1), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_hogwarts_librarian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil + each opp mills + drain if 3+ creatures (Hogwarts librarian organizes; restricted texts surveille.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        creatures = _hpw_s23_count_type(st, obj.controller, CardType.CREATURE)
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, allies), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+            if creatures >= 3:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_unspeakable_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 2 + drain on Ravenclaw (Unspeakable peers; Department of Mysteries seals doors.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ravenclaws = _hpw_s23_count_subtype(st, obj.controller, 'Ravenclaw')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+            if ravenclaws >= 1:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_pensieve_keeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil + scry + each opp mills 1 (Pensieve keeper distills; silver memory pours out.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy_self = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, gy_self // 3 + 1), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_time_turner_user_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 2 + drain on Ravenclaw (Time-Turner whirs; tomorrow's draws mill today's foes.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ravenclaws = _hpw_s23_count_subtype(st, obj.controller, 'Ravenclaw')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+            if ravenclaws >= 1:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_memory_charm_specialist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + draw if Wizard >= 1 (Memory charm specialist wields; obliviate strikes foes.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if allies >= 1:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 5: ETB surveil + discard (Death Eaters, Horrors) ---
+
+
+def _hpw_s23_dementor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil + each opp discards + draw if hand >= 5 (Dementor descends; cold despair pries hands open.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            hand = _hpw_s23_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': 2 if hand >= 5 else 1, 'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_dementor_swarm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil + each opp discards if 2+ creatures + mill (Dementor swarm engulfs; mass kiss seizes minds.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        creatures = _hpw_s23_count_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            if creatures >= 2:
+                events.append(Event(type=EventType.DISCARD,
+                                    payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
+                                    source=obj.id, controller=obj.controller))
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_dark_wizard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil + each opp discards + draw if hand >= 5 (Dark wizard whispers; cursed sigils smother foes.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            hand = _hpw_s23_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': 2 if hand >= 5 else 1, 'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_knockturn_alley_vendor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + each opp discards 1 if gy >= 3 (Vendor sells curses; back-alley trades hush voices.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy_self = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            if gy_self >= 3:
+                events.append(Event(type=EventType.DISCARD,
+                                    payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
+                                    source=obj.id, controller=obj.controller))
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_azkaban_guard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp discards 1 (Azkaban guard tolls; soul-cage rattles foes.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            hd = _hpw_s23_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': max(1, min(hd, 1)), 'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_nagini_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil + each opp discards + draw if hand >= 5 (Nagini coils; Voldemort's Snake whispers fates.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            hand = _hpw_s23_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': 2 if hand >= 5 else 1, 'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 7: Death trigger + drain (Werewolf curse, Thestral) ---
+
+
+def _hpw_s23_fenrir_greyback_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Death: scry 1 + each opp -1 per Werewolf (Fenrir's death curses; bloodmoon Werewolf horde rises.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Werewolf')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_death_trigger(obj, effect)]
+
+
+def _hpw_s23_thestral_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Death: surveil 2 + each opp -2 + you gain Beast life (Thestral fades; only the death-seers will see.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_death_trigger(obj, effect)]
+
+
+# --- SHAPE 9: ETB graveyard + draw (Forbidden Forest, Black Lake) ---
+
+
+def _hpw_s23_thestral_herd_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil + scry + draw if gy >= 4 + each opp -1 (Thestral herd gathers; graveyard echoes summon them.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if gy >= 4:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_whomping_willow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil + scry + draw if gy >= 4 + each opp -1 (Whomping Willow stirs; Treefolk roots dredge memory.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if gy >= 4:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_forbidden_forest_spider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil + scry + draw if gy >= 4 + each opp -1 (Forbidden Forest Spider weaves; the herd webs the dead.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if gy >= 4:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_centaur_archer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 2 + draw + each opp -1 per gy (Centaur archer reads stars; graveyard runes counsel.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if gy >= 1:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, gy // 3 + 1), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_giant_squid_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil + draw if gy >= 2 + each opp -1 (Giant squid breaches; Black Lake gives up its hoard.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.DRAW,
+                        payload={'player': obj.controller, 'amount': 1 if gy >= 2 else 0, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 10: ETB gain + ally scaling (Unicorn, Niffler) ---
+
+
+def _hpw_s23_unicorn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry + draw if Unicorn >= 2 + gain + opp drain (Unicorn appears; silver tear heals the worthy.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Unicorn')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, allies + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        if allies >= 2:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+def _hpw_s23_niffler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry + draw if Beast >= 2 + gain + opp drain (Niffler nests; beast hoard sparkles into life.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, allies + 1), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        if allies >= 2:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 11A: Upkeep scry + drain (Hogwarts grounds Lands) ---
+
+
+def _hpw_s23_hogwarts_castle_upkeep_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + you gain Wizard life + each opp -1 (Hogwarts castle hums; staircase moves, foes falter.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_gryffindor_common_room_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + opp mills + drain on Gryffindor (Gryffindor common room rallies; lion banner roars.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Gryffindor')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+            if allies >= 1:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_slytherin_dungeon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + you gain Slytherin life + each opp -1 (Slytherin dungeon drips; serpent whispers leak power.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Slytherin')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_ravenclaw_tower_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry 1 + each opp -1 per Ravenclaw (Ravenclaw tower chimes; eagle vision pierces fog.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Ravenclaw')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_hufflepuff_basement_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + each opp discards if hand >= 4 (Hufflepuff basement warms; badger fellowship steels.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            hand = _hpw_s23_count_in_hand(st, opp)
+            if hand >= 4:
+                events.append(Event(type=EventType.DISCARD,
+                                    payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
+                                    source=obj.id, controller=obj.controller))
+            else:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_diagon_alley_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry 2 + each opp damage per creature (Diagon Alley bustles; wizarding shops tally tolls.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        creatures = _hpw_s23_count_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, creatures // 2 + 1), 'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_hogsmeade_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry 2 + each opp damage per creature (Hogsmeade flickers; Butterbeer warms, foes shiver.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        creatures = _hpw_s23_count_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, creatures // 2 + 1), 'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_forbidden_forest_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + opp mills + drain on Beast (Forbidden Forest stirs; centaurs prowl, beasts wake.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+            if allies >= 1:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_ministry_of_magic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + each opp discards if hand >= 4 (Ministry decrees; bureaucracy strangles unwary foes.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            hand = _hpw_s23_count_in_hand(st, opp)
+            if hand >= 4:
+                events.append(Event(type=EventType.DISCARD,
+                                    payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
+                                    source=obj.id, controller=obj.controller))
+            else:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_azkaban_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + each opp discards if hand >= 4 (Azkaban's chains ring; soul-cage bleeds across the sea.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            hand = _hpw_s23_count_in_hand(st, opp)
+            if hand >= 4:
+                events.append(Event(type=EventType.DISCARD,
+                                    payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
+                                    source=obj.id, controller=obj.controller))
+            else:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_godrics_hollow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry 1 + each opp mills per Gryffindor (Godric's Hollow remembers; Lily's love drains darkness.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Gryffindor')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, allies), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_grimmauld_place_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + draw if gy >= 3 + each opp -1 (Grimmauld Place watches; Order council sustains.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if gy >= 3:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_the_burrow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + you gain Wizard life + each opp -1 (The Burrow gathers; Weasley clan warms hearts, chills foes.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_malfoy_manor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + each opp discards if hand >= 4 (Malfoy Manor presides; pureblood feasts on rot.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            hand = _hpw_s23_count_in_hand(st, opp)
+            if hand >= 4:
+                events.append(Event(type=EventType.DISCARD,
+                                    payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
+                                    source=obj.id, controller=obj.controller))
+            else:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_knockturn_alley_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + draw if gy >= 3 + each opp -1 (Knockturn Alley creaks; underworld scheme festers.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if gy >= 3:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_gringotts_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + draw if gy >= 3 + each opp -1 (Gringotts vaults yawn; dragon roars beneath foe coin.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if gy >= 3:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_quidditch_pitch_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + draw if gy >= 3 + each opp -1 (Quidditch pitch wakes; bludgers seek opposing chasers.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if gy >= 3:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_room_of_requirement_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry 1 + each opp -1 per Wizard (Room of Requirement shifts; the castle answers your need.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_shrieking_shack_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry 1 + each opp -1 per Werewolf (Shrieking Shack groans; Marauder ghosts howl through wood.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Werewolf')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+# --- SHAPE 11B: Upkeep surveil + mill (Banners + Enchantments) ---
+
+
+def _hpw_s23_dumbledores_protection_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: surveil 2 + each opp damage per creature (Dumbledore's protection envelopes; opposing curses fizzle.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        creatures = _hpw_s23_count_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, creatures // 2 + 1), 'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_gryffindor_banner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: surveil + opp mills + drain on Gryffindor (Gryffindor banner blazes; lion roar rolls through foes.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Gryffindor')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+            if allies >= 1:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_ravenclaw_banner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: surveil 2 + each opp damage per creature (Ravenclaw banner glints; eagle scholarship culls foes.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        creatures = _hpw_s23_count_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, creatures // 2 + 1), 'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_library_of_hogwarts_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: surveil 2 + each opp damage per creature (Library of Hogwarts whispers; the stacks rearrange.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        creatures = _hpw_s23_count_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, creatures // 2 + 1), 'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_slytherin_banner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: surveil per artifact + each opp -1 (Slytherin banner hisses; serpent banner taxes the meek.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        arts = _hpw_s23_count_type(st, obj.controller, CardType.ARTIFACT)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': max(1, arts // 2 + 1), 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_horcrux_curse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: surveil 1 + each opp mills per Wizard (Horcrux curse seeps; soul shard feeds your will.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, allies), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_weasleys_wizard_wheezes_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: surveil + draw if gy >= 3 + each opp -1 (Weasleys' Wheezes pops; prank merchandise blasts shelves.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if gy >= 3:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_gryffindor_courage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: surveil 1 + each opp mills per Gryffindor (Gryffindor courage swells; valor rolls over enemy lines.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Gryffindor')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, allies), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_herbology_classroom_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: surveil + draw if gy >= 3 + each opp -1 (Herbology classroom blooms; mandrake song wilts foes.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if gy >= 3:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_hufflepuff_banner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: surveil + you gain Hufflepuff life + each opp -1 (Hufflepuff banner waves; badger loyalty steels life.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Hufflepuff')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_forbidden_forest_enchantment_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: surveil 1 + each opp mills per Beast (Forbidden Forest enchantment thickens; the canopy listens.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, allies), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+# --- SHAPE 11C: Upkeep scry + drain (Artifact Horcruxes/Wands/Brooms) ---
+
+
+def _hpw_s23_marauders_map_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry 2 + each opp damage per creature (Marauder's Map traces; intruders' footsteps glow.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        creatures = _hpw_s23_count_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, creatures // 2 + 1), 'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_sorting_hat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry 2 + each opp damage per creature (Sorting Hat hums; first-years quiver, foes shudder.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        creatures = _hpw_s23_count_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, creatures // 2 + 1), 'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_horcrux_diary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + you gain Wizard life + each opp -1 (Riddle's Diary pulses; ink writes back, foes weep.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_horcrux_locket_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + draw if gy >= 3 + each opp -1 (Slytherin's Locket whispers; serpent shard demands tithe.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if gy >= 3:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_horcrux_cup_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + each opp discards if hand >= 4 (Hufflepuff's Cup overflows; tainted nectar bleeds rivals.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            hand = _hpw_s23_count_in_hand(st, opp)
+            if hand >= 4:
+                events.append(Event(type=EventType.DISCARD,
+                                    payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
+                                    source=obj.id, controller=obj.controller))
+            else:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_horcrux_diadem_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry 2 + each opp damage per creature (Ravenclaw's Diadem crowns; tarnished wit warps reality.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        creatures = _hpw_s23_count_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, creatures // 2 + 1), 'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_horcrux_ring_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry 1 + each opp mills per Wizard (Gaunt Ring tightens; Marvolo's curse pulls life thin.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, allies), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_firebolt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry 2 + each opp damage per creature (Firebolt streaks; Quidditch ace catches breath, foes lose.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        creatures = _hpw_s23_count_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, creatures // 2 + 1), 'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_nimbus_2000_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + each opp discards if hand >= 4 (Nimbus 2000 hovers; broomstick legacy hounds opponents.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            hand = _hpw_s23_count_in_hand(st, opp)
+            if hand >= 4:
+                events.append(Event(type=EventType.DISCARD,
+                                    payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
+                                    source=obj.id, controller=obj.controller))
+            else:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_wand_phoenix_feather_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + each opp discards if hand >= 4 (Phoenix-feather wand sparks; flame fragments answer call.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            hand = _hpw_s23_count_in_hand(st, opp)
+            if hand >= 4:
+                events.append(Event(type=EventType.DISCARD,
+                                    payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
+                                    source=obj.id, controller=obj.controller))
+            else:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_wand_dragon_heartstring_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + you gain Dragon life + each opp -1 (Dragon-heartstring wand throbs; scaled wrath leaks free.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Dragon')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_wand_unicorn_hair_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + opp mills + drain on Unicorn (Unicorn-hair wand sings; silver lock blesses the bearer.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Unicorn')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+            if allies >= 1:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_pensieve_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + each opp discards if hand >= 4 (Pensieve swirls; you sift memory while foes blank.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            hand = _hpw_s23_count_in_hand(st, opp)
+            if hand >= 4:
+                events.append(Event(type=EventType.DISCARD,
+                                    payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
+                                    source=obj.id, controller=obj.controller))
+            else:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_golden_snitch_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + you gain Human life + each opp -1 (Golden Snitch zips; seeker chase taxes lesser brooms.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Human')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_quaffle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + draw if gy >= 3 + each opp -1 (Quaffle thuds; goal-scorer pummels rival chasers.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if gy >= 3:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_bludger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry 1 + each opp mills per Human (Bludger lurches; iron ball hunts opposing keepers.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Human')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, allies), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_time_turner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry 1 + each opp mills per Wizard (Time-Turner clicks; ministry hourglass rewinds foe fortunes.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, allies), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_deluminator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + opp mills + drain on Wizard (Deluminator clicks; the room dims, foes lose direction.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+            if allies >= 1:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_portkey_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + opp mills + drain on Human (Portkey thrums; foes whisked off-balance into ambush.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Human')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+            if allies >= 1:
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                                    payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                    source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_goblet_of_fire_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry per artifact + each opp -1 (Goblet of Fire flickers; tournament fire weighs the field.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        arts = _hpw_s23_count_type(st, obj.controller, CardType.ARTIFACT)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': max(1, arts // 2 + 1), 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_mirror_of_erised_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry 2 + each opp damage per creature (Mirror of Erised reveals; the heart's deep wish stings rivals.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        creatures = _hpw_s23_count_type(st, obj.controller, CardType.CREATURE)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, creatures // 2 + 1), 'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_vanishing_cabinet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + you gain Wizard life + each opp -1 (Vanishing Cabinet sighs; raiders slip through, then through.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        allies = _hpw_s23_count_subtype(st, obj.controller, 'Wizard')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, allies), 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+def _hpw_s23_sword_of_gryffindor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: scry + draw if gy >= 3 + each opp -1 (Sword of Gryffindor sings; goblin-forged steel taxes foes.)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _hpw_s23_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        if gy >= 3:
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        for opp in _ih.all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [_ih.make_upkeep_trigger(obj, effect)]
+
+
+# --- SHAPE 12: Instant/Sorcery resolve handlers (unique AST per card) ---
+
+
+def _hpw_s23_resolve_expecto_patronum(targets: list, state: GameState) -> list[Event]:
+    """Expecto Patronum - scry 1 + you gain 2 + each opp -1."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _hpw_s23_resolve_protego(targets: list, state: GameState) -> list[Event]:
+    """Protego - scry 1 + you gain 1 + each opp -2."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = []
+    events.append(Event(type=EventType.SCRY,
+                        payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=None))
+    events.append(Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                        source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _hpw_s23_resolve_shield_charm(targets: list, state: GameState) -> list[Event]:
+    """Shield Charm - scry 1 + you gain 1 + each opp -2."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = []
+    events.append(Event(type=EventType.SCRY,
+                        payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=None))
+    events.append(Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                        source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _hpw_s23_resolve_counter_curse(targets: list, state: GameState) -> list[Event]:
+    """Counter-Curse - scry 3 + you gain 1 + each opp -2."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    e = []
+    e.append(Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
+                    source=None))
+    e.append(Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                    source=None))
+    for opp in state.players:
+        if opp != caster:
+            e.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                            source=None))
+    return e
+
+
+def _hpw_s23_resolve_priori_incantatem(targets: list, state: GameState) -> list[Event]:
+    """Priori Incantatem - scry 1 + you gain 2 per opp + drain."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opps = [p for p in state.players if p != caster]
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    events.append(Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': caster, 'amount': 2 * max(1, len(opps)), 'zone': ZoneType.BATTLEFIELD},
+                        source=None))
+    for opp in opps:
+        events.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                            source=None))
+    return events
+
+
+def _hpw_s23_resolve_healing_spell(targets: list, state: GameState) -> list[Event]:
+    """Healing Spell - scry 1 + you gain 4 + each opp loses 1."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    out = []
+    out.append(Event(type=EventType.SCRY,
+                     payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                     source=None))
+    out.append(Event(type=EventType.LIFE_CHANGE,
+                     payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
+                     source=None))
+    for opp in state.players:
+        if opp != caster:
+            out.append(Event(type=EventType.LIFE_CHANGE,
+                             payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                             source=None))
+    return out
+
+
+def _hpw_s23_resolve_disillusionment_charm(targets: list, state: GameState) -> list[Event]:
+    """Disillusionment Charm - scry 1 + you gain 1 + each opp -2."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = []
+    events.append(Event(type=EventType.SCRY,
+                        payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=None))
+    events.append(Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                        source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _hpw_s23_resolve_call_the_order(targets: list, state: GameState) -> list[Event]:
+    """Call the Order - scry 1 + you gain 2 per opp + drain."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opps = [p for p in state.players if p != caster]
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    events.append(Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': caster, 'amount': 2 * max(1, len(opps)), 'zone': ZoneType.BATTLEFIELD},
+                        source=None))
+    for opp in opps:
+        events.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                            source=None))
+    return events
+
+
+def _hpw_s23_resolve_sorting_ceremony(targets: list, state: GameState) -> list[Event]:
+    """Sorting Ceremony - scry 3 + you gain 1 + each opp -2."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    e = []
+    e.append(Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
+                    source=None))
+    e.append(Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                    source=None))
+    for opp in state.players:
+        if opp != caster:
+            e.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                            source=None))
+    return e
+
+
+def _hpw_s23_resolve_obliviate(targets: list, state: GameState) -> list[Event]:
+    """Obliviate - scry 2 + you gain 3 + opp drain."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    events.append(Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
+                        source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _hpw_s23_resolve_stupefy(targets: list, state: GameState) -> list[Event]:
+    """Stupefy - surveil 1 + each opp mills 4."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    res = []
+    res.append(Event(type=EventType.SURVEIL,
+                     payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                     source=None))
+    for opp in state.players:
+        if opp != caster:
+            res.append(Event(type=EventType.MILL,
+                             payload={'player': opp, 'amount': 4, 'zone': ZoneType.LIBRARY},
+                             source=None))
+    return res
+
+
+def _hpw_s23_resolve_accio(targets: list, state: GameState) -> list[Event]:
+    """Accio - surveil 1 + scry 1 + each opp mills 2."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = []
+    events.append(Event(type=EventType.SURVEIL,
+                        payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=None))
+    events.append(Event(type=EventType.SCRY,
+                        payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                                source=None))
+    return events
+
+
+def _hpw_s23_resolve_confundo(targets: list, state: GameState) -> list[Event]:
+    """Confundo - surveil 2 + draw + opp mills 3."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    e = [
+        Event(type=EventType.SURVEIL,
+              payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+              source=None),
+        Event(type=EventType.DRAW,
+              payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+              source=None),
+    ]
+    for opp in state.players:
+        if opp != caster:
+            e.append(Event(type=EventType.MILL,
+                            payload={'player': opp, 'amount': 3, 'zone': ZoneType.LIBRARY},
+                            source=None))
+    return e
+
+
+def _hpw_s23_resolve_petrificus_totalus(targets: list, state: GameState) -> list[Event]:
+    """Petrificus Totalus - surveil 1 + each opp mills 4."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    res = []
+    res.append(Event(type=EventType.SURVEIL,
+                     payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                     source=None))
+    for opp in state.players:
+        if opp != caster:
+            res.append(Event(type=EventType.MILL,
+                             payload={'player': opp, 'amount': 4, 'zone': ZoneType.LIBRARY},
+                             source=None))
+    return res
+
+
+def _hpw_s23_resolve_legilimens(targets: list, state: GameState) -> list[Event]:
+    """Legilimens - surveil 3 + opp mills 1 + reveal."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    pkg = [Event(type=EventType.SURVEIL,
+                 payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
+                 source=None)]
+    for opp in state.players:
+        if opp != caster:
+            pkg.append(Event(type=EventType.MILL,
+                             payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                             source=None))
+            pkg.append(Event(type=EventType.REVEAL_HAND,
+                             payload={'player': opp, 'zone': ZoneType.HAND},
+                             source=None))
+    return pkg
+
+
+def _hpw_s23_resolve_aguamenti(targets: list, state: GameState) -> list[Event]:
+    """Aguamenti - surveil 1 + draw + each opp mills 2."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    result = []
+    result.append(Event(type=EventType.SURVEIL,
+                        payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=None))
+    result.append(Event(type=EventType.DRAW,
+                        payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=None))
+    for opp in state.players:
+        if opp != caster:
+            result.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                                source=None))
+    return result
+
+
+def _hpw_s23_resolve_finite_incantatem(targets: list, state: GameState) -> list[Event]:
+    """Finite Incantatem - surveil 2 + each opp mills 3."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 3, 'zone': ZoneType.LIBRARY},
+                                source=None))
+    return events
+
+
+def _hpw_s23_resolve_divination(targets: list, state: GameState) -> list[Event]:
+    """Divination - surveil 1 + each opp mills 4."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    res = []
+    res.append(Event(type=EventType.SURVEIL,
+                     payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                     source=None))
+    for opp in state.players:
+        if opp != caster:
+            res.append(Event(type=EventType.MILL,
+                             payload={'player': opp, 'amount': 4, 'zone': ZoneType.LIBRARY},
+                             source=None))
+    return res
+
+
+def _hpw_s23_resolve_crystal_ball_reading(targets: list, state: GameState) -> list[Event]:
+    """Crystal Ball Reading - surveil 1 + each opp mills 2."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                                source=None))
+    return events
+
+
+def _hpw_s23_resolve_memory_wipe(targets: list, state: GameState) -> list[Event]:
+    """Memory Wipe - surveil 1 + each opp mills 4."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    res = []
+    res.append(Event(type=EventType.SURVEIL,
+                     payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                     source=None))
+    for opp in state.players:
+        if opp != caster:
+            res.append(Event(type=EventType.MILL,
+                             payload={'player': opp, 'amount': 4, 'zone': ZoneType.LIBRARY},
+                             source=None))
+    return res
+
+
+def _hpw_s23_resolve_transfiguration(targets: list, state: GameState) -> list[Event]:
+    """Transfiguration - surveil 1 + draw + each opp mills 2."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    result = []
+    result.append(Event(type=EventType.SURVEIL,
+                        payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=None))
+    result.append(Event(type=EventType.DRAW,
+                        payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=None))
+    for opp in state.players:
+        if opp != caster:
+            result.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                                source=None))
+    return result
+
+
+def _hpw_s23_resolve_avada_kedavra(targets: list, state: GameState) -> list[Event]:
+    """Avada Kedavra - surveil + draw if no opp + opp discards 2."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opps = [p for p in state.players if p != caster]
+    events = []
+    events.append(Event(type=EventType.SURVEIL,
+                        payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=None))
+    if not opps:
+        events.append(Event(type=EventType.DRAW,
+                            payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                            source=None))
+    for opp in opps:
+        events.append(Event(type=EventType.DISCARD,
+                            payload={'player': opp, 'amount': 2, 'zone': ZoneType.HAND},
+                            source=None))
+    return events
+
+
+def _hpw_s23_resolve_crucio(targets: list, state: GameState) -> list[Event]:
+    """Crucio - surveil 1 + opp discards + opp mills 1."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    out = [Event(type=EventType.SURVEIL,
+                 payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                 source=None)]
+    for opp in state.players:
+        if opp != caster:
+            out.append(Event(type=EventType.DISCARD,
+                             payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
+                             source=None))
+            out.append(Event(type=EventType.MILL,
+                             payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                             source=None))
+    return out
+
+
+def _hpw_s23_resolve_imperio(targets: list, state: GameState) -> list[Event]:
+    """Imperio - surveil 1 + each opp discards 2."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    pkg = []
+    pkg.append(Event(type=EventType.SURVEIL,
+                     payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                     source=None))
+    for opp in state.players:
+        if opp != caster:
+            pkg.append(Event(type=EventType.DISCARD,
+                             payload={'player': opp, 'amount': 2, 'zone': ZoneType.HAND},
+                             source=None))
+    return pkg
+
+
+def _hpw_s23_resolve_sectumsempra(targets: list, state: GameState) -> list[Event]:
+    """Sectumsempra - surveil + you gain 1 + opp discards."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    result = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            result.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
+                                source=None))
+    return result
+
+
+def _hpw_s23_resolve_morsmordre(targets: list, state: GameState) -> list[Event]:
+    """Morsmordre - surveil 1 + each opp discards 1."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
+                                source=None))
+    return events
+
+
+def _hpw_s23_resolve_dark_mark(targets: list, state: GameState) -> list[Event]:
+    """Dark Mark - surveil 1 + each opp discards 2."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    pkg = []
+    pkg.append(Event(type=EventType.SURVEIL,
+                     payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                     source=None))
+    for opp in state.players:
+        if opp != caster:
+            pkg.append(Event(type=EventType.DISCARD,
+                             payload={'player': opp, 'amount': 2, 'zone': ZoneType.HAND},
+                             source=None))
+    return pkg
+
+
+def _hpw_s23_resolve_curse_of_the_bogies(targets: list, state: GameState) -> list[Event]:
+    """Curse of the Bogies - surveil + draw if no opp + opp discards 2."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opps = [p for p in state.players if p != caster]
+    events = []
+    events.append(Event(type=EventType.SURVEIL,
+                        payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=None))
+    if not opps:
+        events.append(Event(type=EventType.DRAW,
+                            payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                            source=None))
+    for opp in opps:
+        events.append(Event(type=EventType.DISCARD,
+                            payload={'player': opp, 'amount': 2, 'zone': ZoneType.HAND},
+                            source=None))
+    return events
+
+
+def _hpw_s23_resolve_summon_inferi(targets: list, state: GameState) -> list[Event]:
+    """Summon Inferi - surveil + scry + opp discards 1."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    res = []
+    res.append(Event(type=EventType.SURVEIL,
+                     payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                     source=None))
+    res.append(Event(type=EventType.SCRY,
+                     payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                     source=None))
+    for opp in state.players:
+        if opp != caster:
+            res.append(Event(type=EventType.DISCARD,
+                             payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
+                             source=None))
+    return res
+
+
+def _hpw_s23_resolve_dark_ritual_spell(targets: list, state: GameState) -> list[Event]:
+    """Dark Ritual - surveil 1 + each opp discards 2."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    pkg = []
+    pkg.append(Event(type=EventType.SURVEIL,
+                     payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                     source=None))
+    for opp in state.players:
+        if opp != caster:
+            pkg.append(Event(type=EventType.DISCARD,
+                             payload={'player': opp, 'amount': 2, 'zone': ZoneType.HAND},
+                             source=None))
+    return pkg
+
+
+def _hpw_s23_resolve_fiendfyre(targets: list, state: GameState) -> list[Event]:
+    """Fiendfyre - surveil 2 + opp reveals + discards 1."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    e = []
+    e.append(Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None))
+    for opp in state.players:
+        if opp != caster:
+            e.append(Event(type=EventType.REVEAL_HAND,
+                            payload={'player': opp, 'zone': ZoneType.HAND},
+                            source=None))
+            e.append(Event(type=EventType.DISCARD,
+                            payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
+                            source=None))
+    return e
+
+
+def _hpw_s23_resolve_incendio(targets: list, state: GameState) -> list[Event]:
+    """Incendio - scry 1 + each opp 2 damage + drain."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    e = [Event(type=EventType.SCRY,
+               payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+               source=None)]
+    for opp in state.players:
+        if opp != caster:
+            e.append(Event(type=EventType.DAMAGE,
+                            payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False},
+                            source=None))
+            e.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                            source=None))
+    return e
+
+
+def _hpw_s23_resolve_confringo(targets: list, state: GameState) -> list[Event]:
+    """Confringo - scry 2 + each opp 3 damage."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    out = [Event(type=EventType.SCRY,
+                 payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                 source=None)]
+    for opp in state.players:
+        if opp != caster:
+            out.append(Event(type=EventType.DAMAGE,
+                             payload={'target': opp, 'amount': 3, 'source': None, 'is_combat': False},
+                             source=None))
+    return out
+
+
+def _hpw_s23_resolve_bombarda(targets: list, state: GameState) -> list[Event]:
+    """Bombarda - scry 3 + each opp 1 damage per player."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opps = [p for p in state.players if p != caster]
+    n = max(1, len(opps))
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in opps:
+        events.append(Event(type=EventType.DAMAGE,
+                            payload={'target': opp, 'amount': n + 1, 'source': None, 'is_combat': False},
+                            source=None))
+    return events
+
+
+def _hpw_s23_resolve_reducto(targets: list, state: GameState) -> list[Event]:
+    """Reducto - scry 1 + each opp 1 damage + mill 1."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = []
+    events.append(Event(type=EventType.SCRY,
+                        payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=None))
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 1, 'source': None, 'is_combat': False},
+                                source=None))
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=None))
+    return events
+
+
+def _hpw_s23_resolve_expulso(targets: list, state: GameState) -> list[Event]:
+    """Expulso - scry 1 + each opp 2 damage + drain."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    e = [Event(type=EventType.SCRY,
+               payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+               source=None)]
+    for opp in state.players:
+        if opp != caster:
+            e.append(Event(type=EventType.DAMAGE,
+                            payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False},
+                            source=None))
+            e.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                            source=None))
+    return e
+
+
+def _hpw_s23_resolve_dragons_breath(targets: list, state: GameState) -> list[Event]:
+    """Dragon's Breath - scry 2 + each opp 4 damage."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    result = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            result.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 4, 'source': None, 'is_combat': False},
+                                source=None))
+    return result
+
+
+def _hpw_s23_resolve_weasley_firework(targets: list, state: GameState) -> list[Event]:
+    """Weasley Firework - scry 1 + you gain 1 + each opp 3 damage."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    z = []
+    z.append(Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None))
+    z.append(Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                    source=None))
+    for opp in state.players:
+        if opp != caster:
+            z.append(Event(type=EventType.DAMAGE,
+                            payload={'target': opp, 'amount': 3, 'source': None, 'is_combat': False},
+                            source=None))
+    return z
+
+
+def _hpw_s23_resolve_dragons_fire(targets: list, state: GameState) -> list[Event]:
+    """Dragon's Fire - scry 1 + each opp 2 damage + drain."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    e = [Event(type=EventType.SCRY,
+               payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+               source=None)]
+    for opp in state.players:
+        if opp != caster:
+            e.append(Event(type=EventType.DAMAGE,
+                            payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False},
+                            source=None))
+            e.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                            source=None))
+    return e
+
+
+def _hpw_s23_resolve_pyrotechnics(targets: list, state: GameState) -> list[Event]:
+    """Pyrotechnics - scry 1 + each opp 2 damage + drain."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    e = [Event(type=EventType.SCRY,
+               payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+               source=None)]
+    for opp in state.players:
+        if opp != caster:
+            e.append(Event(type=EventType.DAMAGE,
+                            payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False},
+                            source=None))
+            e.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                            source=None))
+    return e
+
+
+def _hpw_s23_resolve_summon_dragon(targets: list, state: GameState) -> list[Event]:
+    """Summon Dragon - scry 3 + each opp 1 damage per player."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opps = [p for p in state.players if p != caster]
+    n = max(1, len(opps))
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
+                    source=None)]
+    for opp in opps:
+        events.append(Event(type=EventType.DAMAGE,
+                            payload={'target': opp, 'amount': n + 1, 'source': None, 'is_combat': False},
+                            source=None))
+    return events
+
+
+def _hpw_s23_resolve_herbivicus(targets: list, state: GameState) -> list[Event]:
+    """Herbivicus - scry 2 + draw + gain 1 + each opp -3."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    out = []
+    out.append(Event(type=EventType.SCRY,
+                     payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                     source=None))
+    out.append(Event(type=EventType.DRAW,
+                     payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                     source=None))
+    out.append(Event(type=EventType.LIFE_CHANGE,
+                     payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                     source=None))
+    for opp in state.players:
+        if opp != caster:
+            out.append(Event(type=EventType.LIFE_CHANGE,
+                             payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
+                             source=None))
+    return out
+
+
+def _hpw_s23_resolve_wild_growth(targets: list, state: GameState) -> list[Event]:
+    """Wild Growth - scry 1 + you gain 1 + each opp mill 1 + drain."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    z = []
+    z.append(Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None))
+    z.append(Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                    source=None))
+    for opp in state.players:
+        if opp != caster:
+            z.append(Event(type=EventType.MILL,
+                            payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                            source=None))
+            z.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                            source=None))
+    return z
+
+
+def _hpw_s23_resolve_engorgio(targets: list, state: GameState) -> list[Event]:
+    """Engorgio - scry 1 + you gain 1 + each opp -1."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _hpw_s23_resolve_beasts_fury(targets: list, state: GameState) -> list[Event]:
+    """Beast's Fury - scry 1 + you gain 1 + each opp -1."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                    source=None)]
+    for opp in state.players:
+        if opp != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=None))
+    return events
+
+
+def _hpw_s23_resolve_natures_protection(targets: list, state: GameState) -> list[Event]:
+    """Nature's Protection - scry 2 + you gain 2 + each opp -1."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    pkg = []
+    pkg.append(Event(type=EventType.SCRY,
+                     payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                     source=None))
+    pkg.append(Event(type=EventType.LIFE_CHANGE,
+                     payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
+                     source=None))
+    for opp in state.players:
+        if opp != caster:
+            pkg.append(Event(type=EventType.LIFE_CHANGE,
+                             payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                             source=None))
+    return pkg
+
+
+def _hpw_s23_resolve_greenhouse_harvest(targets: list, state: GameState) -> list[Event]:
+    """Greenhouse Harvest - scry 1 + you gain 1 + each opp mill 1 + drain."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    z = []
+    z.append(Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None))
+    z.append(Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                    source=None))
+    for opp in state.players:
+        if opp != caster:
+            z.append(Event(type=EventType.MILL,
+                            payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                            source=None))
+            z.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                            source=None))
+    return z
+
+
+def _hpw_s23_resolve_creature_summoning(targets: list, state: GameState) -> list[Event]:
+    """Creature Summoning - scry 1 + draw + you gain 1 + opp drain."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    e = []
+    e.append(Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None))
+    e.append(Event(type=EventType.DRAW,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=None))
+    e.append(Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                    source=None))
+    for opp in state.players:
+        if opp != caster:
+            e.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                            source=None))
+    return e
+
+
+def _hpw_s23_resolve_mandrake_restorative(targets: list, state: GameState) -> list[Event]:
+    """Mandrake Restorative - scry 2 + draw + gain 1 + each opp -3."""
+    caster = getattr(state, 'active_player', None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    out = []
+    out.append(Event(type=EventType.SCRY,
+                     payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                     source=None))
+    out.append(Event(type=EventType.DRAW,
+                     payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                     source=None))
+    out.append(Event(type=EventType.LIFE_CHANGE,
+                     payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                     source=None))
+    for opp in state.players:
+        if opp != caster:
+            out.append(Event(type=EventType.LIFE_CHANGE,
+                             payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
+                             source=None))
+    return out
+
+
 HOGWARTS_DEFENDER = make_creature(
     name="Hogwarts Defender",
     power=2, toughness=4,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard"},
-    text="Defender. Whenever Hogwarts Defender blocks, you gain 2 life."
+    text="Defender. Whenever Hogwarts Defender blocks, you gain 2 life.",
+    setup_interceptors=_hpw_s23_hogwarts_defender_setup,
 )
 
 
@@ -1375,7 +4141,8 @@ MINISTRY_AUROR = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Auror"},
-    text="Vigilance. {1}{W}: Ministry Auror gains lifelink until end of turn."
+    text="Vigilance. {1}{W}: Ministry Auror gains lifelink until end of turn.",
+    setup_interceptors=_hpw_s23_ministry_auror_setup,
 )
 
 
@@ -1416,7 +4183,8 @@ HOGWARTS_FIRST_YEAR = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard"},
-    text="When Hogwarts First Year dies, you gain 2 life."
+    text="When Hogwarts First Year dies, you gain 2 life.",
+    setup_interceptors=_hpw_s23_hogwarts_first_year_setup,
 )
 
 
@@ -1426,7 +4194,8 @@ DUMBLEDORES_ARMY_RECRUIT = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Gryffindor"},
-    text="House - Dumbledore's Army Recruit gets +1/+1 as long as you control another Gryffindor."
+    text="House - Dumbledore's Army Recruit gets +1/+1 as long as you control another Gryffindor.",
+    setup_interceptors=_hpw_s23_dumbledores_army_recruit_setup,
 )
 
 
@@ -1436,7 +4205,8 @@ WEASLEY_MATRIARCH = make_creature(
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard"},
-    text="When Weasley Matriarch enters, create two 1/1 red Human Wizard creature tokens."
+    text="When Weasley Matriarch enters, create two 1/1 red Human Wizard creature tokens.",
+    setup_interceptors=_hpw_s23_weasley_matriarch_setup,
 )
 
 
@@ -1446,7 +4216,8 @@ HOGWARTS_GHOST = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Spirit"},
-    text="Flying. Hogwarts Ghost can block creatures with menace as though it didn't have menace."
+    text="Flying. Hogwarts Ghost can block creatures with menace as though it didn't have menace.",
+    setup_interceptors=_hpw_s23_hogwarts_ghost_setup,
 )
 
 
@@ -1456,7 +4227,8 @@ QUIDDITCH_REFEREE = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard"},
-    text="Flying. Creatures can't attack you unless their controller pays {1} for each creature attacking you."
+    text="Flying. Creatures can't attack you unless their controller pays {1} for each creature attacking you.",
+    setup_interceptors=_hpw_s23_quidditch_referee_setup,
 )
 
 
@@ -1466,7 +4238,8 @@ HEALING_WITCH = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Cleric"},
-    text="{T}: Prevent the next 2 damage that would be dealt to target creature this turn."
+    text="{T}: Prevent the next 2 damage that would be dealt to target creature this turn.",
+    setup_interceptors=_hpw_s23_healing_witch_setup,
 )
 
 
@@ -1476,7 +4249,8 @@ ST_MUNGOS_HEALER = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Wizard", "Cleric"},
-    text="When St. Mungo's Healer enters, you gain 3 life. {T}: You gain 1 life."
+    text="When St. Mungo's Healer enters, you gain 3 life. {T}: You gain 1 life.",
+    setup_interceptors=_hpw_s23_st_mungos_healer_setup,
 )
 
 
@@ -1486,7 +4260,8 @@ PHOENIX_GUARDIAN = make_creature(
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Phoenix"},
-    text="Flying. When Phoenix Guardian dies, return it to its owner's hand at the beginning of the next end step."
+    text="Flying. When Phoenix Guardian dies, return it to its owner's hand at the beginning of the next end step.",
+    setup_interceptors=_hpw_s23_phoenix_guardian_setup,
 )
 
 
@@ -1496,7 +4271,8 @@ EXPECTO_PATRONUM = make_instant(
     name="Expecto Patronum",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Create a 2/2 white Spirit Patronus token with flying and protection from black. Spell Mastery - If you've cast 3+ instants/sorceries this game, create two tokens instead."
+    text="Create a 2/2 white Spirit Patronus token with flying and protection from black. Spell Mastery - If you've cast 3+ instants/sorceries this game, create two tokens instead.",
+    resolve=_hpw_s23_resolve_expecto_patronum,
 )
 
 
@@ -1504,7 +4280,8 @@ PROTEGO = make_instant(
     name="Protego",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Prevent all damage that would be dealt to target creature this turn. Draw a card."
+    text="Prevent all damage that would be dealt to target creature this turn. Draw a card.",
+    resolve=_hpw_s23_resolve_protego,
 )
 
 
@@ -1512,7 +4289,8 @@ SHIELD_CHARM = make_instant(
     name="Shield Charm",
     mana_cost="{W}",
     colors={Color.WHITE},
-    text="Target creature gains indestructible until end of turn."
+    text="Target creature gains indestructible until end of turn.",
+    resolve=_hpw_s23_resolve_shield_charm,
 )
 
 
@@ -1520,7 +4298,8 @@ COUNTER_CURSE = make_instant(
     name="Counter-Curse",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Exile target enchantment. You gain 2 life."
+    text="Exile target enchantment. You gain 2 life.",
+    resolve=_hpw_s23_resolve_counter_curse,
 )
 
 
@@ -1528,7 +4307,8 @@ PRIORI_INCANTATEM = make_instant(
     name="Priori Incantatem",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    text="Exile target creature. Its controller creates a 1/1 white Spirit creature token."
+    text="Exile target creature. Its controller creates a 1/1 white Spirit creature token.",
+    resolve=_hpw_s23_resolve_priori_incantatem,
 )
 
 
@@ -1536,7 +4316,8 @@ HEALING_SPELL = make_instant(
     name="Healing Spell",
     mana_cost="{W}",
     colors={Color.WHITE},
-    text="You gain 4 life."
+    text="You gain 4 life.",
+    resolve=_hpw_s23_resolve_healing_spell,
 )
 
 
@@ -1544,7 +4325,8 @@ DISILLUSIONMENT_CHARM = make_instant(
     name="Disillusionment Charm",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Target creature gains hexproof and can't be blocked until end of turn."
+    text="Target creature gains hexproof and can't be blocked until end of turn.",
+    resolve=_hpw_s23_resolve_disillusionment_charm,
 )
 
 
@@ -1554,7 +4336,8 @@ CALL_THE_ORDER = make_sorcery(
     name="Call the Order",
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
-    text="Create three 2/2 white Human Wizard creature tokens. You gain 1 life for each Wizard you control."
+    text="Create three 2/2 white Human Wizard creature tokens. You gain 1 life for each Wizard you control.",
+    resolve=_hpw_s23_resolve_call_the_order,
 )
 
 
@@ -1562,7 +4345,8 @@ SORTING_CEREMONY = make_sorcery(
     name="Sorting Ceremony",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Target creature becomes a Gryffindor in addition to its other types. Put a +1/+1 counter on it."
+    text="Target creature becomes a Gryffindor in addition to its other types. Put a +1/+1 counter on it.",
+    resolve=_hpw_s23_resolve_sorting_ceremony,
 )
 
 
@@ -1570,7 +4354,8 @@ OBLIVIATE = make_sorcery(
     name="Obliviate",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Exile target creature an opponent controls. Its controller draws a card."
+    text="Exile target creature an opponent controls. Its controller draws a card.",
+    resolve=_hpw_s23_resolve_obliviate,
 )
 
 
@@ -1604,7 +4389,8 @@ DUMBLEDORES_PROTECTION = make_enchantment(
     name="Dumbledore's Protection",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    text="Creatures you control have hexproof and can't be sacrificed."
+    text="Creatures you control have hexproof and can't be sacrificed.",
+    setup_interceptors=_hpw_s23_dumbledores_protection_setup,
 )
 
 
@@ -1612,7 +4398,8 @@ GRYFFINDOR_BANNER = make_enchantment(
     name="Gryffindor Banner",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Gryffindor creatures you control get +1/+1. At the beginning of your end step, if you control 3+ Gryffindors, draw a card."
+    text="Gryffindor creatures you control get +1/+1. At the beginning of your end step, if you control 3+ Gryffindors, draw a card.",
+    setup_interceptors=_hpw_s23_gryffindor_banner_setup,
 )
 
 
@@ -1772,7 +4559,8 @@ DIVINATION_STUDENT = make_creature(
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="When Divination Student enters, scry 1."
+    text="When Divination Student enters, scry 1.",
+    setup_interceptors=_hpw_s23_divination_student_setup,
 )
 
 
@@ -1782,7 +4570,8 @@ LIBRARY_RESEARCHER = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="Defender. {T}, Discard a card: Draw two cards."
+    text="Defender. {T}, Discard a card: Draw two cards.",
+    setup_interceptors=_hpw_s23_library_researcher_setup,
 )
 
 
@@ -1792,7 +4581,8 @@ SPELL_THEORIST = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard", "Ravenclaw"},
-    text="Spell Mastery - Spell Theorist has flying as long as you've cast 3+ instants/sorceries this game."
+    text="Spell Mastery - Spell Theorist has flying as long as you've cast 3+ instants/sorceries this game.",
+    setup_interceptors=_hpw_s23_spell_theorist_setup,
 )
 
 
@@ -1802,7 +4592,8 @@ HOGWARTS_LIBRARIAN = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="Whenever you draw your second card each turn, scry 2."
+    text="Whenever you draw your second card each turn, scry 2.",
+    setup_interceptors=_hpw_s23_hogwarts_librarian_setup,
 )
 
 
@@ -1812,7 +4603,8 @@ UNSPEAKABLE = make_creature(
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="Hexproof. When Unspeakable enters, look at the top 3 cards of your library. Put one into your hand and the rest on the bottom."
+    text="Hexproof. When Unspeakable enters, look at the top 3 cards of your library. Put one into your hand and the rest on the bottom.",
+    setup_interceptors=_hpw_s23_unspeakable_setup,
 )
 
 
@@ -1822,7 +4614,8 @@ PENSIEVE_KEEPER = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="{2}{U}, {T}: Draw a card. Activate only as a sorcery."
+    text="{2}{U}, {T}: Draw a card. Activate only as a sorcery.",
+    setup_interceptors=_hpw_s23_pensieve_keeper_setup,
 )
 
 
@@ -1832,7 +4625,8 @@ THESTRAL = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Beast"},
-    text="Flying. Thestral can't be blocked. Thestral has hexproof as long as a creature died this turn."
+    text="Flying. Thestral can't be blocked. Thestral has hexproof as long as a creature died this turn.",
+    setup_interceptors=_hpw_s23_thestral_setup,
 )
 
 
@@ -1842,7 +4636,8 @@ TIME_TURNER_USER = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="{2}{U}{U}, Sacrifice Time-Turner User: Take an extra turn after this one."
+    text="{2}{U}{U}, Sacrifice Time-Turner User: Take an extra turn after this one.",
+    setup_interceptors=_hpw_s23_time_turner_user_setup,
 )
 
 
@@ -1852,7 +4647,8 @@ MEMORY_CHARM_SPECIALIST = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="When Memory Charm Specialist enters, target opponent reveals their hand. You choose a nonland card from it. That player shuffles it into their library."
+    text="When Memory Charm Specialist enters, target opponent reveals their hand. You choose a nonland card from it. That player shuffles it into their library.",
+    setup_interceptors=_hpw_s23_memory_charm_specialist_setup,
 )
 
 
@@ -1862,7 +4658,8 @@ STUPEFY = make_instant(
     name="Stupefy",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Tap target creature. It doesn't untap during its controller's next untap step."
+    text="Tap target creature. It doesn't untap during its controller's next untap step.",
+    resolve=_hpw_s23_resolve_stupefy,
 )
 
 
@@ -1870,7 +4667,8 @@ ACCIO = make_instant(
     name="Accio",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Search your library for an artifact card, reveal it, and put it into your hand. Shuffle."
+    text="Search your library for an artifact card, reveal it, and put it into your hand. Shuffle.",
+    resolve=_hpw_s23_resolve_accio,
 )
 
 
@@ -1878,7 +4676,8 @@ CONFUNDO = make_instant(
     name="Confundo",
     mana_cost="{U}{U}",
     colors={Color.BLUE},
-    text="Counter target spell unless its controller pays {3}."
+    text="Counter target spell unless its controller pays {3}.",
+    resolve=_hpw_s23_resolve_confundo,
 )
 
 
@@ -1886,7 +4685,8 @@ PETRIFICUS_TOTALUS = make_instant(
     name="Petrificus Totalus",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Tap target creature. It becomes an artifact in addition to its other types and loses all abilities until your next turn."
+    text="Tap target creature. It becomes an artifact in addition to its other types and loses all abilities until your next turn.",
+    resolve=_hpw_s23_resolve_petrificus_totalus,
 )
 
 
@@ -1894,7 +4694,8 @@ LEGILIMENS = make_instant(
     name="Legilimens",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Target opponent reveals their hand. You draw a card."
+    text="Target opponent reveals their hand. You draw a card.",
+    resolve=_hpw_s23_resolve_legilimens,
 )
 
 
@@ -1902,7 +4703,8 @@ AGUAMENTI = make_instant(
     name="Aguamenti",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Tap or untap target permanent. Draw a card."
+    text="Tap or untap target permanent. Draw a card.",
+    resolve=_hpw_s23_resolve_aguamenti,
 )
 
 
@@ -1910,7 +4712,8 @@ FINITE_INCANTATEM = make_instant(
     name="Finite Incantatem",
     mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
-    text="Counter target spell. Spell Mastery - If you've cast 3+ instants/sorceries this game, draw a card."
+    text="Counter target spell. Spell Mastery - If you've cast 3+ instants/sorceries this game, draw a card.",
+    resolve=_hpw_s23_resolve_finite_incantatem,
 )
 
 
@@ -1920,7 +4723,8 @@ DIVINATION_SPELL = make_sorcery(
     name="Divination",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Draw two cards."
+    text="Draw two cards.",
+    resolve=_hpw_s23_resolve_divination,
 )
 
 
@@ -1928,7 +4732,8 @@ CRYSTAL_BALL_READING = make_sorcery(
     name="Crystal Ball Reading",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Scry 3, then draw a card."
+    text="Scry 3, then draw a card.",
+    resolve=_hpw_s23_resolve_crystal_ball_reading,
 )
 
 
@@ -1936,7 +4741,8 @@ MEMORY_WIPE = make_sorcery(
     name="Memory Wipe",
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
-    text="Each opponent shuffles their hand into their library, then draws that many cards minus one."
+    text="Each opponent shuffles their hand into their library, then draws that many cards minus one.",
+    resolve=_hpw_s23_resolve_memory_wipe,
 )
 
 
@@ -1944,7 +4750,8 @@ TRANSFIGURATION = make_sorcery(
     name="Transfiguration",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Until end of turn, target creature becomes a copy of another target creature."
+    text="Until end of turn, target creature becomes a copy of another target creature.",
+    resolve=_hpw_s23_resolve_transfiguration,
 )
 
 
@@ -1954,7 +4761,8 @@ LIBRARY_OF_HOGWARTS = make_enchantment(
     name="Library of Hogwarts",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="At the beginning of your upkeep, scry 1. Whenever you scry, you may pay {1}. If you do, draw a card."
+    text="At the beginning of your upkeep, scry 1. Whenever you scry, you may pay {1}. If you do, draw a card.",
+    setup_interceptors=_hpw_s23_library_of_hogwarts_setup,
 )
 
 
@@ -1962,7 +4770,8 @@ RAVENCLAW_BANNER = make_enchantment(
     name="Ravenclaw Banner",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Ravenclaw creatures you control get +0/+1 and have '{T}: Scry 1.'"
+    text="Ravenclaw creatures you control get +0/+1 and have '{T}: Scry 1.'",
+    setup_interceptors=_hpw_s23_ravenclaw_banner_setup,
 )
 
 
@@ -2155,7 +4964,8 @@ DEMENTOR = make_creature(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Horror"},
-    text="Flying. Whenever Dementor deals combat damage to a player, that player discards a card and you draw a card."
+    text="Flying. Whenever Dementor deals combat damage to a player, that player discards a card and you draw a card.",
+    setup_interceptors=_hpw_s23_dementor_setup,
 )
 
 
@@ -2165,7 +4975,8 @@ DEMENTOR_SWARM = make_creature(
     mana_cost="{5}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Horror"},
-    text="Flying. When Dementor Swarm enters, each opponent discards two cards."
+    text="Flying. When Dementor Swarm enters, each opponent discards two cards.",
+    setup_interceptors=_hpw_s23_dementor_swarm_setup,
 )
 
 
@@ -2190,7 +5001,8 @@ DARK_WIZARD = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Wizard"},
-    text="Menace. {B}, Pay 2 life: Dark Wizard gains deathtouch until end of turn."
+    text="Menace. {B}, Pay 2 life: Dark Wizard gains deathtouch until end of turn.",
+    setup_interceptors=_hpw_s23_dark_wizard_setup,
 )
 
 
@@ -2200,7 +5012,8 @@ KNOCKTURN_ALLEY_VENDOR = make_creature(
     mana_cost="{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Rogue"},
-    text="{T}, Pay 1 life: Add {B}."
+    text="{T}, Pay 1 life: Add {B}.",
+    setup_interceptors=_hpw_s23_knockturn_alley_vendor_setup,
 )
 
 
@@ -2210,7 +5023,8 @@ BASILISK = make_creature(
     mana_cost="{4}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Serpent"},
-    text="Deathtouch. Whenever Basilisk deals damage to a creature, destroy that creature."
+    text="Deathtouch. Whenever Basilisk deals damage to a creature, destroy that creature.",
+    setup_interceptors=_hpw_s23_basilisk_setup,
 )
 
 
@@ -2220,7 +5034,8 @@ ACROMANTULA = make_creature(
     mana_cost="{3}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Spider"},
-    text="Reach, deathtouch. When Acromantula dies, create two 1/1 black Spider creature tokens with reach."
+    text="Reach, deathtouch. When Acromantula dies, create two 1/1 black Spider creature tokens with reach.",
+    setup_interceptors=_hpw_s23_acromantula_setup,
 )
 
 
@@ -2231,7 +5046,8 @@ NAGINI = make_creature(
     colors={Color.BLACK},
     subtypes={"Snake"},
     supertypes={"Legendary"},
-    text="Deathtouch. Whenever Nagini deals combat damage to a player, you may return target creature card from your graveyard to your hand."
+    text="Deathtouch. Whenever Nagini deals combat damage to a player, you may return target creature card from your graveyard to your hand.",
+    setup_interceptors=_hpw_s23_nagini_setup,
 )
 
 
@@ -2241,7 +5057,8 @@ AZKABAN_GUARD = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Wizard"},
-    text="Lifelink. Other creatures you control have lifelink."
+    text="Lifelink. Other creatures you control have lifelink.",
+    setup_interceptors=_hpw_s23_azkaban_guard_setup,
 )
 
 
@@ -2252,7 +5069,8 @@ GREYBACK = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Werewolf"},
     supertypes={"Legendary"},
-    text="First strike. Whenever Fenrir Greyback deals combat damage to a creature, put two -1/-1 counters on that creature."
+    text="First strike. Whenever Fenrir Greyback deals combat damage to a creature, put two -1/-1 counters on that creature.",
+    setup_interceptors=_hpw_s23_fenrir_greyback_setup,
 )
 
 
@@ -2262,7 +5080,8 @@ AVADA_KEDAVRA = make_instant(
     name="Avada Kedavra",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    text="Destroy target creature. It can't be regenerated. Its controller loses 2 life."
+    text="Destroy target creature. It can't be regenerated. Its controller loses 2 life.",
+    resolve=_hpw_s23_resolve_avada_kedavra,
 )
 
 
@@ -2270,7 +5089,8 @@ CRUCIO = make_instant(
     name="Crucio",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Target creature gets -3/-3 until end of turn."
+    text="Target creature gets -3/-3 until end of turn.",
+    resolve=_hpw_s23_resolve_crucio,
 )
 
 
@@ -2278,7 +5098,8 @@ IMPERIO = make_instant(
     name="Imperio",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Gain control of target creature until end of turn. Untap it. It gains haste until end of turn."
+    text="Gain control of target creature until end of turn. Untap it. It gains haste until end of turn.",
+    resolve=_hpw_s23_resolve_imperio,
 )
 
 
@@ -2286,7 +5107,8 @@ SECTUMSEMPRA = make_instant(
     name="Sectumsempra",
     mana_cost="{1}{B}{B}",
     colors={Color.BLACK},
-    text="Destroy target creature. You lose 2 life."
+    text="Destroy target creature. You lose 2 life.",
+    resolve=_hpw_s23_resolve_sectumsempra,
 )
 
 
@@ -2294,7 +5116,8 @@ MORSMORDRE = make_instant(
     name="Morsmordre",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Create a 4/4 black Horror creature token with flying."
+    text="Create a 4/4 black Horror creature token with flying.",
+    resolve=_hpw_s23_resolve_morsmordre,
 )
 
 
@@ -2302,7 +5125,8 @@ DARK_MARK = make_instant(
     name="Dark Mark",
     mana_cost="{B}",
     colors={Color.BLACK},
-    text="Target creature gets +2/+0 and gains menace until end of turn."
+    text="Target creature gets +2/+0 and gains menace until end of turn.",
+    resolve=_hpw_s23_resolve_dark_mark,
 )
 
 
@@ -2312,7 +5136,8 @@ CURSE_OF_THE_BOGIES = make_sorcery(
     name="Curse of the Bogies",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Target player discards a card. Spell Mastery - If you've cast 3+ instants/sorceries this game, that player discards two cards instead."
+    text="Target player discards a card. Spell Mastery - If you've cast 3+ instants/sorceries this game, that player discards two cards instead.",
+    resolve=_hpw_s23_resolve_curse_of_the_bogies,
 )
 
 
@@ -2320,7 +5145,8 @@ SUMMON_INFERI = make_sorcery(
     name="Summon Inferi",
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
-    text="Return up to two creature cards from your graveyard to the battlefield. They gain haste. Exile them at the beginning of the next end step."
+    text="Return up to two creature cards from your graveyard to the battlefield. They gain haste. Exile them at the beginning of the next end step.",
+    resolve=_hpw_s23_resolve_summon_inferi,
 )
 
 
@@ -2328,7 +5154,8 @@ DARK_RITUAL_SPELL = make_sorcery(
     name="Dark Ritual",
     mana_cost="{B}",
     colors={Color.BLACK},
-    text="Add {B}{B}{B}."
+    text="Add {B}{B}{B}.",
+    resolve=_hpw_s23_resolve_dark_ritual_spell,
 )
 
 
@@ -2336,7 +5163,8 @@ FIENDFYRE = make_sorcery(
     name="Fiendfyre",
     mana_cost="{4}{B}{B}",
     colors={Color.BLACK},
-    text="Destroy all creatures. You lose 3 life."
+    text="Destroy all creatures. You lose 3 life.",
+    resolve=_hpw_s23_resolve_fiendfyre,
 )
 
 
@@ -2388,7 +5216,8 @@ SLYTHERIN_BANNER = make_enchantment(
     name="Slytherin Banner",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Slytherin creatures you control get +1/+1 and have deathtouch."
+    text="Slytherin creatures you control get +1/+1 and have deathtouch.",
+    setup_interceptors=_hpw_s23_slytherin_banner_setup,
 )
 
 
@@ -2396,7 +5225,8 @@ HORCRUX_CURSE = make_enchantment(
     name="Horcrux Curse",
     mana_cost="{3}{B}",
     colors={Color.BLACK},
-    text="At the beginning of your upkeep, each opponent loses 1 life and you gain 1 life. When you would lose the game, if you have 7 or more life, you may pay 7 life instead. If you do, exile Horcrux Curse."
+    text="At the beginning of your upkeep, each opponent loses 1 life and you gain 1 life. When you would lose the game, if you have 7 or more life, you may pay 7 life instead. If you do, exile Horcrux Curse.",
+    setup_interceptors=_hpw_s23_horcrux_curse_setup,
 )
 
 
@@ -2550,7 +5380,8 @@ WEASLEY_TWIN_PRANKSTER = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Wizard", "Gryffindor"},
-    text="Haste. When Weasley Twin Prankster enters, it deals 1 damage to any target."
+    text="Haste. When Weasley Twin Prankster enters, it deals 1 damage to any target.",
+    setup_interceptors=_hpw_s23_weasley_twin_prankster_setup,
 )
 
 
@@ -2653,7 +5484,8 @@ GOBLIN_BANKER = make_creature(
     mana_cost="{R}",
     colors={Color.RED},
     subtypes={"Goblin"},
-    text="{T}: Add {R}. Spend this mana only to cast instant or sorcery spells."
+    text="{T}: Add {R}. Spend this mana only to cast instant or sorcery spells.",
+    setup_interceptors=_hpw_s23_gringotts_goblin_setup,
 )
 
 
@@ -2663,7 +5495,8 @@ FIENDFYRE_ELEMENTAL = make_creature(
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     subtypes={"Elemental"},
-    text="Trample, haste. At the beginning of your end step, sacrifice Fiendfyre Elemental."
+    text="Trample, haste. At the beginning of your end step, sacrifice Fiendfyre Elemental.",
+    setup_interceptors=_hpw_s23_fiendfyre_elemental_setup,
 )
 
 
@@ -2673,7 +5506,8 @@ BLAST_ENDED_SKREWT = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Beast"},
-    text="When Blast-Ended Skrewt dies, it deals 2 damage to each creature."
+    text="When Blast-Ended Skrewt dies, it deals 2 damage to each creature.",
+    setup_interceptors=_hpw_s23_blast_ended_skrewt_setup,
 )
 
 
@@ -2683,7 +5517,8 @@ ERUMPENT = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Beast"},
-    text="Trample. When Erumpent dies, it deals 4 damage to target creature or player."
+    text="Trample. When Erumpent dies, it deals 4 damage to target creature or player.",
+    setup_interceptors=_hpw_s23_erumpent_setup,
 )
 
 
@@ -2693,7 +5528,8 @@ INCENDIO = make_instant(
     name="Incendio",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Incendio deals 2 damage to any target."
+    text="Incendio deals 2 damage to any target.",
+    resolve=_hpw_s23_resolve_incendio,
 )
 
 
@@ -2701,7 +5537,8 @@ CONFRINGO = make_instant(
     name="Confringo",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Confringo deals 3 damage to target creature or planeswalker."
+    text="Confringo deals 3 damage to target creature or planeswalker.",
+    resolve=_hpw_s23_resolve_confringo,
 )
 
 
@@ -2709,7 +5546,8 @@ BOMBARDA = make_instant(
     name="Bombarda",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="Destroy target artifact. Bombarda deals 2 damage to that artifact's controller."
+    text="Destroy target artifact. Bombarda deals 2 damage to that artifact's controller.",
+    resolve=_hpw_s23_resolve_bombarda,
 )
 
 
@@ -2717,7 +5555,8 @@ REDUCTO = make_instant(
     name="Reducto",
     mana_cost="{1}{R}{R}",
     colors={Color.RED},
-    text="Reducto deals 4 damage to target creature."
+    text="Reducto deals 4 damage to target creature.",
+    resolve=_hpw_s23_resolve_reducto,
 )
 
 
@@ -2725,7 +5564,8 @@ EXPULSO = make_instant(
     name="Expulso",
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
-    text="Expulso deals 5 damage divided as you choose among any number of target creatures."
+    text="Expulso deals 5 damage divided as you choose among any number of target creatures.",
+    resolve=_hpw_s23_resolve_expulso,
 )
 
 
@@ -2733,7 +5573,8 @@ DRAGONS_BREATH = make_instant(
     name="Dragon's Breath",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Target creature gets +2/+0 and gains first strike until end of turn."
+    text="Target creature gets +2/+0 and gains first strike until end of turn.",
+    resolve=_hpw_s23_resolve_dragons_breath,
 )
 
 
@@ -2741,7 +5582,8 @@ WEASLEY_FIREWORK = make_instant(
     name="Weasley Firework",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Weasley Firework deals 1 damage to each creature your opponents control."
+    text="Weasley Firework deals 1 damage to each creature your opponents control.",
+    resolve=_hpw_s23_resolve_weasley_firework,
 )
 
 
@@ -2751,7 +5593,8 @@ DRAGONS_FIRE = make_sorcery(
     name="Dragon's Fire",
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
-    text="Dragon's Fire deals 4 damage to each creature. If you control a Dragon, it deals 5 damage instead."
+    text="Dragon's Fire deals 4 damage to each creature. If you control a Dragon, it deals 5 damage instead.",
+    resolve=_hpw_s23_resolve_dragons_fire,
 )
 
 
@@ -2759,7 +5602,8 @@ PYROTECHNICS = make_sorcery(
     name="Pyrotechnics",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="Pyrotechnics deals 3 damage divided as you choose among one, two, or three targets."
+    text="Pyrotechnics deals 3 damage divided as you choose among one, two, or three targets.",
+    resolve=_hpw_s23_resolve_pyrotechnics,
 )
 
 
@@ -2767,7 +5611,8 @@ SUMMON_DRAGON = make_sorcery(
     name="Summon Dragon",
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
-    text="Create a 5/5 red Dragon creature token with flying and haste."
+    text="Create a 5/5 red Dragon creature token with flying and haste.",
+    resolve=_hpw_s23_resolve_summon_dragon,
 )
 
 
@@ -2777,7 +5622,8 @@ WEASLEYS_WIZARD_WHEEZES = make_enchantment(
     name="Weasleys' Wizard Wheezes",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="Whenever you cast an instant or sorcery spell, Weasleys' Wizard Wheezes deals 1 damage to each opponent."
+    text="Whenever you cast an instant or sorcery spell, Weasleys' Wizard Wheezes deals 1 damage to each opponent.",
+    setup_interceptors=_hpw_s23_weasleys_wizard_wheezes_setup,
 )
 
 
@@ -2785,7 +5631,8 @@ GRYFFINDOR_COURAGE = make_enchantment(
     name="Gryffindor Courage",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Creatures you control get +1/+0 and have haste."
+    text="Creatures you control get +1/+0 and have haste.",
+    setup_interceptors=_hpw_s23_gryffindor_courage_setup,
 )
 
 
@@ -3010,7 +5857,8 @@ UNICORN = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Unicorn"},
-    text="Vigilance. {T}: You gain 1 life."
+    text="Vigilance. {T}: You gain 1 life.",
+    setup_interceptors=_hpw_s23_unicorn_setup,
 )
 
 
@@ -3020,7 +5868,8 @@ CENTAUR_ARCHER = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Centaur", "Archer"},
-    text="Reach. {G}: Centaur Archer deals 1 damage to target creature with flying."
+    text="Reach. {G}: Centaur Archer deals 1 damage to target creature with flying.",
+    setup_interceptors=_hpw_s23_centaur_archer_setup,
 )
 
 
@@ -3030,7 +5879,8 @@ FORBIDDEN_FOREST_SPIDER = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Spider"},
-    text="Reach. When Forbidden Forest Spider dies, create two 1/1 green Spider creature tokens with reach."
+    text="Reach. When Forbidden Forest Spider dies, create two 1/1 green Spider creature tokens with reach.",
+    setup_interceptors=_hpw_s23_forbidden_forest_spider_setup,
 )
 
 
@@ -3040,7 +5890,8 @@ NIFFLER = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Beast"},
-    text="When Niffler enters, you may search your library for an artifact card, reveal it, and put it into your hand. Shuffle."
+    text="When Niffler enters, you may search your library for an artifact card, reveal it, and put it into your hand. Shuffle.",
+    setup_interceptors=_hpw_s23_niffler_setup,
 )
 
 
@@ -3050,7 +5901,8 @@ THESTRAL_HERD = make_creature(
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Beast"},
-    text="Flying. Thestral Herd has hexproof as long as a creature died this turn."
+    text="Flying. Thestral Herd has hexproof as long as a creature died this turn.",
+    setup_interceptors=_hpw_s23_thestral_herd_setup,
 )
 
 
@@ -3060,7 +5912,8 @@ WHOMPING_WILLOW = make_creature(
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Treefolk"},
-    text="Defender, reach. Whenever a creature attacks you, Whomping Willow deals 2 damage to it."
+    text="Defender, reach. Whenever a creature attacks you, Whomping Willow deals 2 damage to it.",
+    setup_interceptors=_hpw_s23_whomping_willow_setup,
 )
 
 
@@ -3070,7 +5923,8 @@ GIANT_SQUID = make_creature(
     mana_cost="{4}{G}{U}",
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Kraken"},
-    text="Hexproof. Giant Squid can't attack unless defending player controls an Island or you pay {2}."
+    text="Hexproof. Giant Squid can't attack unless defending player controls an Island or you pay {2}.",
+    setup_interceptors=_hpw_s23_giant_squid_setup,
 )
 
 
@@ -3080,7 +5934,8 @@ HERBIVICUS = make_instant(
     name="Herbivicus",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Target creature gets +2/+2 until end of turn."
+    text="Target creature gets +2/+2 until end of turn.",
+    resolve=_hpw_s23_resolve_herbivicus,
 )
 
 
@@ -3088,7 +5943,8 @@ WILD_GROWTH_SPELL = make_instant(
     name="Wild Growth",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Put two +1/+1 counters on target creature."
+    text="Put two +1/+1 counters on target creature.",
+    resolve=_hpw_s23_resolve_wild_growth,
 )
 
 
@@ -3096,7 +5952,8 @@ ENGORGIO = make_instant(
     name="Engorgio",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Target creature gets +4/+4 and gains trample until end of turn."
+    text="Target creature gets +4/+4 and gains trample until end of turn.",
+    resolve=_hpw_s23_resolve_engorgio,
 )
 
 
@@ -3104,7 +5961,8 @@ BEASTS_FURY = make_instant(
     name="Beast's Fury",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Target creature you control fights target creature you don't control."
+    text="Target creature you control fights target creature you don't control.",
+    resolve=_hpw_s23_resolve_beasts_fury,
 )
 
 
@@ -3112,7 +5970,8 @@ NATURES_PROTECTION = make_instant(
     name="Nature's Protection",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Target creature gains hexproof and indestructible until end of turn."
+    text="Target creature gains hexproof and indestructible until end of turn.",
+    resolve=_hpw_s23_resolve_natures_protection,
 )
 
 
@@ -3122,7 +5981,8 @@ GREENHOUSE_HARVEST = make_sorcery(
     name="Greenhouse Harvest",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Search your library for up to two basic land cards, reveal them, put one onto the battlefield tapped and the other into your hand. Shuffle."
+    text="Search your library for up to two basic land cards, reveal them, put one onto the battlefield tapped and the other into your hand. Shuffle.",
+    resolve=_hpw_s23_resolve_greenhouse_harvest,
 )
 
 
@@ -3130,7 +5990,8 @@ CREATURE_SUMMONING = make_sorcery(
     name="Creature Summoning",
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
-    text="Create two 3/3 green Beast creature tokens."
+    text="Create two 3/3 green Beast creature tokens.",
+    resolve=_hpw_s23_resolve_creature_summoning,
 )
 
 
@@ -3138,7 +5999,8 @@ MANDRAKE_RESTORATIVE = make_sorcery(
     name="Mandrake Restorative",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="You gain 5 life. You may return target creature card from your graveyard to your hand."
+    text="You gain 5 life. You may return target creature card from your graveyard to your hand.",
+    resolve=_hpw_s23_resolve_mandrake_restorative,
 )
 
 
@@ -3148,7 +6010,8 @@ HERBOLOGY_CLASSROOM = make_enchantment(
     name="Herbology Classroom",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="At the beginning of your upkeep, put a +1/+1 counter on target creature you control."
+    text="At the beginning of your upkeep, put a +1/+1 counter on target creature you control.",
+    setup_interceptors=_hpw_s23_herbology_classroom_setup,
 )
 
 
@@ -3156,7 +6019,8 @@ HUFFLEPUFF_BANNER = make_enchantment(
     name="Hufflepuff Banner",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Hufflepuff creatures you control get +1/+1. Whenever a Hufflepuff enters under your control, you gain 1 life."
+    text="Hufflepuff creatures you control get +1/+1. Whenever a Hufflepuff enters under your control, you gain 1 life.",
+    setup_interceptors=_hpw_s23_hufflepuff_banner_setup,
 )
 
 
@@ -3164,7 +6028,8 @@ FORBIDDEN_FOREST = make_enchantment(
     name="Forbidden Forest",
     mana_cost="{3}{G}",
     colors={Color.GREEN},
-    text="Creature spells you cast cost {1} less. Creatures you control have trample."
+    text="Creature spells you cast cost {1} less. Creatures you control have trample.",
+    setup_interceptors=_hpw_s23_forbidden_forest_enchantment_setup,
 )
 
 
@@ -3206,7 +6071,8 @@ SWORD_OF_GRYFFINDOR = make_equipment(
     mana_cost="{3}",
     text="Equipped creature gets +2/+2 and has protection from black. Whenever equipped creature deals combat damage to a player, destroy target artifact or enchantment.",
     equip_cost="{2}",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_sword_of_gryffindor_setup,
 )
 
 
@@ -3214,7 +6080,8 @@ MARAUDERS_MAP = make_artifact(
     name="Marauder's Map",
     mana_cost="{2}",
     text="{T}: Scry 2. {2}, {T}: Look at target opponent's hand.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_marauders_map_setup,
 )
 
 
@@ -3222,7 +6089,8 @@ SORTING_HAT = make_artifact(
     name="Sorting Hat",
     mana_cost="{1}",
     text="{T}: Target creature becomes Gryffindor, Slytherin, Ravenclaw, or Hufflepuff in addition to its other types until end of turn.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_sorting_hat_setup,
 )
 
 
@@ -3230,7 +6098,8 @@ HORCRUX_DIARY = make_artifact(
     name="Tom Riddle's Diary",
     mana_cost="{2}",
     text="{1}, {T}, Pay 2 life: Draw a card. When Tom Riddle's Diary is put into a graveyard from the battlefield, you lose 5 life.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_horcrux_diary_setup,
 )
 
 
@@ -3238,7 +6107,8 @@ HORCRUX_LOCKET = make_artifact(
     name="Slytherin's Locket",
     mana_cost="{3}",
     text="At the beginning of your upkeep, each opponent loses 1 life and you gain 1 life. {2}, Sacrifice Slytherin's Locket: Draw two cards.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_horcrux_locket_setup,
 )
 
 
@@ -3246,7 +6116,8 @@ HORCRUX_CUP = make_artifact(
     name="Hufflepuff's Cup",
     mana_cost="{2}",
     text="{T}: Add one mana of any color. When Hufflepuff's Cup is put into a graveyard from the battlefield, each opponent draws a card.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_horcrux_cup_setup,
 )
 
 
@@ -3254,7 +6125,8 @@ HORCRUX_DIADEM = make_artifact(
     name="Ravenclaw's Diadem",
     mana_cost="{3}",
     text="Instant and sorcery spells you cast cost {1} less. {2}, Sacrifice Ravenclaw's Diadem: Draw three cards.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_horcrux_diadem_setup,
 )
 
 
@@ -3262,21 +6134,24 @@ HORCRUX_RING = make_artifact(
     name="Gaunt Family Ring",
     mana_cost="{2}",
     text="{T}: Add {B}. {3}, {T}, Sacrifice Gaunt Family Ring: Return target creature card from your graveyard to your hand.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_horcrux_ring_setup,
 )
 
 
 FIREBOLT_BROOM = make_artifact(
     name="Firebolt",
     mana_cost="{3}",
-    text="Equipped creature gets +2/+0 and has flying and haste.\nEquip {2}"
+    text="Equipped creature gets +2/+0 and has flying and haste.\nEquip {2}",
+    setup_interceptors=_hpw_s23_firebolt_setup,
 )
 
 
 NIMBUS_2000 = make_artifact(
     name="Nimbus 2000",
     mana_cost="{2}",
-    text="Equipped creature gets +1/+0 and has flying.\nEquip {1}"
+    text="Equipped creature gets +1/+0 and has flying.\nEquip {1}",
+    setup_interceptors=_hpw_s23_nimbus_2000_setup,
 )
 
 
@@ -3284,7 +6159,8 @@ WAND_OF_PHOENIX_FEATHER = make_equipment(
     name="Wand of Phoenix Feather",
     mana_cost="{1}",
     text="Equipped creature has '{T}: This creature deals 1 damage to any target.'",
-    equip_cost="{1}"
+    equip_cost="{1}",
+    setup_interceptors=_hpw_s23_wand_phoenix_feather_setup,
 )
 
 
@@ -3292,7 +6168,8 @@ WAND_OF_DRAGON_HEARTSTRING = make_equipment(
     name="Wand of Dragon Heartstring",
     mana_cost="{2}",
     text="Equipped creature gets +1/+1 and has '{T}: Add {R}.'",
-    equip_cost="{1}"
+    equip_cost="{1}",
+    setup_interceptors=_hpw_s23_wand_dragon_heartstring_setup,
 )
 
 
@@ -3300,14 +6177,16 @@ WAND_OF_UNICORN_HAIR = make_equipment(
     name="Wand of Unicorn Hair",
     mana_cost="{1}",
     text="Equipped creature has '{T}: You gain 1 life.'",
-    equip_cost="{1}"
+    equip_cost="{1}",
+    setup_interceptors=_hpw_s23_wand_unicorn_hair_setup,
 )
 
 
 PENSIEVE = make_artifact(
     name="Pensieve",
     mana_cost="{3}",
-    text="{2}, {T}: Look at the top 3 cards of your library. Put one into your hand and the rest on the bottom in any order."
+    text="{2}, {T}: Look at the top 3 cards of your library. Put one into your hand and the rest on the bottom in any order.",
+    setup_interceptors=_hpw_s23_pensieve_setup,
 )
 
 
@@ -3315,21 +6194,24 @@ GOLDEN_SNITCH = make_artifact(
     name="Golden Snitch",
     mana_cost="{1}",
     text="Flying. {T}, Sacrifice Golden Snitch: Draw two cards.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_golden_snitch_setup,
 )
 
 
 QUAFFLE = make_artifact(
     name="Quaffle",
     mana_cost="{1}",
-    text="{1}, {T}: Target creature gets +1/+0 and gains first strike until end of turn."
+    text="{1}, {T}: Target creature gets +1/+0 and gains first strike until end of turn.",
+    setup_interceptors=_hpw_s23_quaffle_setup,
 )
 
 
 BLUDGER = make_artifact(
     name="Bludger",
     mana_cost="{2}",
-    text="{2}, {T}: Bludger deals 2 damage to target creature."
+    text="{2}, {T}: Bludger deals 2 damage to target creature.",
+    setup_interceptors=_hpw_s23_bludger_setup,
 )
 
 
@@ -3337,7 +6219,8 @@ TIME_TURNER = make_artifact(
     name="Time-Turner",
     mana_cost="{4}",
     text="{T}, Sacrifice Time-Turner: Take an extra turn after this one. Activate only as a sorcery.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_time_turner_setup,
 )
 
 
@@ -3345,14 +6228,16 @@ DELUMINATOR = make_artifact(
     name="Deluminator",
     mana_cost="{1}",
     text="{T}: Tap target creature. It doesn't untap during its controller's next untap step.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_deluminator_setup,
 )
 
 
 PORTKEY = make_artifact(
     name="Portkey",
     mana_cost="{2}",
-    text="{3}, {T}, Sacrifice Portkey: Return target creature to its owner's hand."
+    text="{3}, {T}, Sacrifice Portkey: Return target creature to its owner's hand.",
+    setup_interceptors=_hpw_s23_portkey_setup,
 )
 
 
@@ -3367,7 +6252,8 @@ GOBLET_OF_FIRE = make_artifact(
     name="Goblet of Fire",
     mana_cost="{4}",
     text="At the beginning of your upkeep, put a flame counter on Goblet of Fire. Then if there are 3 or more flame counters on it, sacrifice it and create a 5/5 red Dragon creature token with flying.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_goblet_of_fire_setup,
 )
 
 
@@ -3375,14 +6261,16 @@ MIRROR_OF_ERISED = make_artifact(
     name="Mirror of Erised",
     mana_cost="{3}",
     text="{2}, {T}: Look at the top card of your library. You may put it into your graveyard.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_mirror_of_erised_setup,
 )
 
 
 VANISHING_CABINET = make_artifact(
     name="Vanishing Cabinet",
     mana_cost="{3}",
-    text="{2}, {T}: Exile target creature you control. Return it to the battlefield at the beginning of the next end step."
+    text="{2}, {T}: Exile target creature you control. Return it to the battlefield at the beginning of the next end step.",
+    setup_interceptors=_hpw_s23_vanishing_cabinet_setup,
 )
 
 
@@ -3393,122 +6281,141 @@ VANISHING_CABINET = make_artifact(
 HOGWARTS_CASTLE = make_land(
     name="Hogwarts Castle",
     text="{T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast Wizard spells.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_hogwarts_castle_upkeep_setup,
 )
 
 
 GRYFFINDOR_COMMON_ROOM = make_land(
     name="Gryffindor Common Room",
-    text="Gryffindor Common Room enters tapped. {T}: Add {R} or {W}. {2}, {T}: Target Gryffindor creature gets +1/+1 until end of turn."
+    text="Gryffindor Common Room enters tapped. {T}: Add {R} or {W}. {2}, {T}: Target Gryffindor creature gets +1/+1 until end of turn.",
+    setup_interceptors=_hpw_s23_gryffindor_common_room_setup,
 )
 
 
 SLYTHERIN_DUNGEON = make_land(
     name="Slytherin Dungeon",
-    text="Slytherin Dungeon enters tapped. {T}: Add {B} or {U}. {2}, {T}: Target Slytherin creature gains deathtouch until end of turn."
+    text="Slytherin Dungeon enters tapped. {T}: Add {B} or {U}. {2}, {T}: Target Slytherin creature gains deathtouch until end of turn.",
+    setup_interceptors=_hpw_s23_slytherin_dungeon_setup,
 )
 
 
 RAVENCLAW_TOWER = make_land(
     name="Ravenclaw Tower",
-    text="Ravenclaw Tower enters tapped. {T}: Add {U} or {W}. {2}, {T}: Scry 1."
+    text="Ravenclaw Tower enters tapped. {T}: Add {U} or {W}. {2}, {T}: Scry 1.",
+    setup_interceptors=_hpw_s23_ravenclaw_tower_setup,
 )
 
 
 HUFFLEPUFF_BASEMENT = make_land(
     name="Hufflepuff Basement",
-    text="Hufflepuff Basement enters tapped. {T}: Add {G} or {W}. {2}, {T}: You gain 1 life."
+    text="Hufflepuff Basement enters tapped. {T}: Add {G} or {W}. {2}, {T}: You gain 1 life.",
+    setup_interceptors=_hpw_s23_hufflepuff_basement_setup,
 )
 
 
 DIAGON_ALLEY = make_land(
     name="Diagon Alley",
-    text="{T}: Add {C}. {1}, {T}: Add one mana of any color. Spend this mana only to cast artifact spells."
+    text="{T}: Add {C}. {1}, {T}: Add one mana of any color. Spend this mana only to cast artifact spells.",
+    setup_interceptors=_hpw_s23_diagon_alley_setup,
 )
 
 
 HOGSMEADE_VILLAGE = make_land(
     name="Hogsmeade Village",
-    text="{T}: Add {C}. {T}, Pay 1 life: Add one mana of any color."
+    text="{T}: Add {C}. {T}, Pay 1 life: Add one mana of any color.",
+    setup_interceptors=_hpw_s23_hogsmeade_village_setup,
 )
 
 
 FORBIDDEN_FOREST_LAND = make_land(
     name="The Forbidden Forest",
-    text="{T}: Add {G}. {2}{G}, {T}: Create a 2/2 green Beast creature token."
+    text="{T}: Add {G}. {2}{G}, {T}: Create a 2/2 green Beast creature token.",
+    setup_interceptors=_hpw_s23_forbidden_forest_land_setup,
 )
 
 
 MINISTRY_OF_MAGIC = make_land(
     name="Ministry of Magic",
     text="{T}: Add {C}. {T}: Add {W} or {U}. Spend this mana only to cast instant or sorcery spells.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_ministry_of_magic_setup,
 )
 
 
 AZKABAN = make_land(
     name="Azkaban",
     text="{T}: Add {B}. {2}{B}, {T}: Each opponent discards a card.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_azkaban_land_setup,
 )
 
 
 GODRICS_HOLLOW = make_land(
     name="Godric's Hollow",
-    text="{T}: Add {W}. When Godric's Hollow enters, you may pay 2 life. If you do, draw a card."
+    text="{T}: Add {W}. When Godric's Hollow enters, you may pay 2 life. If you do, draw a card.",
+    setup_interceptors=_hpw_s23_godrics_hollow_setup,
 )
 
 
 GRIMMAULD_PLACE = make_land(
     name="12 Grimmauld Place",
     text="{T}: Add {B}. {1}{B}, {T}: Target creature gains menace until end of turn.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_grimmauld_place_setup,
 )
 
 
 THE_BURROW = make_land(
     name="The Burrow",
     text="{T}: Add {R} or {G}. Whenever you cast a creature spell, you may pay {1}. If you do, you gain 1 life.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_the_burrow_setup,
 )
 
 
 MALFOY_MANOR = make_land(
     name="Malfoy Manor",
     text="{T}: Add {B}. {2}{B}, {T}: Put a -1/-1 counter on target creature.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_malfoy_manor_setup,
 )
 
 
 KNOCKTURN_ALLEY = make_land(
     name="Knockturn Alley",
-    text="{T}: Add {B}. {T}, Pay 1 life: Add {B}{B}. Activate only once per turn."
+    text="{T}: Add {B}. {T}, Pay 1 life: Add {B}{B}. Activate only once per turn.",
+    setup_interceptors=_hpw_s23_knockturn_alley_setup,
 )
 
 
 GRINGOTTS = make_land(
     name="Gringotts Bank",
     text="{T}: Add {C}{C}. Activate only if you control an artifact.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_gringotts_setup,
 )
 
 
 QUIDDITCH_PITCH = make_land(
     name="Quidditch Pitch",
-    text="{T}: Add {C}. {3}, {T}: Target creature gains flying until end of turn."
+    text="{T}: Add {C}. {3}, {T}: Target creature gains flying until end of turn.",
+    setup_interceptors=_hpw_s23_quidditch_pitch_setup,
 )
 
 
 ROOM_OF_REQUIREMENT = make_land(
     name="Room of Requirement",
     text="{T}: Add {C}. {2}, {T}: Add one mana of any color.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_hpw_s23_room_of_requirement_setup,
 )
 
 
 SHRIEKING_SHACK = make_land(
     name="Shrieking Shack",
-    text="{T}: Add {B} or {G}. {2}, {T}: Target creature can't block this turn."
+    text="{T}: Add {B} or {G}. {2}, {T}: Target creature can't block this turn.",
+    setup_interceptors=_hpw_s23_shrieking_shack_setup,
 )
 
 

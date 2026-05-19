@@ -1209,6 +1209,1017 @@ def test_mandrake_death_drains_each_opp_slice5():
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 
+
+
+# ============================================================================
+# SLICE-23 median-lift tests (2026-05-19): one test per buffed card.
+# Each test puts the card on the battlefield (creatures/enchantments/lands/
+# artifacts) or invokes the resolve fn directly (instants/sorceries), then
+# asserts the expected info event (SCRY/SURVEIL) and opp event (LIFE_CHANGE,
+# DAMAGE, MILL, DISCARD) fired.
+# ============================================================================
+
+
+def _s23_etb_collect(card_name):
+    """Place card under p1, return (game, p1, p2, new_events)."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, card_name)
+    return game, p1, p2, game.state.event_log[before:]
+
+
+def _s23_upkeep_collect(card_name):
+    """Place card under p1, trigger upkeep PHASE_START, return events.
+
+    Upkeep triggers fire on `PHASE_START` with `phase == 'upkeep'` while
+    state.active_player == controller.
+    """
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, card_name)
+    game.state.active_player = p1.id
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'player': p1.id},
+        source=None,
+    ))
+    return game, p1, p2, game.state.event_log[before:]
+
+
+def _s23_attack_collect(card_name):
+    """Place card under p1, attack with it, return (game, p1, p2, new_events)."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': obj.id, 'attacker': obj.id, 'controller': p1.id},
+        source=obj.id,
+    ))
+    return game, p1, p2, game.state.event_log[before:]
+
+
+def _s23_death_collect(card_name):
+    """Place card under p1, then kill it (move to graveyard), return events."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': obj.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+    ))
+    return game, p1, p2, game.state.event_log[before:]
+
+
+def _s23_resolve(fn_name):
+    """Call a resolve fn from the harry_potter module."""
+    import src.cards.custom.harry_potter as hpw_module
+    fn = getattr(hpw_module, fn_name)
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = fn([], game.state)
+    return events, p1, p2
+
+
+def _assert_any(events, event_type, **payload_match):
+    """Assert at least one event of `event_type` with matching payload exists."""
+    for e in events:
+        if e.type != event_type:
+            continue
+        ok = True
+        for k, v in payload_match.items():
+            actual = e.payload.get(k) if e.payload else None
+            if v == '<NEG>':
+                if not (isinstance(actual, (int, float)) and actual < 0):
+                    ok = False
+                    break
+            elif v == '<POS>':
+                if not (isinstance(actual, (int, float)) and actual > 0):
+                    ok = False
+                    break
+            elif callable(v):
+                if not v(actual):
+                    ok = False
+                    break
+            else:
+                if actual != v:
+                    ok = False
+                    break
+        if ok:
+            return True
+    return False
+
+
+def _assert_etb_scry_drain(events, p2_id):
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected SCRY/SURVEIL info event; recent={[e.type.name for e in events[-12:]]}"
+    has_drain = (_assert_any(events, EventType.LIFE_CHANGE, player=p2_id, amount='<NEG>') or
+                 _assert_any(events, EventType.DAMAGE, target=p2_id) or
+                 _assert_any(events, EventType.MILL, player=p2_id) or
+                 _assert_any(events, EventType.DISCARD, player=p2_id))
+    assert has_drain, f"Expected cross-controller harm on opp; recent={[e.type.name for e in events[-12:]]}"
+
+
+
+
+def test_s23_hogwarts_defender():
+    g, p1, p2, events = _s23_etb_collect("Hogwarts Defender")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_ministry_auror():
+    g, p1, p2, events = _s23_etb_collect("Ministry Auror")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_hogwarts_first_year():
+    g, p1, p2, events = _s23_etb_collect("Hogwarts First Year")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_dumbledores_army_recruit():
+    g, p1, p2, events = _s23_etb_collect("Dumbledore's Army Recruit")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_hogwarts_ghost():
+    g, p1, p2, events = _s23_etb_collect("Hogwarts Ghost")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_quidditch_referee():
+    g, p1, p2, events = _s23_etb_collect("Quidditch Referee")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_healing_witch():
+    g, p1, p2, events = _s23_etb_collect("Healing Witch")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_st_mungos_healer():
+    g, p1, p2, events = _s23_etb_collect("St. Mungo's Healer")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_phoenix_guardian():
+    g, p1, p2, events = _s23_etb_collect("Phoenix Guardian")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_weasley_matriarch():
+    g, p1, p2, events = _s23_etb_collect("Weasley Matriarch")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_weasley_twin_prankster():
+    g, p1, p2, events = _s23_attack_collect("Weasley Twin Prankster")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_fiendfyre_elemental():
+    g, p1, p2, events = _s23_attack_collect("Fiendfyre Elemental")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_blast_ended_skrewt():
+    g, p1, p2, events = _s23_attack_collect("Blast-Ended Skrewt")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_erumpent():
+    g, p1, p2, events = _s23_attack_collect("Erumpent")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_goblin_banker():
+    g, p1, p2, events = _s23_attack_collect("Gringotts Goblin")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_acromantula():
+    g, p1, p2, events = _s23_attack_collect("Acromantula")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_basilisk():
+    g, p1, p2, events = _s23_attack_collect("Basilisk")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_divination_student():
+    g, p1, p2, events = _s23_etb_collect("Divination Student")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_library_researcher():
+    g, p1, p2, events = _s23_etb_collect("Library Researcher")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_spell_theorist():
+    g, p1, p2, events = _s23_etb_collect("Spell Theorist")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_hogwarts_librarian():
+    g, p1, p2, events = _s23_etb_collect("Hogwarts Librarian")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_unspeakable():
+    g, p1, p2, events = _s23_etb_collect("Unspeakable")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_pensieve_keeper():
+    g, p1, p2, events = _s23_etb_collect("Pensieve Keeper")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_time_turner_user():
+    g, p1, p2, events = _s23_etb_collect("Time-Turner User")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_memory_charm_specialist():
+    g, p1, p2, events = _s23_etb_collect("Memory Charm Specialist")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_dementor():
+    g, p1, p2, events = _s23_etb_collect("Dementor")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_dementor_swarm():
+    g, p1, p2, events = _s23_etb_collect("Dementor Swarm")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_dark_wizard():
+    g, p1, p2, events = _s23_etb_collect("Dark Wizard")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_knockturn_alley_vendor():
+    g, p1, p2, events = _s23_etb_collect("Knockturn Alley Vendor")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_azkaban_guard():
+    g, p1, p2, events = _s23_etb_collect("Azkaban Guard")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_nagini():
+    g, p1, p2, events = _s23_etb_collect("Nagini")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_greyback():
+    g, p1, p2, events = _s23_death_collect("Fenrir Greyback")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_thestral():
+    g, p1, p2, events = _s23_death_collect("Thestral")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_thestral_herd():
+    g, p1, p2, events = _s23_etb_collect("Thestral Herd")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_whomping_willow():
+    g, p1, p2, events = _s23_etb_collect("Whomping Willow")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_forbidden_forest_spider():
+    g, p1, p2, events = _s23_etb_collect("Forbidden Forest Spider")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_centaur_archer():
+    g, p1, p2, events = _s23_etb_collect("Centaur Archer")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_giant_squid():
+    g, p1, p2, events = _s23_etb_collect("Giant Squid of the Black Lake")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_unicorn():
+    g, p1, p2, events = _s23_etb_collect("Unicorn")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected SCRY/SURVEIL info event; events={[e.type.name for e in events[-12:]]}"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain-life on controller; events={[e.type.name for e in events[-12:]]}"
+
+
+def test_s23_niffler():
+    g, p1, p2, events = _s23_etb_collect("Niffler")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected SCRY/SURVEIL info event; events={[e.type.name for e in events[-12:]]}"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain-life on controller; events={[e.type.name for e in events[-12:]]}"
+
+
+def test_s23_hogwarts_castle():
+    g, p1, p2, events = _s23_upkeep_collect("Hogwarts Castle")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_gryffindor_common_room():
+    g, p1, p2, events = _s23_upkeep_collect("Gryffindor Common Room")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_slytherin_dungeon():
+    g, p1, p2, events = _s23_upkeep_collect("Slytherin Dungeon")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_ravenclaw_tower():
+    g, p1, p2, events = _s23_upkeep_collect("Ravenclaw Tower")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_hufflepuff_basement():
+    g, p1, p2, events = _s23_upkeep_collect("Hufflepuff Basement")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_diagon_alley():
+    g, p1, p2, events = _s23_upkeep_collect("Diagon Alley")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_hogsmeade_village():
+    g, p1, p2, events = _s23_upkeep_collect("Hogsmeade Village")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_forbidden_forest_land():
+    g, p1, p2, events = _s23_upkeep_collect("The Forbidden Forest")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_ministry_of_magic():
+    g, p1, p2, events = _s23_upkeep_collect("Ministry of Magic")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_azkaban():
+    g, p1, p2, events = _s23_upkeep_collect("Azkaban")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_godrics_hollow():
+    g, p1, p2, events = _s23_upkeep_collect("Godric's Hollow")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_grimmauld_place():
+    g, p1, p2, events = _s23_upkeep_collect("12 Grimmauld Place")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_the_burrow():
+    g, p1, p2, events = _s23_upkeep_collect("The Burrow")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_malfoy_manor():
+    g, p1, p2, events = _s23_upkeep_collect("Malfoy Manor")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_knockturn_alley():
+    g, p1, p2, events = _s23_upkeep_collect("Knockturn Alley")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_gringotts():
+    g, p1, p2, events = _s23_upkeep_collect("Gringotts Bank")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_quidditch_pitch():
+    g, p1, p2, events = _s23_upkeep_collect("Quidditch Pitch")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_room_of_requirement():
+    g, p1, p2, events = _s23_upkeep_collect("Room of Requirement")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_shrieking_shack():
+    g, p1, p2, events = _s23_upkeep_collect("Shrieking Shack")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_dumbledores_protection():
+    g, p1, p2, events = _s23_upkeep_collect("Dumbledore's Protection")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_gryffindor_banner():
+    g, p1, p2, events = _s23_upkeep_collect("Gryffindor Banner")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_ravenclaw_banner():
+    g, p1, p2, events = _s23_upkeep_collect("Ravenclaw Banner")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_library_of_hogwarts():
+    g, p1, p2, events = _s23_upkeep_collect("Library of Hogwarts")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_slytherin_banner():
+    g, p1, p2, events = _s23_upkeep_collect("Slytherin Banner")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_horcrux_curse():
+    g, p1, p2, events = _s23_upkeep_collect("Horcrux Curse")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_weasleys_wizard_wheezes():
+    g, p1, p2, events = _s23_upkeep_collect("Weasleys' Wizard Wheezes")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_gryffindor_courage():
+    g, p1, p2, events = _s23_upkeep_collect("Gryffindor Courage")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_herbology_classroom():
+    g, p1, p2, events = _s23_upkeep_collect("Herbology Classroom")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_hufflepuff_banner():
+    g, p1, p2, events = _s23_upkeep_collect("Hufflepuff Banner")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_forbidden_forest():
+    g, p1, p2, events = _s23_upkeep_collect("Forbidden Forest")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_marauders_map():
+    g, p1, p2, events = _s23_upkeep_collect("Marauder's Map")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_sorting_hat():
+    g, p1, p2, events = _s23_upkeep_collect("Sorting Hat")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_horcrux_diary():
+    g, p1, p2, events = _s23_upkeep_collect("Tom Riddle's Diary")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_horcrux_locket():
+    g, p1, p2, events = _s23_upkeep_collect("Slytherin's Locket")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_horcrux_cup():
+    g, p1, p2, events = _s23_upkeep_collect("Hufflepuff's Cup")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_horcrux_diadem():
+    g, p1, p2, events = _s23_upkeep_collect("Ravenclaw's Diadem")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_horcrux_ring():
+    g, p1, p2, events = _s23_upkeep_collect("Gaunt Family Ring")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_firebolt_broom():
+    g, p1, p2, events = _s23_upkeep_collect("Firebolt")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_nimbus_2000():
+    g, p1, p2, events = _s23_upkeep_collect("Nimbus 2000")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_wand_of_phoenix_feather():
+    g, p1, p2, events = _s23_upkeep_collect("Wand of Phoenix Feather")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_wand_of_dragon_heartstring():
+    g, p1, p2, events = _s23_upkeep_collect("Wand of Dragon Heartstring")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_wand_of_unicorn_hair():
+    g, p1, p2, events = _s23_upkeep_collect("Wand of Unicorn Hair")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_pensieve():
+    g, p1, p2, events = _s23_upkeep_collect("Pensieve")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_golden_snitch():
+    g, p1, p2, events = _s23_upkeep_collect("Golden Snitch")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_quaffle():
+    g, p1, p2, events = _s23_upkeep_collect("Quaffle")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_bludger():
+    g, p1, p2, events = _s23_upkeep_collect("Bludger")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_time_turner():
+    g, p1, p2, events = _s23_upkeep_collect("Time-Turner")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_deluminator():
+    g, p1, p2, events = _s23_upkeep_collect("Deluminator")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_portkey():
+    g, p1, p2, events = _s23_upkeep_collect("Portkey")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_goblet_of_fire():
+    g, p1, p2, events = _s23_upkeep_collect("Goblet of Fire")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_mirror_of_erised():
+    g, p1, p2, events = _s23_upkeep_collect("Mirror of Erised")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_vanishing_cabinet():
+    g, p1, p2, events = _s23_upkeep_collect("Vanishing Cabinet")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+def test_s23_sword_of_gryffindor():
+    g, p1, p2, events = _s23_upkeep_collect("Sword of Gryffindor")
+    _assert_etb_scry_drain(events, p2.id)
+
+
+# --- Resolve handler tests ---
+
+
+def test_s23_expecto_patronum_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_expecto_patronum")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Expecto Patronum; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Expecto Patronum"
+
+
+def test_s23_protego_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_protego")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Protego; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Protego"
+
+
+def test_s23_shield_charm_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_shield_charm")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Shield Charm; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Shield Charm"
+
+
+def test_s23_counter_curse_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_counter_curse")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Counter-Curse; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Counter-Curse"
+
+
+def test_s23_priori_incantatem_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_priori_incantatem")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Priori Incantatem; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Priori Incantatem"
+
+
+def test_s23_healing_spell_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_healing_spell")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Healing Spell; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Healing Spell"
+
+
+def test_s23_disillusionment_charm_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_disillusionment_charm")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Disillusionment Charm; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Disillusionment Charm"
+
+
+def test_s23_call_the_order_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_call_the_order")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Call the Order; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Call the Order"
+
+
+def test_s23_sorting_ceremony_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_sorting_ceremony")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Sorting Ceremony; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Sorting Ceremony"
+
+
+def test_s23_obliviate_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_obliviate")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Obliviate; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Obliviate"
+
+
+def test_s23_stupefy_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_stupefy")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Stupefy; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.MILL, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>'), \
+        f"Expected opp mill/drain for Stupefy"
+
+
+def test_s23_accio_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_accio")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Accio; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.MILL, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>'), \
+        f"Expected opp mill/drain for Accio"
+
+
+def test_s23_confundo_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_confundo")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Confundo; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.MILL, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>'), \
+        f"Expected opp mill/drain for Confundo"
+
+
+def test_s23_petrificus_totalus_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_petrificus_totalus")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Petrificus Totalus; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.MILL, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>'), \
+        f"Expected opp mill/drain for Petrificus Totalus"
+
+
+def test_s23_legilimens_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_legilimens")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Legilimens; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.MILL, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>'), \
+        f"Expected opp mill/drain for Legilimens"
+
+
+def test_s23_aguamenti_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_aguamenti")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Aguamenti; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.MILL, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>'), \
+        f"Expected opp mill/drain for Aguamenti"
+
+
+def test_s23_finite_incantatem_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_finite_incantatem")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Finite Incantatem; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.MILL, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>'), \
+        f"Expected opp mill/drain for Finite Incantatem"
+
+
+def test_s23_divination_spell_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_divination")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Divination; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.MILL, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>'), \
+        f"Expected opp mill/drain for Divination"
+
+
+def test_s23_crystal_ball_reading_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_crystal_ball_reading")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Crystal Ball Reading; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.MILL, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>'), \
+        f"Expected opp mill/drain for Crystal Ball Reading"
+
+
+def test_s23_memory_wipe_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_memory_wipe")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Memory Wipe; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.MILL, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>'), \
+        f"Expected opp mill/drain for Memory Wipe"
+
+
+def test_s23_transfiguration_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_transfiguration")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Transfiguration; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.MILL, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>'), \
+        f"Expected opp mill/drain for Transfiguration"
+
+
+def test_s23_avada_kedavra_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_avada_kedavra")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Avada Kedavra; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DISCARD, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp discard/drain for Avada Kedavra"
+
+
+def test_s23_crucio_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_crucio")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Crucio; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DISCARD, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp discard/drain for Crucio"
+
+
+def test_s23_imperio_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_imperio")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Imperio; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DISCARD, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp discard/drain for Imperio"
+
+
+def test_s23_sectumsempra_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_sectumsempra")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Sectumsempra; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DISCARD, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp discard/drain for Sectumsempra"
+
+
+def test_s23_morsmordre_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_morsmordre")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Morsmordre; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DISCARD, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp discard/drain for Morsmordre"
+
+
+def test_s23_dark_mark_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_dark_mark")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Dark Mark; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DISCARD, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp discard/drain for Dark Mark"
+
+
+def test_s23_curse_of_the_bogies_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_curse_of_the_bogies")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Curse of the Bogies; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DISCARD, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp discard/drain for Curse of the Bogies"
+
+
+def test_s23_summon_inferi_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_summon_inferi")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Summon Inferi; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DISCARD, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp discard/drain for Summon Inferi"
+
+
+def test_s23_dark_ritual_spell_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_dark_ritual_spell")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Dark Ritual; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DISCARD, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp discard/drain for Dark Ritual"
+
+
+def test_s23_fiendfyre_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_fiendfyre")
+    assert _assert_any(events, EventType.SURVEIL) or _assert_any(events, EventType.SCRY), \
+        f"Expected info event for Fiendfyre; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DISCARD, player=p2.id) or _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp discard/drain for Fiendfyre"
+
+
+def test_s23_incendio_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_incendio")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Incendio; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DAMAGE, target=p2.id), \
+        f"Expected opp damage for Incendio"
+
+
+def test_s23_confringo_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_confringo")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Confringo; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DAMAGE, target=p2.id), \
+        f"Expected opp damage for Confringo"
+
+
+def test_s23_bombarda_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_bombarda")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Bombarda; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DAMAGE, target=p2.id), \
+        f"Expected opp damage for Bombarda"
+
+
+def test_s23_reducto_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_reducto")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Reducto; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DAMAGE, target=p2.id), \
+        f"Expected opp damage for Reducto"
+
+
+def test_s23_expulso_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_expulso")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Expulso; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DAMAGE, target=p2.id), \
+        f"Expected opp damage for Expulso"
+
+
+def test_s23_dragons_breath_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_dragons_breath")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Dragon's Breath; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DAMAGE, target=p2.id), \
+        f"Expected opp damage for Dragon's Breath"
+
+
+def test_s23_weasley_firework_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_weasley_firework")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Weasley Firework; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DAMAGE, target=p2.id), \
+        f"Expected opp damage for Weasley Firework"
+
+
+def test_s23_dragons_fire_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_dragons_fire")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Dragon's Fire; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DAMAGE, target=p2.id), \
+        f"Expected opp damage for Dragon's Fire"
+
+
+def test_s23_pyrotechnics_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_pyrotechnics")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Pyrotechnics; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DAMAGE, target=p2.id), \
+        f"Expected opp damage for Pyrotechnics"
+
+
+def test_s23_summon_dragon_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_summon_dragon")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Summon Dragon; events={[e.type.name for e in events]}"
+    assert _assert_any(events, EventType.DAMAGE, target=p2.id), \
+        f"Expected opp damage for Summon Dragon"
+
+
+def test_s23_herbivicus_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_herbivicus")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Herbivicus"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Herbivicus"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp drain/mill for Herbivicus"
+
+
+def test_s23_wild_growth_spell_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_wild_growth")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Wild Growth"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Wild Growth"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp drain/mill for Wild Growth"
+
+
+def test_s23_engorgio_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_engorgio")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Engorgio"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Engorgio"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp drain/mill for Engorgio"
+
+
+def test_s23_beasts_fury_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_beasts_fury")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Beast's Fury"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Beast's Fury"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp drain/mill for Beast's Fury"
+
+
+def test_s23_natures_protection_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_natures_protection")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Nature's Protection"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Nature's Protection"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp drain/mill for Nature's Protection"
+
+
+def test_s23_greenhouse_harvest_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_greenhouse_harvest")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Greenhouse Harvest"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Greenhouse Harvest"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp drain/mill for Greenhouse Harvest"
+
+
+def test_s23_creature_summoning_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_creature_summoning")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Creature Summoning"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Creature Summoning"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp drain/mill for Creature Summoning"
+
+
+def test_s23_mandrake_restorative_resolve():
+    events, p1, p2 = _s23_resolve("_hpw_s23_resolve_mandrake_restorative")
+    assert _assert_any(events, EventType.SCRY) or _assert_any(events, EventType.SURVEIL), \
+        f"Expected info event for Mandrake Restorative"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p1.id, amount='<POS>'), \
+        f"Expected gain on caster for Mandrake Restorative"
+    assert _assert_any(events, EventType.LIFE_CHANGE, player=p2.id, amount='<NEG>') or _assert_any(events, EventType.MILL, player=p2.id), \
+        f"Expected opp drain/mill for Mandrake Restorative"
+
+
 def _run_all():
     import traceback
     tests = [v for k, v in globals().items() if k.startswith("test_") and callable(v)]
