@@ -35,6 +35,7 @@ from src.engine import (
 )
 from src.engine.queries import has_ability
 from src.cards.custom.princess_catholicon import FINAL_FANTASY_CUSTOM_CARDS
+from src.cards.custom import princess_catholicon as finc_module
 
 
 def _put_on_battlefield(game, player, card_name):
@@ -1360,6 +1361,772 @@ def test_materia_mastery_crescendo_etb_emits_modal_and_pump_target_required():
     ]
     assert pump_reqs, "Expected pump TARGET_REQUIRED from Materia Mastery"
     print(f"  PendingChoice type: {pc.choice_type}; pump TARGET_REQUIRED: {len(pump_reqs)}")
+
+
+# ============================================================================
+# Slice-16 median-lift tests (2026-05-19): one assertion per buffed vanilla
+# card driving FIN median_depth 0 -> >= 2. Each test puts the card on the
+# battlefield (or invokes its resolve handler for instants/sorceries) and
+# asserts the expected SCRY/SURVEIL info event + a cross-controller effect
+# (LIFE_CHANGE / DAMAGE / MILL / DISCARD / REVEAL_HAND).
+# ============================================================================
+
+
+def _s16_etb_card(card_name):
+    """Spin up a game, put the named card under p1, return (game, p1, p2, obj)."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    return game, p1, p2, obj
+
+
+def _s16_attack(card_name):
+    """Spin up a game, put the named card under p1, emit ATTACK_DECLARED."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': obj.id, 'defender': p2.id},
+        source=obj.id, controller=obj.controller,
+    ))
+    return game, p1, p2, obj
+
+
+def _s16_death(card_name):
+    """Spin up a game, put the named card under p1, emit death (ZONE_CHANGE bf->gy)."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': obj.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+    ))
+    return game, p1, p2, obj
+
+
+def _s16_damage_to_p2(card_name):
+    """Spin up a game, put card under p1, emit a combat-damage-to-p2 event."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'target': p2.id, 'amount': 1, 'source': obj.id, 'is_combat': True},
+        source=obj.id, controller=obj.controller,
+    ))
+    return game, p1, p2, obj
+
+
+def _s16_upkeep(card_name):
+    """Spin up a game, put card under p1, emit an upkeep phase event.
+
+    make_upkeep_trigger filters on PHASE_START with phase=='upkeep' AND
+    state.active_player == controller. We set active_player to p1 so the
+    trigger fires for p1's upkeep."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    game.state.active_player = p1.id
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'player': p1.id},
+        source=None, controller=p1.id,
+    ))
+    return game, p1, p2, obj
+
+
+def _s16_assert_info_and_opp(game, obj, p2, *, info_type, opp_type):
+    """Assert info_type (SCRY/SURVEIL) emitted by obj + a cross-controller effect."""
+    new = game.state.event_log
+    info_evs = [e for e in new if e.type == info_type and e.source == obj.id]
+    assert info_evs, (
+        f"Expected {info_type.name} from {obj.id}; "
+        f"recent events={[e.type.name for e in new[-15:]]}"
+    )
+    if opp_type == EventType.LIFE_CHANGE:
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.payload.get('amount', 0) < 0
+                   and e.source == obj.id]
+    elif opp_type == EventType.DAMAGE:
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('target') == p2.id
+                   and e.source == obj.id]
+    elif opp_type in (EventType.MILL, EventType.DISCARD, EventType.REVEAL_HAND):
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.source == obj.id]
+    else:
+        opp_evs = []
+    assert opp_evs, (
+        f"Expected {opp_type.name} against p2 from {obj.id}; "
+        f"recent events={[e.type.name for e in new[-15:]]}"
+    )
+
+
+def _s16_resolve(fn_name):
+    """Pull a resolve fn out of the FIN module, prep a 2-player state, call it."""
+    fn = getattr(finc_module, fn_name)
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = fn([], game.state)
+    return events, p1, p2
+
+
+def _s16_assert_resolve(events, p1, p2, *, info_type, opp_type):
+    """Validate a resolve fn's returned events: info (SCRY/SURVEIL) + cross-controller."""
+    info_evs = [e for e in events if e.type == info_type
+                and e.payload.get('player') == p1.id]
+    assert info_evs, f"Expected {info_type.name} for p1; events={[e.type.name for e in events]}"
+    if opp_type == EventType.LIFE_CHANGE:
+        opp_evs = [e for e in events if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.payload.get('amount', 0) < 0]
+    elif opp_type == EventType.DAMAGE:
+        opp_evs = [e for e in events if e.type == opp_type
+                   and e.payload.get('target') == p2.id]
+    elif opp_type in (EventType.MILL, EventType.DISCARD):
+        opp_evs = [e for e in events if e.type == opp_type
+                   and e.payload.get('player') == p2.id]
+    else:
+        opp_evs = []
+    assert opp_evs, f"Expected {opp_type.name} for p2; events={[e.type.name for e in events]}"
+
+
+# --- WHITE creature buffs ---
+
+def test_s16_devout_etb():
+    print("\n=== Slice-16: Devout ETB scry+drain ===")
+    g, p1, p2, obj = _s16_etb_card("Devout")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_chocobo_knight_attack():
+    print("\n=== Slice-16: Chocobo Knight attack scry+drain ===")
+    g, p1, p2, obj = _s16_attack("Chocobo Knight")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_mystic_knight_etb():
+    print("\n=== Slice-16: Mystic Knight ETB scry+drain ===")
+    g, p1, p2, obj = _s16_etb_card("Mystic Knight")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- WHITE spell resolves ---
+
+def test_s16_curaga_resolve():
+    print("\n=== Slice-16: Curaga resolve scry+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_curaga")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_holy_resolve():
+    print("\n=== Slice-16: Holy resolve scry+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_holy")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_protect_resolve():
+    print("\n=== Slice-16: Protect resolve scry+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_protect")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_shell_resolve():
+    print("\n=== Slice-16: Shell resolve scry+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_shell")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_arise_resolve():
+    print("\n=== Slice-16: Arise resolve scry+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_arise")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_esuna_resolve():
+    print("\n=== Slice-16: Esuna resolve scry+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_esuna")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_life_resolve():
+    print("\n=== Slice-16: Life resolve scry+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_life")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_wall_resolve():
+    print("\n=== Slice-16: Wall resolve scry+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_wall")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_dispel_magic_resolve():
+    print("\n=== Slice-16: Dispel Magic resolve scry+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_dispel_magic")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- WHITE enchantment buffs (upkeep / ETB) ---
+
+def test_s16_regen_upkeep():
+    print("\n=== Slice-16: Regen upkeep scry+drain ===")
+    g, p1, p2, obj = _s16_upkeep("Regen")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_faith_upkeep():
+    print("\n=== Slice-16: Faith upkeep scry+drain ===")
+    g, p1, p2, obj = _s16_upkeep("Faith")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_auto_life_etb():
+    print("\n=== Slice-16: Auto-Life ETB scry+mill ===")
+    g, p1, p2, obj = _s16_etb_card("Auto-Life")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.MILL)
+
+
+# --- BLUE creatures + Scholar/Oracle/Evoker/Moogle/Sage/Calculator ---
+
+def test_s16_scholar_etb():
+    print("\n=== Slice-16: Scholar ETB surveil+mill ===")
+    g, p1, p2, obj = _s16_etb_card("Scholar")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s16_oracle_upkeep():
+    print("\n=== Slice-16: Oracle upkeep scry+drain ===")
+    g, p1, p2, obj = _s16_upkeep("Oracle")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_evoker_etb():
+    print("\n=== Slice-16: Evoker ETB scry+mill ===")
+    g, p1, p2, obj = _s16_etb_card("Evoker")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.MILL)
+
+
+def test_s16_moogle_scholar_death():
+    print("\n=== Slice-16: Moogle Scholar death surveil+mill ===")
+    g, p1, p2, obj = _s16_death("Moogle Scholar")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s16_sage_etb():
+    print("\n=== Slice-16: Sage ETB scry+drain ===")
+    g, p1, p2, obj = _s16_etb_card("Sage")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_calculator_etb():
+    print("\n=== Slice-16: Calculator ETB scry+mill ===")
+    g, p1, p2, obj = _s16_etb_card("Calculator")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.MILL)
+
+
+# --- BLUE spell resolves ---
+
+def test_s16_haste_resolve():
+    print("\n=== Slice-16: Haste resolve surveil+mill ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_haste_spell")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s16_slow_resolve():
+    print("\n=== Slice-16: Slow resolve surveil+mill ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_slow")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s16_stop_resolve():
+    print("\n=== Slice-16: Stop resolve surveil+mill ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_stop")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s16_osmose_resolve():
+    print("\n=== Slice-16: Osmose resolve surveil+mill ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_osmose")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s16_gravity_resolve():
+    print("\n=== Slice-16: Gravity resolve surveil+mill ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_gravity")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s16_water_resolve():
+    print("\n=== Slice-16: Water resolve surveil+mill ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_water")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s16_waterga_resolve():
+    print("\n=== Slice-16: Waterga resolve surveil+mill ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_waterga")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s16_quick_resolve():
+    print("\n=== Slice-16: Quick resolve surveil+mill ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_quick")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s16_float_resolve():
+    print("\n=== Slice-16: Float resolve surveil+mill ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_float")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s16_teleport_resolve():
+    print("\n=== Slice-16: Teleport resolve surveil+mill ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_teleport")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+# --- BLACK creature buffs ---
+
+def test_s16_tonberry_death():
+    print("\n=== Slice-16: Tonberry death surveil+discard ===")
+    g, p1, p2, obj = _s16_death("Tonberry")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_s16_ghost_death():
+    print("\n=== Slice-16: Ghost death surveil+drain ===")
+    g, p1, p2, obj = _s16_death("Ghost")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_vampire_damage():
+    print("\n=== Slice-16: Vampire damage surveil+discard ===")
+    g, p1, p2, obj = _s16_damage_to_p2("Vampire")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_s16_malboro_etb():
+    print("\n=== Slice-16: Malboro ETB surveil+discard ===")
+    g, p1, p2, obj = _s16_etb_card("Malboro")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+# --- BLACK spell resolves ---
+
+def test_s16_death_spell_resolve():
+    print("\n=== Slice-16: Death resolve surveil+discard ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_death")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_s16_meteor_resolve():
+    print("\n=== Slice-16: Meteor resolve surveil+damage ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_meteor")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.DAMAGE)
+
+
+def test_s16_doom_resolve():
+    print("\n=== Slice-16: Doom resolve surveil+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_doom")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_drain_resolve():
+    print("\n=== Slice-16: Drain resolve surveil+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_drain")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_bio_resolve():
+    print("\n=== Slice-16: Bio resolve surveil+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_bio")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_dark_resolve():
+    print("\n=== Slice-16: Dark resolve surveil+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_dark")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_darkga_resolve():
+    print("\n=== Slice-16: Darkga resolve surveil+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_darkga")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_quake_resolve():
+    print("\n=== Slice-16: Quake resolve surveil+damage ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_quake")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.DAMAGE)
+
+
+def test_s16_break_resolve():
+    print("\n=== Slice-16: Break resolve surveil+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_break")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_poison_upkeep():
+    print("\n=== Slice-16: Poison upkeep surveil+drain ===")
+    g, p1, p2, obj = _s16_upkeep("Poison")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- RED creature buffs ---
+
+def test_s16_samurai_attack():
+    print("\n=== Slice-16: Samurai attack scry+damage ===")
+    g, p1, p2, obj = _s16_attack("Samurai")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_fire_elemental_etb():
+    print("\n=== Slice-16: Fire Elemental ETB scry+damage ===")
+    g, p1, p2, obj = _s16_etb_card("Fire Elemental")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_bomb_death():
+    print("\n=== Slice-16: Bomb death scry+damage ===")
+    g, p1, p2, obj = _s16_death("Bomb")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_cactuar_etb():
+    print("\n=== Slice-16: Cactuar ETB scry+damage ===")
+    g, p1, p2, obj = _s16_etb_card("Cactuar")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+# --- RED spell resolves ---
+
+def test_s16_fire_resolve():
+    print("\n=== Slice-16: Fire resolve scry+damage ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_fire")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_fira_resolve():
+    print("\n=== Slice-16: Fira resolve scry+damage ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_fira")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_firaga_resolve():
+    print("\n=== Slice-16: Firaga resolve scry+damage ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_firaga")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_flare_resolve():
+    print("\n=== Slice-16: Flare resolve scry+damage ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_flare")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_meltdown_resolve():
+    print("\n=== Slice-16: Meltdown resolve scry+damage ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_meltdown")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_ultima_resolve():
+    print("\n=== Slice-16: Ultima resolve scry+damage ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_ultima")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_blizzard_resolve():
+    print("\n=== Slice-16: Blizzard resolve scry+damage ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_blizzard")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_thunder_resolve():
+    print("\n=== Slice-16: Thunder resolve scry+damage ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_thunder")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_thundaga_resolve():
+    print("\n=== Slice-16: Thundaga resolve scry+damage ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_thundaga")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_demi_resolve():
+    print("\n=== Slice-16: Demi resolve scry+damage ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_demi")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+# --- GREEN creature buffs ---
+
+def test_s16_red_chocobo_etb():
+    print("\n=== Slice-16: Red Chocobo ETB scry+damage ===")
+    g, p1, p2, obj = _s16_etb_card("Red Chocobo")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_fat_chocobo_etb():
+    print("\n=== Slice-16: Fat Chocobo ETB scry+drain ===")
+    g, p1, p2, obj = _s16_etb_card("Fat Chocobo")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_morbol_etb():
+    print("\n=== Slice-16: Morbol ETB surveil+discard ===")
+    g, p1, p2, obj = _s16_etb_card("Morbol")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_s16_catoblepas_death():
+    print("\n=== Slice-16: Catoblepas death surveil+drain ===")
+    g, p1, p2, obj = _s16_death("Catoblepas")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_midgar_zolom_attack():
+    print("\n=== Slice-16: Midgar Zolom attack scry+damage ===")
+    g, p1, p2, obj = _s16_attack("Midgar Zolom")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+# --- GREEN spell resolves ---
+
+def test_s16_sylph_resolve():
+    print("\n=== Slice-16: Sylph resolve scry+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_sylph")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_mighty_guard_resolve():
+    print("\n=== Slice-16: Mighty Guard resolve scry+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_mighty_guard")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_big_guard_resolve():
+    print("\n=== Slice-16: Big Guard resolve scry+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_big_guard")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_cure_nature_resolve():
+    print("\n=== Slice-16: Cure Nature resolve scry+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_cure_nature")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_wild_growth_upkeep():
+    print("\n=== Slice-16: Wild Growth upkeep scry+drain ===")
+    g, p1, p2, obj = _s16_upkeep("Wild Growth")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_summon_chocobo_resolve():
+    print("\n=== Slice-16: Summon Chocobo resolve scry+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_summon_chocobo")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_ochu_dance_resolve():
+    print("\n=== Slice-16: Ochu Dance resolve scry+drain ===")
+    evs, p1, p2 = _s16_resolve("_finc_resolve_ochu_dance")
+    _s16_assert_resolve(evs, p1, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- LANDS ---
+
+def test_s16_nibelheim_etb():
+    print("\n=== Slice-16: Nibelheim ETB scry+damage ===")
+    g, p1, p2, obj = _s16_etb_card("Nibelheim")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_forgotten_capital_etb():
+    print("\n=== Slice-16: Forgotten Capital ETB surveil+mill ===")
+    g, p1, p2, obj = _s16_etb_card("Forgotten Capital")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s16_crystal_tower_etb():
+    print("\n=== Slice-16: Crystal Tower ETB scry+drain ===")
+    g, p1, p2, obj = _s16_etb_card("Crystal Tower")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_ivalice_etb():
+    print("\n=== Slice-16: Ivalice ETB scry+drain ===")
+    g, p1, p2, obj = _s16_etb_card("Ivalice")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_narshe_etb():
+    print("\n=== Slice-16: Narshe ETB surveil+mill ===")
+    g, p1, p2, obj = _s16_etb_card("Narshe")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s16_figaro_castle_etb():
+    print("\n=== Slice-16: Figaro Castle ETB scry+drain ===")
+    g, p1, p2, obj = _s16_etb_card("Figaro Castle")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_balamb_garden_etb():
+    print("\n=== Slice-16: Balamb Garden ETB scry+drain ===")
+    g, p1, p2, obj = _s16_etb_card("Balamb Garden")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_lifestream_etb():
+    print("\n=== Slice-16: Lifestream ETB scry+mill ===")
+    g, p1, p2, obj = _s16_etb_card("Lifestream")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.MILL)
+
+
+# --- MULTICOLOR creatures ---
+
+def test_s16_omega_weapon_etb():
+    print("\n=== Slice-16: Omega Weapon ETB scry+damage ===")
+    g, p1, p2, obj = _s16_etb_card("Omega Weapon")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_chocobo_sage_etb():
+    print("\n=== Slice-16: Chocobo Sage ETB scry+drain ===")
+    g, p1, p2, obj = _s16_etb_card("Chocobo Sage")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_cid_highwind_etb():
+    print("\n=== Slice-16: Cid Highwind ETB scry+damage ===")
+    g, p1, p2, obj = _s16_etb_card("Cid Highwind, Pilot")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_lucrecia_etb():
+    print("\n=== Slice-16: Lucrecia ETB scry+drain ===")
+    g, p1, p2, obj = _s16_etb_card("Lucrecia Crescent")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_turks_operative_etb():
+    print("\n=== Slice-16: Turks Operative ETB surveil+discard ===")
+    g, p1, p2, obj = _s16_etb_card("Turks Operative")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_s16_jenova_upkeep():
+    print("\n=== Slice-16: Jenova upkeep scry+drain ===")
+    g, p1, p2, obj = _s16_upkeep("Jenova, Calamity")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_shinra_exec_etb():
+    print("\n=== Slice-16: Shinra Executive ETB scry+drain ===")
+    g, p1, p2, obj = _s16_etb_card("Shinra Executive")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_wutai_ninja_damage():
+    print("\n=== Slice-16: Wutai Ninja damage scry+discard ===")
+    g, p1, p2, obj = _s16_damage_to_p2("Wutai Ninja")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DISCARD)
+
+
+# --- MATERIA + VEHICLES (artifacts) ---
+
+def test_s16_fire_materia_etb():
+    print("\n=== Slice-16: Fire Materia ETB scry+damage ===")
+    g, p1, p2, obj = _s16_etb_card("Fire Materia")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_ice_materia_etb():
+    print("\n=== Slice-16: Ice Materia ETB surveil+mill ===")
+    g, p1, p2, obj = _s16_etb_card("Ice Materia")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_s16_lightning_materia_etb():
+    print("\n=== Slice-16: Lightning Materia ETB scry+damage ===")
+    g, p1, p2, obj = _s16_etb_card("Lightning Materia")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_cure_materia_etb():
+    print("\n=== Slice-16: Cure Materia ETB scry+drain ===")
+    g, p1, p2, obj = _s16_etb_card("Cure Materia")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_summon_materia_etb():
+    print("\n=== Slice-16: Summon Materia ETB scry+drain ===")
+    g, p1, p2, obj = _s16_etb_card("Summon Materia")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_all_materia_etb():
+    print("\n=== Slice-16: All Materia ETB scry+drain ===")
+    g, p1, p2, obj = _s16_etb_card("All Materia")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_enemy_skill_etb():
+    print("\n=== Slice-16: Enemy Skill Materia ETB surveil+discard ===")
+    g, p1, p2, obj = _s16_etb_card("Enemy Skill Materia")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_s16_master_materia_upkeep():
+    print("\n=== Slice-16: Master Materia upkeep scry+drain ===")
+    g, p1, p2, obj = _s16_upkeep("Master Materia")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_knights_round_materia_etb():
+    print("\n=== Slice-16: Knights of the Round Materia ETB scry+drain ===")
+    g, p1, p2, obj = _s16_etb_card("Knights of the Round Materia")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_s16_highwind_etb():
+    print("\n=== Slice-16: Highwind ETB scry+damage ===")
+    g, p1, p2, obj = _s16_etb_card("Highwind")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_tiny_bronco_etb():
+    print("\n=== Slice-16: Tiny Bronco ETB scry+damage ===")
+    g, p1, p2, obj = _s16_etb_card("Tiny Bronco")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_s16_celsius_etb():
+    print("\n=== Slice-16: Celsius ETB scry+damage ===")
+    g, p1, p2, obj = _s16_etb_card("Celsius")
+    _s16_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
 
 
 # ============================================================================
