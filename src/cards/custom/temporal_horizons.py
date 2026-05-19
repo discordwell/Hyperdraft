@@ -3740,6 +3740,7 @@ TEMPORAL_ROOTS = make_enchantment(
     name="Temporal Roots",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
+    subtypes={"Aura"},
     text="Enchant land. Enchanted land has '{T}: Add two mana of any one color.'"
 )
 
