@@ -36,6 +36,7 @@ from src.engine import (
 )
 from src.engine.queries import has_ability
 from src.cards.custom.star_wars import STAR_WARS_CARDS
+from src.cards.custom import star_wars as star_wars_module
 
 
 def _put_on_battlefield(game, player, card_name):
@@ -1552,6 +1553,1566 @@ def test_swr_slice_5_5_all_cards_registered():
         cd = STAR_WARS_CARDS[name]
         assert cd.setup_interceptors is not None, f"{name} should be wired"
     print(f"  All {len(expected)} slice-5.5 cards present & wired")
+
+
+# =============================================================================
+# Slice-11 median-lift tests (2026-05-19): one assertion per buffed vanilla
+# card driving SWR median_depth 0 -> >= 2. Each test puts the card on the
+# battlefield (or invokes its resolve handler for instants/sorceries) and
+# asserts the expected SCRY/SURVEIL info event + a cross-controller effect.
+# =============================================================================
+
+
+def _s11_etb_card(card_name):
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    return game, p1, p2, obj
+
+
+def _s11_attack(card_name):
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={"attacker_id": obj.id, "defender": p2.id},
+        source=obj.id, controller=obj.controller,
+    ))
+    return game, p1, p2, obj
+
+
+def _s11_assert_info_and_opp(game, obj, p2, *, info_type, opp_type, opp_key, amount_check):
+    new = game.state.event_log
+    info_evs = [e for e in new if e.type == info_type and e.source == obj.id]
+    assert info_evs, f"Expected {info_type.name} from {obj.id}; events={[e.type.name for e in new[-15:]]}"
+    if opp_type == EventType.LIFE_CHANGE:
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get(opp_key) == p2.id
+                   and (e.payload.get("amount", 0) < 0 if amount_check == "neg" else True)
+                   and e.source == obj.id]
+    elif opp_type == EventType.DAMAGE:
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get(opp_key) == p2.id
+                   and e.source == obj.id]
+    elif opp_type in (EventType.MILL, EventType.DISCARD, EventType.REVEAL_HAND):
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get(opp_key) == p2.id
+                   and e.source == obj.id]
+    else:
+        opp_evs = []
+    assert opp_evs, (
+        f"Expected {opp_type.name} against p2 from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+
+
+def _s11_resolve(fn_name):
+    fn = getattr(star_wars_module, fn_name)
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = fn([], game.state)
+    return events, p1, p2
+
+
+def _s11_assert_resolve(events, p2, *, info_type, opp_type, opp_key, amount_check):
+    info_evs = [e for e in events if e.type == info_type]
+    assert info_evs, f"Expected {info_type.name}; events={[e.type.name for e in events]}"
+    if opp_type == EventType.LIFE_CHANGE:
+        opp_evs = [e for e in events if e.type == opp_type
+                   and e.payload.get(opp_key) == p2.id
+                   and (e.payload.get("amount", 0) < 0 if amount_check == "neg" else True)]
+    elif opp_type == EventType.DAMAGE:
+        opp_evs = [e for e in events if e.type == opp_type
+                   and e.payload.get(opp_key) == p2.id]
+    else:
+        opp_evs = [e for e in events if e.type == opp_type
+                   and e.payload.get(opp_key) == p2.id]
+    assert opp_evs, f"Expected {opp_type.name} on p2; events={[e.type.name for e in events]}"
+
+
+def test_s11_coruscant_peacekeeper_s11():
+    """Slice-11 ETB: Coruscant Peacekeeper -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Coruscant Peacekeeper ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Coruscant Peacekeeper')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_resistance_commander_s11():
+    """Slice-11 ETB: Resistance Commander -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Resistance Commander ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Resistance Commander')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_rebellion_sympathizer_s11():
+    """Slice-11 ETB: Rebellion Sympathizer -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Rebellion Sympathizer ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Rebellion Sympathizer')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_force_protection_resolve_s11():
+    """Slice-11 resolve: Force Protection -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Force Protection resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_white_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_rebel_ambush_resolve_s11():
+    """Slice-11 resolve: Rebel Ambush -> SCRY+MILL."""
+    print("\n=== Slice-11: Rebel Ambush resolve scry+mill ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_white_v4')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_jedi_reflexes_resolve_s11():
+    """Slice-11 resolve: Jedi Reflexes -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Jedi Reflexes resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_white_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_hope_renewed_resolve_s11():
+    """Slice-11 resolve: Hope Renewed -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Hope Renewed resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_white_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_defensive_formation_resolve_s11():
+    """Slice-11 resolve: Defensive Formation -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Defensive Formation resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_white_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_light_of_the_force_resolve_s11():
+    """Slice-11 resolve: Light of the Force -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Light of the Force resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_white_v2')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_call_to_arms_resolve_s11():
+    """Slice-11 resolve: Call to Arms -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Call to Arms resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_white_v2')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_liberation_day_resolve_s11():
+    """Slice-11 resolve: Liberation Day -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Liberation Day resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_white_v2')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_jedi_training_resolve_s11():
+    """Slice-11 resolve: Jedi Training -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Jedi Training resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_white_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_evacuation_plan_resolve_s11():
+    """Slice-11 resolve: Evacuation Plan -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Evacuation Plan resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_white_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_rebel_alliance_s11():
+    """Slice-11 ETB: Rebel Alliance -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Rebel Alliance ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Rebel Alliance')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_jedi_sanctuary_s11():
+    """Slice-11 ETB: Jedi Sanctuary -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Jedi Sanctuary ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Jedi Sanctuary')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_protocol_droid_s11():
+    """Slice-11 ETB: Protocol Droid -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Protocol Droid ETB surveil+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Protocol Droid')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_jedi_scholar_s11():
+    """Slice-11 ETB: Jedi Scholar -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Jedi Scholar ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Jedi Scholar')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_battle_droid_s11():
+    """Slice-11 ETB: Battle Droid -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Battle Droid ETB surveil+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Battle Droid')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_probe_droid_s11():
+    """Slice-11 ETB: Probe Droid -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Probe Droid ETB surveil+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Probe Droid')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_coruscant_archivist_s11():
+    """Slice-11 ETB: Coruscant Archivist -> SCRY+REVEAL_HAND."""
+    print("\n=== Slice-11: Coruscant Archivist ETB scry+reveal_hand ===")
+    g, p1, p2, obj = _s11_etb_card('Coruscant Archivist')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.REVEAL_HAND, opp_key='player', amount_check='na')
+
+
+def test_s11_holo_projector_droid_s11():
+    """Slice-11 ETB: Holo-Projector Droid -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Holo-Projector Droid ETB surveil+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Holo-Projector Droid')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_jedi_investigator_s11():
+    """Slice-11 ETB: Jedi Investigator -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Jedi Investigator ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Jedi Investigator')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_jedi_mind_trick_resolve_s11():
+    """Slice-11 resolve: Jedi Mind Trick -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Jedi Mind Trick resolve surveil+mill ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_blue_v2')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_force_push_resolve_s11():
+    """Slice-11 resolve: Force Push -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Force Push resolve surveil+mill ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_surveil_mill')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_holographic_decoy_resolve_s11():
+    """Slice-11 resolve: Holographic Decoy -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Holographic Decoy resolve surveil+mill ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_blue_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_hyperspace_jump_resolve_s11():
+    """Slice-11 resolve: Hyperspace Jump -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Hyperspace Jump resolve surveil+mill ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_blue_v2')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_sensor_scramble_resolve_s11():
+    """Slice-11 resolve: Sensor Scramble -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Sensor Scramble resolve surveil+mill ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_blue_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_force_vision_resolve_s11():
+    """Slice-11 resolve: Force Vision -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Force Vision resolve surveil+mill ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_blue_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_tech_override_resolve_s11():
+    """Slice-11 resolve: Tech Override -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Tech Override resolve surveil+mill ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_blue_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_droid_fabrication_resolve_s11():
+    """Slice-11 resolve: Droid Fabrication -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Droid Fabrication resolve surveil+mill ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_blue_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_memory_wipe_resolve_s11():
+    """Slice-11 resolve: Memory Wipe -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Memory Wipe resolve surveil+mill ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_blue_v2')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_clone_army_resolve_s11():
+    """Slice-11 resolve: Clone Army -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Clone Army resolve surveil+mill ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_blue_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_hologram_transmission_resolve_s11():
+    """Slice-11 resolve: Hologram Transmission -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Hologram Transmission resolve surveil+mill ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_blue_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_droid_factory_s11():
+    """Slice-11 ETB: Droid Factory -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Droid Factory ETB surveil+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Droid Factory')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_jedi_archives_s11():
+    """Slice-11 ETB: Jedi Archives -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Jedi Archives ETB surveil+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Jedi Archives')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_dark_side_adept_s11():
+    """Slice-11 ETB: Dark Side Adept -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Dark Side Adept ETB surveil+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Dark Side Adept')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_force_choke_resolve_s11():
+    """Slice-11 resolve: Force Choke -> SURVEIL+DISCARD."""
+    print("\n=== Slice-11: Force Choke resolve surveil+discard ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_surveil_discard')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_dark_side_corruption_resolve_s11():
+    """Slice-11 resolve: Dark Side Corruption -> SURVEIL+DISCARD."""
+    print("\n=== Slice-11: Dark Side Corruption resolve surveil+discard ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_black_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_imperial_execution_resolve_s11():
+    """Slice-11 resolve: Imperial Execution -> SURVEIL+DISCARD."""
+    print("\n=== Slice-11: Imperial Execution resolve surveil+discard ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_black_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_sith_lightning_resolve_s11():
+    """Slice-11 resolve: Sith Lightning -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Sith Lightning resolve scry+damage ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_red_v2')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_fear_itself_resolve_s11():
+    """Slice-11 resolve: Fear Itself -> SURVEIL+DISCARD."""
+    print("\n=== Slice-11: Fear Itself resolve surveil+discard ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_black_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_betrayal_resolve_s11():
+    """Slice-11 resolve: Betrayal -> SURVEIL+DISCARD."""
+    print("\n=== Slice-11: Betrayal resolve surveil+discard ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_black_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_order_66_resolve_s11():
+    """Slice-11 resolve: Order 66 -> SURVEIL+DISCARD."""
+    print("\n=== Slice-11: Order 66 resolve surveil+discard ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_black_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_imperial_bombardment_resolve_s11():
+    """Slice-11 resolve: Imperial Bombardment -> SURVEIL+DISCARD."""
+    print("\n=== Slice-11: Imperial Bombardment resolve surveil+discard ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_black_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_harvest_despair_resolve_s11():
+    """Slice-11 resolve: Harvest Despair -> SURVEIL+DISCARD."""
+    print("\n=== Slice-11: Harvest Despair resolve surveil+discard ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_black_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_conscription_resolve_s11():
+    """Slice-11 resolve: Conscription -> SURVEIL+DISCARD."""
+    print("\n=== Slice-11: Conscription resolve surveil+discard ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_black_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_galactic_empire_s11():
+    """Slice-11 ETB: Galactic Empire -> SCRY+DISCARD."""
+    print("\n=== Slice-11: Galactic Empire ETB scry+discard ===")
+    g, p1, p2, obj = _s11_etb_card('Galactic Empire')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_rule_of_two_s11():
+    """Slice-11 ETB: Rule of Two -> SCRY+DISCARD."""
+    print("\n=== Slice-11: Rule of Two ETB scry+discard ===")
+    g, p1, p2, obj = _s11_etb_card('Rule of Two')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_trandoshan_slaver_s11():
+    """Slice-11 ETB: Trandoshan Slaver -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Trandoshan Slaver ETB scry+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Trandoshan Slaver')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_gamorrean_guard_s11():
+    """Slice-11 ETB: Gamorrean Guard -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Gamorrean Guard ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Gamorrean Guard')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_podracer_s11():
+    """Slice-11 ETB: Podracer -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Podracer ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Podracer')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_separatist_battle_droid_s11():
+    """Slice-11 ETB: Separatist Battle Droid -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Separatist Battle Droid ETB surveil+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Separatist Battle Droid')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_weequay_pirate_s11():
+    """Slice-11 ETB: Weequay Pirate -> SCRY+DISCARD."""
+    print("\n=== Slice-11: Weequay Pirate ETB scry+discard ===")
+    g, p1, p2, obj = _s11_etb_card('Weequay Pirate')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_pyke_enforcer_s11():
+    """Slice-11 ETB: Pyke Enforcer -> SCRY+DISCARD."""
+    print("\n=== Slice-11: Pyke Enforcer ETB scry+discard ===")
+    g, p1, p2, obj = _s11_etb_card('Pyke Enforcer')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_blaster_bolt_resolve_s11():
+    """Slice-11 resolve: Blaster Bolt -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Blaster Bolt resolve scry+damage ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_red_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_thermal_detonator_resolve_s11():
+    """Slice-11 resolve: Thermal Detonator -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Thermal Detonator resolve scry+damage ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_red_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_aggressive_negotiations_resolve_s11():
+    """Slice-11 resolve: Aggressive Negotiations -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Aggressive Negotiations resolve scry+damage ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_red_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_bounty_posted_resolve_s11():
+    """Slice-11 resolve: Bounty Posted -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Bounty Posted resolve scry+damage ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_red_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_reckless_assault_resolve_s11():
+    """Slice-11 resolve: Reckless Assault -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Reckless Assault resolve scry+damage ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_red_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_disintegrate_resolve_s11():
+    """Slice-11 resolve: Disintegrate -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Disintegrate resolve scry+damage ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_red_v2')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_orbital_strike_resolve_s11():
+    """Slice-11 resolve: Orbital Strike -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Orbital Strike resolve scry+damage ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_red_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_bounty_collection_resolve_s11():
+    """Slice-11 resolve: Bounty Collection -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Bounty Collection resolve scry+damage ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_red_v2')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_rage_of_the_arena_resolve_s11():
+    """Slice-11 resolve: Rage of the Arena -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Rage of the Arena resolve scry+damage ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_red_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_hired_guns_resolve_s11():
+    """Slice-11 resolve: Hired Guns -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Hired Guns resolve scry+damage ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_red_v2')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_hunters_code_s11():
+    """Slice-11 ETB: Hunter's Code -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Hunter's Code ETB scry+damage ===")
+    g, p1, p2, obj = _s11_etb_card("Hunter's Code")
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_arena_pit_s11():
+    """Slice-11 ETB: Arena Pit -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Arena Pit ETB scry+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Arena Pit')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_galactic_underworld_s11():
+    """Slice-11 ETB: Galactic Underworld -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Galactic Underworld ETB scry+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Galactic Underworld')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_felucia_beast_s11():
+    """Slice-11 ETB: Felucia Beast -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Felucia Beast ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Felucia Beast')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_naboo_ranger_s11():
+    """Slice-11 ETB: Naboo Ranger -> SCRY+REVEAL_HAND."""
+    print("\n=== Slice-11: Naboo Ranger ETB scry+reveal_hand ===")
+    g, p1, p2, obj = _s11_etb_card('Naboo Ranger')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.REVEAL_HAND, opp_key='player', amount_check='na')
+
+
+def test_s11_gungan_warrior_s11():
+    """Slice-11 ETB: Gungan Warrior -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Gungan Warrior ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Gungan Warrior')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_yavin_jungle_cat_s11():
+    """Slice-11 ETB: Yavin Jungle Cat -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Yavin Jungle Cat ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Yavin Jungle Cat')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_endor_wildlife_s11():
+    """Slice-11 ETB: Endor Wildlife -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Endor Wildlife ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Endor Wildlife')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_sarlacc_pit_spawn_s11():
+    """Slice-11 ETB: Sarlacc Pit Spawn -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Sarlacc Pit Spawn ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Sarlacc Pit Spawn')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_wookiee_rage_resolve_s11():
+    """Slice-11 resolve: Wookiee Rage -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Wookiee Rage resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_green_v2')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_forest_ambush_resolve_s11():
+    """Slice-11 resolve: Forest Ambush -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Forest Ambush resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_scry_gain_ally')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_ewok_trap_resolve_s11():
+    """Slice-11 resolve: Ewok Trap -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Ewok Trap resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_green_v2')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_natural_camouflage_resolve_s11():
+    """Slice-11 resolve: Natural Camouflage -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Natural Camouflage resolve scry+damage ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_green_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_jungle_growth_resolve_s11():
+    """Slice-11 resolve: Jungle Growth -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Jungle Growth resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_green_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_primal_connection_resolve_s11():
+    """Slice-11 resolve: Primal Connection -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Primal Connection resolve scry+damage ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_green_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_call_of_the_wild_resolve_s11():
+    """Slice-11 resolve: Call of the Wild -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Call of the Wild resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_green_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_ewok_uprising_resolve_s11():
+    """Slice-11 resolve: Ewok Uprising -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Ewok Uprising resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_green_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_force_of_nature_resolve_s11():
+    """Slice-11 resolve: Force of Nature -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Force of Nature resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_scry_gain_ally')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_rampant_growth_resolve_s11():
+    """Slice-11 resolve: Rampant Growth -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Rampant Growth resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_green_v2')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_ewok_village_s11():
+    """Slice-11 ETB: Ewok Village -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Ewok Village ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Ewok Village')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_kashyyyk_homeland_s11():
+    """Slice-11 ETB: Kashyyyk Homeland -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Kashyyyk Homeland ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Kashyyyk Homeland')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_the_living_force_s11():
+    """Slice-11 ETB: The Living Force -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: The Living Force ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('The Living Force')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_darth_sidious_puppetmaster_s11():
+    """Slice-11 ETB: Darth Sidious, Puppetmaster -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Darth Sidious, Puppetmaster ETB surveil+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Darth Sidious, Puppetmaster')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_rebel_commando_team_s11():
+    """Slice-11 ETB: Rebel Commando Team -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Rebel Commando Team ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Rebel Commando Team')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_separatist_commander_s11():
+    """Slice-11 ETB: Separatist Commander -> SCRY+REVEAL_HAND."""
+    print("\n=== Slice-11: Separatist Commander ETB scry+reveal_hand ===")
+    g, p1, p2, obj = _s11_etb_card('Separatist Commander')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.REVEAL_HAND, opp_key='player', amount_check='na')
+
+
+def test_s11_mandalorian_forge_master_s11():
+    """Slice-11 ETB: Mandalorian Forge-Master -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Mandalorian Forge-Master ETB scry+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Mandalorian Forge-Master')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_force_sensitive_s11():
+    """Slice-11 ETB: Force Sensitive -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Force Sensitive ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Force Sensitive')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_hutt_crime_lord_s11():
+    """Slice-11 ETB: Hutt Crime Lord -> SCRY+DISCARD."""
+    print("\n=== Slice-11: Hutt Crime Lord ETB scry+discard ===")
+    g, p1, p2, obj = _s11_etb_card('Hutt Crime Lord')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_balance_of_the_force_resolve_s11():
+    """Slice-11 resolve: Balance of the Force -> SURVEIL+DISCARD."""
+    print("\n=== Slice-11: Balance of the Force resolve surveil+discard ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_black_v2')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_force_lightning_resolve_s11():
+    """Slice-11 resolve: Force Lightning -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Force Lightning resolve surveil+mill ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_surveil_mill')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_unity_of_the_rebellion_resolve_s11():
+    """Slice-11 resolve: Unity of the Rebellion -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Unity of the Rebellion resolve scry+damage ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_red_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_galactic_senate_decree_resolve_s11():
+    """Slice-11 resolve: Galactic Senate Decree -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Galactic Senate Decree resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_scry_gain_drain')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_devastation_of_alderaan_resolve_s11():
+    """Slice-11 resolve: Devastation of Alderaan -> SURVEIL+DISCARD."""
+    print("\n=== Slice-11: Devastation of Alderaan resolve surveil+discard ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_black_v2')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_lukes_lightsaber_s11():
+    """Slice-11 ETB: Luke's Lightsaber -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Luke's Lightsaber ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card("Luke's Lightsaber")
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_darth_vaders_lightsaber_s11():
+    """Slice-11 ETB: Darth Vader's Lightsaber -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Darth Vader's Lightsaber ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card("Darth Vader's Lightsaber")
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_double_bladed_lightsaber_s11():
+    """Slice-11 ETB: Double-Bladed Lightsaber -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Double-Bladed Lightsaber ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Double-Bladed Lightsaber')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_lightsaber_s11():
+    """Slice-11 ETB: Lightsaber -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Lightsaber ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Lightsaber')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_darksaber_s11():
+    """Slice-11 ETB: Darksaber -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Darksaber ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Darksaber')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_mandalorian_armor_s11():
+    """Slice-11 ETB: Mandalorian Armor -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Mandalorian Armor ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Mandalorian Armor')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_beskar_helmet_s11():
+    """Slice-11 ETB: Beskar Helmet -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Beskar Helmet ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Beskar Helmet')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_jetpack_s11():
+    """Slice-11 ETB: Jetpack -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Jetpack ETB scry+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Jetpack')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_blaster_rifle_s11():
+    """Slice-11 ETB: Blaster Rifle -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Blaster Rifle ETB scry+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Blaster Rifle')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_bowcaster_s11():
+    """Slice-11 ETB: Bowcaster -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Bowcaster ETB scry+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Bowcaster')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_electrostaff_s11():
+    """Slice-11 ETB: Electrostaff -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Electrostaff ETB scry+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Electrostaff')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_millennium_falcon_s11():
+    """Slice-11 ETB: Millennium Falcon -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Millennium Falcon ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Millennium Falcon')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_x_wing_starfighter_s11():
+    """Slice-11 ETB: X-Wing Starfighter -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: X-Wing Starfighter ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('X-Wing Starfighter')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_tie_fighter_s11():
+    """Slice-11 ETB: TIE Fighter -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: TIE Fighter ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('TIE Fighter')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_star_destroyer_s11():
+    """Slice-11 ETB: Star Destroyer -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Star Destroyer ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Star Destroyer')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_slave_i_s11():
+    """Slice-11 ETB: Slave I -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Slave I ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Slave I')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_speeder_bike_s11():
+    """Slice-11 ETB: Speeder Bike -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Speeder Bike ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Speeder Bike')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_at_at_walker_s11():
+    """Slice-11 ETB: AT-AT Walker -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: AT-AT Walker ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('AT-AT Walker')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_at_st_walker_s11():
+    """Slice-11 ETB: AT-ST Walker -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: AT-ST Walker ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('AT-ST Walker')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_republic_gunship_s11():
+    """Slice-11 ETB: Republic Gunship -> SURVEIL+DAMAGE."""
+    print("\n=== Slice-11: Republic Gunship ETB surveil+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Republic Gunship')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_the_razor_crest_s11():
+    """Slice-11 ETB: The Razor Crest -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: The Razor Crest ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('The Razor Crest')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_y_wing_bomber_s11():
+    """Slice-11 ETB: Y-Wing Bomber -> SURVEIL+DAMAGE."""
+    print("\n=== Slice-11: Y-Wing Bomber ETB surveil+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Y-Wing Bomber')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_jedi_holocron_s11():
+    """Slice-11 ETB: Jedi Holocron -> SCRY+MILL."""
+    print("\n=== Slice-11: Jedi Holocron ETB scry+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Jedi Holocron')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_sith_holocron_s11():
+    """Slice-11 ETB: Sith Holocron -> SCRY+MILL."""
+    print("\n=== Slice-11: Sith Holocron ETB scry+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Sith Holocron')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_carbonite_prison_s11():
+    """Slice-11 ETB: Carbonite Prison -> SURVEIL+LIFE_CHANGE."""
+    print("\n=== Slice-11: Carbonite Prison ETB surveil+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Carbonite Prison')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_kyber_crystal_s11():
+    """Slice-11 ETB: Kyber Crystal -> SCRY+MILL."""
+    print("\n=== Slice-11: Kyber Crystal ETB scry+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Kyber Crystal')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_stormtrooper_barracks_s11():
+    """Slice-11 ETB: Stormtrooper Barracks -> SURVEIL+LIFE_CHANGE."""
+    print("\n=== Slice-11: Stormtrooper Barracks ETB surveil+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Stormtrooper Barracks')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_droid_foundry_s11():
+    """Slice-11 ETB: Droid Foundry -> SURVEIL+LIFE_CHANGE."""
+    print("\n=== Slice-11: Droid Foundry ETB surveil+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Droid Foundry')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_trade_federation_vault_s11():
+    """Slice-11 ETB: Trade Federation Vault -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Trade Federation Vault ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Trade Federation Vault')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_bacta_tank_s11():
+    """Slice-11 ETB: Bacta Tank -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Bacta Tank ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Bacta Tank')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_hyperdrive_s11():
+    """Slice-11 ETB: Hyperdrive -> SCRY+MILL."""
+    print("\n=== Slice-11: Hyperdrive ETB scry+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Hyperdrive')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_shield_generator_s11():
+    """Slice-11 ETB: Shield Generator -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Shield Generator ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Shield Generator')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_coruscant_s11():
+    """Slice-11 ETB: Coruscant -> SCRY+MILL."""
+    print("\n=== Slice-11: Coruscant ETB scry+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Coruscant')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_tatooine_s11():
+    """Slice-11 ETB: Tatooine -> SURVEIL+DAMAGE."""
+    print("\n=== Slice-11: Tatooine ETB surveil+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Tatooine')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_endor_forest_s11():
+    """Slice-11 ETB: Endor Forest -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Endor Forest ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Endor Forest')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_kashyyyk_s11():
+    """Slice-11 ETB: Kashyyyk -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Kashyyyk ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Kashyyyk')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_mustafar_s11():
+    """Slice-11 ETB: Mustafar -> SURVEIL+DAMAGE."""
+    print("\n=== Slice-11: Mustafar ETB surveil+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Mustafar')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_dagobah_s11():
+    """Slice-11 ETB: Dagobah -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Dagobah ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Dagobah')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_hoth_s11():
+    """Slice-11 ETB: Hoth -> SCRY+MILL."""
+    print("\n=== Slice-11: Hoth ETB scry+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Hoth')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_naboo_s11():
+    """Slice-11 ETB: Naboo -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Naboo ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Naboo')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_kamino_s11():
+    """Slice-11 ETB: Kamino -> SCRY+MILL."""
+    print("\n=== Slice-11: Kamino ETB scry+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Kamino')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_geonosis_s11():
+    """Slice-11 ETB: Geonosis -> SURVEIL+DAMAGE."""
+    print("\n=== Slice-11: Geonosis ETB surveil+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Geonosis')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_jakku_s11():
+    """Slice-11 ETB: Jakku -> SCRY+MILL."""
+    print("\n=== Slice-11: Jakku ETB scry+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Jakku')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_cloud_city_s11():
+    """Slice-11 ETB: Cloud City -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Cloud City ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Cloud City')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_mos_eisley_spaceport_s11():
+    """Slice-11 ETB: Mos Eisley Spaceport -> SCRY+MILL."""
+    print("\n=== Slice-11: Mos Eisley Spaceport ETB scry+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Mos Eisley Spaceport')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_jedi_temple_s11():
+    """Slice-11 ETB: Jedi Temple -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Jedi Temple ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Jedi Temple')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_sith_temple_s11():
+    """Slice-11 ETB: Sith Temple -> SURVEIL+DISCARD."""
+    print("\n=== Slice-11: Sith Temple ETB surveil+discard ===")
+    g, p1, p2, obj = _s11_etb_card('Sith Temple')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_death_star_hangar_s11():
+    """Slice-11 ETB: Death Star Hangar -> SURVEIL+DISCARD."""
+    print("\n=== Slice-11: Death Star Hangar ETB surveil+discard ===")
+    g, p1, p2, obj = _s11_etb_card('Death Star Hangar')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_rebel_base_s11():
+    """Slice-11 ETB: Rebel Base -> SCRY+MILL."""
+    print("\n=== Slice-11: Rebel Base ETB scry+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Rebel Base')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_clone_captain_rex_s11():
+    """Slice-11 ETB: Clone Captain Rex -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Clone Captain Rex ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Clone Captain Rex')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_bail_organa_s11():
+    """Slice-11 ETB: Bail Organa -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Bail Organa ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Bail Organa')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_mon_mothma_s11():
+    """Slice-11 ETB: Mon Mothma -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Mon Mothma ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Mon Mothma')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_alderaanian_refugee_s11():
+    """Slice-11 ETB: Alderaanian Refugee -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Alderaanian Refugee ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Alderaanian Refugee')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_force_barrier_resolve_s11():
+    """Slice-11 resolve: Force Barrier -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Force Barrier resolve scry+life_change ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_scry_gain_drain')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_bb_8_loyal_astromech_s11():
+    """Slice-11 ETB: BB-8, Loyal Astromech -> SURVEIL+MILL."""
+    print("\n=== Slice-11: BB-8, Loyal Astromech ETB surveil+mill ===")
+    g, p1, p2, obj = _s11_etb_card('BB-8, Loyal Astromech')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_k_2so_reprogrammed_s11():
+    """Slice-11 ETB: K-2SO, Reprogrammed -> SURVEIL+MILL."""
+    print("\n=== Slice-11: K-2SO, Reprogrammed ETB surveil+mill ===")
+    g, p1, p2, obj = _s11_etb_card('K-2SO, Reprogrammed')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_super_battle_droid_s11():
+    """Slice-11 ETB: Super Battle Droid -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Super Battle Droid ETB surveil+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Super Battle Droid')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_tactical_droid_s11():
+    """Slice-11 ETB: Tactical Droid -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Tactical Droid ETB surveil+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Tactical Droid')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_force_illusion_resolve_s11():
+    """Slice-11 resolve: Force Illusion -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Force Illusion resolve surveil+mill ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_surveil_mill')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_darth_bane_rule_creator_s11():
+    """Slice-11 ETB: Darth Bane, Rule Creator -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Darth Bane, Rule Creator ETB surveil+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Darth Bane, Rule Creator')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_grand_inquisitor_s11():
+    """Slice-11 ETB: Grand Inquisitor -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Grand Inquisitor ETB surveil+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Grand Inquisitor')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_imperial_executioner_s11():
+    """Slice-11 ETB: Imperial Executioner -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Imperial Executioner ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Imperial Executioner')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_snoke_supreme_leader_s11():
+    """Slice-11 ETB: Snoke, Supreme Leader -> SURVEIL+MILL."""
+    print("\n=== Slice-11: Snoke, Supreme Leader ETB surveil+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Snoke, Supreme Leader')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_dark_ritual_of_the_sith_resolve_s11():
+    """Slice-11 resolve: Dark Ritual of the Sith -> SURVEIL+DISCARD."""
+    print("\n=== Slice-11: Dark Ritual of the Sith resolve surveil+discard ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_black_v2')
+    _s11_assert_resolve(events, p2, info_type=EventType.SURVEIL,
+                         opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_aurra_sing_sniper_s11():
+    """Slice-11 ETB: Aurra Sing, Sniper -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Aurra Sing, Sniper ETB scry+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Aurra Sing, Sniper')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_bossk_trandoshan_hunter_s11():
+    """Slice-11 ETB: Bossk, Trandoshan Hunter -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Bossk, Trandoshan Hunter ETB scry+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Bossk, Trandoshan Hunter')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_fennec_shand_elite_assassin_s11():
+    """Slice-11 ETB: Fennec Shand, Elite Assassin -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Fennec Shand, Elite Assassin ETB scry+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Fennec Shand, Elite Assassin')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_death_watch_warrior_s11():
+    """Slice-11 ETB: Death Watch Warrior -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Death Watch Warrior ETB scry+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Death Watch Warrior')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_wrist_rocket_resolve_s11():
+    """Slice-11 resolve: Wrist Rocket -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Wrist Rocket resolve scry+damage ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_red_v1')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_yaddle_jedi_council_member_s11():
+    """Slice-11 ETB: Yaddle, Jedi Council Member -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Yaddle, Jedi Council Member ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Yaddle, Jedi Council Member')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_wookiee_berserker_s11():
+    """Slice-11 ETB: Wookiee Berserker -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Wookiee Berserker ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Wookiee Berserker')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_ewok_shaman_s11():
+    """Slice-11 ETB: Ewok Shaman -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Ewok Shaman ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Ewok Shaman')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_rancor_s11():
+    """Slice-11 ETB: Rancor -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Rancor ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Rancor')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_nexu_s11():
+    """Slice-11 ETB: Nexu -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Nexu ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Nexu')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_beast_call_resolve_s11():
+    """Slice-11 resolve: Beast Call -> SCRY+DAMAGE."""
+    print("\n=== Slice-11: Beast Call resolve scry+damage ===")
+    events, p1, p2 = _s11_resolve('_swr_s11_resolve_green_v3')
+    _s11_assert_resolve(events, p2, info_type=EventType.SCRY,
+                         opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_captain_phasma_s11():
+    """Slice-11 ETB: Captain Phasma -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Captain Phasma ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Captain Phasma')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_sabine_wren_mandalorian_artist_s11():
+    """Slice-11 ETB: Sabine Wren, Mandalorian Artist -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Sabine Wren, Mandalorian Artist ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Sabine Wren, Mandalorian Artist')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_ezra_bridger_street_kid_s11():
+    """Slice-11 ETB: Ezra Bridger, Street Kid -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Ezra Bridger, Street Kid ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Ezra Bridger, Street Kid')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_kanan_jarrus_blinded_master_s11():
+    """Slice-11 ETB: Kanan Jarrus, Blinded Master -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Kanan Jarrus, Blinded Master ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Kanan Jarrus, Blinded Master')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_hera_syndulla_ghost_captain_s11():
+    """Slice-11 ETB: Hera Syndulla, Ghost Captain -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Hera Syndulla, Ghost Captain ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Hera Syndulla, Ghost Captain')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_training_remote_s11():
+    """Slice-11 ETB: Training Remote -> SCRY+DISCARD."""
+    print("\n=== Slice-11: Training Remote ETB scry+discard ===")
+    g, p1, p2, obj = _s11_etb_card('Training Remote')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.DISCARD, opp_key='player', amount_check='pos')
+
+
+def test_s11_restraining_bolt_s11():
+    """Slice-11 ETB: Restraining Bolt -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Restraining Bolt ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Restraining Bolt')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_thermal_imaging_goggles_s11():
+    """Slice-11 ETB: Thermal Imaging Goggles -> SURVEIL+REVEAL_HAND."""
+    print("\n=== Slice-11: Thermal Imaging Goggles ETB surveil+reveal_hand ===")
+    g, p1, p2, obj = _s11_etb_card('Thermal Imaging Goggles')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.REVEAL_HAND, opp_key='player', amount_check='na')
+
+
+def test_s11_scarif_s11():
+    """Slice-11 ETB: Scarif -> SCRY+MILL."""
+    print("\n=== Slice-11: Scarif ETB scry+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Scarif')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_jedha_s11():
+    """Slice-11 ETB: Jedha -> SCRY+MILL."""
+    print("\n=== Slice-11: Jedha ETB scry+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Jedha')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
+
+
+def test_s11_mandalore_s11():
+    """Slice-11 ETB: Mandalore -> SURVEIL+DAMAGE."""
+    print("\n=== Slice-11: Mandalore ETB surveil+damage ===")
+    g, p1, p2, obj = _s11_etb_card('Mandalore')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL,
+                              opp_type=EventType.DAMAGE, opp_key='target', amount_check='pos')
+
+
+def test_s11_bespin_s11():
+    """Slice-11 ETB: Bespin -> SCRY+LIFE_CHANGE."""
+    print("\n=== Slice-11: Bespin ETB scry+life_change ===")
+    g, p1, p2, obj = _s11_etb_card('Bespin')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.LIFE_CHANGE, opp_key='player', amount_check='neg')
+
+
+def test_s11_lothal_s11():
+    """Slice-11 ETB: Lothal -> SCRY+MILL."""
+    print("\n=== Slice-11: Lothal ETB scry+mill ===")
+    g, p1, p2, obj = _s11_etb_card('Lothal')
+    _s11_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY,
+                              opp_type=EventType.MILL, opp_key='player', amount_check='pos')
 
 
 # ============================================================================

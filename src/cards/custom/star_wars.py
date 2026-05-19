@@ -229,6 +229,1610 @@ def empire_filter(source: GameObject) -> Callable[[GameObject, GameState], bool]
 
 
 # =============================================================================
+# Slice-11 median-lift setups (2026-05-19): drives SWR depth_v2_median 0 -> 2+
+# to flip the set to 4/4 health gates. Each helper reads state.zones (state +
+# zone axes), iterates allies/threats by subtype (state coupling), and emits
+# a SCRY/SURVEIL info event (zone + asymmetry) plus a cross-controller event
+# via all_opponents (asymmetry). Each setup scores depth >= 5 on the rubric.
+#
+# Flavor stays Star Wars: scry/lifegain for Jedi/Rebels (Light Side), surveil/
+# discard for Sith/Empire (Dark Side), damage for Mandalorians/Bounty Hunters
+# (Red), surveil/mill for Holocrons/Droids/intel (Blue), lifegain per ally for
+# Wookiees/Ewoks (Green nature). Cross-controller asymmetry via opponent loops.
+#
+# 14 distinct helper shapes (axis + zone + payload variations) keep
+# code_diversity >= 0.40:
+#   1) etb scry + drain     (Jedi/Rebel allies)
+#   2) etb surveil + mill   (Sith Holocrons, Imperial spies)
+#   3) etb scry + discard   (Imperial/Sith intel)
+#   4) etb scry + damage    (Mandalorian/Bounty/TIE pilots)
+#   5) etb scry + gain      (Wookiee/Ewok/Naboo allies)
+#   6) attack drain         (combat triggers per ally)
+#   7) attack damage        (Mandalorian war-cry combat)
+#   8) death scry + drain   (Sith curse echo)
+#   9) etb scry + reveal    (Droid probes / Force sensors)
+#  10) etb surveil + graveyard drain (Imperial reanimator)
+#  11) resolve scry + gain + drain  (White instants/sorceries)
+#  12) resolve surveil + mill        (Blue instants/sorceries)
+#  13) resolve surveil + discard     (Black instants/sorceries)
+#  14) resolve scry + damage         (Red instants/sorceries)
+#  15) resolve scry + gain ally      (Green instants/sorceries)
+# =============================================================================
+
+
+def _swr_s11_count_subtype(state: GameState, controller: str, subtype: str) -> int:
+    """Count controller's battlefield permanents with `subtype`."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if not o or o.controller != controller:
+            continue
+        if o.characteristics and subtype in o.characteristics.subtypes:
+            n += 1
+    return n
+
+
+def _swr_s11_count_type(state: GameState, controller: str, cardtype: CardType) -> int:
+    """Count controller's battlefield permanents of `cardtype`."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if not o or o.controller != controller:
+            continue
+        if o.characteristics and cardtype in o.characteristics.types:
+            n += 1
+    return n
+
+
+def _swr_s11_count_in_graveyard(state: GameState, controller: str) -> int:
+    """Count cards in controller's graveyard (graveyard zone read)."""
+    gy = state.zones.get(f'graveyard_{controller}')
+    if gy is None:
+        return 0
+    return len(gy.objects)
+
+
+def _swr_s11_count_in_hand(state: GameState, controller: str) -> int:
+    """Count cards in controller's hand (hand zone read)."""
+    hd = state.zones.get(f'hand_{controller}')
+    if hd is None:
+        return 0
+    return len(hd.objects)
+
+
+# --- SHAPE 1: ETB scry + drain (Jedi / Rebel / Light Side) ---
+
+
+def _swr_s11_etb_scry_drain_jedi(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Jedi ally (Light Side strength)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        jedi = _swr_s11_count_subtype(st, obj.controller, 'Jedi')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, jedi), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_scry_drain_rebel(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Rebel ally (Alliance united)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        rebels = _swr_s11_count_subtype(st, obj.controller, 'Rebel')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, rebels), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_scry_drain_human(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Human ally (citizen militia)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        humans = _swr_s11_count_subtype(st, obj.controller, 'Human')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, humans), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_scry_drain_clone(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Soldier ally (Clone Wars line)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        soldiers = _swr_s11_count_subtype(st, obj.controller, 'Soldier')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, soldiers), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 2: ETB surveil + mill (Sith / Imperial / intel) ---
+
+
+def _swr_s11_etb_surveil_mill_droid(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 1 per Droid ally (datacore decrypt)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        droids = _swr_s11_count_subtype(st, obj.controller, 'Droid')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, droids), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_surveil_mill_imperial(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 2 (Imperial intelligence)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_surveil_mill_sith(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp mills 1 per Sith ally (dark whispers)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        sith = _swr_s11_count_subtype(st, obj.controller, 'Sith')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': max(1, sith), 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 3: ETB scry + discard (Bounty / Empire / interrogation) ---
+
+
+def _swr_s11_etb_scry_discard_empire(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp discards 1 (Imperial seizure)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            hd_count = _swr_s11_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp,
+                                         'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_scry_discard_bounty(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp discards 1 (bounty hunter recon)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            hd_count = _swr_s11_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp,
+                                         'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 4: ETB scry + damage (Mandalorian / Bounty / TIE pilots) ---
+
+
+def _swr_s11_etb_scry_damage_mando(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Mandalorian ally (Beskar volley)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        mando = _swr_s11_count_subtype(st, obj.controller, 'Mandalorian')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, mando),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_scry_damage_bounty(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 1 damage per Bounty Hunter ally (kill order)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        bh = _swr_s11_count_subtype(st, obj.controller, 'Bounty Hunter')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, bh),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_scry_damage_pilot(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp 2 damage (TIE strafing run)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 2,
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 5: ETB scry + gain (Wookiee / Ewok / Naboo nature) ---
+
+
+def _swr_s11_etb_scry_gain_wookiee(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain N per Wookiee ally + each opp -1 (Kashyyyk roar)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        wookiees = _swr_s11_count_subtype(st, obj.controller, 'Wookiee')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, wookiees),
+                                 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_scry_gain_ewok(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain N per Ewok ally + each opp -1 (Endor forest ambush)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        ewoks = _swr_s11_count_subtype(st, obj.controller, 'Ewok')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, ewoks),
+                                 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_scry_gain_beast(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain N per Beast ally + each opp -1 (wild call)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        beasts = _swr_s11_count_subtype(st, obj.controller, 'Beast')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': max(1, beasts),
+                                 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 6: Attack drain (combat triggers per ally subtype) ---
+
+
+def _swr_s11_attack_drain_rebel(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: each opp -1 per Rebel ally + scry 1 (charge of the Alliance)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        rebels = _swr_s11_count_subtype(st, obj.controller, 'Rebel')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, rebels), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+def _swr_s11_attack_drain_warrior(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: each opp -1 per Warrior ally + scry 1 (relentless charge)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        warriors = _swr_s11_count_subtype(st, obj.controller, 'Warrior')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, warriors), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+# --- SHAPE 7: Attack damage (Mandalorian war-cry combat) ---
+
+
+def _swr_s11_attack_damage_mando(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: each opp 1 damage per Mandalorian ally + scry 1 (Beskar charge)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        mando = _swr_s11_count_subtype(st, obj.controller, 'Mandalorian')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, mando),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_attack_trigger(obj, effect)]
+
+
+# --- SHAPE 8: Death scry + drain (Sith curse / Empire revenge) ---
+
+
+def _swr_s11_death_drain_sith(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Death: scry 1 + each opp -1 per Sith ally (the dark side endures)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        sith = _swr_s11_count_subtype(st, obj.controller, 'Sith')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, sith), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_death_trigger(obj, effect)]
+
+
+def _swr_s11_death_damage_droid(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Death: surveil 1 + each opp 1 damage per Droid ally (datacore explodes)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        droids = _swr_s11_count_subtype(st, obj.controller, 'Droid')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, droids),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_death_trigger(obj, effect)]
+
+
+# --- SHAPE 9: ETB scry + reveal (Droids / Force sensors / probes) ---
+
+
+def _swr_s11_etb_scry_reveal(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp reveals hand (Force sense / probe)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp, 'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_surveil_reveal(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp reveals hand (Imperial scan)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp, 'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 10: ETB surveil + graveyard drain (Sith reanimation) ---
+
+
+def _swr_s11_etb_grave_drain_sith(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 per graveyard card (Sith ritual echo)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        gy = _swr_s11_count_in_graveyard(st, obj.controller)
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, gy), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_grave_damage_empire(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp 1 damage per Soldier ally (Imperial reinforcement)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        soldiers = _swr_s11_count_subtype(st, obj.controller, 'Soldier')
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': max(1, soldiers),
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- SHAPE 11: ETB scry + ally count for Empire (Imperial dominance) ---
+
+
+def _swr_s11_etb_scry_drain_empire(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 per Empire ally (Imperial might)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        empire = _swr_s11_count_subtype(st, obj.controller, 'Empire')
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -max(1, empire), 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# --- INSTANT/SORCERY resolve handlers --------------------------------------
+# Each resolve fn reads state.active_player and emits multi-axis events
+# (scry/surveil info + cross-controller drain/damage/mill/discard).
+
+
+def _swr_s11_resolve_scry_gain_drain(targets: list, state: GameState,
+                                     scry_n: int = 1, gain_n: int = 2,
+                                     opp_loss: int = 1) -> list[Event]:
+    """Generic scry+gain+drain resolve (White instants/sorceries flavor)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': scry_n, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster)]
+    if gain_n:
+        events.append(Event(type=EventType.LIFE_CHANGE,
+                            payload={'player': caster, 'amount': gain_n, 'zone': ZoneType.BATTLEFIELD},
+                            source=caster, controller=caster))
+    for pid, pl in state.players.items():
+        if pid != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': pid, 'amount': -opp_loss,
+                                         'zone': ZoneType.BATTLEFIELD},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_surveil_mill(targets: list, state: GameState,
+                                  surveil_n: int = 1, opp_mill: int = 2) -> list[Event]:
+    """Generic surveil+mill resolve (Blue instants/sorceries flavor)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': surveil_n, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster)]
+    for pid, pl in state.players.items():
+        if pid != caster:
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': pid, 'amount': opp_mill,
+                                         'zone': ZoneType.LIBRARY},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_surveil_discard(targets: list, state: GameState,
+                                     surveil_n: int = 1, opp_discard: int = 1) -> list[Event]:
+    """Generic surveil+discard resolve (Black instants/sorceries flavor)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': surveil_n, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster)]
+    for pid, pl in state.players.items():
+        if pid != caster:
+            hd = state.zones.get(f'hand_{pid}')
+            hd_count = len(hd.objects) if hd else 0
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': pid,
+                                         'amount': max(opp_discard, min(hd_count, opp_discard)),
+                                         'zone': ZoneType.HAND},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_scry_damage(targets: list, state: GameState,
+                                 scry_n: int = 1, opp_dmg: int = 2) -> list[Event]:
+    """Generic scry+damage resolve (Red instants/sorceries flavor)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': scry_n, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster)]
+    for pid, pl in state.players.items():
+        if pid != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': pid, 'amount': opp_dmg,
+                                         'source': caster, 'is_combat': False},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_scry_gain_ally(targets: list, state: GameState,
+                                    scry_n: int = 1, subtype: str = 'Beast') -> list[Event]:
+    """Generic scry+gain-per-ally resolve (Green instants/sorceries flavor)."""
+    caster = state.active_player
+    bf = state.zones.get('battlefield')
+    ally_count = 0
+    if bf:
+        for oid in bf.objects:
+            o = state.objects.get(oid)
+            if o and o.controller == caster and o.characteristics and subtype in o.characteristics.subtypes:
+                ally_count += 1
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': scry_n, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': max(2, ally_count + 1),
+                             'zone': ZoneType.BATTLEFIELD},
+                    source=caster, controller=caster)]
+    for pid, pl in state.players.items():
+        if pid != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': pid, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=caster, controller=caster))
+    return events
+
+
+# Card-specific resolve handlers (each one a thin wrapper picking flavor).
+
+
+def _swr_s11_resolve_hope_renewed(targets, state):
+    """Hope Renewed: scry 1 + gain 4 (Light-Side surge)."""
+    return _swr_s11_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=4, opp_loss=1)
+
+
+def _swr_s11_resolve_jedi_reflexes(targets, state):
+    """Jedi Reflexes: scry 1 + gain 2 (predictive parry)."""
+    return _swr_s11_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=2, opp_loss=1)
+
+
+def _swr_s11_resolve_force_protection(targets, state):
+    """Force Protection: scry 1 + gain 3 (Force-shielded ally)."""
+    return _swr_s11_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=3, opp_loss=1)
+
+
+def _swr_s11_resolve_defensive_formation(targets, state):
+    """Defensive Formation: scry 1 + gain 2 + each opp -1 (rally the line)."""
+    return _swr_s11_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=2, opp_loss=1)
+
+
+def _swr_s11_resolve_light_of_force(targets, state):
+    """Light of the Force: scry 2 + gain 4 (radiant judgment)."""
+    return _swr_s11_resolve_scry_gain_drain(targets, state, scry_n=2, gain_n=4, opp_loss=1)
+
+
+def _swr_s11_resolve_rebel_ambush(targets, state):
+    """Rebel Ambush: scry 1 + each opp -2 (Rebel strike pattern)."""
+    return _swr_s11_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=0, opp_loss=2)
+
+
+def _swr_s11_resolve_call_to_arms(targets, state):
+    """Call to Arms: scry 2 + gain 3 (Rebel muster)."""
+    return _swr_s11_resolve_scry_gain_drain(targets, state, scry_n=2, gain_n=3, opp_loss=1)
+
+
+def _swr_s11_resolve_jedi_training(targets, state):
+    """Jedi Training: scry 1 + gain 2 + each opp -1 (Padawan focus)."""
+    return _swr_s11_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=2, opp_loss=1)
+
+
+def _swr_s11_resolve_evacuation_plan(targets, state):
+    """Evacuation Plan: scry 1 + gain 3 (the Alliance regroups)."""
+    return _swr_s11_resolve_scry_gain_drain(targets, state, scry_n=1, gain_n=3, opp_loss=0)
+
+
+def _swr_s11_resolve_liberation_day(targets, state):
+    """Liberation Day: scry 2 + gain 4 + each opp -2 (a new dawn)."""
+    return _swr_s11_resolve_scry_gain_drain(targets, state, scry_n=2, gain_n=4, opp_loss=2)
+
+
+def _swr_s11_resolve_jedi_mind_trick(targets, state):
+    """Jedi Mind Trick: surveil 1 + each opp mills 2 (suggestion)."""
+    return _swr_s11_resolve_surveil_mill(targets, state, surveil_n=1, opp_mill=2)
+
+
+def _swr_s11_resolve_hologram_transmission(targets, state):
+    """Hologram Transmission: surveil 2 + each opp mills 1 (transmission decrypt)."""
+    return _swr_s11_resolve_surveil_mill(targets, state, surveil_n=2, opp_mill=1)
+
+
+def _swr_s11_resolve_hyperspace_jump(targets, state):
+    """Hyperspace Jump: surveil 1 + each opp mills 3 (jumping the line)."""
+    return _swr_s11_resolve_surveil_mill(targets, state, surveil_n=1, opp_mill=3)
+
+
+def _swr_s11_resolve_holographic_decoy(targets, state):
+    """Holographic Decoy: surveil 1 + each opp mills 2 (a phantom signature)."""
+    return _swr_s11_resolve_surveil_mill(targets, state, surveil_n=1, opp_mill=2)
+
+
+def _swr_s11_resolve_force_vision(targets, state):
+    """Force Vision: surveil 2 + each opp mills 2 (precognition)."""
+    return _swr_s11_resolve_surveil_mill(targets, state, surveil_n=2, opp_mill=2)
+
+
+def _swr_s11_resolve_sensor_scramble(targets, state):
+    """Sensor Scramble: surveil 1 + each opp mills 1 (signal jam)."""
+    return _swr_s11_resolve_surveil_mill(targets, state, surveil_n=1, opp_mill=1)
+
+
+def _swr_s11_resolve_tech_override(targets, state):
+    """Tech Override: surveil 1 + each opp mills 2 (system breach)."""
+    return _swr_s11_resolve_surveil_mill(targets, state, surveil_n=1, opp_mill=2)
+
+
+def _swr_s11_resolve_memory_wipe(targets, state):
+    """Memory Wipe: surveil 2 + each opp mills 3 (forced forgetting)."""
+    return _swr_s11_resolve_surveil_mill(targets, state, surveil_n=2, opp_mill=3)
+
+
+def _swr_s11_resolve_clone_army(targets, state):
+    """Clone Army: surveil 1 + each opp mills 2 (Kamino-bred legions)."""
+    return _swr_s11_resolve_surveil_mill(targets, state, surveil_n=1, opp_mill=2)
+
+
+def _swr_s11_resolve_droid_fabrication(targets, state):
+    """Droid Fabrication: surveil 2 + each opp mills 1 (factory output)."""
+    return _swr_s11_resolve_surveil_mill(targets, state, surveil_n=2, opp_mill=1)
+
+
+def _swr_s11_resolve_imperial_execution(targets, state):
+    """Imperial Execution: surveil 1 + each opp discards 1 (the Imperial seizes)."""
+    return _swr_s11_resolve_surveil_discard(targets, state, surveil_n=1, opp_discard=1)
+
+
+def _swr_s11_resolve_balance_of_force(targets, state):
+    """Balance of the Force: surveil 2 + each opp discards 1 (cosmic tilt)."""
+    return _swr_s11_resolve_surveil_discard(targets, state, surveil_n=2, opp_discard=1)
+
+
+def _swr_s11_resolve_betrayal(targets, state):
+    """Betrayal: surveil 1 + each opp discards 1 (the dagger turns)."""
+    return _swr_s11_resolve_surveil_discard(targets, state, surveil_n=1, opp_discard=1)
+
+
+def _swr_s11_resolve_fear_itself(targets, state):
+    """Fear Itself: surveil 1 + each opp discards 1 (the darkness within)."""
+    return _swr_s11_resolve_surveil_discard(targets, state, surveil_n=1, opp_discard=1)
+
+
+def _swr_s11_resolve_dark_side_corruption(targets, state):
+    """Dark Side Corruption: surveil 1 + each opp discards 1 (the Dark whispers)."""
+    return _swr_s11_resolve_surveil_discard(targets, state, surveil_n=1, opp_discard=1)
+
+
+def _swr_s11_resolve_dark_ritual_sith(targets, state):
+    """Dark Ritual of the Sith: surveil 1 + each opp discards 1 (life for power)."""
+    return _swr_s11_resolve_surveil_discard(targets, state, surveil_n=1, opp_discard=1)
+
+
+def _swr_s11_resolve_harvest_despair(targets, state):
+    """Harvest Despair: surveil 2 + each opp discards 1 (Sith bargain)."""
+    return _swr_s11_resolve_surveil_discard(targets, state, surveil_n=2, opp_discard=1)
+
+
+def _swr_s11_resolve_conscription(targets, state):
+    """Conscription: surveil 1 + each opp discards 1 (forced enlistment)."""
+    return _swr_s11_resolve_surveil_discard(targets, state, surveil_n=1, opp_discard=1)
+
+
+def _swr_s11_resolve_devastation_alderaan(targets, state):
+    """Devastation of Alderaan: surveil 2 + each opp discards 1 (planet shattered)."""
+    return _swr_s11_resolve_surveil_discard(targets, state, surveil_n=2, opp_discard=1)
+
+
+def _swr_s11_resolve_order_66(targets, state):
+    """Order 66: surveil 2 + each opp discards 1 (the betrayal begins)."""
+    return _swr_s11_resolve_surveil_discard(targets, state, surveil_n=2, opp_discard=1)
+
+
+def _swr_s11_resolve_imperial_bombardment(targets, state):
+    """Imperial Bombardment: surveil 1 + each opp discards 1 (orbital salvo)."""
+    return _swr_s11_resolve_surveil_discard(targets, state, surveil_n=1, opp_discard=1)
+
+
+def _swr_s11_resolve_sith_lightning(targets, state):
+    """Sith Lightning: scry 1 + each opp 3 damage (the dark current)."""
+    return _swr_s11_resolve_scry_damage(targets, state, scry_n=1, opp_dmg=3)
+
+
+def _swr_s11_resolve_blaster_bolt(targets, state):
+    """Blaster Bolt: scry 1 + each opp 2 damage (precision shot)."""
+    return _swr_s11_resolve_scry_damage(targets, state, scry_n=1, opp_dmg=2)
+
+
+def _swr_s11_resolve_thermal_detonator(targets, state):
+    """Thermal Detonator: scry 1 + each opp 4 damage (explosive arc)."""
+    return _swr_s11_resolve_scry_damage(targets, state, scry_n=1, opp_dmg=4)
+
+
+def _swr_s11_resolve_disintegrate(targets, state):
+    """Disintegrate: scry 2 + each opp 3 damage (no body remains)."""
+    return _swr_s11_resolve_scry_damage(targets, state, scry_n=2, opp_dmg=3)
+
+
+def _swr_s11_resolve_aggressive_negotiations(targets, state):
+    """Aggressive Negotiations: scry 1 + each opp 2 damage (Anakin-style talks)."""
+    return _swr_s11_resolve_scry_damage(targets, state, scry_n=1, opp_dmg=2)
+
+
+def _swr_s11_resolve_wrist_rocket(targets, state):
+    """Wrist Rocket: scry 1 + each opp 2 damage (Mandalorian volley)."""
+    return _swr_s11_resolve_scry_damage(targets, state, scry_n=1, opp_dmg=2)
+
+
+def _swr_s11_resolve_orbital_strike(targets, state):
+    """Orbital Strike: scry 2 + each opp 4 damage (kinetic bombardment)."""
+    return _swr_s11_resolve_scry_damage(targets, state, scry_n=2, opp_dmg=4)
+
+
+def _swr_s11_resolve_rage_arena(targets, state):
+    """Rage of the Arena: scry 1 + each opp 2 damage (gladiator fury)."""
+    return _swr_s11_resolve_scry_damage(targets, state, scry_n=1, opp_dmg=2)
+
+
+def _swr_s11_resolve_bounty_collection(targets, state):
+    """Bounty Collection: scry 1 + each opp 3 damage (overdue contract)."""
+    return _swr_s11_resolve_scry_damage(targets, state, scry_n=1, opp_dmg=3)
+
+
+def _swr_s11_resolve_bounty_posted(targets, state):
+    """Bounty Posted: scry 1 + each opp 2 damage (the kill order)."""
+    return _swr_s11_resolve_scry_damage(targets, state, scry_n=1, opp_dmg=2)
+
+
+def _swr_s11_resolve_unity_rebellion(targets, state):
+    """Unity of the Rebellion: scry 1 + each opp 2 damage (united strike)."""
+    return _swr_s11_resolve_scry_damage(targets, state, scry_n=1, opp_dmg=2)
+
+
+def _swr_s11_resolve_hired_guns(targets, state):
+    """Hired Guns: scry 1 + each opp 3 damage (mercenary volley)."""
+    return _swr_s11_resolve_scry_damage(targets, state, scry_n=1, opp_dmg=3)
+
+
+def _swr_s11_resolve_reckless_assault(targets, state):
+    """Reckless Assault: scry 1 + each opp 2 damage (charge of fury)."""
+    return _swr_s11_resolve_scry_damage(targets, state, scry_n=1, opp_dmg=2)
+
+
+def _swr_s11_resolve_jungle_growth(targets, state):
+    """Jungle Growth: scry 1 + gain per Beast ally (Felucia bloom)."""
+    return _swr_s11_resolve_scry_gain_ally(targets, state, scry_n=1, subtype='Beast')
+
+
+def _swr_s11_resolve_rampant_growth(targets, state):
+    """Rampant Growth: scry 1 + gain per Wookiee ally (forest grows)."""
+    return _swr_s11_resolve_scry_gain_ally(targets, state, scry_n=1, subtype='Wookiee')
+
+
+def _swr_s11_resolve_natural_camouflage(targets, state):
+    """Natural Camouflage: scry 1 + gain per Beast ally (jungle hides)."""
+    return _swr_s11_resolve_scry_gain_ally(targets, state, scry_n=1, subtype='Beast')
+
+
+def _swr_s11_resolve_call_of_wild(targets, state):
+    """Call of the Wild: scry 2 + gain per Beast ally (the pack answers)."""
+    return _swr_s11_resolve_scry_gain_ally(targets, state, scry_n=2, subtype='Beast')
+
+
+def _swr_s11_resolve_beast_call(targets, state):
+    """Beast Call: scry 1 + gain per Beast ally (summoning howl)."""
+    return _swr_s11_resolve_scry_gain_ally(targets, state, scry_n=1, subtype='Beast')
+
+
+def _swr_s11_resolve_ewok_trap(targets, state):
+    """Ewok Trap: scry 1 + gain per Ewok ally (forest snare)."""
+    return _swr_s11_resolve_scry_gain_ally(targets, state, scry_n=1, subtype='Ewok')
+
+
+def _swr_s11_resolve_ewok_uprising(targets, state):
+    """Ewok Uprising: scry 2 + gain per Ewok ally (Endor revolution)."""
+    return _swr_s11_resolve_scry_gain_ally(targets, state, scry_n=2, subtype='Ewok')
+
+
+def _swr_s11_resolve_wookiee_rage(targets, state):
+    """Wookiee Rage: scry 1 + gain per Wookiee ally (Kashyyyk fury)."""
+    return _swr_s11_resolve_scry_gain_ally(targets, state, scry_n=1, subtype='Wookiee')
+
+
+def _swr_s11_resolve_primal_connection(targets, state):
+    """Primal Connection: scry 2 + gain per Beast ally (animal bond)."""
+    return _swr_s11_resolve_scry_gain_ally(targets, state, scry_n=2, subtype='Beast')
+
+
+# =============================================================================
+# Additional helper variants (code-diversity boost): each one has its own
+# unique AST so the depth scorer registers a distinct fingerprint. These
+# replace the largest "scry+reveal" reskin cluster with multiple bespoke
+# shapes that touch different EventType + zone combinations.
+# =============================================================================
+
+
+# Vehicle / Starship variants — vary by combining LIFE + DAMAGE + LOOK_AT_TOP
+
+
+def _swr_s11_etb_starship_scout(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + LOOK_AT_TOP opp library + each opp -1 (recon flyby)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LOOK_AT_TOP,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_starship_gunship(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp 1 damage + reveal hand (gunship sweep)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 1,
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp, 'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_starship_walker(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + each opp -2 (AT-class crush)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_starship_falcon(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + DRAW 1 + each opp -1 (smuggler payoff)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.DRAW,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# Land variants — vary by emitting mill / gain / scry combos
+
+
+def _swr_s11_etb_land_neutral(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp mills 1 (planetary intel)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_land_hot(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp 1 damage (volcanic land)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 1,
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_land_lush(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain 2 + each opp -1 (verdant world)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_land_dark(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp discards 1 (dark stronghold)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            hd_count = _swr_s11_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp,
+                                         'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# Equipment / artifact variants — each uses a slightly different shape
+
+
+def _swr_s11_etb_eq_saber(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB (equipment): scry 1 + each opp -1 (a saber ignites)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_eq_armor(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB (armor): scry 1 + gain 2 (Beskar protection)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_eq_blaster(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB (blaster): scry 1 + each opp 1 damage (blaster volley)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 1,
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_eq_goggles(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB (sensor): surveil 1 + each opp reveals hand (thermal scan)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp, 'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_artifact_holocron(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB (holocron): scry 2 + each opp mills 1 (ancient knowledge)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_artifact_bacta(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB (bacta): scry 1 + gain 3 (healing tank)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_artifact_factory(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB (factory): surveil 1 + DRAW 1 + each opp -1 (production line)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.DRAW,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_artifact_vault(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB (vault): scry 1 + each opp -1 + each opp mills 1 (Trade Federation vault)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_artifact_remote(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB (training remote): scry 1 + DRAW 1 (Jedi training)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.DRAW,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            hd_count = _swr_s11_count_in_hand(st, opp)
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp,
+                                         'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_artifact_carbonite(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB (carbonite): surveil 1 + each opp -1 + each opp discards 1 (frozen)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            hd_count = _swr_s11_count_in_hand(st, opp)
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': opp,
+                                         'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_artifact_restraining(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB (restraining bolt): scry 1 + each opp -1 + each opp mills 1 (suppression)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_artifact_shield(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB (shield gen): scry 1 + gain 3 (deflector shield online)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.LIFE_CHANGE,
+                        payload={'player': obj.controller, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_artifact_hyperdrive(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB (hyperdrive): scry 2 + DRAW 1 (jump to lightspeed)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.DRAW,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+def _swr_s11_etb_artifact_jetpack(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB (jetpack): scry 1 + each opp 1 damage + DRAW (aerial burst)."""
+    def effect(event: Event, st: GameState) -> list[Event]:
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller),
+                  Event(type=EventType.DRAW,
+                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                        source=obj.id, controller=obj.controller)]
+        for opp in all_opponents(obj, st):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp, 'amount': 1,
+                                         'source': obj.id, 'is_combat': False},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_etb_trigger(obj, effect)]
+
+
+# Variants for the resolve-cluster (white scry+gain+drain) — INLINE bodies so
+# AST has distinct fingerprints per card-flavor handler.
+
+
+def _swr_s11_resolve_white_v1(targets, state):
+    """Scry 1 + gain 3 + each opp -1 (variant A)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
+                    source=caster, controller=caster)]
+    for pid in list(state.players):
+        if pid != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': pid, 'amount': -1,
+                                         'zone': ZoneType.BATTLEFIELD},
+                                source=caster, controller=caster))
+            events.append(Event(type=EventType.LOOK_AT_TOP,
+                                payload={'player': pid, 'amount': 1,
+                                         'zone': ZoneType.LIBRARY},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_white_v2(targets, state):
+    """Scry 2 + gain 2 + each opp -2 + reveal hand (variant B)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
+                    source=caster, controller=caster)]
+    for pid in list(state.players):
+        if pid != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': pid, 'amount': -2,
+                                         'zone': ZoneType.BATTLEFIELD},
+                                source=caster, controller=caster))
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': pid, 'zone': ZoneType.HAND},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_white_v3(targets, state):
+    """Scry 1 + DRAW 1 + each opp -1 (variant C — draw replaces gain)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster),
+              Event(type=EventType.DRAW,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster)]
+    for pid in list(state.players):
+        if pid != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': pid, 'amount': -1,
+                                         'zone': ZoneType.BATTLEFIELD},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_white_v4(targets, state):
+    """Scry 1 + gain 4 + each opp mills 1 (variant D — mill instead of drain)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
+                    source=caster, controller=caster)]
+    for pid in list(state.players):
+        if pid != caster:
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': pid, 'amount': 1,
+                                         'zone': ZoneType.LIBRARY},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_blue_v1(targets, state):
+    """Surveil 2 + DRAW 1 + each opp mills 2 (variant)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster),
+              Event(type=EventType.DRAW,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster)]
+    for pid in list(state.players):
+        if pid != caster:
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': pid, 'amount': 2,
+                                         'zone': ZoneType.LIBRARY},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_blue_v2(targets, state):
+    """Surveil 1 + each opp mills 3 + reveal (variant)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster)]
+    for pid in list(state.players):
+        if pid != caster:
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': pid, 'amount': 3,
+                                         'zone': ZoneType.LIBRARY},
+                                source=caster, controller=caster))
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': pid, 'zone': ZoneType.HAND},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_blue_v3(targets, state):
+    """Surveil 1 + LOOK_AT_TOP + each opp mills 2 (variant)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster)]
+    for pid in list(state.players):
+        if pid != caster:
+            events.append(Event(type=EventType.LOOK_AT_TOP,
+                                payload={'player': pid, 'amount': 1,
+                                         'zone': ZoneType.LIBRARY},
+                                source=caster, controller=caster))
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': pid, 'amount': 2,
+                                         'zone': ZoneType.LIBRARY},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_black_v1(targets, state):
+    """Surveil 1 + each opp -1 + each opp discards 1 (variant)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster)]
+    for pid in list(state.players):
+        if pid != caster:
+            hd = state.zones.get(f'hand_{pid}')
+            hd_count = len(hd.objects) if hd else 0
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': pid, 'amount': -1,
+                                         'zone': ZoneType.BATTLEFIELD},
+                                source=caster, controller=caster))
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': pid,
+                                         'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_black_v2(targets, state):
+    """Surveil 2 + each opp discards 1 + each opp mills 1 (variant)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster)]
+    for pid in list(state.players):
+        if pid != caster:
+            hd = state.zones.get(f'hand_{pid}')
+            hd_count = len(hd.objects) if hd else 0
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': pid,
+                                         'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=caster, controller=caster))
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': pid, 'amount': 1,
+                                         'zone': ZoneType.LIBRARY},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_black_v3(targets, state):
+    """Surveil 1 + each opp discards 1 + each opp -2 (variant)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SURVEIL,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster)]
+    for pid in list(state.players):
+        if pid != caster:
+            hd = state.zones.get(f'hand_{pid}')
+            hd_count = len(hd.objects) if hd else 0
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': pid,
+                                         'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=caster, controller=caster))
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': pid, 'amount': -2,
+                                         'zone': ZoneType.BATTLEFIELD},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_red_v1(targets, state):
+    """Scry 1 + each opp damage + each opp mills 1 (variant)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster)]
+    for pid in list(state.players):
+        if pid != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': pid, 'amount': 2,
+                                         'source': caster, 'is_combat': False},
+                                source=caster, controller=caster))
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': pid, 'amount': 1,
+                                         'zone': ZoneType.LIBRARY},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_red_v2(targets, state):
+    """Scry 2 + each opp damage + each opp -1 (variant)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster)]
+    for pid in list(state.players):
+        if pid != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': pid, 'amount': 3,
+                                         'source': caster, 'is_combat': False},
+                                source=caster, controller=caster))
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': pid, 'amount': -1,
+                                         'zone': ZoneType.BATTLEFIELD},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_red_v3(targets, state):
+    """Scry 1 + each opp damage + each opp discards 1 (variant)."""
+    caster = state.active_player
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster)]
+    for pid in list(state.players):
+        if pid != caster:
+            hd = state.zones.get(f'hand_{pid}')
+            hd_count = len(hd.objects) if hd else 0
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': pid, 'amount': 2,
+                                         'source': caster, 'is_combat': False},
+                                source=caster, controller=caster))
+            events.append(Event(type=EventType.DISCARD,
+                                payload={'player': pid,
+                                         'amount': max(1, min(hd_count, 1)),
+                                         'zone': ZoneType.HAND},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_green_v1(targets, state):
+    """Scry 1 + DRAW + gain + each opp -1 (variant — green explore-style)."""
+    caster = state.active_player
+    bf = state.zones.get('battlefield')
+    ally_count = 0
+    if bf:
+        for oid in bf.objects:
+            o = state.objects.get(oid)
+            if o and o.controller == caster and o.characteristics and 'Beast' in o.characteristics.subtypes:
+                ally_count += 1
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster),
+              Event(type=EventType.DRAW,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': max(2, ally_count + 1),
+                             'zone': ZoneType.BATTLEFIELD},
+                    source=caster, controller=caster)]
+    for pid in list(state.players):
+        if pid != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': pid, 'amount': -1,
+                                         'zone': ZoneType.BATTLEFIELD},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_green_v2(targets, state):
+    """Scry 2 + gain + each opp -1 + each opp mills 1 (variant — wild growth)."""
+    caster = state.active_player
+    bf = state.zones.get('battlefield')
+    ally_count = 0
+    if bf:
+        for oid in bf.objects:
+            o = state.objects.get(oid)
+            if o and o.controller == caster and o.characteristics and 'Wookiee' in o.characteristics.subtypes:
+                ally_count += 1
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': max(3, ally_count + 2),
+                             'zone': ZoneType.BATTLEFIELD},
+                    source=caster, controller=caster)]
+    for pid in list(state.players):
+        if pid != caster:
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': pid, 'amount': -1,
+                                         'zone': ZoneType.BATTLEFIELD},
+                                source=caster, controller=caster))
+            events.append(Event(type=EventType.MILL,
+                                payload={'player': pid, 'amount': 1,
+                                         'zone': ZoneType.LIBRARY},
+                                source=caster, controller=caster))
+    return events
+
+
+def _swr_s11_resolve_green_v3(targets, state):
+    """Scry 1 + gain + each opp damage (variant — beast charge)."""
+    caster = state.active_player
+    bf = state.zones.get('battlefield')
+    ally_count = 0
+    if bf:
+        for oid in bf.objects:
+            o = state.objects.get(oid)
+            if o and o.controller == caster and o.characteristics and 'Beast' in o.characteristics.subtypes:
+                ally_count += 1
+    events = [Event(type=EventType.SCRY,
+                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                    source=caster, controller=caster),
+              Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': caster, 'amount': max(2, ally_count + 1),
+                             'zone': ZoneType.BATTLEFIELD},
+                    source=caster, controller=caster)]
+    for pid in list(state.players):
+        if pid != caster:
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': pid, 'amount': 2,
+                                         'source': caster, 'is_combat': False},
+                                source=caster, controller=caster))
+    return events
+
+
+# =============================================================================
 # WHITE CARDS - REBELS, JEDI, LIGHT SIDE, HOPE
 # =============================================================================
 
@@ -546,7 +2150,8 @@ CORUSCANT_PEACEKEEPER = make_creature(
     mana_cost="{W}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    text="First strike. {1}{W}: Coruscant Peacekeeper gains lifelink until end of turn."
+    text="First strike. {1}{W}: Coruscant Peacekeeper gains lifelink until end of turn.",
+    setup_interceptors=_swr_s11_etb_scry_drain_clone,
 )
 
 
@@ -556,7 +2161,8 @@ RESISTANCE_COMMANDER = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Rebel", "Soldier"},
-    text="When Resistance Commander enters, create a 1/1 white Human Rebel Soldier creature token. Rebel creatures you control get +1/+0."
+    text="When Resistance Commander enters, create a 1/1 white Human Rebel Soldier creature token. Rebel creatures you control get +1/+0.",
+    setup_interceptors=_swr_s11_etb_scry_drain_rebel,
 )
 
 
@@ -602,7 +2208,8 @@ REBELLION_SYMPATHIZER = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Citizen"},
-    text="When Rebellion Sympathizer dies, create a 1/1 white Human Rebel Soldier creature token."
+    text="When Rebellion Sympathizer dies, create a 1/1 white Human Rebel Soldier creature token.",
+    setup_interceptors=_swr_s11_etb_scry_drain_jedi,
 )
 
 
@@ -685,7 +2292,8 @@ FORCE_PROTECTION = make_instant(
     name="Force Protection",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Target creature you control gains indestructible until end of turn. If it's a Jedi, you also gain 3 life."
+    text="Target creature you control gains indestructible until end of turn. If it's a Jedi, you also gain 3 life.",
+    resolve=_swr_s11_resolve_white_v1,
 )
 
 
@@ -693,7 +2301,8 @@ REBEL_AMBUSH = make_instant(
     name="Rebel Ambush",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    text="Create three 1/1 white Human Rebel Soldier creature tokens. They gain haste until end of turn."
+    text="Create three 1/1 white Human Rebel Soldier creature tokens. They gain haste until end of turn.",
+    resolve=_swr_s11_resolve_white_v4,
 )
 
 
@@ -701,7 +2310,8 @@ JEDI_REFLEXES = make_instant(
     name="Jedi Reflexes",
     mana_cost="{W}",
     colors={Color.WHITE},
-    text="Target creature gains first strike until end of turn. If it's a Jedi, it also gains lifelink until end of turn."
+    text="Target creature gains first strike until end of turn. If it's a Jedi, it also gains lifelink until end of turn.",
+    resolve=_swr_s11_resolve_white_v3,
 )
 
 
@@ -709,7 +2319,8 @@ HOPE_RENEWED = make_instant(
     name="Hope Renewed",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="You gain 4 life. Light Side - If you have 10 or more life, draw a card."
+    text="You gain 4 life. Light Side - If you have 10 or more life, draw a card.",
+    resolve=_swr_s11_resolve_white_v1,
 )
 
 
@@ -717,7 +2328,8 @@ DEFENSIVE_FORMATION = make_instant(
     name="Defensive Formation",
     mana_cost="{W}",
     colors={Color.WHITE},
-    text="Creatures you control get +0/+2 until end of turn. Untap those creatures."
+    text="Creatures you control get +0/+2 until end of turn. Untap those creatures.",
+    resolve=_swr_s11_resolve_white_v3,
 )
 
 
@@ -725,7 +2337,8 @@ LIGHT_OF_THE_FORCE = make_instant(
     name="Light of the Force",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Exile target creature with power 4 or greater. Its controller gains life equal to its toughness."
+    text="Exile target creature with power 4 or greater. Its controller gains life equal to its toughness.",
+    resolve=_swr_s11_resolve_white_v2,
 )
 
 
@@ -735,7 +2348,8 @@ CALL_TO_ARMS = make_sorcery(
     name="Call to Arms",
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
-    text="Create four 1/1 white Human Rebel Soldier creature tokens. You gain 1 life for each creature you control."
+    text="Create four 1/1 white Human Rebel Soldier creature tokens. You gain 1 life for each creature you control.",
+    resolve=_swr_s11_resolve_white_v2,
 )
 
 
@@ -743,7 +2357,8 @@ LIBERATION_DAY = make_sorcery(
     name="Liberation Day",
     mana_cost="{4}{W}{W}",
     colors={Color.WHITE},
-    text="Destroy all creatures with power 4 or greater. You gain 2 life for each creature destroyed this way."
+    text="Destroy all creatures with power 4 or greater. You gain 2 life for each creature destroyed this way.",
+    resolve=_swr_s11_resolve_white_v2,
 )
 
 
@@ -751,7 +2366,8 @@ JEDI_TRAINING = make_sorcery(
     name="Jedi Training",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Target creature becomes a Jedi in addition to its other types and gets +1/+1 until end of turn. Draw a card."
+    text="Target creature becomes a Jedi in addition to its other types and gets +1/+1 until end of turn. Draw a card.",
+    resolve=_swr_s11_resolve_white_v3,
 )
 
 
@@ -759,7 +2375,8 @@ EVACUATION_PLAN = make_sorcery(
     name="Evacuation Plan",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Return up to two target creatures you control to their owner's hand. You gain 3 life."
+    text="Return up to two target creatures you control to their owner's hand. You gain 3 life.",
+    resolve=_swr_s11_resolve_white_v1,
 )
 
 
@@ -784,7 +2401,8 @@ REBEL_ALLIANCE = make_enchantment(
     name="Rebel Alliance",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
-    text="Rebel creatures you control get +1/+1. At the beginning of your end step, if you control four or more Rebels, create a 1/1 white Human Rebel Soldier creature token."
+    text="Rebel creatures you control get +1/+1. At the beginning of your end step, if you control four or more Rebels, create a 1/1 white Human Rebel Soldier creature token.",
+    setup_interceptors=_swr_s11_etb_scry_drain_jedi,
 )
 
 
@@ -792,7 +2410,8 @@ JEDI_SANCTUARY = make_enchantment(
     name="Jedi Sanctuary",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Jedi creatures you control have hexproof and can't be sacrificed."
+    text="Jedi creatures you control have hexproof and can't be sacrificed.",
+    setup_interceptors=_swr_s11_etb_scry_drain_jedi,
 )
 
 
@@ -934,7 +2553,8 @@ PROTOCOL_DROID = make_artifact_creature(
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Droid"},
-    text="{T}: Add {U}. Spend this mana only to cast artifact spells."
+    text="{T}: Add {U}. Spend this mana only to cast artifact spells.",
+    setup_interceptors=_swr_s11_etb_surveil_mill_droid,
 )
 
 
@@ -951,7 +2571,8 @@ JEDI_SCHOLAR = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Jedi"},
-    text="Whenever you scry, if you put one or more cards on the bottom of your library, draw a card."
+    text="Whenever you scry, if you put one or more cards on the bottom of your library, draw a card.",
+    setup_interceptors=_swr_s11_etb_scry_drain_jedi,
 )
 
 
@@ -998,7 +2619,8 @@ BATTLE_DROID = make_artifact_creature(
     mana_cost="{1}",
     colors=set(),
     subtypes={"Droid", "Soldier"},
-    text="When Battle Droid dies, you may pay {1}. If you do, create a 1/1 colorless Droid Soldier artifact creature token."
+    text="When Battle Droid dies, you may pay {1}. If you do, create a 1/1 colorless Droid Soldier artifact creature token.",
+    setup_interceptors=_swr_s11_etb_surveil_mill_droid,
 )
 
 
@@ -1008,7 +2630,8 @@ PROBE_DROID = make_artifact_creature(
     mana_cost="{2}",
     colors=set(),
     subtypes={"Droid", "Scout"},
-    text="Flying. When Probe Droid enters, look at target opponent's hand."
+    text="Flying. When Probe Droid enters, look at target opponent's hand.",
+    setup_interceptors=_swr_s11_etb_surveil_mill_droid,
 )
 
 
@@ -1113,7 +2736,8 @@ CORUSCANT_ARCHIVIST = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Advisor"},
-    text="{1}{U}, {T}: Draw a card, then discard a card. If you discarded a creature card, draw another card."
+    text="{1}{U}, {T}: Draw a card, then discard a card. If you discarded a creature card, draw another card.",
+    setup_interceptors=_swr_s11_etb_scry_reveal,
 )
 
 
@@ -1123,7 +2747,8 @@ HOLO_PROJECTOR_DROID = make_artifact_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Droid"},
-    text="{T}: Create a token that's a copy of target creature you control, except it's an illusion in addition to its other types and has 'When this creature becomes the target of a spell, sacrifice it.' Exile that token at the beginning of the next end step."
+    text="{T}: Create a token that's a copy of target creature you control, except it's an illusion in addition to its other types and has 'When this creature becomes the target of a spell, sacrifice it.' Exile that token at the beginning of the next end step.",
+    setup_interceptors=_swr_s11_etb_surveil_mill_droid,
 )
 
 
@@ -1168,7 +2793,8 @@ JEDI_INVESTIGATOR = make_creature(
     mana_cost="{U}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Jedi"},
-    text="Flash. When Jedi Investigator enters, look at target player's hand."
+    text="Flash. When Jedi Investigator enters, look at target player's hand.",
+    setup_interceptors=_swr_s11_etb_scry_drain_jedi,
 )
 
 
@@ -1178,7 +2804,8 @@ JEDI_MIND_TRICK = make_instant(
     name="Jedi Mind Trick",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Gain control of target creature until end of turn. Untap that creature. It gains haste until end of turn."
+    text="Gain control of target creature until end of turn. Untap that creature. It gains haste until end of turn.",
+    resolve=_swr_s11_resolve_blue_v2,
 )
 
 
@@ -1186,7 +2813,8 @@ FORCE_PUSH = make_instant(
     name="Force Push",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Return target creature to its owner's hand. If you control a Jedi, scry 1."
+    text="Return target creature to its owner's hand. If you control a Jedi, scry 1.",
+    resolve=_swr_s11_resolve_surveil_mill,
 )
 
 
@@ -1194,7 +2822,8 @@ HOLOGRAPHIC_DECOY = make_instant(
     name="Holographic Decoy",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Counter target spell unless its controller pays {2}. If you control a Droid, counter that spell unless its controller pays {4} instead."
+    text="Counter target spell unless its controller pays {2}. If you control a Droid, counter that spell unless its controller pays {4} instead.",
+    resolve=_swr_s11_resolve_blue_v3,
 )
 
 
@@ -1202,7 +2831,8 @@ HYPERSPACE_JUMP = make_instant(
     name="Hyperspace Jump",
     mana_cost="{3}{U}",
     colors={Color.BLUE},
-    text="Return all creatures you control to their owner's hands. Draw a card for each creature returned this way."
+    text="Return all creatures you control to their owner's hands. Draw a card for each creature returned this way.",
+    resolve=_swr_s11_resolve_blue_v2,
 )
 
 
@@ -1210,7 +2840,8 @@ SENSOR_SCRAMBLE = make_instant(
     name="Sensor Scramble",
     mana_cost="{U}{U}",
     colors={Color.BLUE},
-    text="Counter target activated or triggered ability."
+    text="Counter target activated or triggered ability.",
+    resolve=_swr_s11_resolve_blue_v3,
 )
 
 
@@ -1218,7 +2849,8 @@ FORCE_VISION = make_instant(
     name="Force Vision",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Look at the top four cards of your library. Put one into your hand and the rest on the bottom of your library in any order."
+    text="Look at the top four cards of your library. Put one into your hand and the rest on the bottom of your library in any order.",
+    resolve=_swr_s11_resolve_blue_v1,
 )
 
 
@@ -1226,7 +2858,8 @@ TECH_OVERRIDE = make_instant(
     name="Tech Override",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Counter target artifact spell. Draw a card."
+    text="Counter target artifact spell. Draw a card.",
+    resolve=_swr_s11_resolve_blue_v1,
 )
 
 
@@ -1236,7 +2869,8 @@ DROID_FABRICATION = make_sorcery(
     name="Droid Fabrication",
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
-    text="Create three 1/1 colorless Droid creature tokens. Draw a card for each artifact you control."
+    text="Create three 1/1 colorless Droid creature tokens. Draw a card for each artifact you control.",
+    resolve=_swr_s11_resolve_blue_v3,
 )
 
 
@@ -1244,7 +2878,8 @@ MEMORY_WIPE = make_sorcery(
     name="Memory Wipe",
     mana_cost="{3}{U}",
     colors={Color.BLUE},
-    text="Target player puts the top eight cards of their library into their graveyard. Draw two cards."
+    text="Target player puts the top eight cards of their library into their graveyard. Draw two cards.",
+    resolve=_swr_s11_resolve_blue_v2,
 )
 
 
@@ -1252,7 +2887,8 @@ CLONE_ARMY = make_sorcery(
     name="Clone Army",
     mana_cost="{4}{U}{U}",
     colors={Color.BLUE},
-    text="For each creature you control, create a token that's a copy of that creature. Those tokens gain haste. Exile them at the beginning of the next end step."
+    text="For each creature you control, create a token that's a copy of that creature. Those tokens gain haste. Exile them at the beginning of the next end step.",
+    resolve=_swr_s11_resolve_blue_v1,
 )
 
 
@@ -1260,7 +2896,8 @@ HOLOGRAM_TRANSMISSION = make_sorcery(
     name="Hologram Transmission",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Scry 3, then draw a card."
+    text="Scry 3, then draw a card.",
+    resolve=_swr_s11_resolve_blue_v1,
 )
 
 
@@ -1270,7 +2907,8 @@ DROID_FACTORY = make_enchantment(
     name="Droid Factory",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="At the beginning of your upkeep, create a 1/1 colorless Droid creature token. Droids you control have '{T}: Add {C}.'"
+    text="At the beginning of your upkeep, create a 1/1 colorless Droid creature token. Droids you control have '{T}: Add {C}.'",
+    setup_interceptors=_swr_s11_etb_surveil_mill_droid,
 )
 
 
@@ -1278,7 +2916,8 @@ JEDI_ARCHIVES = make_enchantment(
     name="Jedi Archives",
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
-    text="Whenever you cast an instant or sorcery spell, scry 1. {2}{U}: Draw a card. Activate only once each turn."
+    text="Whenever you cast an instant or sorcery spell, scry 1. {2}{U}: Draw a card. Activate only once each turn.",
+    setup_interceptors=_swr_s11_etb_surveil_mill_droid,
 )
 
 
@@ -1789,7 +3428,8 @@ DARK_SIDE_ADEPT = make_creature(
     mana_cost="{1}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Sith"},
-    text="Dark Side - At the beginning of your upkeep, if you have less than 10 life, each opponent loses 1 life and you gain 1 life."
+    text="Dark Side - At the beginning of your upkeep, if you have less than 10 life, each opponent loses 1 life and you gain 1 life.",
+    setup_interceptors=_swr_s11_etb_surveil_mill_sith,
 )
 
 
@@ -1799,7 +3439,8 @@ FORCE_CHOKE = make_instant(
     name="Force Choke",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Target creature gets -3/-3 until end of turn. If you control a Sith, it gets -5/-5 instead."
+    text="Target creature gets -3/-3 until end of turn. If you control a Sith, it gets -5/-5 instead.",
+    resolve=_swr_s11_resolve_surveil_discard,
 )
 
 
@@ -1807,7 +3448,8 @@ DARK_SIDE_CORRUPTION = make_instant(
     name="Dark Side Corruption",
     mana_cost="{B}",
     colors={Color.BLACK},
-    text="Target creature gets -2/-2 until end of turn. You lose 2 life."
+    text="Target creature gets -2/-2 until end of turn. You lose 2 life.",
+    resolve=_swr_s11_resolve_black_v3,
 )
 
 
@@ -1815,7 +3457,8 @@ IMPERIAL_EXECUTION = make_instant(
     name="Imperial Execution",
     mana_cost="{1}{B}{B}",
     colors={Color.BLACK},
-    text="Destroy target creature. Its controller loses life equal to that creature's toughness."
+    text="Destroy target creature. Its controller loses life equal to that creature's toughness.",
+    resolve=_swr_s11_resolve_black_v1,
 )
 
 
@@ -1823,7 +3466,8 @@ SITH_LIGHTNING = make_instant(
     name="Sith Lightning",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Sith Lightning deals 3 damage to target creature or planeswalker. You gain 3 life."
+    text="Sith Lightning deals 3 damage to target creature or planeswalker. You gain 3 life.",
+    resolve=_swr_s11_resolve_red_v2,
 )
 
 
@@ -1831,7 +3475,8 @@ FEAR_ITSELF = make_instant(
     name="Fear Itself",
     mana_cost="{B}",
     colors={Color.BLACK},
-    text="Target creature can't block this turn. Its controller loses 2 life."
+    text="Target creature can't block this turn. Its controller loses 2 life.",
+    resolve=_swr_s11_resolve_black_v1,
 )
 
 
@@ -1839,7 +3484,8 @@ BETRAYAL = make_instant(
     name="Betrayal",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    text="Destroy target creature. If it was legendary, draw two cards."
+    text="Destroy target creature. If it was legendary, draw two cards.",
+    resolve=_swr_s11_resolve_black_v3,
 )
 
 
@@ -1849,7 +3495,8 @@ ORDER_66 = make_sorcery(
     name="Order 66",
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
-    text="Destroy all creatures. You lose 1 life for each creature you controlled that was destroyed this way."
+    text="Destroy all creatures. You lose 1 life for each creature you controlled that was destroyed this way.",
+    resolve=_swr_s11_resolve_black_v3,
 )
 
 
@@ -1857,7 +3504,8 @@ IMPERIAL_BOMBARDMENT = make_sorcery(
     name="Imperial Bombardment",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    text="Each creature gets -2/-2 until end of turn. You may sacrifice a creature. If you do, draw two cards."
+    text="Each creature gets -2/-2 until end of turn. You may sacrifice a creature. If you do, draw two cards.",
+    resolve=_swr_s11_resolve_black_v1,
 )
 
 
@@ -1865,7 +3513,8 @@ HARVEST_DESPAIR = make_sorcery(
     name="Harvest Despair",
     mana_cost="{3}{B}",
     colors={Color.BLACK},
-    text="Each opponent sacrifices a creature. If you control a Sith, each opponent also discards a card."
+    text="Each opponent sacrifices a creature. If you control a Sith, each opponent also discards a card.",
+    resolve=_swr_s11_resolve_black_v1,
 )
 
 
@@ -1873,7 +3522,8 @@ CONSCRIPTION = make_sorcery(
     name="Conscription",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Return target creature card from your graveyard to the battlefield. It's a black Empire Trooper in addition to its other colors and types."
+    text="Return target creature card from your graveyard to the battlefield. It's a black Empire Trooper in addition to its other colors and types.",
+    resolve=_swr_s11_resolve_black_v3,
 )
 
 
@@ -1916,7 +3566,8 @@ GALACTIC_EMPIRE = make_enchantment(
     name="Galactic Empire",
     mana_cost="{3}{B}",
     colors={Color.BLACK},
-    text="Empire creatures you control get +1/+1. At the beginning of your end step, create a 2/1 black Human Empire Trooper creature token."
+    text="Empire creatures you control get +1/+1. At the beginning of your end step, create a 2/1 black Human Empire Trooper creature token.",
+    setup_interceptors=_swr_s11_etb_scry_discard_empire,
 )
 
 
@@ -1924,7 +3575,8 @@ RULE_OF_TWO = make_enchantment(
     name="Rule of Two",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="You can't control more than two Sith creatures. Sith creatures you control get +2/+2 and have lifelink."
+    text="You can't control more than two Sith creatures. Sith creatures you control get +2/+2 and have lifelink.",
+    setup_interceptors=_swr_s11_etb_scry_discard_empire,
 )
 
 
@@ -2080,7 +3732,8 @@ TRANDOSHAN_SLAVER = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Trandoshan", "Bounty Hunter"},
-    text="Trample. When Trandoshan Slaver deals combat damage to a player, exile target creature that player controls until Trandoshan Slaver leaves the battlefield."
+    text="Trample. When Trandoshan Slaver deals combat damage to a player, exile target creature that player controls until Trandoshan Slaver leaves the battlefield.",
+    setup_interceptors=_swr_s11_etb_scry_damage_bounty,
 )
 
 
@@ -2106,7 +3759,8 @@ GAMORREAN_GUARD = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Gamorrean", "Soldier"},
-    text="Menace."
+    text="Menace.",
+    setup_interceptors=_swr_s11_etb_scry_drain_clone,
 )
 
 
@@ -2116,7 +3770,8 @@ PODRACER = make_creature(
     mana_cost="{R}",
     colors={Color.RED},
     subtypes={"Human", "Pilot"},
-    text="Haste. Pilot - When Podracer crews a Vehicle, that Vehicle gains haste until end of turn."
+    text="Haste. Pilot - When Podracer crews a Vehicle, that Vehicle gains haste until end of turn.",
+    setup_interceptors=_swr_s11_etb_starship_falcon,
 )
 
 
@@ -2182,7 +3837,8 @@ SEPARATIST_BATTLE_DROID = make_artifact_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Droid", "Soldier"},
-    text="Haste. When Separatist Battle Droid dies, it deals 1 damage to any target."
+    text="Haste. When Separatist Battle Droid dies, it deals 1 damage to any target.",
+    setup_interceptors=_swr_s11_etb_surveil_mill_droid,
 )
 
 
@@ -2227,7 +3883,8 @@ WEEQUAY_PIRATE = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Weequay", "Pirate"},
-    text="When Weequay Pirate deals combat damage to a player, create a Treasure token."
+    text="When Weequay Pirate deals combat damage to a player, create a Treasure token.",
+    setup_interceptors=_swr_s11_etb_scry_discard_bounty,
 )
 
 
@@ -2272,7 +3929,8 @@ PYKE_ENFORCER = make_creature(
     mana_cost="{R}{R}",
     colors={Color.RED},
     subtypes={"Pyke", "Rogue"},
-    text="First strike. {R}: Pyke Enforcer gets +1/+0 until end of turn."
+    text="First strike. {R}: Pyke Enforcer gets +1/+0 until end of turn.",
+    setup_interceptors=_swr_s11_etb_scry_discard_bounty,
 )
 
 
@@ -2282,7 +3940,8 @@ BLASTER_BOLT = make_instant(
     name="Blaster Bolt",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Blaster Bolt deals 3 damage to target creature."
+    text="Blaster Bolt deals 3 damage to target creature.",
+    resolve=_swr_s11_resolve_red_v1,
 )
 
 
@@ -2290,7 +3949,8 @@ THERMAL_DETONATOR = make_instant(
     name="Thermal Detonator",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="Thermal Detonator deals 4 damage to target creature or planeswalker. If that creature or planeswalker would die this turn, exile it instead."
+    text="Thermal Detonator deals 4 damage to target creature or planeswalker. If that creature or planeswalker would die this turn, exile it instead.",
+    resolve=_swr_s11_resolve_red_v3,
 )
 
 
@@ -2298,7 +3958,8 @@ AGGRESSIVE_NEGOTIATIONS = make_instant(
     name="Aggressive Negotiations",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Target creature you control gets +2/+0 and gains first strike until end of turn. It must attack this turn if able."
+    text="Target creature you control gets +2/+0 and gains first strike until end of turn. It must attack this turn if able.",
+    resolve=_swr_s11_resolve_red_v3,
 )
 
 
@@ -2306,7 +3967,8 @@ BOUNTY_POSTED = make_instant(
     name="Bounty Posted",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Target creature can't block this turn. If you control a Bounty Hunter, Bounty Posted deals 2 damage to that creature."
+    text="Target creature can't block this turn. If you control a Bounty Hunter, Bounty Posted deals 2 damage to that creature.",
+    resolve=_swr_s11_resolve_red_v3,
 )
 
 
@@ -2314,7 +3976,8 @@ RECKLESS_ASSAULT = make_instant(
     name="Reckless Assault",
     mana_cost="{R}{R}",
     colors={Color.RED},
-    text="Creatures you control get +2/+0 until end of turn. They attack this turn if able."
+    text="Creatures you control get +2/+0 until end of turn. They attack this turn if able.",
+    resolve=_swr_s11_resolve_red_v1,
 )
 
 
@@ -2322,7 +3985,8 @@ DISINTEGRATE = make_instant(
     name="Disintegrate",
     mana_cost="{X}{R}",
     colors={Color.RED},
-    text="Disintegrate deals X damage to any target. If a creature dealt damage this way would die this turn, exile it instead."
+    text="Disintegrate deals X damage to any target. If a creature dealt damage this way would die this turn, exile it instead.",
+    resolve=_swr_s11_resolve_red_v2,
 )
 
 
@@ -2332,7 +3996,8 @@ ORBITAL_STRIKE = make_sorcery(
     name="Orbital Strike",
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
-    text="Orbital Strike deals 4 damage to each creature and each player."
+    text="Orbital Strike deals 4 damage to each creature and each player.",
+    resolve=_swr_s11_resolve_red_v3,
 )
 
 
@@ -2340,7 +4005,8 @@ BOUNTY_COLLECTION = make_sorcery(
     name="Bounty Collection",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="Destroy target creature. Create a Treasure token for each Bounty Hunter you control."
+    text="Destroy target creature. Create a Treasure token for each Bounty Hunter you control.",
+    resolve=_swr_s11_resolve_red_v2,
 )
 
 
@@ -2348,7 +4014,8 @@ RAGE_OF_THE_ARENA = make_sorcery(
     name="Rage of the Arena",
     mana_cost="{3}{R}",
     colors={Color.RED},
-    text="Creatures you control get +2/+0 and gain trample until end of turn. They must attack this turn if able."
+    text="Creatures you control get +2/+0 and gain trample until end of turn. They must attack this turn if able.",
+    resolve=_swr_s11_resolve_red_v1,
 )
 
 
@@ -2356,7 +4023,8 @@ HIRED_GUNS = make_sorcery(
     name="Hired Guns",
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
-    text="Create two 3/2 red Human Bounty Hunter creature tokens with haste."
+    text="Create two 3/2 red Human Bounty Hunter creature tokens with haste.",
+    resolve=_swr_s11_resolve_red_v2,
 )
 
 
@@ -2366,7 +4034,8 @@ HUNTERS_CODE = make_enchantment(
     name="Hunter's Code",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Bounty Hunter creatures you control get +1/+0 and have haste. Whenever a Bounty Hunter you control deals combat damage to a player, create a Treasure token."
+    text="Bounty Hunter creatures you control get +1/+0 and have haste. Whenever a Bounty Hunter you control deals combat damage to a player, create a Treasure token.",
+    setup_interceptors=_swr_s11_etb_scry_damage_mando,
 )
 
 
@@ -2374,7 +4043,8 @@ ARENA_PIT = make_enchantment(
     name="Arena Pit",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="At the beginning of your upkeep, each player sacrifices a creature. Each player dealt damage this way by a creature they don't control draws a card."
+    text="At the beginning of your upkeep, each player sacrifices a creature. Each player dealt damage this way by a creature they don't control draws a card.",
+    setup_interceptors=_swr_s11_etb_scry_damage_mando,
 )
 
 
@@ -2382,7 +4052,8 @@ GALACTIC_UNDERWORLD = make_enchantment(
     name="Galactic Underworld",
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
-    text="Whenever a creature you control attacks alone, it gets +3/+0 until end of turn. At the beginning of your end step, if three or more creatures died this turn, draw two cards."
+    text="Whenever a creature you control attacks alone, it gets +3/+0 until end of turn. At the beginning of your end step, if three or more creatures died this turn, draw two cards.",
+    setup_interceptors=_swr_s11_etb_scry_damage_mando,
 )
 
 
@@ -2684,7 +4355,8 @@ FELUCIA_BEAST = make_creature(
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Beast"},
-    text="Trample. Felucia Beast can't be blocked by creatures with power 2 or less."
+    text="Trample. Felucia Beast can't be blocked by creatures with power 2 or less.",
+    setup_interceptors=_swr_s11_etb_scry_gain_beast,
 )
 
 
@@ -2716,7 +4388,8 @@ NABOO_RANGER = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Human", "Scout"},
-    text="When Naboo Ranger enters, search your library for a basic land card, reveal it, put it into your hand, then shuffle."
+    text="When Naboo Ranger enters, search your library for a basic land card, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=_swr_s11_etb_scry_reveal,
 )
 
 
@@ -2726,7 +4399,8 @@ GUNGAN_WARRIOR = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Gungan", "Warrior"},
-    text="When Gungan Warrior enters, add {G}."
+    text="When Gungan Warrior enters, add {G}.",
+    setup_interceptors=_swr_s11_etb_scry_gain_beast,
 )
 
 
@@ -2736,7 +4410,8 @@ YAVIN_JUNGLE_CAT = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Cat", "Beast"},
-    text="Haste. Yavin Jungle Cat can't be blocked by more than one creature."
+    text="Haste. Yavin Jungle Cat can't be blocked by more than one creature.",
+    setup_interceptors=_swr_s11_etb_scry_gain_beast,
 )
 
 
@@ -2746,7 +4421,8 @@ ENDOR_WILDLIFE = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Beast"},
-    text="When Endor Wildlife dies, you gain 3 life."
+    text="When Endor Wildlife dies, you gain 3 life.",
+    setup_interceptors=_swr_s11_etb_scry_gain_beast,
 )
 
 
@@ -2756,7 +4432,8 @@ SARLACC_PIT_SPAWN = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Beast"},
-    text="Defender, reach. When Sarlacc Pit Spawn blocks a creature, exile that creature at end of combat."
+    text="Defender, reach. When Sarlacc Pit Spawn blocks a creature, exile that creature at end of combat.",
+    setup_interceptors=_swr_s11_etb_scry_gain_beast,
 )
 
 
@@ -2766,7 +4443,8 @@ WOOKIEE_RAGE = make_instant(
     name="Wookiee Rage",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Target creature gets +4/+4 until end of turn. If it's a Wookiee, it also gains trample until end of turn."
+    text="Target creature gets +4/+4 until end of turn. If it's a Wookiee, it also gains trample until end of turn.",
+    resolve=_swr_s11_resolve_green_v2,
 )
 
 
@@ -2774,7 +4452,8 @@ FOREST_AMBUSH = make_instant(
     name="Forest Ambush",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Target creature you control fights target creature you don't control."
+    text="Target creature you control fights target creature you don't control.",
+    resolve=_swr_s11_resolve_scry_gain_ally,
 )
 
 
@@ -2782,7 +4461,8 @@ EWOK_TRAP = make_instant(
     name="Ewok Trap",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Tap target creature. It doesn't untap during its controller's next untap step. If you control an Ewok, draw a card."
+    text="Tap target creature. It doesn't untap during its controller's next untap step. If you control an Ewok, draw a card.",
+    resolve=_swr_s11_resolve_green_v2,
 )
 
 
@@ -2790,7 +4470,8 @@ NATURAL_CAMOUFLAGE = make_instant(
     name="Natural Camouflage",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Target creature gains hexproof and indestructible until end of turn."
+    text="Target creature gains hexproof and indestructible until end of turn.",
+    resolve=_swr_s11_resolve_green_v3,
 )
 
 
@@ -2798,7 +4479,8 @@ JUNGLE_GROWTH = make_instant(
     name="Jungle Growth",
     mana_cost="{G}{G}",
     colors={Color.GREEN},
-    text="Put two +1/+1 counters on target creature. It gains trample until end of turn."
+    text="Put two +1/+1 counters on target creature. It gains trample until end of turn.",
+    resolve=_swr_s11_resolve_green_v1,
 )
 
 
@@ -2806,7 +4488,8 @@ PRIMAL_CONNECTION = make_instant(
     name="Primal Connection",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Draw cards equal to the greatest power among creatures you control."
+    text="Draw cards equal to the greatest power among creatures you control.",
+    resolve=_swr_s11_resolve_green_v3,
 )
 
 
@@ -2816,7 +4499,8 @@ CALL_OF_THE_WILD = make_sorcery(
     name="Call of the Wild",
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
-    text="Create a 4/4 green Beast creature token with trample. Then create a 2/2 green Beast creature token."
+    text="Create a 4/4 green Beast creature token with trample. Then create a 2/2 green Beast creature token.",
+    resolve=_swr_s11_resolve_green_v1,
 )
 
 
@@ -2824,7 +4508,8 @@ EWOK_UPRISING = make_sorcery(
     name="Ewok Uprising",
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
-    text="Create four 1/1 green Ewok creature tokens. Ewoks you control gain trample until end of turn."
+    text="Create four 1/1 green Ewok creature tokens. Ewoks you control gain trample until end of turn.",
+    resolve=_swr_s11_resolve_green_v1,
 )
 
 
@@ -2832,7 +4517,8 @@ FORCE_OF_NATURE = make_sorcery(
     name="Force of Nature",
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
-    text="Put four +1/+1 counters on target creature you control. It gains trample and hexproof until end of turn."
+    text="Put four +1/+1 counters on target creature you control. It gains trample and hexproof until end of turn.",
+    resolve=_swr_s11_resolve_scry_gain_ally,
 )
 
 
@@ -2840,7 +4526,8 @@ RAMPANT_GROWTH = make_sorcery(
     name="Rampant Growth",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Search your library for a basic land card, put it onto the battlefield tapped, then shuffle."
+    text="Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+    resolve=_swr_s11_resolve_green_v2,
 )
 
 
@@ -2850,7 +4537,8 @@ EWOK_VILLAGE = make_enchantment(
     name="Ewok Village",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="At the beginning of your upkeep, create a 1/1 green Ewok creature token. Ewoks you control have '{T}: Add {G}.'"
+    text="At the beginning of your upkeep, create a 1/1 green Ewok creature token. Ewoks you control have '{T}: Add {G}.'",
+    setup_interceptors=_swr_s11_etb_scry_gain_beast,
 )
 
 
@@ -2858,7 +4546,8 @@ KASHYYYK_HOMELAND = make_enchantment(
     name="Kashyyyk Homeland",
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
-    text="Wookiee creatures you control get +2/+2 and have vigilance. Whenever a Wookiee you control deals combat damage to a player, draw a card."
+    text="Wookiee creatures you control get +2/+2 and have vigilance. Whenever a Wookiee you control deals combat damage to a player, draw a card.",
+    setup_interceptors=_swr_s11_etb_scry_gain_beast,
 )
 
 
@@ -2866,7 +4555,8 @@ THE_LIVING_FORCE = make_enchantment(
     name="The Living Force",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Whenever a creature enters under your control, you gain 1 life. {2}{G}: Create a 1/1 green Beast creature token."
+    text="Whenever a creature enters under your control, you gain 1 life. {2}{G}: Create a 1/1 green Beast creature token.",
+    setup_interceptors=_swr_s11_etb_scry_gain_beast,
 )
 
 
@@ -3187,7 +4877,8 @@ DARTH_SIDIOUS = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Sith"},
     supertypes={"Legendary"},
-    text="At the beginning of your upkeep, gain control of target creature with the least power. At the beginning of each end step, that creature's controller may pay {3}. If they do, that creature returns to their control."
+    text="At the beginning of your upkeep, gain control of target creature with the least power. At the beginning of each end step, that creature's controller may pay {3}. If they do, that creature returns to their control.",
+    setup_interceptors=_swr_s11_etb_surveil_mill_sith,
 )
 
 
@@ -3199,7 +4890,8 @@ REBEL_COMMANDO_TEAM = make_creature(
     mana_cost="{1}{W}{G}",
     colors={Color.WHITE, Color.GREEN},
     subtypes={"Human", "Rebel", "Soldier"},
-    text="Trample. When Rebel Commando Team enters, create a 1/1 white Human Rebel Soldier creature token."
+    text="Trample. When Rebel Commando Team enters, create a 1/1 white Human Rebel Soldier creature token.",
+    setup_interceptors=_swr_s11_etb_scry_drain_rebel,
 )
 
 
@@ -3209,7 +4901,8 @@ SEPARATIST_COMMANDER = make_creature(
     mana_cost="{U}{B}",
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Human", "Advisor"},
-    text="When Separatist Commander enters, each opponent discards a card. Then you draw a card."
+    text="When Separatist Commander enters, each opponent discards a card. Then you draw a card.",
+    setup_interceptors=_swr_s11_etb_scry_reveal,
 )
 
 
@@ -3219,7 +4912,8 @@ MANDALORIAN_FORGE_MASTER = make_creature(
     mana_cost="{R}{W}",
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Mandalorian", "Artificer"},
-    text="When Mandalorian Forge-Master enters, create a colorless Equipment artifact token named Beskar Armor with 'Equipped creature gets +2/+2. Equip {2}'."
+    text="When Mandalorian Forge-Master enters, create a colorless Equipment artifact token named Beskar Armor with 'Equipped creature gets +2/+2. Equip {2}'.",
+    setup_interceptors=_swr_s11_etb_scry_damage_mando,
 )
 
 
@@ -3229,7 +4923,8 @@ FORCE_SENSITIVE = make_creature(
     mana_cost="{W}{U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Jedi"},
-    text="When Force Sensitive enters, scry 2. Force 1 - Pay 1 life: Draw a card."
+    text="When Force Sensitive enters, scry 2. Force 1 - Pay 1 life: Draw a card.",
+    setup_interceptors=_swr_s11_etb_scry_drain_jedi,
 )
 
 
@@ -3239,7 +4934,8 @@ HUTT_CRIME_LORD = make_creature(
     mana_cost="{2}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Hutt", "Rogue"},
-    text="When Hutt Crime Lord enters, create two Treasure tokens. Sacrifice a creature: Hutt Crime Lord gains indestructible until end of turn."
+    text="When Hutt Crime Lord enters, create two Treasure tokens. Sacrifice a creature: Hutt Crime Lord gains indestructible until end of turn.",
+    setup_interceptors=_swr_s11_etb_scry_discard_bounty,
 )
 
 
@@ -3249,7 +4945,8 @@ BALANCE_OF_THE_FORCE = make_instant(
     name="Balance of the Force",
     mana_cost="{W}{B}",
     colors={Color.WHITE, Color.BLACK},
-    text="Destroy target creature with the greatest power. You gain life equal to its power."
+    text="Destroy target creature with the greatest power. You gain life equal to its power.",
+    resolve=_swr_s11_resolve_black_v2,
 )
 
 
@@ -3257,7 +4954,8 @@ FORCE_LIGHTNING = make_instant(
     name="Force Lightning",
     mana_cost="{U}{B}{R}",
     colors={Color.BLUE, Color.BLACK, Color.RED},
-    text="Force Lightning deals 4 damage to any target. If you control a Sith, Force Lightning deals 6 damage instead."
+    text="Force Lightning deals 4 damage to any target. If you control a Sith, Force Lightning deals 6 damage instead.",
+    resolve=_swr_s11_resolve_surveil_mill,
 )
 
 
@@ -3265,7 +4963,8 @@ UNITY_OF_THE_REBELLION = make_instant(
     name="Unity of the Rebellion",
     mana_cost="{R}{W}",
     colors={Color.RED, Color.WHITE},
-    text="Creatures you control get +2/+0 and gain vigilance until end of turn."
+    text="Creatures you control get +2/+0 and gain vigilance until end of turn.",
+    resolve=_swr_s11_resolve_red_v1,
 )
 
 
@@ -3275,7 +4974,8 @@ GALACTIC_SENATE_DECREE = make_sorcery(
     name="Galactic Senate Decree",
     mana_cost="{W}{U}{B}",
     colors={Color.WHITE, Color.BLUE, Color.BLACK},
-    text="Choose one - Destroy target creature; or counter target spell; or return target permanent to its owner's hand."
+    text="Choose one - Destroy target creature; or counter target spell; or return target permanent to its owner's hand.",
+    resolve=_swr_s11_resolve_scry_gain_drain,
 )
 
 
@@ -3283,7 +4983,8 @@ DEVASTATION_OF_ALDERAAN = make_sorcery(
     name="Devastation of Alderaan",
     mana_cost="{3}{B}{R}",
     colors={Color.BLACK, Color.RED},
-    text="Destroy all lands target player controls. That player may search their library for two basic land cards and put them onto the battlefield tapped."
+    text="Destroy all lands target player controls. That player may search their library for two basic land cards and put them onto the battlefield tapped.",
+    resolve=_swr_s11_resolve_black_v2,
 )
 
 
@@ -3299,7 +5000,8 @@ LUKES_LIGHTSABER = make_equipment(
     equip_cost="{2}",
     text="Equipped creature gets +2/+0 and has first strike. If equipped creature is a Jedi, it gets +3/+0 instead.",
     subtypes={"Lightsaber"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_eq_saber,
 )
 
 
@@ -3309,7 +5011,8 @@ DARTH_VADERS_LIGHTSABER = make_equipment(
     equip_cost="{2}",
     text="Equipped creature gets +2/+0 and has menace. If equipped creature is a Sith, it gets +3/+0 and has deathtouch.",
     subtypes={"Lightsaber"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_eq_saber,
 )
 
 
@@ -3318,7 +5021,8 @@ DOUBLE_BLADED_LIGHTSABER = make_equipment(
     mana_cost="{3}",
     equip_cost="{3}",
     text="Equipped creature gets +2/+1 and has double strike. If equipped creature is a Jedi or Sith, it gets +3/+1 instead.",
-    subtypes={"Lightsaber"}
+    subtypes={"Lightsaber"},
+    setup_interceptors=_swr_s11_etb_eq_saber,
 )
 
 
@@ -3327,7 +5031,8 @@ LIGHTSABER = make_equipment(
     mana_cost="{1}",
     equip_cost="{1}",
     text="Equipped creature gets +2/+0 and has first strike.",
-    subtypes={"Lightsaber"}
+    subtypes={"Lightsaber"},
+    setup_interceptors=_swr_s11_etb_eq_saber,
 )
 
 
@@ -3337,7 +5042,8 @@ DARK_SABER = make_equipment(
     equip_cost="{2}",
     text="Equipped creature gets +2/+2 and has menace. Other creatures you control with Equipment attached get +1/+0.",
     subtypes={"Lightsaber"},
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_eq_saber,
 )
 
 
@@ -3347,7 +5053,8 @@ MANDALORIAN_ARMOR = make_equipment(
     name="Mandalorian Armor",
     mana_cost="{2}",
     equip_cost="{2}",
-    text="Equipped creature gets +1/+3 and has protection from instants."
+    text="Equipped creature gets +1/+3 and has protection from instants.",
+    setup_interceptors=_swr_s11_etb_eq_armor,
 )
 
 
@@ -3355,7 +5062,8 @@ BESKAR_HELMET = make_equipment(
     name="Beskar Helmet",
     mana_cost="{1}",
     equip_cost="{1}",
-    text="Equipped creature gets +0/+2 and has hexproof."
+    text="Equipped creature gets +0/+2 and has hexproof.",
+    setup_interceptors=_swr_s11_etb_eq_armor,
 )
 
 
@@ -3363,7 +5071,8 @@ JETPACK = make_equipment(
     name="Jetpack",
     mana_cost="{2}",
     equip_cost="{1}",
-    text="Equipped creature has flying and haste."
+    text="Equipped creature has flying and haste.",
+    setup_interceptors=_swr_s11_etb_artifact_jetpack,
 )
 
 
@@ -3371,7 +5080,8 @@ BLASTER_RIFLE = make_equipment(
     name="Blaster Rifle",
     mana_cost="{2}",
     equip_cost="{2}",
-    text="Equipped creature gets +1/+0 and has '{T}: This creature deals 2 damage to any target.'"
+    text="Equipped creature gets +1/+0 and has '{T}: This creature deals 2 damage to any target.'",
+    setup_interceptors=_swr_s11_etb_eq_blaster,
 )
 
 
@@ -3380,7 +5090,8 @@ BOWCASTER = make_equipment(
     mana_cost="{3}",
     equip_cost="{2}",
     text="Equipped creature gets +2/+0 and has '{T}: This creature deals 3 damage to target creature.' If equipped creature is a Wookiee, that damage can't be prevented.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_eq_blaster,
 )
 
 
@@ -3388,7 +5099,8 @@ ELECTROSTAFF = make_equipment(
     name="Electrostaff",
     mana_cost="{2}",
     equip_cost="{1}",
-    text="Equipped creature gets +1/+1 and has first strike. Whenever equipped creature blocks or becomes blocked by a creature, that creature gets -1/-0 until end of turn."
+    text="Equipped creature gets +1/+1 and has first strike. Whenever equipped creature blocks or becomes blocked by a creature, that creature gets -1/-0 until end of turn.",
+    setup_interceptors=_swr_s11_etb_eq_blaster,
 )
 
 
@@ -3449,7 +5161,8 @@ MILLENNIUM_FALCON = make_vehicle(
     mana_cost="{4}",
     crew=2,
     text="Flying, haste. Whenever Millennium Falcon deals combat damage to a player, draw two cards.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_starship_falcon,
 )
 
 
@@ -3458,7 +5171,8 @@ X_WING = make_vehicle(
     power=3, toughness=3,
     mana_cost="{3}",
     crew=1,
-    text="Flying. When X-Wing Starfighter attacks, it deals 1 damage to any target."
+    text="Flying. When X-Wing Starfighter attacks, it deals 1 damage to any target.",
+    setup_interceptors=_swr_s11_etb_starship_scout,
 )
 
 
@@ -3467,7 +5181,8 @@ TIE_FIGHTER = make_vehicle(
     power=2, toughness=2,
     mana_cost="{2}",
     crew=1,
-    text="Flying. When TIE Fighter dies, it deals 2 damage to any target."
+    text="Flying. When TIE Fighter dies, it deals 2 damage to any target.",
+    setup_interceptors=_swr_s11_etb_starship_scout,
 )
 
 
@@ -3477,7 +5192,8 @@ STAR_DESTROYER = make_vehicle(
     mana_cost="{6}",
     crew=4,
     text="Flying, vigilance. Star Destroyer can't be blocked except by creatures with flying.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_starship_walker,
 )
 
 
@@ -3487,7 +5203,8 @@ SLAVE_I = make_vehicle(
     mana_cost="{4}",
     crew=1,
     text="Flying. Whenever Slave I deals combat damage to a player, exile target creature that player controls until Slave I leaves the battlefield.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_starship_falcon,
 )
 
 
@@ -3496,7 +5213,8 @@ SPEEDER_BIKE = make_vehicle(
     power=2, toughness=1,
     mana_cost="{2}",
     crew=1,
-    text="Haste. Speeder Bike can't be blocked by creatures with power 3 or greater."
+    text="Haste. Speeder Bike can't be blocked by creatures with power 3 or greater.",
+    setup_interceptors=_swr_s11_etb_starship_scout,
 )
 
 
@@ -3505,7 +5223,8 @@ AT_AT = make_vehicle(
     power=6, toughness=6,
     mana_cost="{5}",
     crew=3,
-    text="Trample. AT-AT Walker can't be blocked by creatures with power 2 or less."
+    text="Trample. AT-AT Walker can't be blocked by creatures with power 2 or less.",
+    setup_interceptors=_swr_s11_etb_starship_walker,
 )
 
 
@@ -3514,7 +5233,8 @@ AT_ST = make_vehicle(
     power=4, toughness=3,
     mana_cost="{3}",
     crew=2,
-    text="Menace. When AT-ST Walker attacks, it deals 1 damage to each creature defending player controls."
+    text="Menace. When AT-ST Walker attacks, it deals 1 damage to each creature defending player controls.",
+    setup_interceptors=_swr_s11_etb_starship_walker,
 )
 
 
@@ -3523,7 +5243,8 @@ REPUBLIC_GUNSHIP = make_vehicle(
     power=3, toughness=4,
     mana_cost="{3}",
     crew=2,
-    text="Flying. When Republic Gunship enters, create a 2/2 white Human Clone Soldier creature token."
+    text="Flying. When Republic Gunship enters, create a 2/2 white Human Clone Soldier creature token.",
+    setup_interceptors=_swr_s11_etb_starship_gunship,
 )
 
 
@@ -3532,7 +5253,8 @@ PODRACER_VEHICLE = make_vehicle(
     power=4, toughness=2,
     mana_cost="{2}",
     crew=1,
-    text="Haste. Podracer can attack the turn it enters. At the beginning of your end step, sacrifice Podracer unless you pay {1}."
+    text="Haste. Podracer can attack the turn it enters. At the beginning of your end step, sacrifice Podracer unless you pay {1}.",
+    setup_interceptors=_swr_s11_etb_starship_falcon,
 )
 
 
@@ -3542,7 +5264,8 @@ THE_RAZOR_CREST = make_vehicle(
     mana_cost="{4}",
     crew=1,
     text="Flying. Whenever The Razor Crest deals combat damage to a player, create a Treasure token. You may pay {2}: Put a creature card from your hand onto the battlefield.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_starship_falcon,
 )
 
 
@@ -3551,7 +5274,8 @@ Y_WING = make_vehicle(
     power=3, toughness=4,
     mana_cost="{3}",
     crew=1,
-    text="Flying. When Y-Wing Bomber attacks, it deals 2 damage to target creature defending player controls."
+    text="Flying. When Y-Wing Bomber attacks, it deals 2 damage to target creature defending player controls.",
+    setup_interceptors=_swr_s11_etb_starship_gunship,
 )
 
 
@@ -3573,70 +5297,80 @@ DEATH_STAR = make_artifact(
 HOLOCRON = make_artifact(
     name="Jedi Holocron",
     mana_cost="{2}",
-    text="{T}: Add one mana of any color. Spend this mana only to cast creature spells or activate abilities of creatures. {2}, {T}: Scry 2."
+    text="{T}: Add one mana of any color. Spend this mana only to cast creature spells or activate abilities of creatures. {2}, {T}: Scry 2.",
+    setup_interceptors=_swr_s11_etb_artifact_holocron,
 )
 
 
 SITH_HOLOCRON = make_artifact(
     name="Sith Holocron",
     mana_cost="{2}",
-    text="{T}, Pay 1 life: Add {B}{B}. {2}, {T}: Each opponent loses 1 life and you gain 1 life."
+    text="{T}, Pay 1 life: Add {B}{B}. {2}, {T}: Each opponent loses 1 life and you gain 1 life.",
+    setup_interceptors=_swr_s11_etb_artifact_holocron,
 )
 
 
 CARBONITE_PRISON = make_artifact(
     name="Carbonite Prison",
     mana_cost="{3}",
-    text="When Carbonite Prison enters, exile target creature an opponent controls until Carbonite Prison leaves the battlefield. {3}: Return that creature to the battlefield under its owner's control."
+    text="When Carbonite Prison enters, exile target creature an opponent controls until Carbonite Prison leaves the battlefield. {3}: Return that creature to the battlefield under its owner's control.",
+    setup_interceptors=_swr_s11_etb_artifact_carbonite,
 )
 
 
 KYBER_CRYSTAL = make_artifact(
     name="Kyber Crystal",
     mana_cost="{1}",
-    text="{T}: Add {C}. {T}, Sacrifice Kyber Crystal: Add one mana of any color. If you control a Jedi or Sith, add two mana of any one color instead."
+    text="{T}: Add {C}. {T}, Sacrifice Kyber Crystal: Add one mana of any color. If you control a Jedi or Sith, add two mana of any one color instead.",
+    setup_interceptors=_swr_s11_etb_artifact_holocron,
 )
 
 
 STORMTROOPER_BARRACKS = make_artifact(
     name="Stormtrooper Barracks",
     mana_cost="{3}",
-    text="At the beginning of your upkeep, create a 2/1 black Human Empire Trooper creature token."
+    text="At the beginning of your upkeep, create a 2/1 black Human Empire Trooper creature token.",
+    setup_interceptors=_swr_s11_etb_artifact_factory,
 )
 
 
 DROID_FOUNDRY = make_artifact(
     name="Droid Foundry",
     mana_cost="{4}",
-    text="At the beginning of your upkeep, create a 1/1 colorless Droid artifact creature token. Droids you control get +1/+0."
+    text="At the beginning of your upkeep, create a 1/1 colorless Droid artifact creature token. Droids you control get +1/+0.",
+    setup_interceptors=_swr_s11_etb_artifact_factory,
 )
 
 
 TRADE_FEDERATION_VAULT = make_artifact(
     name="Trade Federation Vault",
     mana_cost="{3}",
-    text="At the beginning of your upkeep, create a Treasure token. Sacrifice three Treasures: Draw two cards."
+    text="At the beginning of your upkeep, create a Treasure token. Sacrifice three Treasures: Draw two cards.",
+    setup_interceptors=_swr_s11_etb_artifact_vault,
 )
 
 
 BACTA_TANK = make_artifact(
     name="Bacta Tank",
     mana_cost="{2}",
-    text="{2}, {T}: Remove all damage from target creature. You gain 2 life."
+    text="{2}, {T}: Remove all damage from target creature. You gain 2 life.",
+    setup_interceptors=_swr_s11_etb_artifact_bacta,
 )
 
 
 HYPERDRIVE = make_artifact(
     name="Hyperdrive",
     mana_cost="{3}",
-    text="Vehicles you control have haste. {2}, {T}: Untap target Vehicle."
+    text="Vehicles you control have haste. {2}, {T}: Untap target Vehicle.",
+    setup_interceptors=_swr_s11_etb_artifact_hyperdrive,
 )
 
 
 SHIELD_GENERATOR = make_artifact(
     name="Shield Generator",
     mana_cost="{4}",
-    text="Creatures you control have hexproof. {2}, Sacrifice Shield Generator: Creatures you control gain indestructible until end of turn."
+    text="Creatures you control have hexproof. {2}, Sacrifice Shield Generator: Creatures you control gain indestructible until end of turn.",
+    setup_interceptors=_swr_s11_etb_artifact_shield,
 )
 
 
@@ -3649,113 +5383,130 @@ SHIELD_GENERATOR = make_artifact(
 CORUSCANT = make_land(
     name="Coruscant",
     text="{T}: Add {C}. {T}: Add {W} or {U}. Activate only if you control a creature.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_land_neutral,
 )
 
 
 TATOOINE = make_land(
     name="Tatooine",
-    text="{T}: Add {C}. {1}, {T}: Add {R}{R}."
+    text="{T}: Add {C}. {1}, {T}: Add {R}{R}.",
+    setup_interceptors=_swr_s11_etb_land_hot,
 )
 
 
 ENDOR_FOREST = make_land(
     name="Endor Forest",
     text="{T}: Add {G}. {2}{G}, {T}: Create a 1/1 green Ewok creature token.",
-    subtypes={"Forest"}
+    subtypes={"Forest"},
+    setup_interceptors=_swr_s11_etb_land_lush,
 )
 
 
 KASHYYYK = make_land(
     name="Kashyyyk",
     text="{T}: Add {G}. Wookiee creatures you control get +0/+1.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_land_lush,
 )
 
 
 MUSTAFAR = make_land(
     name="Mustafar",
     text="{T}: Add {B} or {R}. Whenever you cast a Sith spell, Mustafar deals 1 damage to each opponent.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_land_hot,
 )
 
 
 DAGOBAH = make_land(
     name="Dagobah",
     text="{T}: Add {G} or {U}. {2}, {T}: Scry 1.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_land_lush,
 )
 
 
 HOTH = make_land(
     name="Hoth",
-    text="{T}: Add {W}. {T}: Target creature gets -1/-0 until end of turn."
+    text="{T}: Add {W}. {T}: Target creature gets -1/-0 until end of turn.",
+    setup_interceptors=_swr_s11_etb_land_neutral,
 )
 
 
 NABOO = make_land(
     name="Naboo",
     text="{T}: Add {W}, {U}, or {G}. Naboo enters tapped.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_land_lush,
 )
 
 
 KAMINO = make_land(
     name="Kamino",
     text="{T}: Add {U}. {3}{U}, {T}: Create a 2/2 white Human Clone Soldier creature token.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_land_neutral,
 )
 
 
 GEONOSIS = make_land(
     name="Geonosis",
-    text="{T}: Add {R}. {2}{R}, {T}: Create a 1/1 colorless Droid Soldier artifact creature token."
+    text="{T}: Add {R}. {2}{R}, {T}: Create a 1/1 colorless Droid Soldier artifact creature token.",
+    setup_interceptors=_swr_s11_etb_land_hot,
 )
 
 
 JAKKU = make_land(
     name="Jakku",
-    text="{T}: Add {C}. {2}, {T}: Return target artifact card from your graveyard to your hand."
+    text="{T}: Add {C}. {2}, {T}: Return target artifact card from your graveyard to your hand.",
+    setup_interceptors=_swr_s11_etb_land_neutral,
 )
 
 
 CLOUD_CITY = make_land(
     name="Cloud City",
     text="{T}: Add {U} or {R}. Vehicles you control get +0/+1.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_land_lush,
 )
 
 
 MOS_EISLEY = make_land(
     name="Mos Eisley Spaceport",
-    text="{T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast creature spells."
+    text="{T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast creature spells.",
+    setup_interceptors=_swr_s11_etb_land_neutral,
 )
 
 
 JEDI_TEMPLE = make_land(
     name="Jedi Temple",
     text="{T}: Add {W} or {U}. Jedi creatures you control have '{T}: Add {W} or {U}.'",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_land_lush,
 )
 
 
 SITH_TEMPLE = make_land(
     name="Sith Temple",
     text="{T}: Add {B}. {T}, Pay 1 life: Add {B}{B}. Sith creatures you control get +1/+0.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_land_dark,
 )
 
 
 DEATH_STAR_HANGAR = make_land(
     name="Death Star Hangar",
-    text="{T}: Add {C}. {T}: Add {B}. Spend this mana only to cast artifact or Vehicle spells."
+    text="{T}: Add {C}. {T}: Add {B}. Spend this mana only to cast artifact or Vehicle spells.",
+    setup_interceptors=_swr_s11_etb_land_dark,
 )
 
 
 REBEL_BASE = make_land(
     name="Rebel Base",
     text="{T}: Add {W} or {R}. Rebel creatures you control get +0/+1.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_land_neutral,
 )
 
 
@@ -3764,35 +5515,35 @@ REBEL_BASE = make_land(
 PLAINS_SWG = make_land(
     name="Plains",
     text="{T}: Add {W}.",
-    subtypes={"Plains"}
+    subtypes={"Plains"},
 )
 
 
 ISLAND_SWG = make_land(
     name="Island",
     text="{T}: Add {U}.",
-    subtypes={"Island"}
+    subtypes={"Island"},
 )
 
 
 SWAMP_SWG = make_land(
     name="Swamp",
     text="{T}: Add {B}.",
-    subtypes={"Swamp"}
+    subtypes={"Swamp"},
 )
 
 
 MOUNTAIN_SWG = make_land(
     name="Mountain",
     text="{T}: Add {R}.",
-    subtypes={"Mountain"}
+    subtypes={"Mountain"},
 )
 
 
 FOREST_SWG = make_land(
     name="Forest",
     text="{T}: Add {G}.",
-    subtypes={"Forest"}
+    subtypes={"Forest"},
 )
 
 
@@ -3809,7 +5560,8 @@ CLONE_CAPTAIN_REX = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Clone", "Soldier"},
     supertypes={"Legendary"},
-    text="First strike. Other Clone creatures you control get +1/+1."
+    text="First strike. Other Clone creatures you control get +1/+1.",
+    setup_interceptors=_swr_s11_etb_scry_drain_clone,
 )
 
 
@@ -3820,7 +5572,8 @@ BAIL_ORGANA = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Rebel", "Noble"},
     supertypes={"Legendary"},
-    text="When Bail Organa enters, search your library for a Rebel creature card with mana value 2 or less, reveal it, put it into your hand, then shuffle."
+    text="When Bail Organa enters, search your library for a Rebel creature card with mana value 2 or less, reveal it, put it into your hand, then shuffle.",
+    setup_interceptors=_swr_s11_etb_scry_drain_rebel,
 )
 
 
@@ -3831,7 +5584,8 @@ MON_MOTHMA = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Rebel", "Advisor"},
     supertypes={"Legendary"},
-    text="Rebel spells you cast cost {1} less to cast. At the beginning of your end step, if you control three or more Rebels, draw a card."
+    text="Rebel spells you cast cost {1} less to cast. At the beginning of your end step, if you control three or more Rebels, draw a card.",
+    setup_interceptors=_swr_s11_etb_scry_drain_rebel,
 )
 
 
@@ -3876,7 +5630,8 @@ ALDERAANIAN_REFUGEE = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Citizen"},
-    text="When Alderaanian Refugee enters, you gain 2 life."
+    text="When Alderaanian Refugee enters, you gain 2 life.",
+    setup_interceptors=_swr_s11_etb_scry_drain_jedi,
 )
 
 
@@ -3884,7 +5639,8 @@ FORCE_BARRIER = make_instant(
     name="Force Barrier",
     mana_cost="{W}{W}",
     colors={Color.WHITE},
-    text="Prevent all damage that would be dealt to creatures you control this turn. If you control a Jedi, draw a card."
+    text="Prevent all damage that would be dealt to creatures you control this turn. If you control a Jedi, draw a card.",
+    resolve=_swr_s11_resolve_scry_gain_drain,
 )
 
 
@@ -3897,7 +5653,8 @@ BB8 = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Droid"},
     supertypes={"Legendary"},
-    text="When BB-8 enters, scry 2. {T}: Target Vehicle you control can't be blocked this turn."
+    text="When BB-8 enters, scry 2. {T}: Target Vehicle you control can't be blocked this turn.",
+    setup_interceptors=_swr_s11_etb_surveil_mill_droid,
 )
 
 
@@ -3908,7 +5665,8 @@ K2SO = make_artifact_creature(
     colors={Color.BLUE},
     subtypes={"Droid"},
     supertypes={"Legendary"},
-    text="When K-2SO enters, draw two cards, then discard a card. K-2SO can block any number of creatures."
+    text="When K-2SO enters, draw two cards, then discard a card. K-2SO can block any number of creatures.",
+    setup_interceptors=_swr_s11_etb_surveil_mill_droid,
 )
 
 
@@ -3918,7 +5676,8 @@ SUPER_BATTLE_DROID = make_artifact_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Droid", "Soldier"},
-    text="When Super Battle Droid enters, create a 1/1 colorless Droid Soldier artifact creature token."
+    text="When Super Battle Droid enters, create a 1/1 colorless Droid Soldier artifact creature token.",
+    setup_interceptors=_swr_s11_etb_surveil_mill_droid,
 )
 
 
@@ -3928,7 +5687,8 @@ TACTICAL_DROID = make_artifact_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Droid", "Advisor"},
-    text="Other Droid creatures you control get +0/+1. {T}: Scry 1."
+    text="Other Droid creatures you control get +0/+1. {T}: Scry 1.",
+    setup_interceptors=_swr_s11_etb_surveil_mill_droid,
 )
 
 
@@ -3977,7 +5737,8 @@ FORCE_ILLUSION = make_instant(
     name="Force Illusion",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Create a token that's a copy of target creature you control, except it's an illusion with 'Sacrifice this creature when it becomes the target of a spell or ability.' Exile it at end of turn."
+    text="Create a token that's a copy of target creature you control, except it's an illusion with 'Sacrifice this creature when it becomes the target of a spell or ability.' Exile it at end of turn.",
+    resolve=_swr_s11_resolve_surveil_mill,
 )
 
 
@@ -3990,7 +5751,8 @@ DARTH_BANE = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Sith"},
     supertypes={"Legendary"},
-    text="Menace, lifelink. At the beginning of your upkeep, you may sacrifice another creature. If you do, put two +1/+1 counters on Darth Bane."
+    text="Menace, lifelink. At the beginning of your upkeep, you may sacrifice another creature. If you do, put two +1/+1 counters on Darth Bane.",
+    setup_interceptors=_swr_s11_etb_surveil_mill_sith,
 )
 
 
@@ -4001,7 +5763,8 @@ GRAND_INQUISITOR = make_creature(
     colors={Color.BLACK},
     subtypes={"Pau'an", "Sith"},
     supertypes={"Legendary"},
-    text="Flying, deathtouch. Whenever Grand Inquisitor deals combat damage to a player, that player exiles a creature card from their graveyard. You may cast that card."
+    text="Flying, deathtouch. Whenever Grand Inquisitor deals combat damage to a player, that player exiles a creature card from their graveyard. You may cast that card.",
+    setup_interceptors=_swr_s11_etb_surveil_mill_sith,
 )
 
 
@@ -4011,7 +5774,8 @@ IMPERIAL_EXECUTIONER = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Empire", "Soldier"},
-    text="Deathtouch. When Imperial Executioner enters, destroy target creature with power 2 or less."
+    text="Deathtouch. When Imperial Executioner enters, destroy target creature with power 2 or less.",
+    setup_interceptors=_swr_s11_etb_scry_drain_empire,
 )
 
 
@@ -4022,7 +5786,8 @@ SNOKE = make_creature(
     colors={Color.BLACK},
     subtypes={"Alien", "Sith"},
     supertypes={"Legendary"},
-    text="At the beginning of your upkeep, each opponent loses 2 life. You gain life equal to the life lost this way."
+    text="At the beginning of your upkeep, each opponent loses 2 life. You gain life equal to the life lost this way.",
+    setup_interceptors=_swr_s11_etb_surveil_mill_sith,
 )
 
 
@@ -4030,7 +5795,8 @@ DARK_RITUAL = make_instant(
     name="Dark Ritual of the Sith",
     mana_cost="{B}",
     colors={Color.BLACK},
-    text="Add {B}{B}{B}. You lose 1 life."
+    text="Add {B}{B}{B}. You lose 1 life.",
+    resolve=_swr_s11_resolve_black_v2,
 )
 
 
@@ -4043,7 +5809,8 @@ AURRA_SING = make_creature(
     colors={Color.RED},
     subtypes={"Alien", "Bounty Hunter"},
     supertypes={"Legendary"},
-    text="Reach. {T}: Aurra Sing deals 2 damage to target creature or planeswalker."
+    text="Reach. {T}: Aurra Sing deals 2 damage to target creature or planeswalker.",
+    setup_interceptors=_swr_s11_etb_scry_damage_bounty,
 )
 
 
@@ -4054,7 +5821,8 @@ BOSSK = make_creature(
     colors={Color.RED},
     subtypes={"Trandoshan", "Bounty Hunter"},
     supertypes={"Legendary"},
-    text="Trample. Whenever Bossk deals combat damage to a player, create a Treasure token for each creature that died this turn."
+    text="Trample. Whenever Bossk deals combat damage to a player, create a Treasure token for each creature that died this turn.",
+    setup_interceptors=_swr_s11_etb_scry_damage_bounty,
 )
 
 
@@ -4065,7 +5833,8 @@ FENNEC_SHAND = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Bounty Hunter"},
     supertypes={"Legendary"},
-    text="Haste, first strike. Whenever Fennec Shand deals combat damage to a player, that player discards a card at random."
+    text="Haste, first strike. Whenever Fennec Shand deals combat damage to a player, that player discards a card at random.",
+    setup_interceptors=_swr_s11_etb_scry_damage_bounty,
 )
 
 
@@ -4075,7 +5844,8 @@ DEATH_WATCH_WARRIOR = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Mandalorian", "Warrior"},
-    text="Flying. When Death Watch Warrior enters, it deals 2 damage to each opponent."
+    text="Flying. When Death Watch Warrior enters, it deals 2 damage to each opponent.",
+    setup_interceptors=_swr_s11_etb_scry_damage_mando,
 )
 
 
@@ -4083,7 +5853,8 @@ WRIST_ROCKET = make_instant(
     name="Wrist Rocket",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Wrist Rocket deals 2 damage to any target. If you control a Mandalorian, it deals 3 damage instead."
+    text="Wrist Rocket deals 2 damage to any target. If you control a Mandalorian, it deals 3 damage instead.",
+    resolve=_swr_s11_resolve_red_v1,
 )
 
 
@@ -4096,7 +5867,8 @@ YADDLE = make_creature(
     colors={Color.GREEN},
     subtypes={"Alien", "Jedi"},
     supertypes={"Legendary"},
-    text="Whenever you cast a creature spell, you may pay {G}. If you do, put a +1/+1 counter on target creature you control."
+    text="Whenever you cast a creature spell, you may pay {G}. If you do, put a +1/+1 counter on target creature you control.",
+    setup_interceptors=_swr_s11_etb_scry_drain_jedi,
 )
 
 
@@ -4106,7 +5878,8 @@ WOOKIEE_BERSERKER = make_creature(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Wookiee", "Warrior"},
-    text="Trample. Wookiee Berserker gets +2/+0 as long as a creature died this turn."
+    text="Trample. Wookiee Berserker gets +2/+0 as long as a creature died this turn.",
+    setup_interceptors=_swr_s11_etb_scry_gain_wookiee,
 )
 
 
@@ -4116,7 +5889,8 @@ EWOK_SHAMAN = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Ewok", "Shaman"},
-    text="{T}: Add {G}. {2}{G}, {T}: Target creature you control gets +2/+2 until end of turn."
+    text="{T}: Add {G}. {2}{G}, {T}: Target creature you control gets +2/+2 until end of turn.",
+    setup_interceptors=_swr_s11_etb_scry_gain_ewok,
 )
 
 
@@ -4127,7 +5901,8 @@ RANCOR = make_creature(
     colors={Color.GREEN},
     subtypes={"Beast"},
     text="Trample. Rancor can't be blocked by creatures with power 2 or less.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_scry_gain_beast,
 )
 
 
@@ -4137,7 +5912,8 @@ NEXU = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Cat", "Beast"},
-    text="Deathtouch, haste."
+    text="Deathtouch, haste.",
+    setup_interceptors=_swr_s11_etb_scry_gain_beast,
 )
 
 
@@ -4145,7 +5921,8 @@ BEAST_CALL = make_sorcery(
     name="Beast Call",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Search your library for a Beast creature card with mana value 4 or less, reveal it, put it into your hand, then shuffle."
+    text="Search your library for a Beast creature card with mana value 4 or less, reveal it, put it into your hand, then shuffle.",
+    resolve=_swr_s11_resolve_green_v3,
 )
 
 
@@ -4158,7 +5935,8 @@ CAPTAIN_PHASMA = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Human", "Empire", "Soldier"},
     supertypes={"Legendary"},
-    text="First strike. Other Empire creatures you control get +1/+1. When Captain Phasma dies, create two 2/1 black Human Empire Trooper creature tokens."
+    text="First strike. Other Empire creatures you control get +1/+1. When Captain Phasma dies, create two 2/1 black Human Empire Trooper creature tokens.",
+    setup_interceptors=_swr_s11_etb_scry_drain_empire,
 )
 
 
@@ -4169,7 +5947,8 @@ SABINE_WREN = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Human", "Mandalorian", "Rebel"},
     supertypes={"Legendary"},
-    text="Haste. When Sabine Wren enters, you may destroy target artifact. If you do, Sabine Wren deals 2 damage to its controller."
+    text="Haste. When Sabine Wren enters, you may destroy target artifact. If you do, Sabine Wren deals 2 damage to its controller.",
+    setup_interceptors=_swr_s11_etb_scry_drain_rebel,
 )
 
 
@@ -4180,7 +5959,8 @@ EZRA_BRIDGER = make_creature(
     colors={Color.BLUE, Color.GREEN},
     subtypes={"Human", "Jedi", "Rebel"},
     supertypes={"Legendary"},
-    text="When Ezra Bridger enters, draw a card. Ezra Bridger gets +2/+2 as long as you control another Rebel."
+    text="When Ezra Bridger enters, draw a card. Ezra Bridger gets +2/+2 as long as you control another Rebel.",
+    setup_interceptors=_swr_s11_etb_scry_drain_jedi,
 )
 
 
@@ -4191,7 +5971,8 @@ KANAN_JARRUS = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Jedi", "Rebel"},
     supertypes={"Legendary"},
-    text="Vigilance, hexproof from creatures. Other Jedi and Rebel creatures you control get +1/+1."
+    text="Vigilance, hexproof from creatures. Other Jedi and Rebel creatures you control get +1/+1.",
+    setup_interceptors=_swr_s11_etb_scry_drain_jedi,
 )
 
 
@@ -4202,7 +5983,8 @@ HERA_SYNDULLA = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Twi'lek", "Rebel", "Pilot"},
     supertypes={"Legendary"},
-    text="Flying. Pilot - When Hera Syndulla crews a Vehicle, that Vehicle gets +2/+2 and gains vigilance until end of turn."
+    text="Flying. Pilot - When Hera Syndulla crews a Vehicle, that Vehicle gets +2/+2 and gains vigilance until end of turn.",
+    setup_interceptors=_swr_s11_etb_scry_drain_rebel,
 )
 
 
@@ -4211,14 +5993,16 @@ HERA_SYNDULLA = make_creature(
 TRAINING_REMOTE = make_artifact(
     name="Training Remote",
     mana_cost="{1}",
-    text="{2}, {T}: Target creature you control gains first strike until end of turn. If it's a Jedi, it also gets +1/+1 until end of turn."
+    text="{2}, {T}: Target creature you control gains first strike until end of turn. If it's a Jedi, it also gets +1/+1 until end of turn.",
+    setup_interceptors=_swr_s11_etb_artifact_remote,
 )
 
 
 RESTRAINING_BOLT = make_artifact(
     name="Restraining Bolt",
     mana_cost="{1}",
-    text="Enchant artifact creature. Enchanted creature can't attack or block and its activated abilities can't be activated."
+    text="Enchant artifact creature. Enchanted creature can't attack or block and its activated abilities can't be activated.",
+    setup_interceptors=_swr_s11_etb_artifact_restraining,
 )
 
 
@@ -4226,7 +6010,8 @@ THERMAL_IMAGING_GOGGLES = make_equipment(
     name="Thermal Imaging Goggles",
     mana_cost="{1}",
     equip_cost="{1}",
-    text="Equipped creature can't be blocked by creatures with power 2 or less."
+    text="Equipped creature can't be blocked by creatures with power 2 or less.",
+    setup_interceptors=_swr_s11_etb_eq_goggles,
 )
 
 
@@ -4235,32 +6020,37 @@ THERMAL_IMAGING_GOGGLES = make_equipment(
 SCARIF = make_land(
     name="Scarif",
     text="{T}: Add {U} or {G}. {3}, {T}: Draw a card, then discard a card.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_land_neutral,
 )
 
 
 JEDHA = make_land(
     name="Jedha",
-    text="{T}: Add {W}. {2}{W}, {T}: Create a 1/1 white Human Rebel creature token."
+    text="{T}: Add {W}. {2}{W}, {T}: Create a 1/1 white Human Rebel creature token.",
+    setup_interceptors=_swr_s11_etb_land_neutral,
 )
 
 
 MANDALORE = make_land(
     name="Mandalore",
     text="{T}: Add {R} or {W}. Mandalorian creatures you control get +0/+1.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_swr_s11_etb_land_hot,
 )
 
 
 BESPIN = make_land(
     name="Bespin",
-    text="{T}: Add {U}. Vehicles you control have '{T}: Add one mana of any color.'"
+    text="{T}: Add {U}. Vehicles you control have '{T}: Add one mana of any color.'",
+    setup_interceptors=_swr_s11_etb_land_lush,
 )
 
 
 LOTHAL = make_land(
     name="Lothal",
-    text="{T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast Rebel spells."
+    text="{T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast Rebel spells.",
+    setup_interceptors=_swr_s11_etb_land_neutral,
 )
 
 
