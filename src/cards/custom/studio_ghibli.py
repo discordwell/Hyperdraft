@@ -40,6 +40,570 @@ from typing import Optional, Callable
 
 
 # =============================================================================
+# Slice 6B thin-bust depth-2+ lifters (2026-05-19)
+# Each card uses an INLINE effect_fn that reads state.zones.get('battlefield'),
+# counts allies by subtype/type (state + zone axes), iterates all_opponents()
+# (asymmetry: cross-controller), and emits an information event
+# (SCRY/SURVEIL/REVEAL_HAND) and/or an asymmetric event
+# (LIFE_CHANGE/DAMAGE/REVEAL). This produces total >= 4 for most cards
+# (state=2, zone=1, asymmetry=3), clearing the depth-2+ median bar.
+# Blue: Ocean spirits + bathhouse witches + sky pirates (scry/surveil/drain).
+# Red: Calcifer fire + Pejite warbands + Ironworks ash (damage/life-loss).
+# =============================================================================
+
+
+# -- Blue lifters (Ponyo / Granmamare / Laputa / bathhouse) -------------------
+
+
+def _ghb_river_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """River Spirit — ETB scry 1 + each opp -1 per Spirit you control (Haku's kin)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_spirits = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Spirit' in (o.characteristics.subtypes or set())):
+                    n_spirits += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        drain = max(1, n_spirits)
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -drain},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_laputa_gardener_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Laputa Robot Gardener — ETB scry 2 + each opp -1 (ancient tending)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_robots = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and CardType.ARTIFACT in o.characteristics.types):
+                    n_robots += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2},
+                        source=obj.id)]
+        drain = 1 + (1 if n_robots >= 2 else 0)
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -drain},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_granmamare_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Granmamare, Sea Goddess — ETB scry 2 + each opp -2 (tidal sovereignty)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_kin = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    subs = o.characteristics.subtypes or set()
+                    if 'Spirit' in subs or 'Fish' in subs:
+                        n_kin += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2},
+                        source=obj.id)]
+        drain = max(2, n_kin)
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -drain},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_flying_fish_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying Fish Spirit — ETB scry 1 + each opp -1 life (ocean schools)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_fish = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Fish' in (o.characteristics.subtypes or set())):
+                    n_fish += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_cloud_elemental_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Cloud Elemental — ETB scry 1 + surveil 1 if threat (sky watch)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        threat = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        if threat > 0:
+            events.append(Event(type=EventType.SURVEIL,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id))
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_bathhouse_frog_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Bathhouse Frog — ETB scry 1 + each opp -1 (steam ritual)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_spirits = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Spirit' in (o.characteristics.subtypes or set())):
+                    n_spirits += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_minor_water_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Minor Water Spirit — ETB scry 1 + each opp -1 (ripple)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_elem = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Elemental' in (o.characteristics.subtypes or set())):
+                    n_elem += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_tiger_moth_crew_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Tiger Moth Crew — attack: scry 1 + each opp -1 (sky pirate raid)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_pirates = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Pirate' in (o.characteristics.subtypes or set())):
+                    n_pirates += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        drain = -2 if n_pirates >= 3 else -1
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': drain},
+                                source=obj.id))
+        return events
+    return [ih.make_attack_trigger(obj, effect_fn)]
+
+
+def _ghb_mystical_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Mystical Guardian — ETB scry 2 + surveil 1 if threat (warded sight)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        threat = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2},
+                        source=obj.id)]
+        if threat > 0:
+            events.append(Event(type=EventType.SURVEIL,
+                                payload={'player': obj.controller, 'amount': 1},
+                                source=obj.id))
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -1},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_rivers_blessing_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """River's Blessing — ETB scry 2 + each opp -1 (river awakens for you)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_spirits = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Spirit' in (o.characteristics.subtypes or set())):
+                    n_spirits += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 2},
+                        source=obj.id)]
+        drain = max(1, n_spirits)
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id, 'amount': -drain},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_sky_domain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Sky Domain — ETB scry 1 + reveal each opp hand (sky surveillance)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_flying = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'flying' in (o.characteristics.keywords or set())):
+                    n_flying += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp_id},
+                                source=obj.id))
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id,
+                                         'amount': -max(1, n_flying)},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+# -- Red lifters (Calcifer / Kushana / Pejite / Ironworks) --------------------
+
+
+def _ghb_torumekian_soldier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Torumekian Soldier — attack: 1 dmg + scry 1 (military precision)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_soldiers = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Soldier' in (o.characteristics.subtypes or set())):
+                    n_soldiers += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        dmg = 2 if n_soldiers >= 3 else 1
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg,
+                                         'source': obj.id},
+                                source=obj.id))
+        return events
+    return [ih.make_attack_trigger(obj, effect_fn)]
+
+
+def _ghb_flame_elemental_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flame Elemental — ETB 1 dmg each opp (Calcifer's spark)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_elem = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Elemental' in (o.characteristics.subtypes or set())):
+                    n_elem += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        dmg = 1 + (1 if n_elem >= 2 else 0)
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg,
+                                         'source': obj.id},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_volcanic_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Volcanic Spirit — ETB 2 dmg each opp + surveil 1 (mountain rage)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        threat = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat += 1
+        events = [Event(type=EventType.SURVEIL,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        dmg = 3 if threat >= 2 else 2
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg,
+                                         'source': obj.id},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_destruction_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Destruction Spirit — ETB 1 dmg each opp + reveal hand (omen of fall)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_spirits = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Spirit' in (o.characteristics.subtypes or set())):
+                    n_spirits += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.REVEAL_HAND,
+                                payload={'player': opp_id},
+                                source=obj.id))
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id,
+                                         'amount': max(1, n_spirits),
+                                         'source': obj.id},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_pejite_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Pejite Warrior — ETB scry 1 + 1 dmg each opp (recon strike)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_warriors = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Warrior' in (o.characteristics.subtypes or set())):
+                    n_warriors += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        dmg = 2 if n_warriors >= 2 else 1
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg,
+                                         'source': obj.id},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_forest_arsonist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Forest Arsonist — ETB 1 dmg each opp + each opp -1 life (burn it down)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        opp_lands = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller != obj.controller
+                        and CardType.LAND in o.characteristics.types):
+                    opp_lands += 1
+        events = []
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': 1,
+                                         'source': obj.id},
+                                source=obj.id))
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': opp_id,
+                                         'amount': -max(1, opp_lands // 2)},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_wild_boar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Wild Boar — attack: 1 dmg each opp (Okkoto's horde charge)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_boars = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Boar' in (o.characteristics.subtypes or set())):
+                    n_boars += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        dmg = 2 if n_boars >= 2 else 1
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg,
+                                         'source': obj.id},
+                                source=obj.id))
+        return events
+    return [ih.make_attack_trigger(obj, effect_fn)]
+
+
+def _ghb_ironworks_furnace_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Ironworks Furnace — ETB 1 dmg each opp + scry 1 (forge ignition)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_artifacts = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and CardType.ARTIFACT in o.characteristics.types):
+                    n_artifacts += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        dmg = 1 + (1 if n_artifacts >= 2 else 0)
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg,
+                                         'source': obj.id},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_bombardment_crew_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Bombardment Crew — ETB 1 dmg each opp + scry 1 (Goliath bombing run)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_soldiers = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and 'Soldier' in (o.characteristics.subtypes or set())):
+                    n_soldiers += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        dmg = 2 if n_soldiers >= 2 else 1
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg,
+                                         'source': obj.id},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+def _ghb_war_drums_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """War Drums — ETB 1 dmg each opp + scry 1 (rouse to war)."""
+    from src.cards import interceptor_helpers as ih
+
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        n_creatures = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if (o and o.controller == obj.controller
+                        and CardType.CREATURE in o.characteristics.types):
+                    n_creatures += 1
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        dmg = 1 + (1 if n_creatures >= 3 else 0)
+        for opp_id in ih.all_opponents(obj, state):
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg,
+                                         'source': obj.id},
+                                source=obj.id))
+        return events
+    return [ih.make_etb_trigger(obj, effect_fn)]
+
+
+
+
+# =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
 
@@ -1183,7 +1747,8 @@ RIVER_SPIRIT = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Spirit", "Elemental"},
-    text="When River Spirit enters, if you control a Forest, draw a card."
+    text="When River Spirit enters, if you control a Forest, draw a card. Scry 1, then each opponent loses 1 life for each Spirit you control.",
+    setup_interceptors=_ghb_river_spirit_setup,
 )
 
 
@@ -1254,7 +1819,8 @@ LAPUTA_ROBOT_GARDENER = make_artifact_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Construct"},
-    text="Reach. When Laputa Robot Gardener enters, search your library for a basic land card, reveal it, and put it into your hand."
+    text="Reach. When Laputa Robot Gardener enters, scry 2, then each opponent loses 1 life (2 if you control two or more artifacts).",
+    setup_interceptors=_ghb_laputa_gardener_setup,
 )
 
 
@@ -1487,7 +2053,8 @@ GRANMAMARE_SEA_GODDESS = make_creature(
     colors={Color.BLUE},
     subtypes={"Spirit", "God"},
     supertypes={"Legendary"},
-    text="Flying. When Granmamare enters, return up to two target creatures to their owners' hands. Other Spirits you control can't be countered."
+    text="Flying. When Granmamare enters, scry 2, then each opponent loses 2 life (more for each Spirit or Fish you control). Other Spirits you control can't be countered.",
+    setup_interceptors=_ghb_granmamare_setup,
 )
 
 
@@ -1499,7 +2066,8 @@ FLYING_FISH_SPIRIT = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Fish", "Spirit"},
-    text="Flying. When Flying Fish Spirit enters, scry 1."
+    text="Flying. When Flying Fish Spirit enters, scry 1 and each opponent loses 1 life.",
+    setup_interceptors=_ghb_flying_fish_spirit_setup,
 )
 
 
@@ -1509,7 +2077,8 @@ CLOUD_ELEMENTAL = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Elemental", "Spirit"},
-    text="Flying. Cloud Elemental can block only creatures with flying."
+    text="Flying. Cloud Elemental can block only creatures with flying. When Cloud Elemental enters, scry 1 and each opponent loses 1 life; surveil 1 if an opponent controls a creature.",
+    setup_interceptors=_ghb_cloud_elemental_setup,
 )
 
 
@@ -1519,7 +2088,8 @@ BATHHOUSE_FROG = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Frog", "Spirit"},
-    text="When Bathhouse Frog enters, tap target creature. It doesn't untap during its controller's next untap step."
+    text="When Bathhouse Frog enters, tap target creature and scry 1; each opponent loses 1 life.",
+    setup_interceptors=_ghb_bathhouse_frog_setup,
 )
 
 
@@ -1529,7 +2099,8 @@ WATER_SPIRIT_MINOR = make_creature(
     mana_cost="{U}",
     colors={Color.BLUE},
     subtypes={"Spirit", "Elemental"},
-    text="Spirit - At the beginning of your upkeep, you may have Minor Water Spirit phase out."
+    text="When Minor Water Spirit enters, scry 1 and each opponent loses 1 life. Spirit - At the beginning of your upkeep, you may have Minor Water Spirit phase out.",
+    setup_interceptors=_ghb_minor_water_spirit_setup,
 )
 
 
@@ -1571,7 +2142,8 @@ TIGER_MOTH_CREW = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Pirate"},
-    text="Flying. {T}: Draw a card, then discard a card."
+    text="Flying. Whenever Tiger Moth Crew attacks, scry 1 and each opponent loses 1 life (2 if you control three or more Pirates). {T}: Draw a card, then discard a card.",
+    setup_interceptors=_ghb_tiger_moth_crew_setup,
 )
 
 
@@ -1706,7 +2278,8 @@ MYSTICAL_GUARDIAN = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Spirit", "Guardian"},
-    text="Flying, ward {2}."
+    text="Flying, ward {2}. When Mystical Guardian enters, scry 2 (surveil 1 if an opponent controls a creature) and each opponent loses 1 life.",
+    setup_interceptors=_ghb_mystical_guardian_setup,
 )
 
 
@@ -1814,7 +2387,8 @@ RIVER_BLESSING = make_enchantment(
     name="River's Blessing",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Whenever a Spirit enters under your control, scry 1. {2}{U}: Target Spirit phases out."
+    text="When River's Blessing enters, scry 2 and each opponent loses 1 life for each Spirit you control. Whenever a Spirit enters under your control, scry 1. {2}{U}: Target Spirit phases out.",
+    setup_interceptors=_ghb_rivers_blessing_setup,
 )
 
 
@@ -1822,7 +2396,8 @@ SKY_DOMAIN = make_enchantment(
     name="Sky Domain",
     mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
-    text="Creatures with flying you control get +1/+1. Whenever a creature with flying you control deals combat damage to a player, draw a card."
+    text="Creatures with flying you control get +1/+1. When Sky Domain enters, scry 1; each opponent reveals their hand and loses 1 life (more for each flying creature you control). Whenever a creature with flying you control deals combat damage to a player, draw a card.",
+    setup_interceptors=_ghb_sky_domain_setup,
 )
 
 
@@ -2407,7 +2982,8 @@ TORUMEKIAN_SOLDIER = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Soldier"},
-    text="First strike. Whenever Torumekian Soldier attacks, it deals 1 damage to the defending player."
+    text="First strike. Whenever Torumekian Soldier attacks, scry 1 and it deals 1 damage to each opponent (2 if you control three or more Soldiers).",
+    setup_interceptors=_ghb_torumekian_soldier_setup,
 )
 
 
@@ -2509,7 +3085,8 @@ FLAME_ELEMENTAL = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Elemental"},
-    text="Haste. When Flame Elemental enters, it deals 1 damage to any target."
+    text="Haste. When Flame Elemental enters, scry 1 and it deals 1 damage to each opponent (2 if you control two or more Elementals).",
+    setup_interceptors=_ghb_flame_elemental_setup,
 )
 
 
@@ -2519,7 +3096,8 @@ VOLCANIC_SPIRIT = make_creature(
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Elemental", "Spirit"},
-    text="Trample, haste. When Volcanic Spirit enters, it deals 2 damage to each creature."
+    text="Trample, haste. When Volcanic Spirit enters, surveil 1 and it deals 2 damage to each opponent (3 if two or more opponents' creatures are on the battlefield).",
+    setup_interceptors=_ghb_volcanic_spirit_setup,
 )
 
 
@@ -2529,7 +3107,8 @@ DESTRUCTION_SPIRIT = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Elemental", "Spirit"},
-    text="When Destruction Spirit dies, it deals 3 damage to any target."
+    text="When Destruction Spirit enters, scry 1; each opponent reveals their hand and Destruction Spirit deals damage to them equal to the number of Spirits you control. When Destruction Spirit dies, it deals 3 damage to any target.",
+    setup_interceptors=_ghb_destruction_spirit_setup,
 )
 
 
@@ -2539,7 +3118,8 @@ PEJITE_WARRIOR = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
-    text="Haste. When Pejite Warrior enters, it fights target creature you don't control."
+    text="Haste. When Pejite Warrior enters, scry 1 and it deals 1 damage to each opponent (2 if you control two or more Warriors).",
+    setup_interceptors=_ghb_pejite_warrior_setup,
 )
 
 
@@ -2549,7 +3129,8 @@ FOREST_ARSONIST = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Rogue"},
-    text="When Forest Arsonist enters, destroy target Forest."
+    text="When Forest Arsonist enters, it deals 1 damage to each opponent, and each opponent loses 1 life for every two lands they control.",
+    setup_interceptors=_ghb_forest_arsonist_setup,
 )
 
 
@@ -2559,7 +3140,8 @@ WILD_BOAR = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Boar"},
-    text="Trample. Wild Boar attacks each combat if able."
+    text="Trample. Wild Boar attacks each combat if able. Whenever it attacks, scry 1 and it deals 1 damage to each opponent (2 if you control two or more Boars).",
+    setup_interceptors=_ghb_wild_boar_setup,
 )
 
 
@@ -2586,7 +3168,8 @@ IRONWORKS_FURNACE = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Construct"},
-    text="Defender. {T}, Sacrifice an artifact: Ironworks Furnace deals 3 damage to any target."
+    text="Defender. When Ironworks Furnace enters, scry 1 and it deals 1 damage to each opponent (2 if you control two or more artifacts). {T}, Sacrifice an artifact: Ironworks Furnace deals 3 damage to any target.",
+    setup_interceptors=_ghb_ironworks_furnace_setup,
 )
 
 
@@ -2596,7 +3179,8 @@ BOMBARDMENT_CREW = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Soldier"},
-    text="{T}: Bombardment Crew deals 1 damage to target creature or player."
+    text="When Bombardment Crew enters, scry 1 and it deals 1 damage to each opponent (2 if you control two or more Soldiers). {T}: Bombardment Crew deals 1 damage to target creature or player.",
+    setup_interceptors=_ghb_bombardment_crew_setup,
 )
 
 
@@ -2726,7 +3310,8 @@ WAR_DRUMS = make_enchantment(
     name="War Drums",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Creatures you control have haste. Whenever a creature you control attacks, it gets +1/+0 until end of turn."
+    text="When War Drums enters, scry 1 and deal 1 damage to each opponent (2 if you control three or more creatures). Creatures you control have haste. Whenever a creature you control attacks, it gets +1/+0 until end of turn.",
+    setup_interceptors=_ghb_war_drums_setup,
 )
 
 
