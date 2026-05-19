@@ -2040,11 +2040,47 @@ GYOMEIS_FLAIL = make_artifact_equipment(
 )
 
 
+# --- Tengen's Cleavers: Helper-5 rewire ------------------------------------
+# Static +2/+1 + first strike. Granted trigger simplified from "you may pay
+# 1 life for double strike EOT" → "draw a card" (double-strike-EOT is a
+# Phase B-3 effect, drawing matches the legendary feel of Flamboyant Tengen).
+def _tengens_cleavers_combat_damage_to_player_filter(
+    event: Event, state: GameState, target_id: str
+) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    return event.payload.get('target') in state.players
+
+
+def _tengens_cleavers_draw_effect(
+    target_obj: GameObject, event: Event, state: GameState
+) -> list[Event]:
+    return [Event(
+        type=EventType.DRAW,
+        payload={'player': target_obj.controller, 'amount': 1},
+        source=target_obj.id,
+    )]
+
+
 TENGENS_CLEAVERS = make_artifact_equipment(
     name="Tengen's Cleavers",
     mana_cost="{3}",
-    text="Equipped creature gets +2/+1 and has first strike. Whenever equipped creature deals combat damage to a player, you may pay 1 life. If you do, it gains double strike until end of turn. Equip {2}",
-    supertypes={"Legendary"}
+    text="Equipped creature gets +2/+1 and has first strike. Whenever equipped creature deals combat damage to a player, draw a card. Equip {2}",
+    supertypes={"Legendary"},
+    setup_interceptors=make_equipment_setup(
+        power_mod=2, toughness_mod=1,
+        keywords=["first_strike"],
+        equip_cost="{2}",
+        granted_triggered_abilities={
+            "event_filter": _tengens_cleavers_combat_damage_to_player_filter,
+            "effect_fn": _tengens_cleavers_draw_effect,
+            "description": "Combat damage to player → draw a card",
+        },
+    ),
 )
 
 
@@ -2056,11 +2092,58 @@ MITSURIS_WHIP_SWORD = make_artifact_equipment(
 )
 
 
+# --- Shinobu's Stinger: Helper-5 rewire ------------------------------------
+# Static +1/+0 + deathtouch + granted trigger: "deals damage to a creature →
+# put two -1/-1 counters on that creature." Non-combat clause — matches both
+# combat and non-combat damage as printed.
+def _shinobus_stinger_damage_to_creature_filter(
+    event: Event, state: GameState, target_id: str
+) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    tgt_id = event.payload.get('target')
+    if not tgt_id or tgt_id in state.players:
+        return False
+    tgt_obj = state.objects.get(tgt_id)
+    if tgt_obj is None or tgt_obj.characteristics is None:
+        return False
+    return CardType.CREATURE in (tgt_obj.characteristics.types or set())
+
+
+def _shinobus_stinger_counters_effect(
+    target_obj: GameObject, event: Event, state: GameState
+) -> list[Event]:
+    victim_id = event.payload.get('target')
+    if not victim_id:
+        return []
+    return [Event(
+        type=EventType.COUNTER_ADDED,
+        payload={
+            'object_id': victim_id,
+            'counter_type': '-1/-1',
+            'amount': 2,
+        },
+        source=target_obj.id,
+    )]
+
+
 SHINOBUS_STINGER = make_artifact_equipment(
     name="Shinobu's Stinger",
     mana_cost="{2}",
     text="Equipped creature gets +1/+0 and has deathtouch. Whenever equipped creature deals damage to a creature, put two -1/-1 counters on that creature. Equip {1}",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=make_equipment_setup(
+        power_mod=1, toughness_mod=0,
+        keywords=["deathtouch"],
+        equip_cost="{1}",
+        granted_triggered_abilities={
+            "event_filter": _shinobus_stinger_damage_to_creature_filter,
+            "effect_fn": _shinobus_stinger_counters_effect,
+            "description": "Damage to creature → put two -1/-1 counters",
+        },
+    ),
 )
 
 
