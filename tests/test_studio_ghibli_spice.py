@@ -1402,6 +1402,297 @@ def test_all_spice_cards_register():
     print(f"  All {len(expected)} spice cards present")
 
 
+# ============================================================================
+# Slice-6D Multicolor + Colorless median lift (2026-05-19)
+# 23 vanilla GHB cards (6 multicolor, 17 colorless) lifted to multi-axis
+# depth >= 2. Each ETB test loads the card on P1 battlefield and asserts:
+#   (1) SCRY emitted from card id, and
+#   (2) cross-controller event (LIFE_CHANGE / DAMAGE / DISCARD / MILL)
+#       targets P2.
+# Resolve tests invoke the resolve= callback directly and check events.
+# ============================================================================
+
+
+def _s6d_assert_etb_with_opp_event(card_name, expected_opp_type):
+    """Helper for slice-6D ETB tests."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, card_name)
+    new = game.state.event_log[before:]
+    if expected_opp_type == EventType.LIFE_CHANGE:
+        matches = [e for e in new
+                   if e.type == EventType.LIFE_CHANGE
+                   and e.payload.get('player') == p2.id
+                   and e.payload.get('amount', 0) < 0
+                   and e.source == obj.id]
+    elif expected_opp_type == EventType.DAMAGE:
+        matches = [e for e in new
+                   if e.type == EventType.DAMAGE
+                   and e.payload.get('target') == p2.id
+                   and e.source == obj.id]
+    elif expected_opp_type == EventType.DISCARD:
+        matches = [e for e in new
+                   if e.type == EventType.DISCARD
+                   and e.payload.get('player') == p2.id
+                   and e.source == obj.id]
+    else:
+        raise AssertionError(f"unsupported expected type {expected_opp_type}")
+    assert matches, (
+        f"Expected {expected_opp_type.name} on ETB of {card_name}; "
+        f"recent={[e.type.name for e in new[-10:]]}"
+    )
+    return game, p1, p2, obj, new
+
+
+# --- Multicolor resolve tests (5 instants/sorceries) -------------------------
+
+def test_curse_breaker_resolve_drains_opp_and_heals_caster_s6d():
+    print("\n=== Slice-6D: Curse Breaker resolve ===")
+    from src.cards.custom.studio_ghibli import _curse_breaker_resolve
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = _curse_breaker_resolve([], game.state)
+    heals = [e for e in events
+             if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id
+             and e.payload.get('amount', 0) > 0]
+    drains = [e for e in events
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0]
+    assert heals, f"Expected caster heal; got {events}"
+    assert drains, f"Expected opp drain; got {events}"
+
+
+def test_forest_and_sky_resolve_scrys_and_drains_opp_s6d():
+    print("\n=== Slice-6D: Forest and Sky resolve ===")
+    from src.cards.custom.studio_ghibli import _forest_and_sky_resolve
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = _forest_and_sky_resolve([], game.state)
+    scrys = [e for e in events
+             if e.type == EventType.SCRY
+             and e.payload.get('player') == p1.id]
+    drains = [e for e in events
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0]
+    assert scrys, f"Expected SCRY; got {events}"
+    assert drains, f"Expected opp drain; got {events}"
+
+
+def test_natures_vengeance_resolve_drains_and_mills_opp_s6d():
+    print("\n=== Slice-6D: Nature's Vengeance resolve ===")
+    from src.cards.custom.studio_ghibli import _natures_vengeance_resolve
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = _natures_vengeance_resolve([], game.state)
+    drains = [e for e in events
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0]
+    mills = [e for e in events
+             if e.type == EventType.MILL
+             and e.payload.get('player') == p2.id]
+    assert drains, f"Expected opp drain; got {events}"
+    assert mills, f"Expected opp mill; got {events}"
+
+
+def test_spirit_fire_resolve_scrys_and_burns_opp_s6d():
+    print("\n=== Slice-6D: Spirit Fire resolve ===")
+    from src.cards.custom.studio_ghibli import _spirit_fire_resolve
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = _spirit_fire_resolve([], game.state)
+    scrys = [e for e in events
+             if e.type == EventType.SCRY
+             and e.payload.get('player') == p1.id]
+    burns = [e for e in events
+             if e.type == EventType.DAMAGE
+             and e.payload.get('target') == p2.id]
+    assert scrys, f"Expected SCRY; got {events}"
+    assert burns, f"Expected opp burn; got {events}"
+
+
+def test_spirited_transformation_resolve_scrys_and_drains_opp_s6d():
+    print("\n=== Slice-6D: Spirited Transformation resolve ===")
+    from src.cards.custom.studio_ghibli import _spirited_transformation_resolve
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = _spirited_transformation_resolve([], game.state)
+    scrys = [e for e in events
+             if e.type == EventType.SCRY
+             and e.payload.get('player') == p1.id]
+    drains = [e for e in events
+              if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id
+              and e.payload.get('amount', 0) < 0]
+    assert scrys, f"Expected SCRY; got {events}"
+    assert drains, f"Expected opp drain; got {events}"
+
+
+# --- Multicolor permanent ETB test (Sheeta) ----------------------------------
+
+def test_sheeta_etb_scrys_and_drains_opp_s6d():
+    print("\n=== Slice-6D: Sheeta ETB scry + drain ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Sheeta, Princess of Laputa", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys, f"Expected SCRY on ETB; got {_emitted_types(game)[-10:]}"
+
+
+# --- Colorless land ETB tests (7) ---------------------------------------------
+
+def test_ancient_forest_etb_scry_and_opp_drain_s6d():
+    print("\n=== Slice-6D: Ancient Forest ETB scry + drain ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Ancient Forest", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_cursed_swamp_etb_scry_and_opp_discard_s6d():
+    print("\n=== Slice-6D: Cursed Swamp ETB scry + discard ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Cursed Swamp", EventType.DISCARD)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_forest_shrine_etb_scry_and_opp_drain_s6d():
+    print("\n=== Slice-6D: Forest Shrine ETB scry + drain ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Forest Shrine", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_laputa_floating_castle_etb_scry_and_opp_drain_s6d():
+    print("\n=== Slice-6D: Laputa Floating Castle ETB scry + drain ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Laputa, Floating Castle", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_ohmu_nest_etb_scry_and_opp_drain_s6d():
+    print("\n=== Slice-6D: Ohmu Nest ETB scry + drain ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Ohmu Nest", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_spirit_realm_gate_etb_scry_and_opp_drain_s6d():
+    print("\n=== Slice-6D: Spirit Realm Gate ETB scry + drain ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Spirit Realm Gate", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_toxic_jungle_etb_scry_and_opp_drain_s6d():
+    print("\n=== Slice-6D: Toxic Jungle ETB scry + drain ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Toxic Jungle", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+# --- Colorless artifact/equipment ETB tests (10) ------------------------------
+
+def test_bathhouse_token_etb_scry_and_opp_drain_s6d():
+    print("\n=== Slice-6D: Bathhouse Token ETB scry + drain ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Bathhouse Token", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_calcifer_lantern_etb_scry_and_opp_damage_s6d():
+    print("\n=== Slice-6D: Calcifer's Lantern ETB scry + damage ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Calcifer's Lantern", EventType.DAMAGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_curse_seal_etb_scry_and_opp_drain_s6d():
+    print("\n=== Slice-6D: Curse Seal ETB scry + drain ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Curse Seal", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_flying_machine_etb_scry_and_opp_drain_s6d():
+    print("\n=== Slice-6D: Flying Machine ETB scry + drain ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Flying Machine", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_goliath_airship_etb_scry_and_opp_damage_s6d():
+    print("\n=== Slice-6D: Goliath Airship ETB scry + damage ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Goliath Airship", EventType.DAMAGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_laputan_amulet_etb_scry_and_opp_drain_s6d():
+    print("\n=== Slice-6D: Laputan Amulet ETB scry + drain ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Laputan Amulet", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_mehve_glider_etb_scry_and_opp_drain_s6d():
+    print("\n=== Slice-6D: Mehve Glider ETB scry + drain ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Mehve Glider", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_robot_soldier_etb_scry_and_opp_drain_s6d():
+    print("\n=== Slice-6D: Robot Soldier ETB scry + drain ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Robot Soldier", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_spirit_mask_etb_scry_and_opp_drain_s6d():
+    print("\n=== Slice-6D: Spirit Mask ETB scry + drain ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Spirit Mask", EventType.LIFE_CHANGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
+def test_tiger_moth_airship_etb_scry_and_opp_damage_s6d():
+    print("\n=== Slice-6D: Tiger Moth Airship ETB scry + damage ===")
+    game, p1, p2, obj, new = _s6d_assert_etb_with_opp_event(
+        "Tiger Moth Airship", EventType.DAMAGE)
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+
+
 if __name__ == "__main__":
     test_forest_watches_loads_as_legendary_enchantment()
     test_forest_watches_forces_opp_creature_tapped()
@@ -1465,6 +1756,30 @@ if __name__ == "__main__":
     test_spirit_protection_upkeep_scrys_and_drains()
     test_bathhouse_sanctuary_upkeep_scrys_and_drains()
     test_all_spice_cards_register()
+    # Slice-6D Multicolor + Colorless median lift tests (23 cards).
+    test_curse_breaker_resolve_drains_opp_and_heals_caster_s6d()
+    test_forest_and_sky_resolve_scrys_and_drains_opp_s6d()
+    test_natures_vengeance_resolve_drains_and_mills_opp_s6d()
+    test_spirit_fire_resolve_scrys_and_burns_opp_s6d()
+    test_spirited_transformation_resolve_scrys_and_drains_opp_s6d()
+    test_sheeta_etb_scrys_and_drains_opp_s6d()
+    test_ancient_forest_etb_scry_and_opp_drain_s6d()
+    test_cursed_swamp_etb_scry_and_opp_discard_s6d()
+    test_forest_shrine_etb_scry_and_opp_drain_s6d()
+    test_laputa_floating_castle_etb_scry_and_opp_drain_s6d()
+    test_ohmu_nest_etb_scry_and_opp_drain_s6d()
+    test_spirit_realm_gate_etb_scry_and_opp_drain_s6d()
+    test_toxic_jungle_etb_scry_and_opp_drain_s6d()
+    test_bathhouse_token_etb_scry_and_opp_drain_s6d()
+    test_calcifer_lantern_etb_scry_and_opp_damage_s6d()
+    test_curse_seal_etb_scry_and_opp_drain_s6d()
+    test_flying_machine_etb_scry_and_opp_drain_s6d()
+    test_goliath_airship_etb_scry_and_opp_damage_s6d()
+    test_laputan_amulet_etb_scry_and_opp_drain_s6d()
+    test_mehve_glider_etb_scry_and_opp_drain_s6d()
+    test_robot_soldier_etb_scry_and_opp_drain_s6d()
+    test_spirit_mask_etb_scry_and_opp_drain_s6d()
+    test_tiger_moth_airship_etb_scry_and_opp_damage_s6d()
     print("\n" + "=" * 60)
     print("ALL STUDIO GHIBLI SPICE TESTS PASSED!")
     print("=" * 60)

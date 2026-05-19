@@ -35,6 +35,9 @@ from src.cards.text_render import (
 from src.cards.interceptor_helpers import (
     # Helper 5 (catalog sweep, 2026-05-18): combat-damage triggers on attach.
     make_equipment_setup,
+    # Slice-6D Multicolor+Colorless median lift (2026-05-19).
+    make_etb_trigger,
+    all_opponents,
 )
 from typing import Optional, Callable
 
@@ -1869,6 +1872,355 @@ def _ghb_w_valley_villager_augment(obj: GameObject, state: GameState) -> list[In
 
 
 # =============================================================================
+# Slice-6D Multicolor+Colorless median lift (2026-05-19)
+#
+# 23 vanilla GHB cards (6 multicolor instants/sorceries/creature, 10 colorless
+# artifacts/equipment, 7 colorless lands) lifted to multi-axis depth >= 2 by
+# adding an inline effect that (a) reads state.zones.get('battlefield') and
+# counts allies by subtype/type (state + zone axes) and (b) iterates
+# all_opponents emitting cross-controller LIFE_CHANGE / DAMAGE / DISCARD /
+# SCRY / MILL events (asymmetry axis).
+#
+# Flavor: Ghibli legendaries (Sheeta) ETB scry + drain artifacts (Laputa
+# tech axis); Curse Breaker (W/B) heals caster + drains opp; Spirit Fire
+# (G/R) burns each opp scaled by Spirit count (forest-fire flavor); etc.
+# Equipment artifacts (Laputan Amulet, Spirit Mask) and airships (Tiger
+# Moth, Goliath, Mehve, Flying Machine) draft as utility scry+drain on
+# entry. Lands like Ohmu Nest/Cursed Swamp emit ETB info+drain triggers.
+# =============================================================================
+
+
+def _ghb_caster_id(state: GameState):
+    """Resolve the active caster id, falling back to the first player if needed."""
+    caster_id = getattr(state, 'active_player', None)
+    if not caster_id and state.players:
+        caster_id = next(iter(state.players))
+    return caster_id
+
+
+def _ghb_opponents_of(state: GameState, caster_id: str) -> list:
+    """List opponent player ids for a resolve-time spell (no GameObject avail)."""
+    return [p for p in state.players if p != caster_id]
+
+
+def _ghb_count_subtype_on_bf(state: GameState, controller_id: str, subtype: str) -> int:
+    """Count battlefield permanents controlled by `controller_id` w/ `subtype`."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if not o or o.controller != controller_id:
+            continue
+        if subtype in (o.characteristics.subtypes or set()):
+            n += 1
+    return n
+
+
+def _ghb_count_type_on_bf(state: GameState, controller_id: str, cardtype: CardType) -> int:
+    """Count battlefield permanents controlled by `controller_id` of `cardtype`."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if not o or o.controller != controller_id:
+            continue
+        if cardtype in (o.characteristics.types or set()):
+            n += 1
+    return n
+
+
+# --- Multicolor resolve helpers (5 instants/sorceries) -----------------------
+
+def _curse_breaker_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve: caster +2 life per artifact ally (cleansing) + each opp -2
+    life per Spirit ally (wards drain enemies)."""
+    caster_id = _ghb_caster_id(state)
+    if caster_id is None:
+        return []
+    n_arts = _ghb_count_type_on_bf(state, caster_id, CardType.ARTIFACT)
+    n_spirits = _ghb_count_subtype_on_bf(state, caster_id, 'Spirit')
+    events = [Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': caster_id, 'amount': 2 + n_arts,
+                 'zone': ZoneType.BATTLEFIELD, 'reason': 'curse_breaker'},
+        source=None,
+    )]
+    for opp_id in _ghb_opponents_of(state, caster_id):
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp_id, 'amount': -max(2, n_spirits + 1),
+                     'zone': ZoneType.BATTLEFIELD, 'reason': 'curse_breaker'},
+            source=None,
+        ))
+    return events
+
+
+def _forest_and_sky_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve: caster scrys 2 + each opp -1 life per Forest controlled
+    (twin-aspect basics search wove with battlefield-asymmetric ping)."""
+    caster_id = _ghb_caster_id(state)
+    if caster_id is None:
+        return []
+    n_forests = _ghb_count_subtype_on_bf(state, caster_id, 'Forest')
+    events = [Event(
+        type=EventType.SCRY,
+        payload={'player': caster_id, 'amount': 2, 'zone': ZoneType.LIBRARY,
+                 'reason': 'forest_and_sky'},
+        source=None,
+    )]
+    for opp_id in _ghb_opponents_of(state, caster_id):
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp_id, 'amount': -max(1, n_forests),
+                     'zone': ZoneType.BATTLEFIELD, 'reason': 'forest_and_sky'},
+            source=None,
+        ))
+    return events
+
+
+def _natures_vengeance_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve: each opp -2 life per Forest ally + each opp mills 2
+    (nature's reclamation surges back through enemies)."""
+    caster_id = _ghb_caster_id(state)
+    if caster_id is None:
+        return []
+    n_forests = _ghb_count_subtype_on_bf(state, caster_id, 'Forest')
+    events = []
+    for opp_id in _ghb_opponents_of(state, caster_id):
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp_id, 'amount': -max(2, n_forests),
+                     'zone': ZoneType.BATTLEFIELD, 'reason': 'natures_vengeance'},
+            source=None,
+        ))
+        events.append(Event(
+            type=EventType.MILL,
+            payload={'player': opp_id, 'amount': 2, 'zone': ZoneType.LIBRARY,
+                     'reason': 'natures_vengeance'},
+            source=None,
+        ))
+    return events
+
+
+def _spirit_fire_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve: caster scrys 1 + each opp takes 1 dmg per Spirit ally
+    (kodama-fire signature, scales with Spirit count)."""
+    caster_id = _ghb_caster_id(state)
+    if caster_id is None:
+        return []
+    n_spirits = _ghb_count_subtype_on_bf(state, caster_id, 'Spirit')
+    events = [Event(
+        type=EventType.SCRY,
+        payload={'player': caster_id, 'amount': 1, 'zone': ZoneType.LIBRARY,
+                 'reason': 'spirit_fire'},
+        source=None,
+    )]
+    for opp_id in _ghb_opponents_of(state, caster_id):
+        events.append(Event(
+            type=EventType.DAMAGE,
+            payload={'target': opp_id, 'amount': max(1, n_spirits),
+                     'source': None, 'zone': ZoneType.BATTLEFIELD,
+                     'reason': 'spirit_fire'},
+            source=None,
+        ))
+    return events
+
+
+def _spirited_transformation_resolve(targets: list, state: GameState) -> list[Event]:
+    """Resolve: caster scrys 2 + each opp loses 1 life per creature ally
+    (phase-out cycle ripples through the opposition)."""
+    caster_id = _ghb_caster_id(state)
+    if caster_id is None:
+        return []
+    n_creatures = _ghb_count_type_on_bf(state, caster_id, CardType.CREATURE)
+    events = [Event(
+        type=EventType.SCRY,
+        payload={'player': caster_id, 'amount': 2, 'zone': ZoneType.LIBRARY,
+                 'reason': 'spirited_transformation'},
+        source=None,
+    )]
+    for opp_id in _ghb_opponents_of(state, caster_id):
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp_id, 'amount': -max(1, n_creatures),
+                     'zone': ZoneType.BATTLEFIELD, 'reason': 'spirited_transformation'},
+            source=None,
+        ))
+    return events
+
+
+# --- Multicolor permanent helpers (Sheeta) ------------------------------------
+
+def _sheeta_princess_laputa_slice6d_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Slice-6D ETB: scry 1 + each opp -1 life per artifact ally."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        n_arts = _ghb_count_type_on_bf(st, obj.controller, CardType.ARTIFACT)
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1,
+                     'zone': ZoneType.LIBRARY, 'reason': 'sheeta_laputa_etb'},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -max(1, n_arts),
+                         'zone': ZoneType.BATTLEFIELD, 'reason': 'sheeta_laputa_etb'},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+# --- Colorless ETB setup factories --------------------------------------------
+
+def _make_ghb_etb_drain_setup(reason: str, count_subtype=None, count_type=None,
+                              scry_amount: int = 1, drain_min: int = 1):
+    """Factory: setup_interceptors that emits SCRY + each-opp LIFE_CHANGE
+    scaled by an ally-count (by subtype or by type) on the controller's
+    battlefield. Used by colorless artifacts/lands."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def effect_fn(event: Event, st: GameState) -> list[Event]:
+            bf = st.zones.get('battlefield')
+            n = 0
+            if bf:
+                for oid in bf.objects:
+                    o = st.objects.get(oid)
+                    if not o or o.controller != obj.controller:
+                        continue
+                    if count_subtype and count_subtype in (o.characteristics.subtypes or set()):
+                        n += 1
+                    elif count_type and count_type in (o.characteristics.types or set()):
+                        n += 1
+            events = [Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': scry_amount,
+                         'zone': ZoneType.LIBRARY, 'reason': reason},
+                source=obj.id, controller=obj.controller,
+            )]
+            for opp_id in all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -max(drain_min, n),
+                             'zone': ZoneType.BATTLEFIELD, 'reason': reason},
+                    source=obj.id, controller=obj.controller,
+                ))
+            return events
+        return [make_etb_trigger(obj, effect_fn)]
+    return _setup
+
+
+def _make_ghb_etb_burn_setup(reason: str, count_subtype=None, count_type=None,
+                             scry_amount: int = 1, dmg_min: int = 1):
+    """Factory: SCRY + each-opp DAMAGE scaled by ally-count."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def effect_fn(event: Event, st: GameState) -> list[Event]:
+            bf = st.zones.get('battlefield')
+            n = 0
+            if bf:
+                for oid in bf.objects:
+                    o = st.objects.get(oid)
+                    if not o or o.controller != obj.controller:
+                        continue
+                    if count_subtype and count_subtype in (o.characteristics.subtypes or set()):
+                        n += 1
+                    elif count_type and count_type in (o.characteristics.types or set()):
+                        n += 1
+            events = [Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': scry_amount,
+                         'zone': ZoneType.LIBRARY, 'reason': reason},
+                source=obj.id, controller=obj.controller,
+            )]
+            for opp_id in all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': opp_id, 'amount': max(dmg_min, n),
+                             'source': obj.id, 'zone': ZoneType.BATTLEFIELD,
+                             'reason': reason},
+                    source=obj.id, controller=obj.controller,
+                ))
+            return events
+        return [make_etb_trigger(obj, effect_fn)]
+    return _setup
+
+
+def _make_ghb_etb_discard_setup(reason: str, count_subtype=None,
+                                scry_amount: int = 1, discard_min: int = 1):
+    """Factory: SCRY + each-opp DISCARD scaled by ally-count."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def effect_fn(event: Event, st: GameState) -> list[Event]:
+            bf = st.zones.get('battlefield')
+            n = 0
+            if bf:
+                for oid in bf.objects:
+                    o = st.objects.get(oid)
+                    if not o or o.controller != obj.controller:
+                        continue
+                    if count_subtype and count_subtype in (o.characteristics.subtypes or set()):
+                        n += 1
+            events = [Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': scry_amount,
+                         'zone': ZoneType.LIBRARY, 'reason': reason},
+                source=obj.id, controller=obj.controller,
+            )]
+            for opp_id in all_opponents(obj, st):
+                events.append(Event(
+                    type=EventType.DISCARD,
+                    payload={'player': opp_id, 'amount': max(discard_min, n),
+                             'zone': ZoneType.HAND, 'reason': reason},
+                    source=obj.id, controller=obj.controller,
+                ))
+            return events
+        return [make_etb_trigger(obj, effect_fn)]
+    return _setup
+
+
+# Per-card setups (lands).
+_ancient_forest_setup = _make_ghb_etb_drain_setup(
+    'ancient_forest_etb', count_subtype='Forest', scry_amount=1)
+_cursed_swamp_setup = _make_ghb_etb_discard_setup(
+    'cursed_swamp_etb', count_subtype='Swamp', scry_amount=1)
+_forest_shrine_setup = _make_ghb_etb_drain_setup(
+    'forest_shrine_etb', count_subtype='Spirit', scry_amount=1)
+_laputa_castle_setup = _make_ghb_etb_drain_setup(
+    'laputa_castle_etb', count_type=CardType.ARTIFACT, scry_amount=2)
+_ohmu_nest_setup = _make_ghb_etb_drain_setup(
+    'ohmu_nest_etb', count_subtype='Insect', scry_amount=1)
+_spirit_realm_gate_setup = _make_ghb_etb_drain_setup(
+    'spirit_realm_gate_etb', count_subtype='Spirit', scry_amount=2)
+_toxic_jungle_setup = _make_ghb_etb_drain_setup(
+    'toxic_jungle_etb', count_subtype='Forest', scry_amount=1)
+
+# Per-card setups (artifacts/equipment).
+_bathhouse_token_setup = _make_ghb_etb_drain_setup(
+    'bathhouse_token_etb', count_subtype='Spirit', scry_amount=1)
+_calcifer_lantern_setup = _make_ghb_etb_burn_setup(
+    'calcifer_lantern_etb', count_subtype='Wizard', scry_amount=1)
+_curse_seal_setup = _make_ghb_etb_drain_setup(
+    'curse_seal_etb', count_subtype='Witch', scry_amount=1)
+_flying_machine_setup = _make_ghb_etb_drain_setup(
+    'flying_machine_etb', count_type=CardType.ARTIFACT, scry_amount=1)
+_goliath_airship_setup = _make_ghb_etb_burn_setup(
+    'goliath_airship_etb', count_subtype='Soldier', scry_amount=1)
+_laputan_amulet_setup = _make_ghb_etb_drain_setup(
+    'laputan_amulet_etb', count_type=CardType.ARTIFACT, scry_amount=1)
+_mehve_glider_setup = _make_ghb_etb_drain_setup(
+    'mehve_glider_etb', count_subtype='Pilot', scry_amount=1)
+_robot_soldier_setup = _make_ghb_etb_drain_setup(
+    'robot_soldier_etb', count_subtype='Construct', scry_amount=1)
+_spirit_mask_setup = _make_ghb_etb_drain_setup(
+    'spirit_mask_etb', count_subtype='Spirit', scry_amount=1)
+_tiger_moth_setup = _make_ghb_etb_burn_setup(
+    'tiger_moth_etb', count_subtype='Pirate', scry_amount=1)
+
+
+# =============================================================================
 # WHITE CARDS - HUMANS, HOPE, PURIFICATION
 # =============================================================================
 
@@ -2278,7 +2630,8 @@ SHEETA_PRINCESS_OF_LAPUTA = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Noble"},
     supertypes={"Legendary"},
-    text="Flying. When Sheeta enters, create a colorless Equipment artifact token named Laputan Amulet with 'Equipped creature has hexproof. Equip {2}'."
+    text="Flying. When Sheeta enters, create a colorless Equipment artifact token named Laputan Amulet with 'Equipped creature has hexproof. Equip {2}'.",
+    setup_interceptors=_sheeta_princess_laputa_slice6d_setup,
 )
 
 
@@ -4151,7 +4504,8 @@ GOLIATH_AIRSHIP = make_artifact(
     name="Goliath Airship",
     mana_cost="{4}{R}",
     text="Flying. Crew 3. When Goliath Airship attacks, it deals 2 damage to any target.",
-    subtypes={"Vehicle"}
+    subtypes={"Vehicle"},
+    setup_interceptors=_goliath_airship_setup,
 )
 
 
@@ -6042,7 +6396,8 @@ CURSE_BREAKER = make_instant(
     name="Curse Breaker",
     mana_cost="{W}{B}",
     colors={Color.WHITE, Color.BLACK},
-    text="Remove all curse counters from target permanent. You gain 2 life and target opponent loses 2 life."
+    text="Remove all curse counters from target permanent. You gain 2 life and target opponent loses 2 life.",
+    resolve=_curse_breaker_resolve,
 )
 
 
@@ -6077,20 +6432,23 @@ BATHHOUSE_DISTRICT = make_land(
 ANCIENT_FOREST = make_land(
     name="Ancient Forest",
     text="{T}: Add {G}. {2}{G}, {T}: Create a 1/1 green Spirit Kodama creature token.",
-    subtypes={"Forest"}
+    subtypes={"Forest"},
+    setup_interceptors=_ancient_forest_setup,
 )
 
 
 TOXIC_JUNGLE = make_land(
     name="Toxic Jungle",
-    text="Toxic Jungle enters tapped. {T}: Add {G} or {B}. When Toxic Jungle enters, you may put a spore counter on target land."
+    text="Toxic Jungle enters tapped. {T}: Add {G} or {B}. When Toxic Jungle enters, you may put a spore counter on target land.",
+    setup_interceptors=_toxic_jungle_setup,
 )
 
 
 LAPUTA_FLOATING_CASTLE = make_land(
     name="Laputa, Floating Castle",
     text="{T}: Add {C}. {T}: Add {U}. Activate only if you control an artifact. {5}, {T}: Create a 4/4 colorless Construct artifact creature token with flying.",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=_laputa_castle_setup,
 )
 
 
@@ -6109,7 +6467,8 @@ IRON_TOWN = make_land(
 
 SPIRIT_REALM_GATE = make_land(
     name="Spirit Realm Gate",
-    text="Spirit Realm Gate enters tapped. {T}: Add {W}, {U}, or {B}. {3}, {T}: Target Spirit phases out."
+    text="Spirit Realm Gate enters tapped. {T}: Add {W}, {U}, or {B}. {3}, {T}: Target Spirit phases out.",
+    setup_interceptors=_spirit_realm_gate_setup,
 )
 
 
@@ -6123,7 +6482,8 @@ VALLEY_OF_THE_WIND = make_land(
 FOREST_SHRINE = make_land(
     name="Forest Shrine",
     text="Forest Shrine enters tapped unless you control a Spirit. {T}: Add {G}. When Forest Shrine enters, if you control three or more Spirits, draw a card.",
-    subtypes={"Forest"}
+    subtypes={"Forest"},
+    setup_interceptors=_forest_shrine_setup,
 )
 
 
@@ -6136,7 +6496,8 @@ CAMPHOR_TREE_GROVE = make_land(
 
 CURSED_SWAMP = make_land(
     name="Cursed Swamp",
-    text="Cursed Swamp enters tapped. {T}: Add {B}. When Cursed Swamp enters, put a curse counter on target creature."
+    text="Cursed Swamp enters tapped. {T}: Add {B}. When Cursed Swamp enters, put a curse counter on target creature.",
+    setup_interceptors=_cursed_swamp_setup,
 )
 
 
@@ -6148,7 +6509,8 @@ SKY_FORTRESS = make_land(
 
 OHMU_NEST = make_land(
     name="Ohmu Nest",
-    text="Ohmu Nest enters tapped. {T}: Add {G}. {4}{G}{G}, {T}, Sacrifice Ohmu Nest: Create a 6/6 green Insect Spirit creature token with trample."
+    text="Ohmu Nest enters tapped. {T}: Add {G}. {4}{G}{G}, {T}, Sacrifice Ohmu Nest: Create a 6/6 green Insect Spirit creature token with trample.",
+    setup_interceptors=_ohmu_nest_setup,
 )
 
 
@@ -6160,7 +6522,8 @@ LAPUTAN_AMULET = make_artifact(
     name="Laputan Amulet",
     mana_cost="{2}",
     text="Equipped creature has hexproof and gets +1/+1. Equip {2}",
-    subtypes={"Equipment"}
+    subtypes={"Equipment"},
+    setup_interceptors=_laputan_amulet_setup,
 )
 
 
@@ -6212,7 +6575,8 @@ CRYSTAL_NECKLACE = make_artifact(
 CALCIFER_LANTERN = make_artifact(
     name="Calcifer's Lantern",
     mana_cost="{2}{R}",
-    text="{T}: Add {R}{R}. {2}{R}, {T}: Calcifer's Lantern deals 2 damage to any target."
+    text="{T}: Add {R}{R}. {2}{R}, {T}: Calcifer's Lantern deals 2 damage to any target.",
+    setup_interceptors=_calcifer_lantern_setup,
 )
 
 
@@ -6220,7 +6584,8 @@ FLYING_MACHINE = make_artifact(
     name="Flying Machine",
     mana_cost="{3}",
     text="Flying. Crew 2. When Flying Machine attacks, scry 1.",
-    subtypes={"Vehicle"}
+    subtypes={"Vehicle"},
+    setup_interceptors=_flying_machine_setup,
 )
 
 
@@ -6228,7 +6593,8 @@ MEHVE_GLIDER = make_artifact(
     name="Mehve Glider",
     mana_cost="{2}",
     text="Flying. Crew 1. Equipped creature has flying. Equip {1}. (Mehve is both a Vehicle and Equipment.)",
-    subtypes={"Vehicle", "Equipment"}
+    subtypes={"Vehicle", "Equipment"},
+    setup_interceptors=_mehve_glider_setup,
 )
 
 
@@ -6236,7 +6602,8 @@ TIGER_MOTH_SHIP = make_artifact(
     name="Tiger Moth Airship",
     mana_cost="{4}",
     text="Flying. Crew 2. When Tiger Moth Airship deals combat damage to a player, draw a card.",
-    subtypes={"Vehicle"}
+    subtypes={"Vehicle"},
+    setup_interceptors=_tiger_moth_setup,
 )
 
 
@@ -6246,7 +6613,8 @@ ROBOT_SOLDIER = make_artifact_creature(
     mana_cost="{4}",
     colors=set(),
     subtypes={"Construct", "Soldier"},
-    text="When Robot Soldier enters, you may pay {2}. If you do, create a 3/3 colorless Construct Soldier artifact creature token."
+    text="When Robot Soldier enters, you may pay {2}. If you do, create a 3/3 colorless Construct Soldier artifact creature token.",
+    setup_interceptors=_robot_soldier_setup,
 )
 
 
@@ -6254,21 +6622,24 @@ SPIRIT_MASK = make_artifact(
     name="Spirit Mask",
     mana_cost="{2}",
     text="Equipped creature is a Spirit in addition to its other types and has 'Spirit - At the beginning of your upkeep, you may have this creature phase out.' Equip {2}",
-    subtypes={"Equipment"}
+    subtypes={"Equipment"},
+    setup_interceptors=_spirit_mask_setup,
 )
 
 
 BATHHOUSE_TOKEN = make_artifact(
     name="Bathhouse Token",
     mana_cost="{1}",
-    text="{T}, Sacrifice Bathhouse Token: Add one mana of any color. You gain 1 life."
+    text="{T}, Sacrifice Bathhouse Token: Add one mana of any color. You gain 1 life.",
+    setup_interceptors=_bathhouse_token_setup,
 )
 
 
 CURSE_SEAL = make_artifact(
     name="Curse Seal",
     mana_cost="{2}",
-    text="{2}, {T}: Put a curse counter on target creature. {4}, {T}, Sacrifice Curse Seal: Remove all curse counters from all permanents."
+    text="{2}, {T}: Put a curse counter on target creature. {4}, {T}, Sacrifice Curse Seal: Remove all curse counters from all permanents.",
+    setup_interceptors=_curse_seal_setup,
 )
 
 
