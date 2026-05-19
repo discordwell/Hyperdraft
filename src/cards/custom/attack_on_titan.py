@@ -4885,6 +4885,101 @@ NINE_TITANS_ASSEMBLED = make_creature(
 
 
 # =============================================================================
+# Phase A2 (slice 1) — decision-axis flips (2026-05-18)
+# +2 net-new cards. Both introduce decision-axis fingerprints AOT has never
+# had: prior to this slice every AOT card scored decision=0. Targets
+# axis_diversity 0.074 -> >=0.080 (gate 1/4 -> 2/4).
+# =============================================================================
+
+
+# --- Garrison Cannon Battery ({2}{R} Sorcery, divided-damage)
+# Pattern 4 (compression: artillery-style spread). Lore: the Garrison's
+# wall-mounted cannons bracket a Titan breach with crossfire. Uses
+# make_divided_damage_etb_trigger (decision-axis + asymmetry — divided
+# damage is a multi-target choice that crosses controller boundaries).
+def _garrison_cannon_battery_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: deal 4 damage divided as you choose among any number of targets.
+    Helper choice: make_divided_damage_etb_trigger surfaces decision=1
+    (single-target choice helper) + asymmetry (damage to any) for the AST
+    scorer."""
+    return [
+        ih.make_divided_damage_etb_trigger(
+            obj,
+            damage_amount=4,
+            target_filter='any',
+            max_targets=4,
+            prompt='Distribute 4 damage from Garrison Cannon Battery among any number of targets',
+        ),
+    ]
+
+
+GARRISON_CANNON_BATTERY = make_enchantment(
+    name="Garrison Cannon Battery",
+    mana_cost="{2}{R}",
+    colors={Color.RED},
+    text=(
+        "When Garrison Cannon Battery enters, it deals 4 damage divided as "
+        "you choose among any number of targets. (The wall guns bracket the "
+        "breach in a crossfire of grapeshot and chain.)"
+    ),
+    setup_interceptors=_garrison_cannon_battery_setup,
+)
+
+
+# --- Hange's Field Experiment ({1}{U} Enchantment, modal-ETB)
+# Pattern 7 (modal: choose-one). Lore: Hange Zoe runs another reckless
+# Titan-capture experiment. The mode pool covers info (scry), tempo (tap
+# a creature), and card advantage (draw). Uses make_modal_etb_trigger so
+# the AST scorer registers decision=2 (deep modal w/o targeting requires
+# 1+ deep_hit, no targeted_hit -> score=2).
+def _hange_field_experiment_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: choose one — Scry 3; or, draw a card then discard a card; or,
+    each opponent loses 1 life. Modal-ETB helper surfaces decision=2
+    on the AST scorer (deep modal helper, no targeted modes)."""
+    modes = [
+        {
+            'text': 'Scry 3',
+            'requires_targeting': False,
+            'effect': 'scry',
+            'effect_params': {'amount': 3},
+        },
+        {
+            'text': 'Draw a card, then discard a card',
+            'requires_targeting': False,
+            'effect': 'loot',
+            'effect_params': {'amount': 1},
+        },
+        {
+            'text': 'Each opponent loses 1 life',
+            'requires_targeting': False,
+            'effect': 'opp_drain',
+            'effect_params': {'amount': 1},
+        },
+    ]
+    return [
+        ih.make_modal_etb_trigger(
+            obj, modes, min_modes=1, max_modes=1,
+            prompt="Choose one: Hange's Field Experiment",
+        ),
+    ]
+
+
+HANGES_FIELD_EXPERIMENT = make_enchantment(
+    name="Hange's Field Experiment",
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    text=(
+        "When Hange's Field Experiment enters, choose one —\n"
+        "* Scry 3.\n"
+        "* Draw a card, then discard a card.\n"
+        "* Each opponent loses 1 life.\n"
+        "(Hange Zoe takes the field log out one more time.)"
+    ),
+    setup_interceptors=_hange_field_experiment_setup,
+)
+
+
+# =============================================================================
 # CARD DICTIONARY
 # =============================================================================
 
@@ -5182,6 +5277,10 @@ ATTACK_ON_TITAN_CARDS = {
     "Battle of Trost": BATTLE_OF_TROST,
     "Eren's Hardening": ERENS_HARDENING,
     "The Nine Titans Assembled": NINE_TITANS_ASSEMBLED,
+
+    # PHASE A2 SPICE PASS (slice 1, 2026-05-18) — decision-axis flips
+    "Garrison Cannon Battery": GARRISON_CANNON_BATTERY,
+    "Hange's Field Experiment": HANGES_FIELD_EXPERIMENT,
 }
 
 print(f"Loaded {len(ATTACK_ON_TITAN_CARDS)} Attack on Titan cards")
@@ -5451,4 +5550,7 @@ CARDS = [
     BATTLE_OF_TROST,
     ERENS_HARDENING,
     NINE_TITANS_ASSEMBLED,
+    # PHASE A2 SPICE PASS (slice 1, 2026-05-18) — decision-axis flips
+    GARRISON_CANNON_BATTERY,
+    HANGES_FIELD_EXPERIMENT,
 ]

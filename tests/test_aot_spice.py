@@ -676,6 +676,76 @@ def test_nine_titans_assembled_threshold_spares_titan_opp_creatures():
 
 
 # ============================================================================
+# Garrison Cannon Battery (Phase A2 slice-1 — divided-damage flip)
+# ============================================================================
+
+def test_garrison_cannon_battery_loads():
+    """Setup registers the divided-damage ETB-trigger interceptor."""
+    print("\n=== Garrison Cannon Battery: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    gcb = _put_on_battlefield(game, p1, "Garrison Cannon Battery")
+    assert gcb.zone == ZoneType.BATTLEFIELD
+    assert gcb.interceptor_ids, "Expected at least 1 ETB interceptor"
+
+
+def test_garrison_cannon_battery_etb_emits_divided_damage_target_required():
+    """ETB emits TARGET_REQUIRED with divide_amount=4."""
+    print("\n=== Garrison Cannon Battery: ETB divide-damage ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    gcb = _put_on_battlefield(game, p1, "Garrison Cannon Battery")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == gcb.id
+        and e.payload.get('effect') == 'damage'
+    ]
+    assert target_reqs, (
+        f"Expected damage TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    payload = target_reqs[0].payload
+    assert payload.get('divide_amount') == 4, (
+        f"Expected divide_amount=4; got {payload.get('divide_amount')}"
+    )
+    assert payload.get('max_targets') == 4
+
+
+# ============================================================================
+# Hange's Field Experiment (Phase A2 slice-1 — modal-ETB flip)
+# ============================================================================
+
+def test_hange_field_experiment_loads():
+    """Setup registers the modal-ETB trigger."""
+    print("\n=== Hange's Field Experiment: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    hfe = _put_on_battlefield(game, p1, "Hange's Field Experiment")
+    assert hfe.zone == ZoneType.BATTLEFIELD
+    assert hfe.interceptor_ids, "Expected modal-ETB trigger interceptor"
+
+
+def test_hange_field_experiment_etb_sets_pending_modal_choice():
+    """ETB sets state.pending_choice with a modal_with_targeting choice."""
+    print("\n=== Hange's Field Experiment: ETB pending modal choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    hfe = _put_on_battlefield(game, p1, "Hange's Field Experiment")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice after ETB"
+    assert pc.source_id == hfe.id, (
+        f"Expected choice source={hfe.id}; got {pc.source_id}"
+    )
+    assert pc.choice_type == "modal_with_targeting"
+    assert pc.player == p1.id
+    assert len(pc.options) == 3, f"Expected 3 modes; got {len(pc.options)}"
+    labels = {opt['label'] for opt in pc.options}
+    assert 'Scry 3' in labels
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 
