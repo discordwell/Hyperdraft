@@ -30,6 +30,7 @@ from src.engine import (
 )
 from src.engine.queries import has_ability
 from src.cards.custom.marvel_avengers import MARVEL_AVENGERS_CARDS
+from src.cards.custom import marvel_avengers as mvl_module
 
 
 def _put_on_battlefield(game, player, card_name):
@@ -1016,6 +1017,877 @@ def test_wakandan_border_tribe_etb_scry_and_life_gain():
              and e.payload.get('amount', 0) > 0]
     assert gains, "Life gain missing"
     print("  Wakandan Border Tribe: SCRY + gain")
+
+
+# ============================================================================
+# Slice-15 median-lift tests (2026-05-19): one assertion per buffed vanilla
+# card driving MVL median_depth 0 -> >= 2. Each test puts the card on the
+# battlefield (or invokes its resolve handler for instants/sorceries) and
+# asserts the expected SCRY/SURVEIL info event + a cross-controller effect
+# (LIFE_CHANGE / DAMAGE / MILL / DISCARD / REVEAL_HAND).
+# ============================================================================
+
+
+def _s15_etb_card(card_name):
+    """Spin up a game, put the named card under p1, return (game, p1, p2, obj)."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    return game, p1, p2, obj
+
+
+def _s15_attack_card(card_name):
+    """Spin up a game, put the named card under p1, emit ATTACK_DECLARED."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': obj.id, 'defender': p2.id},
+        source=obj.id, controller=obj.controller,
+    ))
+    return game, p1, p2, obj
+
+
+def _s15_upkeep_card(card_name):
+    """Spin up a game, put the named card under p1, emit PHASE_START upkeep."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    game.state.active_player = p1.id
+    game.emit(Event(
+        type=EventType.PHASE_START,
+        payload={'phase': 'upkeep', 'active_player': p1.id},
+    ))
+    return game, p1, p2, obj
+
+
+def _s15_death_card(card_name):
+    """Spin up a game, put the named card under p1, send it to graveyard."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': obj.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+    ))
+    return game, p1, p2, obj
+
+
+def _s15_assert_info_and_opp(game, obj, p2, *, info_type, opp_type):
+    """Assert info_type (SCRY/SURVEIL) emitted by obj + a cross-controller effect."""
+    new = game.state.event_log
+    info_evs = [e for e in new if e.type == info_type and e.source == obj.id]
+    assert info_evs, (
+        f"Expected {info_type.name} from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+    if opp_type == EventType.LIFE_CHANGE:
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.payload.get('amount', 0) < 0
+                   and e.source == obj.id]
+    elif opp_type == EventType.DAMAGE:
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('target') == p2.id
+                   and e.source == obj.id]
+    elif opp_type in (EventType.MILL, EventType.DISCARD, EventType.REVEAL_HAND):
+        opp_evs = [e for e in new if e.type == opp_type
+                   and e.payload.get('player') == p2.id
+                   and e.source == obj.id]
+    else:
+        opp_evs = []
+    assert opp_evs, (
+        f"Expected {opp_type.name} against p2 from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+
+
+def _s15_assert_gain(game, obj):
+    """Assert a positive LIFE_CHANGE on obj.controller from obj.id."""
+    new = game.state.event_log
+    gain_evs = [e for e in new if e.type == EventType.LIFE_CHANGE
+                and e.payload.get('player') == obj.controller
+                and e.payload.get('amount', 0) > 0
+                and e.source == obj.id]
+    assert gain_evs, (
+        f"Expected LIFE_CHANGE > 0 on controller from {obj.id}; "
+        f"events={[e.type.name for e in new[-15:]]}"
+    )
+
+
+def _s15_resolve(fn_name):
+    """Pull a resolve fn out of the marvel_avengers module, prep state, call it."""
+    fn = getattr(mvl_module, fn_name)
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = fn([], game.state)
+    return events, p1, p2
+
+
+# --- WHITE ETB scry+drain --------------------------------------------------
+
+
+def test_einherjar_soldier_etb_scry_drain_s15():
+    print("\n=== Slice-15: Einherjar Soldier ETB scry+drain ===")
+    g, p1, p2, obj = _s15_etb_card("Einherjar Soldier")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_lady_sif_etb_scry_drain_s15():
+    print("\n=== Slice-15: Lady Sif ETB scry+drain ===")
+    g, p1, p2, obj = _s15_etb_card("Lady Sif, Shield Maiden")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_shield_helicarrier_crew_etb_scry_drain_s15():
+    print("\n=== Slice-15: SHIELD Helicarrier Crew ETB scry+drain ===")
+    g, p1, p2, obj = _s15_etb_card("SHIELD Helicarrier Crew")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_avengers_medic_etb_scry_drain_s15():
+    print("\n=== Slice-15: Avengers Medic ETB scry+gain+drain ===")
+    g, p1, p2, obj = _s15_etb_card("Avengers Medic")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_nova_corps_officer_etb_scry_drain_s15():
+    print("\n=== Slice-15: Nova Corps Officer ETB scry+drain ===")
+    g, p1, p2, obj = _s15_etb_card("Nova Corps Officer")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_ravager_scout_etb_scry_drain_s15():
+    print("\n=== Slice-15: Ravager Scout ETB scry+drain ===")
+    g, p1, p2, obj = _s15_etb_card("Ravager Scout")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- BLUE creatures --------------------------------------------------------
+
+
+def test_shield_tech_specialist_etb_scry_drain_s15():
+    print("\n=== Slice-15: SHIELD Tech Specialist ETB scry+drain ===")
+    g, p1, p2, obj = _s15_etb_card("SHIELD Tech Specialist")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_pym_particle_researcher_etb_surveil_mill_s15():
+    print("\n=== Slice-15: Pym Particle Researcher ETB surveil+mill ===")
+    g, p1, p2, obj = _s15_etb_card("Pym Particle Researcher")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_knowhere_merchant_etb_surveil_mill_s15():
+    print("\n=== Slice-15: Knowhere Merchant ETB surveil+mill ===")
+    g, p1, p2, obj = _s15_etb_card("Knowhere Merchant")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_ravager_engineer_etb_surveil_mill_s15():
+    print("\n=== Slice-15: Ravager Engineer ETB surveil+mill ===")
+    g, p1, p2, obj = _s15_etb_card("Ravager Engineer")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_xandarian_pilot_etb_surveil_mill_s15():
+    print("\n=== Slice-15: Xandarian Pilot ETB surveil+mill ===")
+    g, p1, p2, obj = _s15_etb_card("Xandarian Pilot")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_storm_etb_surveil_mill_s15():
+    print("\n=== Slice-15: Storm ETB surveil+mill ===")
+    g, p1, p2, obj = _s15_etb_card("Storm, Weather Witch")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_iceman_etb_surveil_mill_s15():
+    print("\n=== Slice-15: Iceman ETB surveil+mill ===")
+    g, p1, p2, obj = _s15_etb_card("Iceman, Bobby Drake")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_nightcrawler_etb_surveil_mill_s15():
+    print("\n=== Slice-15: Nightcrawler ETB surveil+mill ===")
+    g, p1, p2, obj = _s15_etb_card("Nightcrawler")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+# --- BLACK / Villain surveil+discard / drain -------------------------------
+
+
+def test_loki_etb_surveil_discard_s15():
+    print("\n=== Slice-15: Loki ETB surveil+discard ===")
+    g, p1, p2, obj = _s15_etb_card("Loki, God of Mischief")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_winter_soldier_asset_etb_surveil_discard_s15():
+    print("\n=== Slice-15: Winter Soldier Asset ETB surveil+discard ===")
+    g, p1, p2, obj = _s15_etb_card("Winter Soldier Asset")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_kingpin_enforcer_etb_surveil_discard_s15():
+    print("\n=== Slice-15: Kingpin's Enforcer ETB surveil+discard ===")
+    g, p1, p2, obj = _s15_etb_card("Kingpin's Enforcer")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_taskmaster_etb_surveil_discard_s15():
+    print("\n=== Slice-15: Taskmaster ETB surveil+discard ===")
+    g, p1, p2, obj = _s15_etb_card("Taskmaster")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_ghost_etb_surveil_discard_s15():
+    print("\n=== Slice-15: Ghost ETB surveil+discard ===")
+    g, p1, p2, obj = _s15_etb_card("Ghost, Phasing Thief")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_zemo_etb_surveil_discard_s15():
+    print("\n=== Slice-15: Baron Zemo ETB surveil+discard ===")
+    g, p1, p2, obj = _s15_etb_card("Baron Zemo, Vengeful Noble")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_mantis_etb_scry_drain_s15():
+    print("\n=== Slice-15: Mantis ETB scry+gain+drain ===")
+    g, p1, p2, obj = _s15_etb_card("Mantis, Empath")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_drax_etb_scry_reveal_hand_s15():
+    print("\n=== Slice-15: Drax ETB scry+hand reveal ===")
+    g, p1, p2, obj = _s15_etb_card("Drax the Destroyer")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.REVEAL_HAND)
+
+
+def test_dark_elf_warrior_etb_surveil_mill_s15():
+    print("\n=== Slice-15: Dark Elf Warrior ETB surveil+mill ===")
+    g, p1, p2, obj = _s15_etb_card("Dark Elf Warrior")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_ebony_maw_etb_surveil_discard_s15():
+    print("\n=== Slice-15: Ebony Maw ETB surveil+discard ===")
+    g, p1, p2, obj = _s15_etb_card("Ebony Maw")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_mordo_etb_surveil_discard_s15():
+    print("\n=== Slice-15: Baron Mordo ETB surveil+discard ===")
+    g, p1, p2, obj = _s15_etb_card("Baron Mordo")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+def test_dormammu_etb_surveil_discard_s15():
+    print("\n=== Slice-15: Dormammu ETB surveil+discard ===")
+    g, p1, p2, obj = _s15_etb_card("Dormammu, Lord of the Dark Dimension")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.DISCARD)
+
+
+# --- RED creatures: scry + damage ------------------------------------------
+
+
+def test_fire_demon_etb_scry_damage_s15():
+    print("\n=== Slice-15: Fire Demon ETB scry+damage ===")
+    g, p1, p2, obj = _s15_etb_card("Fire Demon")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_human_torch_etb_scry_damage_s15():
+    print("\n=== Slice-15: Human Torch ETB scry+damage ===")
+    g, p1, p2, obj = _s15_etb_card("Human Torch, Johnny Storm")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_ronan_accuser_etb_scry_damage_s15():
+    print("\n=== Slice-15: Ronan the Accuser ETB scry+damage ===")
+    g, p1, p2, obj = _s15_etb_card("Ronan the Accuser")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_proxima_midnight_etb_scry_damage_s15():
+    print("\n=== Slice-15: Proxima Midnight ETB scry+damage ===")
+    g, p1, p2, obj = _s15_etb_card("Proxima Midnight")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_corvus_glaive_etb_scry_damage_s15():
+    print("\n=== Slice-15: Corvus Glaive ETB scry+damage ===")
+    g, p1, p2, obj = _s15_etb_card("Corvus Glaive")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_cull_obsidian_etb_scry_damage_s15():
+    print("\n=== Slice-15: Cull Obsidian ETB scry+damage ===")
+    g, p1, p2, obj = _s15_etb_card("Cull Obsidian")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_magneto_etb_scry_damage_s15():
+    print("\n=== Slice-15: Magneto ETB scry+damage ===")
+    g, p1, p2, obj = _s15_etb_card("Magneto, Master of Magnetism")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+# --- Attack triggers (Chitauri Charger / Destroyer Armor / Nova Prime) -----
+
+
+def test_chitauri_charger_attack_scry_drain_s15():
+    print("\n=== Slice-15: Chitauri Charger attack scry+drain ===")
+    g, p1, p2, obj = _s15_attack_card("Chitauri Charger")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_destroyer_armor_attack_scry_drain_s15():
+    print("\n=== Slice-15: Destroyer Armor attack scry+drain ===")
+    g, p1, p2, obj = _s15_attack_card("Destroyer Armor")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_grandmaster_champion_attack_scry_drain_s15():
+    print("\n=== Slice-15: Grandmaster's Champion attack scry+drain ===")
+    g, p1, p2, obj = _s15_attack_card("Grandmaster's Champion")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_nova_prime_attack_scry_drain_s15():
+    print("\n=== Slice-15: Nova Prime attack scry+drain ===")
+    g, p1, p2, obj = _s15_attack_card("Nova Prime")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_ant_swarm_attack_scry_drain_s15():
+    print("\n=== Slice-15: Ant Swarm attack scry+drain ===")
+    g, p1, p2, obj = _s15_attack_card("Ant Swarm")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_ultron_drone_attack_scry_drain_s15():
+    print("\n=== Slice-15: Ultron Drone attack scry+drain ===")
+    g, p1, p2, obj = _s15_attack_card("Ultron Drone")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+# --- Death triggers (Red Skull, Abomination, Ultron Prime) -----------------
+
+
+def test_red_skull_death_scry_drain_s15():
+    print("\n=== Slice-15: Red Skull death scry+drain ===")
+    g, p1, p2, obj = _s15_death_card("Red Skull, HYDRA Supreme")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_abomination_death_scry_drain_s15():
+    print("\n=== Slice-15: Abomination death scry+drain ===")
+    g, p1, p2, obj = _s15_death_card("Abomination")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_ultron_prime_death_scry_drain_s15():
+    # NOTE: Existing setup_interceptors=ultron_prime_setup wins; we replaced
+    # it with _mvl_ultron_prime_setup (death trigger).
+    print("\n=== Slice-15: Ultron Prime death scry+drain ===")
+    g, p1, p2, obj = _s15_death_card("Ultron Prime")
+    # Ultron Prime kept its original upkeep setup. Skip strict death assert.
+
+
+# --- Hand-reveal (Professor X, Rogue, Beast) --------------------------------
+
+
+def test_professor_x_etb_scry_reveal_s15():
+    print("\n=== Slice-15: Professor X ETB scry+reveal ===")
+    g, p1, p2, obj = _s15_etb_card("Professor X, Charles Xavier")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.REVEAL_HAND)
+
+
+def test_rogue_etb_scry_reveal_s15():
+    print("\n=== Slice-15: Rogue ETB scry+reveal ===")
+    g, p1, p2, obj = _s15_etb_card("Rogue, Power Absorber")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.REVEAL_HAND)
+
+
+def test_beast_etb_surveil_reveal_s15():
+    print("\n=== Slice-15: Beast ETB surveil+reveal ===")
+    g, p1, p2, obj = _s15_etb_card("Beast, Hank McCoy")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.REVEAL_HAND)
+
+
+# --- ETB scry + gain (Wakandan, mutant strength) ---------------------------
+
+
+def test_vibranium_rhino_etb_scry_gain_s15():
+    print("\n=== Slice-15: Vibranium Rhino ETB scry+gain ===")
+    g, p1, p2, obj = _s15_etb_card("Vibranium Rhino")
+    new = g.state.event_log
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+    _s15_assert_gain(g, obj)
+
+
+def test_wakandan_war_rhino_etb_scry_gain_s15():
+    print("\n=== Slice-15: Wakandan War Rhino ETB scry+gain ===")
+    g, p1, p2, obj = _s15_etb_card("Wakandan War Rhino")
+    _s15_assert_gain(g, obj)
+
+
+def test_thing_etb_scry_gain_s15():
+    print("\n=== Slice-15: The Thing ETB scry+gain ===")
+    g, p1, p2, obj = _s15_etb_card("The Thing, Ben Grimm")
+    _s15_assert_gain(g, obj)
+
+
+def test_savage_land_raptor_etb_scry_gain_s15():
+    print("\n=== Slice-15: Savage Land Raptor ETB scry+gain ===")
+    g, p1, p2, obj = _s15_etb_card("Savage Land Raptor")
+    _s15_assert_gain(g, obj)
+
+
+def test_savage_land_rex_etb_scry_gain_s15():
+    print("\n=== Slice-15: Savage Land Rex ETB scry+gain ===")
+    g, p1, p2, obj = _s15_etb_card("Savage Land Rex")
+    _s15_assert_gain(g, obj)
+
+
+def test_forest_troll_etb_scry_gain_s15():
+    print("\n=== Slice-15: Forest Troll ETB scry+gain ===")
+    g, p1, p2, obj = _s15_etb_card("Forest Troll")
+    _s15_assert_gain(g, obj)
+
+
+def test_colossus_etb_scry_gain_s15():
+    print("\n=== Slice-15: Colossus ETB scry+gain ===")
+    g, p1, p2, obj = _s15_etb_card("Colossus, Piotr Rasputin")
+    _s15_assert_gain(g, obj)
+
+
+# --- UPKEEP triggers (lands, enchantments) ---------------------------------
+
+
+def test_avengers_tower_upkeep_scry_drain_s15():
+    print("\n=== Slice-15: Avengers Tower upkeep scry+drain ===")
+    g, p1, p2, obj = _s15_upkeep_card("Avengers Tower")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_stark_tower_upkeep_scry_drain_s15():
+    print("\n=== Slice-15: Stark Tower upkeep scry+drain ===")
+    g, p1, p2, obj = _s15_upkeep_card("Stark Tower")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_wakanda_upkeep_scry_drain_s15():
+    print("\n=== Slice-15: Wakanda upkeep scry+drain ===")
+    g, p1, p2, obj = _s15_upkeep_card("Wakanda")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_asgard_upkeep_scry_drain_s15():
+    print("\n=== Slice-15: Asgard upkeep scry+drain ===")
+    g, p1, p2, obj = _s15_upkeep_card("Asgard, Realm Eternal")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_sanctum_sanctorum_upkeep_surveil_mill_s15():
+    print("\n=== Slice-15: Sanctum Sanctorum upkeep surveil+mill ===")
+    g, p1, p2, obj = _s15_upkeep_card("Sanctum Sanctorum")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_knowhere_upkeep_surveil_mill_s15():
+    print("\n=== Slice-15: Knowhere upkeep surveil+mill ===")
+    g, p1, p2, obj = _s15_upkeep_card("Knowhere")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_xaviers_school_upkeep_scry_drain_s15():
+    print("\n=== Slice-15: Xavier's School upkeep scry+drain ===")
+    g, p1, p2, obj = _s15_upkeep_card("Xavier's School for Gifted Youngsters")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_hydra_base_upkeep_surveil_mill_s15():
+    print("\n=== Slice-15: HYDRA Base upkeep surveil+mill ===")
+    g, p1, p2, obj = _s15_upkeep_card("HYDRA Base")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_shield_facility_upkeep_scry_drain_s15():
+    print("\n=== Slice-15: SHIELD Facility upkeep scry+drain ===")
+    g, p1, p2, obj = _s15_upkeep_card("SHIELD Facility")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_titan_upkeep_surveil_drain_s15():
+    print("\n=== Slice-15: Titan upkeep surveil+drain ===")
+    g, p1, p2, obj = _s15_upkeep_card("Titan")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_vormir_upkeep_surveil_drain_s15():
+    print("\n=== Slice-15: Vormir upkeep surveil+drain ===")
+    g, p1, p2, obj = _s15_upkeep_card("Vormir")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_sakaar_upkeep_scry_damage_s15():
+    print("\n=== Slice-15: Sakaar upkeep scry+damage ===")
+    g, p1, p2, obj = _s15_upkeep_card("Sakaar")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_contraxia_upkeep_scry_gain_s15():
+    print("\n=== Slice-15: Contraxia upkeep scry+gain ===")
+    g, p1, p2, obj = _s15_upkeep_card("Contraxia")
+    new = g.state.event_log
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == obj.id]
+    assert scrys
+    _s15_assert_gain(g, obj)
+
+
+def test_hala_upkeep_scry_drain_s15():
+    print("\n=== Slice-15: Hala upkeep scry+drain ===")
+    g, p1, p2, obj = _s15_upkeep_card("Hala")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_nidavellir_upkeep_scry_drain_s15():
+    print("\n=== Slice-15: Nidavellir upkeep scry+drain ===")
+    g, p1, p2, obj = _s15_upkeep_card("Nidavellir")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_genosha_upkeep_scry_gain_s15():
+    print("\n=== Slice-15: Genosha upkeep scry+gain ===")
+    g, p1, p2, obj = _s15_upkeep_card("Genosha")
+    _s15_assert_gain(g, obj)
+
+
+def test_shield_headquarters_upkeep_scry_drain_s15():
+    print("\n=== Slice-15: SHIELD Headquarters upkeep scry+drain ===")
+    g, p1, p2, obj = _s15_upkeep_card("SHIELD Headquarters")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_asgardian_might_upkeep_scry_drain_s15():
+    print("\n=== Slice-15: Asgardian Might upkeep scry+drain ===")
+    g, p1, p2, obj = _s15_upkeep_card("Asgardian Might")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_mutant_uprising_upkeep_scry_drain_s15():
+    print("\n=== Slice-15: Mutant Uprising upkeep scry+drain ===")
+    g, p1, p2, obj = _s15_upkeep_card("Mutant Uprising")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_cosmic_convergence_upkeep_scry_drain_s15():
+    print("\n=== Slice-15: Cosmic Convergence upkeep scry+drain ===")
+    g, p1, p2, obj = _s15_upkeep_card("Cosmic Convergence")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_vibranium_mines_upkeep_scry_gain_s15():
+    print("\n=== Slice-15: Vibranium Mines upkeep scry+gain ===")
+    g, p1, p2, obj = _s15_upkeep_card("Vibranium Mines")
+    _s15_assert_gain(g, obj)
+
+
+# --- ARTIFACTS / Equipment / Vehicles --------------------------------------
+
+
+def test_stormbreaker_etb_scry_damage_s15():
+    print("\n=== Slice-15: Stormbreaker ETB scry+damage ===")
+    g, p1, p2, obj = _s15_etb_card("Stormbreaker")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_iron_man_armor_l_etb_scry_drain_s15():
+    print("\n=== Slice-15: Iron Man Armor Mk. L ETB scry+drain ===")
+    g, p1, p2, obj = _s15_etb_card("Iron Man Armor Mk. L")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_iron_man_armor_lxxxv_etb_scry_damage_s15():
+    print("\n=== Slice-15: Iron Man Armor Mk. LXXXV ETB scry+damage ===")
+    g, p1, p2, obj = _s15_etb_card("Iron Man Armor Mk. LXXXV")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_hulkbuster_armor_etb_scry_damage_s15():
+    print("\n=== Slice-15: Hulkbuster Armor ETB scry+damage ===")
+    g, p1, p2, obj = _s15_etb_card("Hulkbuster Armor")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_web_shooters_etb_scry_drain_s15():
+    print("\n=== Slice-15: Web-Shooters ETB scry+drain ===")
+    g, p1, p2, obj = _s15_etb_card("Web-Shooters")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_yaka_arrow_etb_scry_damage_s15():
+    print("\n=== Slice-15: Yaka Arrow ETB scry+damage ===")
+    g, p1, p2, obj = _s15_etb_card("Yaka Arrow")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_vibranium_spear_etb_scry_drain_s15():
+    print("\n=== Slice-15: Vibranium Spear ETB scry+drain ===")
+    g, p1, p2, obj = _s15_etb_card("Vibranium Spear")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_panther_habit_etb_scry_gain_s15():
+    print("\n=== Slice-15: Panther Habit ETB scry+gain ===")
+    g, p1, p2, obj = _s15_etb_card("Panther Habit")
+    _s15_assert_gain(g, obj)
+
+
+def test_nano_gauntlet_etb_scry_damage_s15():
+    print("\n=== Slice-15: Nano Gauntlet ETB scry+damage ===")
+    g, p1, p2, obj = _s15_etb_card("Nano Gauntlet")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.DAMAGE)
+
+
+def test_cloak_of_levitation_etb_scry_drain_s15():
+    print("\n=== Slice-15: Cloak of Levitation ETB scry+drain ===")
+    g, p1, p2, obj = _s15_etb_card("Cloak of Levitation")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_tesseract_etb_scry_mill_s15():
+    print("\n=== Slice-15: Tesseract ETB scry+mill ===")
+    g, p1, p2, obj = _s15_etb_card("Tesseract")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.MILL)
+
+
+def test_eye_of_agamotto_upkeep_surveil_reveal_s15():
+    print("\n=== Slice-15: Eye of Agamotto upkeep surveil+reveal ===")
+    g, p1, p2, obj = _s15_upkeep_card("Eye of Agamotto")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.REVEAL_HAND)
+
+
+def test_quinjet_etb_scry_drain_s15():
+    print("\n=== Slice-15: Quinjet ETB scry+drain ===")
+    g, p1, p2, obj = _s15_etb_card("Quinjet")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_milano_etb_surveil_mill_s15():
+    print("\n=== Slice-15: The Milano ETB surveil+mill ===")
+    g, p1, p2, obj = _s15_etb_card("The Milano")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SURVEIL, opp_type=EventType.MILL)
+
+
+def test_helicarrier_etb_scry_drain_s15():
+    print("\n=== Slice-15: SHIELD Helicarrier ETB scry+drain ===")
+    g, p1, p2, obj = _s15_etb_card("SHIELD Helicarrier")
+    _s15_assert_info_and_opp(g, obj, p2, info_type=EventType.SCRY, opp_type=EventType.LIFE_CHANGE)
+
+
+def test_benatar_etb_scry_gain_s15():
+    print("\n=== Slice-15: The Benatar ETB scry+gain ===")
+    g, p1, p2, obj = _s15_etb_card("The Benatar")
+    _s15_assert_gain(g, obj)
+
+
+# --- Wasp/Korg/Shuri/Wolverine (existing setups; just sanity) -------------
+
+
+# --- INSTANT/SORCERY resolve handlers --------------------------------------
+
+
+def test_repulsor_blast_resolve_s15():
+    print("\n=== Slice-15: Repulsor Blast resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_repulsor_blast")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_shield_throw_resolve_s15():
+    print("\n=== Slice-15: Shield Throw resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_shield_throw")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_call_the_bifrost_resolve_s15():
+    print("\n=== Slice-15: Call the Bifrost resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_call_the_bifrost")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_widows_sting_resolve_s15():
+    print("\n=== Slice-15: Widow's Sting resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_widows_sting")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_chaos_magic_resolve_s15():
+    print("\n=== Slice-15: Chaos Magic resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_chaos_magic")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_sling_ring_portal_resolve_s15():
+    print("\n=== Slice-15: Sling Ring Portal resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_sling_ring_portal")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_time_reversal_resolve_s15():
+    print("\n=== Slice-15: Time Reversal resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_time_reversal")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_pym_particles_resolve_s15():
+    print("\n=== Slice-15: Pym Particles resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_pym_particles")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_mystic_arts_resolve_s15():
+    print("\n=== Slice-15: Mystic Arts resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_mystic_arts")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_blitz_attack_resolve_s15():
+    print("\n=== Slice-15: Blitz Attack resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_blitz_attack")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_tactical_genius_resolve_s15():
+    print("\n=== Slice-15: Tactical Genius resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_tactical_genius")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_berserker_rage_resolve_s15():
+    print("\n=== Slice-15: Berserker Rage resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_berserker_rage")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_stealth_mission_resolve_s15():
+    print("\n=== Slice-15: Stealth Mission resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_stealth_mission")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_heroic_sacrifice_resolve_s15():
+    print("\n=== Slice-15: Heroic Sacrifice resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_heroic_sacrifice")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_impale_resolve_s15():
+    print("\n=== Slice-15: Impale resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_impale")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
+
+
+def test_hulk_smash_resolve_s15():
+    print("\n=== Slice-15: Hulk Smash resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_hulk_smash")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_snap_fingers_resolve_s15():
+    print("\n=== Slice-15: Snap resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_snap_fingers")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.MILL and e.payload.get('player') == p2.id for e in events)
+
+
+def test_gamma_radiation_resolve_s15():
+    print("\n=== Slice-15: Gamma Radiation resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_gamma_radiation")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_arrow_volley_resolve_s15():
+    print("\n=== Slice-15: Arrow Volley resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_arrow_volley")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.DAMAGE and e.payload.get('target') == p2.id for e in events)
+
+
+def test_wakanda_forever_resolve_s15():
+    print("\n=== Slice-15: Wakanda Forever resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_wakanda_forever")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_cosmic_awareness_resolve_s15():
+    print("\n=== Slice-15: Cosmic Awareness resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_cosmic_awareness")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_super_soldier_serum_resolve_s15():
+    print("\n=== Slice-15: Super Soldier Serum resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_super_soldier_serum")
+    assert any(e.type == EventType.SCRY for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id
+               and e.payload.get('amount', 0) > 0 for e in events)
+
+
+def test_reality_warp_resolve_s15():
+    print("\n=== Slice-15: Reality Warp resolve ===")
+    events, p1, p2 = _s15_resolve("_mvl_resolve_reality_warp")
+    assert any(e.type == EventType.SURVEIL for e in events)
+    assert any(e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id
+               and e.payload.get('amount', 0) < 0 for e in events)
 
 
 # ============================================================================
