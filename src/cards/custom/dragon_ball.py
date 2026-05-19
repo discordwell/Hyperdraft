@@ -1190,12 +1190,33 @@ FRIEZA_FORCE = make_enchantment(
 )
 
 
+def _majin_mark_upkeep_effect(target_obj, event, state):
+    """At the beginning of the enchanted creature's controller's upkeep,
+    that player loses 1 life. (Aura controller in the simple case; cleaner
+    semantics under control changes.)"""
+    return [Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': target_obj.controller, 'amount': -1,
+                 'source': 'majin_mark'},
+        source=target_obj.id,
+    )]
+
+
 MAJIN_MARK = make_enchantment(
     name="Majin Mark",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Aura"},
-    text="Enchant creature. Enchanted creature gets +3/+0 and has menace. At the beginning of your upkeep, you lose 1 life."
+    text="Enchant creature. Enchanted creature gets +3/+0 and has menace. At the beginning of enchanted creature's controller's upkeep, that player loses 1 life.",
+    setup_interceptors=ih.make_aura_setup(
+        power_mod=3, toughness_mod=0,
+        keywords=["menace"],
+        granted_triggered_abilities={
+            "trigger_on": "enchanted_controller_upkeep",
+            "effect_fn": _majin_mark_upkeep_effect,
+            "description": "Enchanted controller upkeep: -1 life",
+        },
+    ),
 )
 
 
@@ -1506,12 +1527,36 @@ SAIYAN_PRIDE = make_enchantment(
 )
 
 
+def _super_saiyan_aura_death_effect(target_obj, event, state):
+    """Deal 3 damage to a chosen opponent. v1 simplifies "any target"
+    (player or creature) to "target opponent" via first-opp pick — the
+    create_target_choice path for player+creature targets is Phase B-3
+    territory."""
+    opps = [p for p in state.players if p != target_obj.controller]
+    if not opps:
+        return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': opps[0], 'amount': 3, 'source': target_obj.id},
+        source=target_obj.id,
+    )]
+
+
 SUPER_SAIYAN_AURA = make_enchantment(
     name="Super Saiyan Aura",
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Aura"},
-    text="Enchant creature. Enchanted creature gets +2/+2 and has haste. When enchanted creature dies, Super Saiyan Aura deals 3 damage to any target."
+    text="Enchant creature. Enchanted creature gets +2/+2 and has haste. When enchanted creature dies, Super Saiyan Aura deals 3 damage to target opponent.",
+    setup_interceptors=ih.make_aura_setup(
+        power_mod=2, toughness_mod=2,
+        keywords=["haste"],
+        granted_triggered_abilities={
+            "trigger_on": "death",
+            "effect_fn": _super_saiyan_aura_death_effect,
+            "description": "On enchanted death, 3 damage to opponent",
+        },
+    ),
 )
 
 

@@ -39,7 +39,7 @@ from src.cards.interceptor_helpers import (
     other_creatures_you_control, all_opponents, other_creatures_with_subtype,
     make_death_trigger, make_upkeep_trigger, make_end_step_trigger,
     # W22+ spice-pass additions:
-    make_equipment_setup,
+    make_equipment_setup, make_aura_setup,
 )
 
 
@@ -913,12 +913,50 @@ SINISTER_PLOT = make_sorcery(
     text="Each opponent sacrifices a creature. Sinister — If you control a Villain, each opponent also discards a card."
 )
 
+def _symbiote_bond_death_effect(target_obj, event, state):
+    """When enchanted creature dies, return Symbiote Bond to its owner's hand
+    (instead of the default Aura-falloff to graveyard via CR 704.5n)."""
+    aura_id = None
+    for att_id in list(target_obj.state.attachments):
+        att = state.objects.get(att_id)
+        if att and att.name == "Symbiote Bond":
+            aura_id = att_id
+            break
+    if not aura_id:
+        return []
+    aura = state.objects.get(aura_id)
+    if not aura:
+        return []
+    return [Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': aura_id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'hand_{aura.owner}',
+            'to_zone_type': ZoneType.HAND,
+            'reason': 'symbiote_bond_return',
+        },
+        source=aura_id,
+    )]
+
+
 SYMBIOTE_BOND = make_enchantment(
     name="Symbiote Bond",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Aura"},
-    text="Enchant creature. Enchanted creature gets +2/+2 and has menace. It's a Symbiote in addition to its other types. When enchanted creature dies, return Symbiote Bond to your hand."
+    text="Enchant creature. Enchanted creature gets +2/+2 and has menace. It's a Symbiote in addition to its other types. When enchanted creature dies, return Symbiote Bond to your hand.",
+    setup_interceptors=make_aura_setup(
+        power_mod=2, toughness_mod=2,
+        keywords=["menace"],
+        subtypes_to_add={"Symbiote"},
+        granted_triggered_abilities={
+            "trigger_on": "death",
+            "effect_fn": _symbiote_bond_death_effect,
+            "description": "On enchanted death, return Symbiote Bond to hand",
+        },
+    ),
 )
 
 WEB_OF_SHADOWS = make_instant(
@@ -2501,12 +2539,40 @@ HOLOGRAM_DECOY = make_instant(
     text="Create a token that's a copy of target creature you control except it's an Illusion. Sacrifice it at end of turn."
 )
 
+def _genetic_mutation_death_effect(target_obj, event, state):
+    """Create a 3/3 green Mutant token. Token controller is whoever
+    controls the dying creature (the Aura's effective controller)."""
+    return [Event(
+        type=EventType.CREATE_TOKEN,
+        payload={
+            'controller': target_obj.controller,
+            'token': {
+                'name': 'Mutant',
+                'types': {CardType.CREATURE},
+                'subtypes': {'Mutant'},
+                'power': 3, 'toughness': 3,
+                'colors': {Color.GREEN},
+            },
+        },
+        source=target_obj.id,
+    )]
+
+
 GENETIC_MUTATION = make_enchantment(
     name="Genetic Mutation",
     mana_cost="{1}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Aura"},
-    text="Enchanted creature gets +3/+3 and has trample. When enchanted creature dies, create a 3/3 green Mutant creature token."
+    text="Enchanted creature gets +3/+3 and has trample. When enchanted creature dies, create a 3/3 green Mutant creature token.",
+    setup_interceptors=make_aura_setup(
+        power_mod=3, toughness_mod=3,
+        keywords=["trample"],
+        granted_triggered_abilities={
+            "trigger_on": "death",
+            "effect_fn": _genetic_mutation_death_effect,
+            "description": "On enchanted death, create 3/3 Mutant",
+        },
+    ),
 )
 
 SYMBIOTE_SURGE = make_instant(
@@ -2645,12 +2711,34 @@ SAVAGE_HUNTER = make_creature(
     setup_interceptors=savage_hunter_setup
 )
 
+def _web_cocoon_lbf_effect(target_obj, event, state):
+    """When enchanted creature leaves the battlefield, the Aura's controller
+    draws a card. Find the Aura via the target's attachments list."""
+    for att_id in list(target_obj.state.attachments):
+        att = state.objects.get(att_id)
+        if att and att.name == "Web Cocoon":
+            return [Event(
+                type=EventType.DRAW,
+                payload={'player': att.controller, 'amount': 1},
+                source=att_id,
+            )]
+    return []
+
+
 WEB_COCOON = make_enchantment(
     name="Web Cocoon",
     mana_cost="{1}{G}{W}",
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Aura"},
-    text="Enchant creature. Enchanted creature can't attack or block. When enchanted creature leaves the battlefield, draw a card."
+    text="Enchant creature. Enchanted creature can't attack or has defender. When enchanted creature leaves the battlefield, you draw a card.",
+    setup_interceptors=make_aura_setup(
+        keywords=["defender"],
+        granted_triggered_abilities={
+            "trigger_on": "death",
+            "effect_fn": _web_cocoon_lbf_effect,
+            "description": "On enchanted leaves-battlefield, draw a card",
+        },
+    ),
 )
 
 def spider_queen_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

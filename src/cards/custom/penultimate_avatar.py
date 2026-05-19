@@ -1689,12 +1689,38 @@ ALLIES_AT_LAST = make_instant(
     text="Affinity for Allies. Up to two target creatures you control each deal damage equal to their power to target creature an opponent controls."
 )
 
+def _avatar_destiny_death_effect(target_obj, event, state):
+    """When the enchanted creature dies, its controller mills cards equal
+    to the dying creature's power. Reads power from the dying creature's
+    characteristics — interceptors haven't been revoked yet at this point
+    in _cleanup_handler."""
+    from src.engine.queries import get_power
+    amount = get_power(target_obj, state)
+    if amount <= 0:
+        return []
+    return [Event(
+        type=EventType.MILL,
+        payload={'player': target_obj.controller, 'amount': amount,
+                 'source': target_obj.id},
+        source=target_obj.id,
+    )]
+
+
 AVATAR_DESTINY = make_enchantment(
     name="Avatar Destiny",
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Aura"},
-    text="Enchant creature. Enchanted creature gets +1/+1 for each creature card in your graveyard and is an Avatar in addition to its other types. When enchanted creature dies, mill cards equal to its power."
+    text="Enchant creature. Enchanted creature gets +2/+2 and is an Avatar in addition to its other types. When enchanted creature dies, its controller mills cards equal to its power.",
+    setup_interceptors=make_aura_setup(
+        power_mod=2, toughness_mod=2,
+        subtypes_to_add={"Avatar"},
+        granted_triggered_abilities={
+            "trigger_on": "death",
+            "effect_fn": _avatar_destiny_death_effect,
+            "description": "On enchanted death, mill = power",
+        },
+    ),
 )
 
 def badgermole_setup(obj: GameObject, state: GameState) -> list[Interceptor]:

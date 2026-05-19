@@ -1661,12 +1661,30 @@ LEAGUE_HIDEOUT = make_enchantment(
 )
 
 
+def _trigger_drug_upkeep_effect(target_obj, event, state):
+    """Enchanted creature deals 1 damage to its controller at upkeep."""
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={'target': target_obj.controller, 'amount': 1,
+                 'source': target_obj.id, 'is_combat': False},
+        source=target_obj.id,
+    )]
+
+
 TRIGGER_DRUG = make_enchantment(
     name="Trigger Drug",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Aura"},
-    text="Enchanted creature gets +3/+1. At the beginning of your upkeep, it deals 1 damage to you."
+    text="Enchanted creature gets +3/+1. At the beginning of enchanted creature's controller's upkeep, enchanted creature deals 1 damage to that player.",
+    setup_interceptors=_ih.make_aura_setup(
+        power_mod=3, toughness_mod=1,
+        granted_triggered_abilities={
+            "trigger_on": "enchanted_controller_upkeep",
+            "effect_fn": _trigger_drug_upkeep_effect,
+            "description": "Upkeep: enchanted deals 1 dmg to its controller",
+        },
+    ),
 )
 
 

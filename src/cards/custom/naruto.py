@@ -3005,12 +3005,32 @@ BURNING_WILL = make_sorcery(
 
 # --- Red Enchantments ---
 
+def _nine_tails_cloak_upkeep_effect(target_obj, event, state):
+    """Enchanted creature's controller loses 2 life at upkeep — the
+    chakra burnout cost of channeling the Nine-Tails."""
+    return [Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': target_obj.controller, 'amount': -2,
+                 'source': 'nine_tails_cloak'},
+        source=target_obj.id,
+    )]
+
+
 NINE_TAILS_CLOAK = make_enchantment(
     name="Nine-Tails Cloak",
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Aura"},
-    text="Enchant creature. Enchanted creature gets +3/+0 and has trample. At the beginning of your upkeep, you lose 2 life."
+    text="Enchant creature. Enchanted creature gets +3/+0 and has trample. At the beginning of enchanted creature's controller's upkeep, that player loses 2 life.",
+    setup_interceptors=ih.make_aura_setup(
+        power_mod=3, toughness_mod=0,
+        keywords=["trample"],
+        granted_triggered_abilities={
+            "trigger_on": "enchanted_controller_upkeep",
+            "effect_fn": _nine_tails_cloak_upkeep_effect,
+            "description": "Upkeep: enchanted controller loses 2 life",
+        },
+    ),
 )
 
 
