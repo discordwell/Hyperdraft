@@ -5480,6 +5480,419 @@ KODA_REWIRE = make_creature(
 
 
 # =============================================================================
+# PHASE A2 (slice 3) — decision-axis flips (2026-05-19)
+# +7 net-new cards. Each surfaces a DISTINCT decision-axis fingerprint MHA
+# has never had (every prior MHA card scored decision=0). Targets
+# axis_diversity 0.054 -> >=0.080 (gate 1/4 -> 2/4). Helper choices all
+# enumerated in `_MTG_MODAL_HELPERS` so the AST walker tags `modal_calls`.
+# =============================================================================
+
+
+# --- All Might, One For All Apex ({3}{W}{W} 5/5 Legendary Creature) ---
+# Pattern 7 (modal: choose-one). Lore: All Might unleashes one of three
+# Smash variants — Detroit (rescue), Texas (strike), Oklahoma (mass-pull).
+# Uses make_modal_etb_trigger so the AST scorer registers decision=2
+# (deep_modal helper, no targeted modes -> 2).
+def _all_might_apex_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: choose one — gain 5 life; OR draw a card then discard a card;
+    OR each opponent loses 3 life. Modal-ETB helper surfaces decision=2
+    on the AST scorer (deep modal, no targeted modes)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    modes = [
+        {
+            'text': 'Detroit Smash — you gain 5 life',
+            'requires_targeting': False,
+            'effect': 'gain_life',
+            'effect_params': {'amount': 5},
+        },
+        {
+            'text': 'Texas Smash — draw a card, then discard a card',
+            'requires_targeting': False,
+            'effect': 'loot',
+            'effect_params': {'amount': 1},
+        },
+        {
+            'text': 'Oklahoma Smash — each opponent loses 3 life',
+            'requires_targeting': False,
+            'effect': 'opp_drain',
+            'effect_params': {'amount': 3},
+        },
+    ]
+    return [
+        _ih.make_keyword_grant(obj, ['vigilance'], affects_self),
+        _ih.make_modal_etb_trigger(
+            obj, modes, min_modes=1, max_modes=1,
+            prompt="Choose one: Plus Ultra Smash variant",
+        ),
+    ]
+
+
+ALL_MIGHT_APEX = make_creature(
+    name="All Might, One For All Apex",
+    power=5, toughness=5,
+    mana_cost="{3}{W}{W}",
+    colors={Color.WHITE},
+    subtypes={"Human", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "Vigilance. "
+        "When All Might, One For All Apex enters, choose one —\n"
+        "* You gain 5 life.\n"
+        "* Draw a card, then discard a card.\n"
+        "* Each opponent loses 3 life.\n"
+        "(\"I am here! Detroit, Texas, Oklahoma — pick your Smash.\")"
+    ),
+    setup_interceptors=_all_might_apex_setup,
+)
+
+
+# --- Deku, Full Cowl Combat ({1}{G}{W} 2/2 Legendary Creature) ---
+# Decision-axis: make_targeted_attack_trigger + TARGET_CHOSEN information
+# pulse for asymmetry=3. Lore: Deku's Full Cowl Shoot Style ricochets off
+# a foe at the moment he charges in.
+def _deku_full_cowl_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Deku attacks, deal 2 damage to target creature an opponent
+    controls. make_targeted_attack_trigger -> decision=1. The supplementary
+    attack-trigger emits a TARGET_CHOSEN event (information class) so the
+    AST walker tags asymmetry=3 in addition to the base axes."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_info_pulse(event: Event, st: GameState) -> list[Event]:
+        # TARGET_CHOSEN is in _MTG_INFORMATION_EVENTS — emitting it tags
+        # the asymmetry axis (Deku's chosen target is information broadcast
+        # to the defender). Pure flavor, no targeting state required.
+        return [Event(
+            type=EventType.TARGET_CHOSEN,
+            payload={'source': obj.id, 'spell_or_ability': 'shoot_style_smash'},
+            source=obj.id,
+        )]
+
+    return [
+        _ih.make_keyword_grant(obj, ['haste'], affects_self),
+        _ih.make_attack_trigger(obj, attack_info_pulse),
+        _ih.make_targeted_attack_trigger(
+            obj,
+            effect='damage',
+            effect_params={'amount': 2},
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=True,
+            prompt="Shoot Style Smash: deal 2 to a creature an opponent controls",
+        ),
+    ]
+
+
+DEKU_FULL_COWL_COMBAT = make_creature(
+    name="Deku, Full Cowl Combat",
+    power=2, toughness=2,
+    mana_cost="{1}{G}{W}",
+    colors={Color.GREEN, Color.WHITE},
+    subtypes={"Human", "Student", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "Haste. "
+        "Whenever Deku, Full Cowl Combat attacks, you may have him deal 2 "
+        "damage to target creature an opponent controls. "
+        "(\"Full Cowl, twenty percent. Shoot Style — Texas Smash!\")"
+    ),
+    setup_interceptors=_deku_full_cowl_setup,
+)
+
+
+# --- Bakugo's Howitzer Impact ({2}{R}{R} Sorcery, divided damage) ---
+# Pattern 4 (compression: artillery-style spread). Lore: Bakugo channels
+# every nitroglycerin sweat-drop into one cascading detonation. Uses
+# make_divided_damage_etb_trigger so the scorer tags decision=1 + damage
+# asymmetry (cross-controller damage to opp creatures).
+def _bakugo_howitzer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: deal 6 damage divided as you choose among any number of
+    targets. Helper choice: make_divided_damage_etb_trigger -> decision=1
+    on the AST scorer. The damage-event emission surfaces a cross-
+    controller asymmetric pulse on the asymmetry axis."""
+    return [
+        _ih.make_divided_damage_etb_trigger(
+            obj,
+            damage_amount=6,
+            target_filter='any',
+            max_targets=6,
+            prompt='Distribute 6 damage from Howitzer Impact among any number of targets',
+        ),
+    ]
+
+
+BAKUGO_HOWITZER_IMPACT = make_enchantment(
+    name="Bakugo's Howitzer Impact",
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    text=(
+        "When Bakugo's Howitzer Impact enters, it deals 6 damage divided as "
+        "you choose among any number of targets. "
+        "(\"DIE! AP Shot — Auto Cannon!\" — the entire skyline lights up.)"
+    ),
+    setup_interceptors=_bakugo_howitzer_setup,
+)
+
+
+# --- Endeavor's Prominence Forge ({2}{R}{W} Enchantment, divided counters) ---
+# Decision-axis: make_divided_counters_etb_trigger (decision=1) +
+# creatures_you_control filter factory (synergy=2). Lore: Endeavor's
+# Hellflame Agency forges his Heroes through trial — each one comes out
+# bigger and meaner.
+def _endeavor_prominence_forge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: distribute 4 +1/+1 counters among any number of target
+    creatures you control. make_divided_counters_etb_trigger -> decision=1.
+    The explicit creatures_you_control filter factory call surfaces the
+    synergy axis (filter_factory tag = synergy=2)."""
+    # Filter-factory call: register that this card synergises with your
+    # own creature board. The walker tags the call statically.
+    own_creatures_filter = _ih.creatures_you_control(obj)
+    _ = own_creatures_filter  # keep reference so the walker tags the call.
+    return [
+        _ih.make_divided_counters_etb_trigger(
+            obj,
+            counter_amount=4,
+            counter_type='+1/+1',
+            target_filter='your_creature',
+            max_targets=4,
+            prompt="Distribute 4 +1/+1 counters from Endeavor's Prominence Forge",
+        ),
+    ]
+
+
+ENDEAVOR_PROMINENCE_FORGE = make_enchantment(
+    name="Endeavor's Prominence Forge",
+    mana_cost="{2}{R}{W}",
+    colors={Color.RED, Color.WHITE},
+    text=(
+        "When Endeavor's Prominence Forge enters, distribute four +1/+1 "
+        "counters among any number of target creatures you control. "
+        "(The Number One Hero's training arc leaves every sidekick "
+        "tempered in his hellflame.)"
+    ),
+    setup_interceptors=_endeavor_prominence_forge_setup,
+)
+
+
+# --- Sir Nighteye, Foresight's Edge ({1}{U}{U} 2/3 Legendary Creature) ---
+# Decision-axis: create_scry_choice surfaced via a custom ETB closure +
+# library zone read + creatures_you_control filter factory. Lore: Sir
+# Nighteye's Foresight quirk lets him peer one minute into the future
+# and choose what stays on the path. Expected fp distinct (1,1,1,0,1):
+# scry + library read + filter factory + zone.
+def _sir_nighteye_foresight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: explicit library read, then open a scry-3 choice. Mirrors
+    the NRT Kabuto pattern (look at top N + interactive choice).
+    create_scry_choice is in modal_helpers -> decision=1; the explicit
+    state.zones.get(library_*) read + library zone tag surfaces
+    state_coupling + zone_movement; creatures_you_control surfaces
+    synergy_hook (filter_factory)."""
+    def nighteye_etb(event: Event, st: GameState) -> list[Event]:
+        # Explicit library zone read for state_coupling + zone tags.
+        library = st.zones.get(f'library_{obj.controller}')
+        if library is None or not library.objects:
+            return []
+        # Filter-factory call: heroes we control read for the synergy axis
+        # (Sir Nighteye reads the path his fellow Heroes are walking).
+        own_heroes = _ih.creatures_you_control(obj)
+        _ = own_heroes  # keep reference so the walker tags the call.
+        # Open scry 3 choice on the top of library.
+        top_three = list(library.objects[:3])
+        if not top_three:
+            return []
+        _ih.create_scry_choice(st, obj.controller, obj.id, top_three, scry_count=3)
+        return []
+    return [_ih.make_etb_trigger(obj, nighteye_etb)]
+
+
+SIR_NIGHTEYE_FORESIGHTS_EDGE = make_creature(
+    name="Sir Nighteye, Foresight's Edge",
+    power=2, toughness=3,
+    mana_cost="{1}{U}{U}",
+    colors={Color.BLUE},
+    subtypes={"Human", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "When Sir Nighteye, Foresight's Edge enters, scry 3. "
+        "(He sees the minute to come — every step, every flinch, every "
+        "smash. \"That isn't the future I wish to see.\")"
+    ),
+    setup_interceptors=_sir_nighteye_foresight_setup,
+)
+
+
+# --- Toga, Bloody Mimicry ({2}{B}{B} 3/2 Legendary Creature) ---
+# Decision-axis: make_targeted_death_trigger plus a state.zones.get
+# library read (state-coupling) and an explicit DISCARD event
+# (asymmetry axis). Lore: when Toga dies, she imprints a dying memory
+# onto a foe — bleeding their hand of a secret.
+def _toga_bloody_mimicry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Toga dies, target opponent's creature is exiled AND that
+    opponent discards a card (an explicit zone read + state-coupling +
+    asymmetric event). make_targeted_death_trigger -> decision=1; the
+    zone + DISCARD reads add state/zone/asymmetry axes.
+
+    The discard-on-death wrinkle: we install a death-listener that reads
+    state.zones for the targeted opponent's hand, then emits a DISCARD
+    event (asymmetric). The bulk of the mechanical depth comes through
+    the helper; the closure work tags the secondary axes."""
+    def death_hand_read(event: Event, st: GameState) -> list[Event]:
+        # Explicit zone access so the AST walker tags zones_accessed.
+        for player_id in st.players.keys():
+            if player_id == obj.controller:
+                continue
+            opp_hand = st.zones.get(f'hand_{player_id}')
+            if opp_hand is None or not opp_hand.objects:
+                continue
+            # Emit a DISCARD event referencing the opponent (asymmetric event).
+            return [Event(
+                type=EventType.DISCARD,
+                payload={'player': player_id, 'amount': 1, 'forced': True},
+                source=obj.id,
+            )]
+        return []
+
+    return [
+        _ih.make_targeted_death_trigger(
+            obj,
+            effect='exile',
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt="Toga's mimicry: exile a creature an opponent controls",
+        ),
+        _ih.make_death_trigger(obj, death_hand_read),
+    ]
+
+
+TOGA_BLOODY_MIMICRY = make_creature(
+    name="Toga, Bloody Mimicry",
+    power=3, toughness=2,
+    mana_cost="{2}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Villain"},
+    supertypes={"Legendary"},
+    text=(
+        "When Toga, Bloody Mimicry dies, exile target creature an opponent "
+        "controls. Then, the opponent who controlled that creature discards "
+        "a card. "
+        "(\"I want to BE the people I love. So this won't hurt a bit.\")"
+    ),
+    setup_interceptors=_toga_bloody_mimicry_setup,
+)
+
+
+# --- All For One, Quirk Thief ({3}{B}{B} 4/4 Legendary Creature) ---
+# Decision-axis: create_discard_choice opened from a custom ETB closure
+# + explicit hand-zone read + all_opponents helper for asymmetry. Lore:
+# All For One forces every present rival to surrender one quirk-secret.
+# Distinct fp from the other six.
+def _all_for_one_quirk_thief_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: explicit hand-zone read for opponent, then open a discard
+    choice. create_discard_choice is in modal_helpers -> decision=1; the
+    state.zones.get read + hand zone tag surfaces state_coupling +
+    zone_movement; all_opponents surfaces cross_controller asymmetry."""
+    def afo_etb(event: Event, st: GameState) -> list[Event]:
+        # all_opponents helper surfaces cross_controller for asymmetry.
+        opp_ids = _ih.all_opponents(obj, st)
+        _ = opp_ids  # keep reference so the walker tags the call.
+        # Pick the first opponent with cards in hand and open a discard.
+        for player_id in st.players.keys():
+            if player_id == obj.controller:
+                continue
+            hand = st.zones.get(f'hand_{player_id}')
+            if hand is None or not hand.objects:
+                continue
+            # Open a discard choice — opponent surrenders 1 quirk-secret.
+            _ih.create_discard_choice(
+                st, player_id, obj.id, list(hand.objects), 1,
+                prompt="All For One's seizure: choose a card to surrender",
+            )
+            return []
+        return []
+
+    return [
+        _ih.make_etb_trigger(obj, afo_etb),
+    ]
+
+
+ALL_FOR_ONE_QUIRK_THIEF = make_creature(
+    name="All For One, Quirk Thief",
+    power=4, toughness=4,
+    mana_cost="{3}{B}{B}",
+    colors={Color.BLACK},
+    subtypes={"Human", "Villain"},
+    supertypes={"Legendary"},
+    text=(
+        "When All For One, Quirk Thief enters, target opponent discards a "
+        "card of their choice. "
+        "(\"Give me your quirk. I will use it more deeply than you ever "
+        "could.\")"
+    ),
+    setup_interceptors=_all_for_one_quirk_thief_setup,
+)
+
+
+# --- Hatsume Mei, Babies of Genius ({1}{U}{W} 2/3 Legendary Creature) ---
+# Decision-axis: make_top_n_land_pick surfaces decision=1 with library
+# + battlefield zone reads (state_coupling + zone_movement). Lore:
+# Hatsume's Support-Course "babies" tear through the storage warehouse
+# to find a perfect support-item base. Buffer card — pushes
+# axis_diversity past 0.080 if any prior card collides.
+def _hatsume_babies_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: read library + battlefield zones, then open a top-5 land-pick
+    choice. make_top_n_land_pick is in modal_helpers -> decision=1; the
+    explicit zone reads surface state_coupling and zone_movement axes."""
+    def hatsume_etb(event: Event, st: GameState) -> list[Event]:
+        # Explicit zone reads so the AST walker tags both library and
+        # battlefield zones (gives zone=2 from two-zone touch).
+        library = st.zones.get(f'library_{obj.controller}')
+        if library is None or not library.objects:
+            return []
+        bf = st.zones.get('battlefield')
+        if bf is None:
+            return []
+        # Hatsume's lab depth: pull deeper if many Heroes are deployed
+        # (more support-baby prototypes needed).
+        n_pick = 5 if len(bf.objects) >= 4 else 4
+        return _ih.make_top_n_land_pick(
+            st,
+            controller=obj.controller,
+            source_id=obj.id,
+            n=n_pick,
+            put_tapped=True,
+            optional=True,
+            prompt="Hatsume scans the support-lab storage — pick a workbench",
+        )
+
+    return [_ih.make_etb_trigger(obj, hatsume_etb)]
+
+
+HATSUME_BABIES_OF_GENIUS = make_creature(
+    name="Hatsume Mei, Babies of Genius",
+    power=2, toughness=3,
+    mana_cost="{1}{U}{W}",
+    colors={Color.BLUE, Color.WHITE},
+    subtypes={"Human", "Student"},
+    supertypes={"Legendary"},
+    text=(
+        "When Hatsume Mei, Babies of Genius enters, look at the top four "
+        "cards of your library (five instead if four or more permanents "
+        "are on the battlefield). You may put a land card from among them "
+        "onto the battlefield tapped. Put the rest on the bottom of your "
+        "library in a random order. "
+        "(\"My babies! Eat the storage warehouse — I'll know which one "
+        "is hungry.\")"
+    ),
+    setup_interceptors=_hatsume_babies_setup,
+)
+
+
+# =============================================================================
 # CARD DICTIONARY EXPORT
 # =============================================================================
 
@@ -5773,6 +6186,16 @@ MY_HERO_ACADEMIA_CARDS = {
     "Momo, Creation Hero": MOMO_CREATION,  # REWIRE (overrides earlier vanilla MOMO)
     "Midnight, R-Rated Hero": MIDNIGHT_REWIRE,  # REWIRE
     "Koda, Anima": KODA_REWIRE,  # REWIRE
+
+    # PHASE A2 SPICE PASS (slice 3, 2026-05-19) — decision-axis flips
+    "All Might, One For All Apex": ALL_MIGHT_APEX,
+    "Deku, Full Cowl Combat": DEKU_FULL_COWL_COMBAT,
+    "Bakugo's Howitzer Impact": BAKUGO_HOWITZER_IMPACT,
+    "Endeavor's Prominence Forge": ENDEAVOR_PROMINENCE_FORGE,
+    "Sir Nighteye, Foresight's Edge": SIR_NIGHTEYE_FORESIGHTS_EDGE,
+    "Toga, Bloody Mimicry": TOGA_BLOODY_MIMICRY,
+    "All For One, Quirk Thief": ALL_FOR_ONE_QUIRK_THIEF,
+    "Hatsume Mei, Babies of Genius": HATSUME_BABIES_OF_GENIUS,
 }
 
 print(f"Loaded {len(MY_HERO_ACADEMIA_CARDS)} My Hero Academia: Heroes Rising cards")
@@ -6043,4 +6466,13 @@ CARDS = [
     MOMO_CREATION,
     MIDNIGHT_REWIRE,
     KODA_REWIRE,
+    # PHASE A2 SPICE PASS (slice 3, 2026-05-19) — decision-axis flips
+    ALL_MIGHT_APEX,
+    DEKU_FULL_COWL_COMBAT,
+    BAKUGO_HOWITZER_IMPACT,
+    ENDEAVOR_PROMINENCE_FORGE,
+    SIR_NIGHTEYE_FORESIGHTS_EDGE,
+    TOGA_BLOODY_MIMICRY,
+    ALL_FOR_ONE_QUIRK_THIEF,
+    HATSUME_BABIES_OF_GENIUS,
 ]

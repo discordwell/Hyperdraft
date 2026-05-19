@@ -498,6 +498,304 @@ def test_koda_attack_pumps_birds_only():
 
 
 # ============================================================================
+# Phase A2 (slice 3) — decision-axis flip cards
+# ============================================================================
+
+
+def test_all_might_apex_loads():
+    """Setup registers vigilance + modal-ETB trigger interceptors."""
+    print("\n=== All Might, One For All Apex: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    am = _put_on_battlefield(game, p1, "All Might, One For All Apex")
+    assert am.zone == ZoneType.BATTLEFIELD
+    assert len(am.interceptor_ids) >= 2, (
+        f"Expected vigilance + modal interceptors; got {len(am.interceptor_ids)}"
+    )
+    assert has_ability(am, 'vigilance', game.state), "Expected vigilance"
+
+
+def test_all_might_apex_etb_opens_modal_choice():
+    """ETB installs a modal_with_targeting pending_choice with 3 modes."""
+    print("\n=== All Might Apex: pending modal choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    am = _put_on_battlefield(game, p1, "All Might, One For All Apex")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice after ETB"
+    assert pc.source_id == am.id
+    assert pc.choice_type == "modal_with_targeting"
+    assert pc.player == p1.id
+    assert len(pc.options) == 3, f"Expected 3 modes; got {len(pc.options)}"
+
+
+def test_deku_full_cowl_combat_loads():
+    """Setup registers haste + attack trigger interceptors."""
+    print("\n=== Deku, Full Cowl Combat: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    deku = _put_on_battlefield(game, p1, "Deku, Full Cowl Combat")
+    assert deku.zone == ZoneType.BATTLEFIELD
+    assert len(deku.interceptor_ids) >= 2, (
+        f"Expected haste + attack triggers; got {len(deku.interceptor_ids)}"
+    )
+    assert has_ability(deku, 'haste', game.state), "Expected haste"
+
+
+def test_deku_full_cowl_combat_attack_emits_target_required_and_info():
+    """Attack emits TARGET_REQUIRED + TARGET_CHOSEN info event."""
+    print("\n=== Deku Full Cowl Combat: attack triggers smash + info ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    deku = _put_on_battlefield(game, p1, "Deku, Full Cowl Combat")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': deku.id, 'attacker': deku.id, 'controller': p1.id},
+        source=deku.id,
+    ))
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == deku.id
+        and e.payload.get('effect') == 'damage'
+        and e.payload.get('target_filter') == 'opponent_creature'
+    ]
+    assert target_reqs, (
+        f"Expected smash TARGET_REQUIRED; recent={[e.type.name for e in new[-10:]]}"
+    )
+    info_events = [
+        e for e in new
+        if e.type == EventType.TARGET_CHOSEN and e.payload.get('source') == deku.id
+    ]
+    assert info_events, "Expected TARGET_CHOSEN info pulse on attack"
+
+
+def test_bakugo_howitzer_impact_loads():
+    """Setup registers the divided-damage ETB trigger."""
+    print("\n=== Bakugo's Howitzer Impact: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    hi = _put_on_battlefield(game, p1, "Bakugo's Howitzer Impact")
+    assert hi.zone == ZoneType.BATTLEFIELD
+    assert hi.interceptor_ids, "Expected ETB interceptor"
+
+
+def test_bakugo_howitzer_impact_etb_emits_divided_damage_target_required():
+    """ETB emits TARGET_REQUIRED with divide_amount=6 and damage effect."""
+    print("\n=== Bakugo's Howitzer Impact: ETB distribute damage ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    hi = _put_on_battlefield(game, p1, "Bakugo's Howitzer Impact")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == hi.id
+        and e.payload.get('effect') == 'damage'
+    ]
+    assert target_reqs, (
+        f"Expected damage TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    payload = target_reqs[0].payload
+    assert payload.get('divide_amount') == 6, (
+        f"Expected divide_amount=6; got {payload.get('divide_amount')}"
+    )
+
+
+def test_endeavor_prominence_forge_loads():
+    """Setup registers the divided-counters ETB trigger."""
+    print("\n=== Endeavor's Prominence Forge: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    epf = _put_on_battlefield(game, p1, "Endeavor's Prominence Forge")
+    assert epf.zone == ZoneType.BATTLEFIELD
+    assert epf.interceptor_ids, "Expected ETB interceptor"
+
+
+def test_endeavor_prominence_forge_etb_emits_divided_counters_target_required():
+    """ETB emits TARGET_REQUIRED with divide_amount=4 and counter_add effect."""
+    print("\n=== Endeavor's Prominence Forge: ETB distribute counters ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    epf = _put_on_battlefield(game, p1, "Endeavor's Prominence Forge")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == epf.id
+        and e.payload.get('effect') == 'counter_add'
+    ]
+    assert target_reqs, (
+        f"Expected counter_add TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    payload = target_reqs[0].payload
+    assert payload.get('divide_amount') == 4, (
+        f"Expected divide_amount=4; got {payload.get('divide_amount')}"
+    )
+
+
+def test_sir_nighteye_foresights_edge_loads():
+    """Setup registers an ETB trigger."""
+    print("\n=== Sir Nighteye, Foresight's Edge: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    sn = _put_on_battlefield(game, p1, "Sir Nighteye, Foresight's Edge")
+    assert sn.zone == ZoneType.BATTLEFIELD
+    assert sn.interceptor_ids, "Expected ETB interceptor"
+
+
+def test_sir_nighteye_etb_with_library_opens_scry_choice():
+    """ETB opens a scry pending_choice when library has cards."""
+    print("\n=== Sir Nighteye: ETB opens scry choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Plant 3 cards in p1's library.
+    chitauri_def = MY_HERO_ACADEMIA_CARDS["Eager Sidekick"]
+    p1_lib = game.state.zones[f'library_{p1.id}']
+    for _ in range(3):
+        obj = game.create_object(
+            name="Eager Sidekick",
+            owner_id=p1.id,
+            zone=ZoneType.LIBRARY,
+            characteristics=chitauri_def.characteristics,
+            card_def=None,
+        )
+        obj.card_def = chitauri_def
+        if obj.id not in p1_lib.objects:
+            p1_lib.objects.append(obj.id)
+    sn = _put_on_battlefield(game, p1, "Sir Nighteye, Foresight's Edge")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected scry pending_choice"
+    assert pc.source_id == sn.id
+    assert pc.choice_type == "scry"
+    assert pc.player == p1.id
+
+
+def test_sir_nighteye_etb_empty_library_no_op():
+    """ETB with empty library doesn't crash and doesn't install a choice."""
+    print("\n=== Sir Nighteye: empty library no-op ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    # Empty the library before ETB.
+    p1_lib = game.state.zones[f'library_{p1.id}']
+    p1_lib.objects.clear()
+    sn = _put_on_battlefield(game, p1, "Sir Nighteye, Foresight's Edge")
+    assert sn.zone == ZoneType.BATTLEFIELD
+
+
+def test_toga_bloody_mimicry_loads():
+    """Setup registers death trigger interceptors."""
+    print("\n=== Toga, Bloody Mimicry: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    toga = _put_on_battlefield(game, p1, "Toga, Bloody Mimicry")
+    assert toga.zone == ZoneType.BATTLEFIELD
+    assert len(toga.interceptor_ids) >= 2, (
+        f"Expected 2+ death triggers; got {len(toga.interceptor_ids)}"
+    )
+
+
+def test_toga_bloody_mimicry_death_emits_exile_target_required():
+    """Toga's death emits TARGET_REQUIRED with effect=exile."""
+    print("\n=== Toga: death -> exile target required ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    toga = _put_on_battlefield(game, p1, "Toga, Bloody Mimicry")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.OBJECT_DESTROYED,
+        payload={'object_id': toga.id, 'destroyed_by': 'lethal_damage'},
+        source=toga.id,
+    ))
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == toga.id
+        and e.payload.get('effect') == 'exile'
+    ]
+    assert target_reqs, (
+        f"Expected exile TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+
+
+def test_all_for_one_quirk_thief_loads():
+    """Setup registers an ETB trigger."""
+    print("\n=== All For One, Quirk Thief: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    afo = _put_on_battlefield(game, p1, "All For One, Quirk Thief")
+    assert afo.zone == ZoneType.BATTLEFIELD
+    assert afo.interceptor_ids, "Expected ETB interceptor"
+
+
+def test_all_for_one_etb_with_opponent_hand_opens_discard_choice():
+    """ETB opens a discard pending_choice for the opponent when their hand
+    has cards."""
+    print("\n=== All For One: ETB opens discard choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Plant 2 cards in p2's hand.
+    sidekick_def = MY_HERO_ACADEMIA_CARDS["Eager Sidekick"]
+    p2_hand = game.state.zones[f'hand_{p2.id}']
+    for _ in range(2):
+        obj = game.create_object(
+            name="Eager Sidekick",
+            owner_id=p2.id,
+            zone=ZoneType.HAND,
+            characteristics=sidekick_def.characteristics,
+            card_def=None,
+        )
+        obj.card_def = sidekick_def
+        if obj.id not in p2_hand.objects:
+            p2_hand.objects.append(obj.id)
+    afo = _put_on_battlefield(game, p1, "All For One, Quirk Thief")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected discard pending_choice"
+    assert pc.source_id == afo.id
+    assert pc.choice_type == "discard"
+    assert pc.player == p2.id, f"Expected discarder=p2; got {pc.player}"
+
+
+def test_all_for_one_etb_empty_opponent_hand_no_crash():
+    """ETB with empty opponent hand doesn't crash, no discard installed."""
+    print("\n=== All For One: empty opp hand no-op ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    afo = _put_on_battlefield(game, p1, "All For One, Quirk Thief")
+    assert afo.zone == ZoneType.BATTLEFIELD
+
+
+def test_hatsume_babies_of_genius_loads():
+    """Setup registers an ETB trigger."""
+    print("\n=== Hatsume Mei, Babies of Genius: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    hm = _put_on_battlefield(game, p1, "Hatsume Mei, Babies of Genius")
+    assert hm.zone == ZoneType.BATTLEFIELD
+    assert hm.interceptor_ids, "Expected ETB interceptor"
+
+
+def test_hatsume_empty_library_no_op():
+    """ETB with empty library returns [] without crashing."""
+    print("\n=== Hatsume: empty library ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p1_lib = game.state.zones[f'library_{p1.id}']
+    p1_lib.objects.clear()
+    hm = _put_on_battlefield(game, p1, "Hatsume Mei, Babies of Genius")
+    assert hm.zone == ZoneType.BATTLEFIELD
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 
