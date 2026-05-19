@@ -108,6 +108,7 @@ class EventType(Enum):
     SEARCH_LIBRARY = auto()    # Search library for card
     LIBRARY_SEARCH = auto()    # Alias for SEARCH_LIBRARY
     LOOK_AT_TOP = auto()       # Look at top N cards
+    LOOK_AT_HAND = auto()      # Look at (or force-reveal) a player's hand — information event
     REVEAL_TOP = auto()        # Reveal top card(s)
     REVEAL_UNTIL_LAND = auto() # Reveal until land found
     EXILE_FROM_TOP = auto()    # Exile top card(s) of library
