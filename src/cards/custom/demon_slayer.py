@@ -28,6 +28,8 @@ from src.cards.interceptor_helpers import (
     make_block_trigger, make_life_gain_trigger, make_life_loss_trigger,
     # Spice-pass Phase A1 (2026-05-18) additions:
     make_saga_setup, make_activated_ability, make_equipment_setup,
+    # Aura tagging sweep (W22+):
+    make_aura_setup,
 )
 
 
@@ -566,6 +568,7 @@ UBUYASHIKI_BLESSING = make_enchantment(
     name="Ubuyashiki Blessing",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
+    subtypes={"Aura"},
     text="Enchanted creature gets +1/+2 and has 'Breathing abilities you activate cost no life to activate.'"
 )
 
@@ -691,6 +694,7 @@ MIST_BREATHING_FORM = make_enchantment(
     name="Mist Breathing Form",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
+    subtypes={"Aura"},
     text="Enchanted creature has hexproof and 'Breathing — {T}, Pay 1 life: This creature can't be blocked this turn.'"
 )
 
@@ -1338,6 +1342,7 @@ THUNDER_BREATHING_FORM = make_enchantment(
     name="Thunder Breathing Form",
     mana_cost="{1}{R}",
     colors={Color.RED},
+    subtypes={"Aura"},
     text="Enchanted creature gets +2/+0 and has first strike. Breathing — {T}, Pay 1 life: Enchanted creature gains double strike until end of turn."
 )
 
@@ -1406,11 +1411,45 @@ THUNDER_BREATHING_STUDENT = make_creature(
 )
 
 
+# --- Blazing Rage (Aura tagging sweep, W22+) ---
+# Helper 5 wire: enchanted creature gets +2/+1 plus "Whenever this creature
+# attacks, it deals 1 damage to defending player."
+def _blazing_rage_attack_filter(event: Event, state: GameState, target_id: str) -> bool:
+    if event.type != EventType.ATTACK_DECLARED:
+        return False
+    return event.payload.get('attacker_id') == target_id
+
+
+def _blazing_rage_attack_effect(target_obj: GameObject, event: Event, state: GameState) -> list[Event]:
+    defending_player = event.payload.get('defending_player')
+    if not defending_player:
+        return []
+    return [Event(
+        type=EventType.DAMAGE,
+        payload={
+            'source': target_obj.id,
+            'target': defending_player,
+            'amount': 1,
+            'combat': False,
+        },
+        source=target_obj.id,
+    )]
+
+
 BLAZING_RAGE = make_enchantment(
     name="Blazing Rage",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Enchanted creature gets +2/+1 and has 'Whenever this creature attacks, it deals 1 damage to defending player.'"
+    subtypes={"Aura"},
+    text="Enchanted creature gets +2/+1 and has 'Whenever this creature attacks, it deals 1 damage to defending player.'",
+    setup_interceptors=make_aura_setup(
+        power_mod=2, toughness_mod=1,
+        granted_triggered_abilities={
+            "event_filter": _blazing_rage_attack_filter,
+            "effect_fn": _blazing_rage_attack_effect,
+            "description": "Attacks → 1 damage to defending player",
+        },
+    ),
 )
 
 
@@ -1496,6 +1535,7 @@ SERPENT_BREATHING_FORM = make_enchantment(
     name="Serpent Breathing Form",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
+    subtypes={"Aura"},
     text="Enchanted creature gets +1/+2 and has deathtouch. Breathing — {T}, Pay 1 life: Enchanted creature fights target creature."
 )
 
@@ -1532,6 +1572,7 @@ WILD_INSTINCT = make_enchantment(
     name="Wild Instinct",
     mana_cost="{G}",
     colors={Color.GREEN},
+    subtypes={"Aura"},
     text="Enchanted creature gets +1/+1 and has trample. It attacks each combat if able."
 )
 
@@ -2464,11 +2505,48 @@ BEAST_SENSE = make_instant(
 )
 
 
+# --- Serpent Coils (Aura tagging sweep, W22+) ---
+# Helper 5 wire: deathtouch + "Whenever this creature deals combat damage to a
+# creature, tap that creature." (The "doesn't untap next" rider is a Phase B-3
+# duration-counter effect — not modelled in v1.)
+def _serpent_coils_combat_dmg_to_creature_filter(event: Event, state: GameState, target_id: str) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    tgt_id = event.payload.get('target')
+    if not tgt_id or tgt_id in state.players:
+        return False
+    return tgt_id in state.objects
+
+
+def _serpent_coils_tap_effect(target_obj: GameObject, event: Event, state: GameState) -> list[Event]:
+    victim_id = event.payload.get('target')
+    if not victim_id:
+        return []
+    return [Event(
+        type=EventType.TAP,
+        payload={'object_id': victim_id, 'source': target_obj.id},
+        source=target_obj.id,
+    )]
+
+
 SERPENT_COILS = make_enchantment(
     name="Serpent Coils",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Enchanted creature has deathtouch and 'Whenever this creature deals combat damage to a creature, tap that creature. It doesn't untap during its controller's next untap step.'"
+    subtypes={"Aura"},
+    text="Enchanted creature has deathtouch and 'Whenever this creature deals combat damage to a creature, tap that creature. It doesn't untap during its controller's next untap step.'",
+    setup_interceptors=make_aura_setup(
+        keywords=["deathtouch"],
+        granted_triggered_abilities={
+            "event_filter": _serpent_coils_combat_dmg_to_creature_filter,
+            "effect_fn": _serpent_coils_tap_effect,
+            "description": "Combat damage to creature → tap that creature",
+        },
+    ),
 )
 
 
@@ -2671,6 +2749,7 @@ DEMON_BLOOD_FRENZY = make_enchantment(
     name="Demon Blood Frenzy",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
+    subtypes={"Aura"},
     text="Enchanted creature gets +2/+1 and attacks each combat if able. At the beginning of your upkeep, you lose 1 life."
 )
 
@@ -3068,6 +3147,7 @@ LIGHTNING_REFLEXES = make_enchantment(
     name="Lightning Reflexes",
     mana_cost="{R}",
     colors={Color.RED},
+    subtypes={"Aura"},
     text="Enchanted creature gets +1/+0 and has first strike. {R}: Enchanted creature gets +1/+0 until end of turn."
 )
 
