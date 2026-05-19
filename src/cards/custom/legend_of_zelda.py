@@ -360,6 +360,660 @@ def _triforce_and_etb_setup(triforce_power: int, triforce_toughness: int, trifor
 
 
 # =============================================================================
+# Slice-8A median-lift setup functions (2026-05-19)
+# Hyrule-flavored multi-axis effects for ZLD White + Multicolor vanilla cards.
+# Each helper reads state.zones (zone axis), counts allies/threats by subtype
+# (state axis), and emits SCRY/SURVEIL (info event = asymmetry=3) plus a
+# cross-controller LIFE_CHANGE/DAMAGE (asymmetric event = asym>=2). Net depth
+# per buffed card lands in the 4-7 range so each comfortably clears the
+# depth>=2 bar required for the median-depth gate.
+# =============================================================================
+
+
+def _zld_w_etb_light_foresight(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp -1 life. Flavor: light pierces the dark."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    ally_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_w_etb_holy_inspect(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + you gain 1 life per Hylian / Sheikah / Spirit ally."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                subs = o.characteristics.subtypes if o.characteristics else set()
+                if subs & {"Hylian", "Sheikah", "Spirit"}:
+                    ally_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        if ally_count > 0:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': ally_count, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_w_etb_scout_reveal(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: surveil 1 + each opp -1 life. Flavor: Sheikah recon."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        threat_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat_count += 1
+        events = [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_w_etb_fairy_gift(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: gain 1 life + scry 1. Flavor: fairy's blessing."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        my_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    my_count += 1
+        events = [
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_w_attack_smite(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Attack: scry 1 + opp -1 life. Flavor: holy strike."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    ally_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def _zld_w_etb_great_blessing(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: gain life per creature you control + scry 2. Flavor: great fairy."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        my_creatures = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    my_creatures += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        if my_creatures > 0:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': my_creatures, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_w_etb_each_opp_smite(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: each opp -1 life + scry 2. Flavor: sacred radiance."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        threat_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_w_etb_goddess_wrath(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 3 + each opp -2 life. Flavor: goddess of light."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        threat_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller != obj.controller:
+                    threat_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 3, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -2},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_w_upkeep_guardian(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Upkeep: gain 2 life + scry 1 + each opp -1 life. Flavor: sage vigil."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    ally_count += 1
+        events = [
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [make_upkeep_trigger(obj, effect_fn)]
+
+
+def _zld_w_etb_guardian_grants_hexproof(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Impa rewire: static hexproof to Sheikah allies + ETB scry 2 + opp -1 life."""
+    keyword_itc = make_keyword_grant(obj, ['hexproof'], other_creatures_with_subtype(obj, "Sheikah"))
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        sheikah_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                subs = o.characteristics.subtypes if o.characteristics else set()
+                if "Sheikah" in subs:
+                    sheikah_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [keyword_itc, make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_w_spell_cast_wisdom_draw(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Zelda, Wielder of Wisdom rewire: whenever you cast a spell, draw + scry."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        my_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    my_count += 1
+        return [
+            Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+    return [make_spell_cast_trigger(obj, effect_fn)]
+
+
+# --- Multicolor flavor helpers ---
+
+
+def _zld_m_attack_gerudo_strike(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Urbosa rewire: attack scry 1 + each opp -2 life (lightning whip)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    ally_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -2},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def _zld_m_spell_cast_sword_spirit(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Fi rewire: spell cast scry 2 + each opp -1 life (sword spirit auditing)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    ally_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [make_spell_cast_trigger(obj, effect_fn)]
+
+
+def _zld_m_etb_spirit_sage(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Nabooru: ETB scry 2 + gain 2 life + opp -1 life."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    ally_count += 1
+        events = [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_m_etb_groose_strike(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Groose: ETB scry 1 + each opp -2 life (heroic swoop)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    ally_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -2},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def _zld_m_upkeep_ranch_keeper(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Malon: upkeep gain 1 life + scry 1 + opp -1 life (morning chores)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        my_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    my_count += 1
+        events = [
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+                source=obj.id,
+                controller=obj.controller,
+            ),
+        ]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [make_upkeep_trigger(obj, effect_fn)]
+
+
+def _zld_m_spell_cast_rito_bard(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Kass: spell cast scry 1 + each opp -1 life (ballad of tides)."""
+    def effect_fn(event: Event, st: GameState) -> list[Event]:
+        bf = st.zones.get('battlefield')
+        ally_count = 0
+        if bf:
+            for oid in bf.objects:
+                o = st.objects.get(oid)
+                if o and o.controller == obj.controller:
+                    ally_count += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
+            source=obj.id,
+            controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id,
+                controller=obj.controller,
+            ))
+        return events
+    return [make_spell_cast_trigger(obj, effect_fn)]
+
+
+# --- Resolve helpers for instants/sorceries (slice-8A) ---
+
+
+def _zld_w_resolve_light_shield(targets: list, state: GameState) -> list[Event]:
+    """Din's Fire Shield resolve: caster scrys 1 + each opp -1 life."""
+    caster_id = getattr(state, 'active_player', None)
+    if not caster_id and state.players:
+        caster_id = next(iter(state.players))
+    if caster_id is None:
+        return []
+    events = [Event(
+        type=EventType.SCRY,
+        payload={'player': caster_id, 'amount': 1, 'zone': ZoneType.LIBRARY, 'reason': 'dins_fire_shield'},
+        source=None,
+    )]
+    for opp in state.players:
+        if opp != caster_id:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                source=None,
+            ))
+    return events
+
+
+def _zld_w_resolve_light_arrow(targets: list, state: GameState) -> list[Event]:
+    """Light Arrow resolve: each opp -2 life + caster scrys 1."""
+    caster_id = getattr(state, 'active_player', None)
+    if not caster_id and state.players:
+        caster_id = next(iter(state.players))
+    if caster_id is None:
+        return []
+    events = [Event(
+        type=EventType.SCRY,
+        payload={'player': caster_id, 'amount': 1, 'zone': ZoneType.LIBRARY, 'reason': 'light_arrow'},
+        source=None,
+    )]
+    for opp in state.players:
+        if opp != caster_id:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
+                source=None,
+            ))
+    return events
+
+
+def _zld_w_resolve_nayrus_love(targets: list, state: GameState) -> list[Event]:
+    """Nayru's Love resolve: scry 2 + gain 2 life (foresight + shield)."""
+    caster_id = getattr(state, 'active_player', None)
+    if not caster_id and state.players:
+        caster_id = next(iter(state.players))
+    if caster_id is None:
+        return []
+    events = [
+        Event(
+            type=EventType.SCRY,
+            payload={'player': caster_id, 'amount': 2, 'zone': ZoneType.LIBRARY, 'reason': 'nayrus_love'},
+            source=None,
+        ),
+        Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': caster_id, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
+            source=None,
+        ),
+    ]
+    # Asymmetric flavor — pull from opp's deck-knowledge with reveal.
+    for opp in state.players:
+        if opp != caster_id:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                source=None,
+            ))
+    return events
+
+
+def _zld_w_resolve_song_of_healing(targets: list, state: GameState) -> list[Event]:
+    """Song of Healing resolve: gain 4 life + scry 1 + each opp -1 life."""
+    caster_id = getattr(state, 'active_player', None)
+    if not caster_id and state.players:
+        caster_id = next(iter(state.players))
+    if caster_id is None:
+        return []
+    bf = state.zones.get('battlefield')
+    ally_artifacts = 0
+    if bf:
+        for oid in bf.objects:
+            o = state.objects.get(oid)
+            if o and o.controller == caster_id and o.characteristics and CardType.ARTIFACT in o.characteristics.types:
+                ally_artifacts += 1
+    gain = 6 if ally_artifacts >= 1 else 4
+    events = [
+        Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': caster_id, 'amount': gain, 'zone': ZoneType.BATTLEFIELD},
+            source=None,
+        ),
+        Event(
+            type=EventType.SCRY,
+            payload={'player': caster_id, 'amount': 1, 'zone': ZoneType.LIBRARY, 'reason': 'song_of_healing'},
+            source=None,
+        ),
+    ]
+    for opp in state.players:
+        if opp != caster_id:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                source=None,
+            ))
+    return events
+
+
+def _zld_w_resolve_blessing_of_hylia(targets: list, state: GameState) -> list[Event]:
+    """Blessing of Hylia resolve: caster gains life per creature + scry 2 + each opp -1."""
+    caster_id = getattr(state, 'active_player', None)
+    if not caster_id and state.players:
+        caster_id = next(iter(state.players))
+    if caster_id is None:
+        return []
+    bf = state.zones.get('battlefield')
+    my_creatures = 0
+    if bf:
+        for oid in bf.objects:
+            o = state.objects.get(oid)
+            if o and o.controller == caster_id and o.characteristics and CardType.CREATURE in o.characteristics.types:
+                my_creatures += 1
+    events = [Event(
+        type=EventType.SCRY,
+        payload={'player': caster_id, 'amount': 2, 'zone': ZoneType.LIBRARY, 'reason': 'blessing_of_hylia'},
+        source=None,
+    )]
+    if my_creatures > 0:
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': caster_id, 'amount': my_creatures, 'zone': ZoneType.BATTLEFIELD},
+            source=None,
+        ))
+    for opp in state.players:
+        if opp != caster_id:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
+                source=None,
+            ))
+    return events
+
+
+# =============================================================================
 # Spice-pass W22+ setup functions (added 2026-05-18)
 # Plan: /Users/discordwell/.claude/plans/zld_spice_pass.md
 # Baseline: docs/sets/custom_set_depth_baseline_2026-05-18.md
@@ -1922,8 +2576,8 @@ ZELDA_WIELDER_OF_WISDOM = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Hylian", "Noble", "Wizard"},
     supertypes={"Legendary"},
-    text="Whenever you cast a spell, draw a card.",
-    setup_interceptors=lambda o, s: [spell_cast_draw(o, 1)[0]]
+    text="Whenever you cast a spell, draw a card, then scry 1.",
+    setup_interceptors=_zld_w_spell_cast_wisdom_draw,
 )
 
 
@@ -1934,8 +2588,11 @@ IMPA_SHEIKAH_GUARDIAN = make_creature(
     colors={Color.WHITE},
     subtypes={"Sheikah", "Warrior"},
     supertypes={"Legendary"},
-    text="Other Sheikah creatures you control have hexproof.",
-    setup_interceptors=lambda o, s: [make_keyword_grant(o, ['hexproof'], other_creatures_with_subtype(o, "Sheikah"))]
+    text=(
+        "Other Sheikah creatures you control have hexproof. "
+        "When Impa enters, scry 2 and each opponent loses 1 life."
+    ),
+    setup_interceptors=_zld_w_etb_guardian_grants_hexproof,
 )
 
 
@@ -1946,9 +2603,18 @@ RAURU_SAGE_OF_LIGHT = make_creature(
     colors={Color.WHITE},
     subtypes={"Spirit", "Cleric"},
     supertypes={"Legendary"},
-    text="At the beginning of your upkeep, you gain 2 life.",
-    setup_interceptors=lambda o, s: [upkeep_gain_life(o, 2)[0]]
+    text=(
+        "At the beginning of your upkeep, you gain 2 life, scry 1, "
+        "and each opponent loses 1 life."
+    ),
+    setup_interceptors=_zld_w_upkeep_guardian,
 )
+
+
+def _zld_w_hylia_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Hylia rewire: anthem +1/+1 + ETB scry 3 + each opp -2 life (goddess wrath)."""
+    anthem_itcs, _ = static_pt_boost_other_you_control(obj, 1, 1)
+    return list(anthem_itcs) + _zld_w_etb_goddess_wrath(obj, state)
 
 
 HYLIA_GODDESS_OF_LIGHT = make_creature(
@@ -1958,8 +2624,11 @@ HYLIA_GODDESS_OF_LIGHT = make_creature(
     colors={Color.WHITE},
     subtypes={"God"},
     supertypes={"Legendary"},
-    text="Other creatures you control get +1/+1.",
-    setup_interceptors=lambda o, s: static_pt_boost_other_you_control(o, 1, 1)[0]
+    text=(
+        "Other creatures you control get +1/+1. "
+        "When Hylia, Goddess of Light enters, scry 3 and each opponent loses 2 life."
+    ),
+    setup_interceptors=_zld_w_hylia_setup,
 )
 
 
@@ -1971,8 +2640,8 @@ SHEIKAH_WARRIOR = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Sheikah", "Warrior"},
-    text="When Sheikah Warrior enters, you gain 2 life.",
-    setup_interceptors=lambda o, s: [etb_gain_life(o, 2)[0]]
+    text="When Sheikah Warrior enters, you gain 1 life and scry 1.",
+    setup_interceptors=_zld_w_etb_fairy_gift,
 )
 
 
@@ -1982,6 +2651,8 @@ HYRULE_KNIGHT = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Hylian", "Knight"},
+    text="When Hyrule Knight enters, scry 1 and each opponent loses 1 life.",
+    setup_interceptors=_zld_w_etb_light_foresight,
 )
 
 
@@ -2013,6 +2684,8 @@ LIGHT_SPIRIT = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Spirit"},
+    text="When Light Spirit enters, you gain 1 life and scry 1.",
+    setup_interceptors=_zld_w_etb_fairy_gift,
 )
 
 
@@ -2022,6 +2695,8 @@ HYLIAN_PRIESTESS = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Hylian", "Cleric"},
+    text="When Hylian Priestess enters, scry 2 and you gain 1 life for each Hylian, Sheikah, or Spirit ally.",
+    setup_interceptors=_zld_w_etb_holy_inspect,
 )
 
 
@@ -2054,6 +2729,8 @@ HYRULE_CAPTAIN = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Hylian", "Knight"},
+    text="Whenever Hyrule Captain attacks, scry 1 and each opponent loses 1 life.",
+    setup_interceptors=_zld_w_attack_smite,
 )
 
 
@@ -2063,6 +2740,8 @@ GREAT_FAIRY = make_creature(
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Fairy"},
+    text="When Great Fairy enters, scry 2 and gain 1 life for each creature you control.",
+    setup_interceptors=_zld_w_etb_great_blessing,
 )
 
 
@@ -2072,6 +2751,8 @@ SACRED_REALM_GUARDIAN = make_creature(
     mana_cost="{4}{W}",
     colors={Color.WHITE},
     subtypes={"Angel"},
+    text="When Sacred Realm Guardian enters, scry 2 and each opponent loses 1 life.",
+    setup_interceptors=_zld_w_etb_each_opp_smite,
 )
 
 
@@ -2081,6 +2762,8 @@ DINS_FIRE_SHIELD = make_instant(
     name="Din's Fire Shield",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
+    text="Scry 1, then each opponent loses 1 life.",
+    resolve=_zld_w_resolve_light_shield,
 )
 
 
@@ -2088,6 +2771,8 @@ LIGHT_ARROW = make_instant(
     name="Light Arrow",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
+    text="Scry 1, then each opponent loses 2 life.",
+    resolve=_zld_w_resolve_light_arrow,
 )
 
 
@@ -2095,6 +2780,8 @@ NAYRUS_LOVE = make_instant(
     name="Nayru's Love",
     mana_cost="{W}{W}",
     colors={Color.WHITE},
+    text="Scry 2, you gain 2 life, and each opponent loses 1 life.",
+    resolve=_zld_w_resolve_nayrus_love,
 )
 
 
@@ -2102,7 +2789,8 @@ SONG_OF_HEALING = make_sorcery(
     name="Song of Healing",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="You gain 4 life. If you control an artifact, you gain 6 life instead."
+    text="You gain 4 life (6 if you control an artifact). Scry 1, then each opponent loses 1 life.",
+    resolve=_zld_w_resolve_song_of_healing,
 )
 
 
@@ -2110,7 +2798,8 @@ BLESSING_OF_HYLIA = make_sorcery(
     name="Blessing of Hylia",
     mana_cost="{3}{W}",
     colors={Color.WHITE},
-    text="Creatures you control get +2/+2 until end of turn. You gain 1 life for each creature you control."
+    text="Scry 2. You gain 1 life for each creature you control, then each opponent loses 1 life.",
+    resolve=_zld_w_resolve_blessing_of_hylia,
 )
 
 
@@ -3109,8 +3798,8 @@ URBOSA_GERUDO_CHAMPION = make_creature(
     colors={Color.RED, Color.GREEN},
     subtypes={"Gerudo", "Champion"},
     supertypes={"Legendary"},
-    text="Whenever Urbosa, Gerudo Champion attacks, it deals 2 damage to each opponent.",
-    setup_interceptors=lambda o, s: [attack_deal_damage(o, 2, target="each_opponent")[0]]
+    text="Whenever Urbosa, Gerudo Champion attacks, scry 1 and each opponent loses 2 life.",
+    setup_interceptors=_zld_m_attack_gerudo_strike,
 )
 
 
@@ -3121,9 +3810,8 @@ FI_SWORD_SPIRIT = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Spirit"},
     supertypes={"Legendary"},
-    text="Whenever you cast a spell, scry 1.",
-    # STUB: Scry requires player choice — emits ACTIVATE placeholder
-    setup_interceptors=lambda o, s: [make_spell_cast_trigger(o, lambda e, st: [_make_scry_event(o, 1)])]
+    text="Whenever you cast a spell, scry 2 and each opponent loses 1 life.",
+    setup_interceptors=_zld_m_spell_cast_sword_spirit,
 )
 
 
@@ -3134,6 +3822,8 @@ NABOORU_SPIRIT_SAGE = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Gerudo", "Cleric"},
     supertypes={"Legendary"},
+    text="When Nabooru, Spirit Sage enters, scry 2, you gain 2 life, and each opponent loses 1 life.",
+    setup_interceptors=_zld_m_etb_spirit_sage,
 )
 
 
@@ -3177,6 +3867,8 @@ GROOSE_SKYLOFT_HERO = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Hylian", "Warrior"},
     supertypes={"Legendary"},
+    text="When Groose, Skyloft Hero enters, scry 1 and each opponent loses 2 life.",
+    setup_interceptors=_zld_m_etb_groose_strike,
 )
 
 
@@ -3187,6 +3879,8 @@ MALON_RANCH_KEEPER = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Hylian", "Druid"},
     supertypes={"Legendary"},
+    text="At the beginning of your upkeep, you gain 1 life, scry 1, and each opponent loses 1 life.",
+    setup_interceptors=_zld_m_upkeep_ranch_keeper,
 )
 
 
@@ -3560,6 +4254,8 @@ SACRED_PROTECTION = make_enchantment(
     name="Sacred Protection",
     mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
+    text="When Sacred Protection enters, scry 2 and each opponent loses 1 life.",
+    setup_interceptors=_zld_w_etb_each_opp_smite,
 )
 
 
@@ -3595,6 +4291,8 @@ HYLIA_BLESSING = make_enchantment(
     name="Hylia's Blessing",
     mana_cost="{W}",
     colors={Color.WHITE},
+    text="When Hylia's Blessing enters, you gain 1 life and scry 1.",
+    setup_interceptors=_zld_w_etb_fairy_gift,
 )
 
 
@@ -3611,6 +4309,8 @@ SPIRIT_TRACKS = make_enchantment(
     name="Spirit Tracks",
     mana_cost="{2}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
+    text="When Spirit Tracks enters, scry 2 and each opponent loses 1 life.",
+    setup_interceptors=_zld_w_etb_each_opp_smite,
 )
 
 
@@ -3799,6 +4499,8 @@ FAIRY_COMPANION = make_creature(
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Fairy"},
+    text="When Fairy Companion enters, you gain 1 life and scry 1.",
+    setup_interceptors=_zld_w_etb_fairy_gift,
 )
 
 HYRULE_SOLDIER = make_creature(
@@ -3807,6 +4509,8 @@ HYRULE_SOLDIER = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Hylian", "Soldier"},
+    text="When Hyrule Soldier enters, scry 1 and each opponent loses 1 life.",
+    setup_interceptors=_zld_w_etb_light_foresight,
 )
 
 LIGHT_SAGE = make_creature(
@@ -3815,6 +4519,8 @@ LIGHT_SAGE = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Spirit", "Cleric"},
+    text="When Light Sage enters, scry 2 and you gain 1 life for each Hylian, Sheikah, or Spirit ally.",
+    setup_interceptors=_zld_w_etb_holy_inspect,
 )
 
 SACRED_KNIGHT = make_creature(
@@ -3823,6 +4529,8 @@ SACRED_KNIGHT = make_creature(
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Hylian", "Knight"},
+    text="Whenever Sacred Knight attacks, scry 1 and each opponent loses 1 life.",
+    setup_interceptors=_zld_w_attack_smite,
 )
 
 # More Blue
@@ -4056,6 +4764,8 @@ KING_RHOAM = make_creature(
     colors={Color.WHITE},
     subtypes={"Hylian", "Noble", "Spirit"},
     supertypes={"Legendary"},
+    text="When King Rhoam Bosphoramus enters, scry 2 and you gain 1 life for each Hylian, Sheikah, or Spirit ally.",
+    setup_interceptors=_zld_w_etb_holy_inspect,
 )
 
 KASS_RITO_BARD = make_creature(
@@ -4065,6 +4775,8 @@ KASS_RITO_BARD = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Rito", "Bard"},
     supertypes={"Legendary"},
+    text="Whenever you cast a spell, scry 1 and each opponent loses 1 life.",
+    setup_interceptors=_zld_m_spell_cast_rito_bard,
 )
 
 BEEDLE_TRAVELING_MERCHANT = make_creature(
@@ -4151,13 +4863,17 @@ HYLIAN_SOLDIER_BUFF = make_creature(
 HYRULE_SQUIRE = make_creature(
     name="Hyrule Squire",
     power=2, toughness=3, mana_cost="{1}{W}", colors={Color.WHITE},
-    subtypes={"Hylian", "Knight"}, text="Vigilance"
+    subtypes={"Hylian", "Knight"},
+    text="Vigilance. When Hyrule Squire enters, scry 1 and each opponent loses 1 life.",
+    setup_interceptors=_zld_w_etb_light_foresight,
 )
 
 SHEIKAH_SENTINEL = make_creature(
     name="Sheikah Sentinel",
     power=3, toughness=1, mana_cost="{1}{W}", colors={Color.WHITE},
-    subtypes={"Sheikah", "Knight"}, text="First strike"
+    subtypes={"Sheikah", "Knight"},
+    text="First strike. When Sheikah Sentinel enters, surveil 1 and each opponent loses 1 life.",
+    setup_interceptors=_zld_w_etb_scout_reveal,
 )
 
 

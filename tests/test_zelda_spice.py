@@ -2109,6 +2109,442 @@ def test_bokoblin_horde_attack_drains_opp():
 
 
 # ============================================================================
+# Slice-8A median-lift tests (White + Multicolor)
+# Each test asserts the buffed card emits at least one of {SCRY, SURVEIL}
+# (info event, scores asym=3) plus a cross-controller asymmetric event.
+# ============================================================================
+
+
+def _assert_scry_or_surveil(game, source_id, before):
+    new = game.state.event_log[before:]
+    info = [
+        e for e in new
+        if e.type in (EventType.SCRY, EventType.SURVEIL)
+        and e.source == source_id
+    ]
+    assert info, f"Expected SCRY/SURVEIL from {source_id}; got {[e.type.name for e in new][-15:]}"
+
+
+def _assert_opp_loses_life(game, source_id, opp_id, before, expected_amount=None):
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == opp_id
+        and e.payload.get('amount', 0) < 0
+        and e.source == source_id
+    ]
+    assert drains, f"Expected opp life loss from {source_id}; got {[e.type.name for e in new][-15:]}"
+    if expected_amount is not None:
+        assert any(d.payload.get('amount') == expected_amount for d in drains), \
+            f"Expected -{expected_amount} life; got {[d.payload.get('amount') for d in drains]}"
+
+
+# --- White rewires ---
+
+def test_zelda_wielder_of_wisdom_spell_cast_draws_and_scrys():
+    print("\n=== Zelda, Wielder of Wisdom: spell cast draw+scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    z = _put_on_battlefield(game, p1, "Zelda, Wielder of Wisdom")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.SPELL_CAST, payload={'player': p1.id, 'controller': p1.id}, source=z.id))
+    new = game.state.event_log[before:]
+    draws = [e for e in new if e.type == EventType.DRAW and e.payload.get('player') == p1.id and e.source == z.id]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == z.id]
+    assert draws, f"Expected DRAW; got {[e.type.name for e in new]}"
+    assert scrys, f"Expected SCRY; got {[e.type.name for e in new]}"
+
+
+def test_impa_etb_scrys_and_drains_opp():
+    print("\n=== Impa: ETB scry + opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    i = _put_on_battlefield(game, p1, "Impa, Sheikah Guardian")
+    _assert_scry_or_surveil(game, i.id, before)
+    _assert_opp_loses_life(game, i.id, p2.id, before, expected_amount=-1)
+
+
+def test_rauru_upkeep_gain_life_and_scry():
+    print("\n=== Rauru: upkeep gain + scry + opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    r = _put_on_battlefield(game, p1, "Rauru, Sage of Light")
+    game.state.active_player = p1.id
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.PHASE_START, payload={'phase': 'upkeep', 'active_player': p1.id}, source=r.id))
+    new = game.state.event_log[before:]
+    gains = [e for e in new if e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 and e.source == r.id]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == r.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) < 0 and e.source == r.id]
+    assert gains, f"Expected gain life; got {[e.type.name for e in new]}"
+    assert scrys, f"Expected SCRY; got {[e.type.name for e in new]}"
+    assert drains, f"Expected opp drain; got {[e.type.name for e in new]}"
+
+
+def test_hylia_etb_scrys_and_smites_each_opp():
+    print("\n=== Hylia: ETB scry 3 + each opp -2 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    h = _put_on_battlefield(game, p1, "Hylia, Goddess of Light")
+    _assert_scry_or_surveil(game, h.id, before)
+    _assert_opp_loses_life(game, h.id, p2.id, before, expected_amount=-2)
+
+
+def test_sheikah_warrior_etb_gain_and_scry():
+    print("\n=== Sheikah Warrior: ETB gain + scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    s = _put_on_battlefield(game, p1, "Sheikah Warrior")
+    new = game.state.event_log[before:]
+    gains = [e for e in new if e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 and e.source == s.id]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == s.id]
+    assert gains, f"Expected gain life; got {[e.type.name for e in new]}"
+    assert scrys, f"Expected SCRY; got {[e.type.name for e in new]}"
+
+
+# --- White vanilla buffs ---
+
+def test_hyrule_knight_etb_scry_and_drain():
+    print("\n=== Hyrule Knight: ETB scry + opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    k = _put_on_battlefield(game, p1, "Hyrule Knight")
+    _assert_scry_or_surveil(game, k.id, before)
+    _assert_opp_loses_life(game, k.id, p2.id, before)
+
+
+def test_light_spirit_etb_gain_and_scry():
+    print("\n=== Light Spirit: ETB gain + scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    ls = _put_on_battlefield(game, p1, "Light Spirit")
+    new = game.state.event_log[before:]
+    gains = [e for e in new if e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 and e.source == ls.id]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == ls.id]
+    assert gains, f"Expected gain life; got {[e.type.name for e in new]}"
+    assert scrys, f"Expected SCRY; got {[e.type.name for e in new]}"
+
+
+def test_hylian_priestess_etb_scry_and_holy_inspect():
+    print("\n=== Hylian Priestess: ETB scry + holy gain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    hp = _put_on_battlefield(game, p1, "Hylian Priestess")
+    _assert_scry_or_surveil(game, hp.id, before)
+
+
+def test_hyrule_captain_attack_scry_and_drain():
+    print("\n=== Hyrule Captain: attack scry + opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    c = _put_on_battlefield(game, p1, "Hyrule Captain")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.ATTACK_DECLARED, payload={'attacker_id': c.id, 'attacker': c.id, 'controller': p1.id}, source=c.id))
+    _assert_scry_or_surveil(game, c.id, before)
+    _assert_opp_loses_life(game, c.id, p2.id, before)
+
+
+def test_great_fairy_etb_scry_and_blessing():
+    print("\n=== Great Fairy: ETB scry + life per creature ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    g = _put_on_battlefield(game, p1, "Great Fairy")
+    _assert_scry_or_surveil(game, g.id, before)
+
+
+def test_sacred_realm_guardian_etb_scry_and_each_opp_smite():
+    print("\n=== Sacred Realm Guardian: ETB scry + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    sg = _put_on_battlefield(game, p1, "Sacred Realm Guardian")
+    _assert_scry_or_surveil(game, sg.id, before)
+    _assert_opp_loses_life(game, sg.id, p2.id, before)
+
+
+def test_fairy_companion_etb_gain_and_scry():
+    print("\n=== Fairy Companion: ETB gain + scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    fc = _put_on_battlefield(game, p1, "Fairy Companion")
+    new = game.state.event_log[before:]
+    gains = [e for e in new if e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 and e.source == fc.id]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == fc.id]
+    assert gains, f"Expected gain life; got {[e.type.name for e in new]}"
+    assert scrys, f"Expected SCRY; got {[e.type.name for e in new]}"
+
+
+def test_hyrule_soldier_etb_scry_and_drain():
+    print("\n=== Hyrule Soldier: ETB scry + opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    s = _put_on_battlefield(game, p1, "Hyrule Soldier")
+    _assert_scry_or_surveil(game, s.id, before)
+    _assert_opp_loses_life(game, s.id, p2.id, before)
+
+
+def test_light_sage_etb_scry_and_holy_inspect():
+    print("\n=== Light Sage: ETB scry + holy gain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    ls = _put_on_battlefield(game, p1, "Light Sage")
+    _assert_scry_or_surveil(game, ls.id, before)
+
+
+def test_sacred_knight_attack_scry_and_drain():
+    print("\n=== Sacred Knight: attack scry + opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    sk = _put_on_battlefield(game, p1, "Sacred Knight")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.ATTACK_DECLARED, payload={'attacker_id': sk.id, 'attacker': sk.id, 'controller': p1.id}, source=sk.id))
+    _assert_scry_or_surveil(game, sk.id, before)
+    _assert_opp_loses_life(game, sk.id, p2.id, before)
+
+
+def test_king_rhoam_etb_scry_and_holy_inspect():
+    print("\n=== King Rhoam: ETB scry + holy gain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    kr = _put_on_battlefield(game, p1, "King Rhoam Bosphoramus")
+    _assert_scry_or_surveil(game, kr.id, before)
+
+
+def test_hyrule_squire_etb_scry_and_drain():
+    print("\n=== Hyrule Squire: ETB scry + opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    hs = _put_on_battlefield(game, p1, "Hyrule Squire")
+    _assert_scry_or_surveil(game, hs.id, before)
+    _assert_opp_loses_life(game, hs.id, p2.id, before)
+
+
+def test_sheikah_sentinel_etb_surveil_and_drain():
+    print("\n=== Sheikah Sentinel: ETB surveil + opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    ss = _put_on_battlefield(game, p1, "Sheikah Sentinel")
+    _assert_scry_or_surveil(game, ss.id, before)
+    _assert_opp_loses_life(game, ss.id, p2.id, before)
+
+
+# --- White instants/sorceries ---
+
+
+def test_dins_fire_shield_resolve_scry_and_smite():
+    print("\n=== Din's Fire Shield: resolve scry + each opp -1 ===")
+    from src.cards.custom.legend_of_zelda import _zld_w_resolve_light_shield
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = _zld_w_resolve_light_shield([], game.state)
+    scrys = [e for e in events if e.type == EventType.SCRY and e.payload.get('player') == p1.id]
+    drains = [e for e in events if e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) < 0]
+    assert scrys, f"Expected SCRY; got {events}"
+    assert drains, f"Expected drain; got {events}"
+
+
+def test_light_arrow_resolve_scry_and_double_smite():
+    print("\n=== Light Arrow: resolve scry + opp -2 ===")
+    from src.cards.custom.legend_of_zelda import _zld_w_resolve_light_arrow
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = _zld_w_resolve_light_arrow([], game.state)
+    scrys = [e for e in events if e.type == EventType.SCRY and e.payload.get('player') == p1.id]
+    drains = [e for e in events if e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount') == -2]
+    assert scrys, f"Expected SCRY; got {events}"
+    assert drains, f"Expected -2 drain; got {events}"
+
+
+def test_nayrus_love_resolve_scry_and_gain():
+    print("\n=== Nayru's Love: resolve scry + gain + opp -1 ===")
+    from src.cards.custom.legend_of_zelda import _zld_w_resolve_nayrus_love
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = _zld_w_resolve_nayrus_love([], game.state)
+    scrys = [e for e in events if e.type == EventType.SCRY and e.payload.get('player') == p1.id and e.payload.get('amount') == 2]
+    gains = [e for e in events if e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0]
+    drains = [e for e in events if e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) < 0]
+    assert scrys, f"Expected SCRY 2; got {events}"
+    assert gains, f"Expected gain; got {events}"
+    assert drains, f"Expected drain; got {events}"
+
+
+def test_song_of_healing_resolve_gain_and_scry():
+    print("\n=== Song of Healing: resolve gain + scry + opp -1 ===")
+    from src.cards.custom.legend_of_zelda import _zld_w_resolve_song_of_healing
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = _zld_w_resolve_song_of_healing([], game.state)
+    gains = [e for e in events if e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) >= 4]
+    scrys = [e for e in events if e.type == EventType.SCRY]
+    drains = [e for e in events if e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) < 0]
+    assert gains, f"Expected 4+ gain; got {events}"
+    assert scrys, f"Expected SCRY; got {events}"
+    assert drains, f"Expected drain; got {events}"
+
+
+def test_blessing_of_hylia_resolve_scry_and_smite():
+    print("\n=== Blessing of Hylia: resolve scry + each opp -1 ===")
+    from src.cards.custom.legend_of_zelda import _zld_w_resolve_blessing_of_hylia
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    events = _zld_w_resolve_blessing_of_hylia([], game.state)
+    scrys = [e for e in events if e.type == EventType.SCRY and e.payload.get('player') == p1.id]
+    drains = [e for e in events if e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p2.id and e.payload.get('amount', 0) < 0]
+    assert scrys, f"Expected SCRY; got {events}"
+    assert drains, f"Expected drain; got {events}"
+
+
+# --- White enchantments ---
+
+
+def test_sacred_protection_etb_scry_and_smite():
+    print("\n=== Sacred Protection: ETB scry + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    sp = _put_on_battlefield(game, p1, "Sacred Protection")
+    _assert_scry_or_surveil(game, sp.id, before)
+    _assert_opp_loses_life(game, sp.id, p2.id, before)
+
+
+def test_hylias_blessing_etb_gain_and_scry():
+    print("\n=== Hylia's Blessing: ETB gain + scry ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    hb = _put_on_battlefield(game, p1, "Hylia's Blessing")
+    new = game.state.event_log[before:]
+    gains = [e for e in new if e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 and e.source == hb.id]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == hb.id]
+    assert gains, f"Expected gain; got {[e.type.name for e in new]}"
+    assert scrys, f"Expected SCRY; got {[e.type.name for e in new]}"
+
+
+def test_spirit_tracks_etb_scry_and_smite():
+    print("\n=== Spirit Tracks: ETB scry + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    st = _put_on_battlefield(game, p1, "Spirit Tracks")
+    _assert_scry_or_surveil(game, st.id, before)
+    _assert_opp_loses_life(game, st.id, p2.id, before)
+
+
+# --- Multicolor rewires/vanilla ---
+
+
+def test_urbosa_attack_scry_and_double_smite():
+    print("\n=== Urbosa: attack scry + each opp -2 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    u = _put_on_battlefield(game, p1, "Urbosa, Gerudo Champion")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.ATTACK_DECLARED, payload={'attacker_id': u.id, 'attacker': u.id, 'controller': p1.id}, source=u.id))
+    _assert_scry_or_surveil(game, u.id, before)
+    _assert_opp_loses_life(game, u.id, p2.id, before, expected_amount=-2)
+
+
+def test_fi_spell_cast_scry_and_drain():
+    print("\n=== Fi: spell cast scry + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    f = _put_on_battlefield(game, p1, "Fi, Sword Spirit")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.SPELL_CAST, payload={'player': p1.id, 'controller': p1.id}, source=f.id))
+    _assert_scry_or_surveil(game, f.id, before)
+    _assert_opp_loses_life(game, f.id, p2.id, before)
+
+
+def test_nabooru_etb_scry_gain_and_drain():
+    print("\n=== Nabooru: ETB scry + gain + opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    n = _put_on_battlefield(game, p1, "Nabooru, Spirit Sage")
+    _assert_scry_or_surveil(game, n.id, before)
+    _assert_opp_loses_life(game, n.id, p2.id, before)
+    new = game.state.event_log[before:]
+    gains = [e for e in new if e.type == EventType.LIFE_CHANGE and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0 and e.source == n.id]
+    assert gains, f"Expected gain; got {[e.type.name for e in new]}"
+
+
+def test_groose_etb_scry_and_double_smite():
+    print("\n=== Groose: ETB scry + each opp -2 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    g = _put_on_battlefield(game, p1, "Groose, Skyloft Hero")
+    _assert_scry_or_surveil(game, g.id, before)
+    _assert_opp_loses_life(game, g.id, p2.id, before, expected_amount=-2)
+
+
+def test_malon_upkeep_gain_scry_and_drain():
+    print("\n=== Malon: upkeep gain + scry + opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    m = _put_on_battlefield(game, p1, "Malon, Ranch Keeper")
+    game.state.active_player = p1.id
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.PHASE_START, payload={'phase': 'upkeep', 'active_player': p1.id}, source=m.id))
+    _assert_scry_or_surveil(game, m.id, before)
+    _assert_opp_loses_life(game, m.id, p2.id, before)
+
+
+def test_kass_spell_cast_scry_and_drain():
+    print("\n=== Kass: spell cast scry + each opp -1 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    k = _put_on_battlefield(game, p1, "Kass, Rito Bard")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.SPELL_CAST, payload={'player': p1.id, 'controller': p1.id}, source=k.id))
+    _assert_scry_or_surveil(game, k.id, before)
+    _assert_opp_loses_life(game, k.id, p2.id, before)
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 
