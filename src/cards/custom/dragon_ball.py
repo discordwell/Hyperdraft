@@ -1194,6 +1194,7 @@ MAJIN_MARK = make_enchantment(
     name="Majin Mark",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
+    subtypes={"Aura"},
     text="Enchant creature. Enchanted creature gets +3/+0 and has menace. At the beginning of your upkeep, you lose 1 life."
 )
 
@@ -1509,6 +1510,7 @@ SUPER_SAIYAN_AURA = make_enchantment(
     name="Super Saiyan Aura",
     mana_cost="{1}{R}",
     colors={Color.RED},
+    subtypes={"Aura"},
     text="Enchant creature. Enchanted creature gets +2/+2 and has haste. When enchanted creature dies, Super Saiyan Aura deals 3 damage to any target."
 )
 
