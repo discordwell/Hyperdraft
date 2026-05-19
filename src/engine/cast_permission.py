@@ -199,6 +199,42 @@ def make_castable_from_zone(
     return [interceptor]
 
 
+def _impulse_play_grant(
+    card_id: str, current_zone: ZoneType, player_id: str, state: GameState
+) -> Optional[dict]:
+    """Fast-path consumer for ``_playable_from_exile_*`` flags written by
+    ``EXILE_TOP_PLAY`` / ``IMPULSE_DRAW`` handlers in
+    ``src/engine/pipeline/handlers/library.py``.
+
+    Returns a permission payload (``{ALLOWED_KEY: True}``) if the card is in
+    EXILE, was written with a ``_playable_from_exile_by`` matching the
+    requesting player, and (if present) the current turn is still within the
+    window encoded by ``_playable_from_exile_through_turn``. Returns ``None``
+    if the flags don't apply — in that case ``query_cast_permission`` falls
+    back to its standard QUERY-interceptor scan.
+
+    No cost override is published: impulse-draw cards pay their printed mana
+    cost when cast. Cards that want a different cost should still install a
+    QUERY interceptor via ``make_castable_from_zone(..., cost_modifier=...)``.
+    """
+    if current_zone != ZoneType.EXILE:
+        return None
+    obj = state.objects.get(card_id)
+    if obj is None:
+        return None
+    grant_by = getattr(obj.state, "_playable_from_exile_by", None)
+    if not grant_by or grant_by != player_id:
+        return None
+    expires_turn = getattr(obj.state, "_playable_from_exile_through_turn", None)
+    if expires_turn is not None:
+        try:
+            if int(state.turn_number) > int(expires_turn):
+                return None
+        except Exception:
+            return None
+    return {ALLOWED_KEY: True}
+
+
 def query_cast_permission(
     card_id: str,
     current_zone: ZoneType,
@@ -210,10 +246,19 @@ def query_cast_permission(
     keys ``allowed`` (bool) and optionally ``cost_override`` (ManaCost).
 
     HAND is always allowed; this is a fast path so callers don't have to
-    special-case it themselves.
+    special-case it themselves. Cards exiled with ``EXILE_TOP_PLAY`` /
+    ``IMPULSE_DRAW`` (which write ``_playable_from_exile_*`` flags on the
+    exiled object) get a second fast-path before the QUERY scan.
     """
     if current_zone == ZoneType.HAND:
         return {ALLOWED_KEY: True}
+
+    # Impulse-draw fast path. Affects Master Kohga, Ghirahim Demon Lord
+    # (ZLD), Boba Fett HoH (SWR), Temporal Bridge (TMH), and any future
+    # "exile top, may play this turn" card.
+    impulse = _impulse_play_grant(card_id, current_zone, player_id, state)
+    if impulse is not None:
+        return impulse
 
     event = Event(
         type=EventType.QUERY_CAST_LEGALITY,

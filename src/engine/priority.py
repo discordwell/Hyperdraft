@@ -1400,12 +1400,25 @@ class PrioritySystem:
             if a.type == ActionType.CAST_SPELL
         }
         for obj_id, candidate in self.state.objects.items():
-            if candidate.owner != player_id:
+            # Cross-controller impulse-exile (Boba Fett HoH: exile opp's
+            # library, you may play) makes the prospective caster differ
+            # from the card's owner. Accept either owner==player_id OR the
+            # ``_playable_from_exile_by`` flag matching the player.
+            owner_match = candidate.owner == player_id
+            impulse_match = (
+                candidate.zone == ZoneType.EXILE
+                and getattr(candidate.state, "_playable_from_exile_by", None) == player_id
+            )
+            if not owner_match and not impulse_match:
                 continue
             if candidate.zone in (ZoneType.HAND, ZoneType.STACK, ZoneType.BATTLEFIELD):
                 continue
             if not _w7_is_castable_from_zone(obj_id, candidate.zone, self.state):
-                continue
+                # is_castable_from_zone uses obj.owner as the prospective
+                # caster; for cross-controller impulse retry with player_id.
+                from .cast_permission import query_cast_permission as _w7_q
+                if not _w7_q(obj_id, candidate.zone, player_id, self.state).get("allowed"):
+                    continue
             if (obj_id, None) in existing_w7_keys:
                 continue
             override = _w7_cast_cost_override_for(obj_id, candidate.zone, self.state)
