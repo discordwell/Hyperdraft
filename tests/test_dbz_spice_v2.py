@@ -954,6 +954,805 @@ def test_saiyan_warrior_attack_scry_and_damage():
     print(f"  Saiyan Warrior: SCRY + {len(dmgs)} damage(s)")
 
 
+# ============================================================================
+# Slice-14 median-lift tests (2026-05-19): one per newly buffed vanilla card
+# (~160 cards). Each asserts the expected info-event (SCRY/SURVEIL) and
+# cross-controller payload (LIFE_CHANGE/DAMAGE/MILL/DISCARD/REVEAL_HAND).
+# Drives mtg_dbz depth_v2_median 0 -> 7 (final gate flips DBZ to 4/4 green).
+# ============================================================================
+
+
+def _s14_assert_etb_emits(card_name, info_event, opp_event, extra_check=None):
+    """Standard ETB test: load card, assert info_event and opp_event fire."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    info = _events_emitted_by(game, obj.id, info_event)
+    opp_ev = _events_emitted_by(game, obj.id, opp_event)
+    assert info, f"{card_name}: {info_event.name} missing"
+    assert opp_ev, f"{card_name}: {opp_event.name} missing"
+    if extra_check:
+        extra_check(game, obj)
+    return game, obj
+
+
+def _s14_assert_attack_emits(card_name, info_event, opp_event):
+    """Standard attack test: load card, emit ATTACK_DECLARED, assert events fire."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, card_name)
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.ATTACK_DECLARED,
+                    payload={'attacker_id': obj.id, 'defender': p2.id}))
+    new_events = game.state.event_log[before:]
+    info = [e for e in new_events if e.type == info_event and e.source == obj.id]
+    opp_ev = [e for e in new_events if e.type == opp_event and e.source == obj.id]
+    assert info, f"{card_name}: {info_event.name} missing on attack"
+    assert opp_ev, f"{card_name}: {opp_event.name} missing on attack"
+    return game, obj
+
+
+def _s14_assert_resolve(card_name, info_event, opp_event):
+    """Resolve-handler test: invoke cd.resolve directly, assert events emit."""
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    game.state.active_player = p1.id
+    cd = DRAGON_BALL_CARDS[card_name]
+    # Stage spell on stack so caster lookup finds it (some resolves use active_player).
+    spell = game.create_object(
+        name=card_name,
+        owner_id=p1.id,
+        zone=ZoneType.STACK,
+        characteristics=cd.characteristics,
+        card_def=cd,
+    )
+    events = cd.resolve([], game.state)
+    info = [e for e in events if e.type == info_event]
+    opp_ev = [e for e in events if e.type == opp_event]
+    assert info, f"{card_name}: {info_event.name} missing in resolve events"
+    assert opp_ev, f"{card_name}: {opp_event.name} missing in resolve events"
+    return events
+
+
+# --- White creatures ---
+
+def test_world_champion_etb():
+    _s14_assert_etb_emits("World Tournament Champion", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_otherworld_fighter_etb():
+    _s14_assert_etb_emits("Otherworld Fighter", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_turtle_student_attack():
+    _s14_assert_attack_emits("Turtle School Student", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_crane_student_attack():
+    _s14_assert_attack_emits("Crane School Student", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+# --- White instants/sorceries (resolve handlers) ---
+
+def test_senzu_heal_resolve():
+    _s14_assert_resolve("Senzu Heal", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_divine_protection_resolve():
+    _s14_assert_resolve("Divine Protection", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_heroic_rescue_resolve():
+    _s14_assert_resolve("Heroic Rescue", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_energy_barrier_resolve():
+    _s14_assert_resolve("Energy Barrier", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_kiai_shout_resolve():
+    _s14_assert_resolve("Kiai Shout", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_hope_of_earth_resolve():
+    _s14_assert_resolve("Hope of Earth", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_revival_resolve():
+    _s14_assert_resolve("Revival", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_dragon_ball_wish_resolve():
+    _s14_assert_resolve("Dragon Ball Wish", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_training_complete_resolve():
+    _s14_assert_resolve("Training Complete", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_world_tournament_resolve():
+    _s14_assert_resolve("World Tournament", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+# --- White enchantments ---
+
+def test_otherworld_ench_etb():
+    _s14_assert_etb_emits("Otherworld", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_kais_blessing_etb():
+    _s14_assert_etb_emits("Kai's Blessing", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+# --- Blue creatures ---
+
+def test_android_19_etb():
+    _s14_assert_etb_emits("Android 19, Energy Absorber", EventType.SURVEIL, EventType.MILL)
+
+
+def test_android_20_etb():
+    _s14_assert_etb_emits("Android 20, Dr. Gero", EventType.SURVEIL, EventType.MILL)
+
+
+def test_capsule_drone_etb():
+    _s14_assert_etb_emits("Capsule Corp Drone", EventType.SURVEIL, EventType.MILL)
+
+
+def test_repair_bot_etb():
+    _s14_assert_etb_emits("Repair Bot", EventType.SURVEIL, EventType.MILL)
+
+
+def test_analysis_drone_etb():
+    _s14_assert_etb_emits("Analysis Drone", EventType.SURVEIL, EventType.MILL)
+
+
+def test_scientist_etb():
+    _s14_assert_etb_emits("Capsule Corp Scientist", EventType.SURVEIL, EventType.MILL)
+
+
+def test_red_ribbon_scout_etb():
+    _s14_assert_etb_emits("Red Ribbon Scout", EventType.SCRY, EventType.REVEAL_HAND)
+
+
+def test_energy_absorber_etb():
+    _s14_assert_etb_emits("Energy Absorber", EventType.SURVEIL, EventType.MILL)
+
+
+# --- Blue instants/sorceries ---
+
+def test_ki_sense_resolve():
+    _s14_assert_resolve("Ki Sense", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_energy_drain_resolve():
+    _s14_assert_resolve("Energy Drain", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_afterimage_resolve():
+    _s14_assert_resolve("Afterimage", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_instant_transmission_blue_resolve():
+    _s14_assert_resolve("Instant Transmission", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_photon_wave_resolve():
+    _s14_assert_resolve("Photon Wave", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_solar_flare_resolve():
+    _s14_assert_resolve("Solar Flare", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_android_construction_resolve():
+    _s14_assert_resolve("Android Construction", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_tech_advancement_resolve():
+    _s14_assert_resolve("Technology Advancement", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_energy_analysis_resolve():
+    _s14_assert_resolve("Energy Analysis", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_red_ribbon_research_resolve():
+    _s14_assert_resolve("Red Ribbon Research", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+# --- Blue enchantments ---
+
+def test_infinite_energy_etb():
+    _s14_assert_etb_emits("Infinite Energy", EventType.SURVEIL, EventType.MILL)
+
+
+def test_capsule_technology_etb():
+    _s14_assert_etb_emits("Capsule Technology", EventType.SURVEIL, EventType.MILL)
+
+
+def test_energy_field_etb():
+    _s14_assert_etb_emits("Energy Field", EventType.SURVEIL, EventType.MILL)
+
+
+# --- Black creatures ---
+
+def test_majin_buu_etb():
+    _s14_assert_etb_emits("Majin Buu, Innocent Evil", EventType.SURVEIL, EventType.DISCARD)
+
+
+def test_super_buu_etb():
+    _s14_assert_etb_emits("Super Buu, Absorber", EventType.SURVEIL, EventType.DISCARD)
+
+
+def test_zarbon_death():
+    # Death trigger - put on battlefield then send to graveyard.
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, "Zarbon, Frieza's Elite")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.ZONE_CHANGE,
+                    payload={'object_id': obj.id,
+                             'from_zone_type': ZoneType.BATTLEFIELD,
+                             'to_zone_type': ZoneType.GRAVEYARD}))
+    new_events = game.state.event_log[before:]
+    info = [e for e in new_events if e.type == EventType.SCRY and e.source == obj.id]
+    drains = [e for e in new_events if e.type == EventType.LIFE_CHANGE and e.source == obj.id]
+    assert info, "Zarbon: SCRY missing on death"
+    assert drains, "Zarbon: LIFE_CHANGE drain missing on death"
+
+
+def test_dodoria_death():
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, "Dodoria, Frieza's Elite")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.ZONE_CHANGE,
+                    payload={'object_id': obj.id,
+                             'from_zone_type': ZoneType.BATTLEFIELD,
+                             'to_zone_type': ZoneType.GRAVEYARD}))
+    new_events = game.state.event_log[before:]
+    info = [e for e in new_events if e.type == EventType.SCRY and e.source == obj.id]
+    drains = [e for e in new_events if e.type == EventType.LIFE_CHANGE and e.source == obj.id]
+    assert info, "Dodoria: SCRY missing on death"
+    assert drains, "Dodoria: LIFE_CHANGE drain missing on death"
+
+
+def test_ginyu_etb():
+    _s14_assert_etb_emits("Captain Ginyu", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_recoome_etb():
+    _s14_assert_etb_emits("Recoome", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_jeice_etb():
+    _s14_assert_etb_emits("Jeice", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_frieza_soldier_etb():
+    _s14_assert_etb_emits("Frieza Soldier", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_saibaman_death():
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _put_on_battlefield(game, p1, "Saibaman")
+    before = len(game.state.event_log)
+    game.emit(Event(type=EventType.ZONE_CHANGE,
+                    payload={'object_id': obj.id,
+                             'from_zone_type': ZoneType.BATTLEFIELD,
+                             'to_zone_type': ZoneType.GRAVEYARD}))
+    new_events = game.state.event_log[before:]
+    info = [e for e in new_events if e.type == EventType.SCRY and e.source == obj.id]
+    dmgs = [e for e in new_events if e.type == EventType.DAMAGE and e.source == obj.id]
+    assert info, "Saibaman: SCRY missing on death"
+    assert dmgs, "Saibaman: DAMAGE missing on death"
+
+
+def test_cell_junior_etb():
+    _s14_assert_etb_emits("Cell Junior", EventType.SURVEIL, EventType.DISCARD)
+
+
+def test_majin_minion_etb():
+    _s14_assert_etb_emits("Majin Minion", EventType.SURVEIL, EventType.DISCARD)
+
+
+def test_dabura_etb():
+    _s14_assert_etb_emits("Dabura, Demon King", EventType.SURVEIL, EventType.DISCARD)
+
+
+# --- Black instants/sorceries ---
+
+def test_death_beam_resolve():
+    _s14_assert_resolve("Death Beam", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_supernova_resolve():
+    _s14_assert_resolve("Supernova", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_finger_beam_resolve():
+    _s14_assert_resolve("Finger Beam", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_absorption_resolve():
+    _s14_assert_resolve("Absorption", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_vanish_resolve():
+    _s14_assert_resolve("Vanish", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_majin_curse_resolve():
+    _s14_assert_resolve("Majin Curse", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_planet_destruction_resolve():
+    _s14_assert_resolve("Planet Destruction", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_genocide_attack_resolve():
+    _s14_assert_resolve("Genocide Attack", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_raise_saibamen_resolve():
+    _s14_assert_resolve("Raise Saibamen", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_resurrection_resolve():
+    _s14_assert_resolve("Resurrection", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+# --- Black enchantment ---
+
+def test_dark_energy_etb():
+    _s14_assert_etb_emits("Dark Energy", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+# --- Red creatures ---
+
+def test_future_trunks_warrior_etb():
+    _s14_assert_etb_emits("Future Trunks, Time Warrior", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_saiyan_elite_etb():
+    _s14_assert_etb_emits("Saiyan Elite", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_great_ape_etb():
+    _s14_assert_etb_emits("Great Ape", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_raging_saiyan_etb():
+    _s14_assert_etb_emits("Raging Saiyan", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_saiyan_child_etb():
+    _s14_assert_etb_emits("Saiyan Child", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_saiyan_pod_pilot_etb():
+    _s14_assert_etb_emits("Saiyan Pod Pilot", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_bardock_etb():
+    _s14_assert_etb_emits("Bardock, Father of Goku", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+# --- Red instants/sorceries ---
+
+def test_final_flash_resolve():
+    _s14_assert_resolve("Final Flash", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_galick_gun_resolve():
+    _s14_assert_resolve("Galick Gun", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_big_bang_attack_resolve():
+    _s14_assert_resolve("Big Bang Attack", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_burning_attack_resolve():
+    _s14_assert_resolve("Burning Attack", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_explosive_wave_resolve():
+    _s14_assert_resolve("Explosive Wave", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_saiyan_rage_resolve():
+    _s14_assert_resolve("Saiyan Rage", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_ki_explosion_resolve():
+    _s14_assert_resolve("Ki Explosion", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_power_ball_resolve():
+    _s14_assert_resolve("Power Ball", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_saiyan_invasion_resolve():
+    _s14_assert_resolve("Saiyan Invasion", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_oozaru_rampage_resolve():
+    _s14_assert_resolve("Oozaru Rampage", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_zenkai_boost_resolve():
+    _s14_assert_resolve("Zenkai Boost", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+# --- Red enchantment ---
+
+def test_battle_rage_etb():
+    _s14_assert_etb_emits("Battle Rage", EventType.SCRY, EventType.DAMAGE)
+
+
+# --- Green creatures ---
+
+def test_namekian_warrior_etb():
+    _s14_assert_etb_emits("Namekian Warrior", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_namekian_healer_etb():
+    _s14_assert_etb_emits("Namekian Healer", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_namekian_elder_etb():
+    _s14_assert_etb_emits("Namekian Elder", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_giant_namekian_etb():
+    _s14_assert_etb_emits("Giant Namekian", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_porunga_etb():
+    _s14_assert_etb_emits("Porunga, Namekian Dragon", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_ajisa_tree_etb():
+    _s14_assert_etb_emits("Ajisa Tree", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_namek_fish_etb():
+    _s14_assert_etb_emits("Giant Namek Fish", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+# --- Green instants/sorceries ---
+
+def test_special_beam_cannon_resolve():
+    _s14_assert_resolve("Special Beam Cannon", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_namek_regen_resolve():
+    _s14_assert_resolve("Namekian Regeneration", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_hellzone_grenade_resolve():
+    _s14_assert_resolve("Hellzone Grenade", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_masenko_resolve():
+    _s14_assert_resolve("Masenko", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_fuse_resolve():
+    _s14_assert_resolve("Fuse", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_nature_barrier_resolve():
+    _s14_assert_resolve("Nature's Barrier", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_namekian_fusion_resolve():
+    _s14_assert_resolve("Namekian Fusion", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_regrowth_resolve():
+    _s14_assert_resolve("Regrowth", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_dragon_ball_summon_resolve():
+    _s14_assert_resolve("Dragon Ball Summon", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_planet_namek_resolve():
+    _s14_assert_resolve("Planet Namek's Blessing", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+# --- Green enchantments ---
+
+def test_healing_aura_etb():
+    _s14_assert_etb_emits("Healing Aura", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_namek_wilds_etb():
+    _s14_assert_etb_emits("Namek Wilds", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+# --- Multicolor / mythic creatures ---
+
+def test_goku_ssj_etb():
+    _s14_assert_etb_emits("Goku, Super Saiyan", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_goku_ui_etb():
+    _s14_assert_etb_emits("Goku, Ultra Instinct", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_vegeta_ssj_etb():
+    _s14_assert_etb_emits("Vegeta, Super Saiyan", EventType.SURVEIL, EventType.DAMAGE)
+
+
+def test_gohan_ssj2_etb():
+    _s14_assert_etb_emits("Gohan, Super Saiyan 2", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_whis_etb():
+    _s14_assert_etb_emits("Whis, Angel Attendant", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_jiren_etb():
+    _s14_assert_etb_emits("Jiren, The Strongest", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_golden_frieza_etb():
+    _s14_assert_etb_emits("Frieza, Golden Form", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_majin_vegeta_etb():
+    _s14_assert_etb_emits("Vegeta, Majin", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_android_21_etb():
+    _s14_assert_etb_emits("Android 21, Hunger Incarnate", EventType.SURVEIL, EventType.DAMAGE)
+
+
+def test_kefla_etb():
+    _s14_assert_etb_emits("Kefla, Potara Fusion", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_goku_black_etb():
+    _s14_assert_etb_emits("Goku Black, Zero Mortal Plan", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_zamasu_etb():
+    _s14_assert_etb_emits("Zamasu, Divine Justice", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_shenron_eternal_etb():
+    _s14_assert_etb_emits("Shenron, Eternal Dragon", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+# --- Multicolor instants/sorceries ---
+
+def test_kamehameha_resolve():
+    _s14_assert_resolve("Kamehameha", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_spirit_bomb_resolve():
+    _s14_assert_resolve("Spirit Bomb", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_destructo_disc_resolve():
+    _s14_assert_resolve("Destructo Disc", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_death_ball_resolve():
+    _s14_assert_resolve("Death Ball", EventType.SURVEIL, EventType.DAMAGE)
+
+
+def test_candy_beam_resolve():
+    _s14_assert_resolve("Candy Beam", EventType.SURVEIL, EventType.DISCARD)
+
+
+def test_human_extinction_resolve():
+    _s14_assert_resolve("Human Extinction Attack", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_solar_kamehameha_resolve():
+    _s14_assert_resolve("Solar Kamehameha", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_final_explosion_resolve():
+    _s14_assert_resolve("Final Explosion", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_omega_blaster_resolve():
+    _s14_assert_resolve("Omega Blaster", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_eraser_cannon_resolve():
+    _s14_assert_resolve("Eraser Cannon", EventType.SCRY, EventType.DAMAGE)
+
+
+# --- Artifacts ---
+
+def test_dragon_ball_one_etb():
+    _s14_assert_etb_emits("One-Star Dragon Ball", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_dragon_ball_two_etb():
+    _s14_assert_etb_emits("Two-Star Dragon Ball", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_dragon_ball_three_etb():
+    _s14_assert_etb_emits("Three-Star Dragon Ball", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_dragon_ball_four_etb():
+    _s14_assert_etb_emits("Four-Star Dragon Ball", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_dragon_ball_five_etb():
+    _s14_assert_etb_emits("Five-Star Dragon Ball", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_dragon_ball_six_etb():
+    _s14_assert_etb_emits("Six-Star Dragon Ball", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_dragon_ball_seven_etb():
+    _s14_assert_etb_emits("Seven-Star Dragon Ball", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_senzu_bean_etb():
+    _s14_assert_etb_emits("Senzu Bean", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_scouter_etb():
+    _s14_assert_etb_emits("Scouter", EventType.SCRY, EventType.REVEAL_HAND)
+
+
+def test_potara_etb():
+    _s14_assert_etb_emits("Potara Earrings", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_fusion_earrings_etb():
+    _s14_assert_etb_emits("Fusion Earrings", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_gravity_chamber_etb():
+    _s14_assert_etb_emits("Gravity Chamber", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_time_machine_etb():
+    _s14_assert_etb_emits("Time Machine", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_capsule_etb():
+    _s14_assert_etb_emits("Capsule", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_space_pod_etb():
+    _s14_assert_etb_emits("Saiyan Space Pod", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_nimbus_etb():
+    _s14_assert_etb_emits("Nimbus Cloud", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_dragon_radar_etb():
+    _s14_assert_etb_emits("Dragon Radar", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_z_sword_etb():
+    _s14_assert_etb_emits("Z-Sword", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_power_pole_etb():
+    _s14_assert_etb_emits("Power Pole", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_turtle_shell_etb():
+    _s14_assert_etb_emits("Turtle Shell", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_weighted_clothing_etb():
+    _s14_assert_etb_emits("Weighted Clothing", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+# --- Lands ---
+
+def test_kame_house_etb():
+    game = Game()
+    p1 = game.add_player("Alice")
+    obj = _put_on_battlefield(game, p1, "Kame House")
+    info = _events_emitted_by(game, obj.id, EventType.SCRY)
+    gains = _events_emitted_by(game, obj.id, EventType.LIFE_CHANGE)
+    assert info and gains
+
+
+def test_capsule_corp_land_etb():
+    _s14_assert_etb_emits("Capsule Corporation", EventType.SURVEIL, EventType.MILL)
+
+
+def test_hyperbolic_chamber_land_etb():
+    _s14_assert_etb_emits("Hyperbolic Time Chamber", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_planet_namek_land_etb():
+    game = Game()
+    p1 = game.add_player("Alice")
+    obj = _put_on_battlefield(game, p1, "Planet Namek")
+    info = _events_emitted_by(game, obj.id, EventType.SCRY)
+    gains = _events_emitted_by(game, obj.id, EventType.LIFE_CHANGE)
+    assert info and gains
+
+
+def test_planet_vegeta_etb():
+    _s14_assert_etb_emits("Planet Vegeta", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_lookout_etb():
+    game = Game()
+    p1 = game.add_player("Alice")
+    obj = _put_on_battlefield(game, p1, "The Lookout")
+    info = _events_emitted_by(game, obj.id, EventType.SCRY)
+    gains = _events_emitted_by(game, obj.id, EventType.LIFE_CHANGE)
+    assert info and gains
+
+
+def test_world_tournament_arena_etb():
+    _s14_assert_etb_emits("World Tournament Arena", EventType.SCRY, EventType.DAMAGE)
+
+
+def test_korin_tower_etb():
+    game = Game()
+    p1 = game.add_player("Alice")
+    obj = _put_on_battlefield(game, p1, "Korin Tower")
+    info = _events_emitted_by(game, obj.id, EventType.SCRY)
+    gains = _events_emitted_by(game, obj.id, EventType.LIFE_CHANGE)
+    assert info and gains
+
+
+def test_frieza_spaceship_etb():
+    _s14_assert_etb_emits("Frieza's Spaceship", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_cell_games_arena_etb():
+    _s14_assert_etb_emits("Cell Games Arena", EventType.SURVEIL, EventType.DAMAGE)
+
+
+def test_king_kai_planet_etb():
+    game = Game()
+    p1 = game.add_player("Alice")
+    obj = _put_on_battlefield(game, p1, "King Kai's Planet")
+    info = _events_emitted_by(game, obj.id, EventType.SCRY)
+    gains = _events_emitted_by(game, obj.id, EventType.LIFE_CHANGE)
+    assert info and gains
+
+
+def test_serpent_road_etb():
+    _s14_assert_etb_emits("Snake Way", EventType.SCRY, EventType.LIFE_CHANGE)
+
+
+def test_majin_buu_house_etb():
+    _s14_assert_etb_emits("Majin Buu's House", EventType.SURVEIL, EventType.LIFE_CHANGE)
+
+
+def test_red_ribbon_hq_etb():
+    _s14_assert_etb_emits("Red Ribbon Army HQ", EventType.SURVEIL, EventType.MILL)
+
+
+def test_otherworld_arena_etb():
+    game = Game()
+    p1 = game.add_player("Alice")
+    obj = _put_on_battlefield(game, p1, "Otherworld Tournament Arena")
+    info = _events_emitted_by(game, obj.id, EventType.SCRY)
+    gains = _events_emitted_by(game, obj.id, EventType.LIFE_CHANGE)
+    assert info and gains
+
+
 if __name__ == "__main__":
     # Shenron
     test_shenron_wish_granter_loads()
@@ -1002,6 +1801,172 @@ if __name__ == "__main__":
     test_nappa_etb_scry_and_damage()
     test_raditz_etb_scry_reveal_hand_and_drain()
     test_saiyan_warrior_attack_scry_and_damage()
+    # Slice 14 — median lift (160 vanilla cards lifted to depth-7)
+    # White
+    test_world_champion_etb()
+    test_otherworld_fighter_etb()
+    test_turtle_student_attack()
+    test_crane_student_attack()
+    test_senzu_heal_resolve()
+    test_divine_protection_resolve()
+    test_heroic_rescue_resolve()
+    test_energy_barrier_resolve()
+    test_kiai_shout_resolve()
+    test_hope_of_earth_resolve()
+    test_revival_resolve()
+    test_dragon_ball_wish_resolve()
+    test_training_complete_resolve()
+    test_world_tournament_resolve()
+    test_otherworld_ench_etb()
+    test_kais_blessing_etb()
+    # Blue
+    test_android_19_etb()
+    test_android_20_etb()
+    test_capsule_drone_etb()
+    test_repair_bot_etb()
+    test_analysis_drone_etb()
+    test_scientist_etb()
+    test_red_ribbon_scout_etb()
+    test_energy_absorber_etb()
+    test_ki_sense_resolve()
+    test_energy_drain_resolve()
+    test_afterimage_resolve()
+    test_instant_transmission_blue_resolve()
+    test_photon_wave_resolve()
+    test_solar_flare_resolve()
+    test_android_construction_resolve()
+    test_tech_advancement_resolve()
+    test_energy_analysis_resolve()
+    test_red_ribbon_research_resolve()
+    test_infinite_energy_etb()
+    test_capsule_technology_etb()
+    test_energy_field_etb()
+    # Black
+    test_majin_buu_etb()
+    test_super_buu_etb()
+    test_zarbon_death()
+    test_dodoria_death()
+    test_ginyu_etb()
+    test_recoome_etb()
+    test_jeice_etb()
+    test_frieza_soldier_etb()
+    test_saibaman_death()
+    test_cell_junior_etb()
+    test_majin_minion_etb()
+    test_dabura_etb()
+    test_death_beam_resolve()
+    test_supernova_resolve()
+    test_finger_beam_resolve()
+    test_absorption_resolve()
+    test_vanish_resolve()
+    test_majin_curse_resolve()
+    test_planet_destruction_resolve()
+    test_genocide_attack_resolve()
+    test_raise_saibamen_resolve()
+    test_resurrection_resolve()
+    test_dark_energy_etb()
+    # Red
+    test_future_trunks_warrior_etb()
+    test_saiyan_elite_etb()
+    test_great_ape_etb()
+    test_raging_saiyan_etb()
+    test_saiyan_child_etb()
+    test_saiyan_pod_pilot_etb()
+    test_bardock_etb()
+    test_final_flash_resolve()
+    test_galick_gun_resolve()
+    test_big_bang_attack_resolve()
+    test_burning_attack_resolve()
+    test_explosive_wave_resolve()
+    test_saiyan_rage_resolve()
+    test_ki_explosion_resolve()
+    test_power_ball_resolve()
+    test_saiyan_invasion_resolve()
+    test_oozaru_rampage_resolve()
+    test_zenkai_boost_resolve()
+    test_battle_rage_etb()
+    # Green
+    test_namekian_warrior_etb()
+    test_namekian_healer_etb()
+    test_namekian_elder_etb()
+    test_giant_namekian_etb()
+    test_porunga_etb()
+    test_ajisa_tree_etb()
+    test_namek_fish_etb()
+    test_special_beam_cannon_resolve()
+    test_namek_regen_resolve()
+    test_hellzone_grenade_resolve()
+    test_masenko_resolve()
+    test_fuse_resolve()
+    test_nature_barrier_resolve()
+    test_namekian_fusion_resolve()
+    test_regrowth_resolve()
+    test_dragon_ball_summon_resolve()
+    test_planet_namek_resolve()
+    test_healing_aura_etb()
+    test_namek_wilds_etb()
+    # Multicolor / mythic
+    test_goku_ssj_etb()
+    test_goku_ui_etb()
+    test_vegeta_ssj_etb()
+    test_gohan_ssj2_etb()
+    test_whis_etb()
+    test_jiren_etb()
+    test_golden_frieza_etb()
+    test_majin_vegeta_etb()
+    test_android_21_etb()
+    test_kefla_etb()
+    test_goku_black_etb()
+    test_zamasu_etb()
+    test_shenron_eternal_etb()
+    test_kamehameha_resolve()
+    test_spirit_bomb_resolve()
+    test_destructo_disc_resolve()
+    test_death_ball_resolve()
+    test_candy_beam_resolve()
+    test_human_extinction_resolve()
+    test_solar_kamehameha_resolve()
+    test_final_explosion_resolve()
+    test_omega_blaster_resolve()
+    test_eraser_cannon_resolve()
+    # Artifacts
+    test_dragon_ball_one_etb()
+    test_dragon_ball_two_etb()
+    test_dragon_ball_three_etb()
+    test_dragon_ball_four_etb()
+    test_dragon_ball_five_etb()
+    test_dragon_ball_six_etb()
+    test_dragon_ball_seven_etb()
+    test_senzu_bean_etb()
+    test_scouter_etb()
+    test_potara_etb()
+    test_fusion_earrings_etb()
+    test_gravity_chamber_etb()
+    test_time_machine_etb()
+    test_capsule_etb()
+    test_space_pod_etb()
+    test_nimbus_etb()
+    test_dragon_radar_etb()
+    test_z_sword_etb()
+    test_power_pole_etb()
+    test_turtle_shell_etb()
+    test_weighted_clothing_etb()
+    # Lands
+    test_kame_house_etb()
+    test_capsule_corp_land_etb()
+    test_hyperbolic_chamber_land_etb()
+    test_planet_namek_land_etb()
+    test_planet_vegeta_etb()
+    test_lookout_etb()
+    test_world_tournament_arena_etb()
+    test_korin_tower_etb()
+    test_frieza_spaceship_etb()
+    test_cell_games_arena_etb()
+    test_king_kai_planet_etb()
+    test_serpent_road_etb()
+    test_majin_buu_house_etb()
+    test_red_ribbon_hq_etb()
+    test_otherworld_arena_etb()
     print("\n" + "=" * 60)
     print("ALL DBZ SPICE v2 EXPANSION TESTS PASSED!")
     print("=" * 60)
