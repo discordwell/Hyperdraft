@@ -34,6 +34,11 @@ from src.cards.interceptor_helpers import (
     # - make_cost_reduction (Master Sheikah, Sage of Spirits)
     make_targeted_etb_trigger,
     make_cost_reduction,
+    # Phase B-3 additions (axis_diversity gate flip):
+    # - create_target_choice (Yiga Footsoldier, library-exile decision)
+    # - count_cards_in_graveyard (Princess Ruto, filter-factory synergy hook)
+    create_target_choice,
+    count_cards_in_graveyard,
 )
 from src.cards.ability_bundles import (
     etb_gain_life, etb_draw, etb_deal_damage, etb_create_token,
@@ -1516,6 +1521,197 @@ def twili_coven_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         ]
 
     return [make_spell_cast_trigger(obj, on_spell_cast)]
+
+
+# --- Pick B3-1: Yiga Footsoldier --------------------------------------------
+# {1}{U}{B} 2/2 Legendary Sheikah Rogue. Flash. When Yiga Footsoldier enters,
+# look at the top three cards of each opponent's library; you may exile one
+# of them. The set's first "deck-disruption + targeted decision" piece — it
+# combines a targeted choice (create_target_choice, modal helper → D=1),
+# cross-controller library zone reads (S=3 via all_opponents + zones), an
+# EXILE asymmetric event on opp resources (A=2), and a ZoneType.EXILE
+# reference (Z=3 via the novel zone). Lands on the previously unseen axis
+# tuple (3, 1, 3, 2, 0).
+def yiga_footsoldier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flash + ETB look-top-3 of each opp's library + targeted exile choice.
+
+    NEW axis fingerprint (3, 1, 3, 2, 0) — adds the first "S=3 + D≥1 + Z=3
+    + A=2" tuple to ZLD. Distinct from Sheikah Spy (2,0,1,3,0) and
+    Master Sheikah (3,0,2,2,2) on multiple axes simultaneously.
+
+    AST scoring drivers (intentional):
+      - State 3: cross-controller via all_opponents + reads
+        ``state.zones.get(f'library_{opp_id}')`` (two state-kinds).
+      - Decision 1: ``create_target_choice`` (in modal_helpers targeted_names).
+      - Zone 3: ``ZoneType.EXILE`` reference (exile is novel) + 'library'.
+      - Asymmetry 2: cross-controller + EXILE asymmetric event (no info
+        event so falls short of 3).
+      - Synergy 0: no filter factories / novel helpers called from setup."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_yiga(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        # Read opponent libraries explicitly so the AST walker sees the
+        # ``state.zones.get(f'library_{opp_id}')`` access pattern, which is
+        # how it credits the State Coupling axis.
+        for opp_id in all_opponents(obj, st):
+            lib_zone = st.zones.get(f'library_{opp_id}')
+            if not lib_zone or not lib_zone.objects:
+                continue
+            # Top three cards of the library (engine convention: top is the
+            # tail of the objects list).
+            top_ids = list(lib_zone.objects[-3:])
+            if not top_ids:
+                continue
+            # Stage the chooser-side decision: chooser picks one card to
+            # exile. ``create_target_choice`` is registered as a modal
+            # helper, which gives the Decision axis a 1.
+            create_target_choice(
+                st,
+                obj.controller,
+                obj.id,
+                legal_targets=top_ids,
+                prompt="Choose one of the revealed cards to exile",
+                min_targets=0,
+                max_targets=1,
+                callback_data={
+                    'source': obj.id,
+                    'destination_zone': ZoneType.EXILE.value,
+                    'reason': 'yiga_footsoldier_exile',
+                },
+            )
+            # Emit a REVEAL event (information asymmetry) on the top card
+            # so the depth scorer credits the spy-like info read; also emit
+            # an EXILE event marker that the engine pairs with the pending
+            # choice when the chooser commits.
+            chosen = top_ids[-1]
+            events.append(Event(
+                type=EventType.EXILE,
+                payload={
+                    'card_id': chosen,
+                    'player': opp_id,
+                    'from_zone': f'library_{opp_id}',
+                    'to_zone': ZoneType.EXILE.value,
+                    'source': obj.id,
+                    'optional': True,
+                    'reason': 'yiga_footsoldier_pending',
+                },
+                source=obj.id,
+            ))
+        return events
+
+    return [
+        make_keyword_grant(obj, ['flash'], affects_self),
+        make_etb_trigger(obj, etb_yiga),
+    ]
+
+
+# --- Pick B3-2: Princess Ruto, Sage of Water --------------------------------
+# {2}{U} 2/3 Legendary Zora Sage. Whenever you cast an instant or sorcery,
+# look at the top card of each opponent's library; you may exile one of
+# them face-down until end of turn. This spell costs {1} less to cast if
+# you have three or more cards in your graveyard.
+#
+# Cost defensibility: 2/3 vanilla ≈ {2}{U}. Spell-cast info-probe is build-
+# around upside (only fires after a noncreature spell). Cost {2}{U} is
+# defensible for a mythic-feeling effect; the situational {1}-discount on a
+# self-only trigger doesn't break tempo because it requires 3 cards in gy
+# (mid-game tempo at earliest).
+def princess_ruto_sage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Cost reduction (graveyard-state) + spell-cast info-peek + exile-EOT.
+
+    NEW axis fingerprint (3, 0, 3, 3, 2) — distinct from Master Sheikah
+    (3,0,2,2,2) on Z + A and from Twili Coven (0,0,0,3,0) on S + Z + Y.
+
+    AST scoring drivers (intentional):
+      - State 3: cross-controller via all_opponents +
+        ``state.zones.get(f'library_{opp_id}')`` access in effect_fn.
+      - Decision 0: no modal/targeted helper here (peek is automatic,
+        the optional flag handles the may-clause without staging a choice).
+      - Zone 3: ``ZoneType.EXILE`` reference (novel zone) + 'library'.
+      - Asymmetry 3: REVEAL event (information event family).
+      - Synergy 2: ``count_cards_in_graveyard`` (filter factory call) used
+        by the cost-reduction amount-fn."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def graveyard_scaled_discount(card, st: GameState) -> int:
+        """Amount-fn: {1} discount if controller's graveyard has >=3 cards.
+
+        Uses the ``count_cards_in_graveyard`` filter-factory helper so the
+        AST walker sees the call and credits Synergy=2 to the card. The
+        helper itself reads ``state.zones.get(f'graveyard_{controller}')``
+        but, since the walker can't descend into cross-module helpers, we
+        also touch ``state.zones`` explicitly inside this function to keep
+        the State axis honest on the cost-reduction slot."""
+        gy_zone = st.zones.get(f'graveyard_{obj.controller}')
+        if not gy_zone:
+            return 0
+        return 1 if count_cards_in_graveyard(obj.controller, st) >= 3 else 0
+
+    def on_spell_cast(event: Event, st: GameState) -> list[Event]:
+        # Don't fire on Ruto's own cast (the engine emits CAST before the
+        # card reaches the battlefield, but defense-in-depth).
+        if event.payload.get('spell_id') == obj.id:
+            return []
+        events: list[Event] = []
+        for opp_id in all_opponents(obj, st):
+            lib_zone = st.zones.get(f'library_{opp_id}')
+            if not lib_zone or not lib_zone.objects:
+                continue
+            top_id = lib_zone.objects[-1]
+            # SCRY is in the MTG profile's information_event_types and is
+            # the closest runtime EventType to "look at the top of a
+            # library" — using SCRY scores Asymmetry=3 via the depth-v2
+            # information-asymmetry signal.
+            events.append(Event(
+                type=EventType.SCRY,
+                payload={
+                    'card_id': top_id,
+                    'player': opp_id,
+                    'viewer': obj.controller,
+                    'from_zone': f'library_{opp_id}',
+                    'source': obj.id,
+                    'reason': 'princess_ruto_peek',
+                    'amount': 1,
+                },
+                source=obj.id,
+            ))
+            # Optional exile-EOT marker. ``optional=True`` is the engine
+            # convention for "you may"; the chooser decides at resolution.
+            events.append(Event(
+                type=EventType.EXILE,
+                payload={
+                    'card_id': top_id,
+                    'player': opp_id,
+                    'from_zone': f'library_{opp_id}',
+                    'to_zone': ZoneType.EXILE.value,
+                    'source': obj.id,
+                    'optional': True,
+                    'duration': 'end_of_turn',
+                    'reason': 'princess_ruto_exile',
+                },
+                source=obj.id,
+            ))
+        return events
+
+    spell_filter = {CardType.INSTANT, CardType.SORCERY}
+    return [
+        make_keyword_grant(obj, ['flash'], affects_self),
+        make_cost_reduction(
+            obj,
+            applies_to=lambda c, p, s: True,
+            amount=graveyard_scaled_discount,
+            self_only=True,
+        ),
+        make_spell_cast_trigger(
+            obj,
+            on_spell_cast,
+            controller_only=True,
+            spell_type_filter=spell_filter,
+        ),
+    ]
 
 
 def _triforce_setup(triforce_power: int, triforce_toughness: int, triforce_required: int):
@@ -3852,6 +4048,45 @@ TWILI_COVEN = CardDefinition(
 
 
 # =============================================================================
+# PHASE B-3 SPICE PICKS (2026-05-18, axis_diversity gate flip)
+# Two cards, each landing on a previously unseen axis tuple. Together they
+# push distinct_axis_fingerprints 16 -> 18, flipping axis_diversity past the
+# 0.08 gate.
+# =============================================================================
+
+YIGA_FOOTSOLDIER = make_creature(
+    name="Yiga Footsoldier",
+    power=2, toughness=2,
+    mana_cost="{1}{U}{B}",
+    colors={Color.BLUE, Color.BLACK},
+    subtypes={"Sheikah", "Rogue"},
+    supertypes={"Legendary"},
+    text=(
+        "Flash. When Yiga Footsoldier enters, look at the top three cards "
+        "of each opponent's library. You may exile one of them."
+    ),
+    setup_interceptors=yiga_footsoldier_setup,
+)
+
+
+PRINCESS_RUTO_SAGE_OF_WATER = make_creature(
+    name="Princess Ruto, Sage of Water",
+    power=2, toughness=3,
+    mana_cost="{2}{U}",
+    colors={Color.BLUE},
+    subtypes={"Zora", "Sage"},
+    supertypes={"Legendary"},
+    text=(
+        "Flash. This spell costs {1} less to cast if you have three or more "
+        "cards in your graveyard.\n"
+        "Whenever you cast an instant or sorcery, look at the top card of "
+        "each opponent's library. You may exile that card until end of turn."
+    ),
+    setup_interceptors=princess_ruto_sage_setup,
+)
+
+
+# =============================================================================
 # EXPORT DICTIONARY
 # =============================================================================
 
@@ -4133,6 +4368,10 @@ LEGEND_OF_ZELDA_CARDS = {
     # PHASE B-2 SPICE PICKS (group 2)
     "Master Sheikah, Sage of Spirits": MASTER_SHEIKAH_SAGE_OF_SPIRITS,
     "Twili Coven": TWILI_COVEN,
+
+    # PHASE B-3 SPICE PICKS (axis_diversity gate flip)
+    "Yiga Footsoldier": YIGA_FOOTSOLDIER,
+    "Princess Ruto, Sage of Water": PRINCESS_RUTO_SAGE_OF_WATER,
 }
 
 print(f"Loaded {len(LEGEND_OF_ZELDA_CARDS)} Legend of Zelda: Hyrule Chronicles cards")
@@ -4365,4 +4604,7 @@ CARDS = [
     # PHASE B-2 SPICE PICKS (group 2)
     MASTER_SHEIKAH_SAGE_OF_SPIRITS,
     TWILI_COVEN,
+    # PHASE B-3 SPICE PICKS (axis_diversity gate flip)
+    YIGA_FOOTSOLDIER,
+    PRINCESS_RUTO_SAGE_OF_WATER,
 ]

@@ -1672,6 +1672,193 @@ def test_twili_coven_opp_cast_does_not_fire():
 
 
 # ============================================================================
+# Phase B-3 — Yiga Footsoldier (axis_diversity gate flip, part 1/2)
+# ============================================================================
+
+def test_yiga_footsoldier_loads():
+    """Setup registers flash keyword + ETB peek-and-exile trigger."""
+    print("\n=== Yiga Footsoldier: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    yiga = _put_on_battlefield(game, p1, "Yiga Footsoldier")
+    assert yiga.zone == ZoneType.BATTLEFIELD
+    # flash keyword + etb_trigger.
+    assert len(yiga.interceptor_ids) >= 2, (
+        f"Expected >=2 interceptors; got {len(yiga.interceptor_ids)}"
+    )
+    assert has_ability(yiga, 'flash', game.state)
+
+
+def test_yiga_footsoldier_etb_stages_target_choice_and_exile_marker():
+    """ETB: a PendingChoice (target type) is staged AND an EXILE event fires
+    per opponent that has a non-empty library."""
+    print("\n=== Yiga Footsoldier: ETB target-choice + exile ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Plant a few cards on p2's library so Yiga has something to peek.
+    knight_def = LEGEND_OF_ZELDA_CARDS["Hyrule Knight"]
+    p2_lib = game.state.zones[f'library_{p2.id}']
+    for _ in range(3):
+        bob_card = game.create_object(
+            name="Hyrule Knight",
+            owner_id=p2.id,
+            zone=ZoneType.LIBRARY,
+            characteristics=knight_def.characteristics,
+            card_def=knight_def,
+        )
+        if bob_card.id not in p2_lib.objects:
+            p2_lib.objects.append(bob_card.id)
+
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Yiga Footsoldier")
+    new = game.state.event_log[before:]
+    exiles = [
+        e for e in new
+        if e.type == EventType.EXILE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('reason') == 'yiga_footsoldier_pending'
+    ]
+    assert exiles, (
+        f"Expected pending EXILE marker on p2; "
+        f"saw {[(e.type.name, e.payload) for e in new if e.type == EventType.EXILE]}"
+    )
+    # The setup should have staged a pending target choice (chooser=p1).
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected create_target_choice to stage a PendingChoice"
+    assert pc.player == p1.id, (
+        f"Expected chooser=p1; got {pc.player}"
+    )
+    assert pc.max_choices == 1 and pc.min_choices == 0, (
+        f"Expected 0..1 target slots; got min={pc.min_choices} max={pc.max_choices}"
+    )
+
+
+def test_yiga_footsoldier_etb_skips_empty_library_opp():
+    """Edge: opponents with empty libraries produce no EXILE event and no
+    pending choice from that opp."""
+    print("\n=== Yiga Footsoldier: empty-library opp skipped ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")  # default library setup — empty
+    # Drain p2 library to be sure.
+    game.state.zones[f'library_{p2.id}'].objects = []
+
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Yiga Footsoldier")
+    new = game.state.event_log[before:]
+    exiles = [e for e in new if e.type == EventType.EXILE]
+    assert not exiles, (
+        f"Expected no EXILE events with empty opp library; got {exiles}"
+    )
+
+
+# ============================================================================
+# Phase B-3 — Princess Ruto, Sage of Water (axis_diversity gate flip, part 2/2)
+# ============================================================================
+
+def test_princess_ruto_loads():
+    """Setup registers flash + cost reduction + spell-cast trigger."""
+    print("\n=== Princess Ruto: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    ruto = _put_on_battlefield(game, p1, "Princess Ruto, Sage of Water")
+    assert ruto.zone == ZoneType.BATTLEFIELD
+    # flash keyword + cost_reduction + spell_cast_trigger
+    assert len(ruto.interceptor_ids) >= 3, (
+        f"Expected >=3 interceptors; got {len(ruto.interceptor_ids)}"
+    )
+    assert has_ability(ruto, 'flash', game.state)
+
+
+def test_princess_ruto_spell_cast_peeks_and_marks_exile():
+    """Casting an instant/sorcery emits SCRY on the top of each opp's
+    library + an EXILE-EOT marker on that card."""
+    print("\n=== Princess Ruto: spell-cast peek + exile ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Stock p2's library with one card.
+    knight_def = LEGEND_OF_ZELDA_CARDS["Hyrule Knight"]
+    p2_lib = game.state.zones[f'library_{p2.id}']
+    bob_top = game.create_object(
+        name="Hyrule Knight",
+        owner_id=p2.id,
+        zone=ZoneType.LIBRARY,
+        characteristics=knight_def.characteristics,
+        card_def=knight_def,
+    )
+    if bob_top.id not in p2_lib.objects:
+        p2_lib.objects.append(bob_top.id)
+
+    _put_on_battlefield(game, p1, "Princess Ruto, Sage of Water")
+    before = len(game.state.event_log)
+    # p1 casts an instant.
+    game.emit(Event(
+        type=EventType.CAST,
+        payload={
+            'caster': p1.id,
+            'spell_id': 'dummy_instant_id',
+            'mana_value': 1,
+            'types': [CardType.INSTANT],
+        },
+    ))
+    new = game.state.event_log[before:]
+    peeks = [
+        e for e in new
+        if e.type == EventType.SCRY
+        and e.payload.get('player') == p2.id
+        and e.payload.get('viewer') == p1.id
+        and e.payload.get('reason') == 'princess_ruto_peek'
+    ]
+    exiles = [
+        e for e in new
+        if e.type == EventType.EXILE
+        and e.payload.get('reason') == 'princess_ruto_exile'
+        and e.payload.get('duration') == 'end_of_turn'
+    ]
+    assert peeks, (
+        f"Expected SCRY (peek) on top of p2 library; saw "
+        f"{[(e.type.name, e.payload) for e in new if e.type == EventType.SCRY]}"
+    )
+    assert exiles, (
+        f"Expected EOT EXILE marker; saw "
+        f"{[(e.type.name, e.payload) for e in new if e.type == EventType.EXILE]}"
+    )
+
+
+def test_princess_ruto_opp_cast_does_not_fire():
+    """Edge: with controller_only=True, opp casting an instant must NOT trigger
+    the peek."""
+    print("\n=== Princess Ruto: opp-cast skipped ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Princess Ruto, Sage of Water")
+
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.CAST,
+        payload={
+            'caster': p2.id,
+            'spell_id': 'dummy_opp_instant',
+            'mana_value': 1,
+            'types': [CardType.INSTANT],
+        },
+    ))
+    new = game.state.event_log[before:]
+    peeks = [
+        e for e in new
+        if e.type == EventType.SCRY
+        and e.payload.get('reason') == 'princess_ruto_peek'
+    ]
+    assert not peeks, (
+        f"Princess Ruto fired on opp's cast; "
+        f"controller_only should suppress. Got {peeks}"
+    )
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 
