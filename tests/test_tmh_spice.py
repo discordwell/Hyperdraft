@@ -629,6 +629,48 @@ def test_timeless_crown_unattached_upkeep_no_counter():
 
 
 # ============================================================================
+# Chronowarden, Reader of Fates (Phase A2 — slice-1 decision-axis flip)
+# ============================================================================
+
+def test_chronowarden_loads():
+    """Setup registers flying + targeted-ETB trigger interceptor."""
+    print("\n=== Chronowarden: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    cw = _put_on_battlefield(game, p1, "Chronowarden, Reader of Fates")
+    assert cw.zone == ZoneType.BATTLEFIELD
+    # Flying keyword + targeted-ETB
+    assert len(cw.interceptor_ids) >= 2, (
+        f"Expected at least flying + ETB interceptors; got {len(cw.interceptor_ids)}"
+    )
+    assert has_ability(cw, 'flying', game.state), "Expected flying"
+
+
+def test_chronowarden_etb_emits_target_required_for_opponent():
+    """ETB emits a TARGET_REQUIRED event scoped to an opponent."""
+    print("\n=== Chronowarden: ETB target_required ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    cw = _put_on_battlefield(game, p1, "Chronowarden, Reader of Fates")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == cw.id
+        and e.payload.get('target_filter') == 'opponent'
+    ]
+    assert target_reqs, (
+        f"Expected TARGET_REQUIRED w/ opponent filter; new={[e.type.name for e in new[-10:]]}"
+    )
+    payload = target_reqs[0].payload
+    assert payload.get('effect') == 'reveal_hand_mark_time'
+    assert payload.get('min_targets') == 1
+    assert payload.get('max_targets') == 1
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 

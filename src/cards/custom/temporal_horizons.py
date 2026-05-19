@@ -42,6 +42,8 @@ from src.cards.interceptor_helpers import (
     other_creatures_you_control, creatures_you_control, all_opponents,
     # Helper 5 rewires (catalog sweep, 2026-05-18):
     make_equipment_setup,
+    # Phase A2 decision-axis flip (slice 1, 2026-05-18):
+    make_targeted_etb_trigger,
 )
 
 
@@ -4582,6 +4584,65 @@ CRYSTAL_OF_FUTURE = make_artifact(
 
 
 # =============================================================================
+# Spice-pass Phase A2 (slice 1) — decision-axis flip (2026-05-18)
+# +1 card. Introduces the set's first targeted-helper fingerprint, flipping
+# axis_diversity from 0.078 -> >=0.080 (gate 1/4 -> 2/4). The card itself is
+# a flavor-pure "fated sight" mythic that fits TMH's time/prophecy core.
+# =============================================================================
+
+
+# --- Chronowarden, Reader of Fates ({2}{U}{B} Mythic Legendary Creature) ---
+# Chronicle/prophecy archetype. ETB targets an opponent who reveals their
+# hand; you tag the heaviest card with a time counter ("freeze in their fate"
+# — flavor only; the time counter on a card in hand is dead weight in
+# practice but reads as a prophecy mark). Uses make_targeted_etb_trigger so
+# the AST scorer surfaces decision=1 + asymmetry (REVEAL_HAND is an
+# information event = asymmetry=3). Sole-of-set decision-axis fingerprint.
+def chronowarden_reader_of_fates_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """{2}{U}{B} 3/3 Legendary Human Wizard.
+    - Flying.
+    - When Chronowarden, Reader of Fates enters, target opponent reveals
+      their hand. Put a time counter on the most expensive nonland card
+      revealed this way (mark it as fated).
+    - The targeted-ETB helper is the format-defining axis flip: prior to
+      this card every TMH card scored decision=0."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    return [
+        make_keyword_grant(obj, ['flying'], affects_self),
+        make_targeted_etb_trigger(
+            obj,
+            effect='reveal_hand_mark_time',
+            effect_params={'counter_type': 'time', 'amount': 1},
+            target_filter='opponent',
+            min_targets=1,
+            max_targets=1,
+            prompt='Choose an opponent to reveal their hand and mark a card with a time counter',
+        ),
+    ]
+
+
+CHRONOWARDEN_READER_OF_FATES = make_creature(
+    name="Chronowarden, Reader of Fates",
+    power=3, toughness=3,
+    mana_cost="{2}{U}{B}",
+    colors={Color.BLUE, Color.BLACK},
+    subtypes={"Human", "Wizard"},
+    supertypes={"Legendary"},
+    text=(
+        "Flying. "
+        "When Chronowarden, Reader of Fates enters, target opponent reveals "
+        "their hand. Put a time counter on the most expensive nonland card "
+        "revealed this way. (The future has already been written.)"
+    ),
+    setup_interceptors=chronowarden_reader_of_fates_setup,
+)
+
+
+# =============================================================================
 # REGISTRY
 # =============================================================================
 
@@ -4906,6 +4967,8 @@ TEMPORAL_HORIZONS_CARDS = {
     "Crystal of Past": CRYSTAL_OF_PAST,
     "Crystal of Present": CRYSTAL_OF_PRESENT,
     "Crystal of Future": CRYSTAL_OF_FUTURE,
+    # Phase A2 (slice 1) — decision-axis flip
+    "Chronowarden, Reader of Fates": CHRONOWARDEN_READER_OF_FATES,
 }
 
 print(f"Loaded {len(TEMPORAL_HORIZONS_CARDS)} Temporal Horizons cards")
@@ -5199,4 +5262,6 @@ CARDS = [
     CRYSTAL_OF_PAST,
     CRYSTAL_OF_PRESENT,
     CRYSTAL_OF_FUTURE,
+    # SPICE-PASS PHASE A2 (slice 1, 2026-05-18) — decision-axis flip
+    CHRONOWARDEN_READER_OF_FATES,
 ]
