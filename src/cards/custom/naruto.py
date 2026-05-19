@@ -3669,12 +3669,53 @@ SHURIKEN = make_equipment(
 )
 
 
+# --- Samehada, Shark Skin: Helper-5 rewire ---------------------------------
+# +3/+2 + granted trigger "combat damage to player → controller gains that
+# much life." The lifelink-on-trigger pattern feels distinct from
+# vanilla lifelink because it only fires on combat damage to players.
+def _samehada_combat_damage_to_player_filter(
+    event: Event, state: GameState, target_id: str
+) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    if event.payload.get('target') not in state.players:
+        return False
+    amt = event.payload.get('amount', 0) or 0
+    return amt > 0
+
+
+def _samehada_lifegain_effect(
+    target_obj: GameObject, event: Event, state: GameState
+) -> list[Event]:
+    amt = event.payload.get('amount', 0) or 0
+    if amt <= 0:
+        return []
+    return [Event(
+        type=EventType.LIFE_CHANGE,
+        payload={'player': target_obj.controller, 'amount': amt},
+        source=target_obj.id,
+    )]
+
+
 SAMEHADA = make_equipment(
     name="Samehada, Shark Skin",
     mana_cost="{3}",
     text="Equipped creature gets +3/+2. Whenever equipped creature deals combat damage to a player, you gain that much life.",
     equip_cost="{3}",
-    supertypes={"Legendary"}
+    supertypes={"Legendary"},
+    setup_interceptors=ih.make_equipment_setup(
+        power_mod=3, toughness_mod=2,
+        equip_cost="{3}",
+        granted_triggered_abilities={
+            "event_filter": _samehada_combat_damage_to_player_filter,
+            "effect_fn": _samehada_lifegain_effect,
+            "description": "Combat damage to player → controller gains that much life",
+        },
+    ),
 )
 
 
