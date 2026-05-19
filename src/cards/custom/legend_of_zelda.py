@@ -837,6 +837,339 @@ def time_travel_sonata_resolve(targets: list, state: GameState) -> list[Event]:
     )]
 
 
+# -----------------------------------------------------------------------------
+# Phase B-1 setup functions (2026-05-18, depends on Helper 5 + Helper 2)
+# Plan: /Users/discordwell/.claude/plans/zld_spice_pass.md §Phase B-1
+# -----------------------------------------------------------------------------
+
+
+# --- Pick 4: Sheikah Eye of Truth -------------------------------------------
+# Combat-damage-to-player trigger on the equipped creature. Uses Helper 5
+# (granted_triggered_abilities) to install a DAMAGE→player listener on attach.
+# Effect simplified to "scry 3" — the printed "peek top 3, take 1, bottom rest"
+# is a Phase B-3 effect (needs PendingChoice ordering).
+def _sheikah_eye_combat_damage_filter(event: Event, state: GameState, target_id: str) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    tgt = event.payload.get('target')
+    return tgt in state.players
+
+
+def _sheikah_eye_combat_damage_effect(target_obj: GameObject, event: Event, state: GameState) -> list[Event]:
+    # Scry 3 placeholder — the engine treats EventType.ACTIVATE with
+    # action='scry' as the canonical "I scryed" emission. See _make_scry_event
+    # at the top of this file.
+    return [Event(
+        type=EventType.ACTIVATE,
+        payload={
+            'action': 'scry',
+            'amount': 3,
+            'player': target_obj.controller,
+            'source': target_obj.id,
+        },
+        source=target_obj.id,
+    )]
+
+
+# --- Pick 15: Master Sword, Bane of Evil ------------------------------------
+# +3/+3 + vigilance always via make_equipment_setup. Plus a granted triggered
+# ability: "Combat damage to Demon → destroy that Demon."
+def _master_sword_combat_damage_to_demon_filter(event: Event, state: GameState, target_id: str) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != target_id:
+        return False
+    if not event.payload.get('combat', False):
+        return False
+    tgt_id = event.payload.get('target')
+    if not tgt_id or tgt_id in state.players:
+        return False
+    tgt_obj = state.objects.get(tgt_id)
+    if tgt_obj is None or tgt_obj.characteristics is None:
+        return False
+    return 'Demon' in (tgt_obj.characteristics.subtypes or set())
+
+
+def _master_sword_destroy_demon_effect(target_obj: GameObject, event: Event, state: GameState) -> list[Event]:
+    demon_id = event.payload.get('target')
+    if not demon_id:
+        return []
+    return [Event(
+        type=EventType.DESTROY,
+        payload={'object_id': demon_id, 'reason': 'master_sword_demon_bane'},
+        source=target_obj.id,
+    )]
+
+
+# --- Pick 11: Ballad of the Goddess (saga chapter functions) ----------------
+# I — Search library for Spirit/Hylian/Champion creature, to hand
+# II — Tap every creature your opponents control
+# III — Search library for any Triforce-named cards, to hand (Helper 2 use)
+def _ballad_chapter_i(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """I — Look top 3, take a Spirit/Hylian/Champion. v1 simplification:
+    SEARCH_LIBRARY of the same subtypes, to hand. Original "top 3"
+    constraint is a Phase B-3 ordering effect."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': saga_obj.controller,
+            'subtypes_any': ['Spirit', 'Hylian', 'Champion'],
+            'card_type': 'creature',
+            'destination': 'hand',
+            'min_count': 0,
+            'max_count': 1,
+            'reveal': True,
+        },
+        source=saga_obj.id,
+    )]
+
+
+def _ballad_chapter_ii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """II — Tap each creature your opponents control."""
+    events: list[Event] = []
+    for o in list(state.objects.values()):
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if not o.characteristics:
+            continue
+        if CardType.CREATURE not in (o.characteristics.types or set()):
+            continue
+        if o.controller == saga_obj.controller:
+            continue
+        if getattr(o.state, 'tapped', False):
+            continue
+        events.append(Event(
+            type=EventType.TAP,
+            payload={'object_id': o.id, 'forced': True, 'reason': 'ballad_chapter_ii'},
+            source=saga_obj.id,
+        ))
+    return events
+
+
+def _ballad_chapter_iii(saga_obj: GameObject, state: GameState) -> list[Event]:
+    """III — Search library for a Triforce-named card, to hand.
+    Engine cap: card_name_any returns one card at a time (max_count=1).
+    The printed "any number" is Phase B-3 (variable-count search)."""
+    return [Event(
+        type=EventType.SEARCH_LIBRARY,
+        payload={
+            'player': saga_obj.controller,
+            'card_name_any': [
+                'Triforce of Power', 'Triforce of Wisdom', 'Triforce of Courage',
+            ],
+            'destination': 'hand',
+            'min_count': 0,
+            'max_count': 1,
+            'reveal': True,
+        },
+        source=saga_obj.id,
+    )]
+
+
+def ballad_of_the_goddess_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """3-chapter saga: tribal tutor → tap-all-opp-creatures → Triforce tutor."""
+    from src.cards.interceptor_helpers import make_saga_setup
+    return make_saga_setup(
+        obj,
+        {
+            1: _ballad_chapter_i,
+            2: _ballad_chapter_ii,
+            3: _ballad_chapter_iii,
+        },
+    )
+
+
+# --- R2: Revali, Rito Champion ----------------------------------------------
+def revali_rito_champion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{G}{U} 3/3 Legendary Rito Champion. Flying. ETB: draw 1 + put a
+    +1/+1 counter on another creature you control. Once per turn, whenever
+    Revali deals combat damage to a player, draw a card."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb(event: Event, st: GameState) -> list[Event]:
+        # Find another creature you control (deterministic pick: oldest by id).
+        others = [
+            o for o in st.objects.values()
+            if o.id != obj.id
+            and o.controller == obj.controller
+            and o.zone == ZoneType.BATTLEFIELD
+            and CardType.CREATURE in (o.characteristics.types or set())
+        ]
+        events: list[Event] = [Event(
+            type=EventType.DRAW,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id,
+        )]
+        if others:
+            others.sort(key=lambda o: o.id)
+            events.append(Event(
+                type=EventType.COUNTER_ADDED,
+                payload={'object_id': others[0].id, 'counter_type': '+1/+1', 'amount': 1},
+                source=obj.id,
+            ))
+        return events
+
+    def combat_dmg_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get('source') != obj.id:
+            return False
+        if not event.payload.get('combat', False):
+            return False
+        tgt = event.payload.get('target')
+        if tgt not in st.players:
+            return False
+        # Once-per-turn gate
+        td = getattr(st, 'turn_data', None) or {}
+        return not td.get(f'revali_draw_fired_{obj.id}', False)
+
+    def combat_dmg_handler(event: Event, st: GameState) -> InterceptorResult:
+        td = getattr(st, 'turn_data', None) or {}
+        if hasattr(st, 'turn_data') and st.turn_data is not None:
+            st.turn_data[f'revali_draw_fired_{obj.id}'] = True
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=[Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+            )],
+        )
+
+    draw_itc = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_dmg_filter,
+        handler=combat_dmg_handler,
+        duration='while_on_battlefield',
+    )
+    return [
+        make_keyword_grant(obj, ['flying'], affects_self),
+        make_etb_trigger(obj, etb),
+        draw_itc,
+    ]
+
+
+# --- R4: Ghirahim, Demon Lord -----------------------------------------------
+def ghirahim_demon_lord_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{B}{R} 4/3 Legendary Demon. Haste. Whenever Ghirahim deals combat
+    damage to a player, each opponent discards a card and you exile the top
+    card of your library; you may play it this turn."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def combat_dmg_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if event.payload.get('source') != obj.id:
+            return False
+        if not event.payload.get('combat', False):
+            return False
+        return event.payload.get('target') in st.players
+
+    def combat_dmg_handler(event: Event, st: GameState) -> InterceptorResult:
+        events: list[Event] = []
+        for opp_id in all_opponents(obj, st):
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={'player': opp_id, 'amount': 1},
+                source=obj.id,
+            ))
+        events.append(Event(
+            type=EventType.EXILE_TOP_PLAY,
+            payload={
+                'caster': obj.controller,
+                'player': obj.controller,
+                'amount': 1,
+                'until': 'end_of_turn',
+            },
+            source=obj.id,
+        ))
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+
+    react_itc = Interceptor(
+        id=new_id(),
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=combat_dmg_filter,
+        handler=combat_dmg_handler,
+        duration='while_on_battlefield',
+    )
+    return [make_keyword_grant(obj, ['haste'], affects_self), react_itc]
+
+
+# --- R7: Beedle, Traveling Merchant -----------------------------------------
+def beedle_traveling_merchant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2} 1/2 colorless Human Merchant. {T}: add one mana of any color.
+    {2}, {T}: search library for a card named Heart Container, Bomb Bag,
+    Hookshot, Bunny Hood, Fairy Bottle, or Sheikah Slate. (Helper 2 use.)"""
+    def mana_tap(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        # Engine doesn't yet have a generic "add mana of any color" event;
+        # we emit a MANA_ADD event with a wildcard color marker. Most cards
+        # in custom sets use this same shape — the cost system reads
+        # state.mana_pool independently.
+        return [Event(
+            type=EventType.MANA_ADD,
+            payload={'player': o.controller, 'amount': 1, 'any_color': True},
+            source=o.id,
+        )]
+
+    def tutor(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': o.controller,
+                'card_name_any': [
+                    'Heart Container', 'Bomb Bag', 'Hookshot',
+                    'Bunny Hood', 'Fairy Bottle', 'Sheikah Slate',
+                ],
+                'destination': 'hand',
+                'min_count': 0,
+                'max_count': 1,
+                'reveal': True,
+            },
+            source=o.id,
+        )]
+
+    make_activated_ability(
+        obj, cost="{T}", effect_fn=mana_tap,
+        description="Add one mana of any color",
+        targets_required=0,
+    )
+    make_activated_ability(
+        obj, cost="{2}, {T}", effect_fn=tutor,
+        description="Tutor a Zelda item card to hand",
+        targets_required=0,
+    )
+    return []
+
+
+# --- R8: Purah, Sheikah Researcher ------------------------------------------
+def purah_sheikah_researcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{1}{U}{R} 1/3 Legendary Sheikah Artificer. ETB: scry 3, draw a card.
+    (Simplified from the printed 'reveal until MV=3' — that's a Phase B-3
+    reveal-and-take effect; the current shape compresses to a scry+draw.)"""
+    def etb(event: Event, st: GameState) -> list[Event]:
+        return [
+            _make_scry_event(obj, 3),
+            Event(
+                type=EventType.DRAW,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id,
+            ),
+        ]
+
+    return [make_etb_trigger(obj, etb)]
+
+
 def _triforce_setup(triforce_power: int, triforce_toughness: int, triforce_required: int):
     """Helper for cards with only Triforce bonus."""
     def setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1871,6 +2204,12 @@ REVALI_RITO_CHAMPION = make_creature(
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Rito", "Champion"},
     supertypes={"Legendary"},
+    text=(
+        "Flying. When Revali, Rito Champion enters, draw a card and put "
+        "a +1/+1 counter on another target creature you control. Whenever "
+        "Revali deals combat damage to a player, draw a card. (Once per turn.)"
+    ),
+    setup_interceptors=revali_rito_champion_setup,
 )
 
 
@@ -2220,8 +2559,75 @@ MASTER_SWORD = make_equipment(
     name="Master Sword",
     mana_cost="{3}",
     equip_cost="{2}",
-    text="Equipped creature gets +3/+3 and has vigilance. If equipped creature is legendary, it also has indestructible.",
-    supertypes={"Legendary"}
+    text=(
+        "Equipped creature gets +3/+3 and has vigilance and protection from "
+        "Demons. Whenever equipped creature deals combat damage to a Demon, "
+        "destroy that Demon."
+    ),
+    supertypes={"Legendary"},
+    setup_interceptors=make_equipment_setup(
+        power_mod=3, toughness_mod=3,
+        keywords=["vigilance"],
+        equip_cost="{2}",
+        granted_triggered_abilities={
+            "event_filter": _master_sword_combat_damage_to_demon_filter,
+            "effect_fn": _master_sword_destroy_demon_effect,
+            "description": "Combat damage to Demon → destroy that Demon",
+        },
+    ),
+)
+
+
+# --- Sheikah Eye of Truth (spice-pass W22+, Phase B-1) ---
+# {1}{U} Legendary Artifact — Equipment, Uncommon. Equip {2}.
+# +1/+2 + hexproof. Whenever equipped creature deals combat damage to a
+# player, you scry 3. (Simplified from "peek top 3, take 1, bottom rest"
+# — that's a Phase B-3 ordered-choice effect.)
+SHEIKAH_EYE_OF_TRUTH = make_equipment(
+    name="Sheikah Eye of Truth",
+    mana_cost="{1}{U}",
+    equip_cost="{2}",
+    text=(
+        "Equipped creature gets +1/+2 and has hexproof. Whenever equipped "
+        "creature deals combat damage to a player, scry 3."
+    ),
+    supertypes={"Legendary"},
+    setup_interceptors=make_equipment_setup(
+        power_mod=1, toughness_mod=2,
+        keywords=["hexproof"],
+        equip_cost="{2}",
+        granted_triggered_abilities={
+            "event_filter": _sheikah_eye_combat_damage_filter,
+            "effect_fn": _sheikah_eye_combat_damage_effect,
+            "description": "Combat damage to player → scry 3",
+        },
+    ),
+)
+
+
+# --- Ballad of the Goddess (spice-pass W22+, Phase B-1) ---
+# {2}{W}{U} Legendary Enchantment — Saga, Mythic. 3 chapters.
+BALLAD_OF_THE_GODDESS = CardDefinition(
+    name="Ballad of the Goddess",
+    mana_cost="{2}{W}{U}",
+    characteristics=Characteristics(
+        types={CardType.ENCHANTMENT},
+        subtypes={"Saga"},
+        colors={Color.WHITE, Color.BLUE},
+        supertypes={"Legendary"},
+        mana_cost="{2}{W}{U}",
+    ),
+    text=(
+        "(As this Saga enters and after your draw step, add a lore counter. "
+        "Sacrifice after III.)\n"
+        "I — Search your library for a Spirit, Hylian, or Champion creature "
+        "card, reveal it, put it into your hand, then shuffle.\n"
+        "II — Tap each creature your opponents control.\n"
+        "III — Search your library for a card named Triforce of Power, "
+        "Triforce of Wisdom, or Triforce of Courage, reveal it, put it into "
+        "your hand, then shuffle."
+    ),
+    setup_interceptors=ballad_of_the_goddess_setup,
 )
 
 
@@ -2846,6 +3252,12 @@ GHIRAHIM_DEMON_LORD = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Demon"},
     supertypes={"Legendary"},
+    text=(
+        "Haste. Whenever Ghirahim, Demon Lord deals combat damage to a "
+        "player, each opponent discards a card, then exile the top card "
+        "of your library. You may play that card this turn."
+    ),
+    setup_interceptors=ghirahim_demon_lord_setup,
 )
 
 DEMISE_DEMON_KING = make_creature(
@@ -2928,6 +3340,13 @@ BEEDLE_TRAVELING_MERCHANT = make_creature(
     colors=set(),
     subtypes={"Human", "Merchant"},
     supertypes={"Legendary"},
+    text=(
+        "{T}: Add one mana of any color. "
+        "{2}, {T}: Search your library for a card named Heart Container, "
+        "Bomb Bag, Hookshot, Bunny Hood, Fairy Bottle, or Sheikah Slate, "
+        "reveal it, put it into your hand, then shuffle."
+    ),
+    setup_interceptors=beedle_traveling_merchant_setup,
 )
 
 PURAH_SHEIKAH_RESEARCHER = make_creature(
@@ -2937,6 +3356,10 @@ PURAH_SHEIKAH_RESEARCHER = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Sheikah", "Artificer"},
     supertypes={"Legendary"},
+    text=(
+        "When Purah, Sheikah Researcher enters, scry 3, then draw a card."
+    ),
+    setup_interceptors=purah_sheikah_researcher_setup,
 )
 
 ROBBIE_ANCIENT_TECH = make_creature(
@@ -3197,6 +3620,8 @@ LEGEND_OF_ZELDA_CARDS = {
 
     # EQUIPMENT
     "Master Sword": MASTER_SWORD,
+    "Sheikah Eye of Truth": SHEIKAH_EYE_OF_TRUTH,
+    "Ballad of the Goddess": BALLAD_OF_THE_GODDESS,
     "Hylian Shield": HYLIAN_SHIELD,
     "Hero's Bow": HEROS_BOW,
     "Biggoron's Sword": BIGGORONS_SWORD,
@@ -3408,6 +3833,8 @@ CARDS = [
     DIVINE_BEAST_VAH_MEDOH,
     DIVINE_BEAST_VAH_NABORIS,
     MASTER_SWORD,
+    SHEIKAH_EYE_OF_TRUTH,
+    BALLAD_OF_THE_GODDESS,
     HYLIAN_SHIELD,
     HEROS_BOW,
     BIGGORONS_SWORD,

@@ -138,6 +138,19 @@ def _cleanup_handler(event: Event, state: GameState) -> InterceptorResult:
 
     new_events: list[Event] = []
 
+    def _revoke_triggered_stash(host_state: Any) -> None:
+        """Pop any granted-triggered interceptor IDs stashed on ``host_state``
+        from ``state.interceptors``. Mirrors what
+        ``_make_attached_triggered_ability_listener`` would have done if its
+        REACT branch hadn't been filtered out by leaves-battlefield gating."""
+        ids = list(getattr(host_state, "_granted_triggered_ability_ids", []) or [])
+        for int_id in ids:
+            state.interceptors.pop(int_id, None)
+        try:
+            delattr(host_state, "_granted_triggered_ability_ids")
+        except AttributeError:
+            pass
+
     # Revoke granted abilities for everything currently attached to obj,
     # then for obj itself if it's attached to something. We do this BEFORE
     # queuing the UNATTACH events so the bookkeeping is consistent even if
@@ -153,6 +166,9 @@ def _cleanup_handler(event: Event, state: GameState) -> InterceptorResult:
                 delattr(attached.state, "_granted_ability_targets")
             except AttributeError:
                 pass
+            # Helper 5: revoke granted triggered abilities stashed on the
+            # equipment / aura side.
+            _revoke_triggered_stash(attached.state)
         new_events.append(Event(
             type=EventType.UNATTACH,
             payload={"object_id": attached_id},
@@ -169,6 +185,9 @@ def _cleanup_handler(event: Event, state: GameState) -> InterceptorResult:
             delattr(obj.state, "_granted_ability_targets")
         except AttributeError:
             pass
+        # Helper 5: obj is the equipment/aura that's leaving; revoke any
+        # triggered abilities it had granted.
+        _revoke_triggered_stash(obj.state)
         new_events.append(Event(
             type=EventType.UNATTACH,
             payload={"object_id": obj_id},

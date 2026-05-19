@@ -7892,6 +7892,121 @@ def _make_attached_ward_interceptor(
     )
 
 
+def _make_attached_triggered_ability_listener(
+    source_obj: GameObject,
+    specs: Optional[Any],
+) -> Optional[Interceptor]:
+    """Build an ATTACH/UNATTACH REACT interceptor that grants/revokes a
+    triggered ability on whichever creature ``source_obj`` is attached to.
+
+    Parallel to ``src.engine.attach.make_granted_abilities_listener`` (which
+    handles *activated* abilities). Each spec is a dict::
+
+        {
+            "event_filter": Callable[[Event, GameState, str], bool],
+            "effect_fn":    Callable[[GameObject, Event, GameState], list[Event]],
+            "description":  str,                 # optional, for logs/tests
+            "duration":     "while_on_battlefield",  # optional; default
+            "one_shot":     False,               # optional
+        }
+
+    The granted Interceptor IDs are stashed on
+    ``source_obj.state._granted_triggered_ability_ids`` so UNATTACH (or the
+    equipment leaving the battlefield) can revoke them. ``grant_triggered_ability``
+    registers each Interceptor on ``state.interceptors``; revocation simply
+    pops them out.
+    """
+    normalized = _normalise_triggered_specs(specs) if specs is not None else []
+    if not normalized:
+        return None
+
+    source_id = source_obj.id
+    controller_id = source_obj.controller
+
+    def _filter(event: Event, state: GameState) -> bool:
+        if event.type in (EventType.ATTACH, EventType.UNATTACH):
+            return event.payload.get("object_id") == source_id
+        # Catch equipment leaving the battlefield in the same REACT phase
+        # before _cleanup_departed_interceptors strips this listener.
+        if event.type == EventType.ZONE_CHANGE:
+            if event.payload.get("object_id") != source_id:
+                return False
+            from_t = event.payload.get("from_zone_type")
+            to_t = event.payload.get("to_zone_type")
+            return from_t == ZoneType.BATTLEFIELD and to_t != ZoneType.BATTLEFIELD
+        return False
+
+    def _revoke(state: GameState, source: GameObject) -> None:
+        ids = list(getattr(source.state, "_granted_triggered_ability_ids", []) or [])
+        for int_id in ids:
+            state.interceptors.pop(int_id, None)
+        try:
+            delattr(source.state, "_granted_triggered_ability_ids")
+        except AttributeError:
+            pass
+
+    def _handler(event: Event, state: GameState) -> InterceptorResult:
+        source = state.objects.get(source_id)
+        if source is None:
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        if event.type == EventType.ATTACH:
+            target_id = event.payload.get("target_id") or event.payload.get("target")
+            if not target_id:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            target = state.objects.get(target_id)
+            if target is None:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            # If we were granting to a prior target, revoke first.
+            _revoke(state, source)
+            granted_ids: list[str] = []
+            for spec in normalized:
+                interceptor = grant_triggered_ability(
+                    target,
+                    source,
+                    state,
+                    event_filter=spec["event_filter"],
+                    effect_fn=spec["effect_fn"],
+                    duration=spec.get("duration", "while_on_battlefield"),
+                    one_shot=bool(spec.get("one_shot", False)),
+                )
+                granted_ids.append(interceptor.id)
+            setattr(source.state, "_granted_triggered_ability_ids", granted_ids)
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        # UNATTACH or ZONE_CHANGE leaving battlefield: revoke.
+        _revoke(state, source)
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    return Interceptor(
+        id=new_id(),
+        source=source_id,
+        controller=controller_id,
+        priority=InterceptorPriority.REACT,
+        filter=_filter,
+        handler=_handler,
+        duration='while_on_battlefield',
+    )
+
+
+def _normalise_triggered_specs(specs: Any) -> list[dict]:
+    """Coerce ``specs`` to a list of dicts. Accepts a single dict, a list
+    of dicts, or None. Filters out entries missing ``event_filter`` or
+    ``effect_fn`` so a malformed spec doesn't blow up at runtime."""
+    if specs is None:
+        return []
+    if isinstance(specs, dict):
+        specs = [specs]
+    result: list[dict] = []
+    for s in specs:
+        if not isinstance(s, dict):
+            continue
+        if not callable(s.get("event_filter")) or not callable(s.get("effect_fn")):
+            continue
+        result.append(s)
+    return result
+
+
 def make_equipment_setup(
     *,
     power_mod: int = 0,
@@ -7901,6 +8016,7 @@ def make_equipment_setup(
     equip_cost: Optional[str] = None,
     ward_cost: Optional[str] = None,
     granted_activated_abilities: Optional[Any] = None,
+    granted_triggered_abilities: Optional[Any] = None,
 ):
     """Return a setup_interceptors callable for an Equipment card.
 
@@ -7954,6 +8070,9 @@ def make_equipment_setup(
         gi = make_granted_abilities_listener(obj, granted_activated_abilities)
         if gi is not None:
             interceptors.append(gi)
+        ti = _make_attached_triggered_ability_listener(obj, granted_triggered_abilities)
+        if ti is not None:
+            interceptors.append(ti)
         if equip_cost:
             _make_equip_activated_ability(obj, equip_cost)
         return interceptors
@@ -7970,6 +8089,7 @@ def make_aura_setup(
     target_id_attr: str = "_aura_target_id",
     ward_cost: Optional[str] = None,
     granted_activated_abilities: Optional[Any] = None,
+    granted_triggered_abilities: Optional[Any] = None,
 ):
     """Return a setup_interceptors callable for an Aura card.
 
@@ -8025,6 +8145,9 @@ def make_aura_setup(
         gi = make_granted_abilities_listener(obj, granted_activated_abilities)
         if gi is not None:
             interceptors.append(gi)
+        ti = _make_attached_triggered_ability_listener(obj, granted_triggered_abilities)
+        if ti is not None:
+            interceptors.append(ti)
         return interceptors
 
     return _setup

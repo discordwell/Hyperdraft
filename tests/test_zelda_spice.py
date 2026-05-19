@@ -813,6 +813,366 @@ def test_time_travel_sonata_resolve_emits_extra_turn():
 
 
 # ============================================================================
+# Phase B-1 cards (Helper 5: granted triggered on attach; Helper 2: name_any)
+# ============================================================================
+
+# --- Sheikah Eye of Truth ---------------------------------------------------
+
+def test_sheikah_eye_of_truth_attach_grants_pt_and_keywords():
+    print("\n=== Sheikah Eye: attach +1/+2 + hexproof ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    eye = _put_on_battlefield(game, p1, "Sheikah Eye of Truth")
+    knight = _put_on_battlefield(game, p1, "Hyrule Knight")
+    base_p = get_power(knight, game.state)
+    base_t = get_toughness(knight, game.state)
+    game.emit(Event(
+        type=EventType.ATTACH,
+        payload={'object_id': eye.id, 'target_id': knight.id},
+        source=eye.id,
+    ))
+    new_p = get_power(knight, game.state)
+    new_t = get_toughness(knight, game.state)
+    assert new_p == base_p + 1, f"Expected +1 power: {base_p}→{new_p}"
+    assert new_t == base_t + 2, f"Expected +2 toughness: {base_t}→{new_t}"
+    assert has_ability(knight, "hexproof", game.state)
+
+
+def test_sheikah_eye_combat_damage_triggers_scry():
+    """When the equipped creature deals combat damage to a player,
+    a scry-3 event fires."""
+    print("\n=== Sheikah Eye: combat damage → scry 3 ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    eye = _put_on_battlefield(game, p1, "Sheikah Eye of Truth")
+    knight = _put_on_battlefield(game, p1, "Hyrule Knight")
+    game.emit(Event(
+        type=EventType.ATTACH,
+        payload={'object_id': eye.id, 'target_id': knight.id},
+        source=eye.id,
+    ))
+
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': knight.id, 'target': p2.id, 'amount': 1, 'combat': True},
+        source=knight.id,
+    ))
+    new = game.state.event_log[before:]
+    scry_events = [
+        e for e in new
+        if e.type == EventType.ACTIVATE
+        and e.payload.get('action') == 'scry'
+        and e.payload.get('amount') == 3
+        and e.payload.get('player') == p1.id
+    ]
+    assert scry_events, (
+        f"Expected scry-3 placeholder after Knight combat-dmg-to-player; "
+        f"recent={[e.type.name for e in new[-10:]]}"
+    )
+
+
+def test_sheikah_eye_unattach_revokes_grant():
+    """After UNATTACH, the granted trigger no longer fires."""
+    print("\n=== Sheikah Eye: unattach revokes trigger ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    eye = _put_on_battlefield(game, p1, "Sheikah Eye of Truth")
+    knight = _put_on_battlefield(game, p1, "Hyrule Knight")
+    game.emit(Event(
+        type=EventType.ATTACH,
+        payload={'object_id': eye.id, 'target_id': knight.id},
+        source=eye.id,
+    ))
+    granted_ids = list(getattr(eye.state, "_granted_triggered_ability_ids", []) or [])
+    assert granted_ids, "Setup: should have granted IDs after attach"
+
+    game.emit(Event(
+        type=EventType.UNATTACH,
+        payload={'object_id': eye.id, 'target_id': knight.id},
+        source=eye.id,
+    ))
+
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': knight.id, 'target': p2.id, 'amount': 1, 'combat': True},
+        source=knight.id,
+    ))
+    new = game.state.event_log[before:]
+    scry_events = [
+        e for e in new
+        if e.type == EventType.ACTIVATE and e.payload.get('action') == 'scry'
+    ]
+    assert not scry_events, "Expected NO scry after unattach"
+
+
+# --- Master Sword, Bane of Evil ---------------------------------------------
+
+def test_master_sword_attach_grants_pt_and_vigilance():
+    print("\n=== Master Sword: attach +3/+3 + vigilance ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    sword = _put_on_battlefield(game, p1, "Master Sword")
+    knight = _put_on_battlefield(game, p1, "Hyrule Knight")
+    base_p = get_power(knight, game.state)
+    base_t = get_toughness(knight, game.state)
+    game.emit(Event(
+        type=EventType.ATTACH,
+        payload={'object_id': sword.id, 'target_id': knight.id},
+        source=sword.id,
+    ))
+    new_p = get_power(knight, game.state)
+    new_t = get_toughness(knight, game.state)
+    assert new_p == base_p + 3
+    assert new_t == base_t + 3
+    assert has_ability(knight, "vigilance", game.state)
+
+
+def test_master_sword_destroys_demon_on_combat_damage():
+    """Combat damage to a Demon triggers DESTROY. Ghirahim has Demon
+    subtype, so we use him as the test target."""
+    print("\n=== Master Sword: damage to Demon → destroy ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    sword = _put_on_battlefield(game, p1, "Master Sword")
+    knight = _put_on_battlefield(game, p1, "Hyrule Knight")
+    demon = _put_on_battlefield(game, p2, "Ghirahim, Demon Lord")
+    assert 'Demon' in (demon.characteristics.subtypes or set())
+
+    game.emit(Event(
+        type=EventType.ATTACH,
+        payload={'object_id': sword.id, 'target_id': knight.id},
+        source=sword.id,
+    ))
+
+    # Knight deals 1 combat damage to demon.
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': knight.id, 'target': demon.id, 'amount': 1, 'combat': True},
+        source=knight.id,
+    ))
+    # DESTROY is rewritten to OBJECT_DESTROYED in TRANSFORM, then the
+    # demon's zone moves to GRAVEYARD. Read post-trigger zone.
+    assert demon.zone == ZoneType.GRAVEYARD, (
+        f"Expected Demon in graveyard after Master Sword combat damage; "
+        f"got {demon.zone}"
+    )
+
+
+def test_master_sword_does_not_destroy_non_demon():
+    """Combat damage to a NON-Demon doesn't trigger destroy."""
+    print("\n=== Master Sword: damage to non-Demon → no destroy ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    sword = _put_on_battlefield(game, p1, "Master Sword")
+    knight = _put_on_battlefield(game, p1, "Hyrule Knight")
+    bystander = _put_on_battlefield(game, p2, "Forest Guardian")
+    game.emit(Event(
+        type=EventType.ATTACH,
+        payload={'object_id': sword.id, 'target_id': knight.id},
+        source=sword.id,
+    ))
+
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': knight.id, 'target': bystander.id, 'amount': 1, 'combat': True},
+        source=knight.id,
+    ))
+    # Bystander is 4/5 (Forest Guardian) — 1 damage doesn't kill it.
+    # Master Sword's bane shouldn't fire because it's not a Demon.
+    assert bystander.zone == ZoneType.BATTLEFIELD, (
+        f"Forest Guardian should still be on battlefield; got {bystander.zone}"
+    )
+
+
+# --- Ballad of the Goddess --------------------------------------------------
+
+def test_ballad_of_the_goddess_loads_as_saga():
+    print("\n=== Ballad of the Goddess: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    ballad = _put_on_battlefield(game, p1, "Ballad of the Goddess")
+    assert ballad.interceptor_ids, "Expected saga chapter interceptors"
+
+
+def test_ballad_chapter_i_emits_tribal_tutor():
+    print("\n=== Ballad: chapter I (tribal tutor) ===")
+    from src.cards.custom.legend_of_zelda import _ballad_chapter_i
+    game = Game()
+    p1 = game.add_player("Alice")
+    ballad = _put_on_battlefield(game, p1, "Ballad of the Goddess")
+    events = _ballad_chapter_i(ballad, game.state)
+    assert events and events[0].type == EventType.SEARCH_LIBRARY
+    payload = events[0].payload
+    assert set(payload.get('subtypes_any', [])) == {'Spirit', 'Hylian', 'Champion'}
+    assert payload.get('card_type') == 'creature'
+    assert payload.get('destination') == 'hand'
+
+
+def test_ballad_chapter_ii_taps_opp_creatures_only():
+    print("\n=== Ballad: chapter II (tap opp creatures) ===")
+    from src.cards.custom.legend_of_zelda import _ballad_chapter_ii
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    ballad = _put_on_battlefield(game, p1, "Ballad of the Goddess")
+    own = _put_on_battlefield(game, p1, "Hyrule Knight")
+    opp = _put_on_battlefield(game, p2, "Hyrule Knight")
+    events = _ballad_chapter_ii(ballad, game.state)
+    tapped_targets = {e.payload['object_id'] for e in events if e.type == EventType.TAP}
+    assert opp.id in tapped_targets, "Opponent's Knight should be tapped"
+    assert own.id not in tapped_targets, "Own Knight should NOT be tapped"
+
+
+def test_ballad_chapter_iii_emits_triforce_tutor():
+    print("\n=== Ballad: chapter III (Triforce tutor) ===")
+    from src.cards.custom.legend_of_zelda import _ballad_chapter_iii
+    game = Game()
+    p1 = game.add_player("Alice")
+    ballad = _put_on_battlefield(game, p1, "Ballad of the Goddess")
+    events = _ballad_chapter_iii(ballad, game.state)
+    assert events and events[0].type == EventType.SEARCH_LIBRARY
+    payload = events[0].payload
+    assert set(payload.get('card_name_any', [])) == {
+        'Triforce of Power', 'Triforce of Wisdom', 'Triforce of Courage',
+    }
+    assert payload.get('destination') == 'hand'
+
+
+# --- Revali, Rito Champion (REWIRE) -----------------------------------------
+
+def test_revali_etb_draws_and_counters():
+    print("\n=== Revali: ETB draw + counter on other creature ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    other = _put_on_battlefield(game, p1, "Hyrule Knight")
+    before = len(game.state.event_log)
+    revali = _put_on_battlefield(game, p1, "Revali, Rito Champion")
+    new = game.state.event_log[before:]
+    draws = [
+        e for e in new
+        if e.type == EventType.DRAW and e.payload.get('player') == p1.id
+    ]
+    counters = [
+        e for e in new
+        if e.type == EventType.COUNTER_ADDED
+        and e.payload.get('object_id') == other.id
+        and e.payload.get('counter_type') == '+1/+1'
+    ]
+    assert draws, "Expected ETB draw"
+    assert counters, "Expected +1/+1 counter on the other creature"
+
+
+def test_revali_combat_damage_draw_once_per_turn():
+    """Combat damage to a player triggers a draw; repeat damage same
+    turn should NOT trigger a second draw."""
+    print("\n=== Revali: combat damage draw, once/turn ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    revali = _put_on_battlefield(game, p1, "Revali, Rito Champion")
+
+    # Reset event log baseline after ETB.
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': revali.id, 'target': p2.id, 'amount': 2, 'combat': True},
+        source=revali.id,
+    ))
+    first_draws = [
+        e for e in game.state.event_log[before:]
+        if e.type == EventType.DRAW and e.payload.get('player') == p1.id
+    ]
+    assert first_draws, "Expected first combat-damage draw"
+
+    mid = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': revali.id, 'target': p2.id, 'amount': 1, 'combat': True},
+        source=revali.id,
+    ))
+    second_draws = [
+        e for e in game.state.event_log[mid:]
+        if e.type == EventType.DRAW and e.payload.get('player') == p1.id
+    ]
+    assert not second_draws, (
+        f"Once-per-turn: second combat damage same turn should NOT trigger "
+        f"another draw; got {len(second_draws)}"
+    )
+
+
+# --- Ghirahim, Demon Lord (REWIRE) ------------------------------------------
+
+def test_ghirahim_combat_damage_triggers_discard_and_exile():
+    print("\n=== Ghirahim: combat damage → opp discards + exile-top-play ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    ghirahim = _put_on_battlefield(game, p1, "Ghirahim, Demon Lord")
+    assert has_ability(ghirahim, "haste", game.state)
+
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.DAMAGE,
+        payload={'source': ghirahim.id, 'target': p2.id, 'amount': 1, 'combat': True},
+        source=ghirahim.id,
+    ))
+    new = game.state.event_log[before:]
+    discards = [
+        e for e in new
+        if e.type == EventType.DISCARD and e.payload.get('player') == p2.id
+    ]
+    impulse = [
+        e for e in new
+        if e.type == EventType.EXILE_TOP_PLAY
+        and e.payload.get('caster') == p1.id
+    ]
+    assert discards, "Expected opponent discard"
+    assert impulse, "Expected EXILE_TOP_PLAY for Ghirahim's controller"
+
+
+# --- Beedle, Traveling Merchant (REWIRE) ------------------------------------
+
+def test_beedle_registers_two_activated_abilities():
+    print("\n=== Beedle: two activated abilities ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    beedle = _put_on_battlefield(game, p1, "Beedle, Traveling Merchant")
+    activated = getattr(beedle.state, 'activated_abilities', None) or []
+    assert len(activated) >= 2, (
+        f"Expected at least 2 activated abilities; got {len(activated)}"
+    )
+
+
+# --- Purah, Sheikah Researcher (REWIRE) -------------------------------------
+
+def test_purah_etb_scries_and_draws():
+    print("\n=== Purah: ETB scry 3 + draw ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Purah, Sheikah Researcher")
+    new = game.state.event_log[before:]
+    scry = [
+        e for e in new
+        if e.type == EventType.ACTIVATE
+        and e.payload.get('action') == 'scry'
+        and e.payload.get('amount') == 3
+    ]
+    draws = [
+        e for e in new
+        if e.type == EventType.DRAW and e.payload.get('player') == p1.id
+    ]
+    assert scry, "Expected ETB scry 3"
+    assert draws, "Expected ETB draw"
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 

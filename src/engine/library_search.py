@@ -232,8 +232,18 @@ def _handle_search_library_event(event: Event, state: GameState):
         - subtypes_any        : optional list of subtype strings; matches any
                                 of them (e.g. ["Jedi", "Sith"])
         - basic_only          : if True, restrict to basic lands
+        - card_name_any       : optional list of card names; matches if the
+                                candidate's ``obj.name`` is in the list
+                                (e.g. Beedle: ["Heart Container", "Bomb Bag",
+                                "Hookshot", "Bunny Hood", "Fairy Bottle",
+                                "Sheikah Slate"])
+        - mana_value_max      : optional int; matches if the candidate's mana
+                                value is at most this. X counts as 0.
+                                (e.g. Link Hero of the Wild: 3 → only
+                                Equipment with MV<=3 are valid targets)
     """
     from src.engine.types import CardType
+    from src.engine.mana import ManaCost
 
     player_id = event.payload.get("player") or event.payload.get("controller")
     if not player_id:
@@ -269,6 +279,16 @@ def _handle_search_library_event(event: Event, state: GameState):
     if subtypes_any and not isinstance(subtypes_any, (list, tuple, set)):
         subtypes_any = [subtypes_any]
     basic_only = bool(event.payload.get("basic_only", False))
+    card_name_any = event.payload.get("card_name_any") or []
+    if card_name_any and not isinstance(card_name_any, (list, tuple, set)):
+        card_name_any = [card_name_any]
+    card_name_any_set = set(card_name_any) if card_name_any else set()
+    mana_value_max = event.payload.get("mana_value_max")
+    if mana_value_max is not None:
+        try:
+            mana_value_max = int(mana_value_max)
+        except (TypeError, ValueError):
+            mana_value_max = None
 
     if isinstance(card_type, str) and not filter_str:
         filter_str = card_type
@@ -317,6 +337,21 @@ def _handle_search_library_event(event: Event, state: GameState):
         if subtypes_any:
             card_subtypes = chars.subtypes or set()
             if not any(s in card_subtypes for s in subtypes_any):
+                return False
+        if card_name_any_set and obj.name not in card_name_any_set:
+            return False
+        if mana_value_max is not None:
+            cost = chars.mana_cost
+            if isinstance(cost, str):
+                try:
+                    mv = ManaCost.parse(cost).mana_value
+                except Exception:
+                    mv = 0
+            elif cost is not None and hasattr(cost, "mana_value"):
+                mv = cost.mana_value
+            else:
+                mv = 0
+            if mv > mana_value_max:
                 return False
         return True
 
