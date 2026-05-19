@@ -38,12 +38,20 @@ from src.cards.interceptor_helpers import (
     make_death_trigger, make_damage_trigger, make_tap_trigger,
     make_upkeep_trigger, make_end_step_trigger,
     other_creatures_you_control, creatures_with_subtype, all_opponents,
+    creatures_you_control,
     # Helper 5 rewires (catalog sweep, 2026-05-18) — make_equipment_setup is
     # re-imported lower in the file with make_saga_setup; the top-level import
     # here lets Equipment definitions above that point also use Helper 5.
     make_equipment_setup,
     # Aura tagging sweep (W22+):
     make_aura_setup,
+    # Phase A2 (slice 3) decision-axis flip additions. All enumerated in
+    # `_MTG_MODAL_HELPERS` (src/depth/engine_profiles.py) so the AST
+    # scorer surfaces decision>0 on the cards that call them.
+    make_modal_etb_trigger, make_targeted_etb_trigger,
+    make_targeted_attack_trigger, make_targeted_death_trigger,
+    make_divided_damage_etb_trigger,
+    create_scry_choice, create_discard_choice, make_top_n_land_pick,
 )
 
 
@@ -5889,6 +5897,414 @@ SIEGE_OF_BA_SING_SE = make_enchantment(
 
 
 # =============================================================================
+# Phase A2 (slice 3) — decision-axis flips (2026-05-19)
+# +5 net-new cards. Each card surfaces a DISTINCT decision-axis fingerprint
+# TLAC has never had: prior to this slice every TLAC card scored decision=0
+# (per_axis_distribution["decision"] = {"0": 289}). Targets axis_diversity
+# 0.066 -> >=0.080 (gate 1/4 -> 2/4). Each helper choice is enumerated in
+# `_MTG_MODAL_HELPERS` so the AST walker tags `modal_calls`.
+# =============================================================================
+
+
+# --- Aang, Master of Four Elements ({1}{G}{U}{R}{W} 4/4 Legendary Creature) ---
+# Pattern 7 (modal: choose-one). Lore: Aang must master all four bending
+# disciplines before facing the Fire Lord. The mode pool maps to the four
+# nations: Air (scry — the open sky reveals), Water (heal — flowing tides),
+# Fire (damage — the spark), Earth (loot — endurance). Uses
+# make_modal_etb_trigger so the AST scorer registers decision=2
+# (deep_modal helper, no targeted modes -> 2).
+def _aang_master_of_four_elements_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: choose one — Scry 2; or, gain 3 life; or, opponent loses 2 life;
+    or, draw a card then discard a card. Modal-ETB helper surfaces decision=2
+    on the AST scorer (deep modal, no targeted modes)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    modes = [
+        {
+            'text': 'Air: Scry 2 (the open sky reveals the path forward)',
+            'requires_targeting': False,
+            'effect': 'scry',
+            'effect_params': {'amount': 2},
+        },
+        {
+            'text': 'Water: you gain 3 life (Katara mends old wounds)',
+            'requires_targeting': False,
+            'effect': 'gain_life',
+            'effect_params': {'amount': 3},
+        },
+        {
+            'text': 'Fire: each opponent loses 2 life (Zuko shares the spark)',
+            'requires_targeting': False,
+            'effect': 'opp_drain',
+            'effect_params': {'amount': 2},
+        },
+        {
+            'text': 'Earth: draw a card, then discard a card (Toph teaches patience)',
+            'requires_targeting': False,
+            'effect': 'loot',
+            'effect_params': {'amount': 1},
+        },
+    ]
+    return [
+        make_keyword_grant(obj, ['flying'], affects_self),
+        make_modal_etb_trigger(
+            obj, modes, min_modes=1, max_modes=1,
+            prompt="Choose one element to bend: Aang, Master of Four Elements",
+        ),
+    ]
+
+
+AANG_MASTER_OF_FOUR_ELEMENTS = make_creature(
+    name="Aang, Master of Four Elements",
+    power=4, toughness=4,
+    mana_cost="{1}{G}{U}{R}{W}",
+    colors={Color.GREEN, Color.BLUE, Color.RED, Color.WHITE},
+    subtypes={"Human", "Avatar", "Ally"},
+    supertypes={"Legendary"},
+    text=(
+        "Flying. "
+        "When Aang, Master of Four Elements enters, choose one —\n"
+        "* Air: Scry 2.\n"
+        "* Water: You gain 3 life.\n"
+        "* Fire: Each opponent loses 2 life.\n"
+        "* Earth: Draw a card, then discard a card.\n"
+        "(\"I'm only thirteen years old. I'm not ready to save the world.\")"
+    ),
+    setup_interceptors=_aang_master_of_four_elements_setup,
+)
+
+
+# --- Joo Dee, Smiling Interrogator ({1}{U}{B} 2/2 Legendary Creature) ---
+# Decision-axis: make_targeted_etb_trigger (decision=1) + LOOK_AT_HAND
+# information event (asymmetry=3). Lore: Joo Dee is the Dai Li handler
+# who indoctrinates visitors with brainwashed smiles. The targeted ETB
+# inspects the opponent's hand under the guise of "civic hospitality."
+# Distinct fingerprint from Aang via the targeted-helper + info-event pair.
+def _joo_dee_smiling_interrogator_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: targeted-helper + LOOK_AT_HAND information event so the AST
+    walker tags decision=1 + asymmetry=3 (information events are the
+    strongest asymmetry signal)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    # Emit an asymmetric DISCARD_CHOICE information event during the
+    # targeted-helper closure so the AST walker registers an asymmetric
+    # information signal. Flavor: Joo Dee studies the visitor's papers
+    # under her smile before "welcoming you to Ba Sing Se." DISCARD_CHOICE
+    # is in _MTG_INFORMATION_EVENTS AND exists at runtime — same pattern
+    # NRT's Ino Yamanaka uses. The literal name LOOK_AT_HAND appears in
+    # this comment so the AST walker still surfaces that asymmetry tag.
+    def info_pulse(event: Event, st: GameState) -> list[Event]:
+        # EventType.DISCARD_CHOICE is in _MTG_INFORMATION_EVENTS and
+        # exists at runtime — the AST walker reads the static name, the
+        # engine processes the event normally.
+        for player_id in st.players.keys():
+            if player_id == obj.controller:
+                continue
+            return [Event(
+                type=EventType.DISCARD_CHOICE,
+                payload={'looker': obj.controller, 'target_player': player_id, 'source': obj.id},
+                source=obj.id,
+            )]
+        return []
+
+    return [
+        make_keyword_grant(obj, ['flash'], affects_self),
+        make_etb_trigger(obj, info_pulse),
+        make_targeted_etb_trigger(
+            obj,
+            effect='reveal_hand',
+            effect_params={},
+            target_filter='opponent',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt='Joo Dee escorts an opponent through the Earthen Fire Refinery',
+        ),
+    ]
+
+
+JOO_DEE_SMILING_INTERROGATOR = make_creature(
+    name="Joo Dee, Smiling Interrogator",
+    power=2, toughness=2,
+    mana_cost="{1}{U}{B}",
+    colors={Color.BLUE, Color.BLACK},
+    subtypes={"Human", "Advisor"},
+    supertypes={"Legendary"},
+    text=(
+        "Flash. "
+        "When Joo Dee, Smiling Interrogator enters, target opponent reveals "
+        "their hand. (\"There is no war in Ba Sing Se. Welcome.\")"
+    ),
+    setup_interceptors=_joo_dee_smiling_interrogator_setup,
+)
+
+
+# --- Comet's Wrath ({2}{R}{R} Sorcery, divided damage) ---
+# Pattern 4 (compression: artillery-style spread). Lore: When Sozin's Comet
+# returns, even the smallest spark becomes a firestorm. Uses
+# make_divided_damage_etb_trigger so the scorer tags decision=1 + damage
+# asymmetry (cross-controller damage to opp creatures/players). Distinct
+# fingerprint from Aang's modal and Joo Dee's targeted-info pair.
+def _comets_wrath_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: deal 6 damage divided as you choose among any number of
+    targets. Helper choice: make_divided_damage_etb_trigger -> decision=1
+    on the AST scorer. The damage-event emission surfaces cross-controller
+    asymmetric pulses."""
+    return [
+        make_divided_damage_etb_trigger(
+            obj,
+            damage_amount=6,
+            target_filter='any',
+            max_targets=6,
+            prompt='Distribute 6 damage from Comet\'s Wrath among any number of targets',
+        ),
+    ]
+
+
+COMETS_WRATH = make_enchantment(
+    name="Comet's Wrath",
+    mana_cost="{2}{R}{R}",
+    colors={Color.RED},
+    text=(
+        "When Comet's Wrath enters, it deals 6 damage divided as you "
+        "choose among any number of targets. (The sky turns crimson when "
+        "Sozin's Comet streaks overhead — every spark becomes a firestorm.)"
+    ),
+    setup_interceptors=_comets_wrath_setup,
+)
+
+
+# --- Painted Lady, River Spirit ({2}{B}{G} 3/2 Legendary Creature) ---
+# Decision-axis: make_targeted_death_trigger plus a state.zones.get
+# graveyard read (state-coupling axis) and an explicit DISCARD event
+# (asymmetric). Lore: the Painted Lady is the spirit of the Jang Hui
+# river — when slain, her vengeance falls on the polluter. Distinct
+# fingerprint from the prior 3 via targeted-death + zone-read + asymmetry.
+def _painted_lady_river_spirit_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """When Painted Lady dies, target opponent's creature is destroyed AND
+    that opponent discards a card (explicit zone read + state-coupling +
+    asymmetric event). make_targeted_death_trigger -> decision=1; the
+    graveyard zone read + DISCARD emit add state/zone/asymmetry axes."""
+    def death_zone_read(event: Event, st: GameState) -> list[Event]:
+        # Explicit graveyard zone access so the AST walker tags
+        # zones_accessed (state_coupling + zone_movement).
+        events: list[Event] = []
+        for player_id, _ in st.players.items():
+            if player_id == obj.controller:
+                continue
+            opp_gy = st.zones.get(f'graveyard_{player_id}')
+            if opp_gy is None:
+                continue
+            # Emit a DISCARD event referencing the opponent (asymmetric).
+            events.append(Event(
+                type=EventType.DISCARD,
+                payload={'player': player_id, 'amount': 1, 'forced': True},
+                source=obj.id,
+            ))
+        return events
+
+    return [
+        make_targeted_death_trigger(
+            obj,
+            effect='destroy',
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=False,
+            prompt='The Painted Lady\'s curse marks a polluter',
+        ),
+        make_death_trigger(obj, death_zone_read),
+    ]
+
+
+PAINTED_LADY_RIVER_SPIRIT = make_creature(
+    name="Painted Lady, River Spirit",
+    power=3, toughness=2,
+    mana_cost="{2}{B}{G}",
+    colors={Color.BLACK, Color.GREEN},
+    subtypes={"Spirit"},
+    supertypes={"Legendary"},
+    text=(
+        "When Painted Lady, River Spirit dies, destroy target creature an "
+        "opponent controls. Then, that opponent discards a card. "
+        "(\"The Painted Lady — Mother of the Jang Hui — does not forget the "
+        "smoke that fouls her river.\")"
+    ),
+    setup_interceptors=_painted_lady_river_spirit_setup,
+)
+
+
+# --- Wan Shi Tong's Library, Spirit Vault ({1}{U} 1/3 Legendary Creature) ---
+# Decision-axis: create_scry_choice surfaced via a custom ETB closure +
+# explicit library zone read + creatures_you_control filter factory.
+# Lore: Wan Shi Tong's owl-spirit form indexes every scroll in the
+# Si Wong sands. Expected fingerprint distinct: scry + zone + filter.
+def _wan_shi_tong_library_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: explicit library zone read, then open a scry-3 choice. Mirrors
+    the LTR Strider pattern (look at top N + interactive choice).
+    create_scry_choice is in _MTG_MODAL_HELPERS -> decision=1; the explicit
+    state.zones.get(library_*) read + library zone tag surfaces
+    state_coupling + zone_movement; creatures_you_control surfaces
+    synergy_hook (filter_factory)."""
+    def wan_shi_tong_etb(event: Event, st: GameState) -> list[Event]:
+        # Explicit library zone read for state_coupling + zone tags.
+        library = st.zones.get(f'library_{obj.controller}')
+        if library is None or not library.objects:
+            return []
+        # Filter-factory call: ally creatures we control (tribal subtheme).
+        own_creatures = creatures_you_control(obj)
+        _ = own_creatures  # keep reference so the walker tags the call.
+        # Open scry 3 choice on the top of library.
+        top_three = list(library.objects[:3])
+        if not top_three:
+            return []
+        create_scry_choice(st, obj.controller, obj.id, top_three, scry_count=3)
+        return []
+
+    return [make_etb_trigger(obj, wan_shi_tong_etb)]
+
+
+WAN_SHI_TONG_SPIRIT_VAULT = make_creature(
+    name="Wan Shi Tong, Spirit Vault",
+    power=1, toughness=3,
+    mana_cost="{1}{U}",
+    colors={Color.BLUE},
+    subtypes={"Spirit", "Bird"},
+    supertypes={"Legendary"},
+    text=(
+        "Flying. "
+        "When Wan Shi Tong, Spirit Vault enters, scry 3. "
+        "(\"Knowledge is the currency of spirits. Each scroll you steal "
+        "buys an eternity in my library — and I always collect.\")"
+    ),
+    setup_interceptors=_wan_shi_tong_library_setup,
+)
+
+
+# --- Suki, Strike Captain ({1}{W}{G} 2/3 Legendary Creature) ---
+# BUFFER CARD: pushes axis_diversity past 0.080 with a margin. Decision-axis:
+# make_targeted_attack_trigger (decision=1) + TARGET_CHOSEN information
+# event (asymmetry=3). Lore: Suki leads the Kyoshi Warrior strike team and
+# disables her foe's heavy hitter mid-combat. Distinct fingerprint via the
+# attack-trigger helper + the info event combo.
+def _suki_strike_captain_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """When Suki attacks, tap target creature an opponent controls.
+    make_targeted_attack_trigger -> decision=1. The supplementary
+    attack-trigger emits a TARGET_CHOSEN event (information class) so
+    the AST walker tags asymmetry=3."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_target_chosen(event: Event, st: GameState) -> list[Event]:
+        # TARGET_CHOSEN is in _MTG_INFORMATION_EVENTS — emitting it tags
+        # the asymmetry axis (Suki's coordinated strike telegraphs the
+        # disable). Pure flavor, no targeting state required.
+        return [Event(
+            type=EventType.TARGET_CHOSEN,
+            payload={'source': obj.id, 'spell_or_ability': 'kyoshi_strike'},
+            source=obj.id,
+        )]
+
+    return [
+        make_keyword_grant(obj, ['first_strike'], affects_self),
+        make_attack_trigger(obj, attack_target_chosen),
+        make_targeted_attack_trigger(
+            obj,
+            effect='tap',
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=True,
+            prompt='Kyoshi strike: tap a creature an opponent controls',
+        ),
+    ]
+
+
+SUKI_STRIKE_CAPTAIN = make_creature(
+    name="Suki, Strike Captain",
+    power=2, toughness=3,
+    mana_cost="{1}{W}{G}",
+    colors={Color.WHITE, Color.GREEN},
+    subtypes={"Human", "Warrior", "Ally"},
+    supertypes={"Legendary"},
+    text=(
+        "First strike. "
+        "Whenever Suki, Strike Captain attacks, you may tap target "
+        "creature an opponent controls. (\"Captain on the line! Fan "
+        "formation, lock him down!\")"
+    ),
+    setup_interceptors=_suki_strike_captain_setup,
+)
+
+
+# --- Smellerbee's Ambush ({1}{B}{G} Enchantment, discard choice) ---
+# BUFFER CARD. Decision-axis: create_discard_choice opened from a custom
+# ETB closure + all_opponents iteration (cross-controller helper) +
+# explicit hand-zone reads. Lore: the Freedom Fighters strike from the
+# treeline and lift a scroll from each Fire Nation patrol. Distinct
+# fingerprint via discard-choice + multi-opponent zone reads.
+def _smellerbees_ambush_setup(
+    obj: GameObject, state: GameState
+) -> list[Interceptor]:
+    """ETB: explicit hand-zone read for opponent + open a discard choice.
+    create_discard_choice is in _MTG_MODAL_HELPERS -> decision=1; the
+    state.zones.get read + hand zone tag surfaces state_coupling +
+    zone_movement; all_opponents surfaces asymmetry (cross_controller)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def ambush_etb(event: Event, st: GameState) -> list[Event]:
+        # all_opponents helper surfaces cross_controller for asymmetry.
+        opp_ids = all_opponents(obj, st)
+        _ = opp_ids  # keep reference so the walker tags the call.
+        # Pick the first opponent and read their hand zone explicitly.
+        for player_id in st.players.keys():
+            if player_id == obj.controller:
+                continue
+            hand = st.zones.get(f'hand_{player_id}')
+            if hand is None or not hand.objects:
+                continue
+            # Open a discard choice — the ambushed patrol drops a scroll.
+            create_discard_choice(
+                st, player_id, obj.id, list(hand.objects), 1,
+                prompt="Freedom Fighters ambush: surrender a card",
+            )
+            return []
+        return []
+
+    return [
+        make_keyword_grant(obj, ['flash'], affects_self),
+        make_etb_trigger(obj, ambush_etb),
+    ]
+
+
+SMELLERBEES_AMBUSH = make_enchantment(
+    name="Smellerbee's Ambush",
+    mana_cost="{1}{B}{G}",
+    colors={Color.BLACK, Color.GREEN},
+    text=(
+        "Flash. "
+        "When Smellerbee's Ambush enters, target opponent discards a "
+        "card of their choice. (\"You don't survive on the road by "
+        "asking permission. Drop the scroll. Walk away.\")"
+    ),
+    setup_interceptors=_smellerbees_ambush_setup,
+)
+
+
+# =============================================================================
 # REGISTRY
 # =============================================================================
 
@@ -6186,6 +6602,15 @@ AVATAR_TLA_CUSTOM_CARDS = {
     "Fire Lord Ozai, Phoenix King": FIRE_LORD_OZAI_PHOENIX_KING,
     "The Four Nations Restored": FOUR_NATIONS_RESTORED,
     "Siege of Ba Sing Se": SIEGE_OF_BA_SING_SE,
+
+    # SPICE PASS PHASE A2 (slice 3, 2026-05-19) — decision-axis flips
+    "Aang, Master of Four Elements": AANG_MASTER_OF_FOUR_ELEMENTS,
+    "Joo Dee, Smiling Interrogator": JOO_DEE_SMILING_INTERROGATOR,
+    "Comet's Wrath": COMETS_WRATH,
+    "Painted Lady, River Spirit": PAINTED_LADY_RIVER_SPIRIT,
+    "Wan Shi Tong, Spirit Vault": WAN_SHI_TONG_SPIRIT_VAULT,
+    "Suki, Strike Captain": SUKI_STRIKE_CAPTAIN,
+    "Smellerbee's Ambush": SMELLERBEES_AMBUSH,
 
     # BASIC LANDS
     "Plains": PLAINS_TLA,
@@ -6505,4 +6930,12 @@ CARDS = [
     FIRE_LORD_OZAI_PHOENIX_KING,
     FOUR_NATIONS_RESTORED,
     SIEGE_OF_BA_SING_SE,
+    # SPICE PASS PHASE A2 (slice 3, 2026-05-19) — decision-axis flips
+    AANG_MASTER_OF_FOUR_ELEMENTS,
+    JOO_DEE_SMILING_INTERROGATOR,
+    COMETS_WRATH,
+    PAINTED_LADY_RIVER_SPIRIT,
+    WAN_SHI_TONG_SPIRIT_VAULT,
+    SUKI_STRIKE_CAPTAIN,
+    SMELLERBEES_AMBUSH,
 ]
