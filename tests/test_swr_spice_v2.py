@@ -782,6 +782,364 @@ def test_swr_v2_does_not_collide_with_existing_spice():
 
 
 # ============================================================================
+# SLICE 5 — Thin-bust: 23 vanilla cards lifted to depth-3 axes
+# Each card now reads state.zones, counts allies by subtype, emits SCRY
+# (info) plus LIFE_CHANGE / DAMAGE / REVEAL_HAND / DISCARD per opponent
+# (asymmetry). Net per-card: zeros 5 -> 2 (state=1, zone=1, asym>=2).
+# ============================================================================
+
+
+def _events_emitted_by(game, source_id, event_type):
+    return [e for e in game.state.event_log
+            if e.type == event_type and e.source == source_id]
+
+
+def _assert_etb_scry(game, p1, card_name, expected_amount=1):
+    """Helper: ETB the card, assert it emits SCRY for the controller."""
+    before = len(game.state.event_log)
+    obj = _put_on_battlefield(game, p1, card_name)
+    scries = [e for e in game.state.event_log[before:]
+              if e.type == EventType.SCRY and e.source == obj.id]
+    assert scries, (
+        f"{card_name}: SCRY missing — emitted "
+        f"{[e.type.name for e in game.state.event_log[before:]]}"
+    )
+    assert scries[-1].payload.get('amount') == expected_amount, (
+        f"{card_name}: expected SCRY {expected_amount}, got {scries[-1].payload}"
+    )
+    return obj
+
+
+def _trigger_attack(game, attacker, defender_player):
+    """Emit an ATTACK_DECLARED for the attack-trigger cards."""
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': attacker.id, 'defender': defender_player.id},
+    ))
+
+
+def test_alderaanian_diplomat_etb_scry_and_life_gain():
+    """Alderaanian Diplomat (W Rebel) — ETB: scry 1 + life per Rebel."""
+    print("\n=== Alderaanian Diplomat: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    obj = _assert_etb_scry(game, p1, "Alderaanian Diplomat")
+    gains = [e for e in game.state.event_log
+             if e.type == EventType.LIFE_CHANGE and e.source == obj.id
+             and e.payload.get('amount', 0) > 0]
+    assert gains, "LIFE_CHANGE gain missing"
+    print(f"  Alderaanian Diplomat: SCRY + life gain {gains[-1].payload}")
+
+
+def test_rebel_medic_etb_scry_drain_and_gain():
+    """Rebel Medic — ETB scry 1 + each opp -1 life."""
+    print("\n=== Rebel Medic: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _assert_etb_scry(game, p1, "Rebel Medic")
+    drains = [e for e in game.state.event_log
+              if e.type == EventType.LIFE_CHANGE and e.source == obj.id
+              and e.payload.get('amount') == -1]
+    assert drains, "Opp life drain missing"
+    print(f"  Rebel Medic: SCRY + {len(drains)} drain(s)")
+
+
+def test_jedi_sentinel_attack_scry_and_drain_with_jedi():
+    """Jedi Sentinel — attack scry 1; if you control a Jedi, each opp -1 life."""
+    print("\n=== Jedi Sentinel: attack ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    js = _put_on_battlefield(game, p1, "Jedi Sentinel")
+    before = len(game.state.event_log)
+    _trigger_attack(game, js, p2)
+    new_events = game.state.event_log[before:]
+    scries = [e for e in new_events if e.type == EventType.SCRY and e.source == js.id]
+    drains = [e for e in new_events
+              if e.type == EventType.LIFE_CHANGE and e.source == js.id
+              and e.payload.get('amount') == -1]
+    assert scries, "SCRY missing"
+    assert drains, "Drain missing (Jedi Sentinel itself is a Jedi)"
+    print(f"  Jedi Sentinel: SCRY + {len(drains)} drain(s)")
+
+
+def test_tatooine_homesteader_etb_scry_and_life_gain():
+    """Tatooine Homesteader — ETB scry 1 + life gain per Citizen."""
+    print("\n=== Tatooine Homesteader: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    obj = _assert_etb_scry(game, p1, "Tatooine Homesteader")
+    gains = [e for e in game.state.event_log
+             if e.type == EventType.LIFE_CHANGE and e.source == obj.id
+             and e.payload.get('amount', 0) > 0]
+    assert gains, "Life gain missing"
+    print(f"  Tatooine Homesteader: SCRY + gain")
+
+
+def test_galactic_senator_etb_scry_and_reveal():
+    """Galactic Senator — ETB scry 1 + each opp reveals."""
+    print("\n=== Galactic Senator: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _assert_etb_scry(game, p1, "Galactic Senator")
+    reveals = _events_emitted_by(game, obj.id, EventType.REVEAL_HAND)
+    assert reveals, "REVEAL_HAND missing"
+    print(f"  Galactic Senator: SCRY + {len(reveals)} reveal(s)")
+
+
+def test_royal_guard_etb_scry_and_life_gain():
+    """Royal Guard — ETB scry 1 + life gain per Soldier."""
+    print("\n=== Royal Guard: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    obj = _assert_etb_scry(game, p1, "Royal Guard")
+    gains = [e for e in game.state.event_log
+             if e.type == EventType.LIFE_CHANGE and e.source == obj.id
+             and e.payload.get('amount', 0) > 0]
+    assert gains, "Life gain missing"
+    print(f"  Royal Guard: SCRY + gain")
+
+
+def test_mon_calamari_captain_etb_scry_and_surveil():
+    """Mon Calamari Captain — ETB scry 1; with no opp creatures, surveil 1 fires."""
+    print("\n=== Mon Calamari Captain: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _assert_etb_scry(game, p1, "Mon Calamari Captain")
+    surveils = _events_emitted_by(game, obj.id, EventType.SURVEIL)
+    assert surveils, "SURVEIL missing (Captain is a Rebel; opp_threats=0)"
+    print(f"  Mon Calamari Captain: SCRY + {len(surveils)} surveil(s)")
+
+
+def test_rebel_strategist_etb_scry_and_reveal():
+    """Rebel Strategist — ETB scry 1 + each opp reveals."""
+    print("\n=== Rebel Strategist: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _assert_etb_scry(game, p1, "Rebel Strategist")
+    reveals = _events_emitted_by(game, obj.id, EventType.REVEAL_HAND)
+    assert reveals, "REVEAL_HAND missing"
+    print(f"  Rebel Strategist: SCRY + {len(reveals)} reveal(s)")
+
+
+def test_separatist_infiltrator_attack_scry_and_reveal():
+    """Separatist Infiltrator — attack scry 1 + each opp reveals hand."""
+    print("\n=== Separatist Infiltrator: attack ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    si = _put_on_battlefield(game, p1, "Separatist Infiltrator")
+    before = len(game.state.event_log)
+    _trigger_attack(game, si, p2)
+    new_events = game.state.event_log[before:]
+    scries = [e for e in new_events if e.type == EventType.SCRY and e.source == si.id]
+    reveals = [e for e in new_events
+               if e.type == EventType.REVEAL_HAND and e.source == si.id]
+    assert scries, "SCRY missing"
+    assert reveals, "REVEAL_HAND missing"
+    print(f"  Separatist Infiltrator: SCRY + reveal")
+
+
+def test_information_broker_etb_scry_surveil_and_reveal():
+    """Information Broker — ETB scry 1 + surveil 1 (self counts as Rogue) + each opp reveals."""
+    print("\n=== Information Broker: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _assert_etb_scry(game, p1, "Information Broker")
+    surveils = _events_emitted_by(game, obj.id, EventType.SURVEIL)
+    reveals = _events_emitted_by(game, obj.id, EventType.REVEAL_HAND)
+    assert surveils, "SURVEIL missing"
+    assert reveals, "REVEAL_HAND missing"
+    print(f"  Information Broker: SCRY + surveil + {len(reveals)} reveal(s)")
+
+
+def test_imperial_officer_etb_scry_and_drain():
+    """Imperial Officer — ETB scry 1 + each opp -1 life per Empire (self counts)."""
+    print("\n=== Imperial Officer: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _assert_etb_scry(game, p1, "Imperial Officer")
+    drains = [e for e in game.state.event_log
+              if e.type == EventType.LIFE_CHANGE and e.source == obj.id
+              and e.payload.get('amount', 0) < 0]
+    assert drains, "Opp drain missing"
+    print(f"  Imperial Officer: SCRY + {len(drains)} drain(s)")
+
+
+def test_imperial_inquisitor_etb_scry_and_reveal():
+    """Imperial Inquisitor — ETB scry 1 + each opp reveals."""
+    print("\n=== Imperial Inquisitor: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _assert_etb_scry(game, p1, "Imperial Inquisitor")
+    reveals = _events_emitted_by(game, obj.id, EventType.REVEAL_HAND)
+    assert reveals, "REVEAL_HAND missing"
+    print(f"  Imperial Inquisitor: SCRY + {len(reveals)} reveal(s)")
+
+
+def test_mustafar_torturer_etb_scry_and_drain():
+    """Mustafar Torturer — ETB scry 1 + each opp -1 life."""
+    print("\n=== Mustafar Torturer: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _assert_etb_scry(game, p1, "Mustafar Torturer")
+    drains = [e for e in game.state.event_log
+              if e.type == EventType.LIFE_CHANGE and e.source == obj.id
+              and e.payload.get('amount') == -1]
+    assert drains, "Drain missing"
+    print(f"  Mustafar Torturer: SCRY + {len(drains)} drain(s)")
+
+
+def test_imperial_spy_etb_surveil_and_reveal():
+    """Imperial Spy — ETB surveil 1 (no SCRY) + each opp reveals."""
+    print("\n=== Imperial Spy: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    spy = _put_on_battlefield(game, p1, "Imperial Spy")
+    surveils = _events_emitted_by(game, spy.id, EventType.SURVEIL)
+    reveals = _events_emitted_by(game, spy.id, EventType.REVEAL_HAND)
+    assert surveils, "SURVEIL missing"
+    assert reveals, "REVEAL_HAND missing"
+    print(f"  Imperial Spy: surveil + {len(reveals)} reveal(s)")
+
+
+def test_tie_fighter_pilot_attack_scry_and_damage():
+    """TIE Fighter Pilot — attack scry 1 + 1 damage to each opp."""
+    print("\n=== TIE Fighter Pilot: attack ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    tfp = _put_on_battlefield(game, p1, "TIE Fighter Pilot")
+    before = len(game.state.event_log)
+    _trigger_attack(game, tfp, p2)
+    new_events = game.state.event_log[before:]
+    scries = [e for e in new_events if e.type == EventType.SCRY and e.source == tfp.id]
+    dmgs = [e for e in new_events if e.type == EventType.DAMAGE and e.source == tfp.id]
+    assert scries and dmgs
+    print(f"  TIE Fighter Pilot: SCRY + {len(dmgs)} damage event(s)")
+
+
+def test_force_choker_etb_scry_and_drain():
+    """Force Choker — ETB scry 1 + each opp loses life per Sith."""
+    print("\n=== Force Choker: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _assert_etb_scry(game, p1, "Force Choker")
+    drains = [e for e in game.state.event_log
+              if e.type == EventType.LIFE_CHANGE and e.source == obj.id
+              and e.payload.get('amount', 0) < 0]
+    assert drains, "Drain missing"
+    print(f"  Force Choker: SCRY + {len(drains)} drain(s)")
+
+
+def test_shadow_guard_etb_scry_no_drain_solo():
+    """Shadow Guard — ETB scry 1; no drain unless >=2 Empire creatures controlled."""
+    print("\n=== Shadow Guard: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _assert_etb_scry(game, p1, "Shadow Guard")
+    drains = [e for e in game.state.event_log
+              if e.type == EventType.LIFE_CHANGE and e.source == obj.id]
+    assert not drains, f"Drain should NOT fire with 1 Empire creature (Shadow Guard alone): got {drains}"
+    print("  Shadow Guard: SCRY but no drain (only 1 Empire)")
+
+
+def test_mandalorian_warrior_etb_scry_and_damage():
+    """Mandalorian Warrior — ETB scry 1 + each opp takes damage."""
+    print("\n=== Mandalorian Warrior: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _assert_etb_scry(game, p1, "Mandalorian Warrior")
+    dmgs = _events_emitted_by(game, obj.id, EventType.DAMAGE)
+    assert dmgs, "DAMAGE missing"
+    print(f"  Mandalorian Warrior: SCRY + {len(dmgs)} dmg event(s)")
+
+
+def test_clone_trooper_commando_etb_scry_and_damage():
+    """Clone Trooper Commando — ETB scry 1 + damage to each opp."""
+    print("\n=== Clone Trooper Commando: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    obj = _assert_etb_scry(game, p1, "Clone Trooper Commando")
+    dmgs = _events_emitted_by(game, obj.id, EventType.DAMAGE)
+    assert dmgs, "DAMAGE missing"
+    print(f"  Clone Trooper Commando: SCRY + {len(dmgs)} dmg")
+
+
+def test_arena_gladiator_attack_scry_and_damage():
+    """Arena Gladiator — attack scry 1 + damage per Warrior."""
+    print("\n=== Arena Gladiator: attack ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    ag = _put_on_battlefield(game, p1, "Arena Gladiator")
+    before = len(game.state.event_log)
+    _trigger_attack(game, ag, p2)
+    new_events = game.state.event_log[before:]
+    scries = [e for e in new_events if e.type == EventType.SCRY and e.source == ag.id]
+    dmgs = [e for e in new_events if e.type == EventType.DAMAGE and e.source == ag.id]
+    assert scries and dmgs
+    print(f"  Arena Gladiator: SCRY + {len(dmgs)} dmg")
+
+
+def test_wookiee_warrior_etb_scry_and_life_gain():
+    """Wookiee Warrior — ETB scry 1 + life gain per Wookiee."""
+    print("\n=== Wookiee Warrior: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    obj = _assert_etb_scry(game, p1, "Wookiee Warrior")
+    gains = [e for e in game.state.event_log
+             if e.type == EventType.LIFE_CHANGE and e.source == obj.id
+             and e.payload.get('amount', 0) > 0]
+    assert gains, "Life gain missing"
+    print("  Wookiee Warrior: SCRY + gain")
+
+
+def test_ewok_hunter_attack_scry_and_drain():
+    """Ewok Hunter — attack scry 1 + drain per Ewok."""
+    print("\n=== Ewok Hunter: attack ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    eh = _put_on_battlefield(game, p1, "Ewok Hunter")
+    before = len(game.state.event_log)
+    _trigger_attack(game, eh, p2)
+    new_events = game.state.event_log[before:]
+    scries = [e for e in new_events if e.type == EventType.SCRY and e.source == eh.id]
+    drains = [e for e in new_events
+              if e.type == EventType.LIFE_CHANGE and e.source == eh.id
+              and e.payload.get('amount', 0) < 0]
+    assert scries and drains
+    print(f"  Ewok Hunter: SCRY + {len(drains)} drain")
+
+
+def test_kashyyyk_defender_etb_scry_2_and_life_gain():
+    """Kashyyyk Defender — ETB scry 2 + life gain."""
+    print("\n=== Kashyyyk Defender: ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    obj = _assert_etb_scry(game, p1, "Kashyyyk Defender", expected_amount=2)
+    gains = [e for e in game.state.event_log
+             if e.type == EventType.LIFE_CHANGE and e.source == obj.id
+             and e.payload.get('amount', 0) > 0]
+    assert gains, "Life gain missing"
+    print(f"  Kashyyyk Defender: SCRY 2 + gain")
+
+
+# ============================================================================
 # Runner — direct execution without pytest
 # ============================================================================
 

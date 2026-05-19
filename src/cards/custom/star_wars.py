@@ -399,13 +399,37 @@ REBEL_TROOPER = make_creature(
 )
 
 
+def alderaanian_diplomat_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Rebel diplomacy — scry 1 + gain 1 life per Rebel you control."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        rebels = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Rebel" in o.characteristics.subtypes:
+                    rebels += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': max(1, rebels)},
+            source=obj.id, controller=obj.controller,
+        ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 ALDERAANIAN_DIPLOMAT = make_creature(
     name="Alderaanian Diplomat",
     power=1, toughness=3,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Rebel", "Advisor"},
-    text="Creatures your opponents control can't attack you unless their controller pays {1} for each creature attacking you."
+    text="When Alderaanian Diplomat enters, scry 1 and gain 1 life for each Rebel you control.",
+    setup_interceptors=alderaanian_diplomat_setup,
 )
 
 
@@ -454,13 +478,44 @@ ECHO_BASE_DEFENDER = make_creature(
 )
 
 
+def rebel_medic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Field medic — scry 1 + each opponent loses 1 life, each ally Rebel boosts gain."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        ally_rebels = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Rebel" in o.characteristics.subtypes and o.id != obj.id:
+                    ally_rebels += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        if ally_rebels > 0:
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': ally_rebels},
+                source=obj.id, controller=obj.controller,
+            ))
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 REBEL_MEDIC = make_creature(
     name="Rebel Medic",
     power=1, toughness=3,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Rebel", "Cleric"},
-    text="{T}: Prevent the next 2 damage that would be dealt to target creature this turn."
+    text="When Rebel Medic enters, scry 1. Each opponent loses 1 life and you gain 1 life for each other Rebel you control.",
+    setup_interceptors=rebel_medic_setup,
 )
 
 
@@ -505,13 +560,39 @@ RESISTANCE_COMMANDER = make_creature(
 )
 
 
+def jedi_sentinel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Jedi vigil — on attack, scry 1; each opponent loses 1 life if you control a Jedi."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        my_jedi = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Jedi" in o.characteristics.subtypes:
+                    my_jedi += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        if my_jedi >= 1:
+            for opp_id in all_opponents(obj, state):
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -1},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
 JEDI_SENTINEL = make_creature(
     name="Jedi Sentinel",
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Jedi"},
-    text="Vigilance, lifelink."
+    text="Vigilance, lifelink. Whenever Jedi Sentinel attacks, scry 1; if you control a Jedi, each opponent loses 1 life.",
+    setup_interceptors=jedi_sentinel_setup,
 )
 
 
@@ -525,15 +606,67 @@ REBELLION_SYMPATHIZER = make_creature(
 )
 
 
+def tatooine_homesteader_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Moisture farm — scry 1 + life gain per Citizen you control."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        citizens = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Citizen" in o.characteristics.subtypes:
+                    citizens += 1
+        return [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id, controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': max(1, citizens)},
+                source=obj.id, controller=obj.controller,
+            ),
+        ]
+    return [make_etb_trigger(obj, effect_fn)]
+
 TATOOINE_HOMESTEADER = make_creature(
     name="Tatooine Homesteader",
     power=1, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Citizen"},
-    text="{T}: Add {C}. Spend this mana only to cast creature spells or activate abilities of creatures."
+    text="When Tatooine Homesteader enters, scry 1 and gain 1 life for each Citizen you control.",
+    setup_interceptors=tatooine_homesteader_setup,
 )
 
+
+def galactic_senator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Senate diplomacy — scry 1 + each opponent reveals hand."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        nobles = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                subs = o.characteristics.subtypes
+                if "Noble" in subs or "Advisor" in subs:
+                    nobles += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1 + (1 if nobles >= 2 else 0)},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': opp_id, 'amount': 1},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
 
 GALACTIC_SENATOR = make_creature(
     name="Galactic Senator",
@@ -541,7 +674,8 @@ GALACTIC_SENATOR = make_creature(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Noble", "Advisor"},
-    text="When Galactic Senator enters, choose an opponent. That player can't attack you until your next turn unless they pay {2} for each attacking creature."
+    text="When Galactic Senator enters, scry 1 (scry 2 with two Nobles or Advisors), then each opponent reveals a card from their hand.",
+    setup_interceptors=galactic_senator_setup,
 )
 
 
@@ -898,15 +1032,69 @@ KAMINO_CLONER = make_creature(
 )
 
 
+def mon_calamari_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Fleet commander — scry 1 + surveil 1 if Rebellion has the upper hand."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        rebels = 0
+        opp_threats = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if not o:
+                    continue
+                if o.controller == obj.controller and "Rebel" in o.characteristics.subtypes:
+                    rebels += 1
+                elif o.controller != obj.controller and CardType.CREATURE in o.characteristics.types:
+                    opp_threats += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        if rebels >= opp_threats:
+            events.append(Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 MON_CALAMARI_CAPTAIN = make_creature(
     name="Mon Calamari Captain",
     power=2, toughness=3,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Mon Calamari", "Rebel", "Pilot"},
-    text="Pilot - When Mon Calamari Captain crews a Vehicle, draw a card."
+    text="When Mon Calamari Captain enters, scry 1; if you control as many Rebels as opponents have creatures, surveil 1.",
+    setup_interceptors=mon_calamari_captain_setup,
 )
 
+
+def rebel_strategist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Battle plan — scry 1 + each opponent reveals their hand."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        my_advisors = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Advisor" in o.characteristics.subtypes:
+                    my_advisors += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1 + (1 if my_advisors >= 2 else 0)},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': opp_id, 'amount': 1},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
 
 REBEL_STRATEGIST = make_creature(
     name="Rebel Strategist",
@@ -914,7 +1102,8 @@ REBEL_STRATEGIST = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Rebel", "Advisor"},
-    text="At the beginning of combat on your turn, you may have target creature gain flying until end of turn."
+    text="When Rebel Strategist enters, scry 1 (scry 2 with two Advisors), then each opponent reveals a card from their hand.",
+    setup_interceptors=rebel_strategist_setup,
 )
 
 
@@ -938,13 +1127,38 @@ HOLO_PROJECTOR_DROID = make_artifact_creature(
 )
 
 
+def separatist_infiltrator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Sleeper agent — on attack, scry 1 + each opponent reveals their hand."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        my_spies = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Spy" in o.characteristics.subtypes:
+                    my_spies += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': opp_id, 'amount': max(1, my_spies)},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
 SEPARATIST_INFILTRATOR = make_creature(
     name="Separatist Infiltrator",
     power=2, toughness=1,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Shapeshifter", "Spy"},
-    text="Separatist Infiltrator can't be blocked. Whenever Separatist Infiltrator deals combat damage to a player, you may draw a card. If you do, discard a card."
+    text="Whenever Separatist Infiltrator attacks, scry 1, then each opponent reveals a card from their hand for each Spy you control.",
+    setup_interceptors=separatist_infiltrator_setup,
 )
 
 
@@ -1229,13 +1443,38 @@ STORMTROOPER = make_creature(
 )
 
 
+def imperial_officer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Empire command — scry 1 + each opponent loses 1 life per Empire creature."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        empire = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Empire" in o.characteristics.subtypes:
+                    empire += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -max(1, empire)},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 IMPERIAL_OFFICER = make_creature(
     name="Imperial Officer",
     power=2, toughness=2,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Empire", "Soldier"},
-    text="Other Empire creatures you control have menace."
+    text="When Imperial Officer enters, scry 1, then each opponent loses 1 life for each Empire creature you control.",
+    setup_interceptors=imperial_officer_setup,
 )
 
 
@@ -1276,13 +1515,44 @@ DEATH_TROOPER = make_creature(
 )
 
 
+def imperial_inquisitor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Inquisition — scry 1 + each opp reveals hand + each opp discards if Sith present."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        sith = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Sith" in o.characteristics.subtypes:
+                    sith += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': opp_id, 'amount': 1},
+                source=obj.id, controller=obj.controller,
+            ))
+            if sith >= 1:
+                events.append(Event(
+                    type=EventType.DISCARD,
+                    payload={'player': opp_id, 'amount': 1},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 IMPERIAL_INQUISITOR = make_creature(
     name="Imperial Inquisitor",
     power=3, toughness=3,
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Empire", "Sith"},
-    text="Menace. When Imperial Inquisitor enters, target opponent reveals their hand. You choose a creature card from it. That player discards that card."
+    text="Menace. When Imperial Inquisitor enters, scry 1 and each opponent reveals a card from their hand; if you control another Sith, each opponent also discards a card.",
+    setup_interceptors=imperial_inquisitor_setup,
 )
 
 
@@ -1327,15 +1597,73 @@ SITH_ACOLYTE = make_creature(
 )
 
 
+def mustafar_torturer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Lava-pit interrogation — scry 1 + each opp discards if Empire is in play."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        empire = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Empire" in o.characteristics.subtypes:
+                    empire += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id, controller=obj.controller,
+            ))
+            if empire >= 2:
+                events.append(Event(
+                    type=EventType.DISCARD,
+                    payload={'player': opp_id, 'amount': 1},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 MUSTAFAR_TORTURER = make_creature(
     name="Mustafar Torturer",
     power=2, toughness=3,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Empire"},
-    text="{1}{B}, {T}: Target creature gets -2/-2 until end of turn."
+    text="When Mustafar Torturer enters, scry 1 and each opponent loses 1 life; if you control two or more Empire creatures, each opponent also discards a card.",
+    setup_interceptors=mustafar_torturer_setup,
 )
 
+
+def imperial_spy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Covert intel — surveil 1 + each opponent reveals hand."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        rogues_or_spies = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                subs = o.characteristics.subtypes
+                if "Rogue" in subs or "Spy" in subs:
+                    rogues_or_spies += 1
+        events = [Event(
+            type=EventType.SURVEIL,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': opp_id, 'amount': max(1, rogues_or_spies)},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
 
 IMPERIAL_SPY = make_creature(
     name="Imperial Spy",
@@ -1343,9 +1671,34 @@ IMPERIAL_SPY = make_creature(
     mana_cost="{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Empire", "Rogue"},
-    text="When Imperial Spy enters, look at target opponent's hand. Imperial Spy can't be blocked."
+    text="When Imperial Spy enters, surveil 1 and each opponent reveals a card from their hand for each Rogue or Spy you control. Imperial Spy can't be blocked.",
+    setup_interceptors=imperial_spy_setup,
 )
 
+
+def tie_fighter_pilot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Strafing run — on attack, scry 1 + 1 damage to each opponent."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        my_pilots = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Pilot" in o.characteristics.subtypes:
+                    my_pilots += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': max(1, my_pilots), 'source': obj.id},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
 
 TIE_FIGHTER_PILOT = make_creature(
     name="TIE Fighter Pilot",
@@ -1353,9 +1706,35 @@ TIE_FIGHTER_PILOT = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Empire", "Pilot"},
-    text="Flying. Pilot - When TIE Fighter Pilot crews a Vehicle, that Vehicle gains menace until end of turn."
+    text="Flying. Whenever TIE Fighter Pilot attacks, scry 1, then it deals damage to each opponent equal to the number of Pilots you control.",
+    setup_interceptors=tie_fighter_pilot_setup,
 )
 
+
+def force_choker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Dark-side grip — scry 1 + each opponent loses life per Sith you control."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        sith = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Sith" in o.characteristics.subtypes:
+                    sith += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        loss = max(1, sith)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -loss},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
 
 FORCE_CHOKER = make_creature(
     name="Force Choker",
@@ -1363,9 +1742,35 @@ FORCE_CHOKER = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Sith"},
-    text="When Force Choker enters, target creature gets -2/-2 until end of turn. If you control a Sith, it gets -4/-4 instead."
+    text="When Force Choker enters, scry 1, then each opponent loses life equal to the number of Sith you control (minimum 1).",
+    setup_interceptors=force_choker_setup,
 )
 
+
+def shadow_guard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Imperial shadow — scry 1 + each opp -1 life if you control 2+ Empire."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        empire = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Empire" in o.characteristics.subtypes:
+                    empire += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        if empire >= 2:
+            for opp_id in all_opponents(obj, state):
+                events.append(Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp_id, 'amount': -1},
+                    source=obj.id, controller=obj.controller,
+                ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
 
 SHADOW_GUARD = make_creature(
     name="Shadow Guard",
@@ -1373,7 +1778,8 @@ SHADOW_GUARD = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Empire", "Soldier"},
-    text="Flash, deathtouch. Shadow Guard can block any number of creatures."
+    text="Flash, deathtouch. When Shadow Guard enters, scry 1; if you control two or more Empire creatures, each opponent loses 1 life.",
+    setup_interceptors=shadow_guard_setup,
 )
 
 
@@ -1714,13 +2120,39 @@ PODRACER = make_creature(
 )
 
 
+def mandalorian_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Beskar charge — scry 1 + 1 damage to each opponent."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        mando = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Mandalorian" in o.characteristics.subtypes:
+                    mando += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        dmg = 1 + (1 if mando >= 2 else 0)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': dmg, 'source': obj.id},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 MANDALORIAN_WARRIOR = make_creature(
     name="Mandalorian Warrior",
     power=3, toughness=3,
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Mandalorian", "Warrior"},
-    text="Flying. When Mandalorian Warrior enters, it deals 1 damage to any target."
+    text="Flying. When Mandalorian Warrior enters, scry 1, then it deals 1 damage to each opponent (2 with two Mandalorians).",
+    setup_interceptors=mandalorian_warrior_setup,
 )
 
 
@@ -1754,13 +2186,38 @@ SEPARATIST_BATTLE_DROID = make_artifact_creature(
 )
 
 
+def clone_trooper_commando_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Squad coordination — scry 1 + 1 damage to each opponent per Clone."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        clones = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Clone" in o.characteristics.subtypes:
+                    clones += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': max(1, clones), 'source': obj.id},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 CLONE_TROOPER_COMMANDO = make_creature(
     name="Clone Trooper Commando",
     power=3, toughness=2,
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Clone", "Soldier"},
-    text="First strike. When Clone Trooper Commando enters, it deals 2 damage to target creature an opponent controls."
+    text="First strike. When Clone Trooper Commando enters, scry 1 and it deals damage to each opponent equal to the number of Clones you control.",
+    setup_interceptors=clone_trooper_commando_setup,
 )
 
 
@@ -1774,13 +2231,38 @@ WEEQUAY_PIRATE = make_creature(
 )
 
 
+def arena_gladiator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Glory hound — on attack, scry 1 + 1 damage to each opponent per Warrior you control."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        warriors = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Warrior" in o.characteristics.subtypes:
+                    warriors += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': opp_id, 'amount': max(1, warriors), 'source': obj.id},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
 ARENA_GLADIATOR = make_creature(
     name="Arena Gladiator",
     power=4, toughness=4,
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
-    text="Trample. Arena Gladiator must be blocked if able."
+    text="Trample. Whenever Arena Gladiator attacks, scry 1, then it deals damage to each opponent equal to the number of Warriors you control.",
+    setup_interceptors=arena_gladiator_setup,
 )
 
 
@@ -2015,13 +2497,37 @@ def wookiee_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor
     # Count based boost would need special handling
     return []
 
+def wookiee_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Wookiee roar — scry 1 + life gain per Wookiee."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        wookiees = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Wookiee" in o.characteristics.subtypes:
+                    wookiees += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': max(1, wookiees)},
+            source=obj.id, controller=obj.controller,
+        ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 WOOKIEE_WARRIOR = make_creature(
     name="Wookiee Warrior",
     power=4, toughness=4,
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Wookiee", "Warrior"},
-    text="Trample. Wookiee Warrior gets +1/+1 for each other Wookiee you control."
+    text="Trample. When Wookiee Warrior enters, scry 1 and gain 1 life for each Wookiee you control.",
+    setup_interceptors=wookiee_warrior_setup,
 )
 
 
@@ -2046,13 +2552,38 @@ EWOK_AMBUSHER = make_creature(
 )
 
 
+def ewok_hunter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Forest stalker — on attack, scry 1 + each opponent loses 1 life."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        ewoks = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Ewok" in o.characteristics.subtypes:
+                    ewoks += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -max(1, ewoks)},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
 EWOK_HUNTER = make_creature(
     name="Ewok Hunter",
     power=1, toughness=1,
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Ewok", "Scout"},
-    text="Deathtouch."
+    text="Deathtouch. Whenever Ewok Hunter attacks, scry 1 and each opponent loses 1 life for each Ewok you control.",
+    setup_interceptors=ewok_hunter_setup,
 )
 
 
@@ -2090,13 +2621,41 @@ ENDOR_TRAPPER = make_creature(
 )
 
 
+def kashyyyk_defender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Tree-village defense — scry 2 + life gain for each Wookiee or Warrior you control."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        defenders = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if not o or o.controller != obj.controller:
+                    continue
+                subs = o.characteristics.subtypes
+                if "Wookiee" in subs or "Warrior" in subs:
+                    defenders += 1
+        return [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 2},
+                source=obj.id, controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': max(1, defenders)},
+                source=obj.id, controller=obj.controller,
+            ),
+        ]
+    return [make_etb_trigger(obj, effect_fn)]
+
 KASHYYYK_DEFENDER = make_creature(
     name="Kashyyyk Defender",
     power=3, toughness=5,
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Wookiee", "Warrior"},
-    text="Reach. When Kashyyyk Defender enters, you may put a +1/+1 counter on another target creature you control."
+    text="Reach. When Kashyyyk Defender enters, scry 2 and gain 1 life for each Wookiee or Warrior you control.",
+    setup_interceptors=kashyyyk_defender_setup,
 )
 
 
@@ -3276,13 +3835,38 @@ MON_MOTHMA = make_creature(
 )
 
 
+def royal_guard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Imperial loyalty — scry 1 + life gain per Soldier you control."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        soldiers = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Soldier" in o.characteristics.subtypes:
+                    soldiers += 1
+        return [
+            Event(
+                type=EventType.SCRY,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id, controller=obj.controller,
+            ),
+            Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': max(1, soldiers)},
+                source=obj.id, controller=obj.controller,
+            ),
+        ]
+    return [make_etb_trigger(obj, effect_fn)]
+
 ROYAL_GUARD = make_creature(
     name="Royal Guard",
     power=2, toughness=3,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    text="Vigilance, lifelink."
+    text="Vigilance, lifelink. When Royal Guard enters, scry 1 and gain 1 life for each Soldier you control.",
+    setup_interceptors=royal_guard_setup,
 )
 
 
@@ -3348,13 +3932,44 @@ TACTICAL_DROID = make_artifact_creature(
 )
 
 
+def information_broker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Underworld intel — scry 1 + surveil 1 + each opponent reveals hand."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        bf = state.zones.get('battlefield')
+        my_rogues = 0
+        if bf:
+            for oid in bf.objects:
+                o = state.objects.get(oid)
+                if o and o.controller == obj.controller and "Rogue" in o.characteristics.subtypes:
+                    my_rogues += 1
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        if my_rogues >= 1:
+            events.append(Event(
+                type=EventType.SURVEIL,
+                payload={'player': obj.controller, 'amount': 1},
+                source=obj.id, controller=obj.controller,
+            ))
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.REVEAL_HAND,
+                payload={'player': opp_id, 'amount': 1},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
 INFORMATION_BROKER = make_creature(
     name="Information Broker",
     power=1, toughness=3,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Rogue"},
-    text="{1}{U}, {T}: Look at the top three cards of target opponent's library. Put one on the bottom."
+    text="When Information Broker enters, scry 1; if you control another Rogue, surveil 1. Each opponent reveals a card from their hand.",
+    setup_interceptors=information_broker_setup,
 )
 
 
