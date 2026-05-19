@@ -3278,6 +3278,7 @@ SOLAR_BEAM = make_sorcery(
 
 LEECH_SEED = make_enchantment(
     name="Leech Seed", mana_cost="{1}{G}", colors={Color.GREEN},
+    subtypes={"Aura"},
     text="Enchant creature. At the beginning of your upkeep, enchanted creature's controller loses 2 life and you gain 2 life."
 )
 
