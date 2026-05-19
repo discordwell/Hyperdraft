@@ -42,6 +42,8 @@ from src.cards.interceptor_helpers import (
     # re-imported lower in the file with make_saga_setup; the top-level import
     # here lets Equipment definitions above that point also use Helper 5.
     make_equipment_setup,
+    # Aura tagging sweep (W22+):
+    make_aura_setup,
 )
 
 
@@ -1691,6 +1693,7 @@ AVATAR_DESTINY = make_enchantment(
     name="Avatar Destiny",
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
+    subtypes={"Aura"},
     text="Enchant creature. Enchanted creature gets +1/+1 for each creature card in your graveyard and is an Avatar in addition to its other types. When enchanted creature dies, mill cards equal to its power."
 )
 
@@ -2949,6 +2952,7 @@ SPIRIT_CORRUPTION = make_enchantment(
     name="Spirit Corruption",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
+    subtypes={"Aura"},
     text="Enchant creature. Enchanted creature gets -3/-3. When enchanted creature dies, create a 2/2 black Spirit creature token with flying."
 )
 
@@ -4254,11 +4258,48 @@ SHADOW_OPERATIVE = make_creature(
     setup_interceptors=shadow_operative_setup
 )
 
+# --- Dark Spirit's Blessing (Aura tagging sweep, W22+) ---
+# Helper 5 wire: +2/+1 + deathtouch + "When this creature dies, each opponent
+# loses 2 life." Watching OBJECT_DESTROYED for the enchanted creature.
+def _dark_spirits_death_filter(event: Event, state: GameState, target_id: str) -> bool:
+    if event.type != EventType.OBJECT_DESTROYED:
+        return False
+    return event.payload.get('object_id') == target_id
+
+
+def _dark_spirits_drain_effect(target_obj: GameObject, event: Event, state: GameState) -> list[Event]:
+    # Each opponent loses 2 life. ``target_obj`` is the (now-dead) enchanted
+    # creature, so its ``controller`` field is the Aura-controller's opponent
+    # (or it could even be the Aura-controller if they cast it on their own
+    # creature). Use the Aura's controller via target_obj.controller as the
+    # source player; all OTHER players lose 2.
+    events: list[Event] = []
+    for pid in state.players:
+        if pid == target_obj.controller:
+            continue
+        events.append(Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': pid, 'amount': -2, 'source': target_obj.id},
+            source=target_obj.id,
+        ))
+    return events
+
+
 DARK_SPIRITS_BLESSING = make_enchantment(
     name="Dark Spirit's Blessing",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Enchanted creature gets +2/+1 and has deathtouch and 'When this creature dies, each opponent loses 2 life.'"
+    subtypes={"Aura"},
+    text="Enchanted creature gets +2/+1 and has deathtouch and 'When this creature dies, each opponent loses 2 life.'",
+    setup_interceptors=make_aura_setup(
+        power_mod=2, toughness_mod=1,
+        keywords=["deathtouch"],
+        granted_triggered_abilities={
+            "event_filter": _dark_spirits_death_filter,
+            "effect_fn": _dark_spirits_drain_effect,
+            "description": "Enchanted creature dies → each opponent loses 2 life",
+        },
+    ),
 )
 
 MIND_BREAK = make_sorcery(
@@ -4461,6 +4502,7 @@ WILD_GROWTH = make_enchantment(
     name="Wild Growth",
     mana_cost="{G}",
     colors={Color.GREEN},
+    subtypes={"Aura"},
     text="Enchant land. Whenever enchanted land is tapped for mana, its controller adds an additional {G}."
 )
 
