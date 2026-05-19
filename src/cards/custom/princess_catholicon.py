@@ -464,6 +464,7 @@ REGEN = make_enchantment(
     name="Regen",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
+    subtypes={"Aura"},
     text="Enchant creature. At the beginning of your upkeep, you gain 2 life."
 )
 
@@ -498,6 +499,7 @@ AUTO_LIFE = make_enchantment(
     name="Auto-Life",
     mana_cost="{2}{W}{W}",
     colors={Color.WHITE},
+    subtypes={"Aura"},
     text="When enchanted creature dies, return it to the battlefield under its owner's control with a +1/+1 counter."
 )
 
@@ -1215,6 +1217,7 @@ POISON = make_enchantment(
     name="Poison",
     mana_cost="{B}",
     colors={Color.BLACK},
+    subtypes={"Aura"},
     text="Enchant creature. At the beginning of your upkeep, put a -1/-1 counter on enchanted creature."
 )
 
@@ -2040,6 +2043,7 @@ WILD_GROWTH = make_enchantment(
     name="Wild Growth",
     mana_cost="{G}",
     colors={Color.GREEN},
+    subtypes={"Aura"},
     text="Enchant land. Enchanted land has '{T}: Add {G}{G}.'"
 )
 
@@ -2467,6 +2471,7 @@ BERSERK = make_enchantment(
     name="Berserk",
     mana_cost="{1}{R}",
     colors={Color.RED},
+    subtypes={"Aura"},
     text="Enchant creature. Enchanted creature gets +3/+0 and attacks each combat if able."
 )
 
@@ -2475,6 +2480,7 @@ VANISH = make_enchantment(
     name="Vanish",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
+    subtypes={"Aura"},
     text="Enchant creature. Enchanted creature has hexproof and can't be blocked."
 )
 
