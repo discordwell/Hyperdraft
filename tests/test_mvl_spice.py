@@ -576,6 +576,186 @@ def test_thanos_scales_with_stones():
 
 
 # ============================================================================
+# Phase A2 (slice 2) — decision-axis flip cards
+# ============================================================================
+
+
+def test_doctor_strange_agamotto_loads():
+    """Setup registers flash + modal-ETB trigger interceptors."""
+    print("\n=== Doctor Strange, Eye of Agamotto: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    ds = _put_on_battlefield(game, p1, "Doctor Strange, Eye of Agamotto")
+    assert ds.zone == ZoneType.BATTLEFIELD
+    assert len(ds.interceptor_ids) >= 2, (
+        f"Expected at least flash + modal interceptors; got {len(ds.interceptor_ids)}"
+    )
+    assert has_ability(ds, 'flash', game.state), "Expected flash"
+
+
+def test_doctor_strange_agamotto_etb_opens_modal_choice():
+    """ETB installs a modal_with_targeting pending_choice with 3 modes."""
+    print("\n=== Doctor Strange Agamotto: pending modal choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    ds = _put_on_battlefield(game, p1, "Doctor Strange, Eye of Agamotto")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected pending_choice after ETB"
+    assert pc.source_id == ds.id
+    assert pc.choice_type == "modal_with_targeting"
+    assert pc.player == p1.id
+    assert len(pc.options) == 3, f"Expected 3 modes; got {len(pc.options)}"
+
+
+def test_spider_man_web_slinger_loads():
+    """Setup registers reach + attack trigger interceptors."""
+    print("\n=== Spider-Man, Web-Slinger: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    sm = _put_on_battlefield(game, p1, "Spider-Man, Web-Slinger")
+    assert sm.zone == ZoneType.BATTLEFIELD
+    assert len(sm.interceptor_ids) >= 2, (
+        f"Expected at least reach + attack triggers; got {len(sm.interceptor_ids)}"
+    )
+    assert has_ability(sm, 'reach', game.state), "Expected reach"
+
+
+def test_spider_man_web_slinger_attack_emits_target_required_and_info():
+    """Attack emits TARGET_REQUIRED + TARGET_CHOSEN info event."""
+    print("\n=== Spider-Man: attack triggers web shot + info pulse ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    sm = _put_on_battlefield(game, p1, "Spider-Man, Web-Slinger")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': sm.id, 'attacker': sm.id, 'controller': p1.id},
+        source=sm.id,
+    ))
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == sm.id
+        and e.payload.get('effect') == 'tap'
+        and e.payload.get('target_filter') == 'opponent_creature'
+    ]
+    assert target_reqs, (
+        f"Expected web-shot TARGET_REQUIRED; recent={[e.type.name for e in new[-10:]]}"
+    )
+    info_events = [
+        e for e in new
+        if e.type == EventType.TARGET_CHOSEN and e.payload.get('source') == sm.id
+    ]
+    assert info_events, "Expected TARGET_CHOSEN info pulse on attack"
+
+
+def test_wakandan_vibranium_forge_loads():
+    """Setup registers the divided-counters ETB trigger."""
+    print("\n=== Wakandan Vibranium Forge: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    wvf = _put_on_battlefield(game, p1, "Wakandan Vibranium Forge")
+    assert wvf.zone == ZoneType.BATTLEFIELD
+    assert wvf.interceptor_ids, "Expected ETB interceptor"
+
+
+def test_wakandan_vibranium_forge_etb_emits_divided_counters_target_required():
+    """ETB emits TARGET_REQUIRED with divide_amount=4 and counter_add effect."""
+    print("\n=== Wakandan Vibranium Forge: ETB distribute counters ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    before = len(game.state.event_log)
+    wvf = _put_on_battlefield(game, p1, "Wakandan Vibranium Forge")
+    new = game.state.event_log[before:]
+    target_reqs = [
+        e for e in new
+        if e.type == EventType.TARGET_REQUIRED
+        and e.payload.get('source') == wvf.id
+        and e.payload.get('effect') == 'counter_add'
+    ]
+    assert target_reqs, (
+        f"Expected counter_add TARGET_REQUIRED; new={[e.type.name for e in new[-10:]]}"
+    )
+    payload = target_reqs[0].payload
+    assert payload.get('divide_amount') == 4, (
+        f"Expected divide_amount=4; got {payload.get('divide_amount')}"
+    )
+
+
+def test_loki_whispers_of_ruin_loads():
+    """Setup registers flash + ETB trigger interceptors."""
+    print("\n=== Loki, Whispers of Ruin: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    loki = _put_on_battlefield(game, p1, "Loki, Whispers of Ruin")
+    assert loki.zone == ZoneType.BATTLEFIELD
+    assert len(loki.interceptor_ids) >= 2, (
+        f"Expected at least flash + ETB; got {len(loki.interceptor_ids)}"
+    )
+    assert has_ability(loki, 'flash', game.state), "Expected flash"
+
+
+def test_loki_etb_with_opponent_hand_opens_discard_choice():
+    """ETB opens a discard pending_choice for the opponent when their hand
+    has cards."""
+    print("\n=== Loki: ETB opens discard choice ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    # Plant 2 cards in p2's hand.
+    chitauri_def = MARVEL_AVENGERS_CARDS["Chitauri Soldier"]
+    p2_hand = game.state.zones[f'hand_{p2.id}']
+    for _ in range(2):
+        obj = game.create_object(
+            name="Chitauri Soldier",
+            owner_id=p2.id,
+            zone=ZoneType.HAND,
+            characteristics=chitauri_def.characteristics,
+            card_def=None,
+        )
+        obj.card_def = chitauri_def
+        if obj.id not in p2_hand.objects:
+            p2_hand.objects.append(obj.id)
+    loki = _put_on_battlefield(game, p1, "Loki, Whispers of Ruin")
+    pc = game.state.pending_choice
+    assert pc is not None, "Expected discard pending_choice"
+    assert pc.source_id == loki.id
+    assert pc.choice_type == "discard"
+    assert pc.player == p2.id, f"Expected discarder=p2; got {pc.player}"
+
+
+def test_loki_etb_empty_opponent_hand_no_crash():
+    """ETB with empty opponent hand doesn't crash, no discard installed."""
+    print("\n=== Loki: empty opp hand no-op ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    loki = _put_on_battlefield(game, p1, "Loki, Whispers of Ruin")
+    assert loki.zone == ZoneType.BATTLEFIELD
+
+
+def test_heimdall_all_seeing_loads():
+    """Setup registers an ETB trigger."""
+    print("\n=== Heimdall, All-Seeing Watchman: load ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    h = _put_on_battlefield(game, p1, "Heimdall, All-Seeing Watchman")
+    assert h.zone == ZoneType.BATTLEFIELD
+    assert h.interceptor_ids, "Expected ETB interceptor"
+
+
+def test_heimdall_empty_library_no_op():
+    """ETB with empty library returns [] without crashing."""
+    print("\n=== Heimdall: empty library ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    h = _put_on_battlefield(game, p1, "Heimdall, All-Seeing Watchman")
+    assert h.zone == ZoneType.BATTLEFIELD
+
+
+# ============================================================================
 # Runner
 # ============================================================================
 

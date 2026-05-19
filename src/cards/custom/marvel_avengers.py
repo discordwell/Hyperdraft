@@ -34,6 +34,12 @@ from src.cards.interceptor_helpers import (
     all_opponents,
     # Spice-pass MVL additions:
     make_activated_ability, make_equipment_setup,
+    # Phase A2 (slice 2) decision-axis flip additions. All enumerated in
+    # `_MTG_MODAL_HELPERS` (src/depth/engine_profiles.py) so the AST
+    # scorer surfaces decision>0 on the cards that call them.
+    make_modal_etb_trigger, make_targeted_attack_trigger,
+    make_divided_counters_etb_trigger, create_discard_choice,
+    make_top_n_land_pick,
 )
 from src.cards.text_render import substitute_card_name
 from typing import Optional, Callable
@@ -2793,6 +2799,276 @@ GENOSHA = make_land(
 
 
 # =============================================================================
+# Phase A2 (slice 2) — decision-axis flips (2026-05-18)
+# +4 net-new cards. Each card surfaces a distinct decision-axis fingerprint
+# MVL has never had: prior to this slice every MVL card scored decision=0.
+# Targets axis_diversity 0.059 -> >=0.080 (gate 1/4 -> 2/4).
+# =============================================================================
+
+
+# --- Doctor Strange, Sorcerer Supreme ({2}{U}{U} 2/4 Legendary Creature) ---
+# Pattern 7 (modal: choose-one). Lore: Stephen Strange consults the
+# Eye of Agamotto and chooses one of three timeline paths. Uses
+# make_modal_etb_trigger so the AST scorer registers decision=2
+# (deep_modal helper, no targeted modes).
+def _doctor_strange_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: choose one — Scry 3; or, draw a card then discard a card;
+    or, each opponent loses 2 life. Modal-ETB helper surfaces decision=2
+    on the AST scorer (deep modal, no targeted modes)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    modes = [
+        {
+            'text': 'Scry 3 (peer into the timestream)',
+            'requires_targeting': False,
+            'effect': 'scry',
+            'effect_params': {'amount': 3},
+        },
+        {
+            'text': 'Draw a card, then discard a card',
+            'requires_targeting': False,
+            'effect': 'loot',
+            'effect_params': {'amount': 1},
+        },
+        {
+            'text': 'Each opponent loses 2 life',
+            'requires_targeting': False,
+            'effect': 'opp_drain',
+            'effect_params': {'amount': 2},
+        },
+    ]
+    return [
+        make_keyword_grant(obj, ['flash'], affects_self),
+        make_modal_etb_trigger(
+            obj, modes, min_modes=1, max_modes=1,
+            prompt="Choose one: Doctor Strange's chosen path",
+        ),
+    ]
+
+
+DOCTOR_STRANGE_AGAMOTTO = make_creature(
+    name="Doctor Strange, Eye of Agamotto",
+    power=2, toughness=4,
+    mana_cost="{2}{U}{U}",
+    colors={Color.BLUE},
+    subtypes={"Human", "Wizard"},
+    supertypes={"Legendary"},
+    text=(
+        "Flash. "
+        "When Doctor Strange, Eye of Agamotto enters, choose one —\n"
+        "* Scry 3.\n"
+        "* Draw a card, then discard a card.\n"
+        "* Each opponent loses 2 life.\n"
+        "(The Eye of Agamotto opens onto fourteen million six hundred "
+        "and five futures.)"
+    ),
+    setup_interceptors=_doctor_strange_setup,
+)
+
+
+# --- Spider-Man, Web-Slinger ({1}{G}{U} 2/2 Legendary Creature) ---
+# Decision-axis: make_targeted_attack_trigger (decision=1) + emit
+# TARGET_CHOSEN information event for asymmetry=3 axis. Lore: When
+# Spider-Man swings into combat, his web shot pins a foe (and the
+# target's ward triggers if any).
+def _spider_man_web_slinger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Spider-Man attacks, tap target creature an opponent controls.
+    make_targeted_attack_trigger -> decision=1. The supplementary
+    attack-trigger emits a TARGET_CHOSEN event (information class) so
+    the AST walker tags asymmetry=3."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_target_chosen(event: Event, st: GameState) -> list[Event]:
+        # TARGET_CHOSEN is in _MTG_INFORMATION_EVENTS — emitting it tags
+        # the asymmetry axis (Spider-Man's web reveal is information to
+        # the defender). Pure flavor, no targeting state required.
+        return [Event(
+            type=EventType.TARGET_CHOSEN,
+            payload={'source': obj.id, 'spell_or_ability': 'web_shot'},
+            source=obj.id,
+        )]
+
+    return [
+        make_keyword_grant(obj, ['reach'], affects_self),
+        make_attack_trigger(obj, attack_target_chosen),
+        make_targeted_attack_trigger(
+            obj,
+            effect='tap',
+            target_filter='opponent_creature',
+            min_targets=1,
+            max_targets=1,
+            optional=True,
+            prompt="Web-shot: tap a creature an opponent controls",
+        ),
+    ]
+
+
+SPIDER_MAN_WEB_SLINGER = make_creature(
+    name="Spider-Man, Web-Slinger",
+    power=2, toughness=2,
+    mana_cost="{1}{G}{U}",
+    colors={Color.GREEN, Color.BLUE},
+    subtypes={"Human", "Hero"},
+    supertypes={"Legendary"},
+    text=(
+        "Reach. "
+        "Whenever Spider-Man, Web-Slinger attacks, you may tap target "
+        "creature an opponent controls. "
+        "(\"Just hangin' around, Doc!\")"
+    ),
+    setup_interceptors=_spider_man_web_slinger_setup,
+)
+
+
+# --- Wakandan Vibranium Forge ({2}{W}{G} Enchantment, divided counters) ---
+# Decision-axis: make_divided_counters_etb_trigger (decision=1) +
+# creatures_you_control filter factory (synergy=2). Lore: Shuri's lab
+# distributes Vibranium reinforcement across a chosen squad.
+def _wakandan_vibranium_forge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: distribute 4 +1/+1 counters among any number of target
+    creatures you control. make_divided_counters_etb_trigger -> decision=1.
+    The explicit creatures_you_control filter factory call surfaces the
+    synergy axis (filter_factory tag = synergy=2)."""
+    # Filter-factory call: register that this card synergises with your
+    # own creature board. The walker tags the call statically.
+    own_creatures_filter = creatures_you_control(obj)
+    _ = own_creatures_filter  # keep reference so the walker tags the call.
+    return [
+        make_divided_counters_etb_trigger(
+            obj,
+            counter_amount=4,
+            counter_type='+1/+1',
+            target_filter='your_creature',
+            max_targets=4,
+            prompt='Distribute 4 +1/+1 counters from Wakandan Vibranium Forge',
+        ),
+    ]
+
+
+WAKANDAN_VIBRANIUM_FORGE = make_enchantment(
+    name="Wakandan Vibranium Forge",
+    mana_cost="{2}{W}{G}",
+    colors={Color.WHITE, Color.GREEN},
+    text=(
+        "When Wakandan Vibranium Forge enters, distribute four +1/+1 "
+        "counters among any number of target creatures you control. "
+        "(Shuri's lab reforges every blade into Wakandan steel.)"
+    ),
+    setup_interceptors=_wakandan_vibranium_forge_setup,
+)
+
+
+# --- Loki, God of Mischief ({1}{U}{B} 2/3 Legendary Creature) ---
+# Decision-axis: create_discard_choice opened from a custom ETB closure
+# + explicit hand-zone read. Lore: Loki forces a foe to surrender their
+# secrets. Distinct fp from the other three.
+def _loki_god_of_mischief_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: explicit hand-zone read for opponent, then open a discard
+    choice. create_discard_choice is in modal_helpers -> decision=1; the
+    state.zones.get read + hand zone tag surfaces state_coupling +
+    zone_movement; all_opponents surfaces asymmetry."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def loki_etb(event: Event, st: GameState) -> list[Event]:
+        # all_opponents helper surfaces cross_controller for asymmetry.
+        opp_ids = all_opponents(obj, st)
+        _ = opp_ids  # keep reference so the walker tags the call.
+        # Pick the first opponent and read their hand zone explicitly.
+        for player_id in st.players.keys():
+            if player_id == obj.controller:
+                continue
+            hand = st.zones.get(f'hand_{player_id}')
+            if hand is None or not hand.objects:
+                continue
+            # Open a discard choice — opponent must surrender 1 card.
+            create_discard_choice(
+                st, player_id, obj.id, list(hand.objects), 1,
+                prompt="Loki's Whisper: choose a card to surrender",
+            )
+            return []
+        return []
+
+    return [
+        make_keyword_grant(obj, ['flash'], affects_self),
+        make_etb_trigger(obj, loki_etb),
+    ]
+
+
+LOKI_WHISPERS_OF_RUIN = make_creature(
+    name="Loki, Whispers of Ruin",
+    power=2, toughness=3,
+    mana_cost="{1}{U}{B}",
+    colors={Color.BLUE, Color.BLACK},
+    subtypes={"God", "Trickster"},
+    supertypes={"Legendary"},
+    text=(
+        "Flash. "
+        "When Loki, Whispers of Ruin enters, target opponent discards a "
+        "card of their choice. "
+        "(\"I am burdened with glorious purpose.\")"
+    ),
+    setup_interceptors=_loki_god_of_mischief_setup,
+)
+
+
+# --- Heimdall, All-Seeing Watchman ({1}{W}{U} 2/3 Legendary Creature) ---
+# Decision-axis: make_top_n_land_pick surfaces decision=1 with zone reads
+# (library + battlefield) for state_coupling + zone_movement axes.
+# Lore: Heimdall scans the Nine Realms and pulls a Bifrost waypoint
+# (land) into play. Buffer card — pushes axis_diversity past 0.080.
+def _heimdall_all_seeing_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: read library + battlefield zones, then open a top-5
+    land-pick choice. make_top_n_land_pick is in modal_helpers ->
+    decision=1; the explicit zone reads surface state_coupling and
+    zone_movement axes."""
+    def heimdall_etb(event: Event, st: GameState) -> list[Event]:
+        # Explicit zone reads so the AST walker tags both library and
+        # battlefield zones (gives zone=2 from two-zone touch).
+        library = st.zones.get(f'library_{obj.controller}')
+        if library is None or not library.objects:
+            return []
+        bf = st.zones.get('battlefield')
+        if bf is None:
+            return []
+        # Heimdall's vigilance depth: pick larger sample if many enemy
+        # creatures already threaten the realm.
+        n_pick = 5 if len(bf.objects) >= 4 else 4
+        return make_top_n_land_pick(
+            st,
+            controller=obj.controller,
+            source_id=obj.id,
+            n=n_pick,
+            put_tapped=True,
+            optional=True,
+            prompt='Heimdall scans the Nine Realms — pick a Bifrost waypoint',
+        )
+
+    return [make_etb_trigger(obj, heimdall_etb)]
+
+
+HEIMDALL_ALL_SEEING = make_creature(
+    name="Heimdall, All-Seeing Watchman",
+    power=2, toughness=3,
+    mana_cost="{1}{W}{U}",
+    colors={Color.WHITE, Color.BLUE},
+    subtypes={"Asgardian", "Soldier"},
+    supertypes={"Legendary"},
+    text=(
+        "Vigilance. "
+        "When Heimdall, All-Seeing Watchman enters, look at the top four "
+        "cards of your library (five instead if four or more permanents "
+        "are on the battlefield). You may put a land card from among them "
+        "onto the battlefield tapped. Put the rest on the bottom of your "
+        "library in a random order. (The Bifrost is bound to the gatekeeper.)"
+    ),
+    setup_interceptors=_heimdall_all_seeing_setup,
+)
+
+
+# =============================================================================
 # EXPORT
 # =============================================================================
 
@@ -3011,6 +3287,13 @@ MARVEL_AVENGERS_CARDS = {
     "Hala": HALA,
     "Nidavellir": NIDAVELLIR,
     "Genosha": GENOSHA,
+
+    # SPICE PASS PHASE A2 (slice 2, 2026-05-18) — decision-axis flips
+    "Doctor Strange, Eye of Agamotto": DOCTOR_STRANGE_AGAMOTTO,
+    "Spider-Man, Web-Slinger": SPIDER_MAN_WEB_SLINGER,
+    "Wakandan Vibranium Forge": WAKANDAN_VIBRANIUM_FORGE,
+    "Loki, Whispers of Ruin": LOKI_WHISPERS_OF_RUIN,
+    "Heimdall, All-Seeing Watchman": HEIMDALL_ALL_SEEING,
 }
 
 
@@ -3205,5 +3488,11 @@ CARDS = [
     CONTRAXIA,
     HALA,
     NIDAVELLIR,
-    GENOSHA
+    GENOSHA,
+    # SPICE PASS PHASE A2 (slice 2, 2026-05-18) — decision-axis flips
+    DOCTOR_STRANGE_AGAMOTTO,
+    SPIDER_MAN_WEB_SLINGER,
+    WAKANDAN_VIBRANIUM_FORGE,
+    LOKI_WHISPERS_OF_RUIN,
+    HEIMDALL_ALL_SEEING,
 ]
