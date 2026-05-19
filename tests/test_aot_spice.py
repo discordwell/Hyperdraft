@@ -746,6 +746,291 @@ def test_hange_field_experiment_etb_sets_pending_modal_choice():
 
 
 # ============================================================================
+# Slice-4 thin-bust tests (2026-05-19): twelve previously-vanilla AOT cards
+# now carry minimum-viable depth-1 setups. Tests assert each setup wires up
+# and fires under its on-flavor trigger.
+# ============================================================================
+
+
+def _put_extra_creature_on_battlefield(game, player, card_name):
+    """Spawn a card directly onto the battlefield without the
+    create_object → ZONE_CHANGE pipeline (so the trigger under test fires
+    off the explicit emit below, not off the spawn)."""
+    card_def = ATTACK_ON_TITAN_CARDS[card_name]
+    obj = game.create_object(
+        name=card_name, owner_id=player.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics, card_def=None,
+    )
+    obj.card_def = card_def
+    bf = game.state.zones.get('battlefield')
+    if bf and obj.id not in bf.objects:
+        bf.objects.append(obj.id)
+    return obj
+
+
+def test_odm_gear_etb_on_creature_gains_life():
+    print("\n=== ODM Gear: ETB heal on creature ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    odm = _put_on_battlefield(game, p1, "ODM Gear")
+    assert odm.interceptor_ids
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Survey Corps Recruit")
+    new = game.state.event_log[before:]
+    gains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p1.id
+        and e.payload.get('amount') == 1
+    ]
+    assert gains, f"Expected +1 life; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_advanced_odm_gear_taxes_opp_creature():
+    print("\n=== Advanced ODM Gear: opp ETB tax ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Advanced ODM Gear")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p2, "Survey Corps Recruit")
+    new = game.state.event_log[before:]
+    losses = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+    ]
+    assert losses, f"Expected -1 life to opp; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_anti_personnel_odm_gear_death_damages_opps():
+    print("\n=== Anti-Personnel ODM Gear: death dmg ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Anti-Personnel ODM Gear")
+    extra = _put_extra_creature_on_battlefield(game, p1, "Survey Corps Recruit")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': extra.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+    ))
+    new = game.state.event_log[before:]
+    dmgs = [
+        e for e in new
+        if e.type == EventType.DAMAGE
+        and e.payload.get('target') == p2.id
+        and e.payload.get('amount') == 1
+    ]
+    assert dmgs, f"Expected 1 dmg to opp on death; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_survey_corps_cloak_etb_gains_life():
+    print("\n=== Survey Corps Cloak: ETB heal ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    _put_on_battlefield(game, p1, "Survey Corps Cloak")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Survey Corps Recruit")
+    new = game.state.event_log[before:]
+    gains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p1.id
+        and e.payload.get('amount') == 1
+    ]
+    assert gains, f"Expected +1 life; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_blade_set_death_damages_opps():
+    print("\n=== Blade Set: death dmg ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Blade Set")
+    extra = _put_extra_creature_on_battlefield(game, p1, "Survey Corps Recruit")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': extra.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+    ))
+    new = game.state.event_log[before:]
+    dmgs = [
+        e for e in new
+        if e.type == EventType.DAMAGE
+        and e.payload.get('target') == p2.id
+        and e.payload.get('amount') == 1
+    ]
+    assert dmgs, f"Expected 1 dmg to opp; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_gas_canister_damages_opp_creature():
+    print("\n=== Gas Canister: damage opp creature ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Gas Canister")
+    before = len(game.state.event_log)
+    opp_creature = _put_on_battlefield(game, p2, "Survey Corps Recruit")
+    new = game.state.event_log[before:]
+    dmgs = [
+        e for e in new
+        if e.type == EventType.DAMAGE
+        and e.payload.get('target') == opp_creature.id
+        and e.payload.get('amount') == 1
+    ]
+    assert dmgs, f"Expected 1 dmg to opp creature; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_garrison_cannon_taxes_opp():
+    print("\n=== Garrison Cannon: opp ETB tax ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Garrison Cannon")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p2, "Survey Corps Recruit")
+    new = game.state.event_log[before:]
+    losses = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+    ]
+    assert losses, f"Expected -1 life to opp; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_flare_gun_drains_opps_on_friendly_etb():
+    print("\n=== Flare Gun: friendly ETB drains opps ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Flare Gun")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Survey Corps Recruit")
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+    ]
+    assert drains, f"Expected -1 life to opp; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_founding_titan_serum_death_gains_life():
+    print("\n=== Founding Titan Serum: death heal ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    _put_on_battlefield(game, p1, "Founding Titan Serum")
+    extra = _put_extra_creature_on_battlefield(game, p1, "Survey Corps Recruit")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': extra.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+    ))
+    new = game.state.event_log[before:]
+    gains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p1.id
+        and e.payload.get('amount') == 1
+    ]
+    assert gains, f"Expected +1 life; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_titan_serum_death_drains_opps():
+    print("\n=== Titan Serum: death drains opps ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Titan Serum")
+    extra = _put_extra_creature_on_battlefield(game, p1, "Survey Corps Recruit")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': extra.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+    ))
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+    ]
+    assert drains, f"Expected -1 life to opp; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_armored_titan_serum_etb_gains_life():
+    print("\n=== Armored Titan Serum: ETB heal ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    _put_on_battlefield(game, p1, "Armored Titan Serum")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Survey Corps Recruit")
+    new = game.state.event_log[before:]
+    gains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p1.id
+        and e.payload.get('amount') == 1
+    ]
+    assert gains, f"Expected +1 life; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_eldian_woodcutter_grows_on_death():
+    print("\n=== Eldian Woodcutter: grows on death ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    cutter = _put_on_battlefield(game, p1, "Eldian Woodcutter")
+    extra = _put_extra_creature_on_battlefield(game, p1, "Survey Corps Recruit")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': extra.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+    ))
+    new = game.state.event_log[before:]
+    counters = [
+        e for e in new
+        if e.type == EventType.COUNTER_ADDED
+        and e.payload.get('object_id') == cutter.id
+        and e.payload.get('counter_type') == '+1/+1'
+    ]
+    assert counters, f"Expected +1/+1 on Woodcutter; recent={[e.type.name for e in new[-10:]]}"
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 

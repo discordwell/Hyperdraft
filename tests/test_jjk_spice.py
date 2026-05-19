@@ -929,6 +929,221 @@ def test_toji_heavenly_pact_attack_emits_target_required():
 
 
 # ============================================================================
+# Slice-4 thin-bust tests (2026-05-19): each previously-vanilla card now has a
+# minimum-viable depth-1 buff. These tests verify both that setup_interceptors
+# registers interceptors AND that the on-flavor effect fires under its trigger.
+# ============================================================================
+
+
+def _put_extra_creature_on_battlefield(game, player, card_name):
+    """Spawn a card directly onto the battlefield without firing the
+    create_object → ZONE_CHANGE pipeline (so the trigger we're testing
+    fires off the explicit emit below, not off the spawn itself)."""
+    card_def = JUJUTSU_KAISEN_CARDS[card_name]
+    obj = game.create_object(
+        name=card_name, owner_id=player.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=card_def.characteristics, card_def=None,
+    )
+    obj.card_def = card_def
+    bf = game.state.zones.get('battlefield')
+    if bf and obj.id not in bf.objects:
+        bf.objects.append(obj.id)
+    return obj
+
+
+def test_barrier_technician_etb_on_other_creature_gains_life():
+    """Slice-4: another creature you control ETB → Barrier Technician gains
+    1 life for its controller."""
+    print("\n=== Barrier Technician: ETB heal ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    bt = _put_on_battlefield(game, p1, "Barrier Technician")
+    assert bt.interceptor_ids, "Expected setup to register interceptors"
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Jujutsu Trainee")
+    new = game.state.event_log[before:]
+    gains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p1.id
+        and e.payload.get('amount') == 1
+    ]
+    assert gains, (
+        f"Expected +1 life to Barrier Technician's controller; "
+        f"recent={[e.type.name for e in new[-10:]]}"
+    )
+
+
+def test_curse_user_death_drains_each_opp():
+    """Slice-4: another creature you control dies → each opponent loses 1 life."""
+    print("\n=== Curse User: drain on death ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Curse User")
+    extra = _put_extra_creature_on_battlefield(game, p1, "Jujutsu Trainee")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': extra.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+    ))
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+    ]
+    assert drains, (
+        f"Expected opp drain on creature death; "
+        f"recent={[e.type.name for e in new[-10:]]}"
+    )
+
+
+def test_cursed_corpse_grows_on_other_death():
+    """Slice-4: another creature you control dies → +1/+1 counter on Cursed Corpse."""
+    print("\n=== Cursed Corpse: grows on death ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    corpse = _put_on_battlefield(game, p1, "Cursed Corpse")
+    extra = _put_extra_creature_on_battlefield(game, p1, "Jujutsu Trainee")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': extra.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+    ))
+    new = game.state.event_log[before:]
+    counters = [
+        e for e in new
+        if e.type == EventType.COUNTER_ADDED
+        and e.payload.get('object_id') == corpse.id
+        and e.payload.get('counter_type') == '+1/+1'
+    ]
+    assert counters, (
+        f"Expected +1/+1 counter on Cursed Corpse; "
+        f"recent={[e.type.name for e in new[-10:]]}"
+    )
+
+
+def test_blood_arrow_archer_attack_damages_opps():
+    """Slice-4: archer attacks (with opp creature in play) → 1 dmg per opp."""
+    print("\n=== Blood Arrow Archer: attack damages opps ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    archer = _put_on_battlefield(game, p1, "Blood Arrow Archer")
+    # Add an opp creature to satisfy the filter's `has_opp_creature` check.
+    _put_extra_creature_on_battlefield(game, p2, "Jujutsu Trainee")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': archer.id, 'attacker': archer.id,
+                 'controller': p1.id},
+        source=archer.id,
+    ))
+    new = game.state.event_log[before:]
+    dmgs = [
+        e for e in new
+        if e.type == EventType.DAMAGE
+        and e.payload.get('target') == p2.id
+        and e.payload.get('amount') == 1
+    ]
+    assert dmgs, (
+        f"Expected 1 dmg to opp on attack; "
+        f"recent={[e.type.name for e in new[-10:]]}"
+    )
+
+
+def test_cleave_practitioner_death_damages_opps():
+    """Slice-4: another creature you control dies → Cleave deals 1 dmg per opp."""
+    print("\n=== Cleave Practitioner: cleave-on-death ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Cleave Practitioner")
+    extra = _put_extra_creature_on_battlefield(game, p1, "Jujutsu Trainee")
+    before = len(game.state.event_log)
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': extra.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': f'graveyard_{p1.id}',
+            'to_zone_type': ZoneType.GRAVEYARD,
+        },
+    ))
+    new = game.state.event_log[before:]
+    dmgs = [
+        e for e in new
+        if e.type == EventType.DAMAGE
+        and e.payload.get('target') == p2.id
+        and e.payload.get('amount') == 1
+    ]
+    assert dmgs, (
+        f"Expected 1 dmg to each opp on creature death; "
+        f"recent={[e.type.name for e in new[-10:]]}"
+    )
+
+
+def test_cursed_energy_flow_etb_on_other_creature_drains_opps():
+    """Slice-4: another creature you control ETBs → each opp loses 1 life."""
+    print("\n=== Cursed Energy Flow: drain on creature ETB ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Cursed Energy Flow")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p1, "Jujutsu Trainee")
+    new = game.state.event_log[before:]
+    drains = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+    ]
+    assert drains, (
+        f"Expected -1 life to opp on creature ETB; "
+        f"recent={[e.type.name for e in new[-10:]]}"
+    )
+
+
+def test_binding_contract_taxes_opp_creatures():
+    """Slice-4: opp creature ETBs → that opp loses 1 life."""
+    print("\n=== Binding Contract: opp ETB tax ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    _put_on_battlefield(game, p1, "Binding Contract")
+    before = len(game.state.event_log)
+    _put_on_battlefield(game, p2, "Jujutsu Trainee")
+    new = game.state.event_log[before:]
+    losses = [
+        e for e in new
+        if e.type == EventType.LIFE_CHANGE
+        and e.payload.get('player') == p2.id
+        and e.payload.get('amount') == -1
+    ]
+    assert losses, (
+        f"Expected -1 life to opp owner on their creature ETB; "
+        f"recent={[e.type.name for e in new[-10:]]}"
+    )
+
+
+# ============================================================================
 # Runner
 # ============================================================================
 
