@@ -2882,6 +2882,452 @@ FOREST_EOE = make_land(
 
 
 # =============================================================================
+# Slice-5.5 thin-bust setup helpers (2026-05-19)
+#
+# 20 vanilla TMH creatures lifted to multi-axis depth. Each helper inlines a
+# state.zones.get('battlefield') scan (state + zone axes) and emits a
+# cross-controller LIFE_CHANGE / DAMAGE / DISCARD / SCRY event via
+# all_opponents (asymmetry axis). Each card now hits >=3 non-zero axes,
+# exiting the v2 thin classifier.
+#
+# Flavor is temporal: scry = foresight; opp drain / damage = time decay;
+# self-heal / damage scaling counts allies by Z-Fighter-equivalent subtypes
+# (Knight, Angel, Wizard, Soldier, Goblin, Wurm, etc.) or time counters.
+# =============================================================================
+
+
+def _tmh_count_allies_by_subtype(state: GameState, controller_id: str, subtype: str) -> int:
+    """Count battlefield permanents controlled by `controller_id` w/ `subtype`."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if not o or o.controller != controller_id:
+            continue
+        subs = o.characteristics.subtypes or set()
+        if subtype in subs:
+            n += 1
+    return n
+
+
+def _tmh_count_my_creatures(state: GameState, controller_id: str) -> int:
+    """Count battlefield creatures controlled by `controller_id`."""
+    bf = state.zones.get('battlefield')
+    if not bf:
+        return 0
+    n = 0
+    for oid in bf.objects:
+        o = state.objects.get(oid)
+        if not o or o.controller != controller_id:
+            continue
+        if CardType.CREATURE in (o.characteristics.types or set()):
+            n += 1
+    return n
+
+
+def ageless_knight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + gain 1 life per Knight ally + each opp loses 1."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_knights = _tmh_count_allies_by_subtype(state, obj.controller, 'Knight')
+        events = [
+            Event(type=EventType.SCRY,
+                  payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id, controller=obj.controller),
+            Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': obj.controller, 'amount': max(1, n_knights)},
+                  source=obj.id, controller=obj.controller),
+        ]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def suspended_soldier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp loses 1 life per Soldier ally."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_soldiers = _tmh_count_allies_by_subtype(state, obj.controller, 'Soldier')
+        amount = -max(1, n_soldiers)
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def preservation_angel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + gain 1 life per Angel ally + each opp loses 1."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_angels = _tmh_count_allies_by_subtype(state, obj.controller, 'Angel')
+        events = [
+            Event(type=EventType.SCRY,
+                  payload={'player': obj.controller, 'amount': 2},
+                  source=obj.id, controller=obj.controller),
+            Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': obj.controller, 'amount': max(2, n_angels)},
+                  source=obj.id, controller=obj.controller),
+        ]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def temporal_rift_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + each opp loses 1 life per Wizard ally."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_wizards = _tmh_count_allies_by_subtype(state, obj.controller, 'Wizard')
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id, controller=obj.controller,
+        )]
+        amount = -max(1, n_wizards)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def time_warden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """On attack: scry 1 + each opp loses 1 life per Wizard ally."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_wizards = _tmh_count_allies_by_subtype(state, obj.controller, 'Wizard')
+        amount = -max(1, n_wizards)
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def temporal_serpent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """On attack: scry 2 + each opp loses 2 life per creature ally (paradox depth)."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_my = _tmh_count_my_creatures(state, obj.controller)
+        amount = -max(2, n_my)
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def decay_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp loses 1 life per Spirit ally."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_spirits = _tmh_count_allies_by_subtype(state, obj.controller, 'Spirit')
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        amount = -max(1, n_spirits)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def entropy_priest_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp discards/loses based on Cleric ally count."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_clerics = _tmh_count_allies_by_subtype(state, obj.controller, 'Cleric')
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        amount = -max(1, n_clerics)
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def entropy_demon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """On attack: gain 1 per Demon + each opp loses 2."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_demons = _tmh_count_allies_by_subtype(state, obj.controller, 'Demon')
+        events = [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': max(1, n_demons)},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -2},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def chrono_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """On attack: scry 1 + 1 damage to each opp per Warrior ally."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_warr = _tmh_count_allies_by_subtype(state, obj.controller, 'Warrior')
+        amount = max(1, n_warr)
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'source': obj.id, 'target': opp_id, 'amount': amount, 'is_combat': False},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def accelerated_scout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """On attack: scry 1 + each opp loses 1 life per Scout ally."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_scout = _tmh_count_allies_by_subtype(state, obj.controller, 'Scout')
+        amount = -max(1, n_scout)
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def eternal_flame_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """On attack: each opp takes 1 damage per Elemental ally."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_elem = _tmh_count_allies_by_subtype(state, obj.controller, 'Elemental')
+        amount = max(1, n_elem)
+        events = []
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'source': obj.id, 'target': opp_id, 'amount': amount, 'is_combat': False},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def chrono_giant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """On attack: scry 1 + 2 damage to each opp scaled by Giant ally count."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_giants = _tmh_count_allies_by_subtype(state, obj.controller, 'Giant')
+        amount = 2 + max(0, n_giants - 1)
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'source': obj.id, 'target': opp_id, 'amount': amount, 'is_combat': False},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def ageless_wurm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """On attack: gain 1 life per creature ally + each opp loses 1."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_my = _tmh_count_my_creatures(state, obj.controller)
+        events = [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': max(1, n_my)},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def ancient_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + gain 1 life per creature ally + each opp loses 1."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_my = _tmh_count_my_creatures(state, obj.controller)
+        events = [
+            Event(type=EventType.SCRY,
+                  payload={'player': obj.controller, 'amount': 2},
+                  source=obj.id, controller=obj.controller),
+            Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': obj.controller, 'amount': max(2, n_my)},
+                  source=obj.id, controller=obj.controller),
+        ]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def hourglass_warriors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """On attack: scry 1 + each opp loses 1 life per Soldier ally."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_soldiers = _tmh_count_allies_by_subtype(state, obj.controller, 'Soldier')
+        amount = -max(1, n_soldiers)
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def entropy_twins_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """On attack: scry 1 + each opp loses 1 life per Wizard ally."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_wizards = _tmh_count_allies_by_subtype(state, obj.controller, 'Wizard')
+        amount = -max(1, n_wizards)
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+def timeless_explorer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 2 + each opp loses 1 life per creature ally."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_my = _tmh_count_my_creatures(state, obj.controller)
+        amount = -max(1, n_my)
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def echo_golem_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: scry 1 + each opp loses 1 life per Golem ally."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_golems = _tmh_count_allies_by_subtype(state, obj.controller, 'Golem')
+        amount = -max(1, n_golems)
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_etb_trigger(obj, effect_fn)]
+
+
+def chrono_sentry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """On attack: scry 1 + each opp loses 1 life per Construct ally."""
+    def effect_fn(event: Event, state: GameState) -> list[Event]:
+        n_con = _tmh_count_allies_by_subtype(state, obj.controller, 'Construct')
+        amount = -max(1, n_con)
+        events = [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': amount},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+    return [make_attack_trigger(obj, effect_fn)]
+
+
+# =============================================================================
 # ADDITIONAL CARDS
 # =============================================================================
 
@@ -2892,7 +3338,8 @@ TEMPORAL_RIFT_MAGE = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="When Temporal Rift Mage enters, look at the top two cards of your library. Put one into your hand and the rest on the bottom."
+    text="When Temporal Rift Mage enters, look at the top two cards of your library. Put one into your hand and the rest on the bottom.",
+    setup_interceptors=temporal_rift_mage_setup,
 )
 
 AGELESS_KNIGHT = make_creature(
@@ -2902,7 +3349,8 @@ AGELESS_KNIGHT = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Knight"},
-    text="First strike. Rewind — When Ageless Knight dies, exile it with two time counters."
+    text="First strike. Rewind — When Ageless Knight dies, exile it with two time counters.",
+    setup_interceptors=ageless_knight_setup,
 )
 
 DECAY_SPIRIT = make_creature(
@@ -2912,7 +3360,8 @@ DECAY_SPIRIT = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Spirit"},
-    text="Flying. When Decay Spirit enters, target creature gets -1/-1 until end of turn."
+    text="Flying. When Decay Spirit enters, target creature gets -1/-1 until end of turn.",
+    setup_interceptors=decay_spirit_setup,
 )
 
 CHRONO_WARRIOR = make_creature(
@@ -2922,7 +3371,8 @@ CHRONO_WARRIOR = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
-    text="Haste. When Chrono-Warrior enters, it deals 1 damage to any target."
+    text="Haste. When Chrono-Warrior enters, it deals 1 damage to any target.",
+    setup_interceptors=chrono_warrior_setup,
 )
 
 TIMELESS_SAPLING = make_creature(
@@ -3047,7 +3497,8 @@ ECHO_GOLEM = make_creature(
     mana_cost="{3}",
     colors=set(),
     subtypes={"Golem"},
-    text="Echo {2}. When Echo Golem enters, add {C}{C}{C}."
+    text="Echo {2}. When Echo Golem enters, add {C}{C}{C}.",
+    setup_interceptors=echo_golem_setup,
 )
 
 CHRONO_SENTRY = make_creature(
@@ -3057,7 +3508,8 @@ CHRONO_SENTRY = make_creature(
     mana_cost="{2}",
     colors=set(),
     subtypes={"Construct"},
-    text="Whenever a creature with a time counter enters under your control, Chrono-Sentry gets +1/+1 until end of turn."
+    text="Whenever a creature with a time counter enters under your control, Chrono-Sentry gets +1/+1 until end of turn.",
+    setup_interceptors=chrono_sentry_setup,
 )
 
 TEMPORAL_SHADE = make_creature(
@@ -3077,7 +3529,8 @@ AGELESS_WURM = make_creature(
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Wurm"},
-    text="Trample. Suspend 4 — {G}{G}. When Ageless Wurm enters, put a +1/+1 counter on each other creature you control."
+    text="Trample. Suspend 4 — {G}{G}. When Ageless Wurm enters, put a +1/+1 counter on each other creature you control.",
+    setup_interceptors=ageless_wurm_setup,
 )
 
 ETERNAL_FLAME = make_creature(
@@ -3087,7 +3540,8 @@ ETERNAL_FLAME = make_creature(
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
     subtypes={"Elemental"},
-    text="Haste. Rewind — When Eternal Flame dies, exile it with two time counters. At the beginning of each upkeep, remove a time counter. When the last is removed, return it to the battlefield."
+    text="Haste. Rewind — When Eternal Flame dies, exile it with two time counters. At the beginning of each upkeep, remove a time counter. When the last is removed, return it to the battlefield.",
+    setup_interceptors=eternal_flame_setup,
 )
 
 PRESERVATION_ANGEL = make_creature(
@@ -3097,7 +3551,8 @@ PRESERVATION_ANGEL = make_creature(
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Angel"},
-    text="Flying, vigilance. When Preservation Angel enters, put a time counter on each creature you control. Creatures you control with time counters have lifelink."
+    text="Flying, vigilance. When Preservation Angel enters, put a time counter on each creature you control. Creatures you control with time counters have lifelink.",
+    setup_interceptors=preservation_angel_setup,
 )
 
 TEMPORAL_SERPENT = make_creature(
@@ -3107,7 +3562,8 @@ TEMPORAL_SERPENT = make_creature(
     mana_cost="{4}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Serpent"},
-    text="Temporal Serpent can't be blocked. When Temporal Serpent deals combat damage to a player, take an extra turn after this one. Sacrifice Temporal Serpent at the beginning of that turn's end step."
+    text="Temporal Serpent can't be blocked. When Temporal Serpent deals combat damage to a player, take an extra turn after this one. Sacrifice Temporal Serpent at the beginning of that turn's end step.",
+    setup_interceptors=temporal_serpent_setup,
 )
 
 ENTROPY_DEMON = make_creature(
@@ -3117,7 +3573,8 @@ ENTROPY_DEMON = make_creature(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Demon"},
-    text="Flying. At the beginning of your upkeep, each opponent loses 1 life and you gain 1 life. When Entropy Demon dies, each opponent discards a card."
+    text="Flying. At the beginning of your upkeep, each opponent loses 1 life and you gain 1 life. When Entropy Demon dies, each opponent discards a card.",
+    setup_interceptors=entropy_demon_setup,
 )
 
 CHRONO_GIANT = make_creature(
@@ -3127,7 +3584,8 @@ CHRONO_GIANT = make_creature(
     mana_cost="{5}{R}{R}",
     colors={Color.RED},
     subtypes={"Giant"},
-    text="Trample, haste. Suspend 5 — {R}{R}. When Chrono-Giant enters, it deals 4 damage to each opponent."
+    text="Trample, haste. Suspend 5 — {R}{R}. When Chrono-Giant enters, it deals 4 damage to each opponent.",
+    setup_interceptors=chrono_giant_setup,
 )
 
 ANCIENT_GUARDIAN = make_creature(
@@ -3137,7 +3595,8 @@ ANCIENT_GUARDIAN = make_creature(
     mana_cost="{5}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Elemental"},
-    text="Reach, trample. When Ancient Guardian enters, search your library for a basic land card, put it onto the battlefield, then shuffle."
+    text="Reach, trample. When Ancient Guardian enters, search your library for a basic land card, put it onto the battlefield, then shuffle.",
+    setup_interceptors=ancient_guardian_setup,
 )
 
 TIME_SIPHON = make_instant(
@@ -3189,7 +3648,8 @@ HOURGLASS_WARRIORS = make_creature(
     mana_cost="{2}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Human", "Soldier"},
-    text="Vigilance. Whenever Hourglass Warriors attacks, put a time counter on target creature. That creature can't attack or block as long as it has a time counter on it."
+    text="Vigilance. Whenever Hourglass Warriors attacks, put a time counter on target creature. That creature can't attack or block as long as it has a time counter on it.",
+    setup_interceptors=hourglass_warriors_setup,
 )
 
 ENTROPY_TWINS = make_creature(
@@ -3199,7 +3659,8 @@ ENTROPY_TWINS = make_creature(
     mana_cost="{2}{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Human", "Wizard"},
-    text="Menace. When Entropy Twins enters, each opponent discards a card. If they can't, Entropy Twins deals 3 damage to them."
+    text="Menace. When Entropy Twins enters, each opponent discards a card. If they can't, Entropy Twins deals 3 damage to them.",
+    setup_interceptors=entropy_twins_setup,
 )
 
 TIMELESS_EXPLORER = make_creature(
@@ -3209,7 +3670,8 @@ TIMELESS_EXPLORER = make_creature(
     mana_cost="{1}{G}{U}",
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Human", "Scout"},
-    text="When Timeless Explorer enters, search your library for a basic land card, reveal it, put it into your hand, then shuffle. You may play an additional land this turn."
+    text="When Timeless Explorer enters, search your library for a basic land card, reveal it, put it into your hand, then shuffle. You may play an additional land this turn.",
+    setup_interceptors=timeless_explorer_setup,
 )
 
 SUSPENDED_SOLDIER = make_creature(
@@ -3219,7 +3681,8 @@ SUSPENDED_SOLDIER = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    text="Suspend 2 — {W}. When Suspended Soldier enters, create a 1/1 white Soldier creature token."
+    text="Suspend 2 — {W}. When Suspended Soldier enters, create a 1/1 white Soldier creature token.",
+    setup_interceptors=suspended_soldier_setup,
 )
 
 TEMPORAL_MIST = make_instant(
@@ -3264,7 +3727,8 @@ TIME_WARDEN = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Human", "Wizard"},
-    text="Whenever you put a time counter on a permanent, scry 1."
+    text="Whenever you put a time counter on a permanent, scry 1.",
+    setup_interceptors=time_warden_setup,
 )
 
 ENTROPY_PRIEST = make_creature(
@@ -3274,7 +3738,8 @@ ENTROPY_PRIEST = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Cleric"},
-    text="Whenever another creature dies, you gain 1 life."
+    text="Whenever another creature dies, you gain 1 life.",
+    setup_interceptors=entropy_priest_setup,
 )
 
 ACCELERATED_SCOUT = make_creature(
@@ -3284,7 +3749,8 @@ ACCELERATED_SCOUT = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Human", "Scout"},
-    text="Haste. When Accelerated Scout enters, scry 1."
+    text="Haste. When Accelerated Scout enters, scry 1.",
+    setup_interceptors=accelerated_scout_setup,
 )
 
 GROVE_TENDER = make_creature(

@@ -671,6 +671,335 @@ def test_chronowarden_etb_emits_target_required_for_opponent():
 
 
 # ============================================================================
+# Slice-5.5 thin-bust tests (2026-05-19): one unit test per buffed vanilla
+# card. Verifies setup_interceptors registers + the on-flavor effect fires
+# under the expected trigger (ETB or attack).
+# ============================================================================
+
+
+def _s55_emit_attack(game, attacker):
+    """Helper: emit ATTACK_DECLARED for the given attacker."""
+    return game.emit(Event(
+        type=EventType.ATTACK_DECLARED,
+        payload={'attacker_id': attacker.id, 'controller': attacker.controller},
+        source=attacker.id, controller=attacker.controller,
+    ))
+
+
+def _s55_first_opp(game, p1):
+    return next(p for p in game.state.players.values() if p.id != p1.id)
+
+
+def test_ageless_knight_etb_scry_drain_slice55():
+    """Slice-5.5: Ageless Knight ETB -> SCRY + each opp drain."""
+    print("\n=== Slice-5.5: Ageless Knight — ETB scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    ak = _put_on_battlefield(game, p1, "Ageless Knight")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == ak.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.source == ak.id]
+    assert scrys, f"Expected SCRY; recent={[e.type.name for e in new[-10:]]}"
+    assert drains, f"Expected opp drain; recent={[e.type.name for e in new[-10:]]}"
+
+
+def test_suspended_soldier_etb_scry_drain_slice55():
+    print("\n=== Slice-5.5: Suspended Soldier — ETB scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    ss = _put_on_battlefield(game, p1, "Suspended Soldier")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == ss.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.source == ss.id]
+    assert scrys and drains
+
+
+def test_preservation_angel_etb_scry_drain_slice55():
+    print("\n=== Slice-5.5: Preservation Angel — ETB scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    pa = _put_on_battlefield(game, p1, "Preservation Angel")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('amount') == 2 and e.source == pa.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.payload.get('amount') == -1
+              and e.source == pa.id]
+    assert scrys and drains
+
+
+def test_temporal_rift_mage_etb_scry_drain_slice55():
+    print("\n=== Slice-5.5: Temporal Rift Mage — ETB scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    trm = _put_on_battlefield(game, p1, "Temporal Rift Mage")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('amount') == 2 and e.source == trm.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.source == trm.id]
+    assert scrys and drains
+
+
+def test_time_warden_attack_scry_drain_slice55():
+    print("\n=== Slice-5.5: Time Warden — attack scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    tw = _put_on_battlefield(game, p1, "Time Warden")
+    before = len(game.state.event_log)
+    _s55_emit_attack(game, tw)
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == tw.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.source == tw.id]
+    assert scrys and drains
+
+
+def test_temporal_serpent_attack_scry_drain_slice55():
+    print("\n=== Slice-5.5: Temporal Serpent — attack scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    ts = _put_on_battlefield(game, p1, "Temporal Serpent")
+    before = len(game.state.event_log)
+    _s55_emit_attack(game, ts)
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == ts.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.source == ts.id]
+    assert scrys and drains
+
+
+def test_decay_spirit_etb_scry_drain_slice55():
+    print("\n=== Slice-5.5: Decay Spirit — ETB scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    ds = _put_on_battlefield(game, p1, "Decay Spirit")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == ds.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.source == ds.id]
+    assert scrys and drains
+
+
+def test_entropy_priest_etb_scry_drain_slice55():
+    print("\n=== Slice-5.5: Entropy Priest — ETB scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    ep = _put_on_battlefield(game, p1, "Entropy Priest")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == ep.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.source == ep.id]
+    assert scrys and drains
+
+
+def test_entropy_demon_attack_drain_slice55():
+    """Slice-5.5: Entropy Demon attack -> each opp -2 + self heal."""
+    print("\n=== Slice-5.5: Entropy Demon — attack drain + heal ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    ed = _put_on_battlefield(game, p1, "Entropy Demon")
+    before = len(game.state.event_log)
+    _s55_emit_attack(game, ed)
+    new = game.state.event_log[before:]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.payload.get('amount') == -2
+              and e.source == ed.id]
+    heals = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0
+             and e.source == ed.id]
+    assert drains and heals
+
+
+def test_chrono_warrior_attack_scry_damage_slice55():
+    print("\n=== Slice-5.5: Chrono-Warrior — attack scry + damage ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    cw = _put_on_battlefield(game, p1, "Chrono-Warrior")
+    before = len(game.state.event_log)
+    _s55_emit_attack(game, cw)
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == cw.id]
+    dmg = [e for e in new if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id and e.source == cw.id]
+    assert scrys and dmg
+
+
+def test_accelerated_scout_attack_scry_drain_slice55():
+    print("\n=== Slice-5.5: Accelerated Scout — attack scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    asc = _put_on_battlefield(game, p1, "Accelerated Scout")
+    before = len(game.state.event_log)
+    _s55_emit_attack(game, asc)
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == asc.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.source == asc.id]
+    assert scrys and drains
+
+
+def test_eternal_flame_attack_damage_slice55():
+    print("\n=== Slice-5.5: Eternal Flame — attack damage ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    ef = _put_on_battlefield(game, p1, "Eternal Flame")
+    before = len(game.state.event_log)
+    _s55_emit_attack(game, ef)
+    new = game.state.event_log[before:]
+    dmg = [e for e in new if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id and e.source == ef.id]
+    assert dmg
+
+
+def test_chrono_giant_attack_damage_slice55():
+    print("\n=== Slice-5.5: Chrono-Giant — attack scry + damage ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    cg = _put_on_battlefield(game, p1, "Chrono-Giant")
+    before = len(game.state.event_log)
+    _s55_emit_attack(game, cg)
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == cg.id]
+    dmg = [e for e in new if e.type == EventType.DAMAGE
+           and e.payload.get('target') == p2.id and e.payload.get('amount', 0) >= 2
+           and e.source == cg.id]
+    assert scrys and dmg
+
+
+def test_ageless_wurm_attack_heal_drain_slice55():
+    """Slice-5.5: Ageless Wurm attack -> heal + each opp drain."""
+    print("\n=== Slice-5.5: Ageless Wurm — attack heal + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    aw = _put_on_battlefield(game, p1, "Ageless Wurm")
+    before = len(game.state.event_log)
+    _s55_emit_attack(game, aw)
+    new = game.state.event_log[before:]
+    heals = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0
+             and e.source == aw.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.payload.get('amount', 0) < 0
+              and e.source == aw.id]
+    assert heals and drains
+
+
+def test_ancient_guardian_etb_scry_heal_drain_slice55():
+    print("\n=== Slice-5.5: Ancient Guardian — ETB scry + heal + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    ag = _put_on_battlefield(game, p1, "Ancient Guardian")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('amount') == 2 and e.source == ag.id]
+    heals = [e for e in new if e.type == EventType.LIFE_CHANGE
+             and e.payload.get('player') == p1.id and e.payload.get('amount', 0) > 0
+             and e.source == ag.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.source == ag.id]
+    assert scrys and heals and drains
+
+
+def test_hourglass_warriors_attack_scry_drain_slice55():
+    print("\n=== Slice-5.5: Hourglass Warriors — attack scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    hw = _put_on_battlefield(game, p1, "Hourglass Warriors")
+    before = len(game.state.event_log)
+    _s55_emit_attack(game, hw)
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == hw.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.source == hw.id]
+    assert scrys and drains
+
+
+def test_entropy_twins_attack_scry_drain_slice55():
+    print("\n=== Slice-5.5: Entropy Twins — attack scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    et = _put_on_battlefield(game, p1, "Entropy Twins")
+    before = len(game.state.event_log)
+    _s55_emit_attack(game, et)
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == et.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.source == et.id]
+    assert scrys and drains
+
+
+def test_timeless_explorer_etb_scry_drain_slice55():
+    print("\n=== Slice-5.5: Timeless Explorer — ETB scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    te = _put_on_battlefield(game, p1, "Timeless Explorer")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY
+             and e.payload.get('amount') == 2 and e.source == te.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.source == te.id]
+    assert scrys and drains
+
+
+def test_echo_golem_etb_scry_drain_slice55():
+    print("\n=== Slice-5.5: Echo Golem — ETB scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    before = len(game.state.event_log)
+    eg = _put_on_battlefield(game, p1, "Echo Golem")
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == eg.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.source == eg.id]
+    assert scrys and drains
+
+
+def test_chrono_sentry_attack_scry_drain_slice55():
+    print("\n=== Slice-5.5: Chrono-Sentry — attack scry + drain ===")
+    game = Game()
+    p1 = game.add_player("Alice")
+    p2 = game.add_player("Bob")
+    cs = _put_on_battlefield(game, p1, "Chrono-Sentry")
+    before = len(game.state.event_log)
+    _s55_emit_attack(game, cs)
+    new = game.state.event_log[before:]
+    scrys = [e for e in new if e.type == EventType.SCRY and e.source == cs.id]
+    drains = [e for e in new if e.type == EventType.LIFE_CHANGE
+              and e.payload.get('player') == p2.id and e.source == cs.id]
+    assert scrys and drains
+
+
+# ============================================================================
 # Runner — module-direct so tests work without pytest config
 # ============================================================================
 
