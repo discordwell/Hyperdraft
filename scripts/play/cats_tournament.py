@@ -315,6 +315,7 @@ def run_tournament(
     difficulty: str = "hard",
     verbose: bool = False,
     p2_difficulty: Optional[str] = None,
+    seed_offset: int = 0,
 ) -> dict:
     """Round-robin tournament.
 
@@ -333,8 +334,52 @@ def run_tournament(
                 difficulty=difficulty,
                 verbose=verbose,
                 p2_difficulty=p2_difficulty,
+                seed_offset=seed_offset,
             )
     return results
+
+
+def run_multi_trial(
+    trials: int = 5,
+    games_per_pairing: int = 10,
+    difficulty: str = "hard",
+) -> dict[str, dict[str, float]]:
+    """Run N independent tournaments with different seed bases.
+
+    Returns per-deck stats: {deck_name: {'mean': X, 'min': Y, 'max': Z, 'wr_per_trial': [...]}}.
+    Useful for exposing variance that a single deterministic tournament hides.
+    """
+    deck_names = list(CATS_DECKS.keys())
+    wr_per_trial: dict[str, list[float]] = {n: [] for n in deck_names}
+
+    for t in range(trials):
+        results = run_tournament(
+            games_per_pairing=games_per_pairing,
+            difficulty=difficulty,
+            verbose=False,
+            seed_offset=t * 100_000 + 13,
+        )
+        totals = {n: {"wins": 0, "ties": 0, "games": 0} for n in deck_names}
+        for (a, b), r in results.items():
+            totals[a]["wins"] += r[a]
+            totals[a]["ties"] += r["ties"]
+            totals[a]["games"] += r[a] + r[b] + r["ties"]
+            totals[b]["wins"] += r[b]
+            totals[b]["ties"] += r["ties"]
+            totals[b]["games"] += r[a] + r[b] + r["ties"]
+        for name in deck_names:
+            wr = (totals[name]["wins"] + 0.5 * totals[name]["ties"]) / max(totals[name]["games"], 1) * 100
+            wr_per_trial[name].append(wr)
+
+    stats: dict[str, dict[str, float]] = {}
+    for name, rates in wr_per_trial.items():
+        stats[name] = {
+            "mean": sum(rates) / len(rates),
+            "min": min(rates),
+            "max": max(rates),
+            "wr_per_trial": rates,
+        }
+    return stats
 
 
 # ---------------------------------------------------------------------------
@@ -428,25 +473,62 @@ def _build_argparser() -> argparse.ArgumentParser:
         default=None,
         help="Optional override for p2 only (asymmetric matchup, e.g. hard vs medium).",
     )
+    parser.add_argument(
+        "--trials", "-t",
+        type=int,
+        default=1,
+        help="Number of independent tournaments with different seed bases (default 1; >1 prints variance).",
+    )
     return parser
 
 
 if __name__ == "__main__":
     args = _build_argparser().parse_args()
-    print(
-        f"Running CATS round-robin tournament "
-        f"({args.games_per_pairing} games per pairing, difficulty={args.difficulty}"
-        + (f", p2={args.p2_difficulty}" if args.p2_difficulty else "")
-        + ")..."
-    )
-    print(f"  Decks: {list(CATS_DECKS.keys())}")
-    print()
-    results = run_tournament(
-        games_per_pairing=args.games_per_pairing,
-        difficulty=args.difficulty,
-        verbose=args.verbose,
-        p2_difficulty=args.p2_difficulty,
-    )
-    if args.verbose:
+    if args.trials > 1:
+        print(
+            f"Running CATS multi-trial tournament "
+            f"({args.trials} trials × {args.games_per_pairing} games per pairing, difficulty={args.difficulty})..."
+        )
+        print(f"  Decks: {list(CATS_DECKS.keys())}")
         print()
-    print(_format_results(results, CATS_DECKS))
+        stats = run_multi_trial(
+            trials=args.trials,
+            games_per_pairing=args.games_per_pairing,
+            difficulty=args.difficulty,
+        )
+        print("=" * 72)
+        print(f"{'Deck':<22} | {'Mean':>6} {'Min':>6} {'Max':>6} | per-trial")
+        print("-" * 72)
+        for name, s in stats.items():
+            per_trial = " ".join(f"{wr:.1f}" for wr in s["wr_per_trial"])
+            print(
+                f"{name:<22} | {s['mean']:>5.1f}% {s['min']:>5.1f}% {s['max']:>5.1f}% | {per_trial}"
+            )
+        print()
+        print("Variance verdict:")
+        for name, s in stats.items():
+            spread = s["max"] - s["min"]
+            if spread > 20:
+                print(f"  - {name}: spread {spread:.1f}% — high variance")
+            elif s["mean"] < 35 or s["mean"] > 60:
+                print(f"  - {name}: mean {s['mean']:.1f}% — out of 35-60% target")
+            else:
+                print(f"  - {name}: mean {s['mean']:.1f}%, spread {spread:.1f}% — OK")
+    else:
+        print(
+            f"Running CATS round-robin tournament "
+            f"({args.games_per_pairing} games per pairing, difficulty={args.difficulty}"
+            + (f", p2={args.p2_difficulty}" if args.p2_difficulty else "")
+            + ")..."
+        )
+        print(f"  Decks: {list(CATS_DECKS.keys())}")
+        print()
+        results = run_tournament(
+            games_per_pairing=args.games_per_pairing,
+            difficulty=args.difficulty,
+            verbose=args.verbose,
+            p2_difficulty=args.p2_difficulty,
+        )
+        if args.verbose:
+            print()
+        print(_format_results(results, CATS_DECKS))

@@ -201,13 +201,13 @@ NAPTIME_TYRANTS: list = [
     MARSHMALLOW,                   # 3   (draw on territory entry)
     TOBY_THE_TUBSTER,              # 1
 
-    # --- Sleek high-rollers for raw value (6) ---
+    # --- Sleek high-rollers for raw value (6 → 5) ---  v4: trimmed 1 Bartholomew (was too much)
     THE_MAGNIFICENT_BARTHOLOMEW,   # 10  (draw 2 on Nap entry — *perfect*)
     THE_BRIGADIER,                 # 9
     MISTER_WHISKERS,               # 7
     DUCHESS_VELVET,                # 6
-    THE_MAGNIFICENT_BARTHOLOMEW,   # repeat — draw 2 is the win condition
     EMPRESS_POMF,                  # repeat
+    TABITHA,                       # 2 — vanilla padding to keep 30
 
     # --- Penumbra (Sneaky-but-fluffy with Nap entry) ---
     THE_PENUMBRA_TWIN,             # 6 (Sneaky, draw on Nap-entry)
@@ -323,39 +323,35 @@ SHADOW_CATS: list = [
     SITTING_IN_THE_BOX,            # fewer-hand wins
     THE_INSCRUTABLE_STARE,         # equal wins
 
-    # --- HIGH-VALUE BOMBS (5) ---  default-rule reliability
+    # --- HIGH-VALUE BOMBS (3) ---  v4: trimmed from 5 to 3 (still loaded with Sneaky asymmetry)
     EMPRESS_POMF,                  # Fluffy 9 (draw + life on win)
     MISTER_WHISKERS,               # Sleek 7
     DUCHESS_VELVET,                # Sleek 6 (draw on win)
-    THE_BRIGADIER,                 # Sleek 9
-    THE_MAGNIFICENT_BARTHOLOMEW,   # Sleek 10
 
     # --- Catch-up + utility (3) ---
     PILLOW_PRINCESS,               # Fluffy 6 (round-end catch-up draw)
     SERGEANT_SNUGGLES,             # Fluffy 8
     BISCUIT,                       # Fluffy 7
 
-    # --- Low-value Scrappy bait (2) ---
+    # --- Low-value bait (3) ---  v4: more bait, less raw power
     GARY_JUNIOR,                   # Scrappy 1 (vanilla)
     PRINCESS_MAYHEM_THE_FOURTH,    # Scrappy 3 (draw on win)
-
-    # --- Scrappy on-lose utility (2) ---
     THE_ALLEY_PHANTOM,             # Scrappy 2 (draw on lose)
-    LORD_TUFTS,                    # Sleek 3 (draw on lose; consolation)
 
     # --- Trinket (1) ---
     THE_STOLEN_HAIR_TIE,           # Attention drip (tiebreak)
 
-    # --- Vanilla padding (2) ---
+    # --- Vanilla padding (3) ---  more vanilla, less bomb
     A_SINGLE_CRUMB,                # 1 — Snack-force grenade
     TABITHA,                       # Sleek 2 — vanilla bait
-
-    # --- Penumbra / Inkblot repeats (2) ---  some Sneaky depth without overload
-    THE_PENUMBRA_TWIN,             # 2nd copy
-    MADAM_INKBLOT,                 # 2nd copy
-
-    # --- Padding to 30 (2) ---
     CRUMPET,                       # Sleek 4 — vanilla
+
+    # --- Extra vanilla padding (6) ---  v4: fill out the 6 slots removed from bombs/Sneaky-overflow
+    LORD_TUFTS,                    # Sleek 3 (draw on lose)
+    ONE_TOOTH_EDUARDO,             # Scrappy
+    TOBY_THE_TUBSTER,              # Fluffy 1 vanilla
+    TUNA_CAN,                      # Snack 1
+    THAT_ONE_THING_OFF_THE_COUNTER,# Snack 3 (life on snack entry)
     MITTENS_MCSOPHISTICATED,       # Sleek 5 (attn on territory)
 ]
 assert len(SHADOW_CATS) == 30, f"Shadow Cats: {len(SHADOW_CATS)}"
