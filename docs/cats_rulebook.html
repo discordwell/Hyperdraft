@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cats — A Day in the Life</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,700;1,400&family=Fraunces:ital,wght@0,400;0,500;0,700;1,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --cream-pg:     #FBF1DC;   /* page background */
+  --cream-card:   #F5E5C0;   /* boxed callouts */
+  --butterscotch: #C68B3A;   /* primary accent */
+  --burnt:        #8C4A1F;   /* heading color */
+  --cocoa:        #3B2412;   /* body text */
+  --tabby:        #6E4220;   /* sub-headings */
+  --mauve:        #7E5A6C;   /* italic / muted */
+  --whisker:      #E8D8B0;   /* table row alt */
+  --paw:          #B07A35;   /* dividers */
+  --shadow:       rgba(120, 76, 30, 0.18);
+}
+
+html { font-size: 11.5pt; }
+
+body {
+  background: var(--cream-pg);
+  color: var(--cocoa);
+  font-family: 'EB Garamond', 'Garamond', 'Georgia', serif;
+  line-height: 1.55;
+}
+
+/* ─── Print ─── */
+@page {
+  size: A4;
+  margin: 18mm 16mm 18mm 16mm;
+  @bottom-left { content: "Cats — a day in the life"; font-family: 'Inter','sans-serif'; font-size: 8pt; color: #8C4A1F; }
+  @bottom-right { content: counter(page); font-family: 'Inter','sans-serif'; font-size: 8pt; color: #8C4A1F; }
+}
+@media print {
+  body { background: #FBF1DC; }
+  .page-break { page-break-before: always; }
+  h1, h2, h3, h4 { page-break-after: avoid; }
+  table, blockquote { page-break-inside: avoid; }
+  .cover { page-break-after: always; }
+  .quickref { page-break-before: always; }
+}
+
+/* ─── Typography ─── */
+h1, h2, h3, h4 { font-family: 'Fraunces', 'Playfair Display', 'Garamond', serif; font-weight: 700; }
+h1 { font-size: 3.4rem; color: var(--burnt); letter-spacing: -0.01em; line-height: 1.05; }
+h2 { font-size: 1.85rem; color: var(--burnt); margin-top: 1.8rem; margin-bottom: 0.6rem; border-bottom: 2px solid var(--paw); padding-bottom: 6px; }
+h3 { font-size: 1.35rem; color: var(--tabby); margin-top: 1.2rem; margin-bottom: 0.35rem; }
+h4 { font-size: 1.1rem; color: var(--butterscotch); margin-top: 0.9rem; margin-bottom: 0.25rem; font-style: italic; }
+p  { margin: 0.55rem 0; }
+
+em { color: var(--mauve); font-style: italic; }
+strong { color: var(--burnt); font-weight: 700; }
+code { font-family: 'JetBrains Mono', 'Menlo', monospace; font-size: 0.85em; background: var(--cream-card); padding: 0.05em 0.3em; border-radius: 3px; }
+
+/* ─── Layout ─── */
+.wrapper { max-width: 780px; margin: 0 auto; padding: 0 0.5rem; }
+.section { margin-bottom: 2.4rem; }
+
+/* ─── Cover Page ─── */
+.cover {
+  text-align: center;
+  padding: 4.5rem 1.5rem 3rem;
+  background: var(--cream-card);
+  border: 3px double var(--butterscotch);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px var(--shadow);
+  margin: 0.5rem 0 2.5rem 0;
+  position: relative;
+  overflow: hidden;
+}
+.cover::before {
+  content: "";
+  position: absolute; inset: 14px;
+  border: 1px solid var(--butterscotch);
+  border-radius: 4px;
+  pointer-events: none;
+}
+.cover h1 {
+  font-size: 4.6rem;
+  margin-bottom: 0.4rem;
+}
+.cover-subtitle {
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  font-size: 1.45rem;
+  color: var(--tabby);
+  margin-bottom: 2.2rem;
+  letter-spacing: 0.01em;
+}
+.cover-paws {
+  font-size: 2.2rem;
+  letter-spacing: 1rem;
+  color: var(--butterscotch);
+  margin: 1.5rem 0;
+  padding-left: 1rem;
+}
+.cover-hook {
+  font-family: 'EB Garamond', serif;
+  font-style: italic;
+  color: var(--cocoa);
+  font-size: 1.1rem;
+  max-width: 520px;
+  margin: 1.6rem auto 1.2rem;
+  line-height: 1.55;
+}
+.cover-meta {
+  display: inline-block;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--burnt);
+  background: var(--cream-pg);
+  border: 1px solid var(--paw);
+  padding: 0.5rem 1.2rem;
+  border-radius: 2px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin-top: 0.6rem;
+}
+
+/* ─── Section dividers ─── */
+.paws-divider {
+  text-align: center;
+  font-size: 1.6rem;
+  color: var(--paw);
+  letter-spacing: 0.9rem;
+  margin: 2rem 0 1.5rem 0;
+  padding-left: 0.9rem;
+  opacity: 0.55;
+}
+
+/* ─── Blockquote ─── */
+blockquote {
+  border-left: 4px solid var(--butterscotch);
+  background: var(--cream-card);
+  padding: 0.8rem 1.2rem;
+  margin: 1rem 0;
+  font-style: italic;
+  color: var(--tabby);
+  border-radius: 0 4px 4px 0;
+}
+blockquote p { margin: 0.2rem 0; }
+
+/* ─── Lists ─── */
+ul, ol {
+  margin: 0.4rem 0 0.8rem 0;
+  padding-left: 1.6rem;
+}
+ul li, ol li {
+  margin-bottom: 0.3rem;
+}
+ul li::marker { color: var(--butterscotch); }
+ol li::marker { color: var(--butterscotch); font-weight: 700; }
+
+/* ─── Tables ─── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.9rem 0 1.2rem 0;
+  font-size: 0.95em;
+  background: var(--cream-pg);
+}
+thead { background: var(--butterscotch); color: var(--cream-pg); }
+thead th { padding: 0.55rem 0.7rem; text-align: left; font-family: 'Fraunces', serif; font-size: 0.92em; letter-spacing: 0.02em; }
+tbody td { padding: 0.45rem 0.7rem; border-bottom: 1px solid var(--whisker); vertical-align: top; }
+tbody tr:nth-child(even) { background: var(--cream-card); }
+tbody tr:last-child td { border-bottom: 1px solid var(--paw); }
+
+/* ─── Pre / code blocks (table-layout ascii) ─── */
+pre {
+  background: var(--cream-card);
+  border: 1px solid var(--paw);
+  padding: 0.8rem;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', 'Menlo', monospace;
+  font-size: 0.82em;
+  line-height: 1.35;
+  margin: 0.8rem 0;
+  white-space: pre;
+  overflow-x: hidden;
+  color: var(--cocoa);
+}
+pre code { background: transparent; padding: 0; font-size: 1em; }
+
+/* ─── Quick-reference page ─── */
+.quickref {
+  background: var(--cream-card);
+  border: 2px solid var(--butterscotch);
+  border-radius: 6px;
+  padding: 1.2rem 1.4rem;
+  margin-top: 2rem;
+}
+.quickref h2 {
+  margin-top: 0;
+  border-bottom: 2px solid var(--butterscotch);
+}
+.quickref h3 {
+  color: var(--burnt);
+  font-size: 1.15rem;
+  margin-top: 1rem;
+}
+
+/* ─── Credits ─── */
+.credits {
+  text-align: center;
+  font-family: 'EB Garamond', serif;
+  font-style: italic;
+  color: var(--tabby);
+  margin-top: 2.5rem;
+  padding: 1.5rem;
+  border-top: 1px solid var(--paw);
+  border-bottom: 1px solid var(--paw);
+}
+.credits strong { color: var(--burnt); font-style: normal; }
+
+/* Inline emoji-cat sizing */
+.paw-inline { color: var(--butterscotch); font-weight: bold; }
+hr { border: 0; height: 1px; background: linear-gradient(to right, transparent, var(--paw), transparent); margin: 1.5rem 0; }
+</style>
+</head>
+<body>
+<div class="wrapper">
+<div class="cover">
+  <h1>Cats</h1>
+  <div class="cover-subtitle">A Day in the Life</div>
+  <div class="cover-paws">&#x1F43E; &#x1F43E; &#x1F43E;</div>
+  <p class="cover-hook">A trick-taking, pile-building card game about household cats and the four things they actually care about: territory, naps, snacks, and attention. Nine rounds. One day. One small, dignified disaster.</p>
+  <div class="cover-meta">For 2 players &nbsp;·&nbsp; ~15 minutes &nbsp;·&nbsp; Ages 8+</div>
+</div>
+<h2>2. The Spirit of the Game</h2>
+<p>This game is what happens when a cats committee meets with no agenda. Both players take a small handful of cards and, over nine short rounds, fling one card per round at each other. The cards compare. One wins. The winner gets to choose which of their <strong>piles</strong> the cards go into. That choice — <em>which pile</em> — is the whole game.</p>
+<p>Piles score. Piles store resources. Piles fill up and become hazards. The cat who plans for piles wins. The cat who just smacks down the highest card every round? Also sometimes wins, depending on how the day is going. There are no turns, no mana, no combat, no graveyards. There is only the question every cat asks at every moment of every day: <em>do I want this thing now, or am I saving it for later?</em></p>
+<p>The voice of the game is the voice of cats: dignified, ridiculous, occasionally violent, mostly horizontal. Lean in.</p>
+<div class="paws-divider">&#x1F43E; &#x1F43E; &#x1F43E;</div>
+<div class="page-break"></div><h2>3. Components</h2>
+<p>Each player brings the following:</p>
+<ul>
+<li><strong>A 30-card deck of Cats cards</strong>, drafted or pre-built from the 60-card pool.</li>
+<li><strong>One Commander Cat</strong>, chosen pre-game from the six available. The Commander does not enter your deck. It sits beside the play area and provides an always-on passive.</li>
+<li><strong>Four pile slots</strong>: Territory, Nap, Snack, and Attention.</li>
+<li><strong>A handful of patience</strong>, ideally also some snacks of your own.</li>
+</ul>
+<h3>Suggested table layout</h3>
+<pre><code>            ┌─────────────────────────────────────────────┐
+            │                  OPPONENT                    │
+            │   [Hand: 5 cards]   [Deck]   [Discard]      │
+            │                                              │
+            │   [TERRITORY] [NAP] [SNACK] [ATTENTION]     │
+            │   &lt; cap 8 &gt;   &lt;cap 6&gt; &lt;cap 5&gt;  &lt; ∞ &gt;        │
+            ├─────────────────────────────────────────────┤
+            │             ╳   ╳   THE TRICK   ╳   ╳        │
+            ├─────────────────────────────────────────────┤
+            │   [TERRITORY] [NAP] [SNACK] [ATTENTION]     │
+            │   &lt; cap 8 &gt;   &lt;cap 6&gt; &lt;cap 5&gt;  &lt; ∞ &gt;        │
+            │                                              │
+            │   [Hand: 5 cards]   [Deck]   [Discard]      │
+            │           COMMANDER  ◀── you ──▶            │
+            │                  YOU                         │
+            └─────────────────────────────────────────────┘</code></pre>
+<p>The trick happens in the middle. The piles spread out beside each player. Commander sits to the side, looking unimpressed.</p>
+<div class="paws-divider">&#x1F43E; &#x1F43E; &#x1F43E;</div>
+<h2>4. The Day</h2>
+<p>A game is <strong>nine rounds long</strong>. Nine rounds is a day in the life of a cat: morning loaf, late-morning yowling, lunchtime ambush, afternoon sunbeam, the 3 p.m. zoomies, dinner negotiation, evening lap, midnight reassessment, and 4 a.m. for reasons known only to the cat.</p>
+<p>Each round has six phases. They go fast. You'll get the rhythm by round two.</p>
+<h3>Phase 1 — Stretch <em>(round-start)</em></h3>
+<p>The cats stretch. Mechanically: round-start triggers fire, Trinkets and Commanders recompute their passives, exhausted pile cards untap, and the <strong>lead player</strong> for this round is set. Lead alternates each round. Round 1, Player 1 leads.</p>
+<h3>Phase 2 — Pounce <em>(the non-lead plays first)</em></h3>
+<p>The non-lead player commits a card from hand, face-up. This is intentionally backwards: the player who <em>isn't</em> the lead has to commit first, and the lead gets to react. It's the cat watching another cat decide whether to jump from the counter. The Pounce card's <strong>Category</strong> also installs the trick rule for the round (see §5).</p>
+<h3>Phase 3 — Counter-pounce <em>(the lead reacts)</em></h3>
+<p>The lead player plays a card, face-up, having seen the Pounce. Choose well. The lead can win by matching, by undercutting, by playing a Mood to bend the rule, or by playing a Snack to weaponize the Claim phase.</p>
+<h3>Phase 4 — Resolve trick</h3>
+<p>Both cards are compared under whatever rule got installed (default: highest Value wins; Moods may have overridden it). The winner is determined. The winner does not yet care.</p>
+<h3>Phase 5 — Claim pile</h3>
+<p>The trick winner picks one of their three scoring piles — <strong>Territory</strong>, <strong>Nap</strong>, or <strong>Snack</strong> — and both cards enter that pile. (If a Snack is in the trick, the rule changes: see §6.) Cards entering piles may fire on-enter triggers. This is where the entire strategic load of the game lives.</p>
+<h3>Phase 6 — Curl up <em>(round-end)</em></h3>
+<p>End-of-round triggers fire. The round number ticks up. Players draw back to a full hand if hands are empty. Cats curl up, the day moves on.</p>
+<div class="paws-divider">&#x1F43E; &#x1F43E; &#x1F43E;</div>
+<h2>5. The Four Categories</h2>
+<p>Every Cat card has exactly one <strong>Category</strong>. When a Cat is played as the Pounce (first card of the round), its Category sets the trick rule for that round.</p>
+<h3>Sleek</h3>
+<p><em>Highest Value wins.</em> The dignified, decisive, well-groomed default. Ties resolve to the lead player (the cat who played second is the one with their wits about them). Sleek is the cat who knows exactly what she is doing, and what she is doing is winning.</p>
+<h3>Fluffy</h3>
+<p><em>Highest Value wins, but ties go to the player with <strong>fewer total pile cards</strong>.</em> The underdog wins social ties — the cat who hasn't been spoiled yet gets the benefit of the doubt. Fluffy cats sympathize.</p>
+<h3>Scrappy</h3>
+<p><em>Lowest Value wins.</em> The scrappy cat wins by being the underdog. Don't bring your bombs to a Scrappy round; bring your alley denizens. <strong>Maximum Carnage</strong> at Value 10 will lose every Scrappy trick — which is fine, because Maximum Carnage <em>also draws a card every time it loses.</em></p>
+<h3>Sneaky</h3>
+<p><em>Hidden values decide it.</em> Every Sneaky cat has two numbers: the <strong>printed Value</strong> (which everyone sees) and a <strong>hidden Sneaky Value</strong> (which the system reads but nobody announces). Under Sneaky rules, comparison uses the hidden value. <strong>Whispertoes</strong> is printed as Value 2; her hidden value is 9. <strong>Madam Inkblot</strong> is printed as 7; her hidden value is 2 (the trap). Sneaky is the mind game — you commit not knowing whether your opponent's Pounce was the bluff or the bomb.</p>
+<div class="paws-divider">&#x1F43E; &#x1F43E; &#x1F43E;</div>
+<div class="page-break"></div><h2>6. The Five Card Types</h2>
+<p>There are five card types, four of which you play from your hand. The fifth is your Commander, who never moves.</p>
+<h3>Cat</h3>
+<p>The core unit. A number (Value 1–10), one Category, and usually an effect that fires on play, on win, on lose, or when entering a specific pile.</p>
+<p><strong>Example —</strong> <em>Mister Whiskers (Sleek, Value 7):</em> "When Mister Whiskers wins a trick, peek at the opponent's hand. He has Opinions."</p>
+<h3>Mood</h3>
+<p>A modifier card. Plays from hand like a Cat, but has Value 0. Almost always loses the comparison. <strong>But its job isn't to win</strong> — its job is to <em>replace the trick rule</em> before comparison happens. Played as Pounce, a Mood overrides whatever Category Rule the Cat would have installed. Played as Counter-pounce, it slides in <em>just before</em> resolution, retroactively re-framing the Pounce.</p>
+<p><strong>Example —</strong> <em>The 3 a.m. Zoomies:</em> "Tonight, everyone is unhinged. Lowest Value wins this trick. Also demands attention." Drop this against an opponent's Sleek bomb and watch a Value 1 cat suddenly win the trick.</p>
+<h3>Snack</h3>
+<p>A wildcard. Snacks have a Value (typically low) and compete in the comparison normally — but if a Snack from <strong>either player</strong> is in the trick, the <strong>winner is forced</strong> to claim the trick into their own Snack pile. No choice. This means winning a trick that contains a Snack can be a <em>gift to your opponent</em>: you wanted Territory, but Snack-force just dumped two cards into your Snack pile, possibly tipping you into the greed penalty.</p>
+<p><strong>Example —</strong> <em>The Whole Roast Chicken (Value 3):</em> "When this enters your Snack pile, draw 2 cards. This was meant for the family."</p>
+<h3>Trinket</h3>
+<p>A persistent attachment. Played from hand, attaches to one of your piles, stays there until end of game. Each pile holds up to <strong>2 Trinkets</strong> by default. Playing a Trinket consumes your card-play for the round — so you don't contribute to the trick and you almost certainly lose it. Trinkets are a <em>tempo investment</em>: pay one round of trick-losing now for permanent pile scoring.</p>
+<p><strong>Example —</strong> <em>Sunbeam:</em> "Nap pile cap is 8 (instead of 6); +2 score. The sunbeam moves; the cat follows. This is law."</p>
+<h3>Commander</h3>
+<p>Chosen before the game. Sits in the command zone. Provides a single always-on passive. Cannot be played, destroyed, or moved. Pick well; you'll be living with this cat all day.</p>
+<p><strong>Example —</strong> <em>Sir Reginald Loafington:</em> "Your Nap pile cap is 8 (instead of 6). The loaf shall be loafed at length."</p>
+<div class="paws-divider">&#x1F43E; &#x1F43E; &#x1F43E;</div>
+<h2>7. The Piles</h2>
+<p>Each player has four piles. Three of them score. The fourth breaks ties.</p>
+<table>
+<thead><tr>
+<th>Pile</th>
+<th>Cap</th>
+<th>Base Score</th>
+<th>Vibe</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>Territory</strong></td>
+<td>8 cards</td>
+<td><strong>1 pt per card</strong> + 2 per attached Trinket + <strong>5 bonus</strong> if pile reaches 6+ cards</td>
+<td>The couch. The bed. The bag the cat sat in for forty minutes.</td>
+</tr>
+<tr>
+<td><strong>Nap</strong></td>
+<td>6 cards</td>
+<td><strong>2 pts per card</strong>, <em>capped at 12 total</em></td>
+<td>A nap can only be so long. After a while it just becomes lying down with intent.</td>
+</tr>
+<tr>
+<td><strong>Snack</strong></td>
+<td>5 cards</td>
+<td><strong>3 pts per card</strong> if pile has fewer than 5 cards; <strong>1 pt per card</strong> otherwise</td>
+<td>The greed penalty. You ate too much. You are unwell.</td>
+</tr>
+<tr>
+<td><strong>Attention</strong></td>
+<td>unlimited</td>
+<td>does not score; <strong>tiebreaker</strong></td>
+<td>The pile of all the moments you were the most important cat in the room.</td>
+</tr>
+</tbody></table>
+<p><strong>Pile caps are hard.</strong> If a pile is full and you win another trick destined for it, the trick <strong>dumps to Attention instead</strong>. This means filling your scoring piles is <em>both a goal and a hazard</em> — overflow rewards the <em>opponent's</em> tiebreaker count if they're winning on score.</p>
+<p>Piles are also <strong>public information</strong> and ordered (the first Sleek cat in a pile may matter for some Trinkets). All piles are face-up, all the time. There are no secrets in cat society. The cats simply don't care.</p>
+<p>Some Trinkets bend the caps. <em>Sunbeam</em> makes your Nap pile cap 8. <em>Sir Reginald Loafington</em> (Commander) does the same. <em>Karen the Dignified Calico</em> (Commander) lets you stuff 3 Trinkets per pile instead of 2. These caps <strong>stack with whichever is highest</strong> — if you have Reginald <em>and</em> Sunbeam, your Nap cap is 8, not 16. Cats are reasonable. Mostly.</p>
+<div class="paws-divider">&#x1F43E; &#x1F43E; &#x1F43E;</div>
+<h2>8. Scoring</h2>
+<p>At the end of round 9, both players tally their piles.</p>
+<p><strong>Territory pile</strong></p>
+<ul>
+<li><strong>+1 point</strong> per card in the pile</li>
+<li><strong>+2 points</strong> per Trinket attached to this pile</li>
+<li><strong>+5 point bonus</strong> if the pile has 6 or more cards (you claimed the couch)</li>
+</ul>
+<p><strong>Nap pile</strong></p>
+<ul>
+<li><strong>+2 points</strong> per card in the pile</li>
+<li><strong>Capped at 12 points total</strong> from the base scoring (Trinket bonuses on Nap stack <em>on top</em> of this cap)</li>
+</ul>
+<p><strong>Snack pile</strong></p>
+<ul>
+<li>If pile has fewer than 5 cards: <strong>+3 points per card</strong></li>
+<li>If pile has 5 or more cards: <strong>+1 point per card</strong> <em>(the greed penalty)</em></li>
+</ul>
+<p><strong>Attention pile</strong></p>
+<ul>
+<li>Scores nothing on its own</li>
+<li>On a tied total score, the player with <strong>more cards in the Attention pile wins</strong></li>
+</ul>
+<p><strong>Bonuses from Commanders and Trinkets</strong> layer on top of this — Lord Fluffinbottom adds +5 to score if he has the most Attention; The Heated Blanket adds +1 per Nap card (up to +4); Yarn Ball adds +1 per Sleek cat in your Territory.</p>
+<p><strong>On a further tie</strong> (same final score, same Attention count): the game is a <strong>draw</strong>. This is allowed. Cats do not require a winner; they require that the food bowl be full. Both players agree they were the best cat. The game ends. Snacks are eaten. The day is done.</p>
+<div class="paws-divider">&#x1F43E; &#x1F43E; &#x1F43E;</div>
+<div class="page-break"></div><h2>9. A Round, Illustrated</h2>
+<p>A worked example. <strong>Player A</strong> opens with: <em>Mister Whiskers (Sleek, 7), The 3 a.m. Zoomies (Mood), Catnip Mouse (Snack, 2), Sir Reginald Loafington II (Fluffy, 5), Gary Junior (Scrappy, 1)</em>. <strong>Player B</strong> opens with: <em>The Unobserved (Sneaky, 9), Lord Tufts (Sleek, 3), Tuna Can (Snack, 1), The Yowling Stranger (Scrappy, 8), Crumpet (Sleek, 4)</em>.</p>
+<p><strong>Round 1 — Player B leads.</strong></p>
+<ul>
+<li><strong>Pounce</strong> <em>(A, the non-lead, commits first):</em> A plays <strong>Mister Whiskers</strong> <em>(Sleek, 7)</em>. Category Rule installed: <em>Sleek — highest Value wins</em>.</li>
+<li><strong>Counter-pounce</strong> <em>(B reacts):</em> B sees a 7. B has a 9 — but <strong>The Unobserved</strong> is Sneaky and would install a different rule (irrelevant, since Sleek is already installed by the Pounce — only the <strong>first</strong> card of the round sets the rule). B plays <strong>Lord Tufts</strong> <em>(Sleek, 3)</em>, planning to lose this round on purpose.</li>
+<li><strong>Resolve:</strong> 7 vs 3 under Sleek. A wins.</li>
+<li><strong>Claim:</strong> A sends both cards to <strong>Territory</strong>. Mister Whiskers' on-win trigger fires: A peeks at B's hand. (A now knows B is holding The Unobserved.)</li>
+<li><strong>Lord Tufts' on-lose trigger fires too</strong> — B draws a card. The dignity remains.</li>
+</ul>
+<blockquote>
+<p>Score state: A has 2 cards in Territory. B has 0 in piles, +1 card in hand.</p>
+</blockquote>
+<p><strong>Round 2 — Player A leads.</strong></p>
+<ul>
+<li><strong>Pounce</strong> <em>(B, the non-lead this round, commits first):</em> B plays <strong>The Yowling Stranger</strong> <em>(Scrappy, 8)</em>. Category Rule installed: <em>Scrappy — lowest Value wins</em>. B is hoping A walks into a value trap.</li>
+<li><strong>Counter-pounce:</strong> A sees Scrappy. A pulls out <strong>Gary Junior</strong> <em>(Scrappy, 1)</em> — the smallest cat A's got.</li>
+<li><strong>Resolve:</strong> 1 vs 8 under Scrappy. A wins (lowest).</li>
+<li><strong>Claim:</strong> A sends both cards to <strong>Nap</strong>. No special on-enter triggers fire from either card. Standard nap.</li>
+</ul>
+<blockquote>
+<p>Score state: A has 2 in Territory, 2 in Nap. B still has 0 in scoring piles.</p>
+</blockquote>
+<p><strong>Round 3 — Player B leads.</strong></p>
+<ul>
+<li><strong>Pounce</strong> <em>(A commits first):</em> A plays <strong>Catnip Mouse</strong> <em>(Snack, 2)</em>. Snack triggers force-claim. Category Rule installed: <em>Sleek (default — Snacks don't carry a Category)</em>.</li>
+<li><strong>Counter-pounce:</strong> B plays <strong>Tuna Can</strong> <em>(Snack, 1)</em>. Two snacks in one trick. The trick is now doubly Snack-forced.</li>
+<li><strong>Resolve:</strong> 2 vs 1 under Sleek. A wins.</li>
+<li><strong>Claim:</strong> <strong>Snack-force triggers</strong> — A <em>must</em> send the trick to their Snack pile. No choice. Both cards enter A's Snack pile. <strong>Catnip Mouse's on-enter trigger fires:</strong> A draws a card.</li>
+</ul>
+<blockquote>
+<p>Score state after 3 rounds: A has 2 in Territory, 2 in Nap, 2 in Snack, +1 card from Catnip Mouse. B has 0 in scoring piles but +1 card from Lord Tufts. A is dominating the day. B is plotting.</p>
+</blockquote>
+<p>This is what playing Cats feels like. Three rounds, three different rules, three different piles, one peek at the opponent's hand, two draws, one card B threw away on purpose. The game is dense.</p>
+<div class="paws-divider">&#x1F43E; &#x1F43E; &#x1F43E;</div>
+<div class="page-break"></div><h2>10. The Six Commanders</h2>
+<p>Pick one before the game starts. Your Commander defines your archetype. You will not get to change your mind, but they will judge you for it anyway.</p>
+<h3>Sir Reginald Loafington</h3>
+<p><em>The dignified bedwarmer.</em></p>
+<blockquote>
+<p><strong>Passive:</strong> Your Nap pile cap is <strong>8</strong> (instead of 6). The loaf shall be loafed at length.</p>
+</blockquote>
+<p><strong>Strategy hint:</strong> Build for Nap. Play Fluffy cats. Stack Sunbeams. Let opponents push value into their Territory while you accumulate two cards of pure horizontal commitment per round.</p>
+<h3>Princess Mayhem the Third</h3>
+<p><em>Agent of focused greed.</em></p>
+<blockquote>
+<p><strong>Passive:</strong> Your small Snack pile scores <strong>4 pts per card (instead of 3)</strong> while it has fewer than 5 cards. Tiny tyrant.</p>
+</blockquote>
+<p><strong>Strategy hint:</strong> The math: 4 snack cards × 4pts = <strong>16 points</strong> just in the Snack pile, <em>before</em> Trinkets. The plan is to win exactly 4 snack-tricks and then stop. Discipline is hard for a cat.</p>
+<h3>Greg</h3>
+<p><em>The cat who does Greg things.</em></p>
+<blockquote>
+<p><strong>Passive:</strong> At the start of each round, if you have fewer total pile cards than your opponent, <strong>draw 1</strong>. Greg is just Greg.</p>
+</blockquote>
+<p><strong>Strategy hint:</strong> The catch-up commander. Lose the early rounds on purpose, accumulate cards, then sweep mid-to-late. Pairs surprisingly well with deliberately-trashy decks.</p>
+<h3>Gary the One-Eyed Tabby</h3>
+<p><em>Sees through bluffs.</em></p>
+<blockquote>
+<p><strong>Passive:</strong> <strong>Sneaky rules use the printed Value for your cards</strong> (the eye that remains sees enough).</p>
+</blockquote>
+<p><strong>Strategy hint:</strong> When you play a Sneaky cat against another Sneaky-rule round, <em>your</em> card uses its public Value (typically much higher) while your opponent's still uses their hidden value. Asymmetric information. The bluff still works on you; it doesn't work against you.</p>
+<h3>Karen the Dignified Calico</h3>
+<p><em>Has Standards.</em></p>
+<blockquote>
+<p><strong>Passive:</strong> Each of your piles holds up to <strong>3 Trinkets</strong> (instead of 2). She would like to speak to the manager.</p>
+</blockquote>
+<p><strong>Strategy hint:</strong> Cram a single pile with three score-stacking Trinkets. <em>Yarn Ball + Window Perch + Heated Blanket</em> into a 6-card pile builds a small empire. Demands a Trinket-heavy deck and patience.</p>
+<h3>Lord Fluffinbottom</h3>
+<p><em>Fluffiest cat in the realm.</em></p>
+<blockquote>
+<p><strong>Passive:</strong> At game end, if you have the most cards in your Attention pile, <strong>gain +5 score</strong>. Fluffiest wins.</p>
+</blockquote>
+<p><strong>Strategy hint:</strong> The Attention play. Build to push markers into Attention (Mood cards, Mittens, Stolen Hair Tie). Even +5 from Fluffinbottom plus +1 tiebreak win is enough to swing tight games.</p>
+<div class="paws-divider">&#x1F43E; &#x1F43E; &#x1F43E;</div>
+<div class="page-break"></div><h2>11. Sample Decks</h2>
+<p>Four 30-card archetype decks, all built from the same 60-card pool. Each one is the <em>pinnacle</em> of its strategy — there are no junk decks here.</p>
+<h3>Couch Empire <em>(Territory Control)</em></h3>
+<p><strong>Commander:</strong> Karen the Dignified Calico</p>
+<p>The plan: claim the couch by force. Karen's 3-trinkets-per-pile passive means you can stack <strong>Yarn Ball + Window Perch + Heated Blanket</strong> into a single Territory pile. Pair it with the highest-Value Sleek and Fluffy cats in the pool — <em>The Magnificent Bartholomew, The Brigadier, Empress Pomf, Sergeant Snuggles</em> — so you win tricks under the default "highest Value" rule and dump the wins into Territory. Once Territory hits 6 cards, the +5 bonus and the Sleek-count Trinket multiplier compound. You are the loudest cat. You won the loudness.</p>
+<h3>Naptime Tyrants <em>(Nap Stuffing)</em></h3>
+<p><strong>Commander:</strong> Sir Reginald Loafington</p>
+<p>The plan: lie down forever. Reginald takes your Nap cap to 8. <em>Sunbeam</em> keeps it at 8 and adds +2 score. <em>The Heated Blanket</em> adds +1 per card up to +4. Now stack the Nap pile with Fluffy mid-cards that win by Value and trigger on Nap entry — <em>The Magnificent Bartholomew</em> (draw 2 when entering Nap) and <em>The Penumbra Twin</em> (draw 1 when entering Nap) refuel the engine. Cinnamon Bun fires every three rounds for extra draws. Maximum Carnage trades win-or-lose without complaint. The Nap pile reaches 8 cards = 16 base pts + Trinket layers = a tower of horizontal cat.</p>
+<h3>Snack Rush <em>(Snack Forcing + Small-Pile Bonus)</em></h3>
+<p><strong>Commander:</strong> Princess Mayhem the Third</p>
+<p>The plan: weaponize Snack-force. Every Snack in the deck (all 8 of them) is here. The Cardboard Box adds +1 per snack-card while under 5. Princess Mayhem adds another +1 in the same window. Four snack cards × (3 + 1 + 1) = <strong>20 points</strong> from a single pile. The trap is you need to <em>win</em> the snack-tricks yourself, or you're feeding the opponent's Snack pile. So the deck also packs the Sleek/Fluffy heavy hitters — <em>Bartholomew, Brigadier, Empress Pomf</em> — to win the snack tricks straight up. Throw in three lowest-wins Moods <em>(3 a.m. Zoomies, Knocking Things Off Tables, Wet Food O'Clock)</em> for the rounds when you'd lose under default rule.</p>
+<h3>Shadow Cats <em>(Sneaky + Mood Chaos)</em></h3>
+<p><strong>Commander:</strong> Gary the One-Eyed Tabby</p>
+<p>The plan: install a rule, then break it. All 7 Sneakies plus 6 Moods. Gary makes your Sneakies use printed Value (which is often <em>much</em> higher than the hidden value) while opponents still play under hidden values — pure asymmetric information. <em>The Unobserved</em> (9 printed, 10 hidden) becomes a bomb in both modes. <em>Whispertoes</em> (2 printed, 9 hidden) is the bluff that wins either way. When an opponent opens with a Sleek bomb, drop a Mood as Counter-pounce: <em>3 a.m. Zoomies</em> flips it to lowest-wins, and suddenly the opponent's 10 is the worst card in the game.</p>
+<div class="paws-divider">&#x1F43E; &#x1F43E; &#x1F43E;</div>
+<h2>12. Tips for the New Cat</h2>
+<blockquote>
+<p><em>"Knowing when to lose a trick is half the battle. The other half is naps."</em></p>
+</blockquote>
+<ol>
+<li><strong>Losing on purpose is a real strategy.</strong> Maximum Carnage, Madam Inkblot, The Alley Phantom, and Lord Tufts all reward losing tricks. Sometimes the right move is to <em>dump your 1-Value card into a trick the opponent has clearly committed to winning</em> — and then watch the opponent's Snack pile tip into the greed penalty.</li>
+</ol>
+<ol>
+<li><strong>Don't fill the pile you didn't mean to fill.</strong> Snacks force the claim. If your opponent plays a Snack as Pounce, you <em>cannot</em> win that trick into a non-Snack pile. Sometimes the answer is to play a Trinket that round instead of a Cat, eat the trick loss, and refuse the trap.</li>
+</ol>
+<ol>
+<li><strong>Mood cards are insurance.</strong> Hold a Mood for the round when the opponent opens with a Sleek 10. Counter-pounce a <em>3 a.m. Zoomies</em>, the rule flips to lowest-wins, the 10 loses to your 2. Cats live by the moment.</li>
+</ol>
+<ol>
+<li><strong>Pile caps are the late-game.</strong> By round 6 or 7 you should have a sense of which pile is filling up first. <strong>Claim into the pile that still has room.</strong> A trick that hits a full pile dumps to Attention — which is fine if you're already winning on Attention, ruinous if you're behind.</li>
+</ol>
+<ol>
+<li><strong>Trinkets reward planning, not bombs.</strong> A Trinket costs you a round of trick-loss to deploy. That's a real cost. But a Trinket on Territory that's been collecting Sleek cats for 5 rounds is worth more than any single high-Value Cat. Trinkets are long games.</li>
+</ol>
+<ol>
+<li><strong>Watch your opponent's hand size.</strong> Some rule-flips key off it — <em>Sitting In The Box</em> and <em>The Dignified Sulk</em> reward fewer-cards-in-hand. If you've burned through your hand and the opponent's still hoarding, that's a real opportunity.</li>
+</ol>
+<div class="paws-divider">&#x1F43E; &#x1F43E; &#x1F43E;</div>
+<h2>13. Quick Reference <em>(print this page)</em></h2>
+<h3>Round Phases (in order)</h3>
+<ol>
+<li><strong>Stretch</strong> — round-start, untap pile cards, lead is set (alternates)</li>
+<li><strong>Pounce</strong> — <em>non-lead</em> plays first (commits face-up; their Category installs the rule)</li>
+<li><strong>Counter-pounce</strong> — <em>lead</em> plays second (reacts)</li>
+<li><strong>Resolve trick</strong> — compare under installed rule</li>
+<li><strong>Claim pile</strong> — winner picks Territory / Nap / Snack (or attention if all are full)</li>
+<li><strong>Curl up</strong> — round-end, increment round counter, refresh empty hands</li>
+</ol>
+<h3>Trick Rules by Category</h3>
+<table>
+<thead><tr>
+<th>Category</th>
+<th>Rule</th>
+<th>Tiebreak</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>Sleek</strong></td>
+<td>Highest Value wins</td>
+<td>Lead wins ties</td>
+</tr>
+<tr>
+<td><strong>Fluffy</strong></td>
+<td>Highest Value wins</td>
+<td>Player with <strong>fewer pile cards</strong> wins ties</td>
+</tr>
+<tr>
+<td><strong>Scrappy</strong></td>
+<td><strong>Lowest Value wins</strong></td>
+<td>Lead wins ties</td>
+</tr>
+<tr>
+<td><strong>Sneaky</strong></td>
+<td><strong>Hidden Value</strong> decides</td>
+<td>Hidden value tiebreak</td>
+</tr>
+</tbody></table>
+<h3>Pile Caps &amp; Scoring</h3>
+<table>
+<thead><tr>
+<th>Pile</th>
+<th>Cap</th>
+<th>Score</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>Territory</strong></td>
+<td>8</td>
+<td>+1/card; +2/Trinket; <strong>+5 bonus at 6+</strong></td>
+</tr>
+<tr>
+<td><strong>Nap</strong></td>
+<td>6</td>
+<td>+2/card, <strong>capped at 12</strong> base</td>
+</tr>
+<tr>
+<td><strong>Snack</strong></td>
+<td>5</td>
+<td>+3/card under 5; <strong>+1/card at 5+</strong> <em>(greed penalty)</em></td>
+</tr>
+<tr>
+<td><strong>Attention</strong></td>
+<td>∞</td>
+<td>does not score; <strong>tiebreaker</strong></td>
+</tr>
+</tbody></table>
+<h3>Special Notes</h3>
+<ul>
+<li><strong>Snack-force:</strong> any trick containing a Snack (from either player) <strong>must</strong> be claimed into the winner's Snack pile.</li>
+<li><strong>Mood Value = 0.</strong> Moods almost always lose comparison. Their job is to <em>replace the rule</em> before comparison.</li>
+<li><strong>Pile cap overflow</strong> dumps to Attention.</li>
+<li><strong>Trinkets</strong> consume a card-play but stay permanently. Each pile holds 2 (3 with Karen).</li>
+<li><strong>Tie on score:</strong> more Attention wins. Tie on Attention: draw.</li>
+</ul>
+<h3>Game-End Checklist</h3>
+<ul>
+<li><span style="font-family:Menlo,monospace; color:var(--butterscotch); margin-right:6px;">[ ]</span>Has round 9 finished?</li>
+<li><span style="font-family:Menlo,monospace; color:var(--butterscotch); margin-right:6px;">[ ]</span>Both hands empty after Curl-up?</li>
+<li><span style="font-family:Menlo,monospace; color:var(--butterscotch); margin-right:6px;">[ ]</span>Score each pile: 1·T + 2·N (≤12) + 3·S (or 1·S if ≥5) + Trinket/Commander bonuses</li>
+<li><span style="font-family:Menlo,monospace; color:var(--butterscotch); margin-right:6px;">[ ]</span>Compare totals → declare winner</li>
+<li><span style="font-family:Menlo,monospace; color:var(--butterscotch); margin-right:6px;">[ ]</span>Tiebreak by Attention count → declare winner</li>
+<li><span style="font-family:Menlo,monospace; color:var(--butterscotch); margin-right:6px;">[ ]</span>Further tie → draw, allowed, encouraged</li>
+</ul>
+<div class="paws-divider">&#x1F43E; &#x1F43E; &#x1F43E;</div>
+</div><div class="page-break"></div><div class="credits"><h2>14. Credits</h2>
+<ul>
+<li><strong>Designed by:</strong> the cat</li>
+<li><strong>Playtested by:</strong> the other cat</li>
+<li><strong>Edited by:</strong> the third cat who arrived halfway through and refused to leave</li>
+<li><strong>Special thanks to:</strong> the family who bought the snacks</li>
+<li><strong>Set:</strong> <em>Cats — Set One.</em> Sixty cards. Six commanders. Four piles. One day.</li>
+</ul>
+<blockquote>
+<p><em>Cats — a day in the life. The cats remain unbothered.</em></p>
+</blockquote></div>
+</div>
+</body>
+</html>
