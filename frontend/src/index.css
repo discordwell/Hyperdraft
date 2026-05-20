@@ -184,18 +184,22 @@ h1, h2, h3, h4, .title-font {
   pointer-events: none;
   border-radius: inherit;
   overflow: hidden;
+  /* Rainbow layer — uses ``screen`` blend so it brightens against the
+     dark card backgrounds we use across game modes (overlay alone washes
+     out on dark). Higher alphas (0.55-0.70) because screen-blend over a
+     dark card needs them to read as "holo" rather than "faint tint". */
   background: linear-gradient(
     115deg,
     transparent 0%,
-    rgba(255, 0, 128, 0.25) 18%,
-    rgba(0, 200, 255, 0.30) 33%,
-    rgba(120, 255, 80, 0.28) 50%,
-    rgba(255, 220, 60, 0.30) 67%,
-    rgba(255, 0, 200, 0.25) 82%,
+    rgba(255, 0, 128, 0.55) 18%,
+    rgba(0, 200, 255, 0.65) 33%,
+    rgba(120, 255, 80, 0.60) 50%,
+    rgba(255, 220, 60, 0.65) 67%,
+    rgba(255, 0, 200, 0.55) 82%,
     transparent 100%
   );
   background-size: 220% 220%;
-  mix-blend-mode: overlay;
+  mix-blend-mode: screen;
   animation: card-foil-pan 6s ease-in-out infinite;
   opacity: 0.85;
   z-index: 5; /* above art, below stat orbs/badges */
@@ -208,7 +212,9 @@ h1, h2, h3, h4, .title-font {
   background: linear-gradient(
     65deg,
     transparent 30%,
-    rgba(255, 255, 255, 0.18) 50%,
+    rgba(255, 255, 255, 0.40) 48%,
+    rgba(255, 255, 255, 0.65) 50%,
+    rgba(255, 255, 255, 0.40) 52%,
     transparent 70%
   );
   background-size: 250% 250%;

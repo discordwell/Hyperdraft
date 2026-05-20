@@ -231,6 +231,7 @@ export const Card = memo(function Card({
         config.height,
         frame.outer,
         'p-[3px]', // Outer frame border
+        card.foil && 'card-foil-host',
         {
           'rotate-90 translate-x-4': tapped,
           'ring-4 ring-yellow-400 ring-offset-2 ring-offset-slate-900 scale-105': isSelected,
@@ -352,6 +353,8 @@ export const Card = memo(function Card({
           </span>
         </div>
       )}
+
+      {card.foil && <div className="card-foil" aria-hidden />}
     </div>
   );
 });
