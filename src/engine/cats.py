@@ -712,13 +712,42 @@ def resolve_trick(state: GameState) -> list[Event]:
         return []
 
     # Let Mood interceptors REPLACE the rule via CATS_TRICK_RULE_QUERY.
+    # Mood-vs-Mood stacking rule (design §11 open-question 4): counter-pounce
+    # Mood wins. We apply Pounce-side TRANSFORM first, then counter-side last
+    # so its rewrite is the final value of the rule payload.
     base_rule = trick.get("installed_rule") or state.cats_current_rule or sleek_rule
     query = Event(
         type=EventType.CATS_TRICK_RULE_QUERY,
         payload={"rule": base_rule, "pounce_card": pounce_card, "counter_card": counter_card},
         source=None,
     )
-    transformed, _ = _dispatch_interceptors(state, query, priorities=(InterceptorPriority.TRANSFORM,))
+
+    def _is_counter_interceptor(ic):
+        return ic.source == counter_card
+
+    pounce_interceptors = {
+        k: v for k, v in state.interceptors.items() if not _is_counter_interceptor(v)
+    }
+    counter_interceptors = {
+        k: v for k, v in state.interceptors.items() if _is_counter_interceptor(v)
+    }
+    if counter_interceptors:
+        saved = state.interceptors
+        state.interceptors = pounce_interceptors
+        try:
+            transformed, _ = _dispatch_interceptors(state, query, priorities=(InterceptorPriority.TRANSFORM,))
+        finally:
+            state.interceptors = saved
+        # Then apply the counter-pounce Moods to the (possibly-transformed) query
+        state_2 = saved
+        saved = state.interceptors
+        state.interceptors = counter_interceptors
+        try:
+            transformed, _ = _dispatch_interceptors(state, transformed, priorities=(InterceptorPriority.TRANSFORM,))
+        finally:
+            state.interceptors = state_2
+    else:
+        transformed, _ = _dispatch_interceptors(state, query, priorities=(InterceptorPriority.TRANSFORM,))
     rule = transformed.payload.get("rule", base_rule) if transformed else base_rule
     if not callable(rule):
         rule = base_rule
@@ -742,19 +771,24 @@ def resolve_trick(state: GameState) -> list[Event]:
         winning_cards = [counter_card]
         losing_cards = [pounce_card]
 
-    events = [
-        Event(
-            type=EventType.CATS_TRICK_RESOLVE,
-            payload={
-                "winner": winner_id,
-                "loser": loser_id,
-                "winning_cards": winning_cards,
-                "losing_cards": losing_cards,
-                "cards": [pounce_card, counter_card],
-            },
-            source=None,
-        )
-    ]
+    master_event = Event(
+        type=EventType.CATS_TRICK_RESOLVE,
+        payload={
+            "winner": winner_id,
+            "loser": loser_id,
+            "winning_cards": winning_cards,
+            "losing_cards": losing_cards,
+            "cards": [pounce_card, counter_card],
+        },
+        source=None,
+    )
+    events = [master_event]
+    # Dispatch the master event so commander-level REACT interceptors (e.g. Gary's
+    # Sneaky reveal) fire before the per-card phase events.
+    _, master_reactions = _dispatch_interceptors(
+        state, master_event, priorities=(InterceptorPriority.REACT,),
+    )
+    events.extend(master_reactions)
     for cid in winning_cards:
         phase_event = Event(
             type=EventType.CATS_TRICK_RESOLVE,

@@ -204,15 +204,38 @@ def gary_setup(obj: GameObject, state: GameState):
         return "phase" not in ev.payload
 
     def handler(ev: Event, st: GameState) -> InterceptorResult:
+        # On each trick resolve, Gary reveals any Sneaky card the opponent
+        # played. Records the sneaky_value on a per-player tracker so the
+        # AI's pessimistic Sneaky estimator can be replaced with truth.
+        cards = ev.payload.get("cards") or []
+        if not hasattr(st, "cats_sneaky_known"):
+            st.cats_sneaky_known = {}
+        known = st.cats_sneaky_known.setdefault(obj.controller, {})
+        reveal_events: list[Event] = []
+        for cid in cards:
+            obj_c = st.objects.get(cid)
+            if obj_c is None or obj_c.controller == obj.controller:
+                continue
+            card_def = obj_c.card_def
+            if card_def is None:
+                continue
+            sv = getattr(card_def, "cats_sneaky_value", None)
+            if sv is None:
+                continue
+            known[cid] = int(sv)
+            reveal_events.append(Event(
+                type=EventType.CATS_REVEAL,
+                payload={
+                    "player": obj.controller,
+                    "card_id": cid,
+                    "sneaky_value": int(sv),
+                    "reason": "gary_sees_all",
+                },
+                source=obj.id,
+            ))
         return InterceptorResult(
             action=InterceptorAction.REACT,
-            new_events=[
-                Event(
-                    type=EventType.PKM_REVEAL,
-                    payload={"player": obj.controller, "reason": "gary_sees_all"},
-                    source=obj.id,
-                )
-            ],
+            new_events=reveal_events,
         )
 
     return [

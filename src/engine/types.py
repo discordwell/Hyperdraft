@@ -651,6 +651,7 @@ class EventType(Enum):
     CATS_KNOCK_OVER = auto()            # A pile card was knocked over (tapped) as an activation cost.
     CATS_QUERY_PILE_SCORE = auto()      # Synthetic query: rewrite a pile's contribution to final score.
     CATS_GAME_OVER = auto()             # Marker: round 9 ended + both hands empty -> finalize scores.
+    CATS_REVEAL = auto()                # A card's hidden info (e.g. Sneaky sneaky_value) is revealed. Payload: {'player': str, 'card_id': str, 'sneaky_value': int}
 
 
 class EventStatus(Enum):
