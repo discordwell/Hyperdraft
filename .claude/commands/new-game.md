@@ -86,9 +86,19 @@ Spawn one Plan agent. Brief:
 
 After it returns, verify `docs/games/<engine>.md` exists and the win condition is unambiguous.
 
-### Stage 1 — Engine scaffold (parallel)
+### Stage 1 — Engine scaffold (Agent 1 first, then 2-4 parallel)
 
-Spawn **four agents in parallel** (single message, multiple `Agent` tool calls):
+**Dependency ordering** (cats run lesson): Agent 1 owns the core engine module and is what Agents 2-4 depend on. Run Agent 1 alone first. When Agent 1 ships (or when ~30 minutes pass and it's clearly on track), spawn 2-4 in parallel. Reasons:
+
+1. If Agent 1 drops mid-run (socket close, model error), Agents 2-4 will already be racing against a contract that doesn't exist. They produce defensive stubs that the reconciliation stage then has to undo.
+2. Agent 1's choices (sub-namespace vs flat-attribute state, helper signatures) materially shape what 2-4 import. Letting Agent 1 commit those choices first removes ambiguity from the others' briefs.
+3. Empirically: cats run had Agent 1 socket-close at 70min after which the human orchestrator had to write cats.py from scratch. Agent 1's work was already lost; Agents 2-4 had to defensively try/except their imports of Agent 1's API. The reconciliation cleanup took 2x longer than if Agent 1 had been gated.
+
+**Agent-failure recovery**: if any agent drops or returns "API Error: socket closed" mid-task:
+- Check what files the agent partially shipped via `git status` and `ls`
+- If <50% complete, restart the agent (`SendMessage` with the original brief)
+- If >50% complete, the orchestrator should write the rest directly (Stage 1.5 reconciliation will clean it up anyway)
+- NEVER let a partial Agent 1 ship — the contract drift it causes downstream is worse than the time to redo it
 
 #### Agent 1 — `src/engine/<engine>.py`
 Brief:
@@ -158,6 +168,7 @@ Spawn one Agent. Brief:
 > - `frontend/src/games/<engine>.tsx` — the main game-board component. Mirror `frontend/src/games/minecraft.tsx` for layout patterns. Render: each player's resources, zones, card area, and any engine-specific UI elements from `docs/games/<engine>.md`. Use the existing styling vocabulary from sibling game components (don't introduce new design systems).
 > - `frontend/src/hooks/use<Engine>Game.ts` — the data hook that wraps the game-state socket connection. Mirror `frontend/src/hooks/useMinecraftGame.ts`.
 > - Update `frontend/src/games/registry.ts` to include the new engine.
+> - **NEW (cats run lesson)**: also add a route mount in `frontend/src/App.tsx` so the page is reachable at `/<engine>-preview`. Even with mock-data, this lets Stage 8 polish wet-tests visually verify the page renders. Without this, the page is only reachable via deckbuilder (cards-only view), not as the game board.
 >
 > Style: read `CLAUDE.md` and the `frontend-design` skill if it's available. Aesthetic should reflect the theme `<theme>`.
 >
