@@ -11,6 +11,8 @@ serializers live in `src.server.modes.*` and are reached via
 """
 
 import asyncio
+import os
+import traceback as _tb
 from dataclasses import dataclass, field
 from typing import Optional, Callable, Any
 from uuid import uuid4
@@ -870,6 +872,106 @@ class GameSession:
         )
 
     async def handle_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
+        """Handle a player action request.
+
+        Wraps the real work in :meth:`_handle_action_body` with two
+        auto-repair hooks (Phase 3):
+          - 30s timeout (env: ACTION_TIMEOUT_SECONDS) → ``turn_timeout`` kick
+          - uncaught Exception → ``exception`` kick, then re-raise
+
+        Both hooks are best-effort and only fire when REPAIR_ENABLED is
+        truthy. They never break the surface contract: timeout returns
+        ``(False, msg)`` like any other action failure; exceptions still
+        propagate so the route returns a 500.
+        """
+        timeout_s = self._action_timeout_seconds()
+        try:
+            return await asyncio.wait_for(
+                self._handle_action_body(request), timeout=timeout_s
+            )
+        except asyncio.TimeoutError:
+            await self._maybe_kick_auto_repair(
+                trigger="turn_timeout",
+                traceback_text=(
+                    f"handle_action exceeded {timeout_s}s for action "
+                    f"{request.action_type} (player={request.player_id})"
+                ),
+                extra_context={
+                    "action_type": str(request.action_type),
+                    "player_id": request.player_id,
+                },
+            )
+            return False, f"action timed out (>{timeout_s}s)"
+        except Exception:
+            tb = _tb.format_exc()
+            logger.exception(
+                "handle_action crashed for match=%s action=%s player=%s",
+                self.id, request.action_type, request.player_id,
+            )
+            await self._maybe_kick_auto_repair(
+                trigger="exception",
+                traceback_text=tb,
+                extra_context={
+                    "action_type": str(request.action_type),
+                    "player_id": request.player_id,
+                },
+            )
+            raise
+
+    @staticmethod
+    def _action_timeout_seconds() -> int:
+        raw = os.environ.get("ACTION_TIMEOUT_SECONDS", "").strip()
+        try:
+            return max(1, int(raw)) if raw else 30
+        except ValueError:
+            return 30
+
+    async def _maybe_kick_auto_repair(
+        self,
+        *,
+        trigger: str,
+        traceback_text: str,
+        extra_context: Optional[dict] = None,
+    ) -> None:
+        """Best-effort auto-repair kick; failures here must not propagate."""
+        try:
+            from . import auto_repair  # lazy import — avoids cycle at module load
+
+            await auto_repair.capture_and_kick(
+                match_id=self.id,
+                game_mode=getattr(self.game.state, "game_mode", "mtg"),
+                traceback_text=traceback_text,
+                game_state_snapshot=self._auto_repair_state_snapshot(),
+                trigger=trigger,
+                extra_context=extra_context,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "auto-repair kick raised for match=%s trigger=%s: %s",
+                self.id, trigger, e,
+            )
+
+    def _auto_repair_state_snapshot(self) -> dict:
+        """Tiny, defensive snapshot — only what's safe to JSON-serialize."""
+        try:
+            state = self.game.state
+            return {
+                "game_mode": getattr(state, "game_mode", None),
+                "turn_number": getattr(getattr(self.game, "turn_manager", None), "turn_number", None),
+                "active_player": (
+                    self.game.get_active_player()
+                    if hasattr(self.game, "get_active_player") else None
+                ),
+                "player_ids": list(getattr(state, "players", {}).keys()),
+                "is_game_over": (
+                    self.game.is_game_over()
+                    if hasattr(self.game, "is_game_over") else None
+                ),
+            }
+        except Exception:  # noqa: BLE001
+            return {}
+
+    async def _handle_action_body(self, request: PlayerActionRequest) -> tuple[bool, str]:
         """
         Handle a player action request.
 
@@ -1140,6 +1242,45 @@ class GameSession:
         return success, message, events
 
     async def _get_ai_action(
+        self,
+        player_id: str,
+        state: GameState,
+        legal_actions: list[LegalAction]
+    ) -> PlayerAction:
+        """Handler for AI player actions (sync or async brains).
+
+        Wraps the real work in :meth:`_get_ai_action_body` with auto-repair
+        hooks (Phase 3):
+          - uncaught Exception → ``exception`` kick, then re-raise
+          - None return        → ``ai_none_returned`` kick, but DON'T raise
+                                 (caller may handle None — we just notify)
+        """
+        try:
+            action = await self._get_ai_action_body(player_id, state, legal_actions)
+        except Exception:
+            tb = _tb.format_exc()
+            logger.exception(
+                "_get_ai_action crashed for match=%s player=%s",
+                self.id, player_id,
+            )
+            await self._maybe_kick_auto_repair(
+                trigger="exception",
+                traceback_text=tb,
+                extra_context={"player_id": player_id, "source": "_get_ai_action"},
+            )
+            raise
+        if action is None:
+            await self._maybe_kick_auto_repair(
+                trigger="ai_none_returned",
+                traceback_text=(
+                    f"_get_ai_action returned None for player={player_id} "
+                    f"with {len(legal_actions)} legal actions"
+                ),
+                extra_context={"player_id": player_id, "source": "_get_ai_action"},
+            )
+        return action
+
+    async def _get_ai_action_body(
         self,
         player_id: str,
         state: GameState,
