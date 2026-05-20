@@ -36,6 +36,38 @@ if [ ! -f "$BRIEF" ]; then
     exit 1
 fi
 
+# Persistent strategy doc — read on spawn AND appended at game end.
+# The launcher prefers storage/strategy/<mode>.md (in the named volume,
+# survives container restarts + carries updates from previous matches)
+# and falls back to docs/strategy/<mode>.md (the shipped baseline).
+# server/spectator/main.py's lifespan startup seeds storage/strategy/
+# from docs/strategy/ on first boot so the file always exists.
+STRATEGY_DOC="storage/strategy/${GAME_MODE}.md"
+if [ ! -f "$STRATEGY_DOC" ]; then
+    STRATEGY_DOC="docs/strategy/${GAME_MODE}.md"
+fi
+
+# Per-match scratchpad — claude's working memory across turns. Each AI
+# seat has its own so a bot-vs-bot match has two distinct notes files.
+SCRATCHPAD_DIR="storage/ultra-agent/notes"
+mkdir -p "$SCRATCHPAD_DIR"
+SCRATCHPAD="${SCRATCHPAD_DIR}/${MATCH_ID}__${AI_PLAYER_ID}.md"
+if [ ! -f "$SCRATCHPAD" ]; then
+    cat > "$SCRATCHPAD" <<INIT
+# Match ${MATCH_ID} — seat ${AI_PLAYER_ID}
+
+Game: ${GAME_MODE}
+Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+## Pre-game plan
+
+(claude will fill this in before turn 1)
+
+## Turn-by-turn notes
+
+INIT
+fi
+
 GAME_MODE_UPPER=$(printf '%s' "$GAME_MODE" | tr '[:lower:]' '[:upper:]')
 cat <<BANNER
 ========================================================================
@@ -63,9 +95,50 @@ Match info:
 - SERVER_BASE = ${SERVER_BASE}
 - GAME_MODE = ${GAME_MODE}
 
-Read these BEFORE doing anything else:
+Read these BEFORE doing anything else, IN THIS ORDER:
 1. ${BRIEF} — your full playing brief (action types, choice flow, REST examples)
-2. docs/strategy/${GAME_MODE}.md if it exists — accumulated format wisdom
+2. ${STRATEGY_DOC} — persistent strategic memory across past games of this
+   format. Skim the format principles + per-archetype playbook + known engine
+   gaps; these are conclusions you (or a previous Claude pilot) wrote down
+   after past matches. They override the brief when they conflict.
+3. ${SCRATCHPAD} — YOUR per-match scratchpad. Initialized empty; fill it
+   in turn-by-turn. Use it like working memory: write down the opponent's
+   archetype as soon as you can read it, write down your win condition,
+   note any priority-window observations, jot any 'remember to do X next
+   turn' reminders. **Re-read it before every action** so multi-turn plans
+   survive across the poll loop.
+
+## Your scratchpad protocol
+
+After EACH OF YOUR TURNS, append a section to ${SCRATCHPAD}:
+
+\`\`\`markdown
+### Turn <N> — <UTC time>
+- Board state I saw: ...
+- What I played: ...
+- Why I played it (1 sentence): ...
+- Threat I'm tracking for next turn: ...
+\`\`\`
+
+Keep entries short — 4-6 lines. The point is to maintain a coherent plan
+across turns, not to log every detail.
+
+## End-of-game write-up
+
+When is_game_over=true, BEFORE you exit, append a section to ${STRATEGY_DOC}:
+
+\`\`\`markdown
+## Session takeaway — <UTC date>
+- **Deck/seat I ran**: ...
+- **Opponent**: ...
+- **Result**: <win|loss> at turn <N>, final state: ...
+- **One mechanical lesson** for next pilot: ...
+- **One engine gap** (if any): gap: <description>
+\`\`\`
+
+This is how the strategy doc grows. Be brief, be honest, write only the
+non-obvious lessons. If the game was unremarkable, write 'unremarkable'
+and skip — the doc shouldn't be flooded with trivia.
 
 Your job: play the WHOLE GAME in this single session. Use the Bash tool to:
 

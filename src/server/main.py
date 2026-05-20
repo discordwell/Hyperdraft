@@ -18,7 +18,7 @@ from .routes import (
     deckbuilder_router, pokemon_gatherer_router, spectate_router,
     admin_router,
 )
-from . import auto_repair, spectator
+from . import auto_repair, spectator, strategy_doc
 
 # Directories
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -233,6 +233,11 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     # Startup
     print("Hyperdraft API Server starting...")
+
+    # Seed the writable strategy-doc volume from the shipped docs/strategy
+    # baseline on first boot; safe-idempotent on subsequent boots (existing
+    # files preserved so LLM-pilot edits from past matches survive).
+    strategy_doc.bootstrap()
 
     # Phase 3: auto-repair cadence (no-op when REPAIR_ENABLED is false).
     repair_task = asyncio.create_task(auto_repair.cadence_loop())

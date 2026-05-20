@@ -297,10 +297,12 @@ export const YGOCard = memo(function YGOCard({
           ${dropTargetRing}
           ${onClick ? 'hover:-translate-y-1 hover:scale-105' : ''}
           flex flex-col overflow-hidden relative
+          ${card.foil ? 'card-foil-host' : ''}
           ${className}
         `}
       >
         {cardContent}
+        {card.foil && <div className="card-foil" aria-hidden />}
       </div>
     );
   }
@@ -329,11 +331,13 @@ export const YGOCard = memo(function YGOCard({
         ${draggedClass}
         ${dropTargetRing}
         flex flex-col overflow-hidden relative
+        ${card.foil ? 'card-foil-host' : ''}
         ${className}
       `}
       {...dropProps}
     >
       {cardContent}
+      {card.foil && <div className="card-foil" aria-hidden />}
     </motion.div>
   );
 

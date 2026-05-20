@@ -469,7 +469,7 @@ export function PhyrexianCardFrame({
   return (
     <button
       onClick={onClick}
-      className={`relative overflow-hidden ${selected ? 'ring-2 ring-amber-300 ring-offset-2 ring-offset-black' : ''} ${className}`}
+      className={`relative overflow-hidden ${selected ? 'ring-2 ring-amber-300 ring-offset-2 ring-offset-black' : ''} ${card.foil ? 'card-foil-host' : ''} ${className}`}
       style={{ width, height, padding: 0, background: 'transparent', border: 0 }}
     >
       <PlateBackground style={style} variant={variant} size={size} />
@@ -613,6 +613,8 @@ export function PhyrexianCardFrame({
           )}
         </div>
       </div>
+
+      {card.foil && <div className="card-foil" aria-hidden />}
     </button>
   );
 }

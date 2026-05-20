@@ -45,6 +45,10 @@ const STATUS_ICONS: Record<string, { label: string; color: string }> = {
   paralyzed: { label: 'PAR', color: 'bg-yellow-400' },
 };
 
+const FoilOverlay = ({ card }: { card: CardData }) =>
+  card.foil ? <div className="card-foil" aria-hidden /> : null;
+const foilHost = (card: CardData) => (card.foil ? 'card-foil-host' : '');
+
 interface DragPropsType {
   draggable: boolean;
   onDragStart: (e: React.DragEvent) => void;
@@ -137,11 +141,12 @@ export const PKMCard = memo(function PKMCard({
           onMouseEnter={() => onHover?.(card)}
           onMouseLeave={() => onHover?.(null)}
           className={`
-            w-20 h-28 rounded-lg border-2 cursor-pointer overflow-hidden
+            relative w-20 h-28 rounded-lg border-2 cursor-pointer overflow-hidden
             transition-all duration-150 border-gray-500
             ${isSelected ? 'ring-2 ring-yellow-400 scale-105' : ''}
             ${dragDropClasses}
             hover:scale-105
+            ${foilHost(card)}
           `}
         >
           <img
@@ -150,6 +155,7 @@ export const PKMCard = memo(function PKMCard({
             className="w-full h-full object-cover"
             draggable={false}
           />
+          <FoilOverlay card={card} />
         </div>
       );
     }
@@ -162,18 +168,20 @@ export const PKMCard = memo(function PKMCard({
         onMouseEnter={() => onHover?.(card)}
         onMouseLeave={() => onHover?.(null)}
         className={`
-          w-20 h-28 rounded-lg border-2 flex flex-col items-center justify-center cursor-pointer
+          relative w-20 h-28 rounded-lg border-2 flex flex-col items-center justify-center cursor-pointer
           transition-all duration-150
           ${typeColor} bg-opacity-80 border-gray-500
           ${isSelected ? 'ring-2 ring-yellow-400 scale-105' : ''}
           ${dragDropClasses}
           hover:scale-105
+          ${foilHost(card)}
         `}
       >
         <div className="text-white text-[10px] font-bold text-center leading-tight px-1">
           {card.name.replace(' Energy', '')}
         </div>
         <div className={`w-6 h-6 rounded-full ${typeColor} border border-white/50 mt-1`} />
+        <FoilOverlay card={card} />
       </div>
     );
   }
@@ -197,6 +205,7 @@ export const PKMCard = memo(function PKMCard({
             ${isSelected ? 'ring-2 ring-yellow-400 scale-105 z-10' : ''}
             ${dragDropClasses}
             hover:scale-105
+            ${foilHost(card)}
           `}
         >
           <img
@@ -205,6 +214,7 @@ export const PKMCard = memo(function PKMCard({
             className="w-full h-full object-cover"
             draggable={false}
           />
+          <FoilOverlay card={card} />
         </div>
       );
     }
@@ -217,12 +227,13 @@ export const PKMCard = memo(function PKMCard({
         onMouseEnter={() => onHover?.(card)}
         onMouseLeave={() => onHover?.(null)}
         className={`
-          w-20 h-28 rounded-lg border-2 flex flex-col cursor-pointer
+          relative w-20 h-28 rounded-lg border-2 flex flex-col cursor-pointer
           transition-all duration-150
           bg-gradient-to-b from-gray-600 to-gray-700 border-gray-500
           ${isSelected ? 'ring-2 ring-yellow-400 scale-105' : ''}
           ${dragDropClasses}
           hover:scale-105
+          ${foilHost(card)}
         `}
       >
         <div className="text-[9px] text-gray-300 uppercase text-center mt-1">
@@ -234,6 +245,7 @@ export const PKMCard = memo(function PKMCard({
         <div className="text-gray-300 text-[7px] text-center px-1 mt-1 leading-tight flex-1 overflow-hidden">
           {card.text}
         </div>
+        <FoilOverlay card={card} />
       </div>
     );
   }
@@ -259,6 +271,7 @@ export const PKMCard = memo(function PKMCard({
             ${isSelected ? 'ring-2 ring-yellow-400' : ''}
             ${isValidTarget ? 'ring-2 ring-red-400 animate-pulse' : ''}
             ${dragDropClasses}
+            ${foilHost(card)}
           `}
         >
           <img
@@ -315,6 +328,7 @@ export const PKMCard = memo(function PKMCard({
               })}
             </div>
           )}
+          <FoilOverlay card={card} />
         </div>
       );
     }
@@ -329,12 +343,13 @@ export const PKMCard = memo(function PKMCard({
         onMouseEnter={() => onHover?.(card)}
         onMouseLeave={() => onHover?.(null)}
         className={`
-          w-20 h-12 rounded border-2 flex items-center gap-1 px-1 cursor-pointer
+          relative w-20 h-12 rounded border-2 flex items-center gap-1 px-1 cursor-pointer
           transition-all duration-150
           ${isEx ? 'bg-gradient-to-r from-gray-800 to-indigo-900 border-indigo-400' : 'bg-gray-800 border-gray-600'}
           ${isSelected ? 'ring-2 ring-yellow-400' : ''}
           ${isValidTarget ? 'ring-2 ring-red-400 animate-pulse' : ''}
           ${dragDropClasses}
+          ${foilHost(card)}
         `}
       >
         <div className={`w-3 h-3 rounded-full ${typeColor} flex-shrink-0`} />
@@ -347,6 +362,7 @@ export const PKMCard = memo(function PKMCard({
             <span className="text-gray-500">/{hp}</span>
           </div>
         </div>
+        <FoilOverlay card={card} />
       </div>
     );
   }
@@ -377,6 +393,7 @@ export const PKMCard = memo(function PKMCard({
           ${isValidTarget ? 'ring-2 ring-red-400 animate-pulse' : ''}
           ${!isOpponent ? 'hover:scale-105 hover:z-10' : ''}
           ${dragDropClasses}
+          ${foilHost(card)}
         `}
       >
         <img
@@ -446,6 +463,8 @@ export const PKMCard = memo(function PKMCard({
             </div>
           </div>
         )}
+
+        <FoilOverlay card={card} />
       </motion.div>
     );
 
@@ -490,6 +509,7 @@ export const PKMCard = memo(function PKMCard({
         ${isValidTarget ? 'ring-2 ring-red-400 animate-pulse' : ''}
         ${!isOpponent ? 'hover:scale-105 hover:z-10' : ''}
         ${dragDropClasses}
+        ${foilHost(card)}
       `}
     >
       {/* Header: Type + HP */}
@@ -593,6 +613,8 @@ export const PKMCard = memo(function PKMCard({
           </div>
         </div>
       )}
+
+      <FoilOverlay card={card} />
     </div>
   );
 });
