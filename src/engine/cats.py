@@ -48,6 +48,10 @@ from src.engine.types import (
     EventType,
     GameObject,
     GameState,
+    Interceptor,
+    InterceptorAction,
+    InterceptorPriority,
+    InterceptorResult,
     Player,
     Zone,
     ZoneType,
@@ -349,6 +353,75 @@ def _category_of(state: GameState, card_obj_id: str) -> Optional[str]:
     return None
 
 
+def _dispatch_interceptors(
+    state: GameState,
+    event: Event,
+    priorities: tuple[InterceptorPriority, ...] = (InterceptorPriority.TRANSFORM, InterceptorPriority.REACT),
+) -> tuple[Event, list[Event]]:
+    """Lightweight in-process dispatcher.
+
+    Walks state.interceptors, applies those matching ``event``, in priority order.
+    Returns (possibly-transformed event, list of REACT-emitted follow-up events).
+
+    This is intentionally tiny — it covers the CATS_QUERY_PILE_SCORE / CATS_TRICK_RULE_QUERY
+    paths without dragging in the full pipeline. The TurnManager will route through the
+    real pipeline when it's wired; until then, this lets card interceptors fire under
+    the smoke driver too.
+    """
+    new_events: list[Event] = []
+    current_event = event
+    for priority in priorities:
+        for ic in list(state.interceptors.values()):
+            if ic.priority != priority:
+                continue
+            try:
+                if not ic.filter(current_event, state):
+                    continue
+            except Exception:
+                continue
+            try:
+                result = ic.handler(current_event, state)
+            except Exception:
+                continue
+            if not isinstance(result, InterceptorResult):
+                if isinstance(result, list):
+                    new_events.extend(result)
+                continue
+            if result.action == InterceptorAction.TRANSFORM and result.transformed_event is not None:
+                current_event = result.transformed_event
+            elif result.action == InterceptorAction.REPLACE and result.transformed_event is not None:
+                current_event = result.transformed_event
+            elif result.action == InterceptorAction.REACT:
+                new_events.extend(result.new_events)
+            elif result.action == InterceptorAction.PREVENT:
+                return current_event, new_events
+    return current_event, new_events
+
+
+def _run_setup_on_pile_entry(state: GameState, obj: GameObject) -> None:
+    """Run setup_interceptors for a card that just entered a pile.
+
+    Pile triggers (on_enter_pile, pile-tap activations) need their interceptors
+    registered when the card lands. Mirrors how setup_interceptors fires for
+    Commanders, but scoped to pile entry instead of game start.
+    """
+    if obj is None or obj.card_def is None:
+        return
+    fn = obj.card_def.setup_interceptors
+    if fn is None:
+        return
+    try:
+        new_interceptors = fn(obj, state) or []
+    except Exception:
+        return
+    for ic in new_interceptors:
+        if ic.id in state.interceptors:
+            continue
+        state.interceptors[ic.id] = ic
+        if ic.id not in obj.interceptor_ids:
+            obj.interceptor_ids.append(ic.id)
+
+
 def install_category_rule(state: GameState, pounce_card_obj_id: str) -> None:
     """Set state.cats_current_rule based on the Pounce card's category."""
     _init_cats_state(state)
@@ -436,7 +509,17 @@ def resolve_trick(state: GameState) -> list[Event]:
     if pounce_card is None or counter_card is None:
         return []
 
-    rule = trick.get("installed_rule") or state.cats_current_rule or sleek_rule
+    # Let Mood interceptors REPLACE the rule via CATS_TRICK_RULE_QUERY.
+    base_rule = trick.get("installed_rule") or state.cats_current_rule or sleek_rule
+    query = Event(
+        type=EventType.CATS_TRICK_RULE_QUERY,
+        payload={"rule": base_rule, "pounce_card": pounce_card, "counter_card": counter_card},
+        source=None,
+    )
+    transformed, _ = _dispatch_interceptors(state, query, priorities=(InterceptorPriority.TRANSFORM,))
+    rule = transformed.payload.get("rule", base_rule) if transformed else base_rule
+    if not callable(rule):
+        rule = base_rule
 
     try:
         winner_id = rule(pounce_card, counter_card, state)
@@ -520,11 +603,24 @@ def claim_pile(state: GameState, winner_id: str, target_pile: str) -> list[Event
             obj.zone = PILE_NAME_TO_ZONE[target_pile]
             obj.entered_zone_at = state.next_timestamp()
             obj.state.tapped = False  # untapped on entry
+            _run_setup_on_pile_entry(state, obj)
         events.append(Event(
             type=EventType.CATS_CLAIM_PILE,
             payload={"player": winner_id, "pile": target_pile, "card_id": cid},
             source=cid,
         ))
+        # Fan out so on_enter_pile filters on a per-card payload too.
+        events.append(Event(
+            type=EventType.CATS_CLAIM_PILE,
+            payload={"phase": "on_enter_pile", "player": winner_id, "pile": target_pile, "card_id": cid},
+            source=cid,
+        ))
+        _, reactions = _dispatch_interceptors(
+            state,
+            events[-1],
+            priorities=(InterceptorPriority.REACT,),
+        )
+        events.extend(reactions)
 
     cap = CATS_PILE_CAPS.get(target_pile, 999)
     if len(piles[target_pile]) >= cap and target_pile != "pile_attention":
@@ -605,10 +701,27 @@ def check_game_over(state: GameState) -> bool:
     return False
 
 
+def _query_pile_score(state: GameState, player_id: str, pile_name: str, base_score: int) -> int:
+    """Run CATS_QUERY_PILE_SCORE so Trinket interceptors can rewrite a pile's contribution."""
+    query = Event(
+        type=EventType.CATS_QUERY_PILE_SCORE,
+        payload={"player": player_id, "pile": pile_name, "score": base_score},
+        source=None,
+    )
+    transformed, _ = _dispatch_interceptors(state, query, priorities=(InterceptorPriority.TRANSFORM,))
+    new_score = transformed.payload.get("score", base_score) if transformed else base_score
+    try:
+        return int(new_score)
+    except (TypeError, ValueError):
+        return base_score
+
+
 def score_cats_player(state: GameState, player_id: str) -> dict[str, int]:
     """Compute final score breakdown for a player.
 
-    Returns {'territory': X, 'nap': Y, 'snack': Z, 'total': T, 'attention': N}
+    Returns {'territory': X, 'nap': Y, 'snack': Z, 'total': T, 'attention': N}.
+    Trinket interceptors on CATS_QUERY_PILE_SCORE can rewrite each pile's contribution
+    via TRANSFORM-priority handlers.
     """
     _init_cats_state(state)
     piles = state.cats_piles.get(player_id, {})
@@ -619,15 +732,18 @@ def score_cats_player(state: GameState, player_id: str) -> dict[str, int]:
     terr_score += 2 * len(trinkets.get("pile_territory", []))
     if len(terr_cards) >= 6:
         terr_score += 5
+    terr_score = _query_pile_score(state, player_id, "pile_territory", terr_score)
 
     nap_cards = piles.get("pile_nap", [])
     nap_score = min(2 * len(nap_cards), 12)
+    nap_score = _query_pile_score(state, player_id, "pile_nap", nap_score)
 
     snack_cards = piles.get("pile_snack", [])
     if len(snack_cards) < 5:
         snack_score = 3 * len(snack_cards)
     else:
         snack_score = len(snack_cards)
+    snack_score = _query_pile_score(state, player_id, "pile_snack", snack_score)
 
     attention_count = len(piles.get("pile_attention", []))
     total = terr_score + nap_score + snack_score
