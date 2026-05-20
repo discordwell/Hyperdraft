@@ -52,7 +52,7 @@ def current_match_id() -> Optional[str]:
 
 async def _spawn_one_demo_match(game_mode: str) -> Optional[str]:
     """Create + start a single bot_vs_bot ultra demo match. Returns its ID."""
-    from .routes.match import create_match, start_match
+    from .routes.match import create_match, run_game_session
     from .session import session_manager
 
     request = CreateMatchRequest(
@@ -74,11 +74,17 @@ async def _spawn_one_demo_match(game_mode: str) -> Optional[str]:
         log.warning("spectator: session %s not found after create", match_id)
         return None
 
+    # start_match's route handler attaches run_game_session via
+    # FastAPI's BackgroundTasks queue, which only fires after an HTTP
+    # response. Calling it programmatically with a fresh BackgroundTasks()
+    # silently drops the task — the session is created but the game
+    # engine never runs. We schedule run_game_session directly as an
+    # asyncio task so both Claude subprocesses actually have a game
+    # state to poll against.
     try:
-        await start_match(match_id, BackgroundTasks())
+        asyncio.create_task(run_game_session(session))
     except Exception as e:  # noqa: BLE001
-        log.warning("spectator: start_match for %s failed: %s", match_id, e)
-        # Drop the orphaned session — no point keeping a stuck match around.
+        log.warning("spectator: scheduling run_game_session for %s failed: %s", match_id, e)
         await session_manager.remove_session(match_id)
         return None
 
