@@ -16,9 +16,11 @@ single mis-fired button-press can't fork 20 concurrent claude subprocesses.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 import os
+import secrets
 import shutil
 import subprocess
 import time
@@ -26,6 +28,8 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
+
+from ..concurrency import training_semaphore, _get_training_sem
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +52,7 @@ def _require_admin(request: Request) -> None:
         # Refuse-all when secret isn't configured — avoids accidental exposure.
         raise HTTPException(status_code=404, detail="Not found")
     provided = request.headers.get("x-admin-auth", "").strip()
-    if not provided or provided != expected:
+    if not provided or not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=404, detail="Not found")
 
 
@@ -66,7 +70,22 @@ async def start_training(
     if iterations < 1 or iterations > 50:
         raise HTTPException(status_code=400, detail="iterations must be 1..50")
 
-    run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    # Refuse to start a new run if the training semaphore is already at cap.
+    # We do not BLOCK the HTTP route — caps are an operator safety, so a 429
+    # is more useful than a hung request when the cap is hit. The acquired
+    # slot is released by ``_await_and_tarball`` when the subprocess exits.
+    sem = _get_training_sem()
+    if sem.locked():
+        raise HTTPException(
+            status_code=429,
+            detail=f"Training capacity at cap ({sem._value} slot(s)); retry after a run completes.",
+        )
+    await sem.acquire()
+
+    # Sub-second uniqueness via random suffix; two POSTs in the same second
+    # used to share a run_id, with the second's shutil.rmtree corrupting the
+    # first run's workdir mid-claude-edit.
+    run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + secrets.token_hex(3)
     run_dir = TRAINING_ROOT / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -85,6 +104,7 @@ async def start_training(
             stderr=subprocess.PIPE,
         )
     except subprocess.CalledProcessError as e:
+        sem.release()  # Don't leak the slot on staging failure.
         log.error("cp -al failed for training run=%s: %s",
                   run_id, e.stderr.decode("utf-8", "replace")[:500])
         raise HTTPException(status_code=500, detail="failed to stage training workdir")
@@ -170,3 +190,9 @@ async def _await_and_tarball(run_id: str) -> None:
         except subprocess.CalledProcessError as e:
             log.warning("training run=%s tar failed: %s",
                         run_id, e.stderr.decode("utf-8", "replace")[:500])
+        finally:
+            # Always release the semaphore slot, even if tar failed.
+            try:
+                _get_training_sem().release()
+            except Exception:
+                pass

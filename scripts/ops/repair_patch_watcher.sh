@@ -34,7 +34,6 @@ ALLOW_GLOBS=(
   "src/cards/finance/*"
   "src/cards/depths/*"
   "src/cards/scp/*"
-  "src/cards/custom/*"
   "src/ai/*_adapter.py"
   "src/engine/pokemon_*.py"
   "src/engine/yugioh_*.py"
@@ -45,6 +44,9 @@ ALLOW_GLOBS=(
   "src/engine/scp_*.py"
   "tests/auto_repair/*"
 )
+# Deliberately NOT included: src/cards/custom/* — the repair_prompt only
+# authorizes the eight base game modes. Custom-set fixes go through the
+# normal spice-pass workflow with human review.
 
 log() {
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] [${LOG_TAG}] $*"

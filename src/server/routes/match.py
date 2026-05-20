@@ -152,13 +152,15 @@ def _is_internal_request(request: Request) -> bool:
     ``X-Internal-Auth`` lets external orchestrators opt in if
     HYPERDRAFT_INTERNAL_SECRET is configured.
     """
+    import hmac as _hmac
+
     client = request.client
     if client is not None and client.host in ("127.0.0.1", "::1", "localhost"):
         return True
     expected = os.environ.get("HYPERDRAFT_INTERNAL_SECRET", "").strip()
     if expected:
         provided = request.headers.get("x-internal-auth", "").strip()
-        if provided and provided == expected:
+        if provided and _hmac.compare_digest(provided, expected):
             return True
     return False
 
@@ -725,6 +727,9 @@ async def create_match(
 # Used to bound concurrency (HYPERDRAFT_ULTRA_MAX) and to allow Phase 3 cleanup
 # to reap zombies when a match ends mid-session.
 _active_ultra_subprocesses: dict[tuple[str, str], "object"] = {}
+# Serializes the cap-check + spawn so two concurrent create_match calls can't
+# both see ``live < cap`` and both spawn, blowing past HYPERDRAFT_ULTRA_MAX.
+_ultra_spawn_lock = asyncio.Lock()
 
 
 def _ultra_cap() -> int:
@@ -783,17 +788,6 @@ async def _spawn_ultra_subprocess(
         print(f"[ultra:{runner}] launcher not found: {launcher}", flush=True)
         return False
 
-    cap = _ultra_cap()
-    live = _count_live_ultra_subprocesses()
-    if live >= cap:
-        print(
-            f"[ultra:{runner}] {live}/{cap} subprocesses in flight; refusing to "
-            f"spawn for {match_id} / {ai_player_id}. Increase HYPERDRAFT_ULTRA_MAX "
-            f"to allow more.",
-            flush=True,
-        )
-        return False
-
     log_dir = project_root / "storage" / "ultra-agent"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{match_id}__{ai_player_id}.log"
@@ -809,23 +803,37 @@ async def _spawn_ultra_subprocess(
     if agent_model:
         env["ULTRA_MODEL"] = agent_model
 
-    try:
-        log_fh = open(log_path, "ab")
-        proc = subprocess.Popen(
-            ["bash", str(launcher)],
-            cwd=str(project_root),
-            env=env,
-            stdout=log_fh,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-    except Exception as exc:  # pylint: disable=broad-except
-        print(f"[ultra:{runner}] spawn failed: {exc}", flush=True)
-        return False
+    # Serialize the cap-check + Popen + registry-insert so two concurrent
+    # create_match calls can't both observe live < cap and both spawn.
+    async with _ultra_spawn_lock:
+        cap = _ultra_cap()
+        live = _count_live_ultra_subprocesses()
+        if live >= cap:
+            print(
+                f"[ultra:{runner}] {live}/{cap} subprocesses in flight; refusing to "
+                f"spawn for {match_id} / {ai_player_id}. Increase HYPERDRAFT_ULTRA_MAX "
+                f"to allow more.",
+                flush=True,
+            )
+            return False
 
-    key = (match_id, ai_player_id)
-    _active_ultra_subprocesses[key] = proc
+        try:
+            log_fh = open(log_path, "ab")
+            proc = subprocess.Popen(
+                ["bash", str(launcher)],
+                cwd=str(project_root),
+                env=env,
+                stdout=log_fh,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            print(f"[ultra:{runner}] spawn failed: {exc}", flush=True)
+            return False
+
+        key = (match_id, ai_player_id)
+        _active_ultra_subprocesses[key] = proc
     print(
         f"[ultra:{runner}] spawned subprocess pid={proc.pid} for match {match_id} "
         f"seat {ai_player_id} ({game_mode}); log={log_path}",

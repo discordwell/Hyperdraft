@@ -85,9 +85,18 @@ async def _spawn_one_demo_match(game_mode: str) -> Optional[str]:
 
 
 async def _wait_for_match_end(match_id: str, poll_seconds: float = 5.0) -> None:
-    """Block until the match's session reports is_finished or is gone."""
+    """Block until the match's session reports is_finished, is gone, or hits
+    the per-match wall-time cap.
+
+    Without the wall-time cap, a stuck demo match (e.g. the ultra agents
+    couldn't authenticate and their subprocesses died with no game progress)
+    would keep the spectator soft-slot held forever and no new demo would
+    start until container restart.
+    """
     from .session import session_manager
 
+    max_wall = float(os.environ.get("HYPERDRAFT_SPECTATOR_MAX_WALL_SECONDS", "5400"))  # 90 min
+    started_at = time.time()
     while True:
         if _stop_event is not None and _stop_event.is_set():
             return
@@ -101,6 +110,16 @@ async def _wait_for_match_end(match_id: str, poll_seconds: float = 5.0) -> None:
                 return
         except Exception:  # noqa: BLE001
             pass
+        if time.time() - started_at > max_wall:
+            log.warning(
+                "spectator: demo match=%s exceeded %.0fs wall time; dropping",
+                match_id, max_wall,
+            )
+            try:
+                await session_manager.remove_session(match_id)
+            except Exception:  # noqa: BLE001
+                pass
+            return
         await asyncio.sleep(poll_seconds)
 
 
