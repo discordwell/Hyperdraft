@@ -164,15 +164,32 @@ Now start: read the brief, then enter the poll loop."
 
 export MATCH_ID AI_PLAYER_ID HUMAN_PLAYER_ID SERVER_BASE GAME_MODE
 
-# Run claude in the background so a watchdog can stop it when the match
-# ends or stalls. The parent server tracks the PID; we exit naturally
-# when claude does.
-CLAUDE_ARGS=()
+# Run claude in print-once mode (-p) so it works in a non-TTY background
+# subprocess. The INITIAL_PROMPT tells claude to enter a poll-and-act
+# loop via the Bash tool; claude stays alive across the whole game and
+# exits naturally when is_game_over flips. --allowedTools enables the
+# tools the playbook actually needs.
+#
+# Prompt is piped via stdin (not passed as a positional arg) because
+# ``--allowedTools`` is variadic and would otherwise eat the prompt
+# string as another tool name.
+CLAUDE_ARGS=(-p --allowedTools Bash Read Edit Write Glob Grep)
 if [ -n "$CLAUDE_MODEL" ]; then
     CLAUDE_ARGS+=(--model "$CLAUDE_MODEL")
 fi
 
-claude "${CLAUDE_ARGS[@]}" "$INITIAL_PROMPT" &
+# First-run-config restore: a fresh container volume has no
+# ~/.claude.json. Claude writes a stub-then-backs-it-up; restoring the
+# largest backup (the real config the keychain extraction shipped over)
+# skips the "configuration file not found" warning loop. Idempotent.
+if [ ! -s /root/.claude.json ] || [ "$(wc -c < /root/.claude.json 2>/dev/null)" -lt 1000 ]; then
+    LATEST_BACKUP=$(ls -S /root/.claude/backups/.claude.json.backup.* 2>/dev/null | head -1)
+    if [ -n "$LATEST_BACKUP" ]; then
+        cp "$LATEST_BACKUP" /root/.claude.json 2>/dev/null || true
+    fi
+fi
+
+printf '%s' "$INITIAL_PROMPT" | claude "${CLAUDE_ARGS[@]}" &
 CLAUDE_PID=$!
 
 # --- Watchdog ---

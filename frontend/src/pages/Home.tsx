@@ -84,7 +84,7 @@ export function Home() {
   const [aiSCPDeck, setAiSCPDeck] = useState<string>('keter_risk');
   const [ultraAgent, setUltraAgent] = useState<'claude' | 'codex'>('claude');
   const [ultraCodexModel, setUltraCodexModel] = useState('gpt-5.3');
-  const [claudexModel, setClaudexModel] = useState('claude-opus-4.6');
+  const [claudexModel, setClaudexModel] = useState('claude-opus-4-7');
   const [gptModel, setGptModel] = useState('gpt-5.3');
   const [recordPrompts, setRecordPrompts] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -403,7 +403,7 @@ export function Home() {
                         else setClaudexModel(e.target.value);
                       }}
                       className="w-full bg-brand-obsidian border border-brand-hairline px-3 py-2 text-sm brand-mono text-brand-cream focus:outline-none focus:border-brand-foil/60"
-                      placeholder={ultraAgent === 'codex' ? 'gpt-5.3' : 'claude-opus-4.6'}
+                      placeholder={ultraAgent === 'codex' ? 'gpt-5.3' : 'claude-opus-4-7'}
                     />
                   </FieldBlock>
                 </motion.div>
