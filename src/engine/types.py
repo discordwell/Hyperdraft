@@ -880,6 +880,7 @@ class ObjectState:
     attached_to: Optional[str] = None
     attachments: list[str] = field(default_factory=list)
     is_token: bool = False           # True if this is a token (not a card)
+    foil: bool = False               # Cosmetic "holo foil" — rolled at deck-load
     damage_marked: int = 0           # Damage marked this turn (before cleanup)
     crewed_until_eot: bool = False   # True if Vehicle was crewed this turn
     # OTJ Saddle mechanic state

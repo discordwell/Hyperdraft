@@ -117,6 +117,7 @@ export interface CardData {
   controller: string | null;
   owner: string | null;
   keywords?: string[];
+  foil?: boolean;
   // Hearthstone state
   divine_shield?: boolean;
   stealth?: boolean;

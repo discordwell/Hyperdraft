@@ -5,5 +5,6 @@ export { BrandButton } from './BrandButton';
 export { Monogram } from './Monogram';
 export { GameModeTile } from './GameModeTile';
 export { NowPlayingPill } from './NowPlayingPill';
+export { GameViewLayout } from './GameViewLayout';
 export { GAME_MODES, ACCENT_CLASSES, getMode } from './modes';
 export type { GameModeId, GameModeMeta } from './modes';

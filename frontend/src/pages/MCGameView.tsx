@@ -8,6 +8,7 @@ import { matchAPI } from '../services/api';
 import { GameLog } from '../components/game/GameLog';
 import { ChoiceModal } from '../components/actions/ChoiceModal';
 import { usePendingChoice } from '../hooks/usePendingChoice';
+import { GameViewLayout } from '../components/brand';
 
 export function MCGameView() {
   const { matchId } = useParams<{ matchId: string }>();
@@ -86,9 +87,23 @@ export function MCGameView() {
   }
 
   const mulliganPrompt = gameState.minecraft_mulligan_pending?.[playerId];
+  const opponentEntryMc =
+    gameState?.players && Object.entries(gameState.players).find(([id]) => id !== playerId);
+  const opponentNameMc = opponentEntryMc
+    ? (opponentEntryMc[1] as { name?: string }).name
+    : undefined;
+  const meMc = gameState?.players?.[playerId] as { name?: string } | undefined;
 
   return (
-    <div className="flex min-h-screen bg-slate-950">
+    <GameViewLayout
+      mode="minecraft"
+      matchId={matchId}
+      turn={(gameState as unknown as { turn_number?: number }).turn_number}
+      phase={String(gameState.minecraft_day_phase ?? '').toLowerCase()}
+      opponentName={opponentNameMc}
+      playerName={meMc?.name}
+    >
+    <div className="flex min-h-[calc(100vh-3.5rem)] bg-slate-950">
       {mulliganPrompt && (
         <MCMulliganModal
           prompt={mulliganPrompt}
@@ -162,6 +177,7 @@ export function MCGameView() {
         />
       )}
     </div>
+    </GameViewLayout>
   );
 }
 

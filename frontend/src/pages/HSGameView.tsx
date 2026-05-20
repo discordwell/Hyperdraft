@@ -16,6 +16,7 @@ import { AnimationsToggle } from '../components/game/shared/AnimationsToggle';
 import { matchAPI } from '../services/api';
 import { ChoiceModal } from '../components/actions/ChoiceModal';
 import { usePendingChoice } from '../hooks/usePendingChoice';
+import { GameViewLayout } from '../components/brand';
 
 export function HSGameView() {
   const { matchId } = useParams<{ matchId: string }>();
@@ -103,17 +104,33 @@ export function HSGameView() {
   // Loading state
   if (!gameState || !playerId) {
     return (
-      <div className="min-h-screen bg-game-bg flex items-center justify-center">
+      <div className="min-h-screen bg-brand-ink flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-game-accent border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-400">Loading game...</p>
+          <div className="w-16 h-16 border-4 border-brand-ember border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="brand-eyebrow text-brand-chalk">Loading match</p>
         </div>
       </div>
     );
   }
 
+  const opponentEntry =
+    gameState?.players &&
+    Object.entries(gameState.players).find(([id]) => id !== playerId);
+  const opponentName = opponentEntry
+    ? (opponentEntry[1] as { name?: string }).name
+    : undefined;
+  const me = gameState?.players?.[playerId] as { name?: string } | undefined;
+
   return (
-    <div className="min-h-screen bg-game-bg flex">
+    <GameViewLayout
+      mode="hearthstone"
+      matchId={matchId}
+      turn={(gameState as unknown as { turn?: number }).turn}
+      phase={isMyTurn() ? 'your turn' : 'opponent'}
+      opponentName={opponentName}
+      playerName={me?.name}
+    >
+    <div className="min-h-[calc(100vh-3.5rem)] bg-brand-ink flex">
       {/* Main Game Area */}
       <div className="flex-1 relative">
         <DragHintOverlay />
@@ -239,15 +256,6 @@ export function HSGameView() {
           )}
         </div>
 
-        {/* Back to Menu */}
-        <div className="p-3 border-t border-gray-700">
-          <button
-            onClick={() => navigate('/')}
-            className="w-full px-4 py-2 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-all"
-          >
-            Back to Menu
-          </button>
-        </div>
       </div>
       {pendingChoice && gameState && (
         <ChoiceModal
@@ -261,6 +269,7 @@ export function HSGameView() {
         />
       )}
     </div>
+    </GameViewLayout>
   );
 }
 

@@ -118,6 +118,7 @@ export const HSMinionCard = memo(function HSMinionCard({
         ${isStealth ? 'opacity-50' : ''}
         ${card.summoning_sickness && !canAttack ? 'border-dashed' : ''}
         ${isBeingDragged ? 'opacity-50 scale-95' : ''}
+        ${card.foil ? 'card-foil-host' : ''}
       `}
     >
       {/* Card art */}
@@ -186,6 +187,8 @@ export const HSMinionCard = memo(function HSMinionCard({
       {isValidTarget && (
         <div className="absolute inset-0 rounded-lg bg-red-500/15 pointer-events-none" />
       )}
+
+      {card.foil && <div className="card-foil" aria-hidden />}
     </div>
   );
 });

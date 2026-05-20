@@ -170,6 +170,58 @@ h1, h2, h3, h4, .title-font {
   50% { background-position: 100% 50%; }
 }
 
+/* =====================================================================
+   Card foil — per-instance holographic overlay.
+   Apply ``card-foil-host`` on the card root, then drop a child
+   ``<div class="card-foil" aria-hidden />`` inside. Parent must be
+   position: relative (most card wrappers already are). The two layered
+   gradients sweep diagonally with opposed phases so the highlight feels
+   like a real holo, not a static rainbow tint.
+   ===================================================================== */
+.card-foil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  overflow: hidden;
+  background: linear-gradient(
+    115deg,
+    transparent 0%,
+    rgba(255, 0, 128, 0.25) 18%,
+    rgba(0, 200, 255, 0.30) 33%,
+    rgba(120, 255, 80, 0.28) 50%,
+    rgba(255, 220, 60, 0.30) 67%,
+    rgba(255, 0, 200, 0.25) 82%,
+    transparent 100%
+  );
+  background-size: 220% 220%;
+  mix-blend-mode: overlay;
+  animation: card-foil-pan 6s ease-in-out infinite;
+  opacity: 0.85;
+  z-index: 5; /* above art, below stat orbs/badges */
+}
+.card-foil::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    65deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.18) 50%,
+    transparent 70%
+  );
+  background-size: 250% 250%;
+  animation: card-foil-pan 6s ease-in-out infinite reverse;
+  mix-blend-mode: screen;
+}
+@keyframes card-foil-pan {
+  0%, 100% { background-position: 0% 0%; }
+  50%      { background-position: 100% 100%; }
+}
+.card-foil-host:hover .card-foil { opacity: 1; }
+.card-foil-host:hover .card-foil::after { background-size: 300% 300%; }
+
 /* Hairline divider — used inside Section components as a quiet rule. */
 .brand-hairline {
   height: 1px;

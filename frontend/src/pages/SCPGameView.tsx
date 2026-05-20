@@ -6,6 +6,7 @@ import { useGameStore } from '../stores/gameStore';
 import { matchAPI } from '../services/api';
 import { ChoiceModal } from '../components/actions/ChoiceModal';
 import { usePendingChoice } from '../hooks/usePendingChoice';
+import { GameViewLayout } from '../components/brand';
 import type { CardData, SCPIncident, SCPSiteState } from '../types';
 
 const PROTOCOLS = ['mirror_box', 'no_eye_contact', 'feed_it_lies', 'ritual_diagram'];
@@ -182,7 +183,7 @@ export function SCPGameView() {
   const {
     gameState,
     playerId,
-    isConnected,
+    isConnected: _isConnected,
     myPlayer,
     opponentPlayer,
     mySite,
@@ -312,25 +313,24 @@ export function SCPGameView() {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-widest text-cyan-300">Hyperdraft // SCP Containment TCG</div>
-          <div className="mt-1 text-xs text-slate-500">
-            Turn {gameState.turn_number} · {canAct ? 'Your assignment window' : 'Awaiting opposing Site'}
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <span className={`h-2 w-2 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-red-500'}`} />
-            {isConnected ? 'LIVE' : 'OFFLINE'}
-          </div>
-          <ActionButton onClick={handleConcede} tone="danger">Concede</ActionButton>
-          <ActionButton onClick={() => navigate('/')}>Lobby</ActionButton>
-        </div>
-      </header>
+  const opponentEntryScp =
+    gameState?.players && Object.entries(gameState.players).find(([id]) => id !== playerId);
+  const opponentNameScp = opponentEntryScp
+    ? (opponentEntryScp[1] as { name?: string }).name
+    : undefined;
+  const meScp = gameState?.players?.[playerId] as { name?: string } | undefined;
 
+  return (
+    <GameViewLayout
+      mode="scp"
+      matchId={matchId}
+      turn={gameState.turn_number}
+      phase={canAct ? 'assignment' : 'awaiting'}
+      opponentName={opponentNameScp}
+      playerName={meScp?.name}
+      onExit={handleConcede}
+    >
+    <div className="min-h-[calc(100vh-3.5rem)] bg-slate-950 text-slate-100">
       {error && <div className="border-b border-red-900 bg-red-950/40 px-4 py-2 text-sm text-red-300">{error}</div>}
 
       <main className="grid gap-4 p-4 xl:grid-cols-[340px_minmax(0,1fr)_340px]">
@@ -533,6 +533,7 @@ export function SCPGameView() {
         />
       )}
     </div>
+    </GameViewLayout>
   );
 }
 

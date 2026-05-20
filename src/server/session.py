@@ -43,6 +43,10 @@ def generate_id() -> str:
     return str(uuid4())[:8]
 
 
+# Probability that a freshly-added library card is rendered as foil (cosmetic).
+FOIL_RATE = 0.10
+
+
 # Action type prefixes handled by specific mode adapters.
 _MODE_ACTION_PREFIXES = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO", "minecraft": "MC", "finance": "FIN", "depths": "DEPTHS", "scp": "SCP"}
 
@@ -304,9 +308,13 @@ class GameSession:
 
     def add_cards_to_deck(self, player_id: str, card_defs: list[CardDefinition]) -> None:
         """Add cards to a player's library."""
+        from src.engine.turn_state import _get_rng
         self.deck_card_defs_by_player.setdefault(player_id, []).extend(card_defs)
+        rng = _get_rng(self.game.state)
         for card_def in card_defs:
-            self.game.add_card_to_library(player_id, card_def)
+            obj = self.game.add_card_to_library(player_id, card_def)
+            if rng.random() < FOIL_RATE:
+                obj.state.foil = True
         self.game.shuffle_library(player_id)
 
     async def _prepare_ai_layers(self) -> None:
@@ -2282,6 +2290,7 @@ class GameSession:
             controller=obj.controller,
             owner=obj.owner,
             keywords=list(obj.characteristics.keywords),
+            foil=obj.state.foil,
             divine_shield=obj.state.divine_shield,
             stealth=obj.state.stealth,
             windfury=obj.state.windfury,
@@ -2343,6 +2352,7 @@ class GameSession:
             controller=obj.controller,
             owner=obj.owner,
             keywords=list(obj.characteristics.keywords),
+            foil=obj.state.foil,
             mc_cost=dict(getattr(obj.card_def, "mc_cost", {}) or {}) if obj.card_def else {},
             mc_grid_x=obj.state.mc_grid_x,
             mc_grid_y=obj.state.mc_grid_y,

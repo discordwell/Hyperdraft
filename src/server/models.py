@@ -251,6 +251,8 @@ class CardData(BaseModel):
     controller: Optional[str] = None
     owner: Optional[str] = None
     keywords: list[str] = Field(default_factory=list)
+    # Cosmetic — true if this card instance is "foil" (holographic rendering)
+    foil: bool = False
     # Hearthstone-specific state
     divine_shield: bool = False
     stealth: bool = False

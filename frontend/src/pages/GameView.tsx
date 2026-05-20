@@ -13,6 +13,7 @@ import { GameBoard, GraveyardModal, PriorityPrompt } from '../components/game';
 import { GameLog } from '../components/game/GameLog';
 import { AnimationsToggle } from '../components/game/shared/AnimationsToggle';
 import { ActionMenu, ChoiceModal } from '../components/actions';
+import { GameViewLayout } from '../components/brand';
 import { HSGameView } from './HSGameView';
 import { PKMGameView } from './PKMGameView';
 import { YGOGameView } from './YGOGameView';
@@ -413,17 +414,41 @@ export function GameView() {
   // Loading state
   if (!gameState || !playerId) {
     return (
-      <div className="min-h-screen bg-game-bg flex items-center justify-center">
+      <div className="min-h-screen bg-brand-ink flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-game-accent border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-400">Loading game...</p>
+          <div className="w-16 h-16 border-4 border-brand-foil border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="brand-eyebrow text-brand-chalk">Loading match</p>
         </div>
       </div>
     );
   }
 
+  // Derive a few brand-bar metadata pieces from the game state shape.
+  // Defensive: gameState shape varies across modes, so missing fields
+  // gracefully degrade to omitted chips rather than crashing.
+  const turnNumber =
+    (gameState as unknown as { turn_number?: number }).turn_number ??
+    (gameState as unknown as { turn?: number }).turn;
+  const phaseName =
+    (gameState as unknown as { phase?: string }).phase ??
+    (gameState as unknown as { current_phase?: string }).current_phase;
+  const opponentEntry =
+    gameState?.players &&
+    Object.entries(gameState.players).find(([id]) => id !== playerId);
+  const opponentName = opponentEntry ? (opponentEntry[1] as { name?: string }).name : undefined;
+  const playerEntry = gameState?.players?.[playerId] as { name?: string } | undefined;
+  const playerName = playerEntry?.name;
+
   return (
-    <div className="min-h-screen bg-game-bg flex">
+    <GameViewLayout
+      mode="mtg"
+      matchId={matchId}
+      turn={turnNumber}
+      phase={phaseName}
+      opponentName={opponentName}
+      playerName={playerName}
+    >
+    <div className="min-h-[calc(100vh-3.5rem)] bg-brand-ink flex">
       {/* Main Game Area */}
       <div className="flex-1 relative">
         <GameBoard
@@ -482,22 +507,22 @@ export function GameView() {
       </div>
 
       {/* Sidebar */}
-      <div className="w-80 bg-game-surface border-l border-gray-700 flex flex-col">
+      <div className="w-80 bg-brand-obsidian border-l border-brand-hairline/60 flex flex-col">
         {/* Connection Status */}
-        <div className="p-3 border-b border-gray-700 flex items-center justify-between">
+        <div className="p-3 border-b border-brand-hairline/60 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div
               className={`w-2 h-2 rounded-full ${
-                isConnected ? 'bg-green-500' : 'bg-red-500'
+                isConnected ? 'bg-brand-sheen' : 'bg-brand-ember'
               }`}
             />
-            <span className="text-sm text-gray-400">
+            <span className="brand-eyebrow text-brand-chalk">
               {isConnected ? 'Connected' : 'Disconnected'}
             </span>
           </div>
           <button
             onClick={handleConcede}
-            className="text-xs text-red-400 hover:text-red-300"
+            className="text-[11px] uppercase tracking-[0.14em] text-brand-ember/80 hover:text-brand-ember transition-colors"
           >
             Concede
           </button>
@@ -521,58 +546,47 @@ export function GameView() {
           />
 
           {/* Zones */}
-          <div className="mt-6 pt-4 border-t border-gray-700">
-            <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">
-              Zones
-            </div>
+          <div className="mt-6 pt-4 border-t border-brand-hairline/60">
+            <div className="brand-eyebrow mb-2">Zones</div>
             <button
               onClick={() => setIsGraveyardOpen(true)}
-              className="w-full px-3 py-2 rounded bg-gray-700 text-gray-200 hover:bg-gray-600 transition-all text-sm font-semibold"
+              className="w-full px-3 py-2 bg-brand-shelf hover:bg-brand-glass border border-brand-hairline hover:border-brand-foil/40 text-brand-cream transition-all text-sm"
               title="View your graveyard"
             >
-              Graveyard ({myGraveyard.length})
+              Graveyard <span className="brand-mono text-brand-foil">({myGraveyard.length})</span>
             </button>
           </div>
 
           {/* Game Log */}
-          <div className="mt-6 pt-4 border-t border-gray-700">
+          <div className="mt-6 pt-4 border-t border-brand-hairline/60">
             <GameLog
               entries={gameState.game_log || []}
               playerNames={Object.fromEntries(Object.entries(gameState.players).map(([id, p]) => [id, p.name]))}
               scrollClass="max-h-64"
-              accentClass="bg-blue-800/40"
+              accentClass="bg-brand-foil/15"
             />
           </div>
 
           {/* Animations preference */}
-          <div className="mt-4 pt-3 border-t border-gray-700">
+          <div className="mt-4 pt-3 border-t border-brand-hairline/60">
             <AnimationsToggle />
           </div>
 
           {/* Error Display */}
           {ui.error && (
-            <div className="mt-4 p-3 bg-red-900/50 border border-red-500 rounded text-red-200 text-sm">
+            <div className="mt-4 p-3 bg-brand-ember/10 border border-brand-ember/50 text-brand-ember text-sm">
               {ui.error}
             </div>
           )}
         </div>
 
         {/* Drag hint */}
-        <div className="px-4 py-2 border-t border-gray-700 text-xs text-gray-500 text-center">
-          Tip: Drag cards from your hand to play lands or target spells
-        </div>
-
-        {/* Back to Menu */}
-        <div className="p-3 border-t border-gray-700">
-          <button
-            onClick={() => navigate('/')}
-            className="w-full px-4 py-2 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-all"
-          >
-            Back to Menu
-          </button>
+        <div className="px-4 py-2 border-t border-brand-hairline/60 text-xs text-brand-dust text-center">
+          Tip: drag cards from your hand to play lands or target spells
         </div>
       </div>
     </div>
+    </GameViewLayout>
   );
 }
 

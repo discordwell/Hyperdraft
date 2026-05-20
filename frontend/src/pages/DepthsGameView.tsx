@@ -12,6 +12,7 @@ import { useDepthsGame } from '../hooks/useDepthsGame';
 import { useGameStore } from '../stores/gameStore';
 import { DepthsGameBoard } from '../games/depths';
 import { matchAPI } from '../services/api';
+import { GameViewLayout } from '../components/brand';
 
 export function DepthsGameView() {
   const { matchId } = useParams<{ matchId: string }>();
@@ -114,35 +115,24 @@ export function DepthsGameView() {
     );
   }
 
-  return (
-    <div className="min-h-screen flex flex-col bg-slate-950">
-      {/* Header bar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-cyan-900/40">
-        <span className="font-mono uppercase text-xs text-cyan-400">
-          HYPERDRAFT // DEPTHS: SUBMARINE FLEET
-        </span>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-cyan-400' : 'bg-red-500'}`} />
-            <span className="font-mono text-xs text-gray-500">
-              {isConnected ? 'SONAR LOCK' : 'OFFLINE'}
-            </span>
-          </div>
-          <button
-            onClick={handleConcede}
-            className="font-mono uppercase text-xs px-3 py-1 border border-red-800 text-red-600 hover:bg-red-900/20 transition-colors"
-          >
-            SCUTTLE
-          </button>
-          <button
-            onClick={() => navigate('/')}
-            className="font-mono uppercase text-xs px-3 py-1 border border-gray-700 text-gray-500 hover:bg-gray-800 transition-colors"
-          >
-            SURFACE
-          </button>
-        </div>
-      </div>
+  const opponentEntryDpt =
+    gameState?.players && Object.entries(gameState.players).find(([id]) => id !== playerId);
+  const opponentNameDpt = opponentEntryDpt
+    ? (opponentEntryDpt[1] as { name?: string }).name
+    : undefined;
+  const meDpt = gameState?.players?.[playerId] as { name?: string } | undefined;
 
+  return (
+    <GameViewLayout
+      mode="depths"
+      matchId={matchId}
+      turn={(gameState as unknown as { turn_number?: number }).turn_number}
+      phase={isConnected ? 'sonar lock' : 'offline'}
+      opponentName={opponentNameDpt}
+      playerName={meDpt?.name}
+      onExit={handleConcede}
+    >
+    <div className="min-h-[calc(100vh-3.5rem)] flex flex-col bg-slate-950">
       {error && (
         <div className="px-4 py-2 text-xs font-mono text-red-400 bg-red-900/20 border-b border-red-800">
           {error}
@@ -179,6 +169,7 @@ export function DepthsGameView() {
         />
       </div>
     </div>
+    </GameViewLayout>
   );
 }
 

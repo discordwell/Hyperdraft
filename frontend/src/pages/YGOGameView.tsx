@@ -17,6 +17,7 @@ import { matchAPI } from '../services/api';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChoiceModal } from '../components/actions/ChoiceModal';
 import { usePendingChoice } from '../hooks/usePendingChoice';
+import { GameViewLayout } from '../components/brand';
 
 const PHASE_LABELS: Record<string, string> = {
   DRAW: 'Draw Phase',
@@ -144,8 +145,23 @@ export function YGOGameView() {
     );
   }
 
+  const opponentEntryYgo =
+    gameState?.players && Object.entries(gameState.players).find(([id]) => id !== playerId);
+  const opponentNameYgo = opponentEntryYgo
+    ? (opponentEntryYgo[1] as { name?: string }).name
+    : undefined;
+  const meYgo = gameState?.players?.[playerId] as { name?: string } | undefined;
+
   return (
-    <div className="min-h-screen flex"
+    <GameViewLayout
+      mode="yugioh"
+      matchId={matchId}
+      turn={gameState.turn_number}
+      phase={(PHASE_LABELS[ygoPhase] || ygoPhase).toLowerCase()}
+      opponentName={opponentNameYgo}
+      playerName={meYgo?.name}
+    >
+    <div className="min-h-[calc(100vh-3.5rem)] flex"
       style={{ background: 'linear-gradient(to bottom, #0a0e1a, #0f1425, #0a0e1a)' }}
     >
       {/* Main Game Area */}
@@ -316,5 +332,6 @@ export function YGOGameView() {
         />
       )}
     </div>
+    </GameViewLayout>
   );
 }

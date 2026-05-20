@@ -14,6 +14,7 @@ import { SettingsPopover } from '../games/finance/SettingsPopover';
 import { matchAPI } from '../services/api';
 import { ChoiceModal } from '../components/actions/ChoiceModal';
 import { usePendingChoice } from '../hooks/usePendingChoice';
+import { GameViewLayout } from '../components/brand';
 
 export function FinanceGameView() {
   const { matchId } = useParams<{ matchId: string }>();
@@ -128,31 +129,35 @@ export function FinanceGameView() {
     );
   }
 
+  const opponentEntryFin =
+    gameState?.players && Object.entries(gameState.players).find(([id]) => id !== playerId);
+  const opponentNameFin = opponentEntryFin
+    ? (opponentEntryFin[1] as { name?: string }).name
+    : undefined;
+  const meFin = gameState?.players?.[playerId] as { name?: string } | undefined;
+
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#03080f' }}>
-      {/* Header bar */}
+    <GameViewLayout
+      mode="finance"
+      matchId={matchId}
+      turn={(gameState as unknown as { turn_number?: number }).turn_number}
+      phase={String(currentPhase ?? '').toLowerCase()}
+      opponentName={opponentNameFin}
+      playerName={meFin?.name}
+      onExit={handleConcede}
+    >
+    <div className="min-h-[calc(100vh-3.5rem)] flex flex-col" style={{ background: '#03080f' }}>
+      {/* Finance-specific local header retained for the SettingsPopover */}
       <div className="flex items-center justify-between px-4 py-2 border-b" style={{ borderColor: '#1a2a1a' }}>
         <span className="font-mono uppercase text-xs" style={{ color: '#00FF88' }}>
-          HYPERDRAFT // FINANCE TCG
+          Finance TCG · trading floor
         </span>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-red-500'}`} />
             <span className="font-mono text-xs text-gray-500">{isConnected ? 'LIVE' : 'OFFLINE'}</span>
           </div>
           <SettingsPopover />
-          <button
-            onClick={handleConcede}
-            className="font-mono uppercase text-xs px-3 py-1 border border-red-800 text-red-600 hover:bg-red-900/20 transition-colors"
-          >
-            CONCEDE
-          </button>
-          <button
-            onClick={() => navigate('/')}
-            className="font-mono uppercase text-xs px-3 py-1 border border-gray-700 text-gray-500 hover:bg-gray-800 transition-colors"
-          >
-            LOBBY
-          </button>
         </div>
       </div>
 
@@ -206,5 +211,6 @@ export function FinanceGameView() {
         />
       )}
     </div>
+    </GameViewLayout>
   );
 }

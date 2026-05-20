@@ -130,6 +130,7 @@ export const HSHandCard: React.FC<HSHandCardProps> = memo(({
           : 'border-gray-600 opacity-75'
         }
         ${isBeingDragged ? 'opacity-50 scale-95' : ''}
+        ${card.foil ? 'card-foil-host' : ''}
       `}
     >
       {/* Mana Cost Gem */}
@@ -247,6 +248,8 @@ export const HSHandCard: React.FC<HSHandCardProps> = memo(({
           ))}
         </div>
       )}
+
+      {card.foil && <div className="card-foil" aria-hidden />}
     </div>
   );
 });

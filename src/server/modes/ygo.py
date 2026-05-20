@@ -367,12 +367,14 @@ class YugiohModeAdapter(ModeAdapter):
         """Serialize a Yu-Gi-Oh! game object to CardData with YGO-specific fields."""
         card_data = session._serialize_card(obj)
 
-        # Face-down cards: hide info from opponent
+        # Face-down cards: hide info from opponent (including foil status,
+        # which would otherwise leak that this set card is "the special one")
         is_face_down = getattr(obj.state, "face_down", False)
         if is_face_down and not reveal:
             card_data.name = "Set Card"
             card_data.text = ""
             card_data.face_down = True
+            card_data.foil = False
             card_data.ygo_position = getattr(obj.state, "ygo_position", None)
             return card_data
 
