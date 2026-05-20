@@ -4,7 +4,7 @@ Match Routes
 Endpoints for creating and managing game matches.
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
 from typing import Optional
 import asyncio
 import os
@@ -144,8 +144,27 @@ async def list_ygo_decks() -> dict:
     return {"decks": decks}
 
 
+def _is_internal_request(request: Request) -> bool:
+    """Return True if the request originated inside the container/host.
+
+    Container-internal Ultra agents poll over 127.0.0.1, so localhost
+    matches the production path. A shared-secret backdoor via
+    ``X-Internal-Auth`` lets external orchestrators opt in if
+    HYPERDRAFT_INTERNAL_SECRET is configured.
+    """
+    client = request.client
+    if client is not None and client.host in ("127.0.0.1", "::1", "localhost"):
+        return True
+    expected = os.environ.get("HYPERDRAFT_INTERNAL_SECRET", "").strip()
+    if expected:
+        provided = request.headers.get("x-internal-auth", "").strip()
+        if provided and provided == expected:
+            return True
+    return False
+
+
 @router.get("/ultra-pending")
-async def list_ultra_pending() -> dict:
+async def list_ultra_pending(request: Request) -> dict:
     """List matches awaiting an ultra-AI move from an external agent.
 
     Returns matches where:
@@ -154,15 +173,20 @@ async def list_ultra_pending() -> dict:
       - the match is still active (not finished)
       - the session is registered with the active session manager
 
-    No auth — this is a local-only signal consumed by external-agent
-    orchestrators that spawn Claude Code or Codex agents to play the AI seat.
+    Auth: localhost-only by default (container-internal agents poll over
+    127.0.0.1). Set HYPERDRAFT_INTERNAL_SECRET to also accept calls bearing
+    a matching ``X-Internal-Auth`` header.
     """
+    if not _is_internal_request(request):
+        raise HTTPException(status_code=404, detail="Not found")
     return _list_external_ultra_pending()
 
 
 @router.get("/codex-pending")
-async def list_codex_pending() -> dict:
+async def list_codex_pending(request: Request) -> dict:
     """List pending Ultra matches whose configured external runner is Codex."""
+    if not _is_internal_request(request):
+        raise HTTPException(status_code=404, detail="Not found")
     return _list_external_ultra_pending(agent_runner="codex")
 
 
@@ -283,10 +307,25 @@ async def create_match(
             "model": ultra_model,
         }
     elif request.mode == "bot_vs_bot":
-        ai_id = session.add_player("AI 1", is_ai=True)
-        ai2_id = session.add_player("AI 2", is_ai=True)
+        ai_difficulty = request.ai_difficulty.value
+        ultra_agent, ultra_model = _resolve_ultra_agent(request)
+        if ai_difficulty == "ultra":
+            label_a = "Codex Ultra A" if ultra_agent == "codex" else "Claude Ultra A"
+            label_b = "Codex Ultra B" if ultra_agent == "codex" else "Claude Ultra B"
+        else:
+            label_a, label_b = "AI 1", "AI 2"
+        ai_id = session.add_player(label_a, is_ai=True)
+        ai2_id = session.add_player(label_b, is_ai=True)
+        for seat in (ai_id, ai2_id):
+            session.ai_profiles_by_player[seat] = {
+                "brain": "external" if ai_difficulty == "ultra" else "heuristic",
+                "difficulty": ai_difficulty,
+                "agent_runner": ultra_agent,
+                "model": ultra_model,
+            }
     else:
         ai_id = None
+        ai2_id = None
 
     # === Variant setup (installs heroes, decks, global modifiers) ===
     if request.variant in {"stormrift", "riftclash", "frierenrift"}:
@@ -639,22 +678,40 @@ async def create_match(
             session.add_cards_to_deck(ai_id, ai_deck)
             session.add_cards_to_deck(ai2_id, ai_deck)
 
-    # Ultra mode: spawn a local external-agent CLI in a new Terminal window to
-    # play the AI seat. The watcher script polls /state and takes turns.
-    if (
-        request.mode == "human_vs_bot"
-        and ai_id
-        and request.ai_difficulty.value == "ultra"
-    ):
+    # Ultra mode: spawn the external-agent CLI as a background subprocess.
+    # In production the container hosts this; the launcher script's stdout
+    # is captured to ``storage/ultra-agent/<MATCH_ID>.log`` for operators
+    # to tail. Both human_vs_bot AND bot_vs_bot (spectator demo, Phase 4)
+    # fire this path when ai_difficulty==ultra; bot_vs_bot spawns one
+    # subprocess per AI seat.
+    if request.ai_difficulty.value == "ultra":
         ultra_agent, ultra_model = _resolve_ultra_agent(request)
-        _spawn_ultra_terminal(
-            match_id=session.id,
-            ai_player_id=ai_id,
-            human_player_id=human_id,
-            game_mode=request.game_mode,
-            agent_runner=ultra_agent,
-            agent_model=ultra_model,
-        )
+        if request.mode == "human_vs_bot" and ai_id:
+            await _spawn_ultra_subprocess(
+                match_id=session.id,
+                ai_player_id=ai_id,
+                human_player_id=human_id,
+                game_mode=request.game_mode,
+                agent_runner=ultra_agent,
+                agent_model=ultra_model,
+            )
+        elif request.mode == "bot_vs_bot" and ai_id and ai2_id:
+            await _spawn_ultra_subprocess(
+                match_id=session.id,
+                ai_player_id=ai_id,
+                human_player_id=ai2_id,  # opponent label for the prompt; both are bots
+                game_mode=request.game_mode,
+                agent_runner=ultra_agent,
+                agent_model=ultra_model,
+            )
+            await _spawn_ultra_subprocess(
+                match_id=session.id,
+                ai_player_id=ai2_id,
+                human_player_id=ai_id,
+                game_mode=request.game_mode,
+                agent_runner=ultra_agent,
+                agent_model=ultra_model,
+            )
 
     return CreateMatchResponse(
         match_id=session.id,
@@ -664,7 +721,34 @@ async def create_match(
     )
 
 
-def _spawn_ultra_terminal(
+# Registry of live ultra-agent subprocesses, keyed by (match_id, ai_player_id).
+# Used to bound concurrency (HYPERDRAFT_ULTRA_MAX) and to allow Phase 3 cleanup
+# to reap zombies when a match ends mid-session.
+_active_ultra_subprocesses: dict[tuple[str, str], "object"] = {}
+
+
+def _ultra_cap() -> int:
+    """Read the env-tunable cap for concurrent ultra subprocesses."""
+    raw = os.environ.get("HYPERDRAFT_ULTRA_MAX", "").strip()
+    try:
+        return max(1, int(raw)) if raw else 3
+    except ValueError:
+        return 3
+
+
+def _count_live_ultra_subprocesses() -> int:
+    """How many ultra subprocesses are still running right now."""
+    live = 0
+    for proc in _active_ultra_subprocesses.values():
+        try:
+            if proc.poll() is None:
+                live += 1
+        except Exception:
+            pass
+    return live
+
+
+async def _spawn_ultra_subprocess(
     *,
     match_id: str,
     ai_player_id: str,
@@ -672,22 +756,21 @@ def _spawn_ultra_terminal(
     game_mode: str,
     agent_runner: str = "claude",
     agent_model: Optional[str] = None,
-) -> None:
-    """Open a terminal window running an external Ultra-agent launcher.
+) -> bool:
+    """Spawn an external Ultra-agent CLI as a background subprocess.
 
-    Cross-platform: tries macOS (Terminal.app / iTerm2), Linux (respects
-    ``$TERMINAL`` env var, falls through common terminal emulators), and
-    Windows (Windows Terminal preferred). Falls back to printing a copyable
-    command if no terminal can be spawned automatically.
+    No terminal window is opened; stdout/stderr are redirected to
+    ``storage/ultra-agent/<MATCH_ID>__<AI_PLAYER_ID>.log`` for operators
+    to tail. The process inherits ``start_new_session=True`` so it's not
+    killed when the FastAPI worker recycles.
 
-    Best-effort. Failure must NOT break match creation — the user can still
-    play (the AI seat just sits idle until they launch the agent manually).
+    Returns True if spawned, False if the cap was hit or the launcher is
+    missing. Failure must NOT break match creation — the user can still
+    play (the AI seat just sits idle until manually relaunched).
     """
-    import os
     import shlex
     import shutil
     import subprocess
-    import sys
     from pathlib import Path
 
     project_root = Path(__file__).resolve().parents[3]
@@ -698,131 +781,67 @@ def _spawn_ultra_terminal(
     launcher = project_root / "scripts" / launcher_name
     if not launcher.exists():
         print(f"[ultra:{runner}] launcher not found: {launcher}", flush=True)
-        return
-
-    env_assignments = (
-        f"MATCH_ID={shlex.quote(match_id)} "
-        f"AI_PLAYER_ID={shlex.quote(ai_player_id)} "
-        f"HUMAN_PLAYER_ID={shlex.quote(human_player_id)} "
-        f"GAME_MODE={shlex.quote(game_mode)} "
-        f"ULTRA_AGENT={shlex.quote(runner)}"
-    )
-    if agent_model:
-        env_assignments = f"{env_assignments} ULTRA_MODEL={shlex.quote(agent_model)}"
-    inner = f"cd {shlex.quote(str(project_root))} && {env_assignments} {shlex.quote(str(launcher))}"
-
-    def _print_manual(reason: str) -> None:
-        print(
-            f"[ultra:{runner}] {reason}; run this manually in a terminal:\n  {inner}",
-            flush=True,
-        )
-
-    spawned = False
-    try:
-        if sys.platform == "darwin":
-            spawned = _spawn_macos(inner, match_id)
-        elif sys.platform.startswith("linux"):
-            spawned = _spawn_linux(inner)
-        elif sys.platform.startswith("win"):
-            spawned = _spawn_windows(inner)
-        else:
-            _print_manual(f"unsupported platform {sys.platform}")
-            return
-    except Exception as exc:  # pylint: disable=broad-except
-        _print_manual(f"spawn failed: {exc}")
-        return
-
-    if spawned:
-        print(f"[ultra:{runner}] spawned terminal for match {match_id} ({game_mode})", flush=True)
-    else:
-        _print_manual("no usable terminal found")
-
-
-def _spawn_macos(inner: str, match_id: str) -> bool:
-    """macOS: pick Terminal.app or iTerm2 based on $TERM_PROGRAM."""
-    import os
-    import subprocess
-
-    term = os.environ.get("TERM_PROGRAM", "")
-    apple_inner = inner.replace("\\", "\\\\").replace('"', '\\"')
-
-    if term == "iTerm.app":
-        # iTerm2 — open a new window with the command.
-        osa = (
-            'tell application "iTerm"\n'
-            '  create window with default profile\n'
-            f'  tell current session of current window to write text "{apple_inner}"\n'
-            'end tell'
-        )
-    else:
-        # Terminal.app (default). Works for unknown $TERM_PROGRAM too.
-        osa = f'tell application "Terminal" to do script "{apple_inner}"'
-
-    subprocess.Popen(
-        ["osascript", "-e", osa],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    return True
-
-
-def _spawn_linux(inner: str) -> bool:
-    """Linux: respect $TERMINAL, then try common terminal emulators."""
-    import os
-    import shutil
-    import subprocess
-
-    # Tuples of (binary, args-template). Args use {cmd} as placeholder.
-    candidates: list[tuple[str, list[str]]] = []
-    user_term = os.environ.get("TERMINAL")
-    if user_term:
-        # Generic fallback args; if user's terminal needs different syntax
-        # they can override via wrapping their own script.
-        candidates.append((user_term, ["-e", "bash", "-c", inner]))
-    candidates.extend([
-        ("x-terminal-emulator", ["-e", "bash", "-c", inner]),  # Debian alternatives
-        ("gnome-terminal", ["--", "bash", "-c", inner]),
-        ("konsole", ["-e", "bash", "-c", inner]),
-        ("alacritty", ["-e", "bash", "-c", inner]),
-        ("kitty", ["bash", "-c", inner]),
-        ("wezterm", ["start", "--", "bash", "-c", inner]),
-        ("tilix", ["-e", "bash", "-c", inner]),
-        ("xfce4-terminal", ["-e", f"bash -c {shlex_quote(inner)}"]),
-        ("xterm", ["-e", "bash", "-c", inner]),
-    ])
-
-    for prog, args in candidates:
-        if shutil.which(prog):
-            subprocess.Popen(
-                [prog] + args,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            return True
-    return False
-
-
-def _spawn_windows(inner: str) -> bool:
-    """Windows: prefer Windows Terminal, fall back to cmd. Requires bash on PATH."""
-    import shutil
-    import subprocess
-
-    # The launcher script is bash — user must have Git Bash, WSL, or similar.
-    if shutil.which("bash") is None:
         return False
 
-    if shutil.which("wt.exe"):
-        subprocess.Popen(["wt.exe", "bash", "-c", inner])
-        return True
+    cap = _ultra_cap()
+    live = _count_live_ultra_subprocesses()
+    if live >= cap:
+        print(
+            f"[ultra:{runner}] {live}/{cap} subprocesses in flight; refusing to "
+            f"spawn for {match_id} / {ai_player_id}. Increase HYPERDRAFT_ULTRA_MAX "
+            f"to allow more.",
+            flush=True,
+        )
+        return False
 
-    # Plain cmd fallback.
-    subprocess.Popen(["cmd", "/c", "start", "cmd", "/k", f"bash -c \"{inner}\""])
+    log_dir = project_root / "storage" / "ultra-agent"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"{match_id}__{ai_player_id}.log"
+
+    env = os.environ.copy()
+    env.update({
+        "MATCH_ID": match_id,
+        "AI_PLAYER_ID": ai_player_id,
+        "HUMAN_PLAYER_ID": human_player_id,
+        "GAME_MODE": game_mode,
+        "ULTRA_AGENT": runner,
+    })
+    if agent_model:
+        env["ULTRA_MODEL"] = agent_model
+
+    try:
+        log_fh = open(log_path, "ab")
+        proc = subprocess.Popen(
+            ["bash", str(launcher)],
+            cwd=str(project_root),
+            env=env,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        print(f"[ultra:{runner}] spawn failed: {exc}", flush=True)
+        return False
+
+    key = (match_id, ai_player_id)
+    _active_ultra_subprocesses[key] = proc
+    print(
+        f"[ultra:{runner}] spawned subprocess pid={proc.pid} for match {match_id} "
+        f"seat {ai_player_id} ({game_mode}); log={log_path}",
+        flush=True,
+    )
+
+    # Reap on exit in a background task so the registry doesn't grow unbounded.
+    async def _reap_when_done():
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(None, proc.wait)
+        finally:
+            _active_ultra_subprocesses.pop(key, None)
+
+    asyncio.create_task(_reap_when_done())
     return True
-
-
-def shlex_quote(s: str) -> str:
-    import shlex
-    return shlex.quote(s)
 
 
 @router.post("/{match_id}/start")

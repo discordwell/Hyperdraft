@@ -1,20 +1,11 @@
 #!/usr/bin/env bash
 # Launches a Claude Code session that plays the AI seat of an Ultra match
-# from start to finish. Spawned by the server as a plain background
-# subprocess; stdout/stderr are redirected to a per-match log file.
+# from start to finish. Spawned by the server (via osascript) when a match is
+# created with difficulty=ultra.
 #
 # Required env vars: MATCH_ID, AI_PLAYER_ID, GAME_MODE
-# Optional env vars:
-#   HUMAN_PLAYER_ID  default unknown
-#   SERVER_BASE      default http://127.0.0.1:8030
-#   CLAUDE_MODEL or ULTRA_MODEL
-#   WATCHDOG_POLL_INTERVAL  default 30s
-#   WATCHDOG_IDLE_LIMIT     default 300s
-#
-# macOS-Terminal-popup behavior used to live here; that path is now in
-# scripts/launch_ultra_agent_local.sh for backwards-compatible local dev.
-# In production, the server spawns this via subprocess.Popen and tails
-# the log file at storage/ultra-agent/<MATCH_ID>.log.
+# Optional env vars: HUMAN_PLAYER_ID, SERVER_BASE (default http://localhost:8030)
+# Optional model env vars: CLAUDE_MODEL or ULTRA_MODEL
 
 set -e
 cd "$(dirname "$0")/.."
@@ -23,10 +14,8 @@ cd "$(dirname "$0")/.."
 : "${AI_PLAYER_ID:?AI_PLAYER_ID env var required}"
 : "${GAME_MODE:?GAME_MODE env var required}"
 HUMAN_PLAYER_ID="${HUMAN_PLAYER_ID:-unknown}"
-SERVER_BASE="${SERVER_BASE:-http://127.0.0.1:8030}"
+SERVER_BASE="${SERVER_BASE:-http://localhost:8030}"
 CLAUDE_MODEL="${CLAUDE_MODEL:-${ULTRA_MODEL:-}}"
-WATCHDOG_POLL_INTERVAL="${WATCHDOG_POLL_INTERVAL:-30}"
-WATCHDOG_IDLE_LIMIT="${WATCHDOG_IDLE_LIMIT:-300}"
 
 BRIEF="prompts/ultra_ai/${GAME_MODE}.md"
 if [ ! -f "$BRIEF" ]; then
@@ -47,9 +36,8 @@ Human:  $HUMAN_PLAYER_ID
 Server: $SERVER_BASE
 Brief:  $BRIEF
 Model:  ${CLAUDE_MODEL:-default}
-Watchdog: poll=${WATCHDOG_POLL_INTERVAL}s idle_limit=${WATCHDOG_IDLE_LIMIT}s
 
-Launching Claude Code... it will play the entire game in this process.
+Launching Claude Code... it will play the entire game in this session.
 ========================================================================
 
 BANNER
@@ -85,15 +73,18 @@ Your job: play the WHOLE GAME in this single session. Use the Bash tool to:
 
 Be patient — humans take 30-90s per turn. Use \`sleep 5\` between polls. Don't spam.
 
-This session is running as a background subprocess; your stdout is being captured to a log file the operator can tail. Print short status updates between turns (e.g. 'Waiting for human turn 4...' or 'Taking AI turn 5: deploying X, attacking with Y').
+The user can SEE this terminal. Print short status updates between turns so they know you're alive (e.g. 'Waiting for human turn 4...' or 'Taking AI turn 5: deploying X, attacking with Y').
 
 Now start: read the brief, then enter the poll loop."
 
 export MATCH_ID AI_PLAYER_ID HUMAN_PLAYER_ID SERVER_BASE GAME_MODE
 
+# Capture this shell's TTY so we can close the right Terminal window after.
+TTY_NAME=$(tty)
+
 # Run claude in the background so a watchdog can stop it when the match
-# ends or stalls. The parent server tracks the PID; we exit naturally
-# when claude does.
+# ends or stalls. Once claude exits (naturally or killed), the window-close
+# logic below fires.
 CLAUDE_ARGS=()
 if [ -n "$CLAUDE_MODEL" ]; then
     CLAUDE_ARGS+=(--model "$CLAUDE_MODEL")
@@ -103,11 +94,12 @@ claude "${CLAUDE_ARGS[@]}" "$INITIAL_PROMPT" &
 CLAUDE_PID=$!
 
 # --- Watchdog ---
-# Polls the match state every WATCHDOG_POLL_INTERVAL seconds. Signals
-# claude to exit when:
+# Polls the match state every 30s. Signals claude to exit when:
 #   * is_game_over=true (match ended), or
-#   * no state change for WATCHDOG_IDLE_LIMIT seconds (idle).
+#   * no state change for 5 minutes (idle).
 STATE_URL="${SERVER_BASE}/api/match/${MATCH_ID}/state?player_id=${AI_PLAYER_ID}"
+WATCHDOG_POLL_INTERVAL=30
+WATCHDOG_IDLE_LIMIT=300
 (
     last_hash=""
     last_change_ts=$(date +%s)
@@ -132,7 +124,7 @@ print(tag, hashlib.sha1(json.dumps(s, sort_keys=True).encode()).hexdigest())
         case "$verdict" in
             OVER*)
                 echo
-                echo "[watchdog] match $MATCH_ID ended; stopping claude."
+                echo "[watchdog] match $MATCH_ID ended; closing window."
                 kill "$CLAUDE_PID" 2>/dev/null || true
                 break
                 ;;
@@ -147,7 +139,7 @@ print(tag, hashlib.sha1(json.dumps(s, sort_keys=True).encode()).hexdigest())
                     last_change_ts=$now
                 elif [ $((now - last_change_ts)) -ge "$WATCHDOG_IDLE_LIMIT" ]; then
                     echo
-                    echo "[watchdog] no state change for ${WATCHDOG_IDLE_LIMIT}s; stopping claude."
+                    echo "[watchdog] no state change for ${WATCHDOG_IDLE_LIMIT}s; closing window."
                     kill "$CLAUDE_PID" 2>/dev/null || true
                     break
                 fi
@@ -168,5 +160,49 @@ set -e
 
 echo
 echo "========================================================================"
-echo "Ultra AI session ended (exit=$CLAUDE_EXIT)."
+echo "Ultra AI session ended (exit=$CLAUDE_EXIT). Closing window in 3s..."
 echo "========================================================================"
+sleep 3
+
+# Try to auto-close the terminal window. Only macOS Terminal.app and iTerm2
+# are supported; on Linux/Windows the shell just exits and the terminal
+# emulator decides what to do per its own settings.
+case "$(uname -s)" in
+    Darwin)
+        case "$TERM_PROGRAM" in
+            iTerm.app)
+                osascript <<APPLESCRIPT
+tell application "iTerm"
+    repeat with w in windows
+        repeat with t in tabs of w
+            tell current session of t
+                if tty is "$TTY_NAME" then
+                    tell w to close
+                    return
+                end if
+            end tell
+        end repeat
+    end repeat
+end tell
+APPLESCRIPT
+                ;;
+            *)
+                osascript <<APPLESCRIPT
+tell application "Terminal"
+    repeat with w in windows
+        repeat with t in tabs of w
+            if tty of t is "$TTY_NAME" then
+                close w saving no
+                return
+            end if
+        end repeat
+    end repeat
+end tell
+APPLESCRIPT
+                ;;
+        esac
+        ;;
+    *)
+        echo "(close this window when ready)"
+        ;;
+esac

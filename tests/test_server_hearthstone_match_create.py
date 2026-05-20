@@ -12,9 +12,11 @@ from src.engine.types import CardType
 
 
 @pytest.fixture(autouse=True)
-def _suppress_ultra_terminal_spawn(monkeypatch):
-    """Unit tests should not open local agent terminals."""
-    monkeypatch.setattr(match_routes, "_spawn_ultra_terminal", lambda **_kwargs: None)
+def _suppress_ultra_subprocess_spawn(monkeypatch):
+    """Unit tests should not spawn background ultra-agent subprocesses."""
+    async def _noop(**_kwargs):
+        return True
+    monkeypatch.setattr(match_routes, "_spawn_ultra_subprocess", _noop)
 
 
 def test_create_match_hearthstone_sets_up_heroes_and_decks():
@@ -221,7 +223,10 @@ def test_ultra_match_can_spawn_codex_runner(monkeypatch):
     """Human-vs-bot Ultra can launch Codex instead of the Claude default."""
 
     spawned: dict = {}
-    monkeypatch.setattr(match_routes, "_spawn_ultra_terminal", lambda **kwargs: spawned.update(kwargs))
+    async def _capture(**kwargs):
+        spawned.update(kwargs)
+        return True
+    monkeypatch.setattr(match_routes, "_spawn_ultra_subprocess", _capture)
 
     async def _run():
         response = await match_routes.create_match(
