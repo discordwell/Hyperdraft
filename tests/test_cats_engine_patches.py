@@ -130,6 +130,74 @@ def test_mood_rule_replacement_changes_winner():
     assert state2.cats_current_trick["winner"] == "p2", "Mood Scrappy override should flip the winner"
 
 
+def test_on_win_trigger_actually_fires():
+    """P0 fix: on_win REACT interceptors fire when their card wins a trick, and
+    DRAW events from that REACT are actually applied to the player's hand."""
+    state = _empty_state()
+    hand_p1 = state.zones["HAND_p1"].objects
+    hand_p2 = state.zones["HAND_p2"].objects
+    p1_hand_size_before = len(hand_p1)
+
+    def draw_on_win_setup(obj, state):
+        def handler(event, state):
+            if event.type != EventType.CATS_TRICK_RESOLVE:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            if event.payload.get("phase") != "on_win":
+                return InterceptorResult(action=InterceptorAction.PASS)
+            if event.payload.get("card_id") != obj.id:
+                return InterceptorResult(action=InterceptorAction.PASS)
+            return InterceptorResult(
+                action=InterceptorAction.REACT,
+                new_events=[Event(
+                    type=EventType.DRAW,
+                    payload={"player": obj.controller, "amount": 1},
+                    source=obj.id,
+                )],
+            )
+
+        return [Interceptor(
+            id=f"{obj.id}_draw_on_win",
+            source=obj.id,
+            controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=lambda e, s: e.type == EventType.CATS_TRICK_RESOLVE,
+            handler=handler,
+        )]
+
+    winner_cat = make_cat_card(
+        name="DrawCat", value=9, category="Sleek",
+        setup_interceptors=draw_on_win_setup,
+    )
+    loser_cat = make_cat_card(name="LoseCat", value=2, category="Sleek")
+
+    wc = _make_object_from_def(state, winner_cat, "p1", ZoneType.HAND)
+    lc = _make_object_from_def(state, loser_cat, "p2", ZoneType.HAND)
+    state.zones["HAND_p1"].objects.append(wc.id)
+    state.zones["HAND_p2"].objects.append(lc.id)
+    interceptors = draw_on_win_setup(wc, state)
+    for ic in interceptors:
+        state.interceptors[ic.id] = ic
+        wc.interceptor_ids.append(ic.id)
+
+    p1_hand_before_trick = len(state.zones["HAND_p1"].objects)
+
+    play_card_to_trick(state, "p1", wc.id, role="pounce")
+    play_card_to_trick(state, "p2", lc.id, role="counter")
+    p1_hand_during_trick = len(state.zones["HAND_p1"].objects)
+    events = resolve_trick(state)
+
+    assert state.cats_current_trick["winner"] == "p1", "DrawCat should win on value"
+    has_draw_event = any(
+        ev.type == EventType.DRAW and ev.payload.get("player") == "p1"
+        for ev in events
+    )
+    assert has_draw_event, "on_win REACT should have emitted a DRAW event"
+    p1_hand_after = len(state.zones["HAND_p1"].objects)
+    assert p1_hand_after > p1_hand_during_trick, (
+        f"P1 hand should grow from draw effect; was {p1_hand_during_trick} now {p1_hand_after}"
+    )
+
+
 def test_setup_on_pile_entry_runs_interceptors():
     """When a card enters a pile via claim_pile, its setup_interceptors should fire."""
     state = _empty_state()

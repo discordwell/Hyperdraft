@@ -398,6 +398,72 @@ def _dispatch_interceptors(
     return current_event, new_events
 
 
+def _draw_one(state: GameState, player_id: str) -> Optional[str]:
+    """Move the top card of player_id's library to their hand. Returns the card_obj_id or None."""
+    library = _ensure_zone(state, ZoneType.LIBRARY, player_id)
+    hand = _ensure_zone(state, ZoneType.HAND, player_id)
+    if not library.objects:
+        # Reshuffle discard into library
+        discard = _ensure_zone(state, ZoneType.GRAVEYARD, player_id)
+        if not discard.objects:
+            return None
+        if state.rng_seed is not None:
+            rng = random.Random(state.rng_seed + state.cats_round_number + len(hand.objects))
+        else:
+            rng = random
+        recycled = list(discard.objects)
+        rng.shuffle(recycled)
+        for cid in recycled:
+            obj = state.objects.get(cid)
+            if obj is not None:
+                obj.zone = ZoneType.LIBRARY
+        library.objects = recycled
+        discard.objects = []
+    if not library.objects:
+        return None
+    cid = library.objects.pop(0)
+    obj = state.objects.get(cid)
+    if obj is not None:
+        obj.zone = ZoneType.HAND
+        obj.entered_zone_at = state.next_timestamp()
+    hand.objects.append(cid)
+    return cid
+
+
+def _process_cats_effect_events(state: GameState, events: list) -> list:
+    """Walk an event list and process cats-specific side effects (DRAW, LOOK_AT_HAND).
+
+    Returns any newly-emitted events (typically empty for DRAW, since the draw
+    is already applied to state). Idempotent guard: tracks processed event ids
+    via id() so a second pass over the same list doesn't double-draw.
+    """
+    if not hasattr(state, "_cats_processed_effect_ids"):
+        state._cats_processed_effect_ids = set()
+    processed = state._cats_processed_effect_ids
+    follow_ups: list = []
+    for ev in events:
+        ev_key = id(ev)
+        if ev_key in processed:
+            continue
+        if ev.type == EventType.DRAW:
+            player_id = ev.payload.get("player") or ev.payload.get("controller")
+            n = int(ev.payload.get("amount", 1) or 1)
+            if player_id is None:
+                src_id = ev.source
+                src_obj = state.objects.get(src_id) if src_id else None
+                if src_obj is not None:
+                    player_id = src_obj.controller
+            if player_id is not None:
+                for _ in range(n):
+                    _draw_one(state, player_id)
+            processed.add(ev_key)
+        elif ev.type == EventType.LOOK_AT_HAND:
+            # Currently a no-op for cats (AI doesn't read the result yet) but
+            # marks the trigger as honoured so it doesn't silent-fail.
+            processed.add(ev_key)
+    return follow_ups
+
+
 def _run_setup_on_pile_entry(state: GameState, obj: GameObject) -> None:
     """Run setup_interceptors for a card that just entered a pile.
 
@@ -554,17 +620,29 @@ def resolve_trick(state: GameState) -> list[Event]:
         )
     ]
     for cid in winning_cards:
-        events.append(Event(
+        phase_event = Event(
             type=EventType.CATS_TRICK_RESOLVE,
             payload={"phase": "on_win", "card_id": cid, "winner": winner_id},
             source=cid,
-        ))
+        )
+        events.append(phase_event)
+        _, reactions = _dispatch_interceptors(
+            state, phase_event, priorities=(InterceptorPriority.REACT,),
+        )
+        events.extend(reactions)
     for cid in losing_cards:
-        events.append(Event(
+        phase_event = Event(
             type=EventType.CATS_TRICK_RESOLVE,
             payload={"phase": "on_lose", "card_id": cid, "winner": winner_id},
             source=cid,
-        ))
+        )
+        events.append(phase_event)
+        _, reactions = _dispatch_interceptors(
+            state, phase_event, priorities=(InterceptorPriority.REACT,),
+        )
+        events.extend(reactions)
+    # P0 fix: process any DRAW / LOOK_AT_HAND events the reactions produced.
+    events.extend(_process_cats_effect_events(state, events))
     return events
 
 
@@ -629,6 +707,9 @@ def claim_pile(state: GameState, winner_id: str, target_pile: str) -> list[Event
             payload={"player": winner_id, "pile": target_pile},
             source=None,
         ))
+
+    # P0 fix: process DRAW / LOOK_AT_HAND emitted by on_enter_pile reactions.
+    events.extend(_process_cats_effect_events(state, events))
 
     state.cats_current_trick = _empty_trick()
     return events

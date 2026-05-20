@@ -336,17 +336,28 @@ class CatsAIAdapter:
         return None
 
     def _pile_size(self, state, pile_name: str) -> int:
-        """Count cards in this player's named pile."""
+        """Count cards in this player's named pile.
+
+        Engine truth: ``state.cats_piles[player_id][pile_name]`` is a list
+        of card ids. Fall back to zone-name probing if that dict is absent.
+        """
         if state is None or not self.player_id:
             return 0
-        # Try zone-name shapes Agent 2 might use:
-        #   f"pile_{pile_name}_{player_id}" (per-player, scoped)
-        #   f"cats_pile_{pile_name}_{player_id}"
-        #   f"pile_{pile_name}" (global; unlikely but doc isn't strict)
+        # Authoritative source: state.cats_piles[pid][pile_name].
+        cats_piles = getattr(state, "cats_piles", None)
+        if cats_piles:
+            try:
+                piles = cats_piles.get(self.player_id, {})
+                return len(piles.get(pile_name, []))
+            except (AttributeError, TypeError):
+                pass
+        # Fallback: probe zone-name shapes.
         zones = getattr(state, "zones", None)
         if not zones:
             return 0
+        zone_name_caps = "CATS_" + pile_name.upper()  # e.g. CATS_PILE_TERRITORY
         candidate_keys = (
+            f"{zone_name_caps}_{self.player_id}",       # CATS_PILE_TERRITORY_p1
             f"pile_{pile_name}_{self.player_id}",
             f"cats_pile_{pile_name}_{self.player_id}",
             f"pile_{pile_name}",
@@ -362,7 +373,6 @@ class CatsAIAdapter:
             try:
                 return len(zone.objects)
             except AttributeError:
-                # Some Zone-like shims expose `cards` instead
                 cards = getattr(zone, "cards", None)
                 if cards is not None:
                     return len(cards)
@@ -373,13 +383,23 @@ class CatsAIAdapter:
         return self._pile_size(state, pile_name) >= cap
 
     def _hand_card_ids(self, state, player_id: str) -> list[str]:
-        """Best-effort: read the named player's hand card ids."""
+        """Best-effort: read the named player's hand card ids.
+
+        The cats engine keys zones as ``f"{ZoneType.name}_{owner}"`` which
+        for HAND becomes ``HAND_<pid>`` (uppercase). Earlier shapes used
+        ``hand_<pid>`` (lowercase) — keep both fallbacks so this works
+        across engine generations.
+        """
         if state is None or not player_id:
             return []
         zones = getattr(state, "zones", None)
         if not zones:
             return []
-        for key in (f"hand_{player_id}", f"cats_hand_{player_id}"):
+        for key in (
+            f"HAND_{player_id}",         # current cats engine
+            f"hand_{player_id}",         # legacy / lowercase
+            f"cats_hand_{player_id}",    # alt naming
+        ):
             try:
                 zone = zones.get(key)
             except AttributeError:
@@ -464,132 +484,260 @@ class CatsAIAdapter:
     # ─── Hard tier ───────────────────────────────────────────────
 
     def _hard_choose_card(self, state, card_ids: list[str]) -> str:
-        """1-round lookahead: score each candidate against likely opponent plays.
+        """1-round lookahead per docs/games/cats.md §9.
 
-        For each card in my hand:
-          For each card the opponent likely has:
-            simulate trick, score outcome.
-          Take expected score (average over plausible opponent plays).
-        Return the candidate with the highest expected score.
+        For each card C in my hand, score the expected outcome against each
+        plausible opponent response D:
 
-        Includes deliberate-loss logic: if I have a 1-value card AND opp's
-        likely play is high-value AND my snack pile is near cap, throw the
-        1-value to let opp eat the snack-force into their own pile.
+          1. Install the round's Category Rule that would result if either we
+             or the opponent played first (depends on whether we're Pounce or
+             Counter-pounce — read from state.cats_current_trick).
+          2. Use the engine's real ``CATS_CATEGORY_RULES`` to determine the
+             winner of (C vs D) under that rule.
+          3. Score: pile-score-delta (winner picks best non-full pile),
+             cap-pressure (penalty if best pile is near cap),
+             knock-over potential (high-value cards in Territory are better),
+             snack-force risk (snacks force claim into Snack pile),
+             deliberate-loss bonus (sacrifice a junk card when opp dominates).
+          4. Average across all D candidates and pick the C with the highest
+             expected score. Ties broken by **card name** for cross-run
+             determinism (UUIDs are non-deterministic).
         """
-        rule = self._installed_rule_name(state)
         opp_id = self._opponent_id(state)
         opp_likely = self._estimate_opponent_likely_plays(state, opp_id)
+        # ``role`` is 'pounce' when no card has been committed yet this round.
+        trick = getattr(state, "cats_current_trick", None) or {}
+        playing_pounce = trick.get("pounce_card") in (None, "")
 
-        best_cid = card_ids[0]
-        best_score = float("-inf")
+        # Bias the deliberate-loss bonus by hand size: if we have ~5 cards we
+        # can afford to throw one; if we're down to 2 we need every win.
+        my_hand_size = len(self._hand_card_ids(state, self.player_id or "")) if self.player_id else 5
 
-        for cid in sorted(card_ids):  # sorted for deterministic tie-break
+        candidates: list[tuple[float, str, str]] = []
+        for cid in card_ids:
             score_acc = 0.0
             n = 0
             for opp_cid in opp_likely or [None]:
-                score_acc += self._score_simulated_trick(state, cid, opp_cid, rule)
+                score_acc += self._score_simulated_trick(
+                    state, cid, opp_cid, playing_pounce=playing_pounce,
+                )
                 n += 1
             avg = score_acc / max(n, 1)
-            # Deliberate-loss bonus: low-value Cat + opp will dominate +
-            # my snack near cap → throwing junk into opp's snack pile is +EV.
-            if self._should_deliberately_lose(state, cid, opp_likely, rule):
-                avg += 8.0  # bias toward the sacrifice play
-            if avg > best_score:
-                best_score = avg
-                best_cid = cid
+            if self._should_deliberately_lose(state, cid, opp_likely, self._installed_rule_name(state)):
+                # Only chase the sacrifice if we have hand depth to spare.
+                avg += 6.0 if my_hand_size >= 4 else 2.0
+            # Tie-break by card name (deterministic). Resolve name once.
+            name = self._card_name(state, cid)
+            candidates.append((avg, name, cid))
 
-        return best_cid
+        # Sort: highest score wins; ties broken by name ascending; final
+        # tiebreaker is the cid (last resort, still deterministic for any
+        # given object set).
+        candidates.sort(key=lambda x: (-x[0], x[1], x[2]))
+        return candidates[0][2]
+
+    def _card_name(self, state, card_id: str) -> str:
+        """Return the printed card name (deterministic tie-break key)."""
+        obj = self._get_card_object(state, card_id)
+        if obj is None:
+            return ""
+        card_def = getattr(obj, "card_def", None)
+        if card_def is not None:
+            name = getattr(card_def, "name", None)
+            if isinstance(name, str):
+                return name
+        return getattr(obj, "name", "") or ""
+
+    def _resolve_simulated_winner(
+        self,
+        state,
+        my_cid: str,
+        opp_cid: Optional[str],
+        playing_pounce: bool,
+    ) -> bool:
+        """Run the real engine rule for a hypothetical (my, opp) trick.
+
+        Returns True if I'm predicted to win. Calls into the engine's
+        ``CATS_CATEGORY_RULES`` so the simulation matches what
+        ``resolve_trick`` would actually do.
+
+        Determines the installed rule by the category of whichever card
+        plays first:
+          - If we're Pounce, our card's category sets the rule (or Sleek
+            for non-Cat types — matching ``install_category_rule``).
+          - If we're Counter-pounce, the opponent's card's category set
+            the rule already (read from state.cats_current_trick), and
+            we just have to play under it.
+        """
+        # Resolve installed rule callable.
+        try:
+            from src.engine.cats import (
+                CATS_CATEGORY_RULES, sleek_rule,
+            )
+        except ImportError:
+            return False
+
+        # If we're Counter-pounce, the rule is already installed.
+        if not playing_pounce:
+            trick = getattr(state, "cats_current_trick", None) or {}
+            rule_fn = trick.get("installed_rule") or getattr(state, "cats_current_rule", None) or sleek_rule
+        else:
+            # We're playing first — our card's category installs the rule.
+            cat = self._card_category(state, my_cid)
+            rule_fn = CATS_CATEGORY_RULES.get(cat or "", sleek_rule) if cat else sleek_rule
+
+        if not callable(rule_fn):
+            rule_fn = sleek_rule
+
+        # The engine rules expect the trick dict to expose pounce/counter
+        # players. Synthesize a temporary trick view so the rule callables
+        # can read player ids without us having to mutate state.
+        trick_view = dict(getattr(state, "cats_current_trick", None) or {})
+        opp_id = self._opponent_id(state) or "_opp"
+        my_id = self.player_id or "_me"
+        if playing_pounce:
+            trick_view["pounce_player"] = my_id
+            trick_view["counter_player"] = opp_id
+            pounce_card = my_cid
+            counter_card = opp_cid
+        else:
+            # Opp went first; we're Counter.
+            trick_view["counter_player"] = my_id
+            if not trick_view.get("pounce_player"):
+                trick_view["pounce_player"] = opp_id
+            pounce_card = trick_view.get("pounce_card") or opp_cid
+            counter_card = my_cid
+
+        if pounce_card is None or counter_card is None:
+            # Without an opponent estimate we can't resolve — assume neutral
+            # 50/50 → use raw value comparison.
+            my_val = self._card_value(state, my_cid)
+            opp_val = self._card_value(state, opp_cid) if opp_cid else 5
+            return my_val >= opp_val
+
+        # Temporarily install the trick view for the rule callable's read.
+        original = getattr(state, "cats_current_trick", None)
+        state.cats_current_trick = trick_view
+        try:
+            winner_id = rule_fn(pounce_card, counter_card, state)
+        except Exception:
+            winner_id = ""
+        finally:
+            state.cats_current_trick = original
+
+        return winner_id == my_id
 
     def _score_simulated_trick(
         self,
         state,
         my_cid: str,
         opp_cid: Optional[str],
-        rule: Optional[str],
+        *,
+        playing_pounce: bool,
     ) -> float:
-        """Score the outcome of (my_cid vs opp_cid) under the installed rule.
+        """Score the outcome of (my_cid vs opp_cid) using engine rule fns.
 
-        Returns a heuristic float; higher is better for self.
+        Returns a heuristic float; higher is better for self. The score
+        combines:
+          - Trick-outcome bonus (winning is worth +score-of-target-pile×2,
+            losing the trick costs the equivalent for opp's pile)
+          - Cap pressure on the target pile
+          - Knock-over / activation potential (cards in Territory/Nap with
+            wired setup_interceptors are utility batteries)
+          - Snack-force risk (winning a snack-trick into a full Snack pile
+            overflows to Attention which scores 0)
+          - Trinket and Mood tempo costs (Trinkets sacrifice a round)
         """
-        my_val = self._card_value(state, my_cid)
-        opp_val = self._card_value(state, opp_cid) if opp_cid else 5  # neutral guess
         my_type = self._card_type_label(state, my_cid)
+        my_val = self._card_value(state, my_cid)
+        opp_type = self._card_type_label(state, opp_cid) if opp_cid else "unknown"
 
-        # Determine who would win under the installed rule (or default Sleek).
-        i_win = self._predict_winner(my_val, opp_val, rule, my_type)
+        # Mood values are 0 — already captured by _card_value but reinforce
+        # the assumption for the rule fn.
+        i_win = self._resolve_simulated_winner(state, my_cid, opp_cid, playing_pounce)
 
         score = 0.0
-        if i_win:
-            score += 10.0
-            # If I win, I get to pile. Best pile available?
-            best_pile = self._best_available_pile(state)
-            score += self._pile_score_potential(best_pile)
-            # Cap pressure penalty if best pile is near cap
-            score -= self._cap_pressure(state, best_pile) * 2.0
-            # Activation potential — high-value cat in territory > low one
-            if my_type == "cat" and best_pile == _PILE_TERRITORY and my_val >= 6:
-                score += 3.0
-        else:
-            score -= 4.0  # losing a trick is mildly bad
-            # But if both cards include a Snack, opp eats their snack pile
-            # — sometimes a win for me. Check the snack-force rule.
-            opp_type = self._card_type_label(state, opp_cid) if opp_cid else "unknown"
-            if "snack" in (my_type, opp_type):
-                # Opp wins but is forced into snack — does opp's snack pile
-                # benefit them or hurt them?
-                opp_id = self._opponent_id(state)
-                if opp_id:
-                    # We can't read opp's pile size from our adapter scope
-                    # (we'd need self.player_id swapped). Conservatively
-                    # treat it as neutral.
-                    score += 0.5
-
-        # Snack-force risk against self: if I'm winning a trick that has a
-        # snack in it, I MUST claim into my snack pile. If my snack is full,
-        # the overflow goes to attention (no scoring). Penalise.
-        if i_win and my_type == "snack":
+        # Strong intrinsic bias toward winning tricks — every win secures 2
+        # cards into a scoring pile, every loss surrenders 2 cards to opp.
+        # The pile-specific bonuses below tune *which* trick we want to win.
+        snack_in_trick = my_type == "snack" or opp_type == "snack"
+        target_pile = self._best_available_pile(state) if i_win else None
+        if i_win and snack_in_trick:
+            target_pile = _PILE_SNACK
             if self._is_pile_full(state, _PILE_SNACK):
-                score -= 5.0  # forced overflow
+                target_pile = _PILE_ATTENTION
 
-        # Trinket plays sacrifice the round — only worth it if my hand has
-        # cards left after this and the Trinket sets up a big payoff.
+        if i_win:
+            score += 10.0  # winning a trick is the baseline goal
+            if target_pile is not None:
+                per_card_score = self._pile_score_potential(target_pile)
+                score += per_card_score * 2.0  # 2 cards land per claim
+                score -= self._cap_pressure(state, target_pile) * 3.0
+                # Knock-over / utility bonus: high-value Cat in Territory.
+                if my_type == "cat" and target_pile == _PILE_TERRITORY:
+                    if my_val >= 7:
+                        score += 2.0
+                    elif my_val >= 5:
+                        score += 1.0
+                # Wired-interceptor bonus: cards with a setup_interceptors
+                # function are utility batteries — prefer them.
+                if self._has_wired_setup(state, my_cid):
+                    score += 1.0
+                # Territory bonus pile threshold (≥6 cards = +5 pts).
+                if target_pile == _PILE_TERRITORY:
+                    cur = self._pile_size(state, _PILE_TERRITORY)
+                    if cur < 6 and cur + 2 >= 6:
+                        score += 5.0  # crossing the threshold this trick
+                # Snack greed penalty: at 5+ cards Snack drops to 1pt/card.
+                if target_pile == _PILE_SNACK:
+                    cur = self._pile_size(state, _PILE_SNACK)
+                    if cur >= 5:
+                        score -= 3.0  # we'd be claiming into the penalty zone
+        else:
+            # Losing — opp gains 2 cards into their best pile. Use Snack as a
+            # conservative proxy (medium AI prefers Snack first) so the
+            # asymmetry roughly mirrors the win path.
+            score -= 6.0  # losing the trick is bad
+            score -= self._pile_score_potential(_PILE_SNACK) * 1.5
+            # If a snack is in the trick, opp is FORCED into their snack pile
+            # — this can hurt opp if their snack pile is already at/above the
+            # greed threshold. We can't inspect opp's piles without swapping
+            # adapter context, so apply a modest relief.
+            if snack_in_trick:
+                score += 1.5
+
+        # Trinket tempo cost: a Trinket commits our round-play to attachment,
+        # almost always losing the trick. Only worth it with hand depth.
         if my_type == "trinket":
-            score -= 2.0  # tempo loss
+            score -= 4.0  # tempo loss is real
             if self.player_id:
                 hand_remaining = len(self._hand_card_ids(state, self.player_id)) - 1
                 if hand_remaining >= 3:
-                    score += 1.5  # we still have stuff to play
+                    score += 2.0
 
-        # Mood plays — they're Value 0, so they LOSE under Sleek (default)
-        # but they REPLACE the rule. Good as Counter-pounce when the Pounce
-        # was a high-value Cat. Stub: small positive bias if rule is None
-        # (we're playing Pounce) and we'd otherwise lose with our hand.
+        # Mood tempo cost: value 0 means we usually lose the trick under
+        # default Sleek (highest wins). But playing a Mood as Counter-pounce
+        # can flip a losing rule into a winning one.
         if my_type == "mood":
-            score += 1.0 if rule is None else -1.0
+            if not playing_pounce:
+                # Flipping the rule mid-trick → potential reversal value.
+                score += 2.0
+            else:
+                # Pouncing a Mood gives the opp the option to play whatever
+                # they like under our chosen rule — risky.
+                score -= 1.0
 
         return score
 
-    def _predict_winner(
-        self,
-        my_val: int,
-        opp_val: int,
-        rule: Optional[str],
-        my_type: str,
-    ) -> bool:
-        """Return True if I'm predicted to win this trick under `rule`."""
-        # Moods are Value 0.
-        if my_type == "mood":
-            my_val = 0
-        if rule == _CATEGORY_SCRAPPY:
-            return my_val < opp_val  # lowest wins
-        if rule == _CATEGORY_SNEAKY:
-            # Hidden values — random outcome. Treat as 50/50 → assume loss
-            # (conservative, biases AI away from Sneaky bluffs).
+    def _has_wired_setup(self, state, card_id: str) -> bool:
+        """True if this card has setup_interceptors wired (utility battery)."""
+        obj = self._get_card_object(state, card_id)
+        if obj is None:
             return False
-        # Default (Sleek / Fluffy / unset): highest wins; tie → lead wins.
-        # We don't know who's lead here, so treat tie as a 50/50 → assume win
-        # (slightly optimistic). This balances the Sneaky pessimism above.
-        return my_val >= opp_val
+        card_def = getattr(obj, "card_def", None)
+        if card_def is None:
+            return False
+        return getattr(card_def, "setup_interceptors", None) is not None
 
     def _best_available_pile(self, state) -> str:
         """Pick the highest-scoring non-full pile (for hard-tier scoring)."""

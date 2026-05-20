@@ -20,8 +20,11 @@ Output format:
 
 from __future__ import annotations
 
+import argparse
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 # Make repo root importable when run as a script.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -39,7 +42,83 @@ from src.engine.cats import (
     resolve_trick,
     setup_cats_player,
 )
-from src.engine.types import GameState, Player
+from src.engine.types import EventType, GameState, Player
+
+
+# ---------------------------------------------------------------------------
+# Verbose-mode event tracer
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TrickTrace:
+    """Per-game accumulator for interceptor-activity counts.
+
+    Counts the structured events emitted by the engine each round:
+      - ``on_win`` phase of ``CATS_TRICK_RESOLVE`` — one per winning card
+      - ``on_enter_pile`` phase of ``CATS_CLAIM_PILE`` — one per card entering
+      - distinct REACT follow-up events emitted *because* a card's
+        ``setup_interceptors`` filtered+handled an ``on_enter_pile`` event
+        (these signal that wired interceptors actually fired, not just that
+        the engine emitted the phase event).
+
+    A REACT follow-up is anything emitted by ``claim_pile`` after the
+    per-card on_enter_pile event for the same card-id. We tag each by the
+    source card_id so we can count *distinct* on_enter triggers fired.
+    """
+
+    rounds: int = 0
+    trick_wins: int = 0          # count of phase=on_win CATS_TRICK_RESOLVE
+    pile_entries: int = 0        # count of phase=on_enter_pile CATS_CLAIM_PILE
+    distinct_on_enter_sources: set[str] = field(default_factory=set)
+    # Per-card wins, keyed by card name (resolved at observation time).
+    win_per_card: dict[str, int] = field(default_factory=dict)
+
+    def observe_resolve(self, state: GameState, events: list) -> None:
+        """Walk events from ``resolve_trick`` and count on-win triggers."""
+        for ev in events or []:
+            if ev.type != EventType.CATS_TRICK_RESOLVE:
+                continue
+            phase = ev.payload.get("phase") if hasattr(ev, "payload") and ev.payload else None
+            if phase != "on_win":
+                continue
+            self.trick_wins += 1
+            cid = ev.payload.get("card_id")
+            name = None
+            if cid:
+                obj = state.objects.get(cid)
+                if obj is not None:
+                    name = obj.name
+            key = name or (cid or "<unknown>")
+            self.win_per_card[key] = self.win_per_card.get(key, 0) + 1
+
+    def observe_claim(self, state: GameState, events: list) -> None:
+        """Walk events from ``claim_pile`` and count pile-entry triggers.
+
+        Distinct-trigger count: claim_pile emits two CATS_CLAIM_PILE events
+        per card (the base + the on_enter_pile phase). The REACT dispatcher
+        then appends *additional* events emitted by card interceptors. A
+        card whose setup_interceptors handler returned ``new_events`` will
+        therefore push one or more non-CATS_CLAIM_PILE follow-up events with
+        ``source = card_id``. We treat those follow-ups as evidence the
+        on_enter trigger fired.
+        """
+        on_enter_card_ids: set[str] = set()
+        for ev in events or []:
+            payload = getattr(ev, "payload", None) or {}
+            if ev.type == EventType.CATS_CLAIM_PILE and payload.get("phase") == "on_enter_pile":
+                self.pile_entries += 1
+                cid = payload.get("card_id")
+                if cid:
+                    on_enter_card_ids.add(cid)
+                continue
+            # Follow-up REACT event whose source is one of the cards that
+            # just entered a pile → an on_enter trigger fired.
+            src = getattr(ev, "source", None)
+            if src and src in on_enter_card_ids:
+                self.distinct_on_enter_sources.add(src)
+
+    def distinct_on_enter_count(self) -> int:
+        return len(self.distinct_on_enter_sources)
 
 
 # ---------------------------------------------------------------------------
@@ -47,11 +126,19 @@ from src.engine.types import GameState, Player
 # (deliberately self-contained so this script doesn't import a test file).
 # ---------------------------------------------------------------------------
 
-def _run_one_round_manual(state: GameState, ai_p1: CatsAIAdapter, ai_p2: CatsAIAdapter) -> bool:
+def _run_one_round_manual(
+    state: GameState,
+    ai_p1: CatsAIAdapter,
+    ai_p2: CatsAIAdapter,
+    trace: Optional["TrickTrace"] = None,
+) -> bool:
     """Drive one round: begin → pounce → counter → resolve → claim → end.
 
     Returns True if the round completed normally, False if a hand was empty
     at a point the round needed it (which we treat as a no-op exit).
+
+    If ``trace`` is provided, accumulates per-game counts of on_win
+    CATS_TRICK_RESOLVE events and on_enter_pile CATS_CLAIM_PILE events.
     """
     begin_round(state)
     lead = getattr(state, "cats_lead_player", None) or "p1"
@@ -71,12 +158,16 @@ def _run_one_round_manual(state: GameState, ai_p1: CatsAIAdapter, ai_p2: CatsAIA
     counter_card = ai_lead.choose_card(state, list(hand_zone2.objects))
     play_card_to_trick(state, lead, counter_card, role="counter")
 
-    resolve_trick(state)
+    resolve_events = resolve_trick(state)
+    if trace is not None:
+        trace.observe_resolve(state, resolve_events)
 
     winner_id = state.cats_current_trick.get("winner")
     if winner_id is None:
         # Edge case: no winner declared. End the round anyway so we don't loop.
         end_round(state)
+        if trace is not None:
+            trace.rounds += 1
         return True
 
     ai_winner = ai_p1 if winner_id == "p1" else ai_p2
@@ -88,9 +179,13 @@ def _run_one_round_manual(state: GameState, ai_p1: CatsAIAdapter, ai_p2: CatsAIA
         ) if c
     ]
     pile_choice = ai_winner.choose_pile(state, won_cards, available_piles)
-    claim_pile(state, winner_id, pile_choice)
+    claim_events = claim_pile(state, winner_id, pile_choice)
+    if trace is not None:
+        trace.observe_claim(state, claim_events)
 
     end_round(state)
+    if trace is not None:
+        trace.rounds += 1
     return True
 
 
@@ -120,19 +215,25 @@ def _play_one_game(
     p1_commander, p1_deck,
     p2_commander, p2_deck,
     difficulty: str = "hard",
+    trace: Optional[TrickTrace] = None,
+    p2_difficulty: Optional[str] = None,
 ) -> tuple[str, dict]:
     """Play a full game; return (winner_seat, scores).
 
     winner_seat ∈ {"p1", "p2", "tie"}.
+
+    If ``trace`` is supplied, it is populated with per-game event counts.
+    ``p2_difficulty`` defaults to ``difficulty`` — set differently to run
+    asymmetric matchups (e.g. hard vs medium).
     """
     state = _build_state(seed, p1_commander, p1_deck, p2_commander, p2_deck)
     ai_p1 = CatsAIAdapter(difficulty); ai_p1.player_id = "p1"
-    ai_p2 = CatsAIAdapter(difficulty); ai_p2.player_id = "p2"
+    ai_p2 = CatsAIAdapter(p2_difficulty or difficulty); ai_p2.player_id = "p2"
 
     rounds_played = 0
     max_rounds = CATS_TOTAL_ROUNDS * 3   # safety budget
     while not check_game_over(state) and rounds_played < max_rounds:
-        ok = _run_one_round_manual(state, ai_p1, ai_p2)
+        ok = _run_one_round_manual(state, ai_p1, ai_p2, trace=trace)
         rounds_played += 1
         if not ok:
             break
@@ -155,10 +256,14 @@ def run_match(
     n_games: int = 10,
     seed_offset: int = 0,
     difficulty: str = "hard",
+    verbose: bool = False,
+    p2_difficulty: Optional[str] = None,
 ) -> dict:
     """Play n_games between two decks; half with A as p1, half as p2.
 
     Returns {deck_a_name: wins, deck_b_name: wins, "ties": int}.
+    If verbose=True, additionally prints one ``Game N: …`` line per game
+    summarising trick / pile-entry / distinct-trigger counts.
     """
     cmd_a, deck_a = CATS_DECKS[deck_a_name]
     cmd_b, deck_b = CATS_DECKS[deck_b_name]
@@ -167,10 +272,13 @@ def run_match(
     for i in range(n_games):
         seed = seed_offset + 1000 * i + 7
         # Alternate seats so neither deck always leads first.
+        trace = TrickTrace() if verbose else None
         if i % 2 == 0:
             winner_seat, _ = _play_one_game(
-                seed, cmd_a, deck_a, cmd_b, deck_b, difficulty
+                seed, cmd_a, deck_a, cmd_b, deck_b, difficulty,
+                trace=trace, p2_difficulty=p2_difficulty,
             )
+            p1_name, p2_name = deck_a_name, deck_b_name
             if winner_seat == "p1":
                 result[deck_a_name] += 1
             elif winner_seat == "p2":
@@ -179,14 +287,24 @@ def run_match(
                 result["ties"] += 1
         else:
             winner_seat, _ = _play_one_game(
-                seed, cmd_b, deck_b, cmd_a, deck_a, difficulty
+                seed, cmd_b, deck_b, cmd_a, deck_a, difficulty,
+                trace=trace, p2_difficulty=p2_difficulty,
             )
+            p1_name, p2_name = deck_b_name, deck_a_name
             if winner_seat == "p1":
                 result[deck_b_name] += 1
             elif winner_seat == "p2":
                 result[deck_a_name] += 1
             else:
                 result["ties"] += 1
+        if verbose and trace is not None:
+            print(
+                f"Game {i + 1} ({p1_name} vs {p2_name}): "
+                f"{trace.rounds} rounds, "
+                f"{trace.trick_wins} trick wins, "
+                f"{trace.pile_entries} pile-entries, "
+                f"{trace.distinct_on_enter_count()} distinct on_enter triggers fired"
+            )
 
     return result
 
@@ -195,6 +313,8 @@ def run_tournament(
     decks: dict | None = None,
     games_per_pairing: int = 10,
     difficulty: str = "hard",
+    verbose: bool = False,
+    p2_difficulty: Optional[str] = None,
 ) -> dict:
     """Round-robin tournament.
 
@@ -205,8 +325,14 @@ def run_tournament(
     results: dict = {}
     for i, a in enumerate(deck_names):
         for b in deck_names[i + 1:]:
+            if verbose:
+                print(f"--- {a} vs {b} ---")
             results[(a, b)] = run_match(
-                a, b, n_games=games_per_pairing, difficulty=difficulty
+                a, b,
+                n_games=games_per_pairing,
+                difficulty=difficulty,
+                verbose=verbose,
+                p2_difficulty=p2_difficulty,
             )
     return results
 
@@ -276,10 +402,51 @@ def _format_results(results: dict, decks: dict) -> str:
     return "\n".join(lines)
 
 
+def _build_argparser() -> argparse.ArgumentParser:
+    """CLI flags. Verbose mode prints one Game-N summary per game played."""
+    parser = argparse.ArgumentParser(description="CATS — round-robin tournament runner")
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Print per-game trick / pile-entry / distinct-trigger counts.",
+    )
+    parser.add_argument(
+        "--games-per-pairing", "-n",
+        type=int,
+        default=10,
+        help="Games per archetype pairing (default 10).",
+    )
+    parser.add_argument(
+        "--difficulty", "-d",
+        choices=("easy", "medium", "hard"),
+        default="hard",
+        help="AI difficulty (applies to both seats).",
+    )
+    parser.add_argument(
+        "--p2-difficulty",
+        choices=("easy", "medium", "hard"),
+        default=None,
+        help="Optional override for p2 only (asymmetric matchup, e.g. hard vs medium).",
+    )
+    return parser
+
+
 if __name__ == "__main__":
-    GAMES_PER_PAIRING = 10
-    print(f"Running CATS round-robin tournament ({GAMES_PER_PAIRING} games per pairing)...")
+    args = _build_argparser().parse_args()
+    print(
+        f"Running CATS round-robin tournament "
+        f"({args.games_per_pairing} games per pairing, difficulty={args.difficulty}"
+        + (f", p2={args.p2_difficulty}" if args.p2_difficulty else "")
+        + ")..."
+    )
     print(f"  Decks: {list(CATS_DECKS.keys())}")
     print()
-    results = run_tournament(games_per_pairing=GAMES_PER_PAIRING)
+    results = run_tournament(
+        games_per_pairing=args.games_per_pairing,
+        difficulty=args.difficulty,
+        verbose=args.verbose,
+        p2_difficulty=args.p2_difficulty,
+    )
+    if args.verbose:
+        print()
     print(_format_results(results, CATS_DECKS))

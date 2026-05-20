@@ -183,6 +183,13 @@ Located in `src/cards/custom/`. ~4,400 cards with working interceptors for testi
 | Temporal Horizons | 276 | Has interceptors |
 | + 16 crossover sets | ~3,700 | Star Wars, anime, games |
 
+### Engine-Native Sets (Non-MTG Hyperdraft engines)
+Card sets that ship with their own engine module (`src/engine/<game>.py`).
+
+| Set | Code | Cards | Notes |
+|-----|------|-------|-------|
+| Cats | CATS | 60 | First set; 44 wired (73%); 4 decks |
+
 To regenerate real sets from Scryfall:
 ```bash
 python scripts/fetch_scryfall_set.py <set_code> <module_name> "<Set Name>"
