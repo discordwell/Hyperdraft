@@ -290,8 +290,17 @@ async def create_match(
     if request.variant:
         session.display_variant = request.variant
 
-    # Add human player
-    human_id = session.add_player(request.player_name, is_ai=False)
+    # Add players. bot_vs_bot does NOT seat a human — both seats are AI;
+    # the supervisor passes a player_name like "Demo Spectator (pokemon)"
+    # for display labeling but it shouldn't actually be in the game.
+    # Pre-Phase-4 this branch always seated a human first, which made
+    # Pokémon / Yu-Gi-Oh / etc. turn managers set up human-vs-AI even
+    # for the "watch live" demo. Fix: only seat a human when the mode
+    # actually has one.
+    if request.mode != "bot_vs_bot":
+        human_id = session.add_player(request.player_name, is_ai=False)
+    else:
+        human_id = ""  # no human seat in bot_vs_bot
 
     # Add AI player for human vs bot mode
     if request.mode == "human_vs_bot":
