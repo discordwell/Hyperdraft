@@ -300,62 +300,63 @@ assert len(SNACK_RUSH) == 30, f"Snack Rush: {len(SNACK_RUSH)}"
 
 
 # -----------------------------------------------------------------------------
-# Deck 4 — Shadow Cats (Sneaky + Mood chaos)  [v2 buff after first tournament]
+# Deck 4 — Shadow Cats (Sneaky + Mood chaos)  [v3 — post P0-fix rebalance]
 # -----------------------------------------------------------------------------
-# Pinnacle plan: lean on Gary's Sneaky-rule asymmetry, but the deck still
-# needs to win tricks under default Sleek rule when opp opens Pounce with a
-# Sleek/Fluffy. v1 was 10 Moods + 7 low-Value Sneakies and got crushed by
-# straight-value decks. v2 trims to a leaner 6 Moods, keeps all 7 Sneakies,
-# and adds high-Value Sleek/Fluffy bombs (Bartholomew, Brigadier, Pomf) so
-# we don't auto-lose to "highest wins" when Mood-swap isn't available.
+# After Phase 4's P0 fix wired on_win/on_lose REACT events, Shadow Cats's
+# Mood-rule-swaps + on-win draws compounded into a 76.7% dominance. v3 trims
+# Mood count from 8 to 4 (right-sizing the rule-swap budget) and adds more
+# vanilla Sneakies + Penumbra/Madam Inkblot repeats so the deck still has the
+# Sneaky-asymmetry payoff but doesn't dominate via Mood spam.
 SHADOW_CATS: list = [
-    # --- All 7 Sneakies + the best two repeated (9) ---
+    # --- All 7 unique Sneakies (no extra repeats) — 7 cards ---
     THE_UNOBSERVED,                # 9/10 (bomb)
-    MADAM_INKBLOT,                 # 7/2  (draws 2 on lose — value either way)
+    MADAM_INKBLOT,                 # 7/2  (draws 2 on lose)
     THE_PENUMBRA_TWIN,             # 6/7  (Nap draw on entry)
     KNIVES,                        # 5/6
     MIDNIGHT_PANCAKE,              # 4/5
     WHISPERTOES,                   # 2/9  (draw on win)
     THE_SHADOW_LOAF,               # 1/8
-    THE_UNOBSERVED,                # repeat
-    WHISPERTOES,                   # repeat (cheap, draws on win)
 
-    # --- Moods (6) ---  pruned to the most reliable rule-swaps
+    # --- Moods (4) ---  the rule-swap toolkit
     THE_3AM_ZOOMIES,               # lowest wins
-    AGGRESSIVE_LOAFING,            # more-piles wins (snowball)
-    KNOCKING_THINGS_OFF_TABLES,    # lowest wins
-    WET_FOOD_O_CLOCK,              # lowest wins
+    AGGRESSIVE_LOAFING,            # more-piles wins
     SITTING_IN_THE_BOX,            # fewer-hand wins
-    THE_INSCRUTABLE_STARE,         # equal wins (mythic — niche but ridiculous)
+    THE_INSCRUTABLE_STARE,         # equal wins
 
-    # --- HIGH-VALUE BOMBS (3) ---  enough to threaten default-rule tricks
+    # --- HIGH-VALUE BOMBS (5) ---  default-rule reliability
     EMPRESS_POMF,                  # Fluffy 9 (draw + life on win)
     MISTER_WHISKERS,               # Sleek 7
     DUCHESS_VELVET,                # Sleek 6 (draw on win)
+    THE_BRIGADIER,                 # Sleek 9
+    THE_MAGNIFICENT_BARTHOLOMEW,   # Sleek 10
 
-    # --- Low-value Scrappy (1) ---  bait under Mood/Scrappy rules
-    GARY_JUNIOR,                   # Scrappy 1 (vanilla; great under Scrappy)
-
-    # --- Two more Moods returned (2) ---  keep the Mood toolkit deep
-    THE_QUIET_INTERROGATION,       # highest wins (locks Sleek)
-    THE_DRAMATIC_RECOVERY,         # lowest wins
-
-    # --- Catch-up + utility (4) ---
+    # --- Catch-up + utility (3) ---
     PILLOW_PRINCESS,               # Fluffy 6 (round-end catch-up draw)
-    MADAM_INKBLOT,                 # repeat — draw 2 on lose (Sneaky)
-    THE_PENUMBRA_TWIN,             # repeat — Nap draw on entry
-    KNIVES,                        # repeat — 5/6 Sneaky
+    SERGEANT_SNUGGLES,             # Fluffy 8
+    BISCUIT,                       # Fluffy 7
+
+    # --- Low-value Scrappy bait (2) ---
+    GARY_JUNIOR,                   # Scrappy 1 (vanilla)
+    PRINCESS_MAYHEM_THE_FOURTH,    # Scrappy 3 (draw on win)
+
+    # --- Scrappy on-lose utility (2) ---
+    THE_ALLEY_PHANTOM,             # Scrappy 2 (draw on lose)
+    LORD_TUFTS,                    # Sleek 3 (draw on lose; consolation)
 
     # --- Trinket (1) ---
     THE_STOLEN_HAIR_TIE,           # Attention drip (tiebreak)
 
-    # --- Scrappy for low-rule moods (2) ---
-    PRINCESS_MAYHEM_THE_FOURTH,    # Scrappy 3 (draw on win)
-    THE_ALLEY_PHANTOM,             # Scrappy 2 (draw on lose)
+    # --- Vanilla padding (2) ---
+    A_SINGLE_CRUMB,                # 1 — Snack-force grenade
+    TABITHA,                       # Sleek 2 — vanilla bait
 
-    # --- Padding (2) ---
-    MIDNIGHT_PANCAKE,              # repeat — 4/5 Sneaky
-    THE_SHADOW_LOAF,               # repeat — 1/8 Sneaky bait
+    # --- Penumbra / Inkblot repeats (2) ---  some Sneaky depth without overload
+    THE_PENUMBRA_TWIN,             # 2nd copy
+    MADAM_INKBLOT,                 # 2nd copy
+
+    # --- Padding to 30 (2) ---
+    CRUMPET,                       # Sleek 4 — vanilla
+    MITTENS_MCSOPHISTICATED,       # Sleek 5 (attn on territory)
 ]
 assert len(SHADOW_CATS) == 30, f"Shadow Cats: {len(SHADOW_CATS)}"
 
