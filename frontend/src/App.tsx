@@ -32,6 +32,7 @@ const PhyrexianFrameDemo = lazy(() => import('./pages/PhyrexianFrameDemo'));
 const PublicMatch = lazy(() => import('./pages/PublicMatch'));
 const RulesDiff = lazy(() => import('./pages/RulesDiff'));
 const PipelineGame = lazy(() => import('./pages/PipelineGame'));
+const CatsGameView = lazy(() => import('./pages/CatsGameView').then(m => ({ default: m.CatsGameView })));
 
 function LoadingFallback() {
   return (
@@ -77,6 +78,8 @@ export function App() {
           <Route path="/m/:gameId" element={<PublicMatch />} />
           <Route path="/rules-diff" element={<RulesDiff />} />
           <Route path="/pipeline" element={<PipelineGame />} />
+          <Route path="/cats" element={<CatsGameView />} />
+          <Route path="/game/:matchId/cats" element={<CatsGameView />} />
         </Routes>
       </Suspense>
     </BrowserRouter>
