@@ -29,6 +29,8 @@ const Gatherer = lazy(() => import('./pages/Gatherer'));
 const PokemonGatherer = lazy(() => import('./pages/PokemonGatherer'));
 const SCPCardViewer = lazy(() => import('./pages/SCPCardViewer'));
 const PhyrexianFrameDemo = lazy(() => import('./pages/PhyrexianFrameDemo'));
+const PublicMatch = lazy(() => import('./pages/PublicMatch'));
+const RulesDiff = lazy(() => import('./pages/RulesDiff'));
 
 function LoadingFallback() {
   return (
@@ -71,6 +73,8 @@ export function App() {
           <Route path="/scp-cards" element={<SCPCardViewer />} />
           <Route path="/cards/scp" element={<SCPCardViewer />} />
           <Route path="/demo/phyrexian-frame" element={<PhyrexianFrameDemo />} />
+          <Route path="/m/:gameId" element={<PublicMatch />} />
+          <Route path="/rules-diff" element={<RulesDiff />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

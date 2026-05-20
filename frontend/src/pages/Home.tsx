@@ -20,6 +20,7 @@ import type { AIDifficulty, DeckSummary, YgoDeckSummary } from '../types';
 import { useGameStore } from '../stores/gameStore';
 import { getMode, type GameModeId } from '../components/brand';
 import { EngineRack } from '../components/lab/EngineRack';
+import { Timeline } from '../components/lab';
 import { getLabEngine } from '../components/lab/engineMeta';
 
 type DeckInfo = DeckSummary;
@@ -435,6 +436,46 @@ export function Home() {
           />
         </section>
 
+        {/* ─── HD-CRIT 17 — Currently-running pill (same Timeline widget used in
+              the live game rail and the post-match replay scrubber) ───────── */}
+        <button
+          type="button"
+          onClick={() => navigate('/m/HD-8F4A')}
+          style={{
+            display: 'block',
+            width: '100%',
+            textAlign: 'left',
+            marginTop: 24,
+            padding: '14px 18px',
+            background: 'var(--paper-2)',
+            border: '1px solid var(--rule)',
+            cursor: 'pointer',
+            fontFamily: 'var(--font-sans)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--sodium)' }} />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
+                Live now
+              </span>
+              <span style={{ fontFamily: 'var(--font-serif)', fontSize: 18, color: 'var(--ink)' }}>
+                Currently at turn 4 of <b style={{ color: 'var(--sodium)' }}>HD-8F4A</b>
+              </span>
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
+              MTG · burn vs UW control →
+            </span>
+          </div>
+          <Timeline
+            currentTurn={4}
+            totalTurns={8}
+            endLabel="T8"
+            mode="compact"
+            ariaLabel="Currently at turn 4 of HD-8F4A"
+          />
+        </button>
+
         {/* ─── Now-running ticker ─────────────────────────────────────── */}
         <div
           style={{
@@ -840,12 +881,12 @@ export function Home() {
 
         {/* ─── Section 04 · Library ────────────────────────────────────── */}
         <section style={{ marginTop: 56 }}>
-          <SectionHead num="04" title="Library" meta="decks · gatherers · archetype viewer" />
+          <SectionHead num="04" title="Library" meta="decks · gatherers · archetype viewer · the inside of the machine" />
           <div
             style={{
               marginTop: 24,
               display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
+              gridTemplateColumns: 'repeat(3, 1fr)',
               gap: 14,
             }}
           >
@@ -868,6 +909,16 @@ export function Home() {
               label="SCP Archetype Viewer"
               description="Anomaly dossiers, gameplans, sparring tables."
               onClick={() => navigate('/scp-cards')}
+            />
+            <LibraryTile
+              label="Public matches"
+              description="Anyone can watch. Share /m/HD-8F4A."
+              onClick={() => navigate('/watch/live')}
+            />
+            <LibraryTile
+              label="Rules diff"
+              description="Engine vs engine. What fires on TURN_START."
+              onClick={() => navigate('/rules-diff')}
             />
           </div>
         </section>

@@ -15,6 +15,7 @@ import { GameLog } from '../components/game/GameLog';
 import { AnimationsToggle } from '../components/game/shared/AnimationsToggle';
 import { ActionMenu, ChoiceModal } from '../components/actions';
 import { GameViewLayout } from '../components/brand';
+import { Timeline } from '../components/lab';
 import { PipelineView, type PipelineEvent, type PipelineStage } from '../components/lab';
 import { HSGameView } from './HSGameView';
 import { PKMGameView } from './PKMGameView';
@@ -608,6 +609,12 @@ export function GameView() {
     return SAMPLE_PIPELINE_EVENTS;
   }, [gameState?.game_log, gameState?.players]);
 
+  // HD-CRIT 17 — read-only Timeline rail. During a live game we don't
+  // know the total length, so we floor the right edge a few turns out and
+  // label it LIVE so the bar reads as "you're here" instead of "X% done".
+  const railCurrent = typeof turnNumber === 'number' ? turnNumber : 0;
+  const railTotal = Math.max(railCurrent + 1, 8);
+
   return (
     <GameViewLayout
       mode="mtg"
@@ -617,6 +624,22 @@ export function GameView() {
       opponentName={opponentName}
       playerName={playerName}
     >
+    <div
+      className="px-4 py-2 border-b"
+      style={{
+        background: 'var(--paper)',
+        color: 'var(--ink)',
+        borderColor: 'var(--rule-2)',
+      }}
+    >
+      <Timeline
+        currentTurn={railCurrent}
+        totalTurns={railTotal}
+        endLabel="LIVE"
+        mode="compact"
+        ariaLabel={`Live match — currently turn ${railCurrent}`}
+      />
+    </div>
     <div className="min-h-[calc(100vh-3.5rem)] bg-brand-ink flex">
       {/* Main Game Area */}
       <div className="flex-1 relative">

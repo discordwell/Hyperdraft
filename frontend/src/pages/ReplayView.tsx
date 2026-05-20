@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { botGameAPI, matchAPI } from '../services/api';
 import { GameBoard } from '../components/game';
+import { Timeline } from '../components/lab';
 import type { ReplayFrame, ReplayResponse, GameState } from '../types';
 
 type ReplayMode = 'action' | 'phase';
@@ -474,28 +475,47 @@ export function ReplayView() {
         </div>
       </div>
 
-      {/* Scrubber */}
-      <div className="bg-game-surface border-b border-gray-700 p-3 flex items-center gap-3">
-        <input
-          type="range"
-          min={0}
-          max={Math.max(0, visibleTotal - 1)}
-          value={visibleIndex}
-          onChange={(e) => {
-            const index = parseInt(e.target.value, 10);
+      {/* Lab Timeline — HD-CRIT 17. Same widget as the lobby ticker and
+          the live-game rail, here in scrubber-mode against the active
+          phase/action axis (whichever viewMode is selected). The legacy
+          <input type=range> + bottom caption row was replaced by this. */}
+      <div
+        className="px-4 py-4 border-b"
+        style={{
+          background: 'var(--paper)',
+          color: 'var(--ink)',
+          borderColor: 'var(--rule-2)',
+        }}
+      >
+        <Timeline
+          currentTurn={visibleIndex}
+          totalTurns={Math.max(0, visibleTotal - 1)}
+          matchId={replayId}
+          endLabel={`T${Math.max(0, visibleTotal)}`}
+          mode="full"
+          onScrub={(idx) => {
+            const target = Math.max(0, Math.min(idx, Math.max(0, visibleTotal - 1)));
             if (viewMode === 'phase') {
-              setFrameIndex(phaseSlices[index]?.start ?? 0);
+              setFrameIndex(phaseSlices[target]?.start ?? 0);
             } else {
-              setFrameIndex(index);
+              setFrameIndex(target);
             }
           }}
-          className="flex-1"
+          ariaLabel={`Replay scrubber — ${viewMode} view, position ${visibleIndex + 1} of ${visibleTotal}`}
         />
-        <div className="text-xs text-gray-400">
+        <div
+          className="mt-2"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '11px',
+            color: 'var(--ink-3)',
+            letterSpacing: '0.04em',
+          }}
+        >
           {viewMode === 'phase' ? (
-            <>{currentPhaseLabel} • {currentPhaseSlice ? `${currentPhaseSlice.end - currentPhaseSlice.start + 1} frames` : '0 frames'}</>
+            <>{currentPhaseLabel} · {currentPhaseSlice ? `${currentPhaseSlice.end - currentPhaseSlice.start + 1} frames` : '0 frames'}</>
           ) : (
-            <>Turn {currentFrame?.turn ?? 0} • {currentFrame?.phase ?? ''}/{currentFrame?.step ?? ''}</>
+            <>Turn {currentFrame?.turn ?? 0} · {currentFrame?.phase ?? ''}/{currentFrame?.step ?? ''}</>
           )}
         </div>
       </div>

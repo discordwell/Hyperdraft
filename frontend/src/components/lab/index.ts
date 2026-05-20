@@ -4,6 +4,7 @@ export { Chip } from './Chip';
 export { SpecSheetCard, type CardState } from './SpecSheetCard';
 export { EnginePicker } from './EnginePicker';
 export { EngineRack } from './EngineRack';
+export { Timeline } from './Timeline';
 export {
   PipelineView,
   type PipelineEvent,
