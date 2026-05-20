@@ -21,6 +21,7 @@ const SCPGameView = lazy(() => import('./pages/SCPGameView').then(m => ({ defaul
 const SpectatorView = lazy(() => import('./pages/SpectatorView'));
 const WatchLive = lazy(() => import('./pages/WatchLive'));
 const AdminTraining = lazy(() => import('./pages/AdminTraining'));
+const Replays = lazy(() => import('./pages/Replays'));
 const ReplayView = lazy(() => import('./pages/ReplayView'));
 const Deckbuilder = lazy(() => import('./pages/Deckbuilder'));
 const Gatherer = lazy(() => import('./pages/Gatherer'));
@@ -56,6 +57,8 @@ export function App() {
           <Route path="/spectate/:gameId" element={<SpectatorView />} />
           <Route path="/watch/live" element={<WatchLive />} />
           <Route path="/admin/training" element={<AdminTraining />} />
+          <Route path="/replays" element={<Replays />} />
+          <Route path="/replay/match/:matchId" element={<ReplayView />} />
           <Route path="/replay/:gameId" element={<ReplayView />} />
           <Route path="/watch/:matchId" element={<GameView />} />
           {/* /watch/:matchId reuses GameView; bot_vs_bot ultra renders both AI seats. */}

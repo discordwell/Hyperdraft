@@ -91,6 +91,34 @@ export const matchAPI = {
   delete: (matchId: string): Promise<{ status: string; match_id: string }> =>
     fetchAPI(`/match/${matchId}`, { method: 'DELETE' }),
 
+  getReplay: (matchId: string, options?: { since?: number; limit?: number }): Promise<ReplayResponse> => {
+    const params = new URLSearchParams();
+    if (options?.since !== undefined) params.set('since', options.since.toString());
+    if (options?.limit !== undefined) params.set('limit', options.limit.toString());
+    const query = params.toString();
+    return fetchAPI(`/match/${matchId}/replay${query ? `?${query}` : ''}`);
+  },
+
+  getReplayManifest: (matchId: string): Promise<{
+    match_id: string;
+    game_mode: string | null;
+    total_frames: number;
+    is_complete: boolean;
+    marks: { frame: number; turn: number; phase: string }[];
+  }> => fetchAPI(`/match/${matchId}/replay/manifest`),
+
+  listReplays: (limit: number = 30): Promise<{
+    replays: {
+      match_id: string;
+      game_mode: string | null;
+      winner: string | null;
+      total_turns: number | null;
+      total_frames: number;
+      archived_at: number;
+    }[];
+    total: number;
+  }> => fetchAPI(`/match/replays/list?limit=${limit}`),
+
   submitChoice: (
     matchId: string,
     choiceId: string,

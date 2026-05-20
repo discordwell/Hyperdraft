@@ -10,11 +10,19 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { matchAPI } from '../services/api';
 
 interface SpectateLiveResponse {
   match_id: string;
   spectator_enabled: boolean;
+}
+
+interface RecentReplay {
+  match_id: string;
+  game_mode: string | null;
+  total_turns: number | null;
+  archived_at: number;
 }
 
 export function WatchLive() {
@@ -22,6 +30,15 @@ export function WatchLive() {
   const [status, setStatus] = useState<'loading' | 'redirecting' | 'paused' | 'disabled'>(
     'loading'
   );
+  const [recent, setRecent] = useState<RecentReplay | null>(null);
+
+  // Fetch the most-recent archived replay so the "paused" state has a
+  // useful "watch the previous match" CTA instead of just spinning.
+  useEffect(() => {
+    matchAPI.listReplays(1)
+      .then((r) => { if (r.replays.length) setRecent(r.replays[0] as RecentReplay); })
+      .catch(() => { /* non-fatal */ });
+  }, []);
 
   const poll = useCallback(async () => {
     try {
@@ -66,25 +83,49 @@ export function WatchLive() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-slate-900 p-8">
-      <div className="max-w-md text-center text-slate-200 space-y-4">
-        <h1 className="text-2xl font-semibold">Watch Claude play</h1>
+    <div className="flex items-center justify-center min-h-screen bg-brand-ink p-8">
+      <div className="max-w-lg text-center text-brand-cream space-y-5 brand-frame px-10 py-12">
+        <p className="brand-eyebrow text-brand-foil">Spectator</p>
+        <h1 className="text-3xl font-display font-bold">Watch Claude play</h1>
         {status === 'disabled' ? (
-          <p className="text-slate-400">
-            The spectator demo is not currently enabled on this server. Operators can opt in
-            via <code className="text-slate-300">HYPERDRAFT_SPECTATOR_ENABLED=true</code>.
+          <p className="text-brand-chalk">
+            The spectator demo is not enabled on this server right now. Operators flip it on with
+            <code className="brand-mono text-brand-foil ml-1">HYPERDRAFT_SPECTATOR_ENABLED=true</code>.
           </p>
         ) : status === 'paused' ? (
-          <p className="text-slate-400">
+          <p className="text-brand-chalk">
             No live demo right now &mdash; the previous match just ended. The supervisor will
-            start the next one shortly. This page will redirect automatically.
+            start the next one shortly; this page redirects automatically when it does.
           </p>
         ) : (
-          <div className="flex items-center justify-center gap-3 text-slate-400">
-            <div className="w-6 h-6 border-2 border-slate-600 border-t-blue-400 rounded-full animate-spin" />
-            <span className="text-sm uppercase tracking-widest">Checking for live match...</span>
+          <div className="flex items-center justify-center gap-3 text-brand-chalk">
+            <div className="w-6 h-6 border-2 border-brand-hairline border-t-brand-foil rounded-full animate-spin" />
+            <span className="brand-eyebrow">Checking for live match</span>
           </div>
         )}
+
+        {recent && (
+          <div className="pt-4 border-t border-brand-hairline/60">
+            <p className="brand-eyebrow text-brand-dust mb-2">Or replay the previous match</p>
+            <Link
+              to={`/replay/match/${recent.match_id}`}
+              className="inline-flex items-center gap-2 px-4 py-2 border border-brand-foil/40 hover:border-brand-foil/80 bg-brand-foil/10 hover:bg-brand-foil/20 text-brand-foil-bright transition-colors text-sm"
+            >
+              <span className="brand-mono">{recent.match_id.slice(0, 8)}</span>
+              <span className="text-brand-chalk">·</span>
+              <span>{recent.game_mode ?? 'match'}</span>
+              <span className="text-brand-chalk">·</span>
+              <span>{recent.total_turns ?? '?'} turns</span>
+              <span aria-hidden>→</span>
+            </Link>
+          </div>
+        )}
+
+        <div className="pt-2">
+          <Link to="/replays" className="text-xs text-brand-chalk hover:text-brand-foil transition-colors">
+            Browse all replays →
+          </Link>
+        </div>
       </div>
     </div>
   );

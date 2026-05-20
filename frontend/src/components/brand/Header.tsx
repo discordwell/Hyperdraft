@@ -17,6 +17,7 @@ export interface HeaderProps {
 const NAV_ITEMS: { label: string; to: string }[] = [
   { label: 'Play', to: '/' },
   { label: 'Watch', to: '/watch/live' },
+  { label: 'Replays', to: '/replays' },
   { label: 'Decks', to: '/deckbuilder' },
   { label: 'Cards', to: '/gatherer' },
 ];

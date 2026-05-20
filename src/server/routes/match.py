@@ -14,8 +14,10 @@ from ..models import (
     CreateMatchRequest, CreateMatchResponse,
     PlayerActionRequest, ActionResultResponse,
     GameStateResponse,
-    SubmitChoiceRequest, ChoiceResultResponse
+    SubmitChoiceRequest, ChoiceResultResponse,
+    ReplayResponse,
 )
+from .. import replay_archive
 
 # Card imports
 from src.cards import ALL_CARDS
@@ -285,6 +287,14 @@ async def create_match(
         ai_difficulty=request.ai_difficulty.value,
         game_mode=request.game_mode,
     )
+
+    # Always record replay frames on match sessions — needed for the
+    # /api/match/:matchId/replay endpoint + post-game archive. Cost is
+    # ~2-5 MB per long match in memory, capped at 8000 frames; cleanup
+    # happens when session_manager evicts the session or on container
+    # restart. The archive (storage/replays/...) is the durable copy.
+    session.record_actions_for_replay = True
+    session.max_replay_frames = 8000
 
     # Store variant for client display
     if request.variant:
@@ -894,6 +904,125 @@ async def run_game_session(session: GameSession):
         print(f"Game session error: {e}")
         traceback.print_exc()
         session.is_finished = True
+    finally:
+        # Archive the replay on game-end so it survives container restarts.
+        # No-op if the game crashed before any frames were recorded.
+        try:
+            if session.is_finished and session.replay_frames:
+                payload = {
+                    "game_id": session.id,
+                    "match_id": session.id,
+                    "game_mode": getattr(session.game.state, "game_mode", None),
+                    "winner": session.winner_id,
+                    "total_turns": (
+                        session.game.turn_manager.turn_number
+                        if hasattr(session.game, "turn_manager") and session.game.turn_manager
+                        else 0
+                    ),
+                    "frames": [f.model_dump() for f in session.replay_frames],
+                }
+                replay_archive.archive_match(session.id, payload)
+        except Exception as arch_err:  # noqa: BLE001
+            print(f"replay archive on game-end failed for {session.id}: {arch_err}")
+
+
+@router.get("/replays/list")
+async def list_replays(limit: int = 30) -> dict:
+    """List recently archived match replays.
+
+    Backed by replay_archive's index.json. Used by the /replays page on
+    the frontend to render a roster of past Claude-vs-Claude matches.
+    """
+    entries = replay_archive.list_archives(limit=max(1, min(200, limit)))
+    return {"replays": entries, "total": len(entries)}
+
+
+@router.get("/{match_id}/replay", response_model=ReplayResponse)
+async def get_match_replay(
+    match_id: str,
+    since: int = 0,
+    limit: int = 8000,
+) -> ReplayResponse:
+    """Return the replay frames for a match.
+
+    Resolution order:
+      1. Live session in session_manager (running OR just-finished)
+      2. Persisted archive at storage/replays/match-<id>.json.gz
+
+    ``since`` / ``limit`` paginate the frames so the frontend can
+    progressively fetch as the player scrubs.
+    """
+    since = max(0, since)
+    limit = max(1, min(8000, limit))
+
+    session = session_manager.get_session(match_id)
+    if session is not None:
+        total = len(session.replay_frames)
+        return ReplayResponse(
+            game_id=session.id,
+            winner=session.winner_id,
+            total_turns=(
+                session.game.turn_manager.turn_number
+                if session.is_started and hasattr(session.game, "turn_manager") and session.game.turn_manager
+                else 0
+            ),
+            frames=session.replay_frames[since : since + limit],
+        )
+
+    archived = replay_archive.load_archive(match_id)
+    if archived is not None:
+        frames = archived.get("frames") or []
+        return ReplayResponse(
+            game_id=archived.get("game_id") or match_id,
+            winner=archived.get("winner"),
+            total_turns=archived.get("total_turns") or 0,
+            frames=frames[since : since + limit],
+        )
+
+    raise HTTPException(status_code=404, detail="Match not found")
+
+
+@router.get("/{match_id}/replay/manifest")
+async def get_match_replay_manifest(match_id: str) -> dict:
+    """Compact index of frame -> (turn, phase) for scrubber labelling."""
+    session = session_manager.get_session(match_id)
+    frames_iter: list = []
+    if session is not None:
+        frames_iter = list(session.replay_frames)
+        total_frames = len(frames_iter)
+        is_complete = session.is_finished
+        game_mode = getattr(session.game.state, "game_mode", None)
+    else:
+        archived = replay_archive.load_archive(match_id)
+        if archived is None:
+            raise HTTPException(status_code=404, detail="Match not found")
+        frames_iter = archived.get("frames") or []
+        total_frames = len(frames_iter)
+        is_complete = True
+        game_mode = archived.get("game_mode")
+
+    manifest: list[dict] = []
+    last_turn: Optional[int] = None
+    last_phase: Optional[str] = None
+    for idx, frame in enumerate(frames_iter):
+        if hasattr(frame, "model_dump"):
+            f = frame.model_dump()
+        else:
+            f = frame
+        turn = f.get("turn")
+        phase = f.get("phase")
+        if turn != last_turn or phase != last_phase:
+            manifest.append({"frame": idx, "turn": turn, "phase": phase})
+            last_turn = turn
+            last_phase = phase
+
+    return {
+        "match_id": match_id,
+        "game_mode": game_mode,
+        "total_frames": total_frames,
+        "is_complete": is_complete,
+        "marks": manifest,
+    }
 
 
 @router.get("/{match_id}/state", response_model=GameStateResponse)

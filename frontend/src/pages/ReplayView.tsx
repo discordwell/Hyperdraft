@@ -5,8 +5,8 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { botGameAPI } from '../services/api';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { botGameAPI, matchAPI } from '../services/api';
 import { GameBoard } from '../components/game';
 import type { ReplayFrame, ReplayResponse, GameState } from '../types';
 
@@ -138,8 +138,19 @@ function findNextTurnSlice(slices: PhaseSlice[], currentPhaseIndex: number): num
 }
 
 export function ReplayView() {
-  const { gameId } = useParams<{ gameId: string }>();
+  // The route resolves into one of two shapes:
+  //   /replay/:gameId          — bot_game replay (legacy)
+  //   /replay/match/:matchId   — match replay (Phase 3 of the replay rollout)
+  //
+  // We branch by location.pathname rather than splitting into two
+  // components because every control + render path is identical;
+  // only the data fetcher differs.
+  const { gameId, matchId } = useParams<{ gameId?: string; matchId?: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
+
+  const isMatchReplay = location.pathname.startsWith('/replay/match/');
+  const replayId = (isMatchReplay ? matchId : gameId) ?? '';
 
   const [replay, setReplay] = useState<ReplayResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -148,17 +159,26 @@ export function ReplayView() {
   const [frameIndex, setFrameIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [speedMs, setSpeedMs] = useState(300);
+  // FFWD = skip past non-interesting frames during auto-advance so the
+  // replay races through PASS_PRIORITY chains and stops on each real
+  // action. Independent of speedMs so the user can combine "4x speed" +
+  // "skip noise" if they want maximum velocity.
+  const [skipNoise, setSkipNoise] = useState(false);
   const [viewMode, setViewMode] = useState<ReplayMode>('phase');
 
-  // Load replay frames (up to the server cap)
+  // Load replay frames (up to the server cap). Source depends on route.
   useEffect(() => {
-    if (!gameId) return;
+    if (!replayId) return;
 
     let cancelled = false;
     setIsLoading(true);
     setError(null);
 
-    botGameAPI.getReplay(gameId, { since: 0, limit: 5000 })
+    const fetcher = isMatchReplay
+      ? matchAPI.getReplay(replayId, { since: 0, limit: 8000 })
+      : botGameAPI.getReplay(replayId, { since: 0, limit: 5000 });
+
+    fetcher
       .then((r) => {
         if (cancelled) return;
         setReplay(r);
@@ -174,7 +194,7 @@ export function ReplayView() {
       });
 
     return () => { cancelled = true; };
-  }, [gameId]);
+  }, [replayId, isMatchReplay]);
 
   const frames = replay?.frames || [];
   const phaseSlices = useMemo(() => buildPhaseSlices(frames), [frames]);
@@ -237,13 +257,20 @@ export function ReplayView() {
     ? currentPhaseIndex < phaseSlices.length - 1
     : clampedIndex < frames.length - 1;
 
-  // Playback loop
+  // Playback loop. In ⏩ FFWD mode (skipNoise=true) we hop directly to
+  // the next "interesting" frame (any non-PASS_PRIORITY action) so a
+  // 200-frame MTG game with lots of priority noise replays in ~30s.
   useEffect(() => {
     if (!isPlaying) return;
     if (!frames.length) return;
 
     const t = setInterval(() => {
       setFrameIndex((i) => {
+        if (skipNoise) {
+          const next = findNextInteresting(frames, i);
+          if (next === null) return i;
+          return next;
+        }
         if (viewMode === 'phase') {
           const phaseIndex = phaseIndexByFrame[i] || 0;
           const nextPhase = phaseIndex + 1;
@@ -258,7 +285,7 @@ export function ReplayView() {
     }, speedMs);
 
     return () => clearInterval(t);
-  }, [frames.length, isPlaying, phaseIndexByFrame, phaseSlices, speedMs, viewMode]);
+  }, [frames.length, isPlaying, phaseIndexByFrame, phaseSlices, speedMs, viewMode, skipNoise]);
 
   // Auto-stop at end
   useEffect(() => {
@@ -371,10 +398,31 @@ export function ReplayView() {
           </button>
           <button
             onClick={() => setIsPlaying((p) => !p)}
-            className={`px-3 py-1 rounded ${isPlaying ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-green-600 hover:bg-green-500'} text-white`}
+            className={
+              'px-3 py-1 border text-sm transition-colors ' +
+              (isPlaying
+                ? 'border-brand-foil/60 bg-brand-foil/10 text-brand-foil hover:bg-brand-foil/20'
+                : 'border-brand-sheen/60 bg-brand-sheen/10 text-brand-sheen hover:bg-brand-sheen/20')
+            }
             disabled={!frames.length}
           >
             {isPlaying ? '⏸ Pause' : '▶ Play'}
+          </button>
+          <button
+            onClick={() => {
+              setSkipNoise((v) => !v);
+              if (!isPlaying) setIsPlaying(true);
+            }}
+            className={
+              'px-3 py-1 border text-sm transition-colors ' +
+              (skipNoise
+                ? 'border-brand-foil/60 bg-brand-foil/15 text-brand-foil-bright hover:bg-brand-foil/25'
+                : 'border-brand-hairline bg-brand-obsidian text-brand-chalk hover:border-brand-foil/40 hover:text-brand-foil')
+            }
+            title={skipNoise ? 'FFWD on — jumping to next non-pass action' : 'FFWD — skip pass-priority noise'}
+            disabled={!frames.length}
+          >
+            ⏩ FFWD
           </button>
           <button
             onClick={() => {
