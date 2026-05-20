@@ -19,6 +19,8 @@ const FinanceGameView = lazy(() => import('./pages/FinanceGameView').then(m => (
 const DepthsGameView = lazy(() => import('./pages/DepthsGameView').then(m => ({ default: m.DepthsGameView })));
 const SCPGameView = lazy(() => import('./pages/SCPGameView').then(m => ({ default: m.SCPGameView })));
 const SpectatorView = lazy(() => import('./pages/SpectatorView'));
+const WatchLive = lazy(() => import('./pages/WatchLive'));
+const AdminTraining = lazy(() => import('./pages/AdminTraining'));
 const ReplayView = lazy(() => import('./pages/ReplayView'));
 const Deckbuilder = lazy(() => import('./pages/Deckbuilder'));
 const Gatherer = lazy(() => import('./pages/Gatherer'));
@@ -52,7 +54,11 @@ export function App() {
           <Route path="/game/:matchId/depths" element={<DepthsGameView />} />
           <Route path="/game/:matchId/scp" element={<SCPGameView />} />
           <Route path="/spectate/:gameId" element={<SpectatorView />} />
+          <Route path="/watch/live" element={<WatchLive />} />
+          <Route path="/admin/training" element={<AdminTraining />} />
           <Route path="/replay/:gameId" element={<ReplayView />} />
+          <Route path="/watch/:matchId" element={<GameView />} />
+          {/* /watch/:matchId reuses GameView; bot_vs_bot ultra renders both AI seats. */}
           <Route path="/deckbuilder" element={<Deckbuilder />} />
           <Route path="/deckbuilder/:game" element={<Deckbuilder />} />
           <Route path="/gatherer" element={<Gatherer />} />

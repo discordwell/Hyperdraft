@@ -13,7 +13,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import socketio
 
-from .routes import match_router, cards_router, bot_game_router, deckbuilder_router, pokemon_gatherer_router
+from .routes import (
+    match_router, cards_router, bot_game_router,
+    deckbuilder_router, pokemon_gatherer_router, spectate_router,
+    admin_router,
+)
+from . import auto_repair, spectator
 
 # Directories
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -228,9 +233,26 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     # Startup
     print("Hyperdraft API Server starting...")
-    yield
-    # Shutdown
-    print("Hyperdraft API Server shutting down...")
+
+    # Phase 3: auto-repair cadence (no-op when REPAIR_ENABLED is false).
+    repair_task = asyncio.create_task(auto_repair.cadence_loop())
+
+    # Phase 4: spectator demo supervisor (no-op when HYPERDRAFT_SPECTATOR_ENABLED
+    # is false; the loop polls is_enabled() each tick so it picks up runtime toggles).
+    await spectator.start()
+
+    try:
+        yield
+    finally:
+        # Shutdown
+        print("Hyperdraft API Server shutting down...")
+        await spectator.stop()
+        repair_task.cancel()
+        try:
+            await repair_task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
+        await auto_repair.shutdown()
 
 
 # Create FastAPI app
@@ -256,6 +278,8 @@ app.include_router(cards_router, prefix="/api")
 app.include_router(bot_game_router, prefix="/api")
 app.include_router(deckbuilder_router, prefix="/api")
 app.include_router(pokemon_gatherer_router, prefix="/api")
+app.include_router(spectate_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
 
 # Mount static files for card art
 if CARD_ART_DIR.exists():

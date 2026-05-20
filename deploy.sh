@@ -53,8 +53,13 @@ ensure_ssh
 # server for live Ultra matches; abort unless --force is passed.
 echo ">> [1/6] Pre-deploy gate (checking for in-flight ultra matches)..."
 FORCE_DEPLOY="${FORCE_DEPLOY:-0}"
+# The /ultra-pending endpoint is localhost-gated (Phase 2.4) so we call it
+# from INSIDE the container — a host-side curl through docker's port-forward
+# sees the docker bridge gateway as the source IP, not 127.0.0.1, and would
+# get a 404. If the container isn't running yet (first deploy), there's
+# nothing to gate on; the fallback returns "pending: []".
 PENDING_JSON="$("${SSH[@]}" "$SSH_HOST" \
-  "curl -fsS --max-time 5 http://127.0.0.1:8030/api/match/ultra-pending 2>/dev/null || echo '{\"pending\": []}'")"
+  "docker exec hyperdraft-hyperdraft-1 curl -fsS --max-time 5 http://127.0.0.1:8030/api/match/ultra-pending 2>/dev/null || echo '{\"pending\": []}'")"
 PENDING_COUNT="$(printf '%s' "$PENDING_JSON" | python3 -c 'import json,sys;print(len(json.load(sys.stdin).get("pending",[])))' 2>/dev/null || echo 0)"
 if [ "${PENDING_COUNT:-0}" -gt 0 ]; then
   echo "  WARN: ${PENDING_COUNT} ultra match(es) currently in-flight."
