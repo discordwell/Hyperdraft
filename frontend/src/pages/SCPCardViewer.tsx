@@ -434,20 +434,20 @@ export function SCPCardViewer() {
   };
 
   return (
-    <div className="min-h-screen bg-[#08090d] text-zinc-100">
-      <header className="border-b border-zinc-800 bg-black/70 px-4 py-4 sm:px-6">
+    <div className="min-h-screen bg-brand-ink text-zinc-100">
+      <header className="border-b border-brand-hairline/60 bg-brand-obsidian/85 backdrop-blur-xl px-4 py-4 sm:px-6 sticky top-0 z-30">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => navigate('/')}
-              className="border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 hover:border-zinc-500 hover:text-white"
+              className="text-brand-chalk hover:text-brand-foil border border-brand-hairline hover:border-brand-foil/50 px-3 py-1.5 text-xs tracking-wide transition-colors"
             >
-              Home
+              ← Lobby
             </button>
             <div>
-              <div className="text-[11px] uppercase tracking-[0.28em] text-red-300/80">Foundation Archive</div>
-              <h1 className="text-2xl font-bold text-zinc-100 sm:text-3xl">SCP Card Viewer</h1>
+              <div className="text-[11px] uppercase tracking-[0.28em] text-brand-violet">SCP · Foundation Archive</div>
+              <h1 className="text-2xl font-display font-bold text-brand-cream sm:text-3xl">Card viewer</h1>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-2 text-center sm:flex sm:text-left">

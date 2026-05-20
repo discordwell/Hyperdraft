@@ -275,10 +275,10 @@ export function ReplayView() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-game-bg flex items-center justify-center">
+      <div className="min-h-screen bg-brand-ink flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-game-accent border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-400">Loading replay...</p>
+          <div className="w-16 h-16 border-4 border-brand-foil border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="brand-eyebrow text-brand-chalk">Loading replay</p>
         </div>
       </div>
     );
@@ -286,14 +286,14 @@ export function ReplayView() {
 
   if (error || !replay) {
     return (
-      <div className="min-h-screen bg-game-bg flex items-center justify-center">
+      <div className="min-h-screen bg-brand-ink flex items-center justify-center">
         <div className="text-center">
-          <p className="text-red-400 mb-4">{error || 'Replay not found'}</p>
+          <p className="text-brand-ember mb-4">{error || 'Replay not found'}</p>
           <button
             onClick={() => navigate('/')}
-            className="px-4 py-2 bg-game-accent text-white rounded hover:bg-red-500"
+            className="px-4 py-2 bg-gradient-to-b from-brand-foil-bright via-brand-foil to-brand-foil-deep text-brand-ink shadow-brand-foil"
           >
-            Back to Menu
+            Back to lobby
           </button>
         </div>
       </div>
@@ -305,18 +305,17 @@ export function ReplayView() {
     : `Turn ${currentFrame?.turn ?? 0} • ${currentFrame?.phase ?? ''}/${currentFrame?.step ?? ''}`;
 
   return (
-    <div className="min-h-screen bg-game-bg flex flex-col">
-      {/* Header */}
-      <div className="bg-game-surface border-b border-gray-700 p-4 flex items-center justify-between gap-4">
+    <div className="min-h-screen bg-brand-ink text-brand-cream flex flex-col">
+      <div className="bg-brand-obsidian/85 backdrop-blur-xl border-b border-brand-hairline/60 p-4 flex items-center justify-between gap-4 sticky top-0 z-30">
         <div className="flex items-center gap-4 min-w-0">
-          <button onClick={() => navigate(-1)} className="text-gray-400 hover:text-white">
+          <button onClick={() => navigate(-1)} className="text-brand-chalk hover:text-brand-foil transition-colors text-sm tracking-wide">
             ← Back
           </button>
           <div className="min-w-0">
-            <h1 className="text-xl font-bold text-white truncate">Replay</h1>
-            <p className="text-xs text-gray-400 truncate">
+            <p className="brand-eyebrow text-brand-foil">Replay</p>
+            <p className="text-xs text-brand-chalk truncate brand-mono">
               {currentPhaseLabel}
-              {actionSummary.model ? ` • ${actionSummary.model}` : ''}
+              {actionSummary.model ? ` · ${actionSummary.model}` : ''}
             </p>
           </div>
         </div>

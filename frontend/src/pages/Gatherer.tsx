@@ -17,30 +17,29 @@ export function Gatherer() {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-game-bg flex flex-col">
-      {/* Header */}
-      <header className="bg-gray-900 border-b border-gray-700 px-6 py-4">
+    <div className="min-h-screen bg-brand-ink text-brand-cream flex flex-col">
+      <header className="bg-brand-obsidian/85 backdrop-blur-xl border-b border-brand-hairline/60 px-6 py-4 sticky top-0 z-30">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
               onClick={() => navigate('/')}
-              className="text-gray-400 hover:text-white transition-colors"
-              title="Back to Home"
+              className="text-brand-chalk hover:text-brand-foil transition-colors text-sm tracking-wide"
+              title="Back to Lobby"
             >
-              ← Back
+              ← Lobby
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-white font-['Cinzel']">
-                Gatherer
+              <p className="brand-eyebrow text-brand-foil">MTG Gatherer</p>
+              <h1 className="text-xl font-display font-bold text-brand-cream leading-tight">
+                Card database
               </h1>
-              <p className="text-sm text-gray-400">Card Database Browser</p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate('/deckbuilder')}
-              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors text-sm"
+              className="px-4 py-2 bg-brand-shelf hover:bg-brand-glass border border-brand-hairline hover:border-brand-foil/40 text-brand-cream transition-colors text-sm"
             >
               Deckbuilder
             </button>
@@ -48,22 +47,14 @@ export function Gatherer() {
         </div>
       </header>
 
-      {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
         <SetSidebar />
-
-        {/* Main area */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Filter bar */}
           <GathererFilterBar />
-
-          {/* Card grid */}
           <GathererCardGrid />
         </div>
       </div>
 
-      {/* Card detail modal */}
       <CardDetailModal />
     </div>
   );
