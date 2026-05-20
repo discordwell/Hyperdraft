@@ -31,6 +31,7 @@ const SCPCardViewer = lazy(() => import('./pages/SCPCardViewer'));
 const PhyrexianFrameDemo = lazy(() => import('./pages/PhyrexianFrameDemo'));
 const PublicMatch = lazy(() => import('./pages/PublicMatch'));
 const RulesDiff = lazy(() => import('./pages/RulesDiff'));
+const PipelineGame = lazy(() => import('./pages/PipelineGame'));
 
 function LoadingFallback() {
   return (
@@ -75,6 +76,7 @@ export function App() {
           <Route path="/demo/phyrexian-frame" element={<PhyrexianFrameDemo />} />
           <Route path="/m/:gameId" element={<PublicMatch />} />
           <Route path="/rules-diff" element={<RulesDiff />} />
+          <Route path="/pipeline" element={<PipelineGame />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

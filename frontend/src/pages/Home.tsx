@@ -177,15 +177,14 @@ export function Home() {
       const response = await botGameAPI.start({
         bot1_deck_id: playerDeck || undefined,
         bot2_deck_id: aiDeck || undefined,
-        bot1_brain: 'anthropic',
+        bot1_brain: 'claude_code',
         bot2_brain: 'openai',
-        bot1_model: claudexModel,
+        bot1_model: claudexModel || undefined,
         bot2_model: gptModel,
-        bot1_name: 'Claudex',
+        bot1_name: 'Claude',
         bot2_name: 'GPT-5.3',
         bot1_difficulty: difficulty,
         bot2_difficulty: difficulty,
-        bot1_temperature: 0.2,
         bot2_temperature: 0.2,
         record_prompts: recordPrompts,
         delay_ms: 800,
@@ -230,21 +229,20 @@ export function Home() {
       const response = await botGameAPI.start({
         bot1_deck_id: playerDeck || undefined,
         bot2_deck_id: aiDeck || undefined,
-        bot1_brain: 'anthropic',
+        bot1_brain: 'claude_code',
         bot2_brain: 'heuristic',
-        bot1_model: claudexModel,
-        bot1_name: 'Claudex',
+        bot1_model: claudexModel || undefined,
+        bot1_name: 'Claude',
         bot2_name: 'Ultra Bot',
         bot1_difficulty: 'ultra',
         bot2_difficulty: 'ultra',
-        bot1_temperature: 0.2,
         record_prompts: recordPrompts,
         delay_ms: 900,
         max_replay_frames: 5000,
       });
       navigate(`/spectate/${response.game_id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start Claudex vs Ultra');
+      setError(err instanceof Error ? err.message : 'Failed to start Claude vs Ultra');
     } finally {
       setIsLoading(false);
     }
@@ -495,6 +493,100 @@ export function Home() {
           </span>
           <span>HD-FRAME-001 / 2026</span>
         </div>
+
+        {/* ─── The 9th mode · Pipeline ──────────────────────────────────
+              HD-CRIT-002 §06 bold direction. The eight engines were always
+              presets; Pipeline is the game where the rules are the cards. */}
+        <button
+          type="button"
+          onClick={() => navigate('/pipeline')}
+          style={{
+            display: 'block',
+            width: '100%',
+            textAlign: 'left',
+            marginTop: 32,
+            padding: '28px 32px',
+            background: 'var(--ink)',
+            color: 'var(--paper)',
+            border: 'none',
+            cursor: 'pointer',
+            fontFamily: 'var(--font-sans)',
+            boxShadow: '0 0 0 4px color-mix(in oklab, var(--sodium) 18%, transparent)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--sodium)' }} />
+              <span
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 11,
+                  letterSpacing: '.16em',
+                  textTransform: 'uppercase',
+                  color: 'var(--sodium)',
+                }}
+              >
+                The 9th mode · Pipeline · prototype
+              </span>
+            </span>
+            <span
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
+                letterSpacing: '.14em',
+                textTransform: 'uppercase',
+                color: 'var(--sodium)',
+              }}
+            >
+              Open →
+            </span>
+          </div>
+          <h2
+            style={{
+              margin: 0,
+              fontFamily: 'var(--font-serif)',
+              fontSize: 'clamp(36px, 5vw, 64px)',
+              fontWeight: 400,
+              lineHeight: 0.95,
+              letterSpacing: '-.025em',
+              color: 'var(--paper)',
+            }}
+          >
+            The pipeline is the <em style={{ color: 'var(--sodium)', fontStyle: 'italic' }}>playmat</em>.
+          </h2>
+          <p
+            style={{
+              margin: '14px 0 0',
+              fontFamily: 'var(--font-serif)',
+              fontStyle: 'italic',
+              fontSize: 18,
+              lineHeight: 1.5,
+              color: 'var(--paper-2)',
+              maxWidth: '64ch',
+            }}
+          >
+            A TCG where interceptors are the cards and the four-stage engine is the board.
+            The other eight engines were always presets — this is the game where the rules
+            <em> are</em> the cards.
+          </p>
+          <div
+            style={{
+              marginTop: 18,
+              display: 'flex',
+              gap: 24,
+              fontFamily: 'var(--font-mono)',
+              fontSize: 10.5,
+              letterSpacing: '.12em',
+              textTransform: 'uppercase',
+              color: 'var(--paper-2)',
+            }}
+          >
+            <span>2 players</span>
+            <span>4 stages</span>
+            <span>1,150 interceptors as the card pool</span>
+            <span>first to 6 tricks</span>
+          </div>
+        </button>
 
         {/* ─── Section 02 · Configure ─────────────────────────────────── */}
         <section id="match-builder" style={{ marginTop: 56 }}>
@@ -783,11 +875,11 @@ export function Home() {
                             letterSpacing: '-.01em',
                           }}
                         >
-                          Two heuristic ultras
+                          Heuristic ultra mirror
                         </h3>
                         <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.55 }}>
-                          Both seats run the heuristic engine at ultra difficulty. Useful for
-                          balance smoke tests and meta sampling.
+                          Heuristic ultra vs itself for balance smoke tests, or Claude Code (via
+                          subprocess) piloting one seat against the heuristic ultra.
                         </p>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 14 }}>
                           <button
@@ -802,7 +894,7 @@ export function Home() {
                             disabled={isLoading}
                             style={secondaryButtonStyle(isLoading)}
                           >
-                            Claudex vs Ultra
+                            Claude vs Ultra
                           </button>
                         </div>
                       </div>
@@ -826,14 +918,14 @@ export function Home() {
                             letterSpacing: '-.01em',
                           }}
                         >
-                          Anthropic vs OpenAI
+                          Claude Code vs OpenAI
                         </h3>
                         <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.55 }}>
-                          Per-decision API mode. Requires{' '}
+                          Per-decision LLM mode. One seat shells out to{' '}
                           <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--sodium)' }}>
-                            ANTHROPIC_API_KEY
+                            claude -p
                           </code>{' '}
-                          +{' '}
+                          (uses local OAuth, no API key); the other needs{' '}
                           <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--sodium)' }}>
                             OPENAI_API_KEY
                           </code>{' '}
@@ -868,7 +960,7 @@ export function Home() {
                           disabled={isLoading}
                           style={secondaryButtonStyle(isLoading)}
                         >
-                          Watch Claudex vs GPT
+                          Watch Claude vs GPT
                         </button>
                       </div>
                     )}
