@@ -16,7 +16,7 @@
  * with rotation + offset, not stacks of squares.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { GameModule } from './types';
 import type { DeckStats } from '../types/deckbuilder';
@@ -98,6 +98,50 @@ const PHASE_ORDER: { key: CatsPhase; short: string; flavor: string }[] = [
   { key: 'curl_up', short: 'Curl up', flavor: 'Round ends. Pile caps re-check.' },
 ];
 
+// Per-round flavor: what time is it in the cat's day?
+const TIME_OF_DAY: { from: number; to: number; label: string; sub: string }[] = [
+  { from: 1, to: 2, label: 'Morning', sub: 'the sunbeam crawls in' },
+  { from: 3, to: 4, label: 'Midday', sub: 'bowl-staring intensifies' },
+  { from: 5, to: 6, label: 'Afternoon', sub: 'the chair is warm' },
+  { from: 7, to: 8, label: 'Evening', sub: 'zoomies imminent' },
+  { from: 9, to: 9, label: 'Night', sub: 'the house belongs to the cats' },
+];
+
+function timeOfDayFor(round: number): { label: string; sub: string } {
+  const slot = TIME_OF_DAY.find((t) => round >= t.from && round <= t.to);
+  return slot ?? { label: '', sub: '' };
+}
+
+// Per-pile-empty flavor — keeps the page feeling alive when scoring piles are bare.
+const EMPTY_PILE_FLAVOR: Record<CatsPileName, string> = {
+  territory: 'no couch claimed yet',
+  nap: 'all paws still awake',
+  snack: 'the kitchen is quiet',
+  attention: 'ignored… for now',
+};
+
+// In-world flavor lines for the installed trick rule (replaces the dark
+// "DEFAULT · HIGHEST VALUE WINS" badge).
+const RULE_FLAVOR: Record<CatsCategory | 'default', string> = {
+  default: 'The room is quiet. Highest Value wins.',
+  Sleek: 'Sleek tonight. Highest Value still wins, but with poise.',
+  Fluffy: 'A fluffy hush. Highest wins; ties go to whoever has less.',
+  Scrappy: 'Scrappy rules. Lowest Value wins — the underdog cat triumphs.',
+  Sneaky: 'Sneaky now. Values hide; the unseen tag decides.',
+};
+
+// Rotating microcopy for the idle trick zone — "the cats are thinking…"
+const IDLE_QUIPS = [
+  'circling',
+  'tail flicks',
+  'ears perk',
+  'low slow blink',
+  'considering violence',
+  'considering the rug',
+  'judging silently',
+  'side-eye',
+];
+
 // ---------------------------------------------------------------------------
 // Top-level board
 // ---------------------------------------------------------------------------
@@ -155,6 +199,44 @@ interface BoardProps {
   onAction: (action: CatsAction) => void;
 }
 
+// Scoped keyframes — one tasteful set; everything here is consumed via
+// inline style { animation: 'cats-* …' } so we never leak into other modules.
+const CATS_KEYFRAMES = `
+@keyframes cats-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+@keyframes cats-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 0.85; transform: scale(1.03); }
+}
+@keyframes cats-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  94%, 98%      { transform: scaleY(0.08); }
+}
+@keyframes cats-zzz-drift {
+  0%   { opacity: 0; transform: translate(0, 4px) scale(0.85); }
+  35%  { opacity: 0.9; }
+  100% { opacity: 0; transform: translate(14px, -22px) scale(1.15); }
+}
+@keyframes cats-paw-drift {
+  0%   { opacity: 0; transform: translateX(-120%) rotate(-12deg); }
+  10%  { opacity: 0.18; }
+  90%  { opacity: 0.18; }
+  100% { opacity: 0; transform: translateX(120%) rotate(-12deg); }
+}
+@keyframes cats-tail-wiggle {
+  0%, 100% { transform: rotate(-6deg); }
+  50%      { transform: rotate(8deg); }
+}
+@keyframes cats-quip-fade {
+  0%   { opacity: 0; transform: translateY(4px); }
+  18%  { opacity: 0.85; transform: translateY(0); }
+  82%  { opacity: 0.85; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-4px); }
+}
+`;
+
 function CatsBoard({ state, onAction }: BoardProps) {
   return (
     <div
@@ -165,6 +247,7 @@ function CatsBoard({ state, onAction }: BoardProps) {
         color: COZY.inkBrown,
       }}
     >
+      <style>{CATS_KEYFRAMES}</style>
       <RoundHeader state={state} />
       <PhaseIndicator phase={state.phase} round={state.round_number} />
 
@@ -186,6 +269,7 @@ function CatsBoard({ state, onAction }: BoardProps) {
 // ---------------------------------------------------------------------------
 
 function RoundHeader({ state }: { state: CatsState }) {
+  const tod = timeOfDayFor(state.round_number);
   return (
     <header
       className="flex w-full items-center justify-between border-b px-6 py-3"
@@ -197,8 +281,29 @@ function RoundHeader({ state }: { state: CatsState }) {
           <div className="text-xs uppercase tracking-[0.22em] opacity-60">
             A day in the life of a cat
           </div>
-          <div className="text-lg font-semibold" style={{ letterSpacing: '0.04em' }}>
-            Round {state.round_number} of 9
+          <div className="flex items-baseline gap-3">
+            <div className="text-lg font-semibold" style={{ letterSpacing: '0.04em' }}>
+              Round {state.round_number} of 9
+            </div>
+            {tod.label && (
+              <div
+                className="text-[11px] italic"
+                style={{ color: '#7a6240', letterSpacing: '0.04em' }}
+              >
+                <span
+                  style={{
+                    fontVariant: 'small-caps',
+                    fontStyle: 'normal',
+                    fontWeight: 600,
+                    color: COZY.butterscotch,
+                    marginRight: 6,
+                  }}
+                >
+                  {tod.label}
+                </span>
+                <span className="opacity-80">· {tod.sub}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -366,17 +471,21 @@ function TrickZone({
   lead: 'me' | 'opponent';
   phase: CatsPhase;
 }) {
-  const ruleLabel = trick.installed_rule ?? 'Default · highest Value wins';
-  const ruleColor = trick.installed_rule ? CATEGORY_TINT[trick.installed_rule] : COZY.inkBrown;
+  const ruleKey: CatsCategory | 'default' = trick.installed_rule ?? 'default';
+  const ruleColor =
+    ruleKey === 'default' ? COZY.warmTan : CATEGORY_TINT[ruleKey];
+  const ruleFlavor = RULE_FLAVOR[ruleKey];
 
   // Visualize the squaring-off: pounce card slides in from the lead's side,
   // counter card from the opposite. Order on screen mirrors lead direction.
   const pounceFrom = lead === 'me' ? 'left' : 'right';
   const counterFrom = lead === 'me' ? 'right' : 'left';
 
+  const bothEmpty = !trick.pounce_card && !trick.counter_card;
+
   return (
     <section
-      className="relative flex items-center justify-center rounded-xl border px-6 py-6"
+      className="relative flex items-center justify-center overflow-hidden rounded-xl border px-6 py-6"
       style={{
         background:
           'radial-gradient(ellipse at center, rgba(255,248,231,0.95) 0%, rgba(244,230,200,0.6) 100%)',
@@ -385,14 +494,35 @@ function TrickZone({
       }}
       aria-label="Trick zone"
     >
+      {/* Ambient drifting paw print — only visible when the stage is quiet so
+          it never competes with played cards. */}
+      {bothEmpty && <DriftingPaw />}
+
       <div className="absolute left-4 top-3 text-[10px] uppercase tracking-[0.2em] opacity-60">
-        Trick rule
+        Tonight’s mood
       </div>
+
+      {/* In-world rule indicator: a serif italic line, tinted to the active
+          category. No more harsh dark pill in the corner. */}
       <div
-        className="absolute right-4 top-3 rounded-full px-3 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-        style={{ background: ruleColor, color: '#fff' }}
+        className="absolute right-4 top-2.5 flex items-center gap-2 text-[11px] italic"
+        style={{ color: '#5a4528', maxWidth: '52%', textAlign: 'right' }}
+        title={trick.installed_rule ? `${trick.installed_rule} rule installed` : 'No rule installed'}
       >
-        {ruleLabel}
+        <span
+          aria-hidden="true"
+          style={{
+            display: 'inline-block',
+            width: 8,
+            height: 8,
+            borderRadius: 999,
+            background: ruleColor,
+            boxShadow: trick.installed_rule
+              ? `0 0 6px ${ruleColor}`
+              : 'inset 0 0 0 1px ' + COZY.warmTan,
+          }}
+        />
+        <span>{ruleFlavor}</span>
       </div>
 
       <div className="flex w-full items-center justify-center gap-10">
@@ -410,7 +540,7 @@ function TrickZone({
           className="flex flex-col items-center gap-1 text-xs uppercase tracking-[0.2em]"
           style={{ color: COZY.inkBrown }}
         >
-          <WhiskerIcon />
+          {bothEmpty ? <IdleCatGlyph /> : <WhiskerIcon />}
           <span className="opacity-70">vs</span>
         </div>
         <TrickSlot
@@ -425,6 +555,11 @@ function TrickZone({
         />
       </div>
 
+      {/* Rotating "the cats are thinking" microcopy — only while idle. */}
+      {bothEmpty && phase !== 'resolve' && (
+        <IdleQuipLine />
+      )}
+
       {phase === 'resolve' && trick.winner && (
         <div
           className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full px-4 py-1 text-xs font-semibold uppercase tracking-wider"
@@ -434,6 +569,192 @@ function TrickZone({
         </div>
       )}
     </section>
+  );
+}
+
+// A small, slowly-blinking sleeping cat with a drifting "z" — sits in the
+// middle of the trick zone when no card is staged.
+function IdleCatGlyph() {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: 'relative',
+        width: 56,
+        height: 36,
+        animation: 'cats-bob 3.2s ease-in-out infinite',
+      }}
+    >
+      <svg
+        width="56"
+        height="36"
+        viewBox="0 0 56 36"
+        style={{ overflow: 'visible' }}
+      >
+        {/* loafed body */}
+        <path
+          d="M8 28 Q8 16 18 14 L36 14 Q48 14 50 26 Q50 30 46 30 L12 30 Q8 30 8 28 Z"
+          fill={COZY.warmTan}
+          stroke={COZY.inkBrown}
+          strokeWidth="1.1"
+        />
+        {/* ears */}
+        <path
+          d="M14 16 L16 9 L20 15 Z M32 14.5 L34 8 L38 14 Z"
+          fill={COZY.warmTan}
+          stroke={COZY.inkBrown}
+          strokeWidth="1.1"
+        />
+        {/* closed eye lines — gently blink */}
+        <g
+          style={{
+            transformOrigin: '24px 21px',
+            animation: 'cats-blink 5.5s ease-in-out infinite',
+          }}
+        >
+          <path
+            d="M20 21 q2 1.4 4 0"
+            stroke={COZY.inkBrown}
+            strokeWidth="1.1"
+            strokeLinecap="round"
+            fill="none"
+          />
+          <path
+            d="M28 21 q2 1.4 4 0"
+            stroke={COZY.inkBrown}
+            strokeWidth="1.1"
+            strokeLinecap="round"
+            fill="none"
+          />
+        </g>
+        {/* tiny smile */}
+        <path
+          d="M25 25 q1.5 1 3 0"
+          stroke={COZY.inkBrown}
+          strokeWidth="0.9"
+          strokeLinecap="round"
+          fill="none"
+        />
+        {/* tail tip wiggle */}
+        <g
+          style={{
+            transformOrigin: '50px 28px',
+            animation: 'cats-tail-wiggle 2.4s ease-in-out infinite',
+          }}
+        >
+          <path
+            d="M50 28 q5 -2 6 -8"
+            stroke={COZY.inkBrown}
+            strokeWidth="1.2"
+            strokeLinecap="round"
+            fill="none"
+          />
+        </g>
+      </svg>
+      {/* drifting Z */}
+      <span
+        style={{
+          position: 'absolute',
+          top: -6,
+          left: 38,
+          fontFamily: 'Georgia, serif',
+          fontStyle: 'italic',
+          fontWeight: 700,
+          fontSize: 12,
+          color: COZY.butterscotch,
+          animation: 'cats-zzz-drift 3.8s ease-in-out infinite',
+        }}
+      >
+        z
+      </span>
+      <span
+        style={{
+          position: 'absolute',
+          top: -6,
+          left: 42,
+          fontFamily: 'Georgia, serif',
+          fontStyle: 'italic',
+          fontWeight: 700,
+          fontSize: 9,
+          color: COZY.butterscotch,
+          animation: 'cats-zzz-drift 3.8s ease-in-out 1.4s infinite',
+        }}
+      >
+        z
+      </span>
+    </div>
+  );
+}
+
+// Quietly rotates a short flavor line so the idle zone has a heartbeat.
+function IdleQuipLine() {
+  const [idx, setIdx] = useState(0);
+  useEffect(() => {
+    const t = setInterval(
+      () => setIdx((i) => (i + 1) % IDLE_QUIPS.length),
+      2400,
+    );
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div
+      className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[11px] italic"
+      style={{ color: '#7a6240', minWidth: 220, textAlign: 'center' }}
+      aria-live="polite"
+    >
+      <span className="opacity-70">the cats are thinking — </span>
+      <span
+        key={idx}
+        style={{
+          display: 'inline-block',
+          animation: 'cats-quip-fade 2.4s ease-in-out',
+          fontWeight: 600,
+          color: COZY.dustyRose,
+        }}
+      >
+        {IDLE_QUIPS[idx]}
+      </span>
+    </div>
+  );
+}
+
+// A single paw print drifting from one edge of the trick zone to the other,
+// extremely low opacity, no interactivity — set dressing.
+function DriftingPaw() {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: 'absolute',
+        top: 24,
+        left: 0,
+        width: '100%',
+        height: 'calc(100% - 48px)',
+        pointerEvents: 'none',
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          top: '38%',
+          left: 0,
+          animation: 'cats-paw-drift 16s ease-in-out infinite',
+        }}
+      >
+        <PawIcon size={28} color={COZY.butterscotch} />
+      </div>
+      <div
+        style={{
+          position: 'absolute',
+          top: '62%',
+          left: 0,
+          animation: 'cats-paw-drift 16s ease-in-out 6s infinite',
+        }}
+      >
+        <PawIcon size={22} color={COZY.dustyRose} />
+      </div>
+    </div>
   );
 }
 
@@ -634,10 +955,24 @@ function PileStack({
       >
         {cards.length === 0 ? (
           <div
-            className="flex h-full items-center justify-center rounded-md border border-dashed text-[10px] italic opacity-40"
+            className="flex h-full flex-col items-center justify-center gap-1.5 rounded-md border border-dashed px-1.5 text-center"
             style={{ borderColor: COZY.warmTan }}
           >
-            empty
+            <div
+              aria-hidden="true"
+              style={{
+                opacity: 0.45,
+                animation: 'cats-breathe 4.2s ease-in-out infinite',
+              }}
+            >
+              {meta.icon}
+            </div>
+            <div
+              className="text-[10px] italic leading-tight"
+              style={{ color: '#9a8460' }}
+            >
+              {EMPTY_PILE_FLAVOR[pile]}
+            </div>
           </div>
         ) : (
           cards.map((card, i) => {
@@ -779,7 +1114,7 @@ function CatCard({
           borderRadius: 6,
         }}
       >
-        <TypeGlyph type={card.card_type} category={card.category} />
+        <TypeGlyph type={card.card_type} category={card.category} name={card.name} />
       </div>
 
       {/* Flavor / rules text */}
@@ -882,7 +1217,7 @@ function CommanderCard({
 function EmptyCardSlot({ label }: { label: string }) {
   return (
     <div
-      className="flex items-center justify-center rounded-md border border-dashed"
+      className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed"
       style={{
         width: 150,
         height: 212,
@@ -894,7 +1229,13 @@ function EmptyCardSlot({ label }: { label: string }) {
         textTransform: 'uppercase',
       }}
     >
-      {label}
+      <div
+        aria-hidden="true"
+        style={{ animation: 'cats-breathe 3.4s ease-in-out infinite' }}
+      >
+        <PawIcon size={26} color={COZY.warmTan} />
+      </div>
+      <div>{label}</div>
     </div>
   );
 }
@@ -1093,21 +1434,16 @@ function CrownPawIcon() {
 function TypeGlyph({
   type,
   category,
+  name,
 }: {
   type: CatsCard['card_type'];
   category?: CatsCategory;
+  name?: string;
 }) {
   const color = category ? CATEGORY_TINT[category] : COZY.inkBrown;
   switch (type) {
     case 'Mood':
-      return (
-        <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
-          <circle cx="16" cy="16" r="9" fill="none" stroke={color} strokeWidth="1.6" />
-          <circle cx="12" cy="14" r="1.4" fill={color} />
-          <circle cx="20" cy="14" r="1.4" fill={color} />
-          <path d="M11 20q5-3 10 0" stroke={color} strokeWidth="1.5" fill="none" strokeLinecap="round" />
-        </svg>
-      );
+      return <MoodGlyph name={name} color={color} />;
     case 'Snack':
       return <FishBoneIcon color={color} />;
     case 'Trinket':
@@ -1115,9 +1451,231 @@ function TypeGlyph({
     case 'Commander':
       return <CrownPawIcon />;
     case 'Cat':
+      if (category) return <CategoryGlyph category={category} color={color} />;
+      return <PawIcon size={32} color={color} />;
     default:
       return <PawIcon size={32} color={color} />;
   }
+}
+
+// One distinct silhouette per Cat category. Each tries to feel like the
+// category's vibe rather than another paw print.
+function CategoryGlyph({
+  category,
+  color,
+}: {
+  category: CatsCategory;
+  color: string;
+}) {
+  switch (category) {
+    case 'Sleek':
+      // A smooth ribbon — long, sinuous, single stroke.
+      return (
+        <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+          <path
+            d="M3 22 Q9 8 17 16 T31 12"
+            fill="none"
+            stroke={color}
+            strokeWidth="2.2"
+            strokeLinecap="round"
+          />
+          <circle cx="31" cy="12" r="2" fill={color} />
+        </svg>
+      );
+    case 'Fluffy':
+      // A poof / cloud of soft circles.
+      return (
+        <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+          <circle cx="11" cy="18" r="5.5" fill={color} opacity="0.85" />
+          <circle cx="17" cy="14" r="6"   fill={color} opacity="0.95" />
+          <circle cx="23" cy="18" r="5.5" fill={color} opacity="0.85" />
+          <circle cx="14" cy="22" r="4.5" fill={color} opacity="0.7" />
+          <circle cx="20" cy="22" r="4.5" fill={color} opacity="0.7" />
+          {/* two small eyes peeking from the floof */}
+          <circle cx="15" cy="15" r="0.9" fill={COZY.inkBrown} />
+          <circle cx="19" cy="15" r="0.9" fill={COZY.inkBrown} />
+        </svg>
+      );
+    case 'Scrappy':
+      // Three claw / scratch marks.
+      return (
+        <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+          <path
+            d="M6 27 L12 7"
+            stroke={color}
+            strokeWidth="2.4"
+            strokeLinecap="round"
+          />
+          <path
+            d="M14 28 L18 6"
+            stroke={color}
+            strokeWidth="2.4"
+            strokeLinecap="round"
+          />
+          <path
+            d="M22 27 L26 8"
+            stroke={color}
+            strokeWidth="2.4"
+            strokeLinecap="round"
+          />
+        </svg>
+      );
+    case 'Sneaky':
+      // A bandit mask + glinting eye.
+      return (
+        <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+          <path
+            d="M4 14 Q4 11 8 11 L26 11 Q30 11 30 14 L30 19 Q30 22 26 22 L21 22 Q19 22 19 20 L15 20 Q15 22 13 22 L8 22 Q4 22 4 19 Z"
+            fill={color}
+            opacity="0.9"
+          />
+          {/* eye-holes */}
+          <ellipse cx="11" cy="16.5" rx="3" ry="2.4" fill={COZY.cream} />
+          <ellipse cx="23" cy="16.5" rx="3" ry="2.4" fill={COZY.cream} />
+          {/* pupils — one slit, one slightly off so it reads as "sneaky" */}
+          <ellipse cx="11" cy="16.5" rx="0.7" ry="2" fill={COZY.inkBrown} />
+          <ellipse cx="23.6" cy="16.5" rx="0.7" ry="2" fill={COZY.inkBrown} />
+        </svg>
+      );
+  }
+}
+
+// Mood-specific glyphs, with a fuzzy match against the printed name.
+function MoodGlyph({
+  name,
+  color,
+}: {
+  name?: string;
+  color: string;
+}) {
+  const n = (name ?? '').toLowerCase();
+  if (n.includes('zoomies')) return <ZoomiesGlyph color={color} />;
+  if (n.includes('box'))      return <BoxGlyph color={color} />;
+  if (n.includes('loaf'))     return <LoafGlyph color={color} />;
+  if (n.includes('knocking') || n.includes('table')) return <FallenVaseGlyph color={color} />;
+  // generic fallback — keep the old sad face for unknown moods.
+  return (
+    <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
+      <circle cx="16" cy="16" r="9" fill="none" stroke={color} strokeWidth="1.6" />
+      <circle cx="12" cy="14" r="1.4" fill={color} />
+      <circle cx="20" cy="14" r="1.4" fill={color} />
+      <path d="M11 20q5-3 10 0" stroke={color} strokeWidth="1.5" fill="none" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ZoomiesGlyph({ color }: { color: string }) {
+  // A spiral / vortex — chaotic motion.
+  return (
+    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+      <path
+        d="M17 17 m0 -1 a1 1 0 1 1 -0.1 0.1 a3 3 0 1 1 -0.2 0.2 a5.5 5.5 0 1 1 -0.4 0.4 a8 8 0 1 1 -0.8 0.8"
+        fill="none"
+        stroke={color}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function BoxGlyph({ color }: { color: string }) {
+  // A cardboard box (open flaps) with two eyes peeking out.
+  return (
+    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+      <path
+        d="M6 14 L17 9 L28 14 L28 27 L6 27 Z"
+        fill="none"
+        stroke={color}
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6 14 L17 19 L28 14"
+        fill="none"
+        stroke={color}
+        strokeWidth="1.4"
+      />
+      <path
+        d="M11 14 L13 9 M23 14 L21 9"
+        stroke={color}
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      {/* eyes from inside */}
+      <circle cx="14" cy="22" r="1.1" fill={color} />
+      <circle cx="20" cy="22" r="1.1" fill={color} />
+    </svg>
+  );
+}
+
+function LoafGlyph({ color }: { color: string }) {
+  // The signature loaf shape — wide flat dome with two small ears.
+  return (
+    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+      {/* loaf body */}
+      <path
+        d="M4 25 Q4 13 17 12 Q30 13 30 25 Z"
+        fill={color}
+        opacity="0.92"
+      />
+      {/* ears */}
+      <path
+        d="M10 14 L12 8 L15 13 Z M19 13 L22 8 L24 14 Z"
+        fill={color}
+      />
+      {/* tucked paws hint */}
+      <path
+        d="M9 25 q3 -2 6 0 M19 25 q3 -2 6 0"
+        stroke={COZY.cream}
+        strokeWidth="0.9"
+        fill="none"
+      />
+      {/* closed eyes */}
+      <path d="M13 19 q1.5 1 3 0 M18 19 q1.5 1 3 0"
+        stroke={COZY.cream}
+        strokeWidth="1.1"
+        strokeLinecap="round"
+        fill="none"
+      />
+    </svg>
+  );
+}
+
+function FallenVaseGlyph({ color }: { color: string }) {
+  // A tipped-over vase + a dotted "edge of table" line.
+  return (
+    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+      {/* edge of the table */}
+      <line
+        x1="2" y1="11" x2="32" y2="11"
+        stroke={color}
+        strokeWidth="1.2"
+        strokeDasharray="2 2"
+      />
+      {/* paw at the edge — the obvious culprit */}
+      <circle cx="9" cy="8.5" r="1.4" fill={color} />
+      <circle cx="11.5" cy="7.5" r="1.4" fill={color} />
+      {/* tipped vase */}
+      <path
+        d="M14 24 q-1 -5 4 -5 l6 0 q3 0 3 3 q0 4 -4 4 l-6 0 q-3 0 -3 -2 Z"
+        fill="none"
+        stroke={color}
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M24 22 q3 -2 5 -1"
+        fill="none"
+        stroke={color}
+        strokeWidth="1.2"
+      />
+      {/* spilled droplets */}
+      <circle cx="13" cy="29" r="0.9" fill={color} />
+      <circle cx="17" cy="30" r="0.7" fill={color} />
+      <circle cx="21" cy="29.5" r="0.7" fill={color} />
+    </svg>
+  );
 }
 
 // ---------------------------------------------------------------------------
