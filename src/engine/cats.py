@@ -464,6 +464,141 @@ def _process_cats_effect_events(state: GameState, events: list) -> list:
     return follow_ups
 
 
+def make_pile_activated(
+    obj: GameObject,
+    pile_required: str,
+    effect_fn: Callable[[Event, GameState], list[Event]],
+    *,
+    description: str = "",
+) -> Interceptor:
+    """Register a pile-activated ability on ``obj``.
+
+    The ability fires when ``activate_pile_card(state, player_id, card_id)`` is called
+    with this card. The card must currently be in ``pile_required`` (one of
+    pile_territory / pile_nap / pile_snack / pile_attention) and must be untapped.
+    Activation taps (knocks over) the card and emits CATS_KNOCK_OVER, which this
+    interceptor filters on and runs ``effect_fn``.
+    """
+
+    def filter_fn(event, state):
+        if event.type != EventType.CATS_KNOCK_OVER:
+            return False
+        return event.payload.get("card_id") == obj.id
+
+    def handler(event, state):
+        try:
+            new_events = effect_fn(event, state) or []
+        except Exception:
+            new_events = []
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=new_events)
+
+    return Interceptor(
+        id=f"{obj.id}_pile_act_{pile_required}",
+        source=obj.id,
+        controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=filter_fn,
+        handler=handler,
+        description=description or f"Pile-activated ability ({pile_required})",
+    )
+
+
+def activate_pile_card(state: GameState, player_id: str, card_id: str) -> list[Event]:
+    """Knock over (tap) a pile card to activate its ability.
+
+    Validates that the card is in one of player_id's piles, is untapped, and
+    has a registered CATS_KNOCK_OVER handler. Sets tapped=True and emits
+    CATS_KNOCK_OVER, which the interceptor handles to run the effect.
+    """
+    _init_cats_state(state)
+    obj = state.objects.get(card_id)
+    if obj is None:
+        return []
+    if obj.controller != player_id:
+        return []
+    if obj.state.tapped:
+        return []
+    piles = state.cats_piles.get(player_id, {})
+    pile_name = None
+    for name in ("pile_territory", "pile_nap", "pile_snack", "pile_attention"):
+        if card_id in piles.get(name, []):
+            pile_name = name
+            break
+    if pile_name is None:
+        return []
+    obj.state.tapped = True
+    event = Event(
+        type=EventType.CATS_KNOCK_OVER,
+        payload={"player": player_id, "card_id": card_id, "pile": pile_name},
+        source=card_id,
+    )
+    _, reactions = _dispatch_interceptors(state, event, priorities=(InterceptorPriority.REACT,))
+    events: list[Event] = [event] + reactions
+    events.extend(_process_cats_effect_events(state, events))
+    return events
+
+
+def attach_trinket(
+    state: GameState,
+    player_id: str,
+    trinket_obj_id: str,
+    target_pile: str,
+) -> list[Event]:
+    """Attach a Trinket card from hand to one of the player's scoring piles.
+
+    Per design §6: each pile can hold at most 2 Trinkets. If the cap is reached,
+    the attach fails (returns []). Successful attach: removes from hand, appends
+    to state.cats_pile_trinkets[player_id][target_pile], runs setup_interceptors
+    so the Trinket's score-mod (or other passive) registers.
+    """
+    _init_cats_state(state)
+    obj = state.objects.get(trinket_obj_id)
+    if obj is None or obj.card_def is None:
+        return []
+    if CardType.CATS_TRINKET not in getattr(obj.card_def.characteristics, "types", set()):
+        return []
+    if target_pile not in PILE_NAME_TO_ZONE:
+        return []
+    trinkets_map = state.cats_pile_trinkets.setdefault(player_id, {
+        "pile_territory": [], "pile_nap": [], "pile_snack": [], "pile_attention": [],
+    })
+    if len(trinkets_map.get(target_pile, [])) >= 2:
+        return []  # cap reached
+
+    hand = _ensure_zone(state, ZoneType.HAND, player_id)
+    if trinket_obj_id in hand.objects:
+        hand.objects.remove(trinket_obj_id)
+
+    trinkets_map[target_pile].append(trinket_obj_id)
+    obj.controller = player_id
+    obj.zone = PILE_NAME_TO_ZONE[target_pile]
+    obj.entered_zone_at = state.next_timestamp()
+    obj.state.tapped = False
+    _run_setup_on_pile_entry(state, obj)
+
+    return [Event(
+        type=EventType.CATS_CLAIM_PILE,
+        payload={
+            "phase": "trinket_attach",
+            "player": player_id,
+            "pile": target_pile,
+            "card_id": trinket_obj_id,
+        },
+        source=trinket_obj_id,
+    )]
+
+
+def _untap_all_piles(state: GameState) -> None:
+    """At round start (Stretch), untap all knocked-over pile cards."""
+    for pid in _player_ids(state):
+        piles = state.cats_piles.get(pid, {})
+        for pile_name in ("pile_territory", "pile_nap", "pile_snack", "pile_attention"):
+            for cid in piles.get(pile_name, []):
+                obj = state.objects.get(cid)
+                if obj is not None:
+                    obj.state.tapped = False
+
+
 def _run_setup_on_pile_entry(state: GameState, obj: GameObject) -> None:
     """Run setup_interceptors for a card that just entered a pile.
 
@@ -505,10 +640,11 @@ def install_category_rule(state: GameState, pounce_card_obj_id: str) -> None:
 
 
 def begin_round(state: GameState) -> list[Event]:
-    """Start of a new round. Reset trick, fire CATS_ROUND_START."""
+    """Start of a new round. Reset trick, untap pile cards, fire CATS_ROUND_START."""
     _init_cats_state(state)
     state.cats_current_trick = _empty_trick()
     state.cats_current_rule = None
+    _untap_all_piles(state)
 
     if state.cats_lead_player is None:
         pids = _player_ids(state)
