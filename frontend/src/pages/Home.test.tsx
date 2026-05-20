@@ -78,13 +78,18 @@ describe('Home Minecraft starter deck options', () => {
   it('hides MTG-only bot presets in Minecraft mode and starts bot games as Minecraft', async () => {
     renderHome();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Minecraft TCG' }));
+    // Pick the Minecraft tile from the engine grid.
+    fireEvent.click(screen.getByRole('button', { name: 'Minecraft' }));
 
     expect(screen.getByRole('button', { name: 'Watch Bot vs Bot' })).toBeInTheDocument();
-    expect(screen.queryByText('Battle Presets')).not.toBeInTheDocument();
+
+    // Ultra mirror + LLM duel are gated to mtg / yugioh; Minecraft hides the
+    // entire Advanced section, so neither the section header nor any of its
+    // buttons should render.
+    expect(screen.queryByText(/Ultra mirror/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Ultra vs Ultra' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Claudex vs Ultra' })).not.toBeInTheDocument();
-    expect(screen.queryByText('Custom LLM Duel')).not.toBeInTheDocument();
+    expect(screen.queryByText(/LLM duel/i)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Watch Bot vs Bot' }));
 
