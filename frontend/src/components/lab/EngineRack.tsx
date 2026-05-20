@@ -47,6 +47,7 @@ export function EngineRack({ activeId, onSelect }: EngineRackProps) {
           <button
             key={e.id}
             type="button"
+            aria-label={e.name}
             onClick={() => onSelect?.(e.id)}
             style={{
               display: 'grid',

@@ -1,36 +1,26 @@
 /**
- * Home — premium card-game landing + match builder.
+ * Home — HD-ART-01 lab landing.
  *
- * Phase A2 of the brand redesign. The 877-line mega-form was replaced by:
- *   1. Hero: wordmark + tagline + NowPlayingPill
- *   2. 8-mode tile grid (GameModeTile cycles via brand.modes.ts)
- *   3. Match Builder — progressively reveals deck / variant / difficulty /
- *      ultra-agent based on the selected mode
- *   4. Advanced duels (LLM duel, Ultra mirror) tucked into a disclosed panel
- *   5. Library shortcuts (Deckbuilder, Card gatherers, SCP viewer)
+ * Polyglot card lab posture per docs/design/critique-v0.1: paper + ink + one
+ * sodium accent, Instrument Serif masthead, engine rack as the primary IA,
+ * and a quiet match-builder plate below the hero. The five start-game
+ * handlers (handleStartGame, handleStartBotGame, handleStartLlmDuel,
+ * handleStartUltraMirror, handleStartClaudexVsUltra) are preserved verbatim
+ * from the foil-era component — only the surrounding shell pivots.
  *
- * All five original handlers (handleStartGame, handleStartBotGame,
- * handleStartLlmDuel, handleStartUltraMirror, handleStartClaudexVsUltra)
- * are preserved verbatim — only their call sites changed shape.
+ * The ⌘E EnginePicker mounted in App.tsx provides keyboard-driven engine
+ * switching; the rack on this page is the visible mouse-driven equivalent.
  */
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { matchAPI, botGameAPI } from '../services/api';
 import type { AIDifficulty, DeckSummary, YgoDeckSummary } from '../types';
 import { useGameStore } from '../stores/gameStore';
-import {
-  AppShell,
-  Section,
-  BrandButton,
-  GameModeTile,
-  Monogram,
-  NowPlayingPill,
-  GAME_MODES,
-  getMode,
-  type GameModeId,
-} from '../components/brand';
+import { getMode, type GameModeId } from '../components/brand';
+import { EngineRack } from '../components/lab/EngineRack';
+import { getLabEngine } from '../components/lab/engineMeta';
 
 type DeckInfo = DeckSummary;
 
@@ -50,10 +40,10 @@ export const MINECRAFT_STARTER_DECK_OPTIONS = [
 ] as const;
 
 const HS_VARIANTS = [
-  { id: 'riftclash', label: 'Riftclash', accent: 'bg-amber-600' },
-  { id: 'stormrift', label: 'Stormrift', accent: 'bg-purple-600' },
-  { id: 'frierenrift', label: 'Frierenrift', accent: 'bg-cyan-700' },
-  { id: null, label: 'Vanilla HS', accent: 'bg-brand-foil' },
+  { id: 'riftclash', label: 'Riftclash' },
+  { id: 'stormrift', label: 'Stormrift' },
+  { id: 'frierenrift', label: 'Frierenrift' },
+  { id: null, label: 'Vanilla HS' },
 ] as const;
 
 const DIFFICULTIES: AIDifficulty[] = ['easy', 'medium', 'hard', 'ultra'];
@@ -62,10 +52,10 @@ export function Home() {
   const navigate = useNavigate();
   const setConnection = useGameStore((s) => s.setConnection);
 
-  // === Selection state (mirrors original) =============================
+  // === Selection state — preserved verbatim from the foil-era Home ====
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [gameMode, setGameMode] = useState<GameModeId>('hearthstone');
+  const [gameMode, setGameMode] = useState<GameModeId>('mtg');
   const [hsVariant, setHsVariant] = useState<string | null>('riftclash');
   const [heroClass, setHeroClass] = useState<string>('Pyromancer');
   const [playerName, setPlayerName] = useState('Player');
@@ -111,7 +101,7 @@ export function Home() {
     }).catch(console.error);
   }, []);
 
-  // === Handlers (preserved from original) =============================
+  // === Handlers — preserved verbatim ===================================
 
   const handleStartGame = async () => {
     setIsLoading(true);
@@ -259,435 +249,733 @@ export function Home() {
     }
   };
 
+  const labMode = getLabEngine(gameMode);
   const selectedMode = getMode(gameMode)!;
-  /** Bot-vs-bot spectate (the "Watch Bot vs Bot" button) — supported in mtg/ygo/mc. */
   const showWatchBot = gameMode === 'mtg' || gameMode === 'yugioh' || gameMode === 'minecraft';
-  /** Advanced duels (Ultra mirror, Claudex-vs-Ultra, LLM duel) — mtg + ygo only. */
   const showAdvancedDuels = gameMode === 'mtg' || gameMode === 'yugioh';
   const showLlmDuel = gameMode === 'mtg' || gameMode === 'yugioh';
 
+  const scrollToBuilder = () => {
+    document.getElementById('match-builder')?.scrollIntoView({ behavior: 'smooth' });
+  };
+
   return (
-    <AppShell headerRight={<NowPlayingPill />}>
-      {/* === Hero ============================================================ */}
-      <section className="relative pt-20 pb-16 lg:pt-28 lg:pb-20 brand-frame">
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, ease: [0.22, 0.8, 0.3, 1] }}
-          className="max-w-4xl"
+    <div style={{ background: 'var(--paper)', color: 'var(--ink)', minHeight: '100vh' }}>
+      {/* ─── Caption rail (fixed crumb at the top, like a printed-book header) */}
+      <div
+        style={{
+          position: 'fixed',
+          top: 14,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 10.5,
+          letterSpacing: '.14em',
+          textTransform: 'uppercase',
+          color: 'var(--ink-3)',
+          background: 'var(--paper)',
+          padding: '6px 14px',
+          border: '1px solid var(--rule)',
+          zIndex: 10,
+        }}
+      >
+        <b style={{ color: 'var(--ink)', fontWeight: 500 }}>HD-HOME</b>
+        &nbsp;·&nbsp; Hyperdraft &nbsp;·&nbsp; ⌘E to switch engine
+      </div>
+
+      <main
+        style={{
+          maxWidth: 1240,
+          margin: '0 auto',
+          padding: '88px 56px 160px',
+          position: 'relative',
+        }}
+      >
+        {/* ─── Masthead ───────────────────────────────────────────────── */}
+        <header
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr auto',
+            alignItems: 'end',
+            borderTop: '1.5px solid var(--ink)',
+            borderBottom: '1.5px solid var(--ink)',
+            padding: '18px 0 22px',
+            marginBottom: 40,
+          }}
         >
-          <p className="brand-eyebrow mb-5">A multi-engine card laboratory</p>
-          <h1 className="brand-wordmark text-[clamp(3.5rem,9vw,7.5rem)] leading-[0.9] brand-foil-text mb-6">
-            hyperdraft
-          </h1>
-          <p className="text-lg lg:text-xl text-brand-parchment max-w-xl leading-relaxed">
-            Eight rules engines, one frame. Play <span className="text-brand-foil">Magic</span>,{' '}
-            <span className="text-brand-ember">Hearthstone</span>, <span className="text-brand-sheen">Pokémon</span>,{' '}
-            Yu-Gi-Oh!, and four bespoke formats against an opponent that{' '}
-            <em className="text-brand-cream not-italic font-medium">actually plans</em>.
-          </p>
-          <div className="mt-8 flex items-center gap-4">
-            <BrandButton
-              size="lg"
-              onClick={() => {
-                document.getElementById('match-builder')?.scrollIntoView({ behavior: 'smooth' });
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 12,
+              fontWeight: 500,
+              letterSpacing: '.12em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-2)',
+            }}
+          >
+            Hyperdraft / Eight engines, one frame
+          </span>
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 12,
+              fontWeight: 500,
+              letterSpacing: '.06em',
+              color: 'var(--ink-2)',
+              textAlign: 'right',
+            }}
+          >
+            v4.7 · Discordwell · MIT
+          </span>
+        </header>
+
+        {/* ─── Hero ──────────────────────────────────────────────────── */}
+        <section
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1.05fr .95fr',
+            gap: 40,
+            alignItems: 'end',
+            paddingBottom: 40,
+            borderBottom: '1px solid var(--rule)',
+          }}
+        >
+          <div>
+            <span className="lab-chip">
+              <span className="dot" />
+              v4.7 · 8 engines · runs locally
+            </span>
+            <h1
+              style={{
+                margin: '14px 0 0',
+                fontFamily: 'var(--font-serif)',
+                fontSize: 'clamp(56px, 8vw, 104px)',
+                fontWeight: 400,
+                lineHeight: 0.92,
+                letterSpacing: '-.025em',
+                color: 'var(--ink)',
               }}
             >
-              Start a match
-            </BrandButton>
-            <BrandButton variant="secondary" size="lg" onClick={() => navigate('/watch/live')}>
-              Watch live
-            </BrandButton>
+              Eight engines,
+              <br />
+              <em style={{ color: 'var(--sodium)', fontStyle: 'italic' }}>one frame.</em>
+            </h1>
+            <p
+              style={{
+                margin: '18px 0 24px',
+                fontFamily: 'var(--font-serif)',
+                fontSize: 18,
+                fontStyle: 'italic',
+                lineHeight: 1.5,
+                color: 'var(--ink-2)',
+                maxWidth: '42ch',
+              }}
+            >
+              A workbench where TCG rules are first-class objects. Hot-swap engines,
+              fork mechanics, watch AIs fight, and theorycraft against the same event
+              pipeline that runs every match.
+            </p>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                onClick={scrollToBuilder}
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  letterSpacing: '.14em',
+                  textTransform: 'uppercase',
+                  padding: '14px 18px',
+                  background: 'var(--ink)',
+                  color: 'var(--paper)',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                Open a match
+              </button>
+              <button
+                onClick={() => navigate('/watch/live')}
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  letterSpacing: '.14em',
+                  textTransform: 'uppercase',
+                  padding: '14px 18px',
+                  background: 'transparent',
+                  color: 'var(--ink)',
+                  border: '1px solid var(--ink)',
+                  cursor: 'pointer',
+                }}
+              >
+                Watch an AI run
+              </button>
+              <span
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 11,
+                  fontWeight: 500,
+                  letterSpacing: '.1em',
+                  color: 'var(--ink-3)',
+                  textTransform: 'uppercase',
+                  marginLeft: 4,
+                }}
+              >
+                no signup · runs locally
+              </span>
+            </div>
           </div>
-        </motion.div>
-      </section>
 
-      {/* === Engine grid ===================================================== */}
-      <Section
-        eyebrow="01 · Choose your engine"
-        title="Eight rules engines, one frame"
-        trailing={
-          <span className="text-xs text-brand-dust brand-mono tracking-tight">
-            {GAME_MODES.length} live · 0 in draft
+          <EngineRack
+            activeId={gameMode}
+            onSelect={(id) => {
+              setGameMode(id);
+              scrollToBuilder();
+            }}
+          />
+        </section>
+
+        {/* ─── Now-running ticker ─────────────────────────────────────── */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            padding: '14px 0',
+            borderBottom: '1px solid var(--rule)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            letterSpacing: '.1em',
+            textTransform: 'uppercase',
+            color: 'var(--ink-3)',
+          }}
+        >
+          <span>
+            ⌘E to switch engine · arrows + return on the rack also work
           </span>
-        }
-      >
-        <div className="grid gap-4 lg:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-          {GAME_MODES.map((mode, idx) => (
-            <GameModeTile
-              key={mode.id}
-              mode={mode}
-              selected={mode.id === gameMode}
-              onClick={() => setGameMode(mode.id)}
-              delaySeconds={0.05 * idx}
-            />
-          ))}
+          <span>HD-FRAME-001 / 2026</span>
         </div>
-      </Section>
 
-      {/* === Match Builder =================================================== */}
-      <Section
-        eyebrow="02 · Start a match"
-        title={
-          <span className="flex items-center gap-3">
-            <span>{selectedMode.title}</span>
-            <Monogram mode={selectedMode} size={24} variant="mode" />
-          </span>
-        }
-        trailing={selectedMode.blurb}
-      >
-        <div id="match-builder" className="grid gap-6 lg:grid-cols-3">
-          {/* ── Left: identity ───────────────────────────────────────────── */}
-          <div className="space-y-6 lg:col-span-1">
-            <FieldBlock label="Your name">
-              <input
-                type="text"
-                value={playerName}
-                onChange={(e) => setPlayerName(e.target.value)}
-                className="w-full bg-brand-obsidian border border-brand-hairline px-3 py-2.5 text-brand-cream placeholder-brand-dust focus:outline-none focus:border-brand-foil/60 transition-colors"
-                placeholder="Player"
-              />
-            </FieldBlock>
+        {/* ─── Section 02 · Configure ─────────────────────────────────── */}
+        <section id="match-builder" style={{ marginTop: 56 }}>
+          <SectionHead
+            num="02"
+            title={
+              <>
+                Configure <em style={{ color: 'var(--sodium)', fontStyle: 'italic' }}>{labMode?.name ?? selectedMode.title}</em>.
+              </>
+            }
+            meta={selectedMode.blurb}
+          />
 
-            <FieldBlock label="Difficulty">
-              <div className="grid grid-cols-4 gap-1.5">
-                {DIFFICULTIES.map((d) => (
-                  <button
-                    key={d}
-                    onClick={() => setDifficulty(d)}
-                    className={
-                      'px-2 py-2 text-[11px] uppercase tracking-[0.14em] transition-all ' +
-                      (difficulty === d
-                        ? d === 'ultra'
-                          ? 'bg-brand-violet/20 text-brand-violet border border-brand-violet/60'
-                          : 'bg-brand-foil/20 text-brand-foil border border-brand-foil/60'
-                        : 'bg-brand-obsidian text-brand-chalk border border-brand-hairline hover:border-brand-foil/40 hover:text-brand-cream')
-                    }
-                  >
-                    {d}
-                  </button>
-                ))}
+          <div className="lab-plate" style={{ marginTop: 24 }}>
+            <div style={{ display: 'grid', gap: 28, gridTemplateColumns: '1fr 2fr' }}>
+              {/* Left: identity */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <FieldBlock label="Your name">
+                  <input
+                    type="text"
+                    value={playerName}
+                    onChange={(e) => setPlayerName(e.target.value)}
+                    style={inputStyle}
+                    placeholder="Player"
+                  />
+                </FieldBlock>
+
+                <FieldBlock label="Difficulty">
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                    {DIFFICULTIES.map((d) => (
+                      <button
+                        key={d}
+                        onClick={() => setDifficulty(d)}
+                        style={chipButtonStyle(difficulty === d)}
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                </FieldBlock>
+
+                <AnimatePresence>
+                  {difficulty === 'ultra' && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      style={{ overflow: 'hidden' }}
+                    >
+                      <FieldBlock label="Ultra agent" hint="External Claude / Codex CLI">
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 10 }}>
+                          {(['claude', 'codex'] as const).map((a) => (
+                            <button
+                              key={a}
+                              onClick={() => setUltraAgent(a)}
+                              style={chipButtonStyle(ultraAgent === a)}
+                            >
+                              {a === 'codex' ? 'Codex' : 'Claude'}
+                            </button>
+                          ))}
+                        </div>
+                        <input
+                          type="text"
+                          value={ultraAgent === 'codex' ? ultraCodexModel : claudexModel}
+                          onChange={(e) => {
+                            if (ultraAgent === 'codex') setUltraCodexModel(e.target.value);
+                            else setClaudexModel(e.target.value);
+                          }}
+                          style={{ ...inputStyle, fontFamily: 'var(--font-mono)', fontSize: 13 }}
+                          placeholder={ultraAgent === 'codex' ? 'gpt-5.3' : 'claude-opus-4-7'}
+                        />
+                      </FieldBlock>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
-            </FieldBlock>
+
+              {/* Right: deck + variant */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                {gameMode === 'hearthstone' && (
+                  <FieldBlock label="Hearthstone variant">
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                      {HS_VARIANTS.map((v) => (
+                        <button
+                          key={String(v.id)}
+                          onClick={() => {
+                            setHsVariant(v.id);
+                            if (v.id === 'frierenrift' && heroClass !== 'Frieren' && heroClass !== 'Macht') {
+                              setHeroClass('Frieren');
+                            } else if (v.id !== 'frierenrift' && heroClass !== 'Pyromancer' && heroClass !== 'Cryomancer') {
+                              setHeroClass('Pyromancer');
+                            }
+                          }}
+                          style={chipButtonStyle(hsVariant === v.id)}
+                        >
+                          {v.label}
+                        </button>
+                      ))}
+                    </div>
+                    {hsVariant !== null && (
+                      <div style={{ marginTop: 12 }}>
+                        <Eyebrow>Hero class</Eyebrow>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          {(hsVariant === 'frierenrift'
+                            ? ['Frieren', 'Macht']
+                            : ['Pyromancer', 'Cryomancer']
+                          ).map((c) => (
+                            <button
+                              key={c}
+                              onClick={() => setHeroClass(c)}
+                              style={{ ...chipButtonStyle(heroClass === c), flex: 1 }}
+                            >
+                              {c}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </FieldBlock>
+                )}
+
+                {gameMode === 'mtg' && (
+                  <DeckPair
+                    label="Decks"
+                    player={playerDeck}
+                    ai={aiDeck}
+                    onPlayer={setPlayerDeck}
+                    onAi={setAiDeck}
+                    options={decks.map((d) => ({ value: d.id, label: `${d.name} · ${d.archetype}` }))}
+                  />
+                )}
+                {gameMode === 'yugioh' && ygoDecks.length > 0 && (
+                  <DeckPair
+                    label="Decks"
+                    player={playerYgoDeck}
+                    ai={aiYgoDeck}
+                    onPlayer={setPlayerYgoDeck}
+                    onAi={setAiYgoDeck}
+                    options={ygoDecks.map((d) => ({
+                      value: d.id,
+                      label: d.is_optimized ? `${d.name} · ${d.archetype}` : d.name,
+                      group: d.is_optimized ? 'Optimized' : 'Starter',
+                    }))}
+                  />
+                )}
+                {gameMode === 'minecraft' && (
+                  <DeckPair
+                    label="Starters"
+                    player={playerMinecraftDeck}
+                    ai={aiMinecraftDeck}
+                    onPlayer={setPlayerMinecraftDeck}
+                    onAi={setAiMinecraftDeck}
+                    options={MINECRAFT_STARTER_DECK_OPTIONS.map((o) => ({
+                      value: o.value,
+                      label: o.label,
+                    }))}
+                  />
+                )}
+                {gameMode === 'depths' && (
+                  <DeckPair
+                    label="Fleets"
+                    player={playerDepthsDeck}
+                    ai={aiDepthsDeck}
+                    onPlayer={setPlayerDepthsDeck}
+                    onAi={setAiDepthsDeck}
+                    options={[
+                      { value: 'SUBS_wolfpack', label: 'Wolfpack · Fast Aggro' },
+                      { value: 'SUBS_silent_hunter', label: 'Silent Hunter · Stealth Control' },
+                      { value: 'SUBS_carrier', label: 'Carrier · Drone Swarm' },
+                      { value: 'SUBS_deep_strike', label: 'Deep Strike · Ambush' },
+                    ]}
+                  />
+                )}
+                {gameMode === 'scp' && (
+                  <DeckPair
+                    label="Site briefings"
+                    player={playerSCPDeck}
+                    ai={aiSCPDeck}
+                    onPlayer={setPlayerSCPDeck}
+                    onAi={setAiSCPDeck}
+                    options={[
+                      { value: 'secure_contain_research', label: 'Secure / Contain / Research' },
+                      { value: 'keter_risk', label: 'Keter Risk Office' },
+                      { value: 'veil_control', label: 'Veil Control' },
+                    ]}
+                  />
+                )}
+                {(gameMode === 'pokemon' || gameMode === 'hearthstone' || gameMode === 'finance') && (
+                  <div style={{ fontFamily: 'var(--font-sans)', fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5 }}>
+                    {gameMode === 'pokemon' && 'Pokémon uses the SV Starter pack — Charizard ex vs Mewtwo VMAX.'}
+                    {gameMode === 'hearthstone' && 'Hearthstone variants ship with curated 30-card class decks.'}
+                    {gameMode === 'finance' && 'Finance TCG uses the default 40-card asset deck.'}
+                  </div>
+                )}
+
+                {error && (
+                  <div
+                    style={{
+                      border: '1px solid var(--halt)',
+                      background: 'color-mix(in oklab, var(--halt) 8%, transparent)',
+                      padding: '12px 16px',
+                      fontSize: 13,
+                      color: 'var(--halt)',
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                  >
+                    {error}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, paddingTop: 8 }}>
+                  <button
+                    onClick={handleStartGame}
+                    disabled={isLoading}
+                    style={primaryButtonStyle(isLoading)}
+                  >
+                    {difficulty === 'ultra'
+                      ? `Play vs ${ultraAgent === 'codex' ? 'Codex' : 'Claude'} Ultra`
+                      : 'Play vs AI'}
+                    <span aria-hidden style={{ marginLeft: 8 }}>→</span>
+                  </button>
+                  {showWatchBot && (
+                    <button
+                      onClick={handleStartBotGame}
+                      disabled={isLoading}
+                      style={secondaryButtonStyle(isLoading)}
+                    >
+                      Watch Bot vs Bot
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Section 03 · Advanced duels ─────────────────────────────── */}
+        {showAdvancedDuels && (
+          <section style={{ marginTop: 56 }}>
+            <SectionHead
+              num="03"
+              title="Advanced duels"
+              meta={
+                <button
+                  onClick={() => setAdvancedOpen((v) => !v)}
+                  style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 11,
+                    letterSpacing: '.1em',
+                    textTransform: 'uppercase',
+                    color: 'var(--sodium)',
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {advancedOpen ? 'Hide' : 'Show'} duel presets →
+                </button>
+              }
+            />
 
             <AnimatePresence>
-              {difficulty === 'ultra' && (
+              {advancedOpen && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
-                  className="overflow-hidden"
+                  style={{ overflow: 'hidden' }}
                 >
-                  <FieldBlock label="Ultra agent" hint="External Claude / Codex CLI">
-                    <div className="grid grid-cols-2 gap-1.5 mb-2.5">
-                      {(['claude', 'codex'] as const).map((a) => (
-                        <button
-                          key={a}
-                          onClick={() => setUltraAgent(a)}
-                          className={
-                            'px-3 py-2 text-sm transition-all ' +
-                            (ultraAgent === a
-                              ? 'bg-brand-foil/15 text-brand-foil border border-brand-foil/60'
-                              : 'bg-brand-obsidian text-brand-chalk border border-brand-hairline hover:border-brand-foil/40')
-                          }
+                  <div style={{ display: 'grid', gap: 20, gridTemplateColumns: '1fr 1fr', marginTop: 24 }}>
+                    {showAdvancedDuels && (
+                      <div
+                        style={{
+                          border: '1px solid var(--rule)',
+                          background: 'var(--paper-2)',
+                          padding: 22,
+                        }}
+                      >
+                        <Eyebrow tone="sodium">Ultra mirror</Eyebrow>
+                        <h3
+                          style={{
+                            margin: '6px 0 8px',
+                            fontFamily: 'var(--font-serif)',
+                            fontSize: 22,
+                            fontWeight: 400,
+                            letterSpacing: '-.01em',
+                          }}
                         >
-                          {a === 'codex' ? 'Codex' : 'Claude'}
+                          Two heuristic ultras
+                        </h3>
+                        <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.55 }}>
+                          Both seats run the heuristic engine at ultra difficulty. Useful for
+                          balance smoke tests and meta sampling.
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 14 }}>
+                          <button
+                            onClick={handleStartUltraMirror}
+                            disabled={isLoading}
+                            style={secondaryButtonStyle(isLoading)}
+                          >
+                            Ultra vs Ultra
+                          </button>
+                          <button
+                            onClick={handleStartClaudexVsUltra}
+                            disabled={isLoading}
+                            style={secondaryButtonStyle(isLoading)}
+                          >
+                            Claudex vs Ultra
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {showLlmDuel && (
+                      <div
+                        style={{
+                          border: '1px solid var(--rule)',
+                          background: 'var(--paper-2)',
+                          padding: 22,
+                        }}
+                      >
+                        <Eyebrow tone="plasma">LLM duel</Eyebrow>
+                        <h3
+                          style={{
+                            margin: '6px 0 8px',
+                            fontFamily: 'var(--font-serif)',
+                            fontSize: 22,
+                            fontWeight: 400,
+                            letterSpacing: '-.01em',
+                          }}
+                        >
+                          Anthropic vs OpenAI
+                        </h3>
+                        <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.55 }}>
+                          Per-decision API mode. Requires{' '}
+                          <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--sodium)' }}>
+                            ANTHROPIC_API_KEY
+                          </code>{' '}
+                          +{' '}
+                          <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--sodium)' }}>
+                            OPENAI_API_KEY
+                          </code>{' '}
+                          in the container env.
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '14px 0' }}>
+                          <ModelField label="Claudex model" value={claudexModel} onChange={setClaudexModel} />
+                          <ModelField label="GPT model" value={gptModel} onChange={setGptModel} />
+                        </div>
+                        <label
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: 11,
+                            color: 'var(--ink-2)',
+                            marginBottom: 12,
+                            userSelect: 'none',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={recordPrompts}
+                            onChange={(e) => setRecordPrompts(e.target.checked)}
+                            style={{ accentColor: 'var(--sodium)' }}
+                          />
+                          Record prompts in replay
+                        </label>
+                        <button
+                          onClick={handleStartLlmDuel}
+                          disabled={isLoading}
+                          style={secondaryButtonStyle(isLoading)}
+                        >
+                          Watch Claudex vs GPT
                         </button>
-                      ))}
-                    </div>
-                    <input
-                      type="text"
-                      value={ultraAgent === 'codex' ? ultraCodexModel : claudexModel}
-                      onChange={(e) => {
-                        if (ultraAgent === 'codex') setUltraCodexModel(e.target.value);
-                        else setClaudexModel(e.target.value);
-                      }}
-                      className="w-full bg-brand-obsidian border border-brand-hairline px-3 py-2 text-sm brand-mono text-brand-cream focus:outline-none focus:border-brand-foil/60"
-                      placeholder={ultraAgent === 'codex' ? 'gpt-5.3' : 'claude-opus-4-7'}
-                    />
-                  </FieldBlock>
+                      </div>
+                    )}
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
+          </section>
+        )}
+
+        {/* ─── Section 04 · Library ────────────────────────────────────── */}
+        <section style={{ marginTop: 56 }}>
+          <SectionHead num="04" title="Library" meta="decks · gatherers · archetype viewer" />
+          <div
+            style={{
+              marginTop: 24,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 14,
+            }}
+          >
+            <LibraryTile
+              label="Deckbuilder"
+              description="Curated decklists across all 8 engines."
+              onClick={() => navigate('/deckbuilder')}
+            />
+            <LibraryTile
+              label="MTG Gatherer"
+              description="3,450+ Standard cards with filters."
+              onClick={() => navigate('/gatherer')}
+            />
+            <LibraryTile
+              label="Pokémon Gatherer"
+              description="SV starter pack + custom set browser."
+              onClick={() => navigate('/pokemon-gatherer')}
+            />
+            <LibraryTile
+              label="SCP Archetype Viewer"
+              description="Anomaly dossiers, gameplans, sparring tables."
+              onClick={() => navigate('/scp-cards')}
+            />
           </div>
+        </section>
 
-          {/* ── Middle + right: deck / variant selection ─────────────────── */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* HS variant + hero */}
-            {gameMode === 'hearthstone' && (
-              <FieldBlock label="Hearthstone variant">
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
-                  {HS_VARIANTS.map((v) => (
-                    <button
-                      key={String(v.id)}
-                      onClick={() => {
-                        setHsVariant(v.id);
-                        if (v.id === 'frierenrift' && heroClass !== 'Frieren' && heroClass !== 'Macht') {
-                          setHeroClass('Frieren');
-                        } else if (v.id !== 'frierenrift' && heroClass !== 'Pyromancer' && heroClass !== 'Cryomancer') {
-                          setHeroClass('Pyromancer');
-                        }
-                      }}
-                      className={
-                        'px-3 py-2 text-sm transition-all ' +
-                        (hsVariant === v.id
-                          ? 'bg-brand-foil/15 text-brand-foil border border-brand-foil/60'
-                          : 'bg-brand-obsidian text-brand-chalk border border-brand-hairline hover:border-brand-foil/40')
-                      }
-                    >
-                      {v.label}
-                    </button>
-                  ))}
-                </div>
-                {hsVariant !== null && (
-                  <div className="mt-3">
-                    <p className="brand-eyebrow mb-2">Hero class</p>
-                    <div className="flex gap-2">
-                      {(hsVariant === 'frierenrift'
-                        ? ['Frieren', 'Macht']
-                        : ['Pyromancer', 'Cryomancer']
-                      ).map((c) => (
-                        <button
-                          key={c}
-                          onClick={() => setHeroClass(c)}
-                          className={
-                            'flex-1 px-3 py-2 text-sm transition-all ' +
-                            (heroClass === c
-                              ? 'bg-brand-foil/15 text-brand-foil border border-brand-foil/60'
-                              : 'bg-brand-obsidian text-brand-chalk border border-brand-hairline hover:border-brand-foil/40')
-                          }
-                        >
-                          {c}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </FieldBlock>
-            )}
-
-            {/* Deck selection per mode */}
-            {gameMode === 'mtg' && (
-              <DeckPair
-                label="Decks"
-                player={playerDeck}
-                ai={aiDeck}
-                onPlayer={setPlayerDeck}
-                onAi={setAiDeck}
-                options={decks.map((d) => ({ value: d.id, label: `${d.name} · ${d.archetype}` }))}
-              />
-            )}
-            {gameMode === 'yugioh' && ygoDecks.length > 0 && (
-              <DeckPair
-                label="Decks"
-                player={playerYgoDeck}
-                ai={aiYgoDeck}
-                onPlayer={setPlayerYgoDeck}
-                onAi={setAiYgoDeck}
-                options={ygoDecks.map((d) => ({
-                  value: d.id,
-                  label: d.is_optimized ? `${d.name} · ${d.archetype}` : d.name,
-                  group: d.is_optimized ? 'Optimized' : 'Starter',
-                }))}
-              />
-            )}
-            {gameMode === 'minecraft' && (
-              <DeckPair
-                label="Starters"
-                player={playerMinecraftDeck}
-                ai={aiMinecraftDeck}
-                onPlayer={setPlayerMinecraftDeck}
-                onAi={setAiMinecraftDeck}
-                options={MINECRAFT_STARTER_DECK_OPTIONS.map((o) => ({
-                  value: o.value,
-                  label: o.label,
-                }))}
-              />
-            )}
-            {gameMode === 'depths' && (
-              <DeckPair
-                label="Fleets"
-                player={playerDepthsDeck}
-                ai={aiDepthsDeck}
-                onPlayer={setPlayerDepthsDeck}
-                onAi={setAiDepthsDeck}
-                options={[
-                  { value: 'SUBS_wolfpack', label: 'Wolfpack · Fast Aggro' },
-                  { value: 'SUBS_silent_hunter', label: 'Silent Hunter · Stealth Control' },
-                  { value: 'SUBS_carrier', label: 'Carrier · Drone Swarm' },
-                  { value: 'SUBS_deep_strike', label: 'Deep Strike · Ambush' },
-                ]}
-              />
-            )}
-            {gameMode === 'scp' && (
-              <DeckPair
-                label="Site briefings"
-                player={playerSCPDeck}
-                ai={aiSCPDeck}
-                onPlayer={setPlayerSCPDeck}
-                onAi={setAiSCPDeck}
-                options={[
-                  { value: 'secure_contain_research', label: 'Secure / Contain / Research' },
-                  { value: 'keter_risk', label: 'Keter Risk Office' },
-                  { value: 'veil_control', label: 'Veil Control' },
-                ]}
-              />
-            )}
-            {/* Pokemon / Hearthstone / Finance use built-in decks (no picker) */}
-            {(gameMode === 'pokemon' || gameMode === 'hearthstone' || gameMode === 'finance') && (
-              <div className="text-sm text-brand-chalk px-1">
-                {gameMode === 'pokemon' && 'Pokémon uses the SV Starter pack — Charizard ex vs Mewtwo VMAX.'}
-                {gameMode === 'hearthstone' && 'Hearthstone variants ship with curated 30-card class decks.'}
-                {gameMode === 'finance' && 'Finance TCG uses the default 40-card asset deck.'}
-              </div>
-            )}
-
-            {/* Error */}
-            {error && (
-              <div className="border border-brand-ember/50 bg-brand-ember/10 px-4 py-3 text-sm text-brand-ember">
-                {error}
-              </div>
-            )}
-
-            {/* Primary action row */}
-            <div className="flex flex-wrap items-center gap-3 pt-2">
-              <BrandButton
-                size="lg"
-                onClick={handleStartGame}
-                loading={isLoading}
-                trailing={<span aria-hidden>→</span>}
-              >
-                {difficulty === 'ultra'
-                  ? `Play vs ${ultraAgent === 'codex' ? 'Codex' : 'Claude'} Ultra`
-                  : 'Play vs AI'}
-              </BrandButton>
-              {showWatchBot && (
-                <BrandButton variant="secondary" size="lg" onClick={handleStartBotGame} loading={isLoading}>
-                  Watch Bot vs Bot
-                </BrandButton>
-              )}
-            </div>
-          </div>
-        </div>
-      </Section>
-
-      {/* === Advanced (collapsible) ========================================== */}
-      {showAdvancedDuels && (
-        <Section
-          eyebrow="03 · Advanced"
-          title="Bot duels & LLM head-to-heads"
-          trailing={
-            <button
-              onClick={() => setAdvancedOpen((v) => !v)}
-              className="text-xs text-brand-foil hover:text-brand-foil-bright tracking-wide"
-            >
-              {advancedOpen ? 'Hide' : 'Show'} duel presets →
-            </button>
-          }
+        {/* ─── Footer ──────────────────────────────────────────────────── */}
+        <footer
+          style={{
+            marginTop: 96,
+            paddingTop: 28,
+            borderTop: '1.5px solid var(--ink)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 14,
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            color: 'var(--ink-3)',
+            letterSpacing: '.06em',
+          }}
         >
-          <AnimatePresence>
-            {advancedOpen && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden"
-              >
-                <div className="grid gap-4 lg:grid-cols-2">
-                  {showAdvancedDuels && (
-                    <div className="brand-tile brand-frame p-6">
-                      <p className="brand-eyebrow text-brand-foil mb-2">Ultra mirror</p>
-                      <h3 className="text-xl font-display font-semibold mb-2">Two heuristic ultras</h3>
-                      <p className="text-sm text-brand-chalk mb-5">
-                        Both seats run the heuristic engine at ultra difficulty. Useful for
-                        balance smoke tests and meta sampling.
-                      </p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <BrandButton variant="secondary" onClick={handleStartUltraMirror} loading={isLoading}>
-                          Ultra vs Ultra
-                        </BrandButton>
-                        <BrandButton variant="secondary" onClick={handleStartClaudexVsUltra} loading={isLoading}>
-                          Claudex vs Ultra
-                        </BrandButton>
-                      </div>
-                    </div>
-                  )}
-
-                  {showLlmDuel && (
-                    <div className="brand-tile brand-frame p-6">
-                      <p className="brand-eyebrow text-brand-sheen mb-2">LLM duel</p>
-                      <h3 className="text-xl font-display font-semibold mb-2">Anthropic vs OpenAI</h3>
-                      <p className="text-sm text-brand-chalk mb-5">
-                        Per-decision API mode. Requires <code className="brand-mono text-brand-foil">ANTHROPIC_API_KEY</code> +{' '}
-                        <code className="brand-mono text-brand-foil">OPENAI_API_KEY</code> in the container env.
-                      </p>
-                      <div className="grid grid-cols-2 gap-2 mb-3">
-                        <ModelField label="Claudex model" value={claudexModel} onChange={setClaudexModel} />
-                        <ModelField label="GPT model" value={gptModel} onChange={setGptModel} />
-                      </div>
-                      <label className="flex items-center gap-2 text-xs text-brand-chalk mb-3 select-none">
-                        <input
-                          type="checkbox"
-                          checked={recordPrompts}
-                          onChange={(e) => setRecordPrompts(e.target.checked)}
-                          className="accent-brand-foil"
-                        />
-                        Record prompts in replay
-                      </label>
-                      <BrandButton variant="secondary" onClick={handleStartLlmDuel} loading={isLoading}>
-                        Watch Claudex vs GPT
-                      </BrandButton>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </Section>
-      )}
-
-      {/* === Library shortcuts =============================================== */}
-      <Section eyebrow="04 · Library" title="Decks, gatherers, and replays">
-        <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-          <LibraryTile
-            label="Deckbuilder"
-            description="Browse curated decklists across all 8 engines."
-            onClick={() => navigate('/deckbuilder')}
-          />
-          <LibraryTile
-            label="MTG Gatherer"
-            description="3,450+ Standard cards with filters."
-            onClick={() => navigate('/gatherer')}
-          />
-          <LibraryTile
-            label="Pokémon Gatherer"
-            description="SV starter pack + custom set browser."
-            onClick={() => navigate('/pokemon-gatherer')}
-          />
-          <LibraryTile
-            label="SCP Cards"
-            description="Anomaly dossiers and containment briefs."
-            onClick={() => navigate('/scp-cards')}
-          />
-        </div>
-      </Section>
-
-      {/* === Footer ========================================================== */}
-      <footer className="border-t border-brand-hairline/60 mt-16 py-10">
-        <div className="flex flex-wrap items-baseline justify-between gap-4 text-xs text-brand-dust">
-          <span className="brand-mono tracking-tight">
-            uvicorn src.server.main:socket_app · port 8030
+          <span>uvicorn src.server.main:socket_app · port 8030</span>
+          <span style={{ letterSpacing: '.1em', textTransform: 'uppercase' }}>
+            Hyperdraft — the workbench between TCGs
           </span>
-          <span className="tracking-wide">
-            Hyperdraft — an experimental card-engine laboratory
-          </span>
-        </div>
-      </footer>
-    </AppShell>
+        </footer>
+      </main>
+    </div>
   );
 }
 
-// === Small composition helpers (file-local) ============================
+// === Lab composition helpers ============================================
+
+function SectionHead({
+  num,
+  title,
+  meta,
+}: {
+  num: string;
+  title: React.ReactNode;
+  meta?: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '160px 1fr',
+        gap: 48,
+        paddingTop: 28,
+        borderTop: '1px solid var(--rule)',
+      }}
+    >
+      <div
+        style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 11,
+          fontWeight: 500,
+          letterSpacing: '.14em',
+          textTransform: 'uppercase',
+          color: 'var(--ink-3)',
+          paddingTop: 6,
+        }}
+      >
+        <span
+          style={{
+            display: 'block',
+            fontFamily: 'var(--font-serif)',
+            fontSize: 32,
+            fontWeight: 400,
+            lineHeight: 1,
+            color: 'var(--sodium)',
+            marginBottom: 6,
+            letterSpacing: '-.02em',
+          }}
+        >
+          {num}
+        </span>
+        Section
+      </div>
+      <div>
+        <h2
+          style={{
+            margin: 0,
+            fontFamily: 'var(--font-serif)',
+            fontSize: 38,
+            fontWeight: 400,
+            lineHeight: 1.05,
+            letterSpacing: '-.015em',
+            color: 'var(--ink)',
+          }}
+        >
+          {title}
+        </h2>
+        {meta && (
+          <p
+            style={{
+              margin: '8px 0 0',
+              fontFamily: 'var(--font-sans)',
+              fontSize: 14,
+              color: 'var(--ink-2)',
+            }}
+          >
+            {meta}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function FieldBlock({
   label,
@@ -700,12 +988,43 @@ function FieldBlock({
 }) {
   return (
     <div>
-      <div className="flex items-baseline justify-between mb-2">
-        <p className="brand-eyebrow">{label}</p>
-        {hint && <span className="text-[10px] text-brand-dust">{hint}</span>}
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+        <Eyebrow>{label}</Eyebrow>
+        {hint && (
+          <span
+            style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)' }}
+          >
+            {hint}
+          </span>
+        )}
       </div>
       {children}
     </div>
+  );
+}
+
+function Eyebrow({
+  children,
+  tone = 'ink',
+}: {
+  children: React.ReactNode;
+  tone?: 'ink' | 'sodium' | 'plasma';
+}) {
+  const color =
+    tone === 'sodium' ? 'var(--sodium)' : tone === 'plasma' ? 'var(--plasma)' : 'var(--ink-3)';
+  return (
+    <span
+      style={{
+        fontFamily: 'var(--font-mono)',
+        fontSize: 10.5,
+        fontWeight: 500,
+        letterSpacing: '.14em',
+        textTransform: 'uppercase',
+        color,
+      }}
+    >
+      {children}
+    </span>
   );
 }
 
@@ -755,22 +1074,14 @@ function DeckPair({
     ));
   };
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div style={{ display: 'grid', gap: 14, gridTemplateColumns: '1fr 1fr' }}>
       <FieldBlock label={`Your ${label.toLowerCase()}`}>
-        <select
-          value={player}
-          onChange={(e) => onPlayer(e.target.value)}
-          className="w-full bg-brand-obsidian border border-brand-hairline px-3 py-2.5 text-brand-cream focus:outline-none focus:border-brand-foil/60"
-        >
+        <select value={player} onChange={(e) => onPlayer(e.target.value)} style={inputStyle}>
           {renderOptions()}
         </select>
       </FieldBlock>
       <FieldBlock label={`Opponent ${label.toLowerCase()}`}>
-        <select
-          value={ai}
-          onChange={(e) => onAi(e.target.value)}
-          className="w-full bg-brand-obsidian border border-brand-hairline px-3 py-2.5 text-brand-cream focus:outline-none focus:border-brand-foil/60"
-        >
+        <select value={ai} onChange={(e) => onAi(e.target.value)} style={inputStyle}>
           {renderOptions()}
         </select>
       </FieldBlock>
@@ -789,12 +1100,12 @@ function ModelField({
 }) {
   return (
     <div>
-      <p className="brand-eyebrow mb-1">{label}</p>
+      <Eyebrow>{label}</Eyebrow>
       <input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-brand-obsidian border border-brand-hairline px-2.5 py-2 text-sm brand-mono text-brand-cream focus:outline-none focus:border-brand-foil/60"
+        style={{ ...inputStyle, fontFamily: 'var(--font-mono)', fontSize: 12, marginTop: 4 }}
       />
     </div>
   );
@@ -812,15 +1123,99 @@ function LibraryTile({
   return (
     <button
       onClick={onClick}
-      className="brand-tile brand-frame p-5 text-left group transition-shadow hover:shadow-[0_22px_50px_-20px_rgba(0,0,0,0.7)]"
+      style={{
+        textAlign: 'left',
+        padding: 18,
+        background: 'var(--paper-2)',
+        border: '1px solid var(--rule)',
+        cursor: 'pointer',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        fontFamily: 'var(--font-sans)',
+      }}
     >
-      <div className="flex items-baseline justify-between mb-2">
-        <span className="text-base font-display font-semibold text-brand-cream">{label}</span>
-        <span className="text-brand-foil opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+        <span
+          style={{
+            fontFamily: 'var(--font-serif)',
+            fontSize: 18,
+            fontWeight: 400,
+            letterSpacing: '-.01em',
+            color: 'var(--ink)',
+          }}
+        >
+          {label}
+        </span>
+        <span style={{ color: 'var(--sodium)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>
+          →
+        </span>
       </div>
-      <p className="text-xs text-brand-chalk leading-relaxed">{description}</p>
+      <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
+        {description}
+      </p>
     </button>
   );
+}
+
+// === Inline-style helpers ===============================================
+
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  background: 'var(--paper)',
+  border: '1px solid var(--rule)',
+  padding: '10px 12px',
+  fontFamily: 'var(--font-sans)',
+  fontSize: 14,
+  color: 'var(--ink)',
+  outline: 'none',
+};
+
+function chipButtonStyle(active: boolean): React.CSSProperties {
+  return {
+    fontFamily: 'var(--font-mono)',
+    fontSize: 11,
+    fontWeight: 500,
+    letterSpacing: '.12em',
+    textTransform: 'uppercase',
+    padding: '8px 10px',
+    background: active ? 'var(--ink)' : 'var(--paper)',
+    color: active ? 'var(--paper)' : 'var(--ink-2)',
+    border: `1px solid ${active ? 'var(--ink)' : 'var(--rule)'}`,
+    cursor: 'pointer',
+  };
+}
+
+function primaryButtonStyle(loading: boolean): React.CSSProperties {
+  return {
+    fontFamily: 'var(--font-mono)',
+    fontSize: 12,
+    fontWeight: 500,
+    letterSpacing: '.14em',
+    textTransform: 'uppercase',
+    padding: '14px 20px',
+    background: loading ? 'var(--ink-2)' : 'var(--ink)',
+    color: 'var(--paper)',
+    border: 'none',
+    cursor: loading ? 'wait' : 'pointer',
+    opacity: loading ? 0.7 : 1,
+  };
+}
+
+function secondaryButtonStyle(loading: boolean): React.CSSProperties {
+  return {
+    fontFamily: 'var(--font-mono)',
+    fontSize: 11,
+    fontWeight: 500,
+    letterSpacing: '.14em',
+    textTransform: 'uppercase',
+    padding: '11px 16px',
+    background: 'transparent',
+    color: 'var(--ink)',
+    border: '1px solid var(--ink)',
+    cursor: loading ? 'wait' : 'pointer',
+    opacity: loading ? 0.6 : 1,
+  };
 }
 
 export default Home;
