@@ -894,6 +894,12 @@ def _build_finance_adapter() -> "GameModeAdapter":
     return FinanceModeAdapter()
 
 
+def _build_cats_adapter() -> "GameModeAdapter":
+    """Construct the CatsModeAdapter lazily to avoid an import cycle."""
+    from .cats import CatsModeAdapter
+    return CatsModeAdapter()
+
+
 # =============================================================================
 # Registry
 # =============================================================================
@@ -907,6 +913,7 @@ _REGISTRY: dict[str, GameModeAdapter] = {
     "scp": SCPModeAdapter(),
     "depths": _build_depths_adapter(),
     "finance": _build_finance_adapter(),
+    "cats": _build_cats_adapter(),
 }
 
 

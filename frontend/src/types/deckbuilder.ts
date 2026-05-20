@@ -5,7 +5,7 @@
  */
 
 // Game discriminator — matches GameState.game_mode on the backend.
-export const GAMES = ['mtg', 'minecraft', 'pokemon', 'yugioh', 'hearthstone', 'depths', 'finance', 'scp'] as const;
+export const GAMES = ['mtg', 'minecraft', 'pokemon', 'yugioh', 'hearthstone', 'depths', 'finance', 'scp', 'cats'] as const;
 export type Game = (typeof GAMES)[number];
 
 export const GAME_LABELS: Record<Game, string> = {
@@ -17,6 +17,7 @@ export const GAME_LABELS: Record<Game, string> = {
   depths: 'Depths: Submarine Fleet',
   finance: 'Finance TCG',
   scp: 'SCP Containment TCG',
+  cats: 'Cats',
 };
 
 // Deck entry (card name + quantity)

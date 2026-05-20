@@ -634,6 +634,24 @@ class EventType(Enum):
     SCP_CONTROL_SWAP = auto()              # Compleation Vector flipped a personnel's controller
     SCP_PHYLACTERY_AUDIT_OFFER = auto()    # Phylactery Audit auto-accept / reject decision
 
+    # ------------------------------------------------------------------
+    # Cats — trick-taking + pile-building card game. See src/engine/cats.py.
+    # Each round: Stretch -> Pounce -> Counter-pounce -> Resolve -> Claim ->
+    # Curl up. Two players play one card per round; the trick winner claims
+    # the trick into one of their three scoring piles (or attention).
+    # ------------------------------------------------------------------
+    CATS_ROUND_START = auto()           # Stretch phase opened. Payload: {'round_number': int}
+    CATS_ROUND_END = auto()             # Curl-up phase closed. Payload: {'round_number': int}
+    CATS_CARD_PLAYED = auto()           # Pounce or Counter-pounce. Payload: {'player': str, 'card_id': str, 'role': 'pounce'|'counter'}
+    CATS_TRICK_RULE_QUERY = auto()      # Synthetic query: what rule resolves this trick? Mood interceptors REPLACE.
+    CATS_TRICK_RESOLVE = auto()         # Trick winner determined. Payload: {'winner': str, 'cards': list[str]}
+    CATS_CLAIM_PILE = auto()            # Winner is sending cards to a pile. Payload: {'player': str, 'pile': str, 'card_ids': list[str]}
+    CATS_PILE_CAPPED = auto()           # A scoring pile hit its cap. Payload: {'player': str, 'pile': str, 'overflow': list[str]}
+    CATS_PILE_ACTIVATE = auto()         # Player activates a pile-card ability. Payload: {'player': str, 'card_id': str, 'pile': str}
+    CATS_KNOCK_OVER = auto()            # A pile card was knocked over (tapped) as an activation cost.
+    CATS_QUERY_PILE_SCORE = auto()      # Synthetic query: rewrite a pile's contribution to final score.
+    CATS_GAME_OVER = auto()             # Marker: round 9 ended + both hands empty -> finalize scores.
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
@@ -791,6 +809,13 @@ class CardType(Enum):
     SCP_PROCEDURE = auto()    # One-shot protocol; usually modifies clocks or dossiers
     SCP_MANDATE = auto()      # Alternate directive / win-condition modifier
 
+    # Cats card types — see src/engine/cats.py.
+    CATS_CAT = auto()         # Core unit. Numeric Value (1-10) + one Category (Sleek/Fluffy/Scrappy/Sneaky).
+    CATS_MOOD = auto()        # Trick-rule replacement card. Value 0; distorts the comparison rule.
+    CATS_SNACK = auto()       # Wildcard; forces the trick into the winner's Snack pile.
+    CATS_TRINKET = auto()     # Persistent pile attachment. Grants a passive score/utility mod.
+    CATS_COMMANDER = auto()   # Pre-game-only. Lives in COMMAND zone; permanent passive.
+
 
 class Color(Enum):
     WHITE = 'W'
@@ -837,6 +862,12 @@ class ZoneType(Enum):
     PENDULUM_ZONE = auto()      # 2 Pendulum Zones per player (leftmost/rightmost S/T)
     EXTRA_DECK = auto()         # Extra Deck (Fusion/Synchro/Xyz/Link/Pendulum)
     BANISHED = auto()           # Banished (removed from play)
+
+    # Cats — see src/engine/cats.py.
+    CATS_PILE_TERRITORY = auto()    # Per-player scoring pile #1. Cap 8 cards. 1pt/card +bonuses.
+    CATS_PILE_NAP = auto()          # Per-player scoring pile #2. Cap 6 cards. 2pt/card, capped at 12.
+    CATS_PILE_SNACK = auto()        # Per-player scoring pile #3. Cap 5 cards. 3pt/card if <5 else 1pt.
+    CATS_PILE_ATTENTION = auto()    # Per-player tiebreaker pile. Unlimited. Holds overflow + "demands attention" placements.
 
 
 # =============================================================================
