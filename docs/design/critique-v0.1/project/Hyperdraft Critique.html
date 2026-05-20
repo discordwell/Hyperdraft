@@ -1,0 +1,1142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hyperdraft — Design Critique</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@300;400;500;600&family=Geist:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<style>
+  :root{
+    --paper: oklch(0.965 0.012 78);
+    --paper-2: oklch(0.94 0.013 78);
+    --paper-3: oklch(0.90 0.014 78);
+    --ink: oklch(0.20 0.018 250);
+    --ink-2: oklch(0.36 0.014 250);
+    --ink-3: oklch(0.55 0.010 250);
+    --rule: oklch(0.78 0.010 80);
+    --rule-2: oklch(0.85 0.010 80);
+    --sodium: oklch(0.68 0.18 38);   /* accent */
+    --plasma: oklch(0.65 0.16 245);  /* secondary accent — chain/stack */
+    --acid: oklch(0.78 0.16 130);    /* highlight (rarely used) */
+    --danger: oklch(0.58 0.20 25);
+    --shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 8px 28px -16px rgba(20,24,40,.20);
+    --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+    --serif: "Instrument Serif", "Times New Roman", serif;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);
+    font-family:var(--sans);font-size:15px;line-height:1.55;
+    font-feature-settings:"ss01","cv11";
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* Page rhythm */
+  .doc{max-width:1240px;margin:0 auto;padding:96px 56px 160px;position:relative}
+  .doc::before{content:"";position:absolute;inset:0;pointer-events:none;
+    background:
+      linear-gradient(transparent 23px, color-mix(in oklab, var(--rule) 22%, transparent) 24px),
+      linear-gradient(90deg, transparent 23px, color-mix(in oklab, var(--rule) 22%, transparent) 24px);
+    background-size:24px 24px;opacity:.35;mix-blend-mode:multiply;
+    -webkit-mask-image:linear-gradient(180deg, transparent 0, #000 200px, #000 calc(100% - 200px), transparent);
+            mask-image:linear-gradient(180deg, transparent 0, #000 200px, #000 calc(100% - 200px), transparent);
+  }
+
+  /* Masthead */
+  .mast{display:grid;grid-template-columns:1fr auto;align-items:end;
+    border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);
+    padding:18px 0 22px;margin-bottom:48px}
+  .mast .l{font:500 12px/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+  .mast .r{font:500 12px/1.2 var(--mono);letter-spacing:.06em;color:var(--ink-2);text-align:right}
+  .mast h1{grid-column:1/-1;margin:18px 0 0;font:400 96px/.92 var(--serif);letter-spacing:-.02em}
+  .mast h1 em{font-style:italic;color:var(--sodium)}
+  .mast .deck{grid-column:1/-1;margin-top:12px;display:flex;gap:14px;flex-wrap:wrap;
+    font:400 16px/1.3 var(--serif);color:var(--ink-2);font-style:italic}
+
+  /* Section heads */
+  .sec{margin:72px 0 0;display:grid;grid-template-columns:160px 1fr;gap:48px;
+    padding-top:28px;border-top:1px solid var(--rule)}
+  .sec > .tag{font:500 11px/1.4 var(--mono);letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-3);padding-top:6px}
+  .sec > .tag .num{display:block;font:400 32px/1 var(--serif);color:var(--sodium);
+    margin-bottom:6px;letter-spacing:-.02em}
+  .sec h2{margin:0 0 18px;font:400 44px/1.05 var(--serif);letter-spacing:-.015em;max-width:24ch}
+  .sec p{margin:0 0 14px;max-width:62ch;color:var(--ink-2);font-size:16px;line-height:1.62}
+  .sec p strong{color:var(--ink);font-weight:600}
+  .sec p .lift{font-family:var(--serif);font-style:italic;font-size:1.06em;color:var(--ink)}
+
+  .pull{margin:24px 0;padding:18px 22px;border-left:2.5px solid var(--sodium);
+    font:400 22px/1.32 var(--serif);color:var(--ink);max-width:48ch;
+    background:color-mix(in oklab, var(--sodium) 5%, transparent);
+  }
+
+  .ledger{margin:24px 0;border:1px solid var(--rule);background:var(--paper-2);
+    font:500 12px/1.45 var(--mono)}
+  .ledger .row{display:grid;grid-template-columns:36px 130px 1fr;gap:14px;
+    padding:9px 14px;border-top:1px solid var(--rule-2)}
+  .ledger .row:first-child{border-top:0}
+  .ledger .row .n{color:var(--sodium)}
+  .ledger .row .k{color:var(--ink);letter-spacing:.04em}
+  .ledger .row .v{color:var(--ink-2);font-family:var(--sans);font-weight:400;font-size:14px;line-height:1.5}
+
+  /* Inline labels */
+  .chip{display:inline-flex;align-items:center;gap:6px;
+    padding:3px 8px;border:1px solid var(--rule);border-radius:999px;
+    font:500 10.5px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-2);background:var(--paper)}
+  .chip .dot{width:6px;height:6px;border-radius:50%;background:var(--sodium)}
+
+  /* Plate (full bleed inside doc) */
+  .plate{margin:48px 0 12px;padding:36px;background:var(--paper-2);
+    border:1px solid var(--rule);box-shadow:var(--shadow);position:relative}
+  .plate-hd{display:flex;justify-content:space-between;align-items:baseline;
+    margin-bottom:24px;padding-bottom:14px;border-bottom:1px solid var(--rule)}
+  .plate-hd .t{font:400 28px/1 var(--serif);letter-spacing:-.01em}
+  .plate-hd .t small{display:block;font:500 10.5px/1 var(--mono);letter-spacing:.18em;
+    text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+  .plate-hd .meta{font:500 11px/1 var(--mono);letter-spacing:.1em;color:var(--ink-3);text-transform:uppercase}
+
+  /* Type specimen */
+  .type-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  .type-grid .cell{padding:18px;background:var(--paper);border:1px solid var(--rule-2)}
+  .type-grid .lbl{font:500 10.5px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-3);margin-bottom:14px;display:flex;justify-content:space-between}
+  .type-grid .lbl b{color:var(--ink);font-weight:600}
+  .type-grid .show-serif{font:400 56px/.95 var(--serif);letter-spacing:-.02em;color:var(--ink)}
+  .type-grid .show-serif em{color:var(--sodium)}
+  .type-grid .show-mono{font:400 22px/1.2 var(--mono);letter-spacing:-.01em;color:var(--ink);
+    font-feature-settings:"ss01","ss02"}
+  .type-grid .show-sans{font:500 24px/1.15 var(--sans);letter-spacing:-.01em;color:var(--ink)}
+
+  /* Swatch */
+  .swatches{display:grid;grid-template-columns:repeat(6, 1fr);gap:10px}
+  .sw{aspect-ratio:1/1.1;border:1px solid var(--rule-2);padding:10px;display:flex;flex-direction:column;justify-content:space-between;
+    font:500 10.5px/1.3 var(--mono);letter-spacing:.04em;position:relative;overflow:hidden}
+  .sw .name{color:#fff;mix-blend-mode:difference}
+  .sw .hex{color:#fff;mix-blend-mode:difference;opacity:.7}
+
+  /* ── ARTBOARDS ─────────────────────────────────────────────── */
+  /* Each artboard is a fixed-width mock — laid out on the page like plates in a printed book */
+  .ab{margin:36px 0 8px;background:var(--paper);border:1px solid var(--rule);
+    box-shadow:var(--shadow);overflow:hidden;position:relative}
+  .ab-cap{display:flex;justify-content:space-between;align-items:baseline;
+    margin:14px 0 28px;font:500 11.5px/1.3 var(--mono);
+    letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+  .ab-cap .L{color:var(--ink)}
+
+  /* Landing artboard */
+  .ab-landing{aspect-ratio:16/10;background:var(--paper);
+    display:grid;grid-template-rows:auto 1fr auto;padding:22px 28px 24px;color:var(--ink)}
+  .nav{display:flex;justify-content:space-between;align-items:center;
+    border-bottom:1px solid var(--rule);padding-bottom:14px}
+  .nav .brand{font:400 22px/1 var(--serif);letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+  .nav .brand .dot{width:9px;height:9px;background:var(--sodium);border-radius:50%;
+    box-shadow:0 0 0 3px color-mix(in oklab, var(--sodium) 25%, transparent)}
+  .nav ul{list-style:none;margin:0;padding:0;display:flex;gap:22px;
+    font:500 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+  .nav .signin{font:500 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    padding:8px 14px;border:1px solid var(--ink);background:var(--ink);color:var(--paper)}
+
+  .hero{display:grid;grid-template-columns:1.05fr .95fr;gap:40px;align-items:end;padding:32px 0}
+  .hero h1{margin:0;font:400 96px/.92 var(--serif);letter-spacing:-.025em}
+  .hero h1 em{font-style:italic;color:var(--sodium)}
+  .hero .blurb{font:400 17px/1.5 var(--serif);font-style:italic;color:var(--ink-2);max-width:38ch;margin:18px 0 24px}
+  .hero .cta{display:flex;gap:10px;align-items:center}
+  .hero .cta .pri{font:500 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;
+    padding:14px 18px;background:var(--ink);color:var(--paper)}
+  .hero .cta .sec{font:500 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;
+    padding:14px 18px;border:1px solid var(--ink);color:var(--ink);background:transparent}
+
+  /* engines side panel */
+  .engines{border:1px solid var(--rule);background:var(--paper-2)}
+  .engines .hd{padding:12px 14px;border-bottom:1px solid var(--rule);
+    font:500 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);
+    display:flex;justify-content:space-between}
+  .engines .hd b{color:var(--ink);font-weight:600}
+  .e-row{display:grid;grid-template-columns:36px 1fr auto 80px;align-items:center;gap:12px;
+    padding:10px 14px;border-top:1px solid var(--rule-2);
+    font:500 12px/1.2 var(--mono)}
+  .e-row .ix{color:var(--ink-3)}
+  .e-row .nm{font-family:var(--serif);font-size:18px;font-weight:400;letter-spacing:-.01em;color:var(--ink)}
+  .e-row .nm small{display:block;font:400 11px/1 var(--mono);color:var(--ink-3);
+    text-transform:uppercase;letter-spacing:.1em;margin-top:3px}
+  .e-row .stat{color:var(--ink-2);font-size:11px;letter-spacing:.05em}
+  .bar{height:6px;background:var(--rule-2);position:relative}
+  .bar i{position:absolute;inset:0;width:var(--w,40%);background:var(--ink)}
+  .bar i.is-sodium{background:var(--sodium)}
+
+  .foot{display:flex;justify-content:space-between;
+    border-top:1px solid var(--rule);padding-top:14px;
+    font:500 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+
+  /* Engine picker */
+  .ab-picker{aspect-ratio:16/10;padding:26px;display:grid;grid-template-rows:auto 1fr auto;gap:18px}
+  .pk-h{display:flex;justify-content:space-between;align-items:baseline;
+    border-bottom:1px solid var(--rule);padding-bottom:14px}
+  .pk-h h2{margin:0;font:400 36px/1 var(--serif);letter-spacing:-.015em}
+  .pk-h h2 em{color:var(--sodium)}
+  .pk-h .meta{font:500 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+
+  .pk-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .pk-card{border:1px solid var(--rule);background:var(--paper);padding:14px;display:flex;flex-direction:column;gap:10px;position:relative;min-height:170px}
+  .pk-card.act{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
+  .pk-card .tn{font:500 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);display:flex;justify-content:space-between}
+  .pk-card .nm{font:400 26px/1.02 var(--serif);letter-spacing:-.015em;color:var(--ink);margin-top:auto}
+  .pk-card .nm small{display:block;font:400 12px/1 var(--mono);color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-top:6px}
+  .pk-card .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;
+    font:500 10.5px/1.4 var(--mono);color:var(--ink-2)}
+  .pk-card .stats b{color:var(--ink);display:block;font-weight:600}
+  .pk-card.cust{background:repeating-linear-gradient(45deg, var(--paper) 0 6px, var(--paper-2) 6px 12px)}
+  .pk-card .badge{position:absolute;top:10px;right:10px;font:500 9.5px/1 var(--mono);
+    letter-spacing:.14em;text-transform:uppercase;color:var(--paper);background:var(--sodium);
+    padding:4px 6px}
+
+  /* Game board mock */
+  .ab-board{aspect-ratio:16/10;background:var(--paper);padding:0;
+    display:grid;grid-template-rows:auto 1fr auto;color:var(--ink)}
+  .bd-top{display:grid;grid-template-columns:auto 1fr auto;align-items:center;
+    padding:10px 18px;border-bottom:1px solid var(--rule);
+    font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+  .bd-top .L{display:flex;gap:18px;align-items:center}
+  .bd-top .L .breadcrumb b{color:var(--ink);font-weight:600}
+  .bd-top .R{display:flex;gap:14px;align-items:center}
+  .bd-top .R .who{display:flex;align-items:center;gap:8px}
+  .bd-top .R .who .av{width:14px;height:14px;background:var(--ink);border-radius:50%}
+
+  .bd-main{display:grid;grid-template-columns:240px 1fr 240px;height:100%}
+  .bd-side{border-right:1px solid var(--rule);padding:14px;display:flex;flex-direction:column;gap:12px;background:var(--paper-2)}
+  .bd-side.r{border-right:0;border-left:1px solid var(--rule)}
+  .bd-side h4{margin:0;font:500 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);
+    display:flex;justify-content:space-between}
+  .bd-side h4 b{color:var(--ink)}
+
+  .play{padding:8px 14px;display:flex;flex-direction:column;gap:6px;position:relative}
+  .row-zone{display:grid;grid-template-columns:96px 1fr;align-items:center;gap:12px;
+    padding:6px 10px;border:1px dashed var(--rule);min-height:96px;background:var(--paper)}
+  .row-zone.opp{background:color-mix(in oklab, var(--ink) 4%, var(--paper))}
+  .row-zone .lab{font:500 10.5px/1.2 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+  .row-zone .lab b{display:block;color:var(--ink);font-weight:600;margin-top:3px;font-family:var(--serif);font-size:15px;letter-spacing:0;text-transform:none}
+  .row-zone .cards{display:flex;gap:6px;flex-wrap:wrap}
+
+  /* card chip — engine-agnostic spec sheet */
+  .c{width:62px;height:84px;border:1px solid var(--ink);background:var(--paper);
+    display:grid;grid-template-rows:auto 1fr auto;padding:5px;font:500 9px/1 var(--mono);
+    letter-spacing:.04em;color:var(--ink);position:relative;
+    box-shadow:0 1px 0 var(--ink) inset;
+  }
+  .c .ct{display:flex;justify-content:space-between;color:var(--ink-3)}
+  .c .nm{font-family:var(--serif);font-size:11px;letter-spacing:-.005em;
+    line-height:1.05;text-align:left;color:var(--ink);align-self:end;font-weight:400}
+  .c .b{display:flex;justify-content:space-between;color:var(--ink-2);font-size:8.5px;letter-spacing:.04em}
+  .c.tap{transform:rotate(7deg);background:var(--paper-2);opacity:.85}
+  .c.sel{outline:2px solid var(--sodium);outline-offset:1px}
+  .c.face-dn{background:repeating-linear-gradient(45deg, var(--ink) 0 4px, color-mix(in oklab, var(--ink) 85%, var(--paper)) 4px 8px);
+    color:var(--paper)}
+  .c.face-dn .nm,.c.face-dn .ct,.c.face-dn .b{visibility:hidden}
+
+  /* chain/stack */
+  .stack{position:absolute;right:14px;top:50%;transform:translateY(-50%);
+    width:200px;background:var(--paper);border:1px solid var(--ink);padding:10px}
+  .stack h5{margin:0 0 8px;font:500 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2);
+    display:flex;justify-content:space-between}
+  .stack h5 .ct{color:var(--plasma)}
+  .stack ol{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px;
+    font:500 11px/1.3 var(--mono)}
+  .stack li{display:grid;grid-template-columns:18px 1fr auto;gap:8px;padding:6px 8px;
+    border-left:2px solid var(--plasma);background:color-mix(in oklab,var(--plasma) 5%, var(--paper-2))}
+  .stack li .ix{color:var(--ink-3)}
+  .stack li b{color:var(--ink);font-family:var(--serif);font-size:13px;font-weight:400;letter-spacing:0}
+  .stack li .by{color:var(--ink-3);font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;align-self:center}
+
+  /* phase rail */
+  .phases{display:flex;gap:0;font:500 10.5px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase}
+  .phases span{padding:6px 9px;border:1px solid var(--rule);border-right:0;color:var(--ink-3);background:var(--paper)}
+  .phases span:last-child{border-right:1px solid var(--rule)}
+  .phases span.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+
+  /* bottom hand */
+  .hand{padding:10px 18px 16px;display:flex;justify-content:space-between;align-items:center;gap:18px;border-top:1px solid var(--rule);background:var(--paper-2)}
+  .hand .meter{flex:0 0 auto;font:500 11px/1.2 var(--mono);letter-spacing:.06em;color:var(--ink-2)}
+  .hand .meter b{color:var(--ink);font-family:var(--serif);font-size:22px;font-weight:400;display:block}
+  .hand .cards{display:flex;gap:8px;flex:1 1 auto;justify-content:center}
+  .hand .cards .c{width:70px;height:96px}
+  .hand .pri{padding:10px 16px;background:var(--ink);color:var(--paper);font:500 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase}
+
+  /* log entry */
+  .log{display:flex;flex-direction:column;gap:4px;font:400 11px/1.4 var(--mono);color:var(--ink-2);max-height:160px;overflow:hidden;
+    -webkit-mask-image:linear-gradient(180deg, transparent 0, #000 30px, #000 100%);
+            mask-image:linear-gradient(180deg, transparent 0, #000 30px, #000 100%);}
+  .log .l{display:grid;grid-template-columns:36px 1fr;gap:8px}
+  .log .l .t{color:var(--ink-3)}
+  .log .l b{color:var(--ink);font-weight:500}
+  .log .l.evt{border-left:2px solid var(--sodium);padding-left:6px;margin-left:-8px}
+
+  /* Deckbuilder */
+  .ab-dbk{aspect-ratio:16/10;padding:0;display:grid;grid-template-rows:auto 1fr;background:var(--paper)}
+  .dbk-h{display:grid;grid-template-columns:1fr auto 1fr;align-items:end;padding:18px 24px 14px;border-bottom:1px solid var(--rule);gap:24px}
+  .dbk-h h2{margin:0;font:400 32px/1 var(--serif);letter-spacing:-.015em}
+  .dbk-h h2 small{display:block;font:500 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px}
+  .dbk-h .tools{display:flex;gap:8px;font:500 10.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase}
+  .dbk-h .tools span{padding:6px 10px;border:1px solid var(--rule);color:var(--ink-2)}
+  .dbk-h .tools span.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+
+  .dbk-search{align-self:end;display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--ink);min-width:280px;
+    font:500 11px/1 var(--mono);letter-spacing:.06em;color:var(--ink-3)}
+  .dbk-search b{color:var(--ink);font-family:var(--serif);font-weight:400;font-size:14px;letter-spacing:0}
+
+  .dbk-body{display:grid;grid-template-columns:1fr 260px;height:100%;min-height:0}
+  .dbk-grid{padding:16px;display:grid;grid-template-columns:repeat(8, 1fr);gap:8px;align-content:start;overflow:hidden}
+  .dbk-grid .c{width:auto;height:120px;aspect-ratio:auto}
+  .dbk-grid .c .nm{font-size:12px}
+  .dbk-side{border-left:1px solid var(--rule);background:var(--paper-2);padding:18px;display:flex;flex-direction:column;gap:14px}
+  .dbk-side .stat-grp{}
+  .dbk-side h5{margin:0 0 8px;font:500 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);
+    display:flex;justify-content:space-between}
+  .dbk-side h5 b{color:var(--ink);font-family:var(--serif);font-size:13px;letter-spacing:0;font-weight:400;text-transform:none}
+
+  .curve{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;align-items:end;height:90px;padding:6px 0;border-bottom:1px solid var(--rule-2)}
+  .curve .bar{background:var(--ink);position:relative;display:flex;flex-direction:column;justify-content:end;align-items:center;color:var(--paper);font:500 9px/1 var(--mono)}
+  .curve .bar span{padding:3px 0 0;color:var(--ink-3);font-size:9px;letter-spacing:.04em}
+
+  .breakdown{font:500 11px/1.5 var(--mono);color:var(--ink-2)}
+  .breakdown .ln{display:grid;grid-template-columns:1fr auto;gap:10px;padding:5px 0;border-top:1px solid var(--rule-2)}
+  .breakdown .ln:first-child{border-top:0}
+  .breakdown .ln b{color:var(--ink);font-family:var(--serif);font-weight:400;font-size:14px;letter-spacing:0}
+
+  /* SCP archetype viewer */
+  .ab-scp{aspect-ratio:16/10;background:var(--paper);padding:0;
+    display:grid;grid-template-columns:300px 1fr;color:var(--ink);position:relative}
+  .scp-side{padding:18px;background:var(--paper-2);border-right:1px solid var(--rule);display:flex;flex-direction:column;gap:14px;overflow:hidden}
+  .scp-side .k{font:500 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+  .scp-side .archetype{padding:9px 10px;border:1px solid transparent;display:grid;grid-template-columns:34px 1fr auto;gap:8px;
+    font:500 11px/1.2 var(--mono);align-items:center;color:var(--ink-2);cursor:pointer}
+  .scp-side .archetype.on{border-color:var(--ink);background:var(--paper)}
+  .scp-side .archetype .ix{color:var(--ink-3)}
+  .scp-side .archetype b{color:var(--ink);font-family:var(--serif);font-weight:400;font-size:15px;letter-spacing:0}
+  .scp-side .archetype .wr{color:var(--ink-3);font-size:10.5px}
+  .scp-side .archetype.on .wr{color:var(--sodium)}
+
+  .scp-main{padding:20px 28px 24px;display:flex;flex-direction:column;gap:14px;overflow:hidden}
+  .scp-main .meta{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:baseline;border-bottom:1px solid var(--rule);padding-bottom:12px}
+  .scp-main .meta .item{font:500 10.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+  .scp-main .meta .item b{display:block;color:var(--ink);font-family:var(--serif);font-size:17px;font-weight:400;letter-spacing:0;margin-top:5px;text-transform:none}
+  .scp-main h2{margin:0;font:400 42px/1 var(--serif);letter-spacing:-.02em}
+  .scp-main h2 em{color:var(--sodium)}
+
+  .scp-body{display:grid;grid-template-columns:1.1fr .9fr;gap:24px;flex:1 1 auto;min-height:0}
+  .scp-body p{margin:0 0 10px;font:400 13.5px/1.55 var(--sans);color:var(--ink-2);max-width:62ch}
+  .scp-body .gameplan{font:500 11px/1.5 var(--mono);color:var(--ink-2)}
+  .scp-body .gameplan .ln{display:grid;grid-template-columns:24px 1fr;gap:8px;padding:6px 0;border-top:1px solid var(--rule-2)}
+  .scp-body .gameplan .ln:first-child{border-top:0}
+  .scp-body .gameplan .ln .n{color:var(--sodium)}
+  .scp-body .gameplan .ln b{color:var(--ink);font-family:var(--serif);font-size:14px;font-weight:400;letter-spacing:0;display:block}
+
+  .scp-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .scp-cards .c{width:auto;height:108px;aspect-ratio:auto}
+
+  /* Lobby */
+  .ab-lobby{aspect-ratio:16/10;padding:24px 28px;display:grid;grid-template-rows:auto 1fr;gap:18px;background:var(--paper)}
+  .lb-h{display:flex;justify-content:space-between;align-items:end;border-bottom:1px solid var(--rule);padding-bottom:12px}
+  .lb-h h2{margin:0;font:400 36px/1 var(--serif);letter-spacing:-.015em}
+  .lb-h .pill{display:inline-flex;gap:6px;align-items:center;padding:6px 10px;border:1px solid var(--rule);font:500 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2)}
+  .lb-h .pill .d{width:6px;height:6px;border-radius:50%;background:var(--acid);animation:pulse 1.6s infinite}
+  @keyframes pulse{50%{opacity:.4}}
+
+  .lb-body{display:grid;grid-template-columns:1.4fr 1fr;gap:20px;min-height:0}
+  .lb-table{border:1px solid var(--rule);display:flex;flex-direction:column;background:var(--paper-2)}
+  .lb-table .row{display:grid;grid-template-columns:40px 1.4fr 1fr .9fr .8fr 70px;gap:10px;align-items:center;padding:11px 14px;border-top:1px solid var(--rule-2);font:500 11.5px/1.2 var(--mono)}
+  .lb-table .row.hd{background:var(--paper-3);color:var(--ink-3);letter-spacing:.12em;text-transform:uppercase;font-size:10.5px;border-top:0}
+  .lb-table .row .ix{color:var(--ink-3)}
+  .lb-table .row b{color:var(--ink);font-family:var(--serif);font-size:15px;font-weight:400;letter-spacing:0;line-height:1.1}
+  .lb-table .row b small{display:block;font:400 10.5px/1 var(--mono);color:var(--ink-3);text-transform:uppercase;letter-spacing:.1em;margin-top:3px}
+  .lb-table .row .mode{color:var(--ink-2)}
+  .lb-table .row .who{color:var(--ink-2);font-size:11px}
+  .lb-table .row .turn{font-feature-settings:"tnum"}
+  .lb-table .row .turn span{display:inline-block;background:var(--ink);color:var(--paper);padding:3px 6px;font-size:10.5px;letter-spacing:.04em}
+  .lb-table .row .live{color:var(--sodium)}
+  .lb-table .row .watch{font:500 10px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink);text-align:right}
+
+  .lb-feat{border:1px solid var(--ink);background:var(--paper-2);padding:18px;display:flex;flex-direction:column;gap:14px}
+  .lb-feat .top{display:flex;justify-content:space-between;align-items:baseline}
+  .lb-feat .top h3{margin:0;font:400 22px/1 var(--serif);letter-spacing:-.01em}
+  .lb-feat .top h3 small{display:block;font:500 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--sodium);margin-bottom:5px}
+  .lb-feat .vs{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;padding:10px 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+  .lb-feat .vs .p{font:500 11px/1.3 var(--mono);color:var(--ink-2)}
+  .lb-feat .vs .p b{display:block;color:var(--ink);font-family:var(--serif);font-size:17px;font-weight:400;letter-spacing:0;margin-bottom:3px}
+  .lb-feat .vs .sep{font:400 22px/1 var(--serif);font-style:italic;color:var(--sodium);text-align:center}
+  .lb-feat .commentary{font:400 12.5px/1.55 var(--sans);color:var(--ink-2);max-height:120px;overflow:hidden;
+    -webkit-mask-image:linear-gradient(180deg, #000 70%, transparent);
+            mask-image:linear-gradient(180deg, #000 70%, transparent);}
+  .lb-feat .commentary p{margin:0 0 8px}
+  .lb-feat .commentary .who{font:500 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--sodium);margin-right:6px}
+
+  /* Motion preview */
+  .motion{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .motion .m{padding:18px;background:var(--paper);border:1px solid var(--rule-2);min-height:160px;position:relative;overflow:hidden}
+  .motion .m .lbl{font:500 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:10px;display:flex;justify-content:space-between}
+  .motion .m .lbl b{color:var(--ink);font-family:var(--serif);font-size:14px;font-weight:400;letter-spacing:0;text-transform:none}
+  .motion .m p{margin:0;font:400 12.5px/1.5 var(--sans);color:var(--ink-2)}
+
+  .m-card-fly{position:absolute;left:18px;bottom:18px;width:56px;height:78px;border:1px solid var(--ink);background:var(--paper-2);
+    animation:fly 3.4s ease-in-out infinite}
+  @keyframes fly{
+    0%{transform:translate(0,0) rotate(0deg)}
+    40%{transform:translate(140px,-30px) rotate(6deg)}
+    70%{transform:translate(140px,-30px) rotate(6deg);box-shadow:0 0 0 3px color-mix(in oklab, var(--sodium) 40%, transparent)}
+    100%{transform:translate(0,0) rotate(0deg)}
+  }
+  .m-tick{position:absolute;left:18px;right:18px;bottom:18px;height:6px;background:var(--rule-2)}
+  .m-tick i{position:absolute;left:0;top:0;height:100%;background:var(--ink);width:30%;
+    animation:tick 2.6s cubic-bezier(.5,.05,.2,1) infinite}
+  @keyframes tick{0%{width:0}80%{width:88%}100%{width:88%}}
+  .m-tick em{position:absolute;left:0;top:-22px;font:500 10.5px/1 var(--mono);color:var(--ink-2);
+    animation:label 2.6s steps(1,end) infinite}
+  @keyframes label{
+    0%{content:"UPKEEP"}25%{transform:translateX(50px)}50%{transform:translateX(110px)}75%{transform:translateX(180px)}100%{transform:translateX(250px)}
+  }
+
+  .m-chain{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+  .m-chain .mc{padding:6px 10px;border-left:2px solid var(--plasma);background:color-mix(in oklab,var(--plasma) 6%, var(--paper));
+    font:500 10.5px/1.3 var(--mono);color:var(--ink-2);opacity:0;animation:appear 3s ease-in-out infinite}
+  .m-chain .mc b{color:var(--ink);font-family:var(--serif);font-weight:400;letter-spacing:0;font-size:13px;display:block}
+  .m-chain .mc:nth-child(1){animation-delay:.0s}
+  .m-chain .mc:nth-child(2){animation-delay:.6s}
+  .m-chain .mc:nth-child(3){animation-delay:1.2s}
+  @keyframes appear{0%,5%{opacity:0;transform:translateY(4px)}20%,80%{opacity:1;transform:translateY(0)}95%,100%{opacity:0}}
+
+  /* Closing */
+  .close{margin-top:96px;padding-top:32px;border-top:1.5px solid var(--ink);
+    display:grid;grid-template-columns:1.2fr .8fr;gap:48px;align-items:start}
+  .close h3{margin:0 0 12px;font:400 36px/1.04 var(--serif);letter-spacing:-.015em;max-width:18ch}
+  .close h3 em{color:var(--sodium)}
+  .close p{margin:0 0 12px;font:400 15px/1.6 var(--sans);color:var(--ink-2);max-width:54ch}
+  .close .sign{font:500 11px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+  .close .sign b{display:block;color:var(--ink);font-family:var(--serif);font-size:22px;font-weight:400;letter-spacing:-.01em;text-transform:none;margin-bottom:6px}
+
+  /* Caption rail at very top */
+  .crumbs{position:fixed;top:14px;left:50%;transform:translateX(-50%);
+    font:500 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);
+    background:var(--paper);padding:6px 14px;border:1px solid var(--rule);z-index:10}
+  .crumbs b{color:var(--ink);font-weight:500}
+
+  /* Tweak controls live in the panel */
+
+  @media (max-width: 900px){
+    .doc{padding:64px 22px 96px}
+    .sec{grid-template-columns:1fr;gap:14px}
+    .hero{grid-template-columns:1fr;gap:18px}
+    .hero h1{font-size:64px}
+    .pk-grid{grid-template-columns:repeat(2,1fr)}
+    .bd-main{grid-template-columns:1fr}
+    .bd-side{display:none}
+    .lb-body,.dbk-body,.scp-body{grid-template-columns:1fr}
+    .type-grid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+
+<div class="crumbs"><b>HD-CRIT-001</b> &nbsp; · &nbsp; Internal design review &nbsp; · &nbsp; v0.1 / 20 May 2026</div>
+
+<main class="doc">
+
+  <header class="mast">
+    <span class="l">Hyperdraft / Design Critique</span>
+    <span class="r">Prepared for Discordwell · 20.V.2026 · 14 spreads</span>
+    <h1>Eight engines,<br><em>one frame</em> — and the frame is the part you haven't designed yet.</h1>
+    <div class="deck">
+      A critique of Hyperdraft's current shape and a sketch toward a polyglot card-lab identity that
+      makes the meta-game — the part where you switch between eight rules engines — the actual product.
+    </div>
+  </header>
+
+  <!-- ─── Section 1: First impression ─────────────────────────── -->
+  <section class="sec">
+    <div class="tag"><span class="num">01</span>First impression</div>
+    <div>
+      <h2>The tagline is doing all the work. Nothing else is.</h2>
+      <p>
+        "<span class="lift">Eight engines, one frame</span>" is the strongest line in the entire product surface, and right now it lives in a <code style="font-family:var(--mono);font-size:13px">&lt;title&gt;</code> tag. That is the brand. That is the pitch. That is the design system, in five words. It should be the first thing a visitor sees, set huge, and the rest of the page should answer the implied question: <em style="font-family:var(--serif)">"…so what does the frame look like?"</em>
+      </p>
+      <p>
+        Today, the answer is mostly "a React dev's default stylesheet." The repo is 96% Python, 3.4% TypeScript, 0.1% CSS. The split is honest — this is a research artifact, an event-pipeline pun made visible — and the UI reads like one. That can be a strength (think Are.na, Bear, Linear's early shell) but only if you commit to the genre. Right now it reads as <strong>unfinished</strong> rather than <strong>severe</strong>, which is the worst place to be.
+      </p>
+      <p>
+        The other signal that lands is the AI angle — "AI-powered deckbuilder that creates unique card game metas with dynamically generated rules." That's a different product from "rules engine for four canonical TCGs," and the README is conflicted about which one Hyperdraft is. The site has to pick. My recommendation, repeated below: pick the <strong>lab</strong>, not the playground.
+      </p>
+
+      <div class="pull">
+        The cleanest read of Hyperdraft is not "play MTG online." It's <em>"a workbench where rules are first-class objects you can hot-swap, fork, and watch fight."</em>
+      </div>
+
+      <div class="ledger">
+        <div class="row"><span class="n">01</span><span class="k">SIGNAL</span><span class="v">Tagline is excellent. Promote it from page title to permanent masthead.</span></div>
+        <div class="row"><span class="n">02</span><span class="k">RISK</span><span class="v">Hyperdraft reads as four cloned TCG UIs. The interesting thing — the shared event pipeline — is invisible to anyone who isn't reading the README.</span></div>
+        <div class="row"><span class="n">03</span><span class="k">VOICE</span><span class="v">"Theorycrafting / AI playtesting / novel mechanic exploration" is the right phrasing. Lean further into <em>lab</em>, away from <em>game site</em>.</span></div>
+        <div class="row"><span class="n">04</span><span class="k">RESTRAINT</span><span class="v">Avoid mimicking any of the eight source games' chromes. Originality on the wrapper is what unifies them.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Section 2: Information architecture ─────────────────── -->
+  <section class="sec">
+    <div class="tag"><span class="num">02</span>Information architecture</div>
+    <div>
+      <h2>Eight engines is a feature, but right now it's organized like an accident.</h2>
+      <p>
+        The product has at least four orthogonal axes — <strong>engine</strong> (which of the eight rulesets), <strong>set</strong> (which card pool inside that engine), <strong>mode</strong> (deckbuild, play vs. AI, watch AI vs. AI, replay), and <strong>opponent tier</strong> (easy → medium → hard → ultra/LLM). The README handles this by talking about modes as if they're top-level products, but a new player navigating eight rulesets × four difficulties × N card sets needs a single home that makes the matrix legible.
+      </p>
+      <p>
+        The interceptor pipeline (<code style="font-family:var(--mono);font-size:13px">TRANSFORM → PREVENT → RESOLVE → REACT</code>) is the architectural core, and it is also the answer to the IA question. <strong>Engines are presets of the same machine.</strong> If the home page expresses that visually — same chassis, swappable engines, with the differences spelled out in metrics not metaphors — the eight-game proposition becomes obvious instead of overwhelming.
+      </p>
+      <p>
+        The custom engines and the SCP archetype viewer are the most underexploited surfaces. The README's most exciting paragraph is the one about ~4,400 fan-made cards with working interceptors. That's the moat. It deserves to be a destination, not a folder.
+      </p>
+
+      <div class="ledger">
+        <div class="row"><span class="n">05</span><span class="k">PROPOSE</span><span class="v">A single canonical home: masthead, engine rack (eight items, ranked by completeness and AI tier), a "what's running right now" live ticker for AI-vs-AI matches.</span></div>
+        <div class="row"><span class="n">06</span><span class="k">PROPOSE</span><span class="v">Treat <em>engine</em> as a global selector, not a route — switching engine should feel like switching a lens, with the chassis (deckbuilder, board, replay) staying put.</span></div>
+        <div class="row"><span class="n">07</span><span class="k">PROPOSE</span><span class="v">First-class "archetype viewer" surface — promote SCP / custom-set archetypes from a screen inside the deckbuilder to a top-level browse experience, like a card-museum.</span></div>
+        <div class="row"><span class="n">08</span><span class="k">RISK</span><span class="v">Don't let the eight engines compete for visual hierarchy. Rank them. Two or three lead engines, the others as a rack.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Section 3: Game-board UX ─────────────────────────── -->
+  <section class="sec">
+    <div class="tag"><span class="num">03</span>Game-board UX</div>
+    <div>
+      <h2>The play surface needs a vocabulary, not four costumes.</h2>
+      <p>
+        Each of the four mainline TCGs has its own zones (lanes, fields, bench/active, monster/spell/trap), its own resolution model (priority + stack vs. chains vs. turn-locked vs. roundwise), and its own card anatomy. The temptation is to make Hyperdraft's board mimic each game's native UI. <strong>Resist it.</strong> Mimicry forfeits the whole point of the unified engine and forces you to compete on polish with the official clients — a fight you cannot win on a solo budget.
+      </p>
+      <p>
+        Better: design one <em>engine-agnostic</em> board grammar and let each ruleset configure it. Zones are labeled rows. Cards are abstract spec-sheets — name, cost, body stat, sub-stat, status — rendered identically across engines, so a Pokemon active and a Magic creature read with the same eyes. The cost system varies (mana / energy / crystals / tribute) but it's always the same chip in the same corner. Status (tapped, asleep, summoning-sick, awaiting-evolution) is one bar of glyphs.
+      </p>
+      <p>
+        The stack/chain is the most distinctive thing in the entire product and currently it's just <em>there</em>. Promote it. A right-side rail that shows <strong>which interceptor is firing and which is queued</strong>, named like a debugger, would make Hyperdraft feel like a piece of instrumentation and not a fan port.
+      </p>
+
+      <div class="pull">
+        Treat the board like an oscilloscope, not a tabletop. You're not pretending to be a card game; you're <em>inspecting</em> one.
+      </div>
+
+      <div class="ledger">
+        <div class="row"><span class="n">09</span><span class="k">PROPOSE</span><span class="v">One board template: opponent zones (top), shared stack/chain rail (right), phase rail (above hand), hand (bottom). Zone labels are slot-machine — they change per engine, layout doesn't.</span></div>
+        <div class="row"><span class="n">10</span><span class="k">PROPOSE</span><span class="v">Cards are spec sheets, not painted faces. Use type, not illustration, to carry identity. Reserve a single corner for engine glyph + cost. This also sidesteps any IP question — never render branded card faces.</span></div>
+        <div class="row"><span class="n">11</span><span class="k">PROPOSE</span><span class="v">Make the event log first-class. A scrollable, scrubbable feed that doubles as the replay timeline. Click a TRANSFORM event, see the state it produced. This is the demo-reel moment.</span></div>
+        <div class="row"><span class="n">12</span><span class="k">RISK</span><span class="v">Drag-and-drop UX is fine, but combat-step priority will eat you if it's not visible. The phase rail must always be readable at a glance.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Section 4: Concrete upgrades ─────────────────────────── -->
+  <section class="sec">
+    <div class="tag"><span class="num">04</span>Concrete upgrades</div>
+    <div>
+      <h2>Things you could prototype this afternoon.</h2>
+      <p>
+        Below is the system I'm proposing. It's not the only direction — see section 05 for a more aggressive one — but it's the one that gets you 80% of the visual identity for one weekend's work. Replace your current CSS with this and the product will feel different to a stranger in three seconds.
+      </p>
+
+      <!-- Type plate -->
+      <div class="plate">
+        <div class="plate-hd"><div class="t"><small>HD-TYPE-01</small>Type pairing</div><div class="meta">Display · Body · Mono</div></div>
+        <div class="type-grid">
+          <div class="cell" style="grid-column:1/-1">
+            <div class="lbl"><b>Instrument Serif</b><span>Display · 56–120pt · italic for emphasis</span></div>
+            <div class="show-serif">Eight engines,<br><em>one frame.</em></div>
+          </div>
+          <div class="cell">
+            <div class="lbl"><b>Geist</b><span>Body · 14–18pt · 400/500</span></div>
+            <div class="show-sans">Every action is an Event. Every modifier is an Interceptor. There is no special case.</div>
+          </div>
+          <div class="cell">
+            <div class="lbl"><b>Geist Mono</b><span>Labels, IDs, telemetry</span></div>
+            <div class="show-mono">HD–MTG · turn 04 · priority p1<br>EVT 0x4a2 TRANSFORM → RESOLVE</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Palette plate -->
+      <div class="plate">
+        <div class="plate-hd"><div class="t"><small>HD-PAL-01</small>Palette</div><div class="meta">Paper · Ink · One accent</div></div>
+        <div class="swatches">
+          <div class="sw" style="background:var(--paper)"><span class="name" style="color:var(--ink);mix-blend-mode:normal">Paper</span><span class="hex" style="color:var(--ink-3);mix-blend-mode:normal">oklch .965 .012 78</span></div>
+          <div class="sw" style="background:var(--paper-2)"><span class="name" style="color:var(--ink);mix-blend-mode:normal">Paper-2</span><span class="hex" style="color:var(--ink-3);mix-blend-mode:normal">oklch .94 .013 78</span></div>
+          <div class="sw" style="background:var(--rule-2)"><span class="name" style="color:var(--ink);mix-blend-mode:normal">Rule</span><span class="hex" style="color:var(--ink-3);mix-blend-mode:normal">oklch .85 .010 80</span></div>
+          <div class="sw" style="background:var(--ink-3)"><span class="name">Ink-3</span><span class="hex">oklch .55 .010 250</span></div>
+          <div class="sw" style="background:var(--ink-2)"><span class="name">Ink-2</span><span class="hex">oklch .36 .014 250</span></div>
+          <div class="sw" style="background:var(--ink)"><span class="name">Ink</span><span class="hex">oklch .20 .018 250</span></div>
+          <div class="sw" style="background:var(--sodium)"><span class="name">Sodium</span><span class="hex">oklch .68 .18 38</span></div>
+          <div class="sw" style="background:var(--plasma)"><span class="name">Plasma</span><span class="hex">oklch .65 .16 245</span></div>
+          <div class="sw" style="background:var(--acid)"><span class="name">Acid</span><span class="hex">oklch .78 .16 130</span></div>
+          <div class="sw" style="background:var(--danger)"><span class="name">Halt</span><span class="hex">oklch .58 .20 25</span></div>
+          <div class="sw" style="background:var(--paper-3)"><span class="name" style="color:var(--ink);mix-blend-mode:normal">Paper-3</span><span class="hex" style="color:var(--ink-3);mix-blend-mode:normal">oklch .90 .014 78</span></div>
+          <div class="sw" style="background:repeating-linear-gradient(45deg, var(--paper) 0 6px, var(--paper-2) 6px 12px)"><span class="name" style="color:var(--ink);mix-blend-mode:normal">Hatch</span><span class="hex" style="color:var(--ink-3);mix-blend-mode:normal">custom · face-down</span></div>
+        </div>
+        <p style="margin:18px 0 0;font:400 13.5px/1.5 var(--sans);color:var(--ink-2);max-width:64ch">
+          The rule: one accent at a time. <b>Sodium</b> for state-of-the-system (highlights, the active engine, a CTA). <b>Plasma</b> only on the chain/stack. <b>Acid</b> for "live now." Hatching for hidden information. Everything else is paper, ink, and rules.
+        </p>
+      </div>
+
+      <!-- Motion plate -->
+      <div class="plate">
+        <div class="plate-hd"><div class="t"><small>HD-MOT-01</small>Motion principles</div><div class="meta">Animate state, not decoration</div></div>
+        <div class="motion">
+          <div class="m">
+            <div class="lbl"><b>Card to zone</b><span>140ms · cubic-bezier(.5,.05,.2,1)</span></div>
+            <p>Cards travel along a single arc to a labeled zone. No bounce, no scale-up. The destination highlights briefly in sodium when the event resolves.</p>
+            <div class="m-card-fly"></div>
+          </div>
+          <div class="m">
+            <div class="lbl"><b>Phase tick</b><span>240ms hold per phase · steps</span></div>
+            <p>Phases advance with a hard step, never a slide. The current phase fills the rail; spent phases fall to ink-3. Treats time like a debugger, not a parade.</p>
+            <div class="m-tick"><i></i></div>
+          </div>
+          <div class="m">
+            <div class="lbl"><b>Stack flash</b><span>320ms appear / 220ms exit</span></div>
+            <p>Items on the stack/chain enter with a 4px upward fade, line up vertically, and pop off top-down on resolve. The interceptor's name is always visible.</p>
+            <div class="m-chain">
+              <div class="mc"><b>etb_trigger</b><span>by Llanowar Elves</span></div>
+              <div class="mc"><b>replacement_effect</b><span>by Blood Moon</span></div>
+              <div class="mc"><b>state_check</b><span>by engine</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ledger" style="margin-top:32px">
+        <div class="row"><span class="n">13</span><span class="k">TYPE</span><span class="v">Instrument Serif (display) · Geist (body) · Geist Mono (telemetry). One serif, one sans, one mono — no exceptions. Title-case headings; UPPERCASE for telemetry labels only.</span></div>
+        <div class="row"><span class="n">14</span><span class="k">COLOR</span><span class="v">Paper + ink + one accent on screen at a time. Engines are <em>not</em> colored. The system is monochrome — color encodes <strong>state</strong>, not <strong>identity</strong>.</span></div>
+        <div class="row"><span class="n">15</span><span class="k">LAYOUT</span><span class="v">Everything snaps to a 24px baseline grid. Hairline rules (1px) instead of cards-with-shadows. Plates have one shadow line; everything else is flat on paper.</span></div>
+        <div class="row"><span class="n">16</span><span class="k">MOTION</span><span class="v">Movement = state change, full stop. Never decorative. 140–320ms range. Eased-out cubic on physical movement; hard steps on time/phase.</span></div>
+      </div>
+
+      <!-- Landing artboard -->
+      <div class="ab-cap" style="margin-top:48px"><span class="L">HD-ART-01 · Landing</span><span>1440 × 900 frame</span></div>
+      <div class="ab ab-landing">
+        <div class="nav">
+          <div class="brand"><span class="dot"></span>Hyperdraft</div>
+          <ul>
+            <li>Engines</li><li>Decks</li><li>Archetypes</li><li>Watch</li><li>Docs</li>
+          </ul>
+          <span class="signin">Sign in</span>
+        </div>
+        <div class="hero">
+          <div>
+            <span class="chip"><span class="dot"></span>v4.7 · 1,100 commits · MIT</span>
+            <h1 style="margin-top:14px">Eight engines,<br><em>one frame.</em></h1>
+            <p class="blurb">A workbench where TCG rules are first-class objects. Hot-swap engines, fork mechanics, watch AIs fight, and theorycraft against the same event pipeline that runs every match.</p>
+            <div class="cta">
+              <span class="pri">Open a match</span>
+              <span class="sec">Watch an AI run</span>
+              <span style="font:500 11px/1 var(--mono);letter-spacing:.1em;color:var(--ink-3);text-transform:uppercase;margin-left:4px">no signup · runs locally</span>
+            </div>
+          </div>
+          <div class="engines">
+            <div class="hd"><span>Engine rack</span><b>8 LOADED</b></div>
+            <div class="e-row"><span class="ix">E1</span><span class="nm">MTG<small>Wilds of Eldraine · +11 sets</small></span><span class="stat">~7,800 cards</span><span class="bar"><i style="--w:96%" class="is-sodium"></i></span></div>
+            <div class="e-row"><span class="ix">E2</span><span class="nm">Yu-Gi-Oh!<small>Goat · Monarch · Chain Burn · Dragon</small></span><span class="stat">51 cards</span><span class="bar"><i style="--w:62%"></i></span></div>
+            <div class="e-row"><span class="ix">E3</span><span class="nm">Pokemon TCG<small>12 named-trainer adapters</small></span><span class="stat">prize-aware AI</span><span class="bar"><i style="--w:74%"></i></span></div>
+            <div class="e-row"><span class="ix">E4</span><span class="nm">Hearthstone<small>battlecry · deathrattle · taunt</small></span><span class="stat">lethal AI</span><span class="bar"><i style="--w:70%"></i></span></div>
+            <div class="e-row"><span class="ix">E5</span><span class="nm">Lorwyn Custom<small>~408 cards · interceptors</small></span><span class="stat">used by tests</span><span class="bar"><i style="--w:88%"></i></span></div>
+            <div class="e-row"><span class="ix">E6</span><span class="nm">Temporal Horizons<small>~276 cards · novel mechanics</small></span><span class="stat">draft-only</span><span class="bar"><i style="--w:54%"></i></span></div>
+            <div class="e-row"><span class="ix">E7</span><span class="nm">SCP Containment<small>archetype-led custom set</small></span><span class="stat">7 archetypes</span><span class="bar"><i style="--w:66%"></i></span></div>
+            <div class="e-row"><span class="ix">E8</span><span class="nm">Crossover rack<small>16 sets · ~3,700 cards</small></span><span class="stat">community</span><span class="bar"><i style="--w:42%"></i></span></div>
+          </div>
+        </div>
+        <div class="foot">
+          <span>Now running &nbsp;<b style="color:var(--ink);font-family:var(--serif);font-weight:400;letter-spacing:0">·</b>&nbsp; 3 AI-vs-AI matches, 12 spectators</span>
+          <span>HD-FRAME-001 / Discordwell · 2026</span>
+        </div>
+      </div>
+
+      <!-- Engine picker artboard -->
+      <div class="ab-cap"><span class="L">HD-ART-02 · Engine picker (overlay)</span><span>opened from any surface · ⌘E</span></div>
+      <div class="ab ab-picker">
+        <div class="pk-h">
+          <h2>Switch <em>engine</em>.</h2>
+          <span class="meta">⌘E · arrows to navigate · return to load</span>
+        </div>
+        <div class="pk-grid">
+          <div class="pk-card act"><span class="badge">ACTIVE</span><span class="tn"><span>E1 · MTG</span><span>96%</span></span><div class="stats"><span><b>~7,800</b>cards</span><span><b>4 tiers</b>AI</span><span><b>full</b>stack</span><span><b>12</b>sets</span></div><span class="nm">Magic: the Gathering<small>real sets · Scryfall mirror · ultra-LLM ready</small></span></div>
+          <div class="pk-card"><span class="tn"><span>E2 · YGO</span><span>62%</span></span><div class="stats"><span><b>51</b>cards</span><span><b>4</b>decks</span><span><b>chain</b>system</span><span><b>—</b>LLM</span></div><span class="nm">Yu-Gi-Oh!<small>chain resolution · spell-trap-flip</small></span></div>
+          <div class="pk-card"><span class="tn"><span>E3 · PKM</span><span>74%</span></span><div class="stats"><span><b>12</b>trainers</span><span><b>prize</b>aware</span><span><b>5</b>conditions</span><span><b>—</b>LLM</span></div><span class="nm">Pokemon TCG<small>bench &amp; active · weakness &amp; resistance</small></span></div>
+          <div class="pk-card"><span class="tn"><span>E4 · HS</span><span>70%</span></span><div class="stats"><span><b>battlecry</b>—</span><span><b>deathrattle</b>—</span><span><b>lethal</b>AI</span><span><b>ultra</b>tier</span></div><span class="nm">Hearthstone<small>mana crystals · auras as interceptors</small></span></div>
+          <div class="pk-card cust"><span class="tn"><span>E5 · ECL</span><span>88%</span></span><div class="stats"><span><b>~408</b>cards</span><span><b>full</b>interceptors</span><span><b>test</b>bedded</span><span><b>—</b>LLM</span></div><span class="nm">Lorwyn Custom<small>fan-made · the moat</small></span></div>
+          <div class="pk-card cust"><span class="tn"><span>E6 · TPH</span><span>54%</span></span><div class="stats"><span><b>~276</b>cards</span><span><b>novel</b>mechanics</span><span><b>—</b>AI</span><span><b>—</b>LLM</span></div><span class="nm">Temporal Horizons<small>time-shift · phase-bend</small></span></div>
+          <div class="pk-card cust"><span class="tn"><span>E7 · SCP</span><span>66%</span></span><div class="stats"><span><b>7</b>archetypes</span><span><b>containment</b>theme</span><span><b>arch.</b>viewer</span><span><b>—</b>LLM</span></div><span class="nm">SCP Containment<small>archetype-led brewing</small></span></div>
+          <div class="pk-card cust"><span class="tn"><span>E8 · X</span><span>42%</span></span><div class="stats"><span><b>~3,700</b>cards</span><span><b>16</b>sets</span><span><b>community</b>—</span><span><b>—</b>LLM</span></div><span class="nm">Crossover rack<small>star wars · anime · games · misc.</small></span></div>
+        </div>
+        <div class="foot">
+          <span>Switching engine preserves your deck context. The deckbuilder reloads with the new card pool.</span>
+          <span>HD-ENGINE-PICKER</span>
+        </div>
+      </div>
+
+      <!-- Game board artboard -->
+      <div class="ab-cap"><span class="L">HD-ART-03 · Match board (engine-agnostic chassis)</span><span>shown with MTG zone labels</span></div>
+      <div class="ab ab-board">
+        <div class="bd-top">
+          <div class="L">
+            <span class="breadcrumb">Hyperdraft / Match <b>HD–8F4A</b> / MTG · 60-card · medium AI</span>
+          </div>
+          <div style="display:flex;gap:14px;align-items:center;font:500 10.5px/1 var(--mono);letter-spacing:.1em;color:var(--ink-2)">
+            <span>EVT <b style="color:var(--ink)">0x4a2</b></span>
+            <span>TURN <b style="color:var(--ink)">04</b></span>
+            <span>PRIORITY <b style="color:var(--sodium)">P1</b></span>
+          </div>
+          <div class="R">
+            <span class="who"><span class="av" style="background:var(--ink-3)"></span>AI · 17</span>
+            <span style="font-family:var(--serif);font-size:18px;color:var(--sodium);font-style:italic">vs</span>
+            <span class="who"><span class="av"></span>You · 20</span>
+          </div>
+        </div>
+        <div class="bd-main">
+          <aside class="bd-side">
+            <h4><span>Log</span><b>scrubbable</b></h4>
+            <div class="log">
+              <div class="l"><span class="t">T4·05</span><span><b>You</b> cast <b>Lightning Bolt</b> → target AI</span></div>
+              <div class="l evt"><span class="t">T4·05</span><span>EVT TRANSFORM · damage 3 → AI</span></div>
+              <div class="l"><span class="t">T4·05</span><span>AI passes priority</span></div>
+              <div class="l evt"><span class="t">T4·05</span><span>EVT RESOLVE · LIFE_CHANGE −3</span></div>
+              <div class="l"><span class="t">T4·04</span><span><b>AI</b> attacks with <b>Goblin</b>, <b>Wolf</b></span></div>
+              <div class="l"><span class="t">T4·03</span><span><b>You</b> draw a card</span></div>
+              <div class="l"><span class="t">T4·02</span><span>Phase → MAIN 1</span></div>
+              <div class="l"><span class="t">T4·01</span><span>Phase → UNTAP</span></div>
+            </div>
+            <h4 style="margin-top:8px"><span>Replay</span><b>turn 4 of 8</b></h4>
+            <div style="height:6px;background:var(--rule-2);position:relative">
+              <i style="position:absolute;inset:0;width:48%;background:var(--ink);display:block"></i>
+              <span style="position:absolute;left:48%;top:-3px;width:12px;height:12px;background:var(--sodium);border-radius:50%;transform:translateX(-50%)"></span>
+            </div>
+            <div style="font:500 10.5px/1 var(--mono);letter-spacing:.08em;color:var(--ink-3);display:flex;justify-content:space-between"><span>T0</span><span>T8 · win</span></div>
+          </aside>
+
+          <div class="play">
+            <div class="row-zone opp">
+              <div class="lab">Opp · Battlefield<b>creatures · 2</b></div>
+              <div class="cards">
+                <div class="c tap"><span class="ct"><span>{1R}</span><span>cr</span></span><span class="nm">Goblin Striker</span><span class="b"><span>2/1</span><span>haste</span></span></div>
+                <div class="c tap"><span class="ct"><span>{2G}</span><span>cr</span></span><span class="nm">Howlpack Wolf</span><span class="b"><span>3/3</span></span></div>
+                <div class="c face-dn"></div>
+                <div class="c face-dn"></div>
+              </div>
+            </div>
+            <div class="row-zone opp">
+              <div class="lab">Opp · Lands<b>5 mana</b></div>
+              <div class="cards">
+                <div class="c tap"><span class="ct"><span>land</span><span>R</span></span><span class="nm">Mountain</span><span class="b"></span></div>
+                <div class="c tap"><span class="ct"><span>land</span><span>R</span></span><span class="nm">Mountain</span><span class="b"></span></div>
+                <div class="c"><span class="ct"><span>land</span><span>G</span></span><span class="nm">Forest</span><span class="b"></span></div>
+                <div class="c"><span class="ct"><span>land</span><span>G</span></span><span class="nm">Forest</span><span class="b"></span></div>
+                <div class="c"><span class="ct"><span>land</span><span>—</span></span><span class="nm">Wastes</span><span class="b"></span></div>
+              </div>
+            </div>
+            <div class="row-zone">
+              <div class="lab">You · Battlefield<b>creatures · 3</b></div>
+              <div class="cards">
+                <div class="c sel"><span class="ct"><span>{1U}</span><span>cr</span></span><span class="nm">Augur of Bolas</span><span class="b"><span>1/3</span><span>flash</span></span></div>
+                <div class="c"><span class="ct"><span>{2W}</span><span>cr</span></span><span class="nm">Watchwolf</span><span class="b"><span>3/3</span></span></div>
+                <div class="c"><span class="ct"><span>{3B}</span><span>cr</span></span><span class="nm">Phyrexian Rager</span><span class="b"><span>2/2</span></span></div>
+              </div>
+            </div>
+            <div class="row-zone">
+              <div class="lab">You · Lands<b>6 mana</b></div>
+              <div class="cards">
+                <div class="c"><span class="ct"><span>land</span><span>U</span></span><span class="nm">Island</span><span class="b"></span></div>
+                <div class="c"><span class="ct"><span>land</span><span>U</span></span><span class="nm">Island</span><span class="b"></span></div>
+                <div class="c"><span class="ct"><span>land</span><span>W</span></span><span class="nm">Plains</span><span class="b"></span></div>
+                <div class="c tap"><span class="ct"><span>land</span><span>W</span></span><span class="nm">Plains</span><span class="b"></span></div>
+                <div class="c tap"><span class="ct"><span>land</span><span>B</span></span><span class="nm">Swamp</span><span class="b"></span></div>
+                <div class="c tap"><span class="ct"><span>land</span><span>B</span></span><span class="nm">Swamp</span><span class="b"></span></div>
+              </div>
+            </div>
+
+            <div class="stack">
+              <h5><span>Stack / Chain</span><span class="ct">2</span></h5>
+              <ol>
+                <li><span class="ix">02</span><b>Counterspell</b><span class="by">you</span></li>
+                <li><span class="ix">01</span><b>Lightning Bolt</b><span class="by">ai</span></li>
+              </ol>
+              <div style="margin-top:8px;font:500 10px/1.4 var(--mono);color:var(--ink-3);letter-spacing:.06em">interceptor stage: <b style="color:var(--plasma)">RESOLVE</b></div>
+            </div>
+          </div>
+
+          <aside class="bd-side r">
+            <h4><span>Inspect</span><b>Augur of Bolas</b></h4>
+            <div class="c" style="width:auto;height:160px;aspect-ratio:auto;align-self:stretch">
+              <span class="ct"><span>{1U}</span><span>creature</span></span>
+              <span class="nm" style="font-size:14px">Augur of Bolas</span>
+              <span class="b"><span>1/3</span><span>human · wizard</span></span>
+            </div>
+            <div style="font:400 12px/1.5 var(--sans);color:var(--ink-2)">When Augur of Bolas enters the battlefield, look at the top three cards of your library. You may reveal an instant or sorcery card from among them and put it into your hand.</div>
+            <h4 style="margin-top:8px"><span>Interceptors</span><b>2 active</b></h4>
+            <div style="font:500 11px/1.4 var(--mono);color:var(--ink-2);display:flex;flex-direction:column;gap:4px">
+              <div style="padding:6px 8px;border-left:2px solid var(--sodium);background:color-mix(in oklab,var(--sodium) 6%, transparent)"><b style="color:var(--ink);font-family:var(--serif);font-weight:400;letter-spacing:0;font-size:13px">etb_trigger</b><span style="display:block;color:var(--ink-3);font-size:10px">scry-like reveal</span></div>
+              <div style="padding:6px 8px;border-left:2px solid var(--rule)"><b style="color:var(--ink);font-family:var(--serif);font-weight:400;letter-spacing:0;font-size:13px">death_trigger</b><span style="display:block;color:var(--ink-3);font-size:10px">none</span></div>
+            </div>
+          </aside>
+        </div>
+        <div class="hand">
+          <div class="meter">Mana<br><b>6 / 7</b></div>
+          <div class="phases">
+            <span>UNTAP</span><span>UPKEEP</span><span>DRAW</span><span class="on">MAIN 1</span><span>COMBAT</span><span>MAIN 2</span><span>END</span>
+          </div>
+          <div class="cards">
+            <div class="c"><span class="ct"><span>{R}</span><span>inst</span></span><span class="nm">Lightning Bolt</span><span class="b"></span></div>
+            <div class="c"><span class="ct"><span>{U}</span><span>inst</span></span><span class="nm">Brainstorm</span><span class="b"></span></div>
+            <div class="c"><span class="ct"><span>{1U}</span><span>inst</span></span><span class="nm">Counterspell</span><span class="b"></span></div>
+            <div class="c sel"><span class="ct"><span>{4WW}</span><span>cr</span></span><span class="nm">Serra Angel</span><span class="b"><span>4/4</span><span>fly</span></span></div>
+            <div class="c"><span class="ct"><span>{2}</span><span>art</span></span><span class="nm">Sensei's Top</span><span class="b"></span></div>
+            <div class="c"><span class="ct"><span>land</span><span>W</span></span><span class="nm">Plains</span><span class="b"></span></div>
+          </div>
+          <span class="pri">Pass priority</span>
+        </div>
+      </div>
+
+      <!-- Deckbuilder artboard -->
+      <div class="ab-cap"><span class="L">HD-ART-04 · Deckbuilder</span><span>cards-as-spec-sheets · zero illustration</span></div>
+      <div class="ab ab-dbk">
+        <div class="dbk-h">
+          <h2><small>HD-DECK-014</small>Mono-blue Tempo, v3</h2>
+          <div class="tools">
+            <span class="on">All</span><span>Creatures · 24</span><span>Instants · 12</span><span>Lands · 24</span><span>Sideboard</span>
+            <span style="margin-left:8px;background:var(--paper-2);color:var(--ink-3)">Engine ▸ MTG</span>
+          </div>
+          <div class="dbk-search">⌘K · <b>cmc&lt;3 type:creature evasion</b></div>
+        </div>
+        <div class="dbk-body">
+          <div class="dbk-grid">
+            <div class="c sel"><span class="ct"><span>{U}</span><span>cr</span></span><span class="nm">Delver of Secrets</span><span class="b"><span>1/1</span><span>×4</span></span></div>
+            <div class="c"><span class="ct"><span>{1U}</span><span>cr</span></span><span class="nm">Snapcaster Mage</span><span class="b"><span>2/1</span><span>×4</span></span></div>
+            <div class="c"><span class="ct"><span>{1U}</span><span>cr</span></span><span class="nm">Augur of Bolas</span><span class="b"><span>1/3</span><span>×3</span></span></div>
+            <div class="c"><span class="ct"><span>{2U}</span><span>cr</span></span><span class="nm">Vendilion Clique</span><span class="b"><span>3/1</span><span>×2</span></span></div>
+            <div class="c"><span class="ct"><span>{U}</span><span>inst</span></span><span class="nm">Brainstorm</span><span class="b"><span>—</span><span>×4</span></span></div>
+            <div class="c"><span class="ct"><span>{U}</span><span>inst</span></span><span class="nm">Force Spike</span><span class="b"><span>—</span><span>×2</span></span></div>
+            <div class="c"><span class="ct"><span>{1U}</span><span>inst</span></span><span class="nm">Counterspell</span><span class="b"><span>—</span><span>×4</span></span></div>
+            <div class="c"><span class="ct"><span>{1U}</span><span>inst</span></span><span class="nm">Daze</span><span class="b"><span>—</span><span>×3</span></span></div>
+            <div class="c"><span class="ct"><span>{2U}</span><span>inst</span></span><span class="nm">Cryptic Command</span><span class="b"><span>—</span><span>×2</span></span></div>
+            <div class="c"><span class="ct"><span>{U}</span><span>sorc</span></span><span class="nm">Ponder</span><span class="b"><span>—</span><span>×4</span></span></div>
+            <div class="c"><span class="ct"><span>{U}</span><span>sorc</span></span><span class="nm">Preordain</span><span class="b"><span>—</span><span>×2</span></span></div>
+            <div class="c"><span class="ct"><span>{2}</span><span>art</span></span><span class="nm">Sensei's Top</span><span class="b"><span>—</span><span>×1</span></span></div>
+            <div class="c"><span class="ct"><span>{0}</span><span>art</span></span><span class="nm">Mox Diamond</span><span class="b"><span>—</span><span>×1</span></span></div>
+            <div class="c"><span class="ct"><span>{1}</span><span>art</span></span><span class="nm">Aether Vial</span><span class="b"><span>—</span><span>×2</span></span></div>
+            <div class="c"><span class="ct"><span>land</span><span>U</span></span><span class="nm">Island</span><span class="b"><span>—</span><span>×16</span></span></div>
+            <div class="c"><span class="ct"><span>land</span><span>U</span></span><span class="nm">Mishra's Factory</span><span class="b"><span>—</span><span>×4</span></span></div>
+          </div>
+          <aside class="dbk-side">
+            <div>
+              <h5><span>Mana curve</span><b>avg 1.8</b></h5>
+              <div class="curve">
+                <div class="bar" style="height:14%"><span>0</span></div>
+                <div class="bar" style="height:60%"><span>1</span></div>
+                <div class="bar" style="height:90%;background:var(--sodium)"><span>2</span></div>
+                <div class="bar" style="height:46%"><span>3</span></div>
+                <div class="bar" style="height:18%"><span>4</span></div>
+                <div class="bar" style="height:8%"><span>5</span></div>
+                <div class="bar" style="height:4%"><span>6</span></div>
+                <div class="bar" style="height:2%"><span>7+</span></div>
+              </div>
+            </div>
+            <div>
+              <h5><span>Composition</span><b>60 / 15</b></h5>
+              <div class="breakdown">
+                <div class="ln"><b>Creatures</b><span>13</span></div>
+                <div class="ln"><b>Counterspells</b><span>13</span></div>
+                <div class="ln"><b>Card draw</b><span>10</span></div>
+                <div class="ln"><b>Artifacts</b><span>4</span></div>
+                <div class="ln"><b>Lands</b><span>20</span></div>
+              </div>
+            </div>
+            <div>
+              <h5><span>AI sparring</span><b>78% wr · 24 games</b></h5>
+              <div class="breakdown">
+                <div class="ln"><b>vs. Burn (medium)</b><span>14–4</span></div>
+                <div class="ln"><b>vs. Goblins (hard)</b><span>9–2</span></div>
+                <div class="ln"><b>vs. Tron (ultra)</b><span>1–3 ⚠</span></div>
+              </div>
+              <div style="margin-top:10px;padding:10px;border:1px dashed var(--sodium);font:400 12px/1.5 var(--sans);color:var(--ink-2)">
+                <b style="font-family:var(--serif);font-size:13px;color:var(--ink);font-weight:400">Ultra suggests:</b> add 2× <em>Disrupting Shoal</em> for the Tron matchup.
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+
+      <!-- SCP / archetype viewer -->
+      <div class="ab-cap"><span class="L">HD-ART-05 · Archetype viewer (SCP custom set as worked example)</span><span>browse-first, build-second</span></div>
+      <div class="ab ab-scp">
+        <aside class="scp-side">
+          <div class="k">Engine · SCP Containment</div>
+          <div style="font:400 24px/1.05 var(--serif);letter-spacing:-.015em">7 archetypes · 312 cards · v0.4</div>
+          <div class="k" style="margin-top:6px">Archetypes</div>
+          <div class="archetype"><span class="ix">A1</span><b>Keter Rush</b><span class="wr">52%</span></div>
+          <div class="archetype on"><span class="ix">A2</span><b>Euclid Midrange</b><span class="wr">58%</span></div>
+          <div class="archetype"><span class="ix">A3</span><b>Safe Lockdown</b><span class="wr">46%</span></div>
+          <div class="archetype"><span class="ix">A4</span><b>Foundation Combo</b><span class="wr">61%</span></div>
+          <div class="archetype"><span class="ix">A5</span><b>O5 Stax</b><span class="wr">49%</span></div>
+          <div class="archetype"><span class="ix">A6</span><b>Anomaly Reanimator</b><span class="wr">55%</span></div>
+          <div class="archetype"><span class="ix">A7</span><b>MTF Tempo</b><span class="wr">53%</span></div>
+        </aside>
+        <div class="scp-main">
+          <div class="meta">
+            <div class="item">Tier<b>A · stable</b></div>
+            <div class="item">Containment class<b>Euclid</b></div>
+          </div>
+          <h2>Euclid <em>Midrange</em></h2>
+          <div class="scp-body">
+            <div>
+              <p>Euclid Midrange wants to contain rather than rush. Plays threats with built-in protection that scale with your <em>research</em> count, then closes via incremental anomaly damage. Loses to Keter Rush turn 4–5 if the on-board researcher isn't on the battlefield.</p>
+              <h5 style="margin:12px 0 8px;font:500 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)">Gameplan</h5>
+              <div class="gameplan">
+                <div class="ln"><span class="n">T2</span><span><b>Junior Researcher</b><span>establish a research counter source</span></span></div>
+                <div class="ln"><span class="n">T3</span><span><b>D-Class Recovery</b><span>chip damage + replace blocker</span></span></div>
+                <div class="ln"><span class="n">T4</span><span><b>Site-19</b><span>land enters tapped, draws on upkeep</span></span></div>
+                <div class="ln"><span class="n">T5</span><span><b>Senior Researcher</b><span>+1/+1 per research counter on board</span></span></div>
+                <div class="ln"><span class="n">T6+</span><span><b>Anomaly Subject</b><span>finisher · keeps growing each upkeep</span></span></div>
+              </div>
+              <h5 style="margin:14px 0 8px;font:500 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)">Sparring</h5>
+              <div class="gameplan">
+                <div class="ln"><span class="n">+</span><span><b>vs. Safe Lockdown</b><span>research outpaces their counters</span></span></div>
+                <div class="ln"><span class="n">·</span><span><b>vs. O5 Stax</b><span>roughly even — depends on T3</span></span></div>
+                <div class="ln"><span class="n">−</span><span><b>vs. Keter Rush</b><span>need T2 blocker or you lose</span></span></div>
+              </div>
+            </div>
+            <div>
+              <div class="k" style="font:500 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px">Core 16</div>
+              <div class="scp-cards">
+                <div class="c"><span class="ct"><span>{G}</span><span>cr</span></span><span class="nm">Junior Researcher</span><span class="b"><span>1/2</span><span>×4</span></span></div>
+                <div class="c"><span class="ct"><span>{1G}</span><span>cr</span></span><span class="nm">D-Class Recovery</span><span class="b"><span>2/1</span><span>×4</span></span></div>
+                <div class="c"><span class="ct"><span>{3G}</span><span>cr</span></span><span class="nm">Senior Researcher</span><span class="b"><span>3/4</span><span>×3</span></span></div>
+                <div class="c"><span class="ct"><span>{4G}</span><span>cr</span></span><span class="nm">Anomaly Subject</span><span class="b"><span>4/4*</span><span>×3</span></span></div>
+                <div class="c"><span class="ct"><span>{1G}</span><span>inst</span></span><span class="nm">Field Containment</span><span class="b"><span>—</span><span>×2</span></span></div>
+                <div class="c"><span class="ct"><span>{2G}</span><span>sorc</span></span><span class="nm">Catalog Find</span><span class="b"><span>—</span><span>×2</span></span></div>
+                <div class="c"><span class="ct"><span>{2}</span><span>art</span></span><span class="nm">Containment Tag</span><span class="b"><span>—</span><span>×2</span></span></div>
+                <div class="c"><span class="ct"><span>land</span><span>G</span></span><span class="nm">Site-19</span><span class="b"><span>—</span><span>×4</span></span></div>
+              </div>
+              <div style="margin-top:14px;padding:12px;border:1px solid var(--rule);background:var(--paper-2);font:400 12.5px/1.55 var(--sans);color:var(--ink-2)">
+                <b style="font-family:var(--serif);font-size:14px;color:var(--ink);font-weight:400;letter-spacing:0;display:block;margin-bottom:4px">Why this works in the engine</b>
+                Every "research counter" effect is one interceptor at the <code style="font-family:var(--mono);font-size:12px;color:var(--ink)">REACT</code> stage of a <code style="font-family:var(--mono);font-size:12px;color:var(--ink)">CARD_DRAWN</code> event. Senior Researcher's +1/+1 boost is a <code style="font-family:var(--mono);font-size:12px;color:var(--ink)">make_static_pt_boost</code> conditioned on the same counter. Same pattern as MTG's Hardened Scales — the engine handles it identically.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lobby artboard -->
+      <div class="ab-cap"><span class="L">HD-ART-06 · Lobby &amp; spectator</span><span>watch AI fight, in public</span></div>
+      <div class="ab ab-lobby">
+        <div class="lb-h">
+          <h2>Now <em>running</em></h2>
+          <div style="display:flex;gap:10px">
+            <span class="pill"><span class="d"></span>3 live</span>
+            <span class="pill" style="border-color:var(--ink);color:var(--ink)">Filter ▸ ultra tier</span>
+            <span class="pill">Sort ▸ length</span>
+          </div>
+        </div>
+        <div class="lb-body">
+          <div class="lb-table">
+            <div class="row hd"><span>#</span><span>Match</span><span>Engine</span><span>Players</span><span>Turn</span><span></span></div>
+            <div class="row"><span class="ix">01</span><span><b>HD–8F4A<small>burn vs control · medium</small></b></span><span class="mode">MTG</span><span class="who">Ultra-AI · Hard-AI</span><span class="turn"><span>T 04</span></span><span class="watch live">▸ Watch</span></div>
+            <div class="row"><span class="ix">02</span><span><b>HD–2K1B<small>goat control mirror</small></b></span><span class="mode">YGO</span><span class="who">Hard-AI · Hard-AI</span><span class="turn"><span>T 09</span></span><span class="watch">▸ Watch</span></div>
+            <div class="row"><span class="ix">03</span><span><b>HD–9C77<small>raichu vs charizard · prize 2–3</small></b></span><span class="mode">PKM</span><span class="who">Medium-AI · Hard-AI</span><span class="turn"><span>T 06</span></span><span class="watch live">▸ Watch</span></div>
+            <div class="row"><span class="ix">04</span><span><b>HD–5018<small>aggro shaman vs ramp druid</small></b></span><span class="mode">HS</span><span class="who">Ultra-AI · Medium-AI</span><span class="turn"><span>T 07</span></span><span class="watch">▸ Watch</span></div>
+            <div class="row"><span class="ix">05</span><span><b>HD–E110<small>euclid midrange vs keter rush</small></b></span><span class="mode">SCP</span><span class="who">Hard-AI · Hard-AI</span><span class="turn"><span>T 03</span></span><span class="watch">▸ Watch</span></div>
+            <div class="row"><span class="ix">06</span><span><b>HD–E219<small>queued — opens in 14s</small></b></span><span class="mode">ECL</span><span class="who">Ultra-AI · Ultra-AI</span><span class="turn"><span>T —</span></span><span class="watch">▸ Soon</span></div>
+          </div>
+          <div class="lb-feat">
+            <div class="top">
+              <h3><small>FEATURED · LIVE</small>HD–8F4A</h3>
+              <span class="chip"><span class="dot"></span>12 watching</span>
+            </div>
+            <div class="vs">
+              <div class="p"><b>Ultra-AI</b>burn · LLM-guided · 17 life</div>
+              <div class="sep">vs.</div>
+              <div class="p" style="text-align:right"><b>Hard-AI</b>UW control · 20 life</div>
+            </div>
+            <div class="commentary">
+              <p><span class="who">Ultra</span>P1 keeps a 1-lander on the play. Acceptable — bolts twice and a probe. If we don't see a second red source by turn 3 we mulligan-equivalent through ponders.</p>
+              <p><span class="who">Hard</span>P2 leads Brainstorm into Force Spike — saving counters for a turn-3 threat from P1.</p>
+              <p><span class="who">Ultra</span>Reading the chain — RESOLVE Lightning Bolt → 3 dmg → P2 has open mana for Counterspell. I cast Bolt anyway: bait.</p>
+            </div>
+            <div style="display:flex;justify-content:space-between;font:500 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);border-top:1px solid var(--rule);padding-top:10px">
+              <span>Replay available at end of match</span>
+              <span>HD–8F4A</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ─── Section 5: Bold direction ─────────────────────────── -->
+  <section class="sec">
+    <div class="tag"><span class="num">05</span>Bold direction</div>
+    <div>
+      <h2>If you push the identity, push it to <em>"a debugger for the game of TCGs."</em></h2>
+      <p>
+        Most TCG sites cosplay as tabletops. They want the candle-lit pub feel. Hyperdraft cannot beat them at that, and shouldn't try. The pipeline is the asset. The interceptor model is the asset. The eight-engines-in-one-machine is the asset. The way to win is to refuse the tabletop frame entirely and build the visual identity of <strong>laboratory instrumentation</strong> — Bloomberg terminals, Are.na, a 1970s engineering reference card, the GLPK source-viewer, Recurse Center's old site.
+      </p>
+      <p>
+        Every card is a small spec sheet. Every match has a permalink and an event log. The "play" button is called <em>"Open a match."</em> The replay is the timeline; the timeline is the same widget on landing, in lobby, and on the board. The user can stop time, step the pipeline forward one event, and watch the interceptors light up — same way you'd step through a packet capture. That is a thing nobody else does. Lean all the way into it.
+      </p>
+      <p>
+        The aesthetic name I'd use for it internally is <span class="lift">"polyglot card lab."</span> Paper and ink. One sodium-orange accent. Tabular layouts. Cards as type, not portraiture. Stack and chain as bookkeeping, not pyrotechnics. The brand is the calm a developer feels when reading clean output. Eight engines, one frame, and the frame looks like the inside of the machine.
+      </p>
+
+      <div class="pull">
+        Don't compete with the tabletop. Build the part the tabletop can't show you: the rules <em>themselves,</em> running.
+      </div>
+
+      <div class="ledger">
+        <div class="row"><span class="n">17</span><span class="k">BIG MOVE</span><span class="v">Replay is the timeline is the lobby. The same scrubber appears on landing showing "currently at turn 4 of HD-8F4A," on the board, and on the post-match page. One widget, three jobs.</span></div>
+        <div class="row"><span class="n">18</span><span class="k">BIG MOVE</span><span class="v">"Pipeline view" toggle on the board (⌥P): replaces the cards with their event stream. TRANSFORM/PREVENT/RESOLVE/REACT columns, events as lines. This is the demo you put in the README hero.</span></div>
+        <div class="row"><span class="n">19</span><span class="k">BIG MOVE</span><span class="v">Public match URLs. <code style="font-family:var(--mono);font-size:13px;color:var(--ink)">hyperdraft.com/m/HD-8F4A</code>. Anyone can watch any AI match. This is your distribution.</span></div>
+        <div class="row"><span class="n">20</span><span class="k">BIG MOVE</span><span class="v">Rules diff. Two engines side-by-side: "MTG vs. Hearthstone for the same TURN_START event." Inspectable. This is what makes the multi-engine premise sing.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Sign-off -->
+  <div class="close">
+    <div>
+      <h3>Pick the lab, not the playground — and <em>everything else lines up.</em></h3>
+      <p>
+        Right now Hyperdraft has the bones of a great research tool and the surface of an unfinished fan port. The fix isn't more polish on the existing surface; it's a different posture. Lab posture. Tabular, monochrome, instrumented, calm. The eight engines stop being a burden and become the proof.
+      </p>
+      <p>
+        Toggle the <strong>Tweaks</strong> panel in the corner to flip palettes and try out the alternate "bold" direction. The artboards on this page rebind to whatever you pick.
+      </p>
+    </div>
+    <div class="sign">
+      <span>Signed</span>
+      <b>The Designer</b>
+      <span>HD-CRIT-001 · v0.1</span><br>
+      <span>20 May 2026</span><br>
+      <span style="margin-top:14px;display:block">Next: prototype the engine picker (HD-ART-02) at full res so you can ⌘E it from the live app.</span>
+    </div>
+  </div>
+
+</main>
+
+<div id="tweak-root"></div>
+
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel">
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "palette": "paper",
+  "activeAccent": "sodium",
+  "displaySize": 96,
+  "showHatch": true,
+  "engineLens": "mtg"
+}/*EDITMODE-END*/;
+
+const PALETTES = {
+  paper:   { "--paper":"oklch(0.965 0.012 78)", "--paper-2":"oklch(0.94 0.013 78)", "--paper-3":"oklch(0.90 0.014 78)", "--ink":"oklch(0.20 0.018 250)", "--ink-2":"oklch(0.36 0.014 250)", "--ink-3":"oklch(0.55 0.010 250)", "--rule":"oklch(0.78 0.010 80)", "--rule-2":"oklch(0.85 0.010 80)" },
+  onyx:    { "--paper":"oklch(0.18 0.012 250)", "--paper-2":"oklch(0.22 0.012 250)", "--paper-3":"oklch(0.27 0.012 250)", "--ink":"oklch(0.96 0.008 80)", "--ink-2":"oklch(0.78 0.010 80)", "--ink-3":"oklch(0.58 0.010 80)", "--rule":"oklch(0.36 0.012 250)", "--rule-2":"oklch(0.30 0.012 250)" },
+  clay:    { "--paper":"oklch(0.93 0.025 60)", "--paper-2":"oklch(0.90 0.028 58)", "--paper-3":"oklch(0.86 0.030 56)", "--ink":"oklch(0.22 0.030 35)", "--ink-2":"oklch(0.40 0.025 35)", "--ink-3":"oklch(0.58 0.020 35)", "--rule":"oklch(0.74 0.020 50)", "--rule-2":"oklch(0.82 0.020 55)" },
+  bone:    { "--paper":"oklch(0.96 0.008 110)", "--paper-2":"oklch(0.93 0.010 110)", "--paper-3":"oklch(0.89 0.012 110)", "--ink":"oklch(0.22 0.014 230)", "--ink-2":"oklch(0.40 0.012 230)", "--ink-3":"oklch(0.58 0.010 230)", "--rule":"oklch(0.80 0.012 110)", "--rule-2":"oklch(0.86 0.012 110)" }
+};
+
+const ACCENTS = {
+  sodium:   "oklch(0.68 0.18 38)",
+  cyan:     "oklch(0.70 0.14 230)",
+  madder:   "oklch(0.55 0.20 22)",
+  lime:     "oklch(0.78 0.16 130)"
+};
+
+const ENGINE_LENSES = {
+  mtg:   { label: "MTG", zone1: "Battlefield", zone2: "Lands", phase: ["UNTAP","UPKEEP","DRAW","MAIN 1","COMBAT","MAIN 2","END"] },
+  ygo:   { label: "Yu-Gi-Oh!", zone1: "Monster Zones", zone2: "Spell / Trap", phase: ["DRAW","STANDBY","MAIN 1","BATTLE","MAIN 2","END"] },
+  pkm:   { label: "Pokemon", zone1: "Active", zone2: "Bench", phase: ["DRAW","ATTACH ENERGY","ATTACK","BETWEEN"] },
+  hs:    { label: "Hearthstone", zone1: "Board", zone2: "Mana", phase: ["DRAW","MAIN","END"] },
+  scp:   { label: "SCP", zone1: "Site-19", zone2: "Anomalies", phase: ["RESEARCH","CONTAIN","BREACH","RESOLVE"] }
+};
+
+function applyPalette(name){
+  const p = PALETTES[name] || PALETTES.paper;
+  const root = document.documentElement;
+  Object.entries(p).forEach(([k,v]) => root.style.setProperty(k, v));
+}
+function applyAccent(name){
+  const v = ACCENTS[name] || ACCENTS.sodium;
+  document.documentElement.style.setProperty("--sodium", v);
+}
+function applyEngineLens(name){
+  const e = ENGINE_LENSES[name] || ENGINE_LENSES.mtg;
+  // Swap board zone labels in the artboard
+  const lbls = document.querySelectorAll(".ab-board .row-zone .lab b");
+  if (lbls[0]) lbls[0].textContent = e.zone1;
+  if (lbls[1]) lbls[1].textContent = e.zone2;
+  if (lbls[2]) lbls[2].textContent = e.zone1;
+  if (lbls[3]) lbls[3].textContent = e.zone2;
+  // Swap phase rail
+  const phases = document.querySelector(".ab-board .phases");
+  if (phases) {
+    phases.innerHTML = "";
+    e.phase.forEach((ph, i) => {
+      const s = document.createElement("span");
+      s.textContent = ph;
+      if (i === Math.floor(e.phase.length/2)) s.className = "on";
+      phases.appendChild(s);
+    });
+  }
+  // Swap breadcrumb engine name
+  const br = document.querySelector(".ab-board .breadcrumb");
+  if (br) br.innerHTML = "Hyperdraft / Match <b>HD–8F4A</b> / " + e.label + " · 60-card · medium AI";
+}
+
+function App(){
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  React.useEffect(() => { applyPalette(t.palette); }, [t.palette]);
+  React.useEffect(() => { applyAccent(t.activeAccent); }, [t.activeAccent]);
+  React.useEffect(() => { applyEngineLens(t.engineLens); }, [t.engineLens]);
+  React.useEffect(() => {
+    document.querySelectorAll(".hero h1, .mast h1").forEach(el => { el.style.fontSize = t.displaySize + "px"; });
+  }, [t.displaySize]);
+  React.useEffect(() => {
+    document.querySelectorAll(".c.face-dn").forEach(el => { el.style.opacity = t.showHatch ? 1 : 0; });
+  }, [t.showHatch]);
+
+  return (
+    <TweaksPanel title="Hyperdraft / tweaks">
+      <TweakSection label="Palette" />
+      <TweakRadio  label="Surface"
+                   value={t.palette}
+                   options={["paper","onyx","clay","bone"]}
+                   onChange={v => setTweak("palette", v)} />
+      <TweakRadio  label="Accent"
+                   value={t.activeAccent}
+                   options={["sodium","cyan","madder","lime"]}
+                   onChange={v => setTweak("activeAccent", v)} />
+      <TweakSection label="Typography" />
+      <TweakSlider label="Display size" value={t.displaySize} min={56} max={140} unit="px"
+                   onChange={v => setTweak("displaySize", v)} />
+      <TweakSection label="Board lens" />
+      <TweakSelect label="Engine" value={t.engineLens}
+                   options={["mtg","ygo","pkm","hs","scp"]}
+                   onChange={v => setTweak("engineLens", v)} />
+      <TweakToggle label="Hatch face-down cards" value={t.showHatch}
+                   onChange={v => setTweak("showHatch", v)} />
+    </TweaksPanel>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("tweak-root")).render(<App />);
+
+</script>
+
+</body>
+</html>

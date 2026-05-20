@@ -7,56 +7,60 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        // ─── Brand stack (premium card-game / "foil-stamped librarium") ───
-        // Override Tailwind defaults so any `font-sans` / `font-serif` / `font-mono`
-        // util across the app picks up the new identity. Existing mode-specific
-        // game views that need Cinzel/Inter explicitly keep working via
-        // 'card-name' / 'card-text'.
+        // ─── Lab stack (HD-CRIT-001) ─────────────────────────────────────
+        // Instrument Serif (display) + Geist (body) + Geist Mono (telemetry).
+        // Old Fraunces / JetBrains Mono kept reachable via 'legacy-serif' and
+        // 'legacy-mono' for Phyrexian-frame and foil-era components that
+        // explicitly pin the old face.
         sans: ['Geist', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        serif: ['Fraunces', 'ui-serif', 'Georgia', 'serif'],
-        display: ['Fraunces', 'ui-serif', 'Georgia', 'serif'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        serif: ['"Instrument Serif"', 'Fraunces', 'ui-serif', 'Georgia', 'serif'],
+        display: ['"Instrument Serif"', 'Fraunces', 'ui-serif', 'Georgia', 'serif'],
+        mono: ['"Geist Mono"', '"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        'legacy-serif': ['Fraunces', 'ui-serif', 'Georgia', 'serif'],
+        'legacy-mono': ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
         'card-name': ['Cinzel', 'serif'],
         'card-text': ['Inter', 'sans-serif'],
       },
       letterSpacing: {
-        'brand-tight': '-0.04em',  // tight tracking on the wordmark
-        'brand-wide': '0.18em',     // micro-caps eyebrow labels
+        'brand-tight': '-0.025em',  // lab masthead tracking
+        'brand-wide': '0.14em',     // mono telemetry labels
       },
       colors: {
-        // ─── Brand palette ───
-        // Foil-stamped librarium: oxidized-slate canvas + aged-gold foil + foil-cyan
-        // sheen + cream type. Tokens are flat so they compose with utilities
-        // (bg-brand-ink, text-brand-cream, border-brand-foil/40).
+        // ─── Lab palette (HD-PAL-01) ─────────────────────────────────────
+        // Paper + ink + sodium accent. Hex approximations of the OKLCH
+        // tokens in src/styles/lab.css (those are the source of truth; the
+        // hex here is what Tailwind needs to compose with alpha utilities).
+        //
+        // The `brand` namespace keeps its names so every existing utility
+        // (bg-brand-ink, text-brand-cream, border-brand-foil/40) keeps
+        // working — the values just pivot.
         brand: {
-          // canvas + surfaces (deep slate with cool undertone — NOT pure black,
-          // pure black reads RGB-gamer-cliché)
-          ink: '#080b12',          // outermost canvas — almost-black with blue under
-          obsidian: '#0c1019',     // primary surface
-          velvet: '#10151f',       // raised surface
-          shelf: '#161c28',        // tile / card surface
-          glass: '#1e2533',        // hover / focus surface
-          mist: '#262e3d',         // hairline borders
-          hairline: '#33394a',     // stronger borders
-          // foil (aged gold — desaturated, like a real stamped card-grading case
-          // rather than a glossy banner ad)
-          foil: '#cba14e',
-          'foil-bright': '#e9c876',
-          'foil-deep': '#8a6a30',
-          'foil-shadow': '#5b4720',
-          // cyan / teal sheen for info + secondary accent
-          sheen: '#5eead4',
-          'sheen-deep': '#2dd4bf',
-          'sheen-glow': '#7df0dc',
-          // type
-          cream: '#ece8dd',        // body cream-white (NOT pure white)
-          parchment: '#d8d2c2',    // slightly muted body
-          chalk: '#a39c8b',        // secondary text
-          dust: '#6d6759',         // tertiary / metadata
+          // canvas + surfaces → paper triad
+          ink: '#f5efe0',          // outermost canvas → paper
+          obsidian: '#f5efe0',     // primary surface → paper
+          velvet: '#ece5d2',       // raised surface → paper-2
+          shelf: '#ece5d2',        // tile / card surface → paper-2
+          glass: '#ddd3bc',        // hover / focus surface → paper-3
+          mist: '#d2cdc0',         // hairline → rule-2
+          hairline: '#bdb8ab',     // stronger border → rule
+          // foil → sodium accent
+          foil: '#de8c41',
+          'foil-bright': '#ee9f56',
+          'foil-deep': '#9d5d24',
+          'foil-shadow': '#6c3f17',
+          // sheen → plasma (cool blue secondary accent)
+          sheen: '#5e84cf',
+          'sheen-deep': '#3d68bd',
+          'sheen-glow': '#8aa6df',
+          // type → ink triad
+          cream: '#1c1f2a',        // body type → ink
+          parchment: '#4e525c',    // slightly muted body → ink-2
+          chalk: '#7f8189',        // secondary text → ink-3
+          dust: '#7f8189',         // tertiary → ink-3
           // semantic states
-          ember: '#dc4f43',        // critical / lethal
-          spore: '#a3e635',        // success / mana
-          violet: '#9d7bea',       // ultra / rare
+          ember: '#c64f3e',        // halt
+          spore: '#a5c544',        // acid
+          violet: '#5e84cf',       // → plasma (no separate violet in lab)
         },
         // ─── Legacy tokens (kept for incremental migration) ───
         // MTG mana colors

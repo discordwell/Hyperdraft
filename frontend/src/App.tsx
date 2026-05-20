@@ -8,6 +8,7 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Home } from './pages';
+import { EnginePicker } from './components/lab/EnginePicker';
 
 // Code-split: mode views + heavyweight pages are loaded on-demand
 const GameView = lazy(() => import('./pages/GameView'));
@@ -43,6 +44,7 @@ function LoadingFallback() {
 export function App() {
   return (
     <BrowserRouter>
+      <EnginePicker />
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
           <Route path="/" element={<Home />} />

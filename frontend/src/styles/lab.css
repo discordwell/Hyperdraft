@@ -1,0 +1,295 @@
+/*
+ * Lab — paper / ink / sodium aesthetic per HD-CRIT-001 (docs/design/critique-v0.1).
+ *
+ * Tokens are declared as raw lab variables and the legacy --brand-* names are
+ * re-pointed to them. Loaded after index.css so the cascade replaces the
+ * dark-foil token values everywhere they're referenced.
+ *
+ * Type stack: Instrument Serif (display) + Geist (body) + Geist Mono (telemetry).
+ * Palette ref: HD-PAL-01 swatches. Motion ref: HD-MOT-01.
+ */
+
+:root {
+  /* ─── HD-PAL-01 — paper / ink / one accent ─── */
+  --paper:    oklch(0.965 0.012 78);
+  --paper-2:  oklch(0.94 0.013 78);
+  --paper-3:  oklch(0.90 0.014 78);
+  --ink:      oklch(0.20 0.018 250);
+  --ink-2:    oklch(0.36 0.014 250);
+  --ink-3:    oklch(0.55 0.010 250);
+  --rule:     oklch(0.78 0.010 80);
+  --rule-2:   oklch(0.85 0.010 80);
+  --sodium:   oklch(0.68 0.18 38);
+  --plasma:   oklch(0.65 0.16 245);
+  --acid:     oklch(0.78 0.16 130);
+  --halt:     oklch(0.58 0.20 25);
+  --hatch:    repeating-linear-gradient(45deg, var(--paper) 0 6px, var(--paper-2) 6px 12px);
+
+  /* Type stack */
+  --font-serif: "Instrument Serif", "Fraunces", "Times New Roman", serif;
+  --font-sans:  "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:  "Geist Mono", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Plate shadow — single hairline highlight + far-off drop */
+  --shadow-plate: 0 1px 0 rgba(255, 255, 255, 0.55) inset,
+                  0 8px 28px -16px rgba(20, 24, 40, 0.20);
+
+  /* ─── Legacy --brand-* aliases — re-pointed to lab tokens ──────────────
+     Every existing component reads these. Reassign so the pivot ripples
+     out without touching component code. */
+  --brand-ink:        var(--paper);
+  --brand-obsidian:   var(--paper);
+  --brand-velvet:     var(--paper-2);
+  --brand-shelf:      var(--paper-2);
+  --brand-glass:      var(--paper-3);
+  --brand-mist:       var(--rule-2);
+  --brand-hairline:   var(--rule);
+  --brand-foil:       var(--sodium);
+  --brand-foil-bright: var(--sodium);
+  --brand-foil-deep:  oklch(0.52 0.16 38);
+  --brand-foil-shadow: oklch(0.40 0.12 38);
+  --brand-sheen:      var(--plasma);
+  --brand-sheen-deep: oklch(0.50 0.16 245);
+  --brand-sheen-glow: var(--plasma);
+  --brand-cream:      var(--ink);
+  --brand-parchment:  var(--ink-2);
+  --brand-chalk:      var(--ink-3);
+  --brand-dust:       var(--ink-3);
+  --brand-ember:      var(--halt);
+  --brand-spore:      var(--acid);
+  --brand-violet:     var(--plasma);
+
+  /* Switch the UA color-scheme — checkboxes / scrollbars / form controls
+     pick up the light theme automatically. */
+  color-scheme: light;
+}
+
+/* ─── Body + base type ─────────────────────────────────────────────── */
+
+html, body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+/* The original index.css adds a dark-tuned vignette + grain overlay on the
+   body. On paper that reads as TV-static. Damp both layers way down so the
+   page is calm. */
+body {
+  background-image: none;
+}
+body::before {
+  opacity: 0.18;
+  mix-blend-mode: multiply;
+  background-image:
+    radial-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    radial-gradient(rgba(0, 0, 0, 0.025) 1px, transparent 1px);
+}
+body::after {
+  display: none;
+}
+
+/* Headings revert to Instrument Serif on the lab surface. Existing
+   `.title-font` callers keep their tracking, just on the new face. */
+h1, h2, h3, h4, .title-font {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+
+/* Wordmark — italic serif, sodium emphasis on the second word. */
+.brand-wordmark {
+  font-family: var(--font-serif);
+  font-variation-settings: normal;
+  letter-spacing: -0.025em;
+  font-weight: 400;
+  text-transform: none;
+  color: var(--ink);
+}
+
+.brand-eyebrow {
+  font-family: var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.brand-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Foil shimmer — neutralized to a static sodium fill. The lab aesthetic
+   refuses animated gradient sweeps; existing call-sites still render
+   readable text in the new accent. */
+.brand-foil-text {
+  background: none;
+  background-clip: initial;
+  -webkit-background-clip: initial;
+  color: var(--sodium);
+  -webkit-text-fill-color: var(--sodium);
+  animation: none;
+}
+
+/* Scrollbar — slim, paper track, ink-2 thumb. */
+::-webkit-scrollbar-track {
+  background: var(--paper-2);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ink-3);
+  border: 2px solid var(--paper-2);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-2);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--sodium) 30%, transparent);
+  color: var(--ink);
+}
+
+/* ─── Lab primitives — CSS utility shapes used by Plate/Ledger/Chip ─── */
+
+.lab-rule {
+  border: 1px solid var(--rule);
+}
+.lab-rule-strong {
+  border: 1.5px solid var(--ink);
+}
+.lab-hairline {
+  border-color: var(--rule);
+}
+
+.lab-plate {
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow-plate);
+  padding: 36px;
+}
+.lab-plate-hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 14px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.lab-ledger {
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  font: 500 12px/1.45 var(--font-mono);
+}
+.lab-ledger .row {
+  display: grid;
+  grid-template-columns: 36px 130px 1fr;
+  gap: 14px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--rule-2);
+}
+.lab-ledger .row:first-child { border-top: 0; }
+.lab-ledger .row .n { color: var(--sodium); }
+.lab-ledger .row .k { color: var(--ink); letter-spacing: .04em; }
+.lab-ledger .row .v {
+  color: var(--ink-2);
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.lab-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  font: 500 10.5px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  background: var(--paper);
+}
+.lab-chip .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sodium);
+}
+
+/* Pull-quote bar with sodium rule */
+.lab-pull {
+  padding: 18px 22px;
+  border-left: 2.5px solid var(--sodium);
+  font: 400 22px/1.32 var(--font-serif);
+  color: var(--ink);
+  background: color-mix(in oklab, var(--sodium) 5%, transparent);
+}
+
+/* Hatched face-down treatment */
+.lab-hatch {
+  background: var(--hatch);
+}
+
+/* Phase-rail pills (used on board) */
+.lab-phases {
+  display: inline-flex;
+  gap: 0;
+  font: 500 10.5px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.lab-phases span {
+  padding: 6px 9px;
+  border: 1px solid var(--rule);
+  border-right: 0;
+  color: var(--ink-3);
+  background: var(--paper);
+}
+.lab-phases span:last-child {
+  border-right: 1px solid var(--rule);
+}
+.lab-phases span.on {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+/* Bar meter (used in engine rack progress lines) */
+.lab-bar {
+  height: 6px;
+  background: var(--rule-2);
+  position: relative;
+}
+.lab-bar i {
+  position: absolute;
+  inset: 0;
+  width: var(--w, 40%);
+  background: var(--ink);
+  display: block;
+}
+.lab-bar i.sodium {
+  background: var(--sodium);
+}
+
+/* Subtle 24px baseline grid — only on .lab-grid wrappers, off by default */
+.lab-grid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(transparent 23px, color-mix(in oklab, var(--rule) 22%, transparent) 24px),
+    linear-gradient(90deg, transparent 23px, color-mix(in oklab, var(--rule) 22%, transparent) 24px);
+  background-size: 24px 24px;
+  opacity: .25;
+  mix-blend-mode: multiply;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 200px, #000 calc(100% - 200px), transparent);
+          mask-image: linear-gradient(180deg, transparent 0, #000 200px, #000 calc(100% - 200px), transparent);
+}
+.lab-grid {
+  position: relative;
+}
