@@ -36,6 +36,14 @@ services:
       REPAIR_PER_TURN_TIMEOUT_SECONDS: "${REPAIR_PER_TURN_TIMEOUT_SECONDS:-900}"
       REPAIR_VERIFY_TIMEOUT_SECONDS: "${REPAIR_VERIFY_TIMEOUT_SECONDS:-90}"
 
+      # Spectator demo (Phase 4.1). When true, src/server/spectator.py keeps
+      # one bot_vs_bot ultra match alive at a time, cycling through
+      # [mtg, hearthstone, pokemon, yugioh]. Each demo match spawns two
+      # ultra subprocesses (one per AI seat) — count against ULTRA_MAX.
+      HYPERDRAFT_SPECTATOR_ENABLED: "${HYPERDRAFT_SPECTATOR_ENABLED:-false}"
+      HYPERDRAFT_SPECTATOR_COOLDOWN: "${HYPERDRAFT_SPECTATOR_COOLDOWN:-30}"
+      HYPERDRAFT_SPECTATOR_MAX_WALL_SECONDS: "${HYPERDRAFT_SPECTATOR_MAX_WALL_SECONDS:-5400}"
+
     volumes:
       # Persistent claude-code home (auth credentials, session state).
       # Populated once via ``docker cp ~/.claude/.credentials.json hyperdraft:/root/.claude/``

@@ -30,8 +30,10 @@ log = logging.getLogger(__name__)
 
 # Cycle order — matches the four engines with ultra-AI briefs in
 # prompts/ultra_ai/. SCP / Finance / Depths / Minecraft are excluded
-# because they don't have ultra briefs yet.
-GAME_MODE_CYCLE = ("mtg", "hearthstone", "pokemon", "yugioh")
+# because they don't have ultra briefs yet. Pokémon is intentionally
+# FIRST so the spectator's first impression is a fast-ish prize-race
+# game rather than a 30-min MTG control mirror.
+GAME_MODE_CYCLE = ("pokemon", "hearthstone", "yugioh", "mtg")
 
 _current_match_id: Optional[str] = None
 _supervisor_task: Optional[asyncio.Task] = None

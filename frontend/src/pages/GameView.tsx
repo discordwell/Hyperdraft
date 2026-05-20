@@ -50,19 +50,40 @@ export function GameView() {
   const storeMatchId = useGameStore((state) => state.matchId);
   const storePlayerId = useGameStore((state) => state.playerId);
   const setGameState = useGameStore((state) => state.setGameState);
+  const setConnection = useGameStore((state) => state.setConnection);
 
   // Fetch initial state if we don't have connection info
   useEffect(() => {
     if (!matchId) return;
 
-    // If we don't have connection info, try to get it
+    // Spectator auto-join: landed here without prior connection info
+    // (e.g. via /watch/live or a shared /game/<id> link). Pick the first
+    // player as the viewer so the spectator sees one seat's hand. The
+    // submitted-action layer remains live but is gated by the engine's
+    // active-player check, so accidental clicks lose the race to the
+    // ultra subprocess that's actually piloting that seat.
     if (!storeMatchId || storeMatchId !== matchId) {
-      // For now, redirect to home - in a real app, we'd have a rejoin mechanism
-      navigate('/');
+      const joinAsSpectator = async () => {
+        try {
+          const initial = await matchAPI.getState(matchId);
+          const playerIds = Object.keys(initial.players || {});
+          const spectatorPlayerId = playerIds[0];
+          if (!spectatorPlayerId) {
+            navigate('/');
+            return;
+          }
+          setConnection(matchId, spectatorPlayerId, false);
+          const full = await matchAPI.getState(matchId, spectatorPlayerId);
+          setGameState(full);
+        } catch {
+          navigate('/');
+        }
+      };
+      joinAsSpectator();
       return;
     }
 
-    // Fetch initial game state
+    // Normal flow — fetch initial state for a match we're already connected to
     const fetchState = async () => {
       try {
         const state = await matchAPI.getState(matchId, storePlayerId || undefined);
@@ -75,7 +96,7 @@ export function GameView() {
     if (!gameState && storePlayerId) {
       fetchState();
     }
-  }, [matchId, storeMatchId, storePlayerId, gameState, navigate, setGameState, setError]);
+  }, [matchId, storeMatchId, storePlayerId, gameState, navigate, setGameState, setError, setConnection]);
 
   useEffect(() => {
     if (gameState?.game_mode === 'minecraft' && matchId) {
