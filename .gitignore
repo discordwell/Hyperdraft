@@ -122,3 +122,6 @@ artifacts/
 # Card art generation runs (regeneratable via art-director skill)
 art-runs/
 
+
+# local docker-compose runtime data (storage/strategy/, storage/ultra-agent/, storage/replays/)
+storage/
