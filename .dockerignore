@@ -1,0 +1,58 @@
+# Build context exclusions for the Hyperdraft Docker image.
+# Anything excluded here will NOT be available to ``COPY . .`` or to
+# the stage-1 ``COPY frontend/ ./`` — keep card art / scp-art out and
+# bind-mount them at runtime instead.
+
+# VCS / editor / temp
+.git
+.gitignore
+.gitattributes
+.git-blame-ignore-revs
+
+# Python build/cache
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Node.js
+node_modules
+frontend/node_modules
+frontend/.vite
+
+# Large binary trees — bind-mounted at runtime (see docker-compose.prod.yml)
+assets/card_art
+frontend/public/scp-art
+
+# Locally-built frontend output — stage-1 regenerates this inside the image
+frontend/dist
+
+# Local logs / state / ephemeral data
+logs
+storage
+.env
+.env.local
+.env.*.local
+
+# Claude session memory and worktree scratch
+claudepad.md
+oldpad.md
+.claude
+
+# Per-run training artifacts and raw scrape data — neither is needed by the
+# running server. data/decks and data/netdecks ARE included.
+art-runs
+data/raw
+codex-pokemon-strategy/scratch
+
+# IDE / OS noise
+.idea
+.vscode
+.DS_Store

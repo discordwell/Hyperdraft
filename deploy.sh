@@ -1,17 +1,40 @@
 #!/usr/bin/env bash
+# Hyperdraft production deploy: rsync source to ovh2 and (re)build/start
+# the docker-compose service. Replaces the previous systemd-based deploy;
+# the one-shot ``scripts/deploy/migrate_off_systemd.sh`` handles the cutover.
+#
+# Card art and SCP art are NOT rsync'd here — they're hydrated separately via
+# Git LFS using ``make seed-art`` (one-time or when art changes). The compose
+# file bind-mounts /opt/hyperdraft/assets/card_art and
+# /opt/hyperdraft/frontend/public/scp-art into the container.
+
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SSH_HOST="${DEPLOY_SSH_HOST:-ovh2}"
-REMOTE_DIR=/opt/hyperdraft
-SERVICE=hyperdraft
+REMOTE_DIR="${DEPLOY_REMOTE_PATH:-/opt/hyperdraft}"
+SITE_NAME="hyperdraft.discordwell.com"
 REBOOT_SCRIPT="${HOME}/Projects/shared/reboot-vps.sh"
 
-# SSH kicker: test connectivity, reboot via OVH API if unreachable
+# SSH connection pooling — one master, persist 60s past last child.
+CONTROL_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hyperdraft-deploy-ssh.XXXXXX")"
+CONTROL_PATH="${CONTROL_DIR}/control"
+SSH=(ssh -o ControlMaster=auto -o ControlPath="${CONTROL_PATH}" -o ControlPersist=60)
+SCP=(scp -o ControlMaster=auto -o ControlPath="${CONTROL_PATH}" -o ControlPersist=60)
+RSYNC_SSH="ssh -o ControlMaster=auto -o ControlPath=${CONTROL_PATH} -o ControlPersist=60"
+
+cleanup() {
+  "${SSH[@]}" -O exit "${SSH_HOST}" >/dev/null 2>&1 || true
+  rm -rf "${CONTROL_DIR}"
+}
+trap cleanup EXIT
+
+# --- Step 0: SSH kicker (reboot via OVH API if unreachable) ---
 ensure_ssh() {
-  if ssh -o ConnectTimeout=10 -o BatchMode=yes "$SSH_HOST" "true" 2>/dev/null; then
+  if "${SSH[@]}" -o ConnectTimeout=10 -o BatchMode=yes "$SSH_HOST" "true" 2>/dev/null; then
     return 0
   fi
-  echo "SSH unreachable — kicking server via OVH API..."
+  echo ">> SSH unreachable — kicking server via OVH API..."
   if [[ -x "$REBOOT_SCRIPT" ]]; then
     "$REBOOT_SCRIPT" ovh2 --wait
   else
@@ -23,72 +46,108 @@ ensure_ssh() {
 echo "=== Hyperdraft Deploy to ${SSH_HOST} ==="
 ensure_ssh
 
-# 1. Build frontend
-echo "[1/5] Building frontend..."
-cd "$(dirname "$0")/frontend"
-npm run build --silent
-cd ..
+# --- Step 1: pre-deploy gate — refuse mid-game wipes ---
+#
+# session_manager.sessions is in-memory; ``docker compose up -d --build``
+# replaces the container and wipes every running match. Query the existing
+# server for live Ultra matches; abort unless --force is passed.
+echo ">> [1/6] Pre-deploy gate (checking for in-flight ultra matches)..."
+FORCE_DEPLOY="${FORCE_DEPLOY:-0}"
+PENDING_JSON="$("${SSH[@]}" "$SSH_HOST" \
+  "curl -fsS --max-time 5 http://127.0.0.1:8030/api/match/ultra-pending 2>/dev/null || echo '{\"pending\": []}'")"
+PENDING_COUNT="$(printf '%s' "$PENDING_JSON" | python3 -c 'import json,sys;print(len(json.load(sys.stdin).get("pending",[])))' 2>/dev/null || echo 0)"
+if [ "${PENDING_COUNT:-0}" -gt 0 ]; then
+  echo "  WARN: ${PENDING_COUNT} ultra match(es) currently in-flight."
+  if [ "$FORCE_DEPLOY" != "1" ]; then
+    echo "  Re-run with FORCE_DEPLOY=1 to proceed anyway (this WILL drop running games)."
+    exit 1
+  fi
+  echo "  FORCE_DEPLOY=1 — proceeding."
+fi
 
-# 2. Rsync project (exclude node_modules, __pycache__, .git, venv)
-echo "[2/5] Syncing files to ${SSH_HOST}:$REMOTE_DIR..."
-ssh "$SSH_HOST" "sudo mkdir -p $REMOTE_DIR && sudo chown ubuntu:ubuntu $REMOTE_DIR"
+# --- Step 2: ensure host directory + ownership ---
+echo ">> [2/6] Ensuring ${SSH_HOST}:${REMOTE_DIR} exists..."
+"${SSH[@]}" "$SSH_HOST" "sudo mkdir -p $REMOTE_DIR && sudo chown ubuntu:ubuntu $REMOTE_DIR"
+
+# --- Step 3: rsync source (excludes art; bind-mounted into container) ---
+#
+# Exclusions mirror .dockerignore so the build context inside the container
+# matches what gets shipped. Art directories are deliberately NOT rsync'd:
+# the host hydrates them via ``make seed-art`` (Git LFS pull from R2).
+echo ">> [3/6] Syncing source to ${SSH_HOST}:${REMOTE_DIR}..."
 rsync -az --delete \
-  --exclude='node_modules' \
-  --exclude='__pycache__' \
-  --exclude='.git' \
-  --exclude='venv' \
-  --exclude='.mypy_cache' \
-  --exclude='.pytest_cache' \
+  --exclude='.git/' \
+  --exclude='.venv/' \
+  --exclude='venv/' \
+  --exclude='node_modules/' \
+  --exclude='frontend/node_modules/' \
+  --exclude='__pycache__/' \
   --exclude='*.pyc' \
-  --exclude='oldpad.md' \
+  --exclude='.pytest_cache/' \
+  --exclude='.mypy_cache/' \
+  --exclude='.ruff_cache/' \
+  --exclude='frontend/dist/' \
   --exclude='claudepad.md' \
-  --exclude='.claude' \
-  --exclude='codex-pokemon-strategy/scratch' \
-  -e "ssh" \
-  . "${SSH_HOST}:$REMOTE_DIR/"
+  --exclude='oldpad.md' \
+  --exclude='.claude/' \
+  --exclude='logs/' \
+  --exclude='storage/' \
+  --exclude='art-runs/' \
+  --exclude='data/raw/' \
+  --exclude='codex-pokemon-strategy/scratch/' \
+  --exclude='.env' \
+  --exclude='.env.local' \
+  --exclude='.DS_Store' \
+  --exclude='assets/card_art/' \
+  --exclude='frontend/public/scp-art/' \
+  -e "${RSYNC_SSH}" \
+  "${SCRIPT_DIR}/" \
+  "${SSH_HOST}:${REMOTE_DIR}/"
 
-# 3. Set up Python venv and install deps
-echo "[3/5] Installing Python dependencies..."
-ssh "$SSH_HOST" "cd $REMOTE_DIR && \
-  ([ -f venv/bin/pip ] || python3 -m venv venv) && \
-  venv/bin/pip install -q -r requirements-server.txt"
+# --- Step 4: verify art has been seeded ---
+#
+# The container's bind mounts will fail to find files if these directories
+# don't exist on the host. ``make seed-art`` is the one-time hydration step;
+# we just warn here rather than refuse, so the operator can deploy code-only
+# changes even if art is mid-sync.
+echo ">> [4/6] Verifying art hydration..."
+ART_STATUS="$("${SSH[@]}" "$SSH_HOST" "
+  card_art_count=\$(find ${REMOTE_DIR}/assets/card_art -type f -name '*.png' 2>/dev/null | head -10 | wc -l || echo 0)
+  scp_art_count=\$(find ${REMOTE_DIR}/frontend/public/scp-art -type f -name '*.png' 2>/dev/null | head -10 | wc -l || echo 0)
+  echo \"card_art=\${card_art_count} scp_art=\${scp_art_count}\"
+")"
+echo "  ${ART_STATUS}"
+if printf '%s' "$ART_STATUS" | grep -q 'card_art=0\|scp_art=0'; then
+  echo "  WARN: art directory empty or missing. Run 'make seed-art' to hydrate."
+fi
 
-# 4. Install/update systemd service
-echo "[4/5] Setting up systemd service..."
-ssh "$SSH_HOST" "sudo tee /etc/systemd/system/$SERVICE.service > /dev/null << 'UNIT'
-[Unit]
-Description=Hyperdraft Game Server
-After=network.target
+# --- Step 5: migrate off systemd (one-shot, idempotent), then docker compose ---
+echo ">> [5/6] Migrating off systemd (no-op if already migrated)..."
+"${SSH[@]}" "$SSH_HOST" "cd $REMOTE_DIR && bash scripts/deploy/migrate_off_systemd.sh"
 
-[Service]
-Type=simple
-User=ubuntu
-WorkingDirectory=$REMOTE_DIR
-ExecStart=$REMOTE_DIR/venv/bin/uvicorn src.server.main:socket_app --host 127.0.0.1 --port 8030
-Restart=always
-RestartSec=5
-Environment=PYTHONUNBUFFERED=1
+echo ">> Building and (re)starting docker compose..."
+# --pull is omitted to keep base layer cached between deploys; rebuild from scratch with
+# DOCKER_BUILD_FRESH=1 if a new base image is desired.
+BUILD_FLAGS=""
+if [ "${DOCKER_BUILD_FRESH:-0}" = "1" ]; then
+  BUILD_FLAGS="--pull"
+fi
+"${SSH[@]}" "$SSH_HOST" "cd $REMOTE_DIR && docker compose -f docker-compose.prod.yml -p hyperdraft up -d --build ${BUILD_FLAGS}"
 
-[Install]
-WantedBy=multi-user.target
-UNIT
-sudo systemctl daemon-reload
-sudo systemctl enable $SERVICE
-sudo systemctl restart $SERVICE"
+# --- Step 6: Caddy reload + health check ---
+echo ">> [6/6] Updating Caddy site and reloading..."
+"${SCP[@]}" -q "${SCRIPT_DIR}/caddy.conf" "${SSH_HOST}:/tmp/${SITE_NAME}"
+"${SSH[@]}" "$SSH_HOST" "sudo mv /tmp/${SITE_NAME} /etc/caddy/sites/${SITE_NAME} && sudo systemctl reload caddy"
 
-# 5. Deploy Caddy config
-echo "[5/5] Updating Caddy config..."
-scp -q caddy.conf "${SSH_HOST}:/tmp/hyperdraft.discordwell.com"
-ssh "$SSH_HOST" "sudo mv /tmp/hyperdraft.discordwell.com /etc/caddy/sites/hyperdraft.discordwell.com && sudo systemctl reload caddy"
-
-# Health check
-echo "Waiting for service to start..."
-sleep 3
-STATUS=$(ssh "$SSH_HOST" "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8030/api/health")
+echo ">> Waiting for service to start..."
+sleep 5
+STATUS="$("${SSH[@]}" "$SSH_HOST" "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8030/api/health")"
 if [ "$STATUS" = "200" ]; then
   echo "=== Deploy successful! ==="
-  echo "https://hyperdraft.discordwell.com"
+  echo "URL: https://${SITE_NAME}"
 else
   echo "WARNING: Health check returned $STATUS"
-  ssh "$SSH_HOST" "sudo journalctl -u $SERVICE --since '30 seconds ago' --no-pager -n 20"
+  echo "--- last 80 lines of container logs ---"
+  "${SSH[@]}" "$SSH_HOST" "cd $REMOTE_DIR && docker compose -f docker-compose.prod.yml -p hyperdraft logs --tail=80 hyperdraft"
+  exit 1
 fi
