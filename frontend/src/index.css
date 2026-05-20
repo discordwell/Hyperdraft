@@ -184,10 +184,11 @@ h1, h2, h3, h4, .title-font {
   pointer-events: none;
   border-radius: inherit;
   overflow: hidden;
-  /* Rainbow layer — uses ``screen`` blend so it brightens against the
-     dark card backgrounds we use across game modes (overlay alone washes
-     out on dark). Higher alphas (0.55-0.70) because screen-blend over a
-     dark card needs them to read as "holo" rather than "faint tint". */
+  /* Rainbow layer — ``overlay`` blend is the universal choice: brightens
+     dark card backgrounds (Hearthstone) AND tints light ones (MTG's cream
+     cards). ``screen`` alone disappears against white; ``multiply`` alone
+     disappears against black. Alphas (0.55-0.70) tuned so overlay reads
+     clearly on both. */
   background: linear-gradient(
     115deg,
     transparent 0%,
@@ -199,9 +200,9 @@ h1, h2, h3, h4, .title-font {
     transparent 100%
   );
   background-size: 220% 220%;
-  mix-blend-mode: screen;
+  mix-blend-mode: overlay;
   animation: card-foil-pan 6s ease-in-out infinite;
-  opacity: 0.85;
+  opacity: 0.95;
   z-index: 5; /* above art, below stat orbs/badges */
 }
 .card-foil::after {
@@ -219,7 +220,7 @@ h1, h2, h3, h4, .title-font {
   );
   background-size: 250% 250%;
   animation: card-foil-pan 6s ease-in-out infinite reverse;
-  mix-blend-mode: screen;
+  mix-blend-mode: overlay;
 }
 @keyframes card-foil-pan {
   0%, 100% { background-position: 0% 0%; }
