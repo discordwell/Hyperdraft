@@ -9,17 +9,123 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useGame } from '../hooks/useGame';
 import { useGameStore } from '../stores/gameStore';
 import { useDragDropStore } from '../hooks/useDragDrop';
+import { useAltP } from '../hooks/useAltP';
 import { GameBoard, GraveyardModal, PriorityPrompt } from '../components/game';
 import { GameLog } from '../components/game/GameLog';
 import { AnimationsToggle } from '../components/game/shared/AnimationsToggle';
 import { ActionMenu, ChoiceModal } from '../components/actions';
 import { GameViewLayout } from '../components/brand';
+import { PipelineView, type PipelineEvent, type PipelineStage } from '../components/lab';
 import { HSGameView } from './HSGameView';
 import { PKMGameView } from './PKMGameView';
 import { YGOGameView } from './YGOGameView';
 import { SCPGameView } from './SCPGameView';
 import { matchAPI } from '../services/api';
-import type { CardData, LegalActionData } from '../types';
+import type { CardData, LegalActionData, GameLogEntry, PlayerData } from '../types';
+
+/**
+ * Heuristic: map a server-supplied event_type to one of the four
+ * interceptor pipeline stages. The real engine emits these events with a
+ * known InterceptorPriority (TRANSFORM / PREVENT / RESOLVE / REACT), but
+ * the Socket.IO log bridge currently discards the stage tag — see
+ * src/server/modes/*.py. Until that's wired, we infer from event-type
+ * vocabulary:
+ *
+ *   - PREVENT: cancel / counter / fizzle / ward / shroud verbiage.
+ *   - TRANSFORM: replacement effects, redirects, P/T modifiers, scry/surveil.
+ *   - REACT: ETB / death / leaves-battlefield triggers, end-step queues.
+ *   - RESOLVE: everything else that actually mutates state.
+ */
+function classifyStage(eventType: string): PipelineStage {
+  const k = eventType.toLowerCase();
+  if (
+    k.includes('prevent') ||
+    k.includes('counter') ||
+    k.includes('fizzle') ||
+    k.includes('ward')
+  ) {
+    return 'prevent';
+  }
+  if (
+    k.includes('replace') ||
+    k.includes('redirect') ||
+    k.includes('pt_modif') ||
+    k.includes('pt_modify') ||
+    k.includes('temporary_pt') ||
+    k.includes('pt_change') ||
+    k.includes('scry') ||
+    k.includes('surveil') ||
+    k.includes('query_cost')
+  ) {
+    return 'transform';
+  }
+  if (
+    k.includes('trigger') ||
+    k.includes('etb') ||
+    k.includes('enter_battlefield') ||
+    k.includes('death') ||
+    k.includes('leaves_battlefield') ||
+    k.includes('end_step') ||
+    k.includes('reaction') ||
+    k.includes('react') ||
+    k.includes('upkeep')
+  ) {
+    return 'react';
+  }
+  return 'resolve';
+}
+
+function gameLogToPipelineEvents(
+  log: GameLogEntry[],
+  players: Record<string, PlayerData>,
+): PipelineEvent[] {
+  return log.map((entry, i) => {
+    const stage = classifyStage(entry.event_type);
+    const playerName = entry.player
+      ? players[entry.player]?.name ?? entry.player
+      : 'engine';
+    return {
+      id: `log-${i}`,
+      stage,
+      type: entry.event_type.toUpperCase(),
+      source: playerName,
+      description: entry.text,
+      t: `T${entry.turn} +${(i % 99).toString().padStart(2, '0')}`,
+      turn: entry.turn,
+    };
+  });
+}
+
+/**
+ * Fallback demo events used when the active match hasn't logged anything
+ * yet. Covers all four stages over three turns so the README hero shot has
+ * the full pipeline lit. Event-type vocabulary drawn from
+ * `src/engine/types.py::EventType`.
+ */
+const SAMPLE_PIPELINE_EVENTS: PipelineEvent[] = [
+  // Turn 1 — Boros Reckoner redirect + Lightning Bolt
+  { id: 'p1', stage: 'transform', type: 'PT_MODIFICATION', source: 'Glorious Anthem', description: 'All creatures you control get +1/+1.', t: 'T1 +01', turn: 1 },
+  { id: 'p2', stage: 'resolve', type: 'SPELL_CAST', source: 'Bob', description: 'Bob casts Lightning Bolt targeting Alice.', t: 'T1 +02', turn: 1, relatedId: 'bolt' },
+  { id: 'p3', stage: 'transform', type: 'DAMAGE', source: 'Boros Reckoner', description: 'Damage redirected: Alice → Boros Reckoner.', t: 'T1 +03', turn: 1, relatedId: 'bolt' },
+  { id: 'p4', stage: 'prevent', type: 'DAMAGE', source: 'Leyline of Sanctity', description: 'No damage prevented (Reckoner is a creature).', t: 'T1 +04', turn: 1, relatedId: 'bolt' },
+  { id: 'p5', stage: 'resolve', type: 'DAMAGE', source: 'Lightning Bolt', description: '3 damage dealt to Boros Reckoner.', t: 'T1 +05', turn: 1, relatedId: 'bolt' },
+  { id: 'p6', stage: 'react', type: 'DAMAGE_TRIGGER', source: 'Boros Reckoner', description: 'Reckoner deals 3 damage back to Bob.', t: 'T1 +06', turn: 1, relatedId: 'bolt' },
+  { id: 'p7', stage: 'resolve', type: 'LIFE_CHANGE', source: 'Boros Reckoner', description: 'Bob loses 3 life (20 → 17).', t: 'T1 +07', turn: 1, relatedId: 'bolt' },
+
+  // Turn 2 — Soul Warden ETB cascade
+  { id: 'p8', stage: 'resolve', type: 'TURN_START', source: 'engine', description: 'Turn 2 begins. Alice draws Soul Warden.', t: 'T2 +01', turn: 2 },
+  { id: 'p9', stage: 'resolve', type: 'SPELL_CAST', source: 'Alice', description: 'Alice casts Soul Warden ({W}).', t: 'T2 +02', turn: 2, relatedId: 'warden' },
+  { id: 'p10', stage: 'resolve', type: 'ZONE_CHANGE', source: 'Soul Warden', description: 'Soul Warden enters the battlefield.', t: 'T2 +03', turn: 2, relatedId: 'warden' },
+  { id: 'p11', stage: 'react', type: 'ETB', source: 'Soul Warden', description: 'ETB trigger queued.', t: 'T2 +04', turn: 2, relatedId: 'warden' },
+  { id: 'p12', stage: 'react', type: 'LIFE_CHANGE', source: 'Soul Warden', description: 'Alice gains 1 life (17 → 18).', t: 'T2 +05', turn: 2, relatedId: 'warden' },
+
+  // Turn 3 — Counterspell on Wrath of God
+  { id: 'p13', stage: 'resolve', type: 'SPELL_CAST', source: 'Bob', description: 'Bob casts Wrath of God ({2}{W}{W}).', t: 'T3 +01', turn: 3, relatedId: 'wrath' },
+  { id: 'p14', stage: 'prevent', type: 'COUNTERSPELL', source: 'Counterspell', description: 'Counterspell counters Wrath of God.', t: 'T3 +02', turn: 3, relatedId: 'wrath' },
+  { id: 'p15', stage: 'resolve', type: 'ZONE_CHANGE', source: 'Wrath of God', description: 'Wrath of God put into Bob\'s graveyard.', t: 'T3 +03', turn: 3, relatedId: 'wrath' },
+  { id: 'p16', stage: 'transform', type: 'QUERY_COST', source: 'Sphinx\'s Tutelage', description: 'Next spell costs {1} more (Trinisphere static).', t: 'T3 +04', turn: 3 },
+  { id: 'p17', stage: 'react', type: 'END_STEP_TRIGGER', source: 'Forgotten Ancient', description: 'Move +1/+1 counters at end of turn.', t: 'T3 +05', turn: 3 },
+];
 
 export function GameView() {
   const { matchId } = useParams<{ matchId: string }>();
@@ -297,6 +403,29 @@ export function GameView() {
   const [isSubmittingChoice, setIsSubmittingChoice] = useState(false);
   const [isGraveyardOpen, setIsGraveyardOpen] = useState(false);
 
+  // HD-CRIT-018 ⌥P pipeline view overlay state. The overlay swaps the
+  // cards for a TRANSFORM/PREVENT/RESOLVE/REACT event-stream view; ⌥P
+  // toggles, Escape closes. `selectedEventId` is the cross-column
+  // highlight target (v1 = visual only).
+  const [pipelineOpen, setPipelineOpen] = useState(false);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const togglePipeline = useCallback(() => {
+    setPipelineOpen((v) => !v);
+    setSelectedEventId(null);
+  }, []);
+  useAltP(togglePipeline);
+  useEffect(() => {
+    if (!pipelineOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setPipelineOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [pipelineOpen]);
+
   // Check if there's a pending choice for this player
   const pendingChoice = useMemo(() => {
     if (!gameState?.pending_choice || !playerId) return null;
@@ -460,6 +589,25 @@ export function GameView() {
   const playerEntry = gameState?.players?.[playerId] as { name?: string } | undefined;
   const playerName = playerEntry?.name;
 
+  // HD-CRIT-018 — derive pipeline events from game_log when present, fall
+  // back to sample data so the overlay always renders something demoable.
+  //
+  // Real wiring TODO: the engine publishes events tagged with their
+  // InterceptorPriority stage in `src/engine/types.py`. The Socket.IO
+  // bridge currently flattens to GameLogEntry with a free-form event_type
+  // string; the stage tag is lost. To surface real stages, extend the
+  // server bridge to carry `stage` alongside `event_type`, then drop the
+  // heuristic here in favour of the server-supplied value.
+  const pipelineEvents = useMemo<PipelineEvent[]>(() => {
+    if (gameState?.game_log && gameState.game_log.length > 0) {
+      return gameLogToPipelineEvents(
+        gameState.game_log,
+        gameState.players,
+      );
+    }
+    return SAMPLE_PIPELINE_EVENTS;
+  }, [gameState?.game_log, gameState?.players]);
+
   return (
     <GameViewLayout
       mode="mtg"
@@ -603,10 +751,132 @@ export function GameView() {
 
         {/* Drag hint */}
         <div className="px-4 py-2 border-t border-brand-hairline/60 text-xs text-brand-dust text-center">
-          Tip: drag cards from your hand to play lands or target spells
+          Tip: drag cards from your hand to play lands or target spells <span className="brand-mono">· ⌥P pipeline</span>
         </div>
       </div>
     </div>
+
+    {/* HD-CRIT-018 — ⌥P Pipeline View overlay. Replaces the cards with
+        the four-column event stream. Toggled by useAltP above; Escape
+        closes. Click on the scrim closes too. The modal is a paper
+        chassis matching EnginePicker's lab styling. */}
+    {pipelineOpen && (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Pipeline view"
+        data-testid="pipeline-overlay"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) setPipelineOpen(false);
+        }}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 1000,
+          background: 'color-mix(in oklab, var(--ink) 28%, transparent)',
+          backdropFilter: 'blur(8px) saturate(1.05)',
+          display: 'grid',
+          placeItems: 'center',
+          padding: 24,
+          fontFamily: 'var(--font-sans)',
+        }}
+      >
+        <div
+          style={{
+            width: 'min(1400px, 100%)',
+            maxHeight: 'calc(100vh - 48px)',
+            background: 'var(--paper)',
+            border: '1.5px solid var(--ink)',
+            boxShadow: '0 30px 80px -30px rgba(20,24,40,.55)',
+            padding: 26,
+            display: 'grid',
+            gridTemplateRows: 'auto 1fr auto',
+            gap: 18,
+            minHeight: 0,
+          }}
+        >
+          <header
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              borderBottom: '1px solid var(--rule)',
+              paddingBottom: 14,
+            }}
+          >
+            <h2
+              style={{
+                margin: 0,
+                fontFamily: 'var(--font-serif)',
+                fontSize: 32,
+                fontWeight: 400,
+                lineHeight: 1,
+                letterSpacing: '-.015em',
+                color: 'var(--ink)',
+              }}
+            >
+              The cards are an{' '}
+              <em style={{ color: 'var(--sodium)', fontStyle: 'italic' }}>
+                event stream
+              </em>
+              .
+            </h2>
+            <div
+              style={{
+                display: 'flex',
+                gap: 16,
+                alignItems: 'baseline',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
+                letterSpacing: '.1em',
+                textTransform: 'uppercase',
+                color: 'var(--ink-3)',
+              }}
+            >
+              <span>Turn {turnNumber ?? 1}</span>
+              <span>{pipelineEvents.length} events</span>
+              <span>⌥P · Esc to close</span>
+            </div>
+          </header>
+
+          <div style={{ minHeight: 0, display: 'flex' }}>
+            <PipelineView
+              events={pipelineEvents}
+              activeStage={
+                (phaseName?.toLowerCase().includes('react')
+                  ? 'react'
+                  : 'resolve') as PipelineStage
+              }
+              selectedEventId={selectedEventId}
+              onSelect={(id) =>
+                setSelectedEventId((cur) => (cur === id ? null : id))
+              }
+            />
+          </div>
+
+          <footer
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              borderTop: '1px solid var(--rule)',
+              paddingTop: 14,
+              fontFamily: 'var(--font-mono)',
+              fontSize: 11,
+              letterSpacing: '.1em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-3)',
+            }}
+          >
+            <span style={{ textTransform: 'none', letterSpacing: 0 }}>
+              {gameState?.game_log && gameState.game_log.length > 0
+                ? `Live from match ${matchId}. Stage classification is heuristic until the server bridges InterceptorPriority.`
+                : 'Demo events — match log is empty.'}
+            </span>
+            <span>HD-CRIT-018 · PIPELINE</span>
+          </footer>
+        </div>
+      </div>
+    )}
     </GameViewLayout>
   );
 }
