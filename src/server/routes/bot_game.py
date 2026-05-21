@@ -364,6 +364,42 @@ async def start_bot_game(
                 # same seat the engine assigned).
                 session.deck_id_by_player[pid] = deck_blurb_id
 
+    elif request.mode == "scp":
+        # SCP bot-vs-bot: mirror match.py's scp branch. Each seat needs
+        # ``setup_scp_player`` (zeroes life/max_life so SCP loss is breach-
+        # based, not damage-based; seeds scp_sites/scp_facilities/scp_mandates
+        # state). Without this branch the route fell through to the MTG/HS
+        # else block, which left players at life=20 with no SCP state — the
+        # turn manager then ran against empty scp_sites dicts and the match
+        # never advanced toward a real win condition.
+        from src.cards.scp import SCP_STARTER_DECKS
+        import random
+        scp_deck_keys = list(SCP_STARTER_DECKS.keys())
+        b1_key = (
+            request.bot1_deck_id if request.bot1_deck_id in SCP_STARTER_DECKS
+            else random.choice(scp_deck_keys)
+        )
+        b2_key = (
+            request.bot2_deck_id if request.bot2_deck_id in SCP_STARTER_DECKS
+            else random.choice([k for k in scp_deck_keys if k != b1_key] or scp_deck_keys)
+        )
+
+        player_ids = list(session.game.state.players.keys())
+        deck_keys_by_seat = {player_ids[0]: b1_key}
+        if len(player_ids) >= 2:
+            deck_keys_by_seat[player_ids[1]] = b2_key
+
+        for pid in player_ids[:2]:
+            player = session.game.state.players.get(pid)
+            if player is None:
+                continue
+            session.game.setup_scp_player(player, [])
+
+        for pid in player_ids[:2]:
+            deck = SCP_STARTER_DECKS[deck_keys_by_seat[pid]]()
+            session.add_cards_to_deck(pid, deck)
+            session.deck_id_by_player[pid] = deck_keys_by_seat[pid]
+
     elif request.mode == "cats":
         # Cats bot-vs-bot: mirror match.py's cats branch. Each seat gets a
         # commander + 30-card deck from CATS_DECKS, then setup_cats_player
