@@ -66,14 +66,24 @@ function CardPanel({
       } ${onClick ? 'cursor-pointer hover:border-cyan-500' : ''}`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-slate-100">{card.name}</div>
-          <div className="mt-1 text-[11px] uppercase tracking-wide text-slate-500">
-            {card.types.join(' / ')}
-            {card.scp_status ? ` · ${card.scp_status}` : ''}
+        <div className="flex items-start gap-3 min-w-0 flex-1">
+          {card.image_url && (
+            <img
+              src={card.image_url}
+              alt={card.name}
+              loading="lazy"
+              className="h-16 w-16 flex-shrink-0 border border-slate-700 object-cover"
+            />
+          )}
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-slate-100 truncate">{card.name}</div>
+            <div className="mt-1 text-[11px] uppercase tracking-wide text-slate-500">
+              {card.types.join(' / ')}
+              {card.scp_status ? ` · ${card.scp_status}` : ''}
+            </div>
           </div>
         </div>
-        <div className="text-right text-xs text-slate-400">
+        <div className="text-right text-xs text-slate-400 flex-shrink-0">
           <div>RT {card.scp_red_tape ?? 0}</div>
           <div>CL {card.scp_clearance ?? 0}</div>
         </div>

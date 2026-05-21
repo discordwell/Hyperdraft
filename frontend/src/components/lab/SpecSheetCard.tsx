@@ -2,9 +2,10 @@
  * SpecSheetCard — engine-agnostic card chip.
  *
  * The three lines (cost/kind, name, stats) stay constant across all eight
- * engines — only the labels change. Render real card art if the surface
- * has it (Hyperdraft serves it under `/api/card-art/`); fall back to a
- * geometric art glyph when no art is available.
+ * engines — only the labels change. When `imageUrl` is provided the card
+ * renders the real art in the middle slot with a paper title bar at the
+ * bottom; without it the middle slot is a name-only spec-sheet (the
+ * original geometric-glyph-free layout).
  */
 
 import type { CSSProperties } from 'react';
@@ -17,6 +18,8 @@ interface SpecSheetCardProps {
   name: string;
   primary?: string;  // "3/3", "70 HP", "1500 ATK"
   secondary?: string; // "haste", "fly", "+counter"
+  /** Optional real card art. URL pattern: `/api/card-art/<engine>/<set>/<slug>.png`. */
+  imageUrl?: string;
   state?: CardState;
   width?: number;
   height?: number;
@@ -30,6 +33,7 @@ export function SpecSheetCard({
   name,
   primary,
   secondary,
+  imageUrl,
   state = 'idle',
   width = 62,
   height = 84,
@@ -73,20 +77,62 @@ export function SpecSheetCard({
         <span>{cost ?? ''}</span>
         <span>{kind ?? ''}</span>
       </div>
-      <div
-        style={{
-          fontFamily: 'var(--font-serif)',
-          fontSize: 11,
-          letterSpacing: '-.005em',
-          lineHeight: 1.05,
-          textAlign: 'left',
-          color: 'var(--ink)',
-          alignSelf: 'end',
-          fontWeight: 400,
-        }}
-      >
-        {name}
-      </div>
+      {imageUrl ? (
+        <div
+          style={{
+            position: 'relative',
+            overflow: 'hidden',
+            margin: '2px -3px 0',
+            border: '1px solid var(--rule-2)',
+          }}
+        >
+          <img
+            src={imageUrl}
+            alt={name}
+            loading="lazy"
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              display: 'block',
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              padding: '2px 4px',
+              background: 'color-mix(in oklab, var(--paper) 88%, transparent)',
+              borderTop: '1px solid var(--rule-2)',
+              fontFamily: 'var(--font-serif)',
+              fontSize: 10,
+              lineHeight: 1.05,
+              letterSpacing: '-.005em',
+              color: 'var(--ink)',
+              fontWeight: 400,
+            }}
+          >
+            {name}
+          </div>
+        </div>
+      ) : (
+        <div
+          style={{
+            fontFamily: 'var(--font-serif)',
+            fontSize: 11,
+            letterSpacing: '-.005em',
+            lineHeight: 1.05,
+            textAlign: 'left',
+            color: 'var(--ink)',
+            alignSelf: 'end',
+            fontWeight: 400,
+          }}
+        >
+          {name}
+        </div>
+      )}
       <div
         style={{
           display: 'flex',
