@@ -190,14 +190,94 @@ The set label / set code chosen by the stage-3 planner should be the **first set
 
 **Stage 7.5 (per-card effect verification)** is critical for first sets — a freshly-built engine + freshly-generated cards have not been wet-tested together, so the "interceptor wired but effect_fn returns []" failure mode is at maximum prevalence. Do NOT skip 7.5 to "save time" on the first set; the tournament loop in Stage 8 produces meaningless balance data when half the cards are silent-failure. Read `/new-set`'s Stage 7.5 spec carefully.
 
+### Stage 10 — Lab rack + picker registration (NOT OPTIONAL)
+
+A new engine is **invisible in the UI** until it is registered in two TypeScript files. The backend can be fully wired, the route can mount cleanly, the smoke tests can all pass — and the engine still won't appear in EngineRack (Home page) or EnginePicker (⌘E overlay) without these two edits. Do not skip this stage.
+
+Stage 2 may have wired `frontend/src/games/registry.ts` and a route in `App.tsx`, but the brand registry + lab metadata are separate concerns and live in two specific files. The orchestrator does this stage directly (no subagent — it's two small, deterministic edits).
+
+#### 10a — Append the brand registry entry
+
+Add a `GameModeMeta` entry to `GAME_MODES` in `frontend/src/components/brand/modes.ts`. First extend the `GameModeId` union with the new engine id; then append to the `GAME_MODES` array; then add a new branch to the `gameViewSuffix` union if the engine has a per-mode route suffix. If the engine reuses an existing accent, that's fine; do not invent a new accent without a UI reason.
+
+Exact pattern (using `submarine fleet` → `depths` as the worked example — already in the file, but it shows the shape):
+
+```ts
+// In the GameModeId union, add the new id:
+export type GameModeId =
+  | 'mtg'
+  | 'hearthstone'
+  // ... existing ids ...
+  | '<engine>';
+
+// In the gameViewSuffix union, add the new suffix:
+gameViewSuffix: '' | '/hs' | '/pkm' | '/ygo' | '/mc' | '/fin' | '/depths' | '/scp' | '/<suffix>';
+
+// Append to GAME_MODES (at the end of the array):
+{
+  id: '<engine>',
+  code: '<CODE>',                              // 3-4 char uppercase, matches the set code prefix
+  name: '<Display Name>',                     // short tile label
+  title: '<Long ceremonial title>',           // hero header
+  blurb: '<one-line marketing copy>',         // ~6-10 words, smart-kid-adult voice
+  accent: 'sheen',                            // pick one of: gold | sheen | ember | spore | violet
+  gameViewSuffix: '/<suffix>',                // matches the route added in Stage 2
+},
+```
+
+If the new engine reuses the same `gameViewSuffix` shape as MTG (i.e. it renders inside the default `/game/:matchId` route with no suffix), set `gameViewSuffix: ''`. Otherwise the suffix should match the route mounted in `App.tsx` during Stage 2.
+
+#### 10b — Append the lab metadata entry
+
+Add a record to the `META` object in `frontend/src/components/lab/engineMeta.ts`, keyed by the new `GameModeId`. The `LAB_ENGINES` derivation at the bottom of that file picks it up automatically once the `META` key exists.
+
+Exact pattern (model on the existing `depths` entry):
+
+```ts
+const META: Record<GameModeId, Omit<LabEngineMeta, keyof GameModeMeta>> = {
+  // ... existing entries ...
+  <engine>: {
+    ix: 'E<N>',                               // auto-increment from the last entry. E.g. if E8 is the last, use 'E9'.
+    subtitle: '<4-7-word descriptor>',        // engine-flavor one-liner, e.g. '5 pressure bands · sonar · torpedoes'
+    stat: '<short top-stat>',                 // right-aligned single stat for the rack row, e.g. 'silent threat' or '12 decks'
+    completeness: 50,                         // default 50; raise only if the engine ships with verified card effects + AI tiers
+    leadEngine: false,                        // ALWAYS false. Only MTG is the lead engine today.
+    pickerStats: [                            // four short {k,v} pairs shown on the picker card
+      { k: '<short>', v: '<short>' },
+      { k: '<short>', v: '<short>' },
+      { k: '<short>', v: '<short>' },
+      { k: '<short>', v: '<short>' },
+    ],
+  },
+};
+```
+
+**Default values to use unless the engine clearly warrants a deviation:**
+
+| Field | Default | When to deviate |
+|---|---|---|
+| `ix` | `E<N>` where N = (count of existing entries) + 1. Read the file first, find the highest existing index. | Never — always auto-increment. |
+| `subtitle` | A 4-7-word descriptor that captures the engine's flavor. E.g. `"biomes · mines · raid the End"` for Minecraft, `"chain · spell / trap / flip"` for YGO. | Always custom per engine — there is no generic default. |
+| `stat` | A short engine-flavor top-stat, e.g. `"lethal AI"`, `"12 decks"`, `"silent threat"`. | Always custom. Pick the single most evocative number or phrase that distinguishes this engine. |
+| `completeness` | `50`. | Raise to 60–70 if Stage 7.5 verified ≥80% of cards have working effect_fns AND the AI has at least 3 difficulty tiers. Never raise above 75 on a fresh build — even working engines need wet-test miles before they earn the higher tier. |
+| `leadEngine` | `false`. | Never set to `true`. Only MTG is the lead engine today; the lab is built around a single sodium-accented lead. |
+| `pickerStats` | Four `{k, v}` pairs derived from the engine's identity. Look at sibling entries: HS uses keyword names (`battlecry / deathrattle / lethal / ultra`), Pokemon uses mechanical counts (`12 trainers / prize aware / 5 conditions / evolution wired`). Pick the same shape that matches the engine's design doc. | Always custom — no generic default. |
+
+#### 10c — Verify the registration
+
+After both edits land, run `cd frontend && npm run build` again. If the build passes, the engine will appear in the rack and picker on the next page load. If TypeScript complains about an unhandled `GameModeId` branch in a switch / record literal elsewhere in the frontend, fix those root causes — the union has expanded and any total record over `GameModeId` keys must include the new entry. (`engineMeta.ts`'s `META: Record<GameModeId, ...>` is the most common offender, but ad-hoc switch statements in other components may also need updates.)
+
+**Why this stage exists:** the brand registry and lab metadata are intentionally hand-curated — they read as a designer's spec sheet, not live telemetry. The `/new-game` pipeline produces all the data needed to populate them (engine name, set code, card count, AI tier count, mechanical highlights from the design doc) but the writes themselves are not auto-derived. This stage is the bridge: the orchestrator has every value at hand by the time stages 0–9 finish; the only missing step is committing them to these two files.
+
 ## Final report
 
-After /new-set's stage 9 completes, append a "Pipeline summary" section to `docs/games/<engine>.md` with:
+After /new-set's stage 9 and stage 10 (lab registration) complete, append a "Pipeline summary" section to `docs/games/<engine>.md` with:
 
 - Engine module paths
 - AI adapter location + difficulty model summary
 - Frontend frame location
 - First-set artifacts (delegated to /new-set's report — link to `docs/sets/<set>.md`)
+- Lab registration: the new entries in `frontend/src/components/brand/modes.ts` and `frontend/src/components/lab/engineMeta.ts` (just the `id` + `ix` is enough — the rest is in the diff).
 - One-line "how to play": the user-facing command/route to actually run a game
 - Outstanding TODOs in the engine (any `# TODO:` comments left by Agent 4, etc.)
 
@@ -211,5 +291,5 @@ Then a short status message to the user.
 
 - **Engine ↔ set boundary**: keep stage 1 strictly engine-shape and stage 4 strictly card-shape. If a card needs a hook the engine doesn't expose, the right move is to ADD the hook to the engine (a small targeted edit) rather than weaken the card. But don't speculate — only add hooks driven by concrete card needs.
 - **Stage-2 wet test**: skipped per project convention. The user will wet-test the frontend after the pipeline. Do NOT prompt them to do so — the final report mentions it once and moves on.
-- **No mid-pipeline commits.** Stages produce on-disk artifacts only. The orchestrator does not call `git commit` or prompt the user to commit anywhere in stages 0–9. The final report (stage 9) lists everything that changed and a single "ready to commit" line; the user types `commit` themselves when they're back at the keyboard.
+- **No mid-pipeline commits.** Stages produce on-disk artifacts only. The orchestrator does not call `git commit` or prompt the user to commit anywhere in stages 0–10. The final report lists everything that changed (including the lab registration edits from stage 10) and a single "ready to commit" line; the user types `commit` themselves when they're back at the keyboard.
 - **No mid-pipeline AskUserQuestion.** If a stage-internal decision arises (planner produces something edge-case, smoke test reveals a bug), the orchestrator picks the documented default and logs the decision in the design doc / stage report. Do not block.
