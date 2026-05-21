@@ -509,8 +509,8 @@ export interface StartBotGameRequest {
   bot2_deck_id?: string;
   bot1_difficulty: AIDifficulty;
   bot2_difficulty: AIDifficulty;
-  bot1_brain?: 'heuristic' | 'openai' | 'anthropic' | 'ollama';
-  bot2_brain?: 'heuristic' | 'openai' | 'anthropic' | 'ollama';
+  bot1_brain?: 'heuristic' | 'openai' | 'ollama' | 'claude_code';
+  bot2_brain?: 'heuristic' | 'openai' | 'ollama' | 'claude_code';
   bot1_model?: string;
   bot2_model?: string;
   bot1_name?: string;
