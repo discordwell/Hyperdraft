@@ -1,8 +1,11 @@
 /**
- * AIAssistPanel Component
+ * AIAssistPanel Component — lab-posture footer (Phase C / buildplan item 9).
  *
- * Footer panel with AI deck building assistance and import/export options.
- * Uses LLM (Ollama) for deck building when available.
+ * "AI Assist" + "Hybrid Build" rows sit in the bottom chrome strip. Per the
+ * brief: mono caption, ink-outlined Build buttons, lab tokens. The W/U/B/R/G
+ * pip cluster keeps its per-engine MTG color semantics — Hybrid Build is an
+ * MTG-only flow (build a deck from a set code + colour identity), so the
+ * pip colours encoding MTG colour identity is correct vocabulary.
  */
 
 import { useState, useEffect } from 'react';
@@ -162,47 +165,61 @@ export function AIAssistPanel({ onImport, onExport }: AIAssistPanelProps) {
   };
 
   return (
-    <div className="bg-game-surface border-t border-gray-700 p-4">
-      {/* AI Input Row */}
-      <div className="flex items-center gap-2 mb-3">
-        <div className="flex items-center gap-2 text-gray-400">
-          <span className="text-lg">🤖</span>
-          <span className="text-sm font-semibold">AI Assist:</span>
-        </div>
+    <div
+      style={{
+        background: 'var(--paper)',
+        borderTop: '1px solid var(--rule)',
+        padding: '14px 32px 16px',
+      }}
+      data-testid="deckbuilder-ai-assist"
+    >
+      {/* AI Input Row — lab posture */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <span style={captionStyle}>AI Assist</span>
         <input
           type="text"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleAIBuild()}
           placeholder="Build me a red aggro deck with goblins..."
-          className="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white placeholder-gray-500 focus:outline-none focus:border-game-accent"
+          style={inputStyle}
+          aria-label="AI prompt"
         />
         <button
           onClick={handleAIBuild}
           disabled={aiLoading || !prompt.trim()}
-          className="px-4 py-2 bg-game-accent text-white rounded hover:bg-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          style={primaryButtonStyle(aiLoading || !prompt.trim())}
         >
-          {aiLoading ? 'Building...' : 'Build'}
+          {aiLoading ? 'Building…' : 'Build'}
         </button>
       </div>
 
       {/* Hybrid Build Row — heuristic skeleton + LLM polish */}
-      <div className="flex flex-wrap items-center gap-2 mb-3">
-        <div className="flex items-center gap-2 text-gray-400">
-          <span className="text-lg">⚙️</span>
-          <span className="text-sm font-semibold">Hybrid:</span>
-        </div>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: 8,
+        }}
+      >
+        <span style={captionStyle}>Hybrid</span>
         <select
           value={hybridArchetype}
           onChange={(e) => setHybridArchetype(e.target.value as HybridArchetype)}
-          className="px-2 py-1.5 bg-gray-800 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-game-accent"
+          style={selectStyle}
           aria-label="Archetype"
         >
           {HYBRID_ARCHETYPES.map((a) => (
             <option key={a} value={a}>{a}</option>
           ))}
         </select>
-        <div className="flex items-center gap-1" role="group" aria-label="Colors">
+
+        {/* MTG colour pips — per-engine vocabulary (W/U/B/R/G keep their
+            MTG colour identity hues; lab tokens drive the surrounding
+            chrome but the pip semantics are MTG's). */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }} role="group" aria-label="Colors">
           {HYBRID_COLORS.map(({ code, label }) => {
             const active = hybridColors.includes(code);
             return (
@@ -210,11 +227,18 @@ export function AIAssistPanel({ onImport, onExport }: AIAssistPanelProps) {
                 key={code}
                 type="button"
                 onClick={() => toggleHybridColor(code)}
-                className={`w-7 h-7 rounded text-xs font-bold transition-colors ${
-                  active
-                    ? 'bg-game-accent text-white'
-                    : 'bg-gray-800 border border-gray-600 text-gray-400 hover:bg-gray-700'
-                }`}
+                style={{
+                  width: 26,
+                  height: 26,
+                  background: active ? 'var(--ink)' : 'var(--paper)',
+                  color: active ? 'var(--paper)' : 'var(--ink-2)',
+                  border: `1px solid ${active ? 'var(--ink)' : 'var(--rule)'}`,
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  letterSpacing: '.04em',
+                }}
                 aria-pressed={active}
               >
                 {label}
@@ -222,62 +246,171 @@ export function AIAssistPanel({ onImport, onExport }: AIAssistPanelProps) {
             );
           })}
         </div>
+
         <input
           type="text"
           value={hybridSetCodesInput}
           onChange={(e) => setHybridSetCodesInput(e.target.value)}
           placeholder="Set codes (e.g. FDN,WOE)"
-          className="flex-1 min-w-[120px] px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-white placeholder-gray-500 text-sm focus:outline-none focus:border-game-accent"
+          style={{ ...inputStyle, flex: '0 1 220px', minWidth: 160 }}
           aria-label="Set codes"
         />
+
         <button
           onClick={handleHybridBuild}
-          disabled={hybridLoading || hybridColors.length === 0 || !hybridSetCodesInput.trim()}
-          className="px-4 py-2 bg-game-accent text-white rounded hover:bg-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={
+            hybridLoading || hybridColors.length === 0 || !hybridSetCodesInput.trim()
+          }
+          style={primaryButtonStyle(
+            hybridLoading || hybridColors.length === 0 || !hybridSetCodesInput.trim(),
+          )}
         >
-          {hybridLoading ? 'Building...' : 'Hybrid Build'}
+          {hybridLoading ? 'Building…' : 'Hybrid Build'}
         </button>
       </div>
 
       {/* Swap audit subtitle — populated when LLM polish makes swaps */}
       {swapAudit && (
-        <div className="mb-3 text-xs text-gray-400">{swapAudit}</div>
+        <div
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            color: 'var(--ink-3)',
+            marginBottom: 8,
+            letterSpacing: '.04em',
+          }}
+        >
+          {swapAudit}
+        </div>
       )}
 
-      {/* Status Display */}
+      {/* Status Display — lab posture */}
       {aiError && (
-        <div className="mb-3 text-sm text-yellow-400">{aiError}</div>
+        <div
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            color: 'var(--sodium)',
+            marginBottom: 8,
+            letterSpacing: '.04em',
+          }}
+        >
+          · {aiError}
+        </div>
       )}
       {aiSuccess && (
-        <div className="mb-3 text-sm text-green-400">{aiSuccess}</div>
+        <div
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            color: 'var(--acid)',
+            marginBottom: 8,
+            letterSpacing: '.04em',
+          }}
+        >
+          · {aiSuccess}
+        </div>
       )}
       {llmAvailable === false && (
-        <div className="mb-3 text-xs text-gray-500">
-          AI deck building requires Ollama. Run: <code className="text-gray-400">ollama serve && ollama pull qwen2.5:7b</code>
+        <div
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 10.5,
+            color: 'var(--ink-3)',
+            marginBottom: 8,
+            letterSpacing: '.04em',
+          }}
+        >
+          AI deck building requires Ollama. Run:{' '}
+          <code style={{ color: 'var(--ink-2)' }}>
+            ollama serve && ollama pull qwen2.5:7b
+          </code>
         </div>
       )}
 
       {/* Action Buttons Row */}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={onImport}
-          disabled={isLoading}
-          className="px-3 py-1.5 bg-gray-700 text-white rounded text-sm hover:bg-gray-600 transition-colors disabled:opacity-50"
-        >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+        <button onClick={onImport} disabled={isLoading} style={ghostButtonStyle(isLoading)}>
           Import Deck
         </button>
-        <button
-          onClick={onExport}
-          disabled={isLoading}
-          className="px-3 py-1.5 bg-gray-700 text-white rounded text-sm hover:bg-gray-600 transition-colors disabled:opacity-50"
-        >
+        <button onClick={onExport} disabled={isLoading} style={ghostButtonStyle(isLoading)}>
           Export
         </button>
-        <div className="flex-1" />
-        <span className="text-xs text-gray-500">
-          Tip: Click cards in the browser to add them to your deck
+        <div style={{ flex: 1 }} />
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 10.5,
+            letterSpacing: '.08em',
+            color: 'var(--ink-3)',
+          }}
+        >
+          Click cards in the browser to add them to your deck
         </span>
       </div>
     </div>
   );
+}
+
+const captionStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 10.5,
+  fontWeight: 500,
+  letterSpacing: '.14em',
+  textTransform: 'uppercase',
+  color: 'var(--ink-3)',
+  minWidth: 70,
+};
+
+const inputStyle: React.CSSProperties = {
+  flex: 1,
+  background: 'var(--paper)',
+  border: '1px solid var(--rule)',
+  padding: '8px 10px',
+  fontFamily: 'var(--font-sans)',
+  fontSize: 13,
+  color: 'var(--ink)',
+  outline: 'none',
+};
+
+const selectStyle: React.CSSProperties = {
+  background: 'var(--paper)',
+  color: 'var(--ink)',
+  border: '1px solid var(--rule)',
+  padding: '6px 10px',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 12,
+  outline: 'none',
+};
+
+function primaryButtonStyle(disabled: boolean): React.CSSProperties {
+  return {
+    fontFamily: 'var(--font-mono)',
+    fontSize: 11,
+    fontWeight: 500,
+    letterSpacing: '.12em',
+    textTransform: 'uppercase',
+    padding: '8px 14px',
+    background: disabled ? 'var(--ink-2)' : 'var(--ink)',
+    color: 'var(--paper)',
+    border: '1px solid var(--ink)',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.6 : 1,
+  };
+}
+
+function ghostButtonStyle(disabled: boolean): React.CSSProperties {
+  return {
+    fontFamily: 'var(--font-mono)',
+    fontSize: 11,
+    fontWeight: 500,
+    letterSpacing: '.12em',
+    textTransform: 'uppercase',
+    padding: '6px 12px',
+    background: 'transparent',
+    color: 'var(--ink-2)',
+    border: '1px solid var(--rule)',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.5 : 1,
+  };
 }

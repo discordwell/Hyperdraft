@@ -1,8 +1,12 @@
 /**
- * DeckStats Component
+ * DeckStats Component — lab-posture stats sidebar (Phase C / buildplan
+ * item 9).
  *
- * Displays deck statistics including counts and validation status.
- * Game-aware: tile labels and curve definitions adapt to the active game.
+ * Mirrors HD-ART-04's `.dbk-side` block: hairline-ruled headings, mono
+ * telemetry, ink bars, serif numerics. Color swatches (MTG only) keep
+ * the engine's W/U/B/R/G hexes because that *is* the per-engine vocabulary
+ * for color identity — `docs/design/brand.md` says per-engine semantic
+ * filter pills stay in the game's idiom.
  */
 
 import { useDeckbuilderStore } from '../../stores/deckbuilderStore';
@@ -27,26 +31,53 @@ export function DeckStats() {
   const StatsExtras = gameModule.StatsExtras;
 
   return (
-    <div className="p-4 border-b border-gray-700">
-      {/* Deck Colors — MTG only */}
+    <div
+      style={{
+        padding: 18,
+        borderBottom: '1px solid var(--rule)',
+        background: 'var(--paper-2)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 14,
+      }}
+      data-testid="deckbuilder-stats"
+    >
+      {/* Deck Colors — MTG only. The W/U/B/R/G swatches keep their per-engine
+          color encoding by design (per the brand doc: filter pills that
+          encode per-engine semantics stay in their game's vocabulary). */}
       {gameModule.showColors && (
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-xs text-gray-500 uppercase">Colors:</span>
-          <div className="flex gap-1">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={ledgerHeadingStyle}>Colors</span>
+          <div style={{ display: 'flex', gap: 4 }}>
             {currentDeck.colors.length > 0 ? (
               currentDeck.colors.map((color) => {
                 const colorKey = color as ColorSymbol;
                 return (
                   <div
                     key={color}
-                    className="w-5 h-5 rounded-full border border-white/30"
-                    style={{ backgroundColor: COLORS[colorKey]?.hex || '#666' }}
+                    style={{
+                      width: 18,
+                      height: 18,
+                      borderRadius: '50%',
+                      border: '1px solid var(--rule)',
+                      background: COLORS[colorKey]?.hex || 'var(--ink-3)',
+                    }}
                     title={COLORS[colorKey]?.name}
+                    aria-label={COLORS[colorKey]?.name}
                   />
                 );
               })
             ) : (
-              <span className="text-gray-500 text-xs">Colorless</span>
+              <span
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 11,
+                  color: 'var(--ink-3)',
+                  letterSpacing: '.04em',
+                }}
+              >
+                colorless
+              </span>
             )}
           </div>
         </div>
@@ -54,39 +85,79 @@ export function DeckStats() {
 
       {/* Cost Curve (mana / material / level depending on game) */}
       {deckStats && (
-        <ManaCurveChart manaCurve={curve} averageCmc={averageCost} />
+        <div>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              marginBottom: 6,
+            }}
+          >
+            <span style={ledgerHeadingStyle}>
+              {currentGame === 'mtg' ? 'Mana curve' : 'Cost curve'}
+            </span>
+            <span style={ledgerValueStyle}>avg {averageCost.toFixed(1)}</span>
+          </div>
+          <ManaCurveChart manaCurve={curve} averageCmc={averageCost} />
+        </div>
       )}
 
-      {/* Quick Stats — count tiles adapt to the active game */}
-      <div className={`grid gap-2 mt-3 ${tiles.length === 3 ? 'grid-cols-4' : 'grid-cols-2'}`}>
-        <div className="text-center">
-          <div className="text-lg font-bold text-white">{mainboardCount}</div>
-          <div className="text-xs text-gray-500">Main</div>
+      {/* Quick Stats — composition tiles, lab posture */}
+      <div>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'baseline',
+            marginBottom: 6,
+          }}
+        >
+          <span style={ledgerHeadingStyle}>Composition</span>
+          <span style={ledgerValueStyle}>
+            {mainboardCount}
+            {sideboardCount > 0 ? ` / ${sideboardCount}` : ''}
+          </span>
         </div>
-        {tiles.map((t) => (
-          <div key={t.label} className="text-center">
-            <div className="text-lg font-bold text-white">{t.value}</div>
-            <div className="text-xs text-gray-500">{t.label}</div>
-          </div>
-        ))}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: tiles.length === 3 ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)',
+            gap: 8,
+          }}
+        >
+          <StatTile label="Main" value={mainboardCount} />
+          {tiles.map((t) => (
+            <StatTile key={t.label} label={t.label} value={t.value} />
+          ))}
+        </div>
       </div>
 
-      {/* Per-game polish: material curve / energy mix / attribute breakdown / class breakdown */}
+      {/* Per-game polish: material curve / energy mix / attribute breakdown */}
       {deckStats && StatsExtras && <StatsExtras stats={deckStats} />}
 
-      {/* Validation Status */}
+      {/* Validation Status — lab posture (acid for valid, sodium for warn) */}
       {deckStats?.validation && (
-        <div className={`mt-3 text-xs ${
-          deckStats.validation.is_valid ? 'text-green-400' : 'text-yellow-400'
-        }`}>
+        <div
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            letterSpacing: '.04em',
+            color: deckStats.validation.is_valid ? 'var(--acid)' : 'var(--sodium)',
+            paddingTop: 6,
+            borderTop: '1px solid var(--rule-2)',
+          }}
+        >
           {deckStats.validation.is_valid ? (
-            <span>Deck is valid</span>
+            <span>· deck is valid</span>
           ) : (
             <div>
-              <span className="block">Deck validation issues:</span>
-              <ul className="list-disc list-inside mt-1">
+              <span style={{ display: 'block', marginBottom: 4 }}>· validation issues</span>
+              <ul style={{ margin: 0, paddingLeft: 14, color: 'var(--ink-2)' }}>
                 {deckStats.validation.errors.map((error, i) => (
-                  <li key={i}>{error}</li>
+                  <li key={i} style={{ marginTop: 2 }}>
+                    {error}
+                  </li>
                 ))}
               </ul>
             </div>
@@ -94,12 +165,65 @@ export function DeckStats() {
         </div>
       )}
 
-      {/* Sideboard Count */}
+      {/* Sideboard count, mono caption */}
       {sideboardCount > 0 && (
-        <div className="mt-2 text-xs text-gray-500">
+        <div
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            letterSpacing: '.04em',
+            color: 'var(--ink-3)',
+          }}
+        >
           Sideboard: {sideboardCount}/15
         </div>
       )}
     </div>
   );
 }
+
+function StatTile({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div style={{ textAlign: 'center' }}>
+      <div
+        style={{
+          fontFamily: 'var(--font-serif)',
+          fontSize: 22,
+          fontWeight: 400,
+          letterSpacing: '-.01em',
+          color: 'var(--ink)',
+          lineHeight: 1,
+        }}
+      >
+        {value}
+      </div>
+      <div
+        style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 10,
+          letterSpacing: '.1em',
+          textTransform: 'uppercase',
+          color: 'var(--ink-3)',
+          marginTop: 4,
+        }}
+      >
+        {label}
+      </div>
+    </div>
+  );
+}
+
+const ledgerHeadingStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 10.5,
+  fontWeight: 500,
+  letterSpacing: '.14em',
+  textTransform: 'uppercase',
+  color: 'var(--ink-3)',
+};
+
+const ledgerValueStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-serif)',
+  fontSize: 13,
+  color: 'var(--ink)',
+};
