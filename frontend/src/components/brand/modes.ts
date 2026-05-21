@@ -111,7 +111,7 @@ export const GAME_MODES: GameModeMeta[] = [
   },
   {
     id: 'cats',
-    code: 'CAT',
+    code: 'CATS',
     name: 'Cats',
     title: 'Cats: A Day in the Life',
     blurb: 'Trick-taking, pile-building. Nine rounds. Cats committee.',

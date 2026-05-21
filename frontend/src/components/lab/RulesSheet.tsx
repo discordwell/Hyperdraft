@@ -18,35 +18,6 @@ import { useQuestionMark } from '../../hooks/useQuestionMark';
 import { LAB_ENGINES, getLabEngine, type LabEngineMeta } from './engineMeta';
 import { type GameModeId } from '../brand/modes';
 
-// Cats is wired in App.tsx routes but not yet registered in modes.ts /
-// engineMeta.ts (that's Wave-2 — Phase B3 work). Until then, the rules
-// sheet supplies a minimal shim so `?` works on /cats pages.
-const CATS_SHIM: LabEngineMeta = {
-  id: 'cats' as GameModeId,
-  code: 'CATS',
-  name: 'Cats',
-  title: 'Cats',
-  blurb: 'Trick-taking, pile-building, mostly aloof.',
-  accent: 'spore',
-  gameViewSuffix: '' as LabEngineMeta['gameViewSuffix'],
-  ix: 'E9',
-  subtitle: '9 rounds · 3 piles · 1 calico named Karen',
-  stat: 'trick + pile',
-  completeness: 60,
-  leadEngine: false,
-  pickerStats: [
-    { k: '9', v: 'rounds' },
-    { k: '3', v: 'piles' },
-    { k: 'trick', v: 'taking' },
-    { k: 'cats', v: 'committee' },
-  ],
-};
-
-function resolveLabEngine(id: string): LabEngineMeta | undefined {
-  if (id === 'cats') return CATS_SHIM;
-  return getLabEngine(id);
-}
-
 // Static markdown imports — Vite's `?raw` suffix returns the file body as a
 // string at build time. This keeps the rules sheets in version control as
 // plain `.md` files (easy to edit, easy to read in PR review) without a
@@ -98,9 +69,9 @@ const ROUTE_SUFFIX_TO_ENGINE: Array<[RegExp, GameModeId]> = [
   [/\/game\/[^/]+\/fin(?:\/|$)/, 'finance'],
   [/\/game\/[^/]+\/depths(?:\/|$)/, 'depths'],
   [/\/game\/[^/]+\/scp(?:\/|$)/, 'scp'],
-  // Cats lives on /cats and /game/:matchId/cats; not in modes.ts yet.
-  [/\/game\/[^/]+\/cats(?:\/|$)/, 'cats' as GameModeId],
-  [/^\/cats(?:\/|$)/, 'cats' as GameModeId],
+  // Cats lives on /cats and /game/:matchId/cats.
+  [/\/game\/[^/]+\/cats(?:\/|$)/, 'cats'],
+  [/^\/cats(?:\/|$)/, 'cats'],
   // Deckbuilder and per-engine card viewers carry the engine in :game.
   // We surface that below via useParams; keep this list focused on game
   // routes where the suffix is the only signal.
@@ -120,7 +91,7 @@ function resolveEngine(
 ): LabEngineMeta {
   // 1. Explicit override (tests, future deep-link cases)
   if (override) {
-    const hit = resolveLabEngine(override);
+    const hit = getLabEngine(override);
     if (hit) return hit;
   }
   // 2. Route params — `:game` from /deckbuilder/:game, `:mode` if any view
@@ -128,20 +99,20 @@ function resolveEngine(
   for (const key of ['game', 'mode', 'engine']) {
     const v = params[key];
     if (!v) continue;
-    const hit = resolveLabEngine(v);
+    const hit = getLabEngine(v);
     if (hit) return hit;
   }
   // 3. URL suffix patterns (/game/:id/hs, /cats, …)
   const fromPath = engineFromPath(pathname);
   if (fromPath) {
-    const hit = resolveLabEngine(fromPath);
+    const hit = getLabEngine(fromPath);
     if (hit) return hit;
   }
   // 4. localStorage hint from the user's last picked engine
   try {
     const last = window.localStorage.getItem(LAST_ENGINE_STORAGE_KEY);
     if (last) {
-      const hit = resolveLabEngine(last);
+      const hit = getLabEngine(last);
       if (hit) return hit;
     }
   } catch {
