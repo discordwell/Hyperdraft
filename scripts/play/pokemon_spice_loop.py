@@ -116,6 +116,16 @@ ITERATION_PLANS: list[dict[str, Any]] = [
         "suspicion": "Dimir disruption against Izzet draw-and-burst turns.",
         "patterns": ["tutoring and consistency", "tempo theft"],
     },
+    # Spice-pack v1 second Orzhov focal (Karlov-line Stage 2 ex). Sits
+    # alongside the Teysa plan so every focal in BRV_SYNERGY_PACKAGES is
+    # exercised by the loop.
+    {
+        "guild": "orzhov",
+        "focal": "Obzedat, Ghost Council ex",
+        "matchup": ("brv:orzhov", "brv:rakdos"),
+        "suspicion": "Orzhov modal KO-bench / prize-tax against Rakdos chip damage.",
+        "patterns": ["asymmetric prison", "tempo theft"],
+    },
 ]
 
 

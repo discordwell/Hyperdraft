@@ -136,12 +136,20 @@ def load_deck(card_registry: dict, deck: Deck) -> list:
             # Default MTG domain: use the provided registry (usually ALL_CARDS).
             card_def = card_registry.get(entry.card_name)
 
-        # If unspecified and not in MTG registry, attempt an unambiguous set lookup.
+        # If unspecified and not in MTG registry, attempt a set lookup.
+        # When the name lives in exactly one set, use that. When multiple
+        # custom sets ship a card with the same name (e.g., TMH and AOT
+        # both define "Primal Growth"), fall back to the first hit — the
+        # defs are name-compatible by construction and the caller didn't
+        # disambiguate.
         if card_def is None and not domain:
             set_codes = get_sets_for_card(entry.card_name)
-            if len(set_codes) == 1:
-                domain_cards = get_cards_in_set(set_codes[0])
-                card_def = domain_cards.get(entry.card_name) if domain_cards else None
+            for code in set_codes:
+                domain_cards = get_cards_in_set(code)
+                candidate = domain_cards.get(entry.card_name) if domain_cards else None
+                if candidate is not None:
+                    card_def = candidate
+                    break
 
         if card_def:
             for _ in range(entry.quantity):

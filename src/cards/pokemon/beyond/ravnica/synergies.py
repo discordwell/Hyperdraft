@@ -53,6 +53,15 @@ BRV_SYNERGY_PACKAGES: dict[str, list[str]] = {
         "Kaya, Ghost Assassin", "Orzhov Cluestone",
         "Orzhov Blend Energy",
     ],
+    # Spice-pack v1 second Orzhov ex (Stage 2 ghost-council). Uses the
+    # Karlov-of-the-Ghost-Council line rather than Teyslet → Teyserin →
+    # Teysa Karlov, so its partner list is the Karlov half of Orzhov.
+    "Obzedat, Ghost Council ex": [
+        "Karlov of the Ghost Council", "Obzlet", "Obzedat, Ghost Council",
+        "Tithe Drinker", "Treasury Thrull", "Orzhova, the Church of Deals",
+        "Kaya, Ghost Assassin", "Sanguine Sacrament", "Orzhov Cluestone",
+        "Orzhov Blend Energy",
+    ],
     "Rakdos, Lord of Riots ex": [
         "Rakdomling", "Rakdomore", "Bloodlet", "Bloodletter of Aclazotz",
         "Rakdos Cackler", "Hellhole Flailer", "Carnival Hellsteed",
