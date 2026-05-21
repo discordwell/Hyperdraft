@@ -215,34 +215,27 @@ def test_oscorp_scientist_etb_loot():
 
 
 def test_the_lizard_upkeep_counter():
-    """Test The Lizard gets +1/+1 counter at upkeep."""
-    print("\n=== Test: The Lizard Upkeep Counter ===")
+    """Test The Lizard ETB: scry 1 + controller +2 life + each opp -1 life (spice-pass redesign)."""
+    print("\n=== Test: The Lizard ETB (scry + life swing) ===")
 
     game = Game()
     p1 = game.add_player("Curt")
+    p2 = game.add_player("Villain")
 
     card_def = SPIDER_MAN_CUSTOM_CARDS["The Lizard"]
 
-    # Create on battlefield (no ETB, testing upkeep trigger)
-    creature = create_on_battlefield_no_etb(game, card_def, p1.id)
+    p1_initial_life = p1.life
+    p2_initial_life = p2.life
+    print(f"Starting life - p1: {p1_initial_life}, p2: {p2_initial_life}")
 
-    initial_counters = creature.state.counters.get('+1/+1', 0)
-    print(f"Initial +1/+1 counters: {initial_counters}")
+    # Use helper to properly trigger ETB once
+    creature = create_and_enter_battlefield(game, card_def, p1.id)
 
-    # Set active player and emit upkeep event
-    game.state.active_player = p1.id
-    game.emit(Event(
-        type=EventType.PHASE_START,
-        payload={
-            'phase': 'upkeep',
-            'player': p1.id
-        }
-    ))
+    print(f"Life after ETB - p1: {p1.life}, p2: {p2.life}")
 
-    final_counters = creature.state.counters.get('+1/+1', 0)
-    print(f"Counters after upkeep: {final_counters}")
-
-    assert final_counters == initial_counters + 1, f"Expected {initial_counters + 1}, got {final_counters}"
+    # _spmc_the_lizard_setup ETB: controller gains 2, each opponent loses 1
+    assert p1.life == p1_initial_life + 2, f"Expected p1 life {p1_initial_life + 2}, got {p1.life}"
+    assert p2.life == p2_initial_life - 1, f"Expected p2 life {p2_initial_life - 1}, got {p2.life}"
     print("PASSED")
 
 
@@ -305,8 +298,11 @@ def test_crime_boss_death_trigger_treasures():
 
 
 def test_symbiote_tendril_combat_damage_counter():
-    """Test Symbiote Tendril gets +1/+1 counter on combat damage to player."""
-    print("\n=== Test: Symbiote Tendril Combat Damage Counter ===")
+    """Test Symbiote Tendril death trigger: scry 1 + each opp -1 (spice-pass redesign).
+
+    Old behavior was +1/+1 counter on combat damage; spice-pass swapped to death-trigger
+    tendril dispersal that drains each opponent for max(1, Symbiotes you control)."""
+    print("\n=== Test: Symbiote Tendril Death Trigger (drain) ===")
 
     game = Game()
     p1 = game.add_player("Eddie")
@@ -314,27 +310,28 @@ def test_symbiote_tendril_combat_damage_counter():
 
     card_def = SPIDER_MAN_CUSTOM_CARDS["Symbiote Tendril"]
 
-    # Create on battlefield (no ETB)
+    # Create on battlefield (no ETB, testing death trigger)
     creature = create_on_battlefield_no_etb(game, card_def, p1.id)
 
-    initial_counters = creature.state.counters.get('+1/+1', 0)
-    print(f"Initial +1/+1 counters: {initial_counters}")
+    p2_initial_life = p2.life
+    print(f"Starting opponent life: {p2_initial_life}")
 
-    # Emit combat damage event to a player
+    # Emit death (ZONE_CHANGE from battlefield to graveyard)
     game.emit(Event(
-        type=EventType.DAMAGE,
+        type=EventType.ZONE_CHANGE,
         payload={
-            'source': creature.id,
-            'target': p2.id,
-            'amount': 2,
-            'is_combat': True
+            'object_id': creature.id,
+            'from_zone': 'battlefield',
+            'from_zone_type': ZoneType.BATTLEFIELD,
+            'to_zone': 'graveyard',
+            'to_zone_type': ZoneType.GRAVEYARD
         }
     ))
 
-    final_counters = creature.state.counters.get('+1/+1', 0)
-    print(f"Counters after combat damage: {final_counters}")
-
-    assert final_counters == initial_counters + 1, f"Expected {initial_counters + 1}, got {final_counters}"
+    print(f"Opponent life after death: {p2.life}")
+    # _spmc_symbiote_tendril_death_setup: each opp -max(1, symbiote_count).
+    # Only this Tendril is a Symbiote and it's leaving the battlefield, so drain = 1.
+    assert p2.life == p2_initial_life - 1, f"Expected p2 life {p2_initial_life - 1}, got {p2.life}"
     print("PASSED")
 
 
@@ -418,39 +415,12 @@ def test_rhino_attack_power_boost():
 # =============================================================================
 
 def test_spider_hulk_etb_counters():
-    """Test Spider-Hulk enters with four +1/+1 counters."""
-    print("\n=== Test: Spider-Hulk ETB Counters ===")
+    """Test Spider-Hulk ETB: scry 1 + controller +max(2, spiders+1) life + each opp -1 (spice-pass).
 
-    game = Game()
-    p1 = game.add_player("Bruce")
-
-    card_def = SPIDER_MAN_CUSTOM_CARDS["Spider-Hulk"]
-
-    # Use helper to properly trigger ETB once
-    creature = create_and_enter_battlefield(game, card_def, p1.id)
-
-    counters = creature.state.counters.get('+1/+1', 0)
-    print(f"+1/+1 counters after ETB: {counters}")
-
-    assert counters == 4, f"Expected 4 counters, got {counters}"
-
-    # Check effective P/T
-    base_power = creature.characteristics.power
-    base_toughness = creature.characteristics.toughness
-    actual_power = get_power(creature, game.state)
-    actual_toughness = get_toughness(creature, game.state)
-
-    print(f"Base stats: {base_power}/{base_toughness}")
-    print(f"Effective stats: {actual_power}/{actual_toughness}")
-
-    assert actual_power == base_power + 4, f"Expected power {base_power + 4}, got {actual_power}"
-    assert actual_toughness == base_toughness + 4, f"Expected toughness {base_toughness + 4}, got {actual_toughness}"
-    print("PASSED")
-
-
-def test_spider_hulk_takes_damage_counter():
-    """Test Spider-Hulk gets +1/+1 counter when taking damage."""
-    print("\n=== Test: Spider-Hulk Takes Damage Counter ===")
+    Old behavior put 4 +1/+1 counters on ETB; spice-pass redesigned this to a gamma-rage
+    scry + life swing scaling with Spider ally count (min 2 even with no Spiders).
+    """
+    print("\n=== Test: Spider-Hulk ETB (scry + life swing) ===")
 
     game = Game()
     p1 = game.add_player("Bruce")
@@ -458,13 +428,61 @@ def test_spider_hulk_takes_damage_counter():
 
     card_def = SPIDER_MAN_CUSTOM_CARDS["Spider-Hulk"]
 
+    p1_initial_life = p1.life
+    p2_initial_life = p2.life
+
     # Use helper to properly trigger ETB once
     creature = create_and_enter_battlefield(game, card_def, p1.id)
 
-    counters_after_etb = creature.state.counters.get('+1/+1', 0)
-    print(f"Counters after ETB: {counters_after_etb}")
+    print(f"Life after ETB - p1: {p1.life}, p2: {p2.life}")
 
-    # Deal damage to Spider-Hulk
+    # No Spider allies, so controller gains max(2, 0+1) = 2; each opponent loses 1
+    assert p1.life == p1_initial_life + 2, f"Expected p1 life {p1_initial_life + 2}, got {p1.life}"
+    assert p2.life == p2_initial_life - 1, f"Expected p2 life {p2_initial_life - 1}, got {p2.life}"
+
+    # No +1/+1 counters in the redesign
+    counters = creature.state.counters.get('+1/+1', 0)
+    assert counters == 0, f"Expected 0 +1/+1 counters in redesign, got {counters}"
+    print("PASSED")
+
+
+def test_spider_hulk_takes_damage_counter():
+    """Test Spider-Hulk ETB scales with Spider allies (spice-pass redesign).
+
+    Old behavior: +1/+1 counter on damage taken. Spice-pass removed the damage trigger
+    entirely and replaced it with an ETB that scales life gain by Spider allies
+    (max(2, spiders+1)). This verifies the ally-scaling branch and confirms no
+    damage-taken counter trigger fires anymore.
+    """
+    print("\n=== Test: Spider-Hulk Ally Scaling + No Damage Counter ===")
+
+    game = Game()
+    p1 = game.add_player("Bruce")
+    p2 = game.add_player("Villain")
+
+    # Drop two Spider allies into play (no ETB), so spiders+1 = 3 will beat the min of 2
+    spider_colony_def = SPIDER_MAN_CUSTOM_CARDS["Spider Colony"]
+    create_on_battlefield_no_etb(game, spider_colony_def, p1.id, name="Spider Ally 1")
+    create_on_battlefield_no_etb(game, spider_colony_def, p1.id, name="Spider Ally 2")
+
+    card_def = SPIDER_MAN_CUSTOM_CARDS["Spider-Hulk"]
+
+    p1_initial_life = p1.life
+    p2_initial_life = p2.life
+
+    # Use helper to properly trigger ETB once
+    creature = create_and_enter_battlefield(game, card_def, p1.id)
+
+    print(f"Life after ETB with 2 Spider allies - p1: {p1.life}, p2: {p2.life}")
+
+    # Spider count = 2 Colonies + Spider-Hulk itself (it has the Spider subtype) = 3
+    # Controller gains max(2, 3+1) = 4; each opponent loses 1
+    assert p1.life == p1_initial_life + 4, f"Expected p1 life {p1_initial_life + 4}, got {p1.life}"
+    assert p2.life == p2_initial_life - 1, f"Expected p2 life {p2_initial_life - 1}, got {p2.life}"
+
+    counters_after_etb = creature.state.counters.get('+1/+1', 0)
+
+    # Confirm the old damage-taken trigger is gone: dealing damage should NOT add a counter
     game.emit(Event(
         type=EventType.DAMAGE,
         payload={
@@ -476,10 +494,8 @@ def test_spider_hulk_takes_damage_counter():
     ))
 
     counters_after_damage = creature.state.counters.get('+1/+1', 0)
-    print(f"Counters after taking damage: {counters_after_damage}")
-
-    assert counters_after_damage == counters_after_etb + 1, \
-        f"Expected {counters_after_etb + 1}, got {counters_after_damage}"
+    assert counters_after_damage == counters_after_etb, \
+        f"Damage-taken counter trigger should be gone; expected {counters_after_etb}, got {counters_after_damage}"
     print("PASSED")
 
 

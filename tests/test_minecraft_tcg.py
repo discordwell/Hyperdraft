@@ -1464,8 +1464,11 @@ def test_create_match_minecraft_bot_random_pool_includes_expansion_starters(monk
         session = session_manager.get_session(response.match_id)
         assert session is not None
 
+        # bot_vs_bot seats two AI players — no phantom human seat (fixed in
+        # commit b28c9ed3 "fix(spectator): bot_vs_bot must not seat a phantom
+        # human"). Each AI gets one of the two shuffled-to-front decks.
         player_ids = list(session.player_ids)
-        assert len(player_ids) == 3
+        assert len(player_ids) == 2
 
         def library_names(pid):
             library = session.game.state.zones[f"library_{pid}"]
@@ -1474,9 +1477,10 @@ def test_create_match_minecraft_bot_random_pool_includes_expansion_starters(monk
                 for oid in library.objects
             }
 
-        assert "Trial Supply Cache" in library_names(response.player_id)
+        # `response.opponent_id` is the first AI seat; it gets the first
+        # shuffled deck (trial_chambers). The second AI seat gets tamed_trails.
         assert "Trial Supply Cache" in library_names(response.opponent_id)
-        second_bot = next(pid for pid in player_ids if pid not in {response.player_id, response.opponent_id})
+        second_bot = next(pid for pid in player_ids if pid != response.opponent_id)
         assert "Best Friends Forever" in library_names(second_bot)
 
         await session_manager.remove_session(response.match_id)

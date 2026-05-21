@@ -218,47 +218,52 @@ def test_armin_arlert_etb():
 
 
 def test_intelligence_officer_etb():
-    """Intelligence Officer: When enters, scry 2."""
-    print("\n=== Test: Intelligence Officer ETB Scry ===")
+    """Intelligence Officer: ETB now emits SURVEIL 1 + MILL per opponent (spice-pass W18-W22)."""
+    print("\n=== Test: Intelligence Officer ETB Surveil + Mill ===")
 
     game, p1, p2 = create_test_game()
 
     creature = create_creature_in_hand(game, p1, "Intelligence Officer")
     events = move_to_battlefield(game, creature)
 
-    # Scry uses ACTIVATE event type as placeholder
-    activate_events = [e for e in events if e.type == EventType.ACTIVATE]
-    scry_actions = [e for e in activate_events if e.payload.get('action') == 'scry']
+    # New behavior (_aot_intelligence_officer_setup_s19): surveil 1 + mill per opp
+    surveil_events = [e for e in events if e.type == EventType.SURVEIL]
+    mill_events = [e for e in events if e.type == EventType.MILL]
 
-    print(f"Scry actions: {len(scry_actions)}")
+    print(f"Surveil events: {len(surveil_events)}")
+    print(f"Mill events: {len(mill_events)}")
 
-    assert len(scry_actions) >= 1, f"Expected at least 1 scry action, got {len(scry_actions)}"
-    if scry_actions:
-        assert scry_actions[0].payload.get('amount') == 2, "Expected scry 2"
+    assert len(surveil_events) >= 1, f"Expected at least 1 surveil event, got {len(surveil_events)}"
+    assert surveil_events[0].payload.get('amount') == 1, "Expected surveil 1"
+    assert len(mill_events) >= 1, f"Expected at least 1 mill event, got {len(mill_events)}"
+    # Mill targets opponent
+    assert any(e.payload.get('player') == p2.id for e in mill_events), "Expected opponent mill"
 
-    print("PASSED: Intelligence Officer ETB scry works!")
+    print("PASSED: Intelligence Officer ETB surveil + mill works!")
 
 
 def test_erwin_gambit_etb():
-    """Erwin Smith, The Gambit: When enters, scry 1."""
-    print("\n=== Test: Erwin Smith, The Gambit ETB Scry ===")
+    """Erwin Smith, The Gambit: ETB emits SCRY 1 + REVEAL_HAND per opponent (spice-pass W18-W22)."""
+    print("\n=== Test: Erwin Smith, The Gambit ETB Scry + Reveal ===")
 
     game, p1, p2 = create_test_game()
 
     creature = create_creature_in_hand(game, p1, "Erwin Smith, The Gambit")
     events = move_to_battlefield(game, creature)
 
-    # Scry uses ACTIVATE event type as placeholder
-    activate_events = [e for e in events if e.type == EventType.ACTIVATE]
-    scry_actions = [e for e in activate_events if e.payload.get('action') == 'scry']
+    # New behavior (_aot_erwin_gambit_setup_s19): SCRY + REVEAL_HAND for each opp
+    scry_events = [e for e in events if e.type == EventType.SCRY]
+    reveal_events = [e for e in events if e.type == EventType.REVEAL_HAND]
 
-    print(f"Scry actions: {len(scry_actions)}")
+    print(f"Scry events: {len(scry_events)}")
+    print(f"Reveal-hand events: {len(reveal_events)}")
 
-    assert len(scry_actions) >= 1, f"Expected at least 1 scry action, got {len(scry_actions)}"
-    if scry_actions:
-        assert scry_actions[0].payload.get('amount') == 1, "Expected scry 1"
+    assert len(scry_events) >= 1, f"Expected at least 1 SCRY event, got {len(scry_events)}"
+    assert scry_events[0].payload.get('amount') == 1, "Expected scry 1"
+    assert len(reveal_events) >= 1, f"Expected at least 1 REVEAL_HAND event, got {len(reveal_events)}"
+    assert any(e.payload.get('player') == p2.id for e in reveal_events), "Expected opponent hand reveal"
 
-    print("PASSED: Erwin Smith, The Gambit ETB scry works!")
+    print("PASSED: Erwin Smith, The Gambit ETB scry + reveal works!")
 
 
 # =============================================================================
@@ -266,32 +271,35 @@ def test_erwin_gambit_etb():
 # =============================================================================
 
 def test_shiganshina_citizen_death():
-    """Shiganshina Citizen: When dies, you gain 2 life."""
-    print("\n=== Test: Shiganshina Citizen Death Trigger ===")
+    """Shiganshina Citizen: spice-pass redesign now fires on ETB instead of death.
+    New behavior (_aot_shiganshina_citizen_setup_s19):
+        ETB -> SCRY 1 + LIFE_CHANGE (+1/+Citizen count for you, -1 per opponent).
+    """
+    print("\n=== Test: Shiganshina Citizen ETB Trigger ===")
 
     game, p1, p2 = create_test_game()
     starting_life = p1.life
     print(f"Starting life: {starting_life}")
 
-    # Create properly with ETB
     creature = create_creature_in_hand(game, p1, "Shiganshina Citizen")
-    move_to_battlefield(game, creature)
-
-    # Then trigger death
-    events = emit_death_event(game, creature)
+    # New trigger is ETB, not death. Capture events from entering battlefield.
+    events = move_to_battlefield(game, creature)
 
     life_events = [e for e in events if e.type == EventType.LIFE_CHANGE]
-    gain_events = [e for e in life_events if e.payload.get('amount', 0) > 0]
+    gain_events = [e for e in life_events
+                   if e.payload.get('amount', 0) > 0
+                   and e.payload.get('player') == p1.id]
+    scry_events = [e for e in events if e.type == EventType.SCRY]
 
     print(f"Life gain events: {len(gain_events)}")
+    print(f"Scry events: {len(scry_events)}")
 
-    # Behavioral check: post-migration, death trigger is a closure-based
-    # interceptor; we verify that firing the event produces the expected
-    # +2 life effect. (Previously this fell back to isinstance(DeathTrigger)
-    # introspection which no longer applies.)
-    assert len(gain_events) >= 1, "Expected at least one life-gain event on death"
-    assert any(e.payload['amount'] == 2 for e in gain_events), "Expected +2 life event"
-    print("PASSED: Shiganshina Citizen death trigger works!")
+    # Citizen lord/etb redesign: scry 1 + at least +1 life to controller.
+    assert len(scry_events) >= 1, "Expected at least one SCRY event on ETB"
+    assert len(gain_events) >= 1, "Expected at least one life-gain event on ETB"
+    # Counts itself, so default is +1
+    assert any(e.payload['amount'] >= 1 for e in gain_events), "Expected +1 life event"
+    print("PASSED: Shiganshina Citizen ETB scry + life gain works!")
 
 
 def test_warrior_candidate_death():
@@ -317,25 +325,30 @@ def test_warrior_candidate_death():
 
 
 def test_crawling_titan_death():
-    """Crawling Titan: When dies, each opponent loses 2 life."""
-    print("\n=== Test: Crawling Titan Death Trigger ===")
+    """Crawling Titan: spice-pass redesign now fires on ETB instead of death.
+    New behavior (_aot_crawling_titan_setup_s19):
+        ETB -> SCRY 1 + DAMAGE per Titan ally (>=1) to each opponent.
+    """
+    print("\n=== Test: Crawling Titan ETB Trigger ===")
 
     game, p1, p2 = create_test_game()
 
     creature = create_creature_in_hand(game, p1, "Crawling Titan")
-    move_to_battlefield(game, creature)
+    events = move_to_battlefield(game, creature)
 
-    events = emit_death_event(game, creature)
+    scry_events = [e for e in events if e.type == EventType.SCRY]
+    damage_events = [e for e in events
+                     if e.type == EventType.DAMAGE
+                     and e.payload.get('target') == p2.id]
 
-    life_events = [e for e in events if e.type == EventType.LIFE_CHANGE]
-    loss_events = [e for e in life_events if e.payload.get('amount', 0) < 0]
+    print(f"Scry events: {len(scry_events)}")
+    print(f"Opponent-damage events: {len(damage_events)}")
 
-    print(f"Life loss events: {len(loss_events)}")
-
-    # Behavioral check post-migration (see test_shiganshina_citizen_death).
-    assert len(loss_events) >= 1, "Expected at least one life-loss event on death"
-    assert any(e.payload['amount'] == -2 for e in loss_events), "Expected -2 life event"
-    print("PASSED: Crawling Titan death trigger works!")
+    assert len(scry_events) >= 1, "Expected at least one SCRY event on ETB"
+    assert len(damage_events) >= 1, "Expected damage to opponent on ETB"
+    # Self counts, so 1 Titan -> 1 damage minimum
+    assert any(e.payload.get('amount', 0) >= 1 for e in damage_events), "Expected >=1 damage"
+    print("PASSED: Crawling Titan ETB scry + opp damage works!")
 
 
 # =============================================================================
@@ -746,7 +759,8 @@ def test_wall_defender():
 
 
 def test_wall_titan():
-    """Wall Titan: Has defender and +4 toughness bonus."""
+    """Wall Titan: spice-pass redesign now reuses _aot_wall_defender_setup_s19
+    (defender + +2 toughness via make_wall_defense(obj, 2)), not the legacy +4."""
     print("\n=== Test: Wall Titan Mechanic ===")
 
     game, p1, p2 = create_test_game()
@@ -754,7 +768,7 @@ def test_wall_titan():
     # Create without emitting extra ETB
     wall_titan = create_creature_on_battlefield(game, p1, "Wall Titan")
 
-    # Base is 0/12, with +4 toughness from Wall ability
+    # Base is 0/12; redesigned defender helper grants +2 toughness.
     base_power = wall_titan.characteristics.power  # 0
     base_toughness = wall_titan.characteristics.toughness  # 12
 
@@ -766,7 +780,7 @@ def test_wall_titan():
     print(f"Interceptors registered: {len(wall_titan.interceptor_ids)}")
 
     assert actual_power == 0, f"Expected power 0, got {actual_power}"
-    assert actual_toughness >= base_toughness + 4, f"Expected at least toughness {base_toughness + 4}, got {actual_toughness}"
+    assert actual_toughness >= base_toughness + 2, f"Expected at least toughness {base_toughness + 2}, got {actual_toughness}"
 
     # Verify defender keyword
     from src.engine import has_ability
@@ -1241,14 +1255,23 @@ def test_levi_double_strike():
 
 
 def test_erwin_smith_attack_draws():
-    """Erwin Commander: attack trigger draws a card."""
+    """Erwin Smith, Commander: spice-pass redesign — ETB now emits SCRY 1 +
+    LIFE_CHANGE drain (-Scout-count) on each opponent, not attack-draw.
+
+    New behavior (_aot_erwin_smith_commander_setup):
+        ETB -> SCRY 1 + each opp -max(1, Scouts you control) life.
+    """
     game, p1, p2 = create_test_game()
     erwin = create_creature_in_hand(game, p1, "Erwin Smith, Commander")
-    move_to_battlefield(game, erwin)
-    events = emit_attack_event(game, erwin)
-    draw_events = [e for e in events if e.type == EventType.DRAW]
-    assert len(draw_events) >= 1, "Expected a draw event when Erwin attacks"
-    print("PASSED: Erwin Smith attack trigger draws")
+    events = move_to_battlefield(game, erwin)
+    scry_events = [e for e in events if e.type == EventType.SCRY]
+    life_loss = [e for e in events
+                 if e.type == EventType.LIFE_CHANGE
+                 and e.payload.get('player') == p2.id
+                 and e.payload.get('amount', 0) < 0]
+    assert scry_events, "Erwin ETB should scry"
+    assert life_loss, "Erwin ETB should drain each opponent"
+    print("PASSED: Erwin Smith Commander ETB scry + opp drain")
 
 
 def test_eren_attack_titan_keywords_and_burn():
@@ -1458,18 +1481,25 @@ def test_titan_keywords_roster():
 
 
 def test_scout_bench_keywords():
-    """Scouts should have reach/flying/first strike/haste flavor."""
+    """Scouts should have reach/flying/first strike/haste flavor.
+
+    Note: spice-pass (W18-W22) rewired several scout setups to ETB drain/scry
+    patterns and dropped their _self_keywords grants. We retain only cards
+    that still register the keyword via the current setup_interceptors:
+      - Coastal Scout: flying (in _aot_coastal_scout_setup_s19)
+      - Horse Mounted Scout: haste (in _aot_horse_mounted_scout_setup_s19)
+      - Survey Corps Veteran: first_strike (in _aot_survey_corps_veteran_setup_s19)
+      - Attack Titan Acolyte: first_strike (in _aot_attack_titan_acolyte_setup_s19)
+    Cards Petra Ral / Oluo Bozado / Sasha Blouse / Connie Springer / Titan
+    Hunter lost their keyword grants in the redesign and are no longer
+    asserted here.
+    """
     game, p1, p2 = create_test_game()
     expectations = {
         "Coastal Scout": ['flying'],
         "Horse Mounted Scout": ['haste'],
         "Survey Corps Veteran": ['first_strike'],
-        "Petra Ral, Levi Squad": ['flying'],
-        "Oluo Bozado, Levi Squad": ['first_strike'],
         "Attack Titan Acolyte": ['first_strike'],
-        "Sasha Blouse, Hunter": ['reach'],
-        "Connie Springer, Loyal Friend": ['haste'],
-        "Titan Hunter": ['reach'],
     }
     for name, kws in expectations.items():
         card = create_creature_on_battlefield(game, p1, name)
@@ -1479,47 +1509,87 @@ def test_scout_bench_keywords():
 
 
 def test_squad_captain_token_creation():
-    """Squad Captain: ETB creates a Scout token."""
+    """Squad Captain: spice-pass redesign — ETB now emits SCRY 1 + each opp
+    -max(1, Soldiers you control) life, not a Scout token.
+
+    New behavior (_aot_squad_captain_setup_s19):
+        ETB -> SCRY 1 + each opp -max(1, Soldiers) life.
+    """
     game, p1, p2 = create_test_game()
     cap = create_creature_in_hand(game, p1, "Squad Captain")
     events = move_to_battlefield(game, cap)
-    tok = [e for e in events if e.type == EventType.CREATE_TOKEN]
-    assert tok, "Squad Captain should create a token on ETB"
-    print("PASSED: Squad Captain creates Scout token")
+    scry_events = [e for e in events if e.type == EventType.SCRY]
+    life_loss = [e for e in events
+                 if e.type == EventType.LIFE_CHANGE
+                 and e.payload.get('player') == p2.id
+                 and e.payload.get('amount', 0) < 0]
+    assert scry_events, "Squad Captain ETB should scry"
+    assert life_loss, "Squad Captain ETB should drain opponents"
+    print("PASSED: Squad Captain ETB scry + opp drain")
 
 
 def test_wall_architect_creates_wall():
-    """Wall Architect: ETB creates a 0/4 Wall token."""
+    """Wall Architect: spice-pass redesign — ETB now emits SCRY 1 + REVEAL_HAND
+    per opponent (architect surveys the approach), not a Wall token.
+
+    New behavior (_aot_wall_architect_setup_s19):
+        ETB -> SCRY 1 + REVEAL_HAND per opponent.
+    """
     game, p1, p2 = create_test_game()
     arch = create_creature_in_hand(game, p1, "Wall Architect")
     events = move_to_battlefield(game, arch)
-    tok_events = [e for e in events if e.type == EventType.CREATE_TOKEN]
-    assert tok_events, "Wall Architect should create a Wall token"
-    payload = tok_events[0].payload
-    token = payload.get('token', {})
-    assert token.get('toughness') == 4, "Wall token should be 0/4"
-    print("PASSED: Wall Architect creates a Wall token")
+    scry_events = [e for e in events if e.type == EventType.SCRY]
+    reveal_events = [e for e in events if e.type == EventType.REVEAL_HAND]
+    assert scry_events, "Wall Architect ETB should scry"
+    assert reveal_events, "Wall Architect ETB should reveal opp hands"
+    assert any(e.payload.get('player') == p2.id for e in reveal_events), "Expected opponent hand reveal"
+    print("PASSED: Wall Architect ETB scry + reveal-hand")
 
 
 def test_titan_horde_creates_two_tokens():
-    """Titan Horde: ETB creates two 2/2 Titan tokens."""
+    """Titan Horde: spice-pass redesign — ETB now emits SCRY 1 + DAMAGE per
+    Titan ally to each opponent, not two Titan tokens. Self also gains trample
+    via _self_keywords(obj, ['trample']).
+
+    New behavior (_aot_titan_horde_setup_s19):
+        ETB -> SCRY 1 + max(1, Titans) damage per opponent.
+        Static: self gains trample.
+    """
     game, p1, p2 = create_test_game()
     horde = create_creature_in_hand(game, p1, "Titan Horde")
     events = move_to_battlefield(game, horde)
-    tok_events = [e for e in events if e.type == EventType.CREATE_TOKEN]
-    assert len(tok_events) >= 2, f"Expected >= 2 tokens, got {len(tok_events)}"
-    print("PASSED: Titan Horde creates two tokens")
+    scry_events = [e for e in events if e.type == EventType.SCRY]
+    damage_events = [e for e in events
+                     if e.type == EventType.DAMAGE
+                     and e.payload.get('target') == p2.id]
+    assert scry_events, "Titan Horde ETB should scry"
+    assert damage_events, "Titan Horde ETB should damage opponents"
+    assert _has(horde, 'trample', game), "Titan Horde should have trample"
+    print("PASSED: Titan Horde ETB scry + opp damage + trample")
 
 
 def test_willy_tybur_declaration_token():
-    """Willy Tybur's death creates a War Hammer Titan token."""
+    """Willy Tybur, Declaration of War: spice-pass redesign — death now emits
+    SCRY 2 + each opp -2 life (the declaration echoes after his death),
+    not a War Hammer Titan token.
+
+    New behavior (_aot_willy_tybur_setup_s19):
+        Death -> SCRY 2 + each opp -2 life.
+    """
     game, p1, p2 = create_test_game()
     willy = create_creature_in_hand(game, p1, "Willy Tybur, Declaration of War")
     move_to_battlefield(game, willy)
     events = emit_death_event(game, willy)
-    tok = [e for e in events if e.type == EventType.CREATE_TOKEN]
-    assert tok, "Willy's death should create the War Hammer Titan token"
-    print("PASSED: Willy Tybur declaration")
+    scry_events = [e for e in events if e.type == EventType.SCRY]
+    life_loss = [e for e in events
+                 if e.type == EventType.LIFE_CHANGE
+                 and e.payload.get('player') == p2.id
+                 and e.payload.get('amount', 0) < 0]
+    assert scry_events, "Willy's death should scry"
+    assert scry_events[0].payload.get('amount') == 2, "Expected scry 2 on death"
+    assert life_loss, "Willy's death should drain opponents"
+    assert any(e.payload.get('amount') == -2 for e in life_loss), "Expected -2 life event"
+    print("PASSED: Willy Tybur declaration death scry + drain")
 
 
 def test_wall_faith_enchantment_boost():
@@ -1703,17 +1773,26 @@ def test_annie_exiles_on_damage():
 
 
 def test_war_hammer_titan_forges_tokens():
-    """War Hammer Titan (rubric #4 engine): attack triggers create Hammer Golem tokens."""
+    """War Hammer Titan: spice-pass redesign — ETB now emits SCRY 1 + DAMAGE
+    per Titan ally to each opponent (the hammer rains down) instead of an
+    attack-trigger Hammer Golem token. Self also gets first_strike + trample.
+
+    New behavior (_aot_war_hammer_titan_setup_s19):
+        ETB -> SCRY 1 + max(1, Titans) damage per opponent.
+        Static: self gains first_strike + trample.
+    """
     game, p1, p2 = create_test_game()
     wht = create_creature_in_hand(game, p1, "War Hammer Titan")
-    move_to_battlefield(game, wht)
-    events = emit_attack_event(game, wht)
-    tokens = [e for e in events if e.type == EventType.CREATE_TOKEN]
-    assert tokens, "War Hammer Titan should create a token on attack"
-    tok = tokens[0].payload.get('token', {})
-    assert tok.get('power') == 3 and tok.get('toughness') == 1, "Hammer Golem is 3/1"
-    assert 'haste' in (tok.get('keywords') or []), "Hammer Golem should have haste"
-    print("PASSED: War Hammer Titan forges Hammer Golems")
+    events = move_to_battlefield(game, wht)
+    scry_events = [e for e in events if e.type == EventType.SCRY]
+    damage_events = [e for e in events
+                     if e.type == EventType.DAMAGE
+                     and e.payload.get('target') == p2.id]
+    assert scry_events, "War Hammer Titan ETB should scry"
+    assert damage_events, "War Hammer Titan ETB should damage opp"
+    assert _has(wht, 'first_strike', game), "War Hammer Titan should have first strike"
+    assert _has(wht, 'trample', game), "War Hammer Titan should have trample"
+    print("PASSED: War Hammer Titan ETB scry + damage + first strike/trample")
 
 
 def test_the_jaw_titan_exiles_on_combat_damage():

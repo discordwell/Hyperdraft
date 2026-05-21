@@ -283,7 +283,11 @@ def test_hylia_goddess_of_light_anthem():
 
 
 def test_sheikah_warrior_etb():
-    """Test Sheikah Warrior ETB gains 2 life."""
+    """Test Sheikah Warrior ETB gains 1 life (post spice-pass: fairy-gift setup).
+
+    Card text: "When Sheikah Warrior enters, you gain 1 life and scry 1."
+    Setup: _zld_w_etb_fairy_gift emits LIFE_CHANGE amount=+1 + SCRY amount=1.
+    """
     print("\n=== Test: Sheikah Warrior ETB ===")
 
     game = Game()
@@ -293,8 +297,8 @@ def test_sheikah_warrior_etb():
     warrior = create_creature_on_battlefield(game, p1.id, "Sheikah Warrior")
 
     print(f"Starting life: {starting_life}, After ETB: {p1.life}")
-    assert p1.life == starting_life + 2, f"Expected {starting_life + 2}, got {p1.life}"
-    print("PASSED: Sheikah Warrior ETB gains 2 life")
+    assert p1.life == starting_life + 1, f"Expected {starting_life + 1}, got {p1.life}"
+    print("PASSED: Sheikah Warrior ETB gains 1 life")
 
 
 def test_temple_guardian_heart_container():
@@ -819,7 +823,12 @@ def test_urbosa_attack_damage():
 
 
 def test_fi_spell_scry():
-    """Test Fi scry 1 when a spell is cast."""
+    """Test Fi scry 2 + each opp -1 life when a spell is cast (post spice-pass).
+
+    Card text: "Whenever you cast a spell, scry 2 and each opponent loses 1 life."
+    Setup: _zld_m_spell_cast_sword_spirit emits EventType.SCRY amount=2 directly
+    (no longer the ACTIVATE placeholder) plus LIFE_CHANGE -1 per opponent.
+    """
     print("\n=== Test: Fi, Sword Spirit Spell Cast Trigger ===")
 
     game = Game()
@@ -828,10 +837,10 @@ def test_fi_spell_scry():
     fi = create_on_battlefield_no_etb(game, p1.id, "Fi, Sword Spirit")
     events = emit_spell_cast_event(game, p1.id)
 
-    # Note: Scry effect uses ACTIVATE as placeholder (engine limitation)
-    scry_events = [e for e in events if e.type == EventType.ACTIVATE and e.payload.get('action') == 'scry']
-    print(f"Scry (ACTIVATE placeholder) events: {len(scry_events)}")
+    scry_events = [e for e in events if e.type == EventType.SCRY]
+    print(f"SCRY events: {len(scry_events)}")
     assert len(scry_events) >= 1, "Should scry on spell cast"
+    assert scry_events[0].payload.get('amount') == 2, "Should scry 2"
     print("PASSED: Fi spell scry works")
 
 
@@ -1011,7 +1020,18 @@ def test_zelda_triforce_bonus():
 
 
 def test_ganondorf_triforce_bonus():
-    """Test Ganondorf gets +3/+3 with 1+ Triforce artifact."""
+    """Test Ganondorf gets +3/+3 from Triforce bonus, plus +1/+0 anthem from
+    Triforce of Power (post spice-pass).
+
+    Card text: "...As long as you control a Triforce artifact, Ganondorf gets +3/+3."
+    Setup: _ganondorf_setup calls make_triforce_bonus(obj, 3, 3, 1) — when any
+    Triforce artifact is on the battlefield, +3/+3 applies.
+
+    Triforce of Power additionally has an anthem (+1/+0 to OTHER creatures you
+    control) via triforce_of_power_setup → static_pt_boost_other_you_control(obj, 1, 0),
+    so when Ganondorf is on board with Triforce of Power, the total boost is
+    +3/+3 (Triforce gate) + +1/+0 (anthem) = +4/+3.
+    """
     print("\n=== Test: Ganondorf Triforce Bonus ===")
 
     game = Game()
@@ -1023,7 +1043,8 @@ def test_ganondorf_triforce_bonus():
     base_toughness = get_toughness(ganon, game.state)
     print(f"Ganondorf base: {base_power}/{base_toughness}")
 
-    # Create Triforce of Power
+    # Create Triforce of Power (grants Triforce gate AND anthems other creatures
+    # +1/+0)
     piece_def = LEGEND_OF_ZELDA_CARDS["Triforce of Power"]
     piece = game.create_object(
         name="Triforce of Power",
@@ -1037,8 +1058,8 @@ def test_ganondorf_triforce_bonus():
     boosted_toughness = get_toughness(ganon, game.state)
     print(f"Ganondorf with Triforce of Power: {boosted_power}/{boosted_toughness}")
 
-    # With 1 Triforce piece, Ganondorf should get +3/+3
-    assert boosted_power == base_power + 3, f"Expected power {base_power + 3}, got {boosted_power}"
+    # +3/+3 from Triforce gate plus +1/+0 anthem from Triforce of Power itself.
+    assert boosted_power == base_power + 4, f"Expected power {base_power + 4}, got {boosted_power}"
     assert boosted_toughness == base_toughness + 3, f"Expected toughness {base_toughness + 3}, got {boosted_toughness}"
     print("PASSED: Ganondorf Triforce bonus works")
 
