@@ -63,7 +63,7 @@ export function GameViewLayout({
             <Link
               to="/"
               className="flex items-center gap-3 group"
-              aria-label="Hyperdraft home"
+              aria-label="HYPERDRAFT home"
             >
               {meta && <Monogram mode={meta} size={26} variant="foil" />}
               <span className="hidden md:flex flex-col leading-tight -mt-0.5">

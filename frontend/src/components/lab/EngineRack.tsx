@@ -1,9 +1,10 @@
 /**
  * EngineRack — HD-ART-01 right-column engine rack.
  *
- * Eight engines, ranked by completeness, with a single accented stat and a
- * monochrome bar. Clicking a row dispatches navigateToEngine; the parent
- * decides where that goes (deckbuilder, new match, picker overlay).
+ * All registered engines, ranked by completeness, with a single accented stat
+ * and a monochrome bar. The count grows as engines are added — never hardcode
+ * it. Clicking a row dispatches navigateToEngine; the parent decides where
+ * that goes (deckbuilder, new match, picker overlay).
  */
 
 import { LAB_ENGINES } from './engineMeta';

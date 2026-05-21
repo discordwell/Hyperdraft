@@ -600,7 +600,7 @@ export function RulesDiff() {
               color: 'var(--ink-2)',
             }}
           >
-            Hyperdraft / Eight engines, one frame
+            HYPERDRAFT
           </span>
           <button
             onClick={() => navigate('/')}

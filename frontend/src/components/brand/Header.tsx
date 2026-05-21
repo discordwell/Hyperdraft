@@ -31,9 +31,9 @@ export function Header({ right }: HeaderProps) {
         <Link
           to="/"
           className="brand-wordmark text-[1.55rem] leading-none brand-foil-text select-none"
-          aria-label="Hyperdraft home"
+          aria-label="HYPERDRAFT home"
         >
-          hyperdraft
+          HYPERDRAFT
         </Link>
 
         <nav className="hidden md:flex items-center gap-1 -ml-1">

@@ -1,15 +1,18 @@
 /**
- * Home — HD-ART-01 lab landing.
+ * Home — HYPERDRAFT lab landing.
  *
- * Polyglot card lab posture per docs/design/critique-v0.1: paper + ink + one
- * sodium accent, Instrument Serif masthead, engine rack as the primary IA,
- * and a quiet match-builder plate below the hero. The five start-game
- * handlers (handleStartGame, handleStartBotGame, handleStartLlmDuel,
+ * Pitch lives in CLAUDE.md "Brand & design philosophy": game-cabinet
+ * sleepover, no metas, figure it out. The lab visual (paper + ink + one
+ * sodium accent, Instrument Serif masthead) is the calm room that supports
+ * the cabinet metaphor — do NOT lead with "see the rules running" /
+ * "debugger for TCGs" copy.
+ *
+ * The engine rack is the primary IA. The ⌘E EnginePicker mounted in
+ * App.tsx provides keyboard-driven engine switching; the rack on this page
+ * is the visible mouse-driven equivalent. The five start-game handlers
+ * (handleStartGame, handleStartBotGame, handleStartLlmDuel,
  * handleStartUltraMirror, handleStartClaudexVsUltra) are preserved verbatim
  * from the foil-era component — only the surrounding shell pivots.
- *
- * The ⌘E EnginePicker mounted in App.tsx provides keyboard-driven engine
- * switching; the rack on this page is the visible mouse-driven equivalent.
  */
 
 import { useState, useEffect } from 'react';
@@ -279,7 +282,7 @@ export function Home() {
         }}
       >
         <b style={{ color: 'var(--ink)', fontWeight: 500 }}>HD-HOME</b>
-        &nbsp;·&nbsp; Hyperdraft &nbsp;·&nbsp; ⌘E to switch engine
+        &nbsp;·&nbsp; HYPERDRAFT &nbsp;·&nbsp; ⌘E to switch engine
       </div>
 
       <main
@@ -312,7 +315,7 @@ export function Home() {
               color: 'var(--ink-2)',
             }}
           >
-            Hyperdraft / Eight engines, one frame
+            HYPERDRAFT
           </span>
           <span
             style={{
@@ -342,7 +345,7 @@ export function Home() {
           <div>
             <span className="lab-chip">
               <span className="dot" />
-              v4.7 · 8 engines · runs locally
+              v4.7 · open shelf · no signup
             </span>
             <h1
               style={{
@@ -355,9 +358,9 @@ export function Home() {
                 color: 'var(--ink)',
               }}
             >
-              Eight engines,
+              Pull <em style={{ color: 'var(--sodium)', fontStyle: 'italic' }}>one</em>
               <br />
-              <em style={{ color: 'var(--sodium)', fontStyle: 'italic' }}>one frame.</em>
+              off the shelf.
             </h1>
             <p
               style={{
@@ -367,12 +370,11 @@ export function Home() {
                 fontStyle: 'italic',
                 lineHeight: 1.5,
                 color: 'var(--ink-2)',
-                maxWidth: '42ch',
+                maxWidth: '46ch',
               }}
             >
-              A workbench where TCG rules are first-class objects. Hot-swap engines,
-              fork mechanics, watch AIs fight, and theorycraft against the same event
-              pipeline that runs every match.
+              A cabinet of TCGs no one in the room has played. No metas, no tutorial —
+              read the rules and figure it out. The game-cabinet sleepover, on demand.
             </p>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <button
@@ -939,7 +941,7 @@ export function Home() {
         >
           <span>uvicorn src.server.main:socket_app · port 8030</span>
           <span style={{ letterSpacing: '.1em', textTransform: 'uppercase' }}>
-            Hyperdraft — the workbench between TCGs
+            HYPERDRAFT — first-time play, on demand
           </span>
         </footer>
       </main>

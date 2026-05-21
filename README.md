@@ -1,10 +1,10 @@
-# Hyperdraft
+# HYPERDRAFT
 
-An AI-powered multi-TCG playground built on an event-driven rules engine. Hyperdraft supports **Magic: The Gathering**, **Hearthstone**, **Pokemon TCG**, and **Yu-Gi-Oh!** through a single shared engine, with AI opponents, a React/TypeScript client, and thousands of playable cards.
+The game-cabinet sleepover, on demand. Pull a TCG off the shelf — one nobody in the room has played — and figure it out as you go. HYPERDRAFT runs **Magic: The Gathering**, **Hearthstone**, **Pokemon TCG**, **Yu-Gi-Oh!**, and a growing shelf of custom engines on a single event-driven rules core, with AI opponents that are happy to play unfamiliar games against you.
 
 ## Overview
 
-Hyperdraft started as an MTG rules engine and has since grown into a cross-format sandbox for theorycrafting, AI playtesting, and novel mechanic exploration. Every game action — playing a card, attacking, activating an ability, resolving a trigger — flows through the same event pipeline, and each game mode layers its own rules and turn structure on top.
+HYPERDRAFT started as an MTG rules engine and has since grown into a cross-format sandbox for first-time play, theorycrafting, AI playtesting, and novel mechanic exploration. Every game action — playing a card, attacking, activating an ability, resolving a trigger — flows through the same event pipeline, and each game mode layers its own rules and turn structure on top.
 
 ## Quick Start
 
