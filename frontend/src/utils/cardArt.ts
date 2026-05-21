@@ -157,6 +157,45 @@ export function getDepthsArtPaths(cardName: string): string[] {
 }
 
 /**
+ * Convert a Minecraft card name to its on-disk slug.
+ *
+ * Matches the Python slug used by `src/cards/minecraft/__init__.py::_slug` so
+ * the URL the frontend optimistically builds resolves to the same PNG the
+ * backend would emit via `card_def.image_url`. Strips MTG/MC punctuation
+ * (apostrophes, commas, colons, parens, dots, bangs), normalises whitespace
+ * and hyphens to underscores, then collapses runs.
+ */
+export function minecraftCardNameToFilename(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/['",:().!]/g, '')
+    .replace(/[\s-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
+/**
+ * Get Minecraft TCG art paths for a card.
+ *
+ * Minecraft art is rendered locally only (no Scryfall fallback — these are
+ * fan-made / Minecraft-themed cards). If the backend already supplied an
+ * `image_url`, the caller should prefer that and pass it as `preferred`;
+ * otherwise we derive the deterministic path at
+ * `/api/card-art/minecraft/<slug>.png`. Returns a deduped ordered list.
+ */
+export function getMinecraftArtPaths(name: string, preferred?: string | null): string[] {
+  const paths: string[] = [];
+  if (preferred) {
+    paths.push(preferred);
+  }
+  const filename = minecraftCardNameToFilename(name);
+  if (filename) {
+    paths.push(`/api/card-art/minecraft/${filename}.png`);
+  }
+  return [...new Set(paths)];
+}
+
+/**
  * Get Hearthstone/variant-oriented art paths.
  *
  * Priority:

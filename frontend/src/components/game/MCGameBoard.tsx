@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CardData, GameState, PlayerData } from '../../types';
+import { getMinecraftArtPaths } from '../../utils/cardArt';
 
 const MATERIALS = [
   ['wood', 'Wood'],
@@ -51,6 +52,68 @@ function Cost({ cost }: { cost?: Record<string, number> }) {
   );
 }
 
+/**
+ * Minecraft card art slot. Renders the on-disk PNG at
+ * `/api/card-art/minecraft/<slug>.png` (or the backend-supplied `image_url`)
+ * underneath the existing CardTile chrome, falling back to a small voxel
+ * glyph when art is missing — matches Minecraft's block idiom and never
+ * leaves the slot empty.
+ */
+function MCCardArt({ card }: { card: CardData }) {
+  const paths = useMemo(
+     () => getMinecraftArtPaths(card.name, card.image_url ?? null),
+     [card.name, card.image_url],
+  );
+  const [idx, setIdx] = useState(0);
+  const [failed, setFailed] = useState(false);
+
+  // Reset fallback state if the card identity (or its image_url) changes.
+  useEffect(() => {
+    setIdx(0);
+    setFailed(false);
+  }, [card.id, card.image_url]);
+
+  if (!paths.length || failed) {
+    // Voxel "block" mark — geometric, ink-coloured, matches MC's pixel idiom.
+    return (
+      <div
+        data-testid="mc-card-art-fallback"
+        aria-hidden="true"
+        className="absolute inset-0 flex items-center justify-center bg-slate-900/60"
+      >
+        <svg
+          viewBox="0 0 16 16"
+          shapeRendering="crispEdges"
+          className="h-1/2 w-1/2 opacity-60"
+          aria-hidden="true"
+        >
+          <rect x="2"  y="2" width="6" height="6" fill="#94a3b8" />
+          <rect x="8"  y="2" width="6" height="6" fill="#64748b" />
+          <rect x="2"  y="8" width="6" height="6" fill="#475569" />
+          <rect x="8"  y="8" width="6" height="6" fill="#334155" />
+        </svg>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={paths[idx]}
+      alt=""
+      aria-hidden="true"
+      loading="lazy"
+      className="absolute inset-0 h-full w-full object-cover opacity-80"
+      onError={() => {
+        if (idx < paths.length - 1) {
+          setIdx((prev) => prev + 1);
+        } else {
+          setFailed(true);
+        }
+      }}
+    />
+  );
+}
+
 function CardTile({
   card,
   compact = false,
@@ -67,11 +130,15 @@ function CardTile({
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left border-2 bg-slate-950/85 shadow-sm transition ${
+      className={`relative w-full overflow-hidden text-left border-2 bg-slate-950/85 shadow-sm transition ${
         selected ? 'border-yellow-300' : isHostile ? 'border-red-700' : isStructure ? 'border-lime-700' : 'border-sky-700'
       } ${compact ? 'min-h-[58px] p-1.5' : 'min-h-[86px] p-2'} hover:border-white/70`}
     >
-      <div className="flex items-start justify-between gap-1">
+      <MCCardArt card={card} />
+      {/* Darken the art so the existing white/amber chrome stays readable
+          without changing colours or layout of the frame itself. */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/30 via-black/55 to-black/80" />
+      <div className="relative flex items-start justify-between gap-1">
         <div className="min-w-0 text-[12px] font-bold text-white leading-tight break-words">{card.name}</div>
         {(card.power !== null || card.toughness !== null) && (
           <div className="shrink-0 rounded bg-black px-1 text-[11px] font-bold text-amber-100">
@@ -79,8 +146,8 @@ function CardTile({
           </div>
         )}
       </div>
-      {!compact && <div className="mt-1 max-h-8 overflow-hidden text-[10px] text-slate-300 leading-snug">{card.text}</div>}
-      {card.damage > 0 && <div className="mt-1 text-[10px] text-red-300">Damage {card.damage}</div>}
+      {!compact && <div className="relative mt-1 max-h-8 overflow-hidden text-[10px] text-slate-300 leading-snug">{card.text}</div>}
+      {card.damage > 0 && <div className="relative mt-1 text-[10px] text-red-300">Damage {card.damage}</div>}
     </button>
   );
 }
