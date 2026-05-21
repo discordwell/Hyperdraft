@@ -37,6 +37,12 @@ vi.mock('../games/finance', () => ({
 vi.mock('../games/depths', () => ({
   DepthsGameBoard: () => <div data-testid="board-depths" />,
 }));
+vi.mock('../components/game/SCPBoard', () => ({
+  SCPBoard: () => <div data-testid="board-scp" />,
+}));
+vi.mock('../components/game/CatsBoard', () => ({
+  CatsBoard: () => <div data-testid="board-cats" />,
+}));
 
 // Timeline pulls in browser-only Canvas / SVG measurement on render; stub
 // it so the dispatch suite stays focused on the board switch.
@@ -165,9 +171,20 @@ describe('ReplayView — per-engine board dispatch', () => {
     expect(screen.queryByTestId('board-mc')).not.toBeInTheDocument();
   });
 
-  it('falls back to the MTG GameBoard + warns for unmapped game_mode (e.g. cats)', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  it('renders the SCP board for an SCP replay frame', async () => {
+    (botGameAPI.getReplay as ReturnType<typeof vi.fn>).mockResolvedValue(
+      makeReplay(makeGameState({ game_mode: 'scp' as GameState['game_mode'] })),
+    );
 
+    renderAt('/replay/scp-game-1');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('board-scp')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('board-mtg')).not.toBeInTheDocument();
+  });
+
+  it('renders the Cats board for a Cats replay frame', async () => {
     (botGameAPI.getReplay as ReturnType<typeof vi.fn>).mockResolvedValue(
       makeReplay(makeGameState({ game_mode: 'cats' as GameState['game_mode'] })),
     );
@@ -175,11 +192,26 @@ describe('ReplayView — per-engine board dispatch', () => {
     renderAt('/replay/cats-game-1');
 
     await waitFor(() => {
+      expect(screen.getByTestId('board-cats')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('board-mtg')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the MTG GameBoard + warns for genuinely unmapped modes', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    (botGameAPI.getReplay as ReturnType<typeof vi.fn>).mockResolvedValue(
+      makeReplay(makeGameState({ game_mode: 'unknown-engine' as GameState['game_mode'] })),
+    );
+
+    renderAt('/replay/unknown-game-1');
+
+    await waitFor(() => {
       expect(screen.getByTestId('board-mtg')).toBeInTheDocument();
     });
 
     expect(warnSpy).toHaveBeenCalled();
-    expect(warnSpy.mock.calls[0][0]).toMatch(/cats/);
+    expect(warnSpy.mock.calls[0][0]).toMatch(/unknown-engine/);
 
     warnSpy.mockRestore();
   });

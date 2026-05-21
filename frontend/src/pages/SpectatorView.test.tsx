@@ -68,6 +68,12 @@ vi.mock('../games/finance', () => ({
 vi.mock('../games/depths', () => ({
   DepthsGameBoard: () => <div data-testid="board-depths" />,
 }));
+vi.mock('../components/game/SCPBoard', () => ({
+  SCPBoard: () => <div data-testid="board-scp" />,
+}));
+vi.mock('../components/game/CatsBoard', () => ({
+  CatsBoard: () => <div data-testid="board-cats" />,
+}));
 
 import SpectatorView from './SpectatorView';
 
@@ -162,6 +168,28 @@ describe('SpectatorView dispatch', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('board-hs')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('board-mtg')).toBeNull();
+  });
+
+  it('renders the SCPBoard for game_mode=scp, NOT GameBoard', async () => {
+    getState.mockResolvedValue(makeState('scp'));
+
+    renderAt();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('board-scp')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('board-mtg')).toBeNull();
+  });
+
+  it('renders the CatsBoard for game_mode=cats, NOT GameBoard', async () => {
+    getState.mockResolvedValue(makeState('cats'));
+
+    renderAt();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('board-cats')).toBeInTheDocument();
     });
     expect(screen.queryByTestId('board-mtg')).toBeNull();
   });

@@ -8,7 +8,21 @@ import { ChoiceModal } from '../components/actions/ChoiceModal';
 import { usePendingChoice } from '../hooks/usePendingChoice';
 import { GameViewLayout } from '../components/brand';
 import { useDiscoveryStore } from '../stores/discoveryStore';
-import type { CardData, SCPIncident, SCPSiteState } from '../types';
+import {
+  SCPCardPanel,
+  SCPEmpty,
+  SCPSection,
+  SCPSitePanel,
+  SCPStat,
+} from '../components/game/SCPBoard';
+import type { CardData, SCPIncident } from '../types';
+
+// SCPGameView is the *interactive* SCP match page. The pure visual primitives
+// (SCPSitePanel / SCPCardPanel / SCPSection / SCPStat / SCPEmpty) live in
+// `components/game/SCPBoard.tsx` so spectator + replay dispatch can render
+// the same slate/cyan dossier identity without depending on `useSCPGame`.
+// This page composes those primitives with its own action chrome (hand,
+// action buttons, protocol picker, incident resolver, end turn).
 
 const PROTOCOLS = ['mirror_box', 'no_eye_contact', 'feed_it_lies', 'ritual_diagram'];
 const MOODS = ['docile', 'agitated', 'cryptic', 'cooperative'];
@@ -16,121 +30,6 @@ const MOODS = ['docile', 'agitated', 'cryptic', 'cooperative'];
 function formatLabel(value: string | null | undefined): string {
   if (!value) return 'none';
   return value.replace(/_/g, ' ');
-}
-
-function Stat({ label, value, tone = 'text-slate-100' }: { label: string; value: number | string; tone?: string }) {
-  return (
-    <div className="rounded border border-slate-700 bg-slate-950/70 px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={`mt-1 text-lg font-semibold ${tone}`}>{value}</div>
-    </div>
-  );
-}
-
-function SitePanel({ title, site }: { title: string; site: SCPSiteState }) {
-  return (
-    <section className="border border-slate-700 bg-slate-900/80 p-3">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-200">{title}</h2>
-        <span className="text-xs text-slate-500">CLR {site.clearance ?? 0}</span>
-      </div>
-      <div className="grid grid-cols-3 gap-2">
-        <Stat label="Secrecy" value={site.secrecy ?? 0} tone="text-emerald-300" />
-        <Stat label="Breach" value={site.breach ?? 0} tone="text-red-300" />
-        <Stat label="Archives" value={site.archives ?? 0} tone="text-amber-300" />
-        <Stat label="Ethics" value={site.ethics_debt ?? 0} tone="text-violet-300" />
-        <Stat label="Briefing" value={site.briefing ?? 0} tone="text-cyan-300" />
-        <Stat label="Used" value={`${site.assignments_used ?? 0}/${site.assignment_slots ?? 0}`} />
-      </div>
-    </section>
-  );
-}
-
-function CardPanel({
-  card,
-  selected,
-  onClick,
-  children,
-}: {
-  card: CardData;
-  selected?: boolean;
-  onClick?: () => void;
-  children?: ReactNode;
-}) {
-  const isSealed = card.scp_status === 'sealed';
-  return (
-    <div
-      onClick={onClick}
-      className={`border p-3 transition-colors ${
-        selected ? 'border-cyan-400 bg-cyan-950/30' : 'border-slate-700 bg-slate-900/80'
-      } ${onClick ? 'cursor-pointer hover:border-cyan-500' : ''}`}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3 min-w-0 flex-1">
-          {card.image_url && (
-            <img
-              src={card.image_url}
-              alt={card.name}
-              loading="lazy"
-              className="h-16 w-16 flex-shrink-0 border border-slate-700 object-cover"
-            />
-          )}
-          <div className="min-w-0">
-            <div className="text-sm font-semibold text-slate-100 truncate">{card.name}</div>
-            <div className="mt-1 text-[11px] uppercase tracking-wide text-slate-500">
-              {card.types.join(' / ')}
-              {card.scp_status ? ` · ${card.scp_status}` : ''}
-            </div>
-          </div>
-        </div>
-        <div className="text-right text-xs text-slate-400 flex-shrink-0">
-          <div>RT {card.scp_red_tape ?? 0}</div>
-          <div>CL {card.scp_clearance ?? 0}</div>
-        </div>
-      </div>
-
-      {card.types.includes('SCP_ANOMALY') && (
-        <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-          <div className="rounded bg-slate-950 px-2 py-1 text-emerald-300">C {card.scp_containment ?? 0}</div>
-          <div className="rounded bg-slate-950 px-2 py-1 text-amber-300">R {card.scp_curiosity ?? 0}</div>
-          <div className="rounded bg-slate-950 px-2 py-1 text-red-300">H {card.scp_hazard ?? 0}</div>
-        </div>
-      )}
-
-      {card.types.includes('SCP_PERSONNEL') && (
-        <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-          <div className="rounded bg-slate-950 px-2 py-1 text-emerald-300">C {card.scp_skills?.contain ?? 0}</div>
-          <div className="rounded bg-slate-950 px-2 py-1 text-amber-300">R {card.scp_skills?.research ?? 0}</div>
-          <div className="rounded bg-slate-950 px-2 py-1 text-cyan-300">S {card.scp_skills?.suppress ?? 0}</div>
-        </div>
-      )}
-
-      {(card.scp_mood || card.scp_bound_to || (card.scp_protocols?.length ?? 0) > 0 || isSealed) && (
-        <div className="mt-2 space-y-1 text-xs text-slate-400">
-          {isSealed && <div>Public tags: {(card.scp_public_tags || []).join(', ') || 'unknown'}</div>}
-          {card.scp_mood && <div>Mood: {formatLabel(card.scp_mood)}</div>}
-          {card.scp_bound_to && <div>Bound to: {card.scp_bound_to.slice(0, 8)}</div>}
-          {(card.scp_protocols?.length ?? 0) > 0 && <div>Protocols: {card.scp_protocols?.map(formatLabel).join(', ')}</div>}
-        </div>
-      )}
-
-      {card.text && <p className="mt-2 text-xs leading-relaxed text-slate-400">{card.text}</p>}
-      {children && <div className="mt-3 flex flex-wrap gap-2">{children}</div>}
-    </div>
-  );
-}
-
-function Empty({ label }: { label: string }) {
-  return <div className="border border-dashed border-slate-800 px-3 py-6 text-center text-xs text-slate-600">{label}</div>;
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section>
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</h3>
-      <div className="space-y-2">{children}</div>
-    </section>
-  );
 }
 
 function ActionButton({
@@ -347,7 +246,7 @@ export function SCPGameView() {
 
       <main className="grid gap-4 p-4 xl:grid-cols-[340px_minmax(0,1fr)_340px]">
         <aside className="space-y-4">
-          <SitePanel title={myPlayer?.name || 'Your Site'} site={mySite} />
+          <SCPSitePanel title={myPlayer?.name || 'Your Site'} site={mySite} />
           <div className="grid grid-cols-2 gap-2">
             <ActionButton onClick={() => spendEthics(2)} disabled={!canAct || (mySite.ethics_debt ?? 0) < 2} tone="warn">
               Spend Ethics
@@ -355,10 +254,10 @@ export function SCPGameView() {
             <ActionButton onClick={endTurn} disabled={!canAct} tone="good">End Turn</ActionButton>
           </div>
 
-          <Section title={`Hand (${hand.length})`}>
-            {hand.length === 0 && <Empty label="No cards in hand" />}
+          <SCPSection title={`Hand (${hand.length})`}>
+            {hand.length === 0 && <SCPEmpty label="No cards in hand" />}
             {hand.map((card) => (
-              <CardPanel key={card.id} card={card}>
+              <SCPCardPanel key={card.id} card={card}>
                 <ActionButton onClick={() => openDossier(card.id)} disabled={!canAct}>Open</ActionButton>
                 {(card.scp_red_tape ?? 0) > 0 && (
                   <ActionButton onClick={() => openDossier(card.id, true)} disabled={!canAct} tone="warn">Fast-track</ActionButton>
@@ -366,23 +265,23 @@ export function SCPGameView() {
                 {isAnomaly(card) && (
                   <ActionButton onClick={() => openDossier(card.id, false, true)} disabled={!canAct}>Seal</ActionButton>
                 )}
-              </CardPanel>
+              </SCPCardPanel>
             ))}
-          </Section>
+          </SCPSection>
         </aside>
 
         <section className="space-y-4">
           <div className="grid gap-3 md:grid-cols-4">
-            <Stat label="Assignments" value={assignmentSlots} tone="text-cyan-300" />
-            <Stat label="Active Anomalies" value={activeAnomalies.length} tone="text-red-300" />
-            <Stat label="Contained" value={containedAnomalies.length} tone="text-emerald-300" />
-            <Stat label="Incidents" value={incidents.length} tone="text-amber-300" />
+            <SCPStat label="Assignments" value={assignmentSlots} tone="text-cyan-300" />
+            <SCPStat label="Active Anomalies" value={activeAnomalies.length} tone="text-red-300" />
+            <SCPStat label="Contained" value={containedAnomalies.length} tone="text-emerald-300" />
+            <SCPStat label="Incidents" value={incidents.length} tone="text-amber-300" />
           </div>
 
-          <Section title="Active Anomalies">
-            {activeAnomalies.length === 0 && <Empty label="No active anomalies" />}
+          <SCPSection title="Active Anomalies">
+            {activeAnomalies.length === 0 && <SCPEmpty label="No active anomalies" />}
             {activeAnomalies.map((card) => (
-              <CardPanel
+              <SCPCardPanel
                 key={card.id}
                 card={card}
                 selected={selectedAnomaly?.id === card.id}
@@ -397,15 +296,15 @@ export function SCPGameView() {
                 <ActionButton onClick={() => suppress(card.id, selectedStaffIds)} disabled={!canAct}>
                   Suppress ({selectedStaffCount})
                 </ActionButton>
-              </CardPanel>
+              </SCPCardPanel>
             ))}
-          </Section>
+          </SCPSection>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <Section title="Available Personnel">
-              {personnel.length === 0 && <Empty label="No active personnel" />}
+            <SCPSection title="Available Personnel">
+              {personnel.length === 0 && <SCPEmpty label="No active personnel" />}
               {personnel.map((card) => (
-                <CardPanel
+                <SCPCardPanel
                   key={card.id}
                   card={card}
                   selected={selectedStaffIds.includes(card.id)}
@@ -414,11 +313,11 @@ export function SCPGameView() {
                   <span className={`text-xs ${card.scp_exhausted ? 'text-red-300' : 'text-emerald-300'}`}>
                     {card.scp_exhausted ? 'Exhausted' : selectedStaffIds.includes(card.id) ? 'Assigned' : 'Ready'}
                   </span>
-                </CardPanel>
+                </SCPCardPanel>
               ))}
-            </Section>
+            </SCPSection>
 
-            <Section title="Protocols and Site Tools">
+            <SCPSection title="Protocols and Site Tools">
               {selectedAnomaly ? (
                 <div className="space-y-3 border border-slate-700 bg-slate-900/80 p-3">
                   <div className="text-sm font-medium text-slate-200">{selectedAnomaly.name}</div>
@@ -455,7 +354,7 @@ export function SCPGameView() {
                   </div>
                 </div>
               ) : (
-                <Empty label="Select an active anomaly" />
+                <SCPEmpty label="Select an active anomaly" />
               )}
 
               {incidents.length > 0 && (
@@ -471,66 +370,66 @@ export function SCPGameView() {
                   ))}
                 </div>
               )}
-            </Section>
+            </SCPSection>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <Section title="Pending and Sealed Dossiers">
-              {myPending.length === 0 && <Empty label="No queued dossiers" />}
+            <SCPSection title="Pending and Sealed Dossiers">
+              {myPending.length === 0 && <SCPEmpty label="No queued dossiers" />}
               {myPending.map((card) => (
-                <CardPanel key={card.id} card={card}>
+                <SCPCardPanel key={card.id} card={card}>
                   {card.scp_status === 'sealed' && (
                     <ActionButton onClick={() => revealDossier(card.id)} disabled={!canAct} tone="warn">Reveal</ActionButton>
                   )}
                   <ActionButton onClick={() => memoryHole(card.id)} disabled={!canAct} tone="danger">Memory hole</ActionButton>
-                </CardPanel>
+                </SCPCardPanel>
               ))}
-            </Section>
+            </SCPSection>
 
-            <Section title="Contained Archive">
-              {containedAnomalies.length === 0 && <Empty label="No contained anomalies" />}
+            <SCPSection title="Contained Archive">
+              {containedAnomalies.length === 0 && <SCPEmpty label="No contained anomalies" />}
               {containedAnomalies.map((card) => (
-                <CardPanel key={card.id} card={card}>
+                <SCPCardPanel key={card.id} card={card}>
                   <ActionButton onClick={() => memoryHole(card.id)} disabled={!canAct} tone="danger">Memory hole</ActionButton>
-                </CardPanel>
+                </SCPCardPanel>
               ))}
-            </Section>
+            </SCPSection>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <Section title="Facilities">
-              {facilities.length === 0 && <Empty label="No facilities active" />}
-              {facilities.map((card) => <CardPanel key={card.id} card={card} />)}
-            </Section>
-            <Section title="Mandates">
-              {mandates.length === 0 && <Empty label="No mandate active" />}
-              {mandates.map((card) => <CardPanel key={card.id} card={card} />)}
-            </Section>
+            <SCPSection title="Facilities">
+              {facilities.length === 0 && <SCPEmpty label="No facilities active" />}
+              {facilities.map((card) => <SCPCardPanel key={card.id} card={card} />)}
+            </SCPSection>
+            <SCPSection title="Mandates">
+              {mandates.length === 0 && <SCPEmpty label="No mandate active" />}
+              {mandates.map((card) => <SCPCardPanel key={card.id} card={card} />)}
+            </SCPSection>
           </div>
         </section>
 
         <aside className="space-y-4">
-          <SitePanel title={opponentPlayer?.name || 'Opposing Site'} site={opponentSite} />
+          <SCPSitePanel title={opponentPlayer?.name || 'Opposing Site'} site={opponentSite} />
 
-          <Section title="Opposing Active Anomalies">
-            {opponentAnomalies.length === 0 && <Empty label="No public active anomalies" />}
-            {opponentAnomalies.map((card) => <CardPanel key={card.id} card={card} />)}
-          </Section>
+          <SCPSection title="Opposing Active Anomalies">
+            {opponentAnomalies.length === 0 && <SCPEmpty label="No public active anomalies" />}
+            {opponentAnomalies.map((card) => <SCPCardPanel key={card.id} card={card} />)}
+          </SCPSection>
 
-          <Section title="Opposing Pending Dossiers">
-            {opponentPending.length === 0 && <Empty label="No public queued dossiers" />}
-            {opponentPending.map((card) => <CardPanel key={card.id} card={card} />)}
-          </Section>
+          <SCPSection title="Opposing Pending Dossiers">
+            {opponentPending.length === 0 && <SCPEmpty label="No public queued dossiers" />}
+            {opponentPending.map((card) => <SCPCardPanel key={card.id} card={card} />)}
+          </SCPSection>
 
-          <Section title="Opposing Containment">
-            {opponentContained.length === 0 && <Empty label="No contained anomalies" />}
-            {opponentContained.map((card) => <CardPanel key={card.id} card={card} />)}
-          </Section>
+          <SCPSection title="Opposing Containment">
+            {opponentContained.length === 0 && <SCPEmpty label="No contained anomalies" />}
+            {opponentContained.map((card) => <SCPCardPanel key={card.id} card={card} />)}
+          </SCPSection>
 
-          <Section title="Opposing Personnel">
-            {opponentPersonnel.length === 0 && <Empty label="No personnel active" />}
-            {opponentPersonnel.map((card) => <CardPanel key={card.id} card={card} />)}
-          </Section>
+          <SCPSection title="Opposing Personnel">
+            {opponentPersonnel.length === 0 && <SCPEmpty label="No personnel active" />}
+            {opponentPersonnel.map((card) => <SCPCardPanel key={card.id} card={card} />)}
+          </SCPSection>
         </aside>
       </main>
       {pendingChoice && (

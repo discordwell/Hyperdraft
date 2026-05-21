@@ -10,10 +10,11 @@
  * the production hooks' useMemo shapes) and passes noop handlers so the
  * board renders fully read-only.
  *
- * SCP and Cats currently fall back to the generic `<GameBoard>` plus a
- * console warning — SCPGameView is too tightly coupled to its socket-
- * driven hook to reuse here, and Cats is mock-data-only with no bot
- * games today. Wiring those properly is a follow-up.
+ * SCP and Cats now use the read-only board adapters at
+ * `components/game/SCPBoard.tsx` + `components/game/CatsBoard.tsx`, which
+ * accept a plain `gameState` payload instead of pulling from the live
+ * `useSCPGame` / `useCatsGame` sockets. See those files for the exact
+ * extraction boundary.
  */
 
 import { lazy, Suspense, useMemo } from 'react';
@@ -42,6 +43,12 @@ const FinanceGameBoard = lazy(() =>
 );
 const DepthsGameBoard = lazy(() =>
   import('../../games/depths').then((m) => ({ default: m.DepthsGameBoard })),
+);
+const SCPBoard = lazy(() =>
+  import('../game/SCPBoard').then((m) => ({ default: m.SCPBoard })),
+);
+const CatsBoard = lazy(() =>
+  import('../game/CatsBoard').then((m) => ({ default: m.CatsBoard })),
 );
 
 interface SpectatorGameBodyProps {
@@ -429,17 +436,9 @@ export function SpectatorGameBody({ gameState, playerId }: SpectatorGameBodyProp
           case 'depths':
             return <SpectatorDepthsBoard gameState={gameState} playerId={playerId} />;
           case 'scp':
+            return <SCPBoard gameState={gameState} playerId={playerId} readOnly />;
           case 'cats':
-            // SCPGameView / CatsGame are too tightly coupled to their
-            // socket-driven hooks to reuse in spectator mode; fall back
-            // to the generic GameBoard with a console warning so we
-            // surface this gap rather than silently rendering an MTG
-            // layout on top of the wrong shape.
-            console.warn(
-              `[SpectatorView] No dedicated spectator board for game_mode='${mode}'. ` +
-              'Falling back to MTG GameBoard — the layout will not match.',
-            );
-            return <GameBoard gameState={gameState} playerId={playerId} />;
+            return <CatsBoard gameState={gameState} playerId={playerId} readOnly />;
           default:
             // Unknown / undefined mode — likely the data hasn't fully
             // populated yet. Render GameBoard as a neutral fallback so
