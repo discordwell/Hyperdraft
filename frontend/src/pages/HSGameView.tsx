@@ -17,8 +17,10 @@ import { matchAPI } from '../services/api';
 import { ChoiceModal } from '../components/actions/ChoiceModal';
 import { usePendingChoice } from '../hooks/usePendingChoice';
 import { GameViewLayout } from '../components/brand';
+import { useDiscoveryStore } from '../stores/discoveryStore';
 
 export function HSGameView() {
+  useEffect(() => useDiscoveryStore.getState().markPlayed('hearthstone'), []);
   const { matchId } = useParams<{ matchId: string }>();
   const navigate = useNavigate();
   const [sidebarTab, setSidebarTab] = useState<'info' | 'log'>('info');

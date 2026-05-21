@@ -7,6 +7,7 @@
 import { useEffect, useCallback, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useGame } from '../hooks/useGame';
+import { useDiscoveryStore } from '../stores/discoveryStore';
 import { useGameStore } from '../stores/gameStore';
 import { useDragDropStore } from '../hooks/useDragDrop';
 import { useAltP } from '../hooks/useAltP';
@@ -129,6 +130,7 @@ const SAMPLE_PIPELINE_EVENTS: PipelineEvent[] = [
 ];
 
 export function GameView() {
+  useEffect(() => useDiscoveryStore.getState().markPlayed('mtg'), []);
   const { matchId } = useParams<{ matchId: string }>();
   const navigate = useNavigate();
 

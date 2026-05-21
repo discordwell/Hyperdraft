@@ -75,11 +75,38 @@ describe('Home Minecraft starter deck options', () => {
     expect(new Set(values).size).toBe(values.length);
   });
 
+  it('A3 — collapses the matchbuilder by default; Customize ↓ reveals it', () => {
+    renderHome();
+
+    // Quick-CTA row is visible; the full form is hidden.
+    expect(screen.getByTestId('match-builder-quick')).toBeInTheDocument();
+    expect(screen.getByTestId('match-builder-open')).toBeInTheDocument();
+    expect(screen.queryByTestId('match-builder-form')).toBeNull();
+
+    const toggle = screen.getByTestId('match-builder-toggle');
+    expect(toggle.textContent).toMatch(/customize/i);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+
+    // Expand → form appears, toggle flips to "Hide ↑". (We don't assert the
+    // collapse-back step because framer-motion's AnimatePresence keeps the
+    // exiting node mounted across happy-dom's synchronous frame, so
+    // `queryByTestId` would still see the form mid-animation.)
+    fireEvent.click(toggle);
+    expect(screen.getByTestId('match-builder-form')).toBeInTheDocument();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.textContent).toMatch(/hide/i);
+  });
+
   it('hides MTG-only bot presets in Minecraft mode and starts bot games as Minecraft', async () => {
     renderHome();
 
     // Pick the Minecraft tile from the engine grid.
     fireEvent.click(screen.getByRole('button', { name: 'Minecraft' }));
+
+    // A3 — the full matchbuilder form is collapsed by default. Expand it so
+    // we can reach the "Watch Bot vs Bot" preset that lives inside the
+    // per-engine form pane.
+    fireEvent.click(screen.getByTestId('match-builder-toggle'));
 
     expect(screen.getByRole('button', { name: 'Watch Bot vs Bot' })).toBeInTheDocument();
 
