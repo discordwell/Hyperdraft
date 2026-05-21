@@ -537,6 +537,12 @@ export interface BotGameStatus {
   status: 'running' | 'finished';
   turn: number;
   winner: string | null;
+  // WatchLive lobby enrichment (HD-ART-06). All optional so legacy
+  // consumers (completed_replays, older clients) keep working.
+  game_mode?: string | null;
+  player1_label?: string | null;
+  player2_label?: string | null;
+  deck_blurb?: string | null;
 }
 
 // Replay Types

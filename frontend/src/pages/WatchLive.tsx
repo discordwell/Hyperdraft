@@ -10,14 +10,10 @@
  * Wired data:
  *   - /api/spectate/live + /api/spectate/status drive the featured "LIVE"
  *     panel; the spectator-demo match (if any) gets pinned there.
- *   - /api/bot-game/list?status=running surfaces any other Bot-vs-Bot games
- *     currently mid-match.
- *
- * BotGameStatus is intentionally narrow (game_id / status / turn / winner)
- * so the table enriches running matches with mock metadata (engine code,
- * deck blurb, player labels) — the design needs richer columns than the
- * backend exposes today. The headers match HD-ART-06 exactly; populating
- * them properly is a backend slice for a future phase.
+ *   - /api/bot-game/list?status=running surfaces every Bot-vs-Bot game
+ *     currently mid-match. BotGameStatus carries engine code, brain +
+ *     difficulty per seat, and a deck archetype blurb; the table renders
+ *     those directly with no mock fallback.
  */
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
@@ -49,12 +45,10 @@ interface FeaturedMatch {
   matchId: string;
   shortCode: string;
   engineCode: string;
-  watching: number;
   p1Name: string;
   p1Note: string;
   p2Name: string;
   p2Note: string;
-  commentary: { who: string; line: string }[];
   watchPath: string;
 }
 
@@ -65,93 +59,29 @@ interface RecentReplay {
   archived_at: number;
 }
 
-// ─── Mock data — see file header. Mirrors HD-ART-06's lobby artboard so the
-// design composes correctly before the backend grows engine + player columns.
-const MOCK_ROWS: LiveMatchRow[] = [
-  {
-    matchId: 'HD-2K1B',
-    shortCode: 'HD-2K1B',
-    blurb: 'goat control mirror',
-    engineCode: 'YGO',
-    engineLabel: 'Yu-Gi-Oh!',
-    players: 'Hard-AI · Hard-AI',
-    turn: 9,
-    watchPath: '/m/HD-2K1B',
-    live: false,
-  },
-  {
-    matchId: 'HD-9C77',
-    shortCode: 'HD-9C77',
-    blurb: 'raichu vs charizard · prize 2–3',
-    engineCode: 'PKM',
-    engineLabel: 'Pokémon',
-    players: 'Medium-AI · Hard-AI',
-    turn: 6,
-    watchPath: '/m/HD-9C77',
-    live: true,
-  },
-  {
-    matchId: 'HD-5018',
-    shortCode: 'HD-5018',
-    blurb: 'aggro shaman vs ramp druid',
-    engineCode: 'HS',
-    engineLabel: 'Hearthstone',
-    players: 'Ultra-AI · Medium-AI',
-    turn: 7,
-    watchPath: '/m/HD-5018',
-    live: false,
-  },
-  {
-    matchId: 'HD-E110',
-    shortCode: 'HD-E110',
-    blurb: 'euclid midrange vs keter rush',
-    engineCode: 'SCP',
-    engineLabel: 'SCP',
-    players: 'Hard-AI · Hard-AI',
-    turn: 3,
-    watchPath: '/m/HD-E110',
-    live: false,
-  },
-  {
-    matchId: 'HD-E219',
-    shortCode: 'HD-E219',
-    blurb: 'queued — opens in 14s',
-    engineCode: 'MTG',
-    engineLabel: 'Magic',
-    players: 'Ultra-AI · Ultra-AI',
-    turn: null,
-    watchPath: '/m/HD-E219',
-    live: false,
-    queued: true,
-  },
-];
-
-// Mock commentary for the featured panel when no spectator demo is live.
-const FALLBACK_FEATURED: FeaturedMatch = {
-  matchId: 'HD-8F4A',
-  shortCode: 'HD-8F4A',
-  engineCode: 'MTG',
-  watching: 12,
-  p1Name: 'Ultra-AI',
-  p1Note: 'burn · LLM-guided · 17 life',
-  p2Name: 'Hard-AI',
-  p2Note: 'UW control · 20 life',
-  watchPath: '/m/HD-8F4A',
-  commentary: [
-    {
-      who: 'Ultra',
-      line: "P1 keeps a 1-lander on the play. Acceptable — bolts twice and a probe. If we don't see a second red source by turn 3 we mulligan-equivalent through ponders.",
-    },
-    {
-      who: 'Hard',
-      line: 'P2 leads Brainstorm into Force Spike — saving counters for a turn-3 threat from P1.',
-    },
-    {
-      who: 'Ultra',
-      line: 'Reading the chain — RESOLVE Lightning Bolt → 3 dmg → P2 has open mana for Counterspell. I cast Bolt anyway: bait.',
-    },
-  ],
-};
+// Format a single BotGameStatus row into the table model. Pulled out so
+// the spectator-demo row and the API rows compose with identical chrome.
+function rowFromStatus(g: import('../types/game').BotGameStatus): LiveMatchRow {
+  const meta = g.game_mode ? getMode(g.game_mode as GameModeId) : undefined;
+  const engineCode = meta?.code ?? (g.game_mode ? g.game_mode.toUpperCase() : 'BOT');
+  const engineLabel = meta?.name ?? 'Bot game';
+  // "Heuristic · medium · vs · Claude · ultra" — the table is mono-cramped
+  // so we join with ' · ' between seats; the per-seat string already
+  // contains its own ' · ' between brain and difficulty.
+  const p1 = g.player1_label ?? 'Bot 1';
+  const p2 = g.player2_label ?? 'Bot 2';
+  return {
+    matchId: g.game_id,
+    shortCode: shortCode(g.game_id),
+    blurb: g.deck_blurb ?? 'bot vs bot · live',
+    engineCode,
+    engineLabel,
+    players: `${p1} · ${p2}`,
+    turn: g.turn,
+    watchPath: `/spectate/${g.game_id}`,
+    live: g.status === 'running',
+  };
+}
 
 export function WatchLive() {
   const navigate = useNavigate();
@@ -183,18 +113,10 @@ export function WatchLive() {
     }
     try {
       const { games } = await botGameAPI.list('running');
-      const rows: LiveMatchRow[] = games.map((g) => ({
-        matchId: g.game_id,
-        shortCode: shortCode(g.game_id),
-        blurb: 'bot vs bot · live',
-        engineCode: 'BOT',
-        engineLabel: 'Bot game',
-        players: 'Bot · Bot',
-        turn: g.turn,
-        watchPath: `/spectate/${g.game_id}`,
-        live: true,
-      }));
-      setBotRows(rows);
+      // BotGameStatus now carries engine + brain/difficulty + deck blurb,
+      // so the row factory can lift everything off the response. No
+      // padding rows, no mock fallback.
+      setBotRows(games.map(rowFromStatus));
     } catch {
       setBotRows([]);
     }
@@ -206,8 +128,8 @@ export function WatchLive() {
     return () => clearInterval(interval);
   }, [pollLive]);
 
-  // Compose the table: featured spectator-demo first (if any), real bot
-  // games next, then the mock-rich rows so the page never reads as empty.
+  // Compose the table: featured spectator-demo first (if any), then
+  // real bot games. Empty state shows a hint instead of mock rows.
   const rows = useMemo<LiveMatchRow[]>(() => {
     const out: LiveMatchRow[] = [];
     if (spectator?.enabled && spectator.current_match_id) {
@@ -218,34 +140,33 @@ export function WatchLive() {
         blurb: 'spectator demo · ultra mirror',
         engineCode: meta?.code ?? 'MTG',
         engineLabel: meta?.name ?? 'Magic',
-        players: 'Ultra-AI · Ultra-AI',
+        players: 'Claude · ultra · Heuristic · ultra',
         turn: null,
         watchPath: `/m/${spectator.current_match_id}`,
         live: true,
       });
     }
     out.push(...botRows);
-    out.push(...MOCK_ROWS);
     return out;
   }, [spectator, botRows]);
 
-  const featured = useMemo<FeaturedMatch>(() => {
+  // Featured panel mirrors the active spectator demo when one is live;
+  // otherwise null, in which case the panel renders its empty state.
+  const featured = useMemo<FeaturedMatch | null>(() => {
     if (spectator?.enabled && spectator.current_match_id) {
       const meta = spectator.game_mode ? getMode(spectator.game_mode as GameModeId) : undefined;
       return {
         matchId: spectator.current_match_id,
         shortCode: shortCode(spectator.current_match_id),
         engineCode: meta?.code ?? 'MTG',
-        watching: 12,
-        p1Name: 'Ultra-AI',
-        p1Note: 'claude-pilot · seat 1',
-        p2Name: 'Ultra-AI',
-        p2Note: 'heuristic ultra · seat 2',
+        p1Name: 'Claude',
+        p1Note: 'ultra · seat 1',
+        p2Name: 'Heuristic',
+        p2Note: 'ultra · seat 2',
         watchPath: `/m/${spectator.current_match_id}`,
-        commentary: FALLBACK_FEATURED.commentary,
       };
     }
-    return FALLBACK_FEATURED;
+    return null;
   }, [spectator]);
 
   const liveCount = rows.filter((r) => r.live).length;
@@ -357,6 +278,25 @@ export function WatchLive() {
               <span>Watch</span>
             </TableRow>
 
+            {/* Empty state — no spectator demo, no running bot games.
+                The lab voice tells the user where to start one. */}
+            {rows.length === 0 && (
+              <div
+                data-testid="lobby-empty"
+                style={{
+                  padding: '22px 14px',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 11.5,
+                  color: 'var(--ink-3)',
+                  textAlign: 'left',
+                  letterSpacing: '.04em',
+                  borderTop: '1px solid var(--rule-2)',
+                }}
+              >
+                No matches running. Start a bot vs bot run from the lab.
+              </div>
+            )}
+
             {rows.map((row, ix) => (
               <TableRow
                 key={row.matchId}
@@ -431,8 +371,11 @@ export function WatchLive() {
             ))}
           </div>
 
-          {/* Featured-live panel */}
+          {/* Featured-live panel — pinned to the active spectator demo if
+              one is running; otherwise an empty-state hint so the panel
+              never lies about a fake live match. */}
           <aside
+            data-testid="featured-panel"
             style={{
               border: '1px solid var(--ink)',
               background: 'var(--paper-2)',
@@ -442,172 +385,181 @@ export function WatchLive() {
               gap: 14,
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <h3
+            {featured ? (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontFamily: 'var(--font-serif)',
+                      fontSize: 22,
+                      fontWeight: 400,
+                      letterSpacing: '-.01em',
+                      color: 'var(--ink)',
+                    }}
+                  >
+                    <small
+                      style={{
+                        display: 'block',
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 10.5,
+                        fontWeight: 500,
+                        letterSpacing: '.14em',
+                        textTransform: 'uppercase',
+                        color: 'var(--sodium)',
+                        marginBottom: 5,
+                      }}
+                    >
+                      FEATURED · LIVE
+                    </small>
+                    {featured.shortCode}
+                  </h3>
+                  <span className="lab-chip" style={{ borderColor: 'var(--rule)' }}>
+                    <span className="dot lobby-pulse-dot" />
+                    {featured.engineCode}
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr auto 1fr',
+                    gap: 8,
+                    alignItems: 'center',
+                    padding: '10px 0',
+                    borderTop: '1px solid var(--rule)',
+                    borderBottom: '1px solid var(--rule)',
+                  }}
+                >
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.3, color: 'var(--ink-2)' }}>
+                    <b
+                      style={{
+                        display: 'block',
+                        color: 'var(--ink)',
+                        fontFamily: 'var(--font-serif)',
+                        fontSize: 17,
+                        fontWeight: 400,
+                        letterSpacing: 0,
+                        marginBottom: 3,
+                      }}
+                    >
+                      {featured.p1Name}
+                    </b>
+                    {featured.p1Note}
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: 'var(--font-serif)',
+                      fontSize: 22,
+                      fontStyle: 'italic',
+                      color: 'var(--sodium)',
+                      textAlign: 'center',
+                      lineHeight: 1,
+                    }}
+                  >
+                    vs.
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 11,
+                      lineHeight: 1.3,
+                      color: 'var(--ink-2)',
+                      textAlign: 'right',
+                    }}
+                  >
+                    <b
+                      style={{
+                        display: 'block',
+                        color: 'var(--ink)',
+                        fontFamily: 'var(--font-serif)',
+                        fontSize: 17,
+                        fontWeight: 400,
+                        letterSpacing: 0,
+                        marginBottom: 3,
+                      }}
+                    >
+                      {featured.p2Name}
+                    </b>
+                    {featured.p2Note}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 11,
+                    fontWeight: 500,
+                    letterSpacing: '.1em',
+                    textTransform: 'uppercase',
+                    color: 'var(--ink-3)',
+                    borderTop: '1px solid var(--rule)',
+                    paddingTop: 10,
+                  }}
+                >
+                  <span>
+                    {recent
+                      ? `Last archive · ${recent.match_id.slice(0, 8)}`
+                      : 'Replay available at end of match'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => navigate(featured.watchPath)}
+                    style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 11,
+                      letterSpacing: '.14em',
+                      textTransform: 'uppercase',
+                      color: 'var(--ink)',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: 0,
+                    }}
+                  >
+                    ▸ Open
+                  </button>
+                </div>
+              </>
+            ) : (
+              // Empty state — no spectator-demo is running, so don't
+              // pretend with HD-8F4A mock data. Match the lab voice.
+              <div
                 style={{
-                  margin: 0,
-                  fontFamily: 'var(--font-serif)',
-                  fontSize: 22,
-                  fontWeight: 400,
-                  letterSpacing: '-.01em',
-                  color: 'var(--ink)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                  minHeight: 140,
+                  justifyContent: 'center',
+                  alignItems: 'flex-start',
                 }}
               >
                 <small
                   style={{
-                    display: 'block',
                     fontFamily: 'var(--font-mono)',
                     fontSize: 10.5,
                     fontWeight: 500,
                     letterSpacing: '.14em',
                     textTransform: 'uppercase',
-                    color: 'var(--sodium)',
-                    marginBottom: 5,
+                    color: 'var(--ink-3)',
                   }}
                 >
-                  FEATURED · LIVE
+                  FEATURED · IDLE
                 </small>
-                {featured.shortCode}
-              </h3>
-              <span className="lab-chip" style={{ borderColor: 'var(--rule)' }}>
-                <span className="dot lobby-pulse-dot" />
-                {featured.watching} watching
-              </span>
-            </div>
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr auto 1fr',
-                gap: 8,
-                alignItems: 'center',
-                padding: '10px 0',
-                borderTop: '1px solid var(--rule)',
-                borderBottom: '1px solid var(--rule)',
-              }}
-            >
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.3, color: 'var(--ink-2)' }}>
-                <b
+                <div
                   style={{
-                    display: 'block',
-                    color: 'var(--ink)',
                     fontFamily: 'var(--font-serif)',
                     fontSize: 17,
-                    fontWeight: 400,
-                    letterSpacing: 0,
-                    marginBottom: 3,
-                  }}
-                >
-                  {featured.p1Name}
-                </b>
-                {featured.p1Note}
-              </div>
-              <div
-                style={{
-                  fontFamily: 'var(--font-serif)',
-                  fontSize: 22,
-                  fontStyle: 'italic',
-                  color: 'var(--sodium)',
-                  textAlign: 'center',
-                  lineHeight: 1,
-                }}
-              >
-                vs.
-              </div>
-              <div
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 11,
-                  lineHeight: 1.3,
-                  color: 'var(--ink-2)',
-                  textAlign: 'right',
-                }}
-              >
-                <b
-                  style={{
-                    display: 'block',
                     color: 'var(--ink)',
-                    fontFamily: 'var(--font-serif)',
-                    fontSize: 17,
-                    fontWeight: 400,
-                    letterSpacing: 0,
-                    marginBottom: 3,
+                    lineHeight: 1.35,
                   }}
                 >
-                  {featured.p2Name}
-                </b>
-                {featured.p2Note}
+                  No featured match. Start one from the lab.
+                </div>
               </div>
-            </div>
-
-            <div
-              style={{
-                fontFamily: 'var(--font-sans)',
-                fontSize: 12.5,
-                lineHeight: 1.55,
-                color: 'var(--ink-2)',
-                maxHeight: 140,
-                overflow: 'auto',
-                paddingRight: 4,
-              }}
-            >
-              {featured.commentary.map((entry, ix) => (
-                <p key={ix} style={{ margin: '0 0 8px' }}>
-                  <span
-                    style={{
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: 10.5,
-                      fontWeight: 500,
-                      letterSpacing: '.1em',
-                      textTransform: 'uppercase',
-                      color: 'var(--sodium)',
-                      marginRight: 6,
-                    }}
-                  >
-                    {entry.who}
-                  </span>
-                  {entry.line}
-                </p>
-              ))}
-            </div>
-
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                fontFamily: 'var(--font-mono)',
-                fontSize: 11,
-                fontWeight: 500,
-                letterSpacing: '.1em',
-                textTransform: 'uppercase',
-                color: 'var(--ink-3)',
-                borderTop: '1px solid var(--rule)',
-                paddingTop: 10,
-              }}
-            >
-              <span>
-                {recent
-                  ? `Last archive · ${recent.match_id.slice(0, 8)}`
-                  : 'Replay available at end of match'}
-              </span>
-              <button
-                type="button"
-                onClick={() => navigate(featured.watchPath)}
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 11,
-                  letterSpacing: '.14em',
-                  textTransform: 'uppercase',
-                  color: 'var(--ink)',
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: 0,
-                }}
-              >
-                ▸ Open
-              </button>
-            </div>
+            )}
           </aside>
         </div>
 
