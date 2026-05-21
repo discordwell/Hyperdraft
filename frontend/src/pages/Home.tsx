@@ -364,12 +364,21 @@ export function Home() {
           }}
         >
           <div>
-            <span className="lab-chip">
-              <span className="dot" />
-              {unplayedSuggestion
-                ? `You haven't tried ${unplayedSuggestion.name}. Pull it off.`
-                : 'v4.7 · open shelf · no signup'}
-            </span>
+            {/* Eyebrow chip — three states:
+                 - fresh user (nothing played yet): default `v4.7 · open shelf · no signup`
+                 - some played, some not: rotating `You haven't tried X. Pull it off.`
+                 - everything played: drop the chip entirely (no fallback noise) */}
+            {playedEngines.length === 0 ? (
+              <span className="lab-chip">
+                <span className="dot" />
+                v4.7 · open shelf · no signup
+              </span>
+            ) : unplayedSuggestion ? (
+              <span className="lab-chip">
+                <span className="dot" />
+                You haven&apos;t tried {unplayedSuggestion.name}. Pull it off.
+              </span>
+            ) : null}
             <h1
               style={{
                 margin: '14px 0 0',
