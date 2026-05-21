@@ -217,6 +217,44 @@ async def start_bot_game(
             session.game.setup_pokemon_player(player, [])
             session.add_cards_to_deck(pid, deck_fns[idx % len(deck_fns)]())
 
+    elif request.mode == "depths":
+        # Depths bot-vs-bot: setup both players with a Flagship + 30-card deck.
+        # Without setup_depths_player, neither player has a Flagship, so the
+        # turn manager's SBA loss check ('flagship is None') triggers
+        # immediately and both players lose on turn 1 → Draw.
+        from src.cards.depths.submarine_fleet.decks import (
+            SUBS_STARTER_DECKS, make_subs_flagship,
+        )
+        from src.engine.depths import setup_depths_player
+        import random
+
+        depths_deck_keys = list(SUBS_STARTER_DECKS.keys())
+        b1_key = (
+            request.bot1_deck_id if request.bot1_deck_id in SUBS_STARTER_DECKS
+            else random.choice(depths_deck_keys)
+        )
+        b2_key = (
+            request.bot2_deck_id if request.bot2_deck_id in SUBS_STARTER_DECKS
+            else random.choice([k for k in depths_deck_keys if k != b1_key] or depths_deck_keys)
+        )
+
+        player_ids = list(session.game.state.players.keys())
+        deck_keys_by_seat = {player_ids[0]: b1_key}
+        if len(player_ids) >= 2:
+            deck_keys_by_seat[player_ids[1]] = b2_key
+
+        for pid in player_ids[:2]:
+            player = session.game.state.players.get(pid)
+            if player is None:
+                continue
+            seat_name = session.player_names.get(pid, "Bot")
+            flagship_def = make_subs_flagship(f"{seat_name} Flagship")
+            deck = SUBS_STARTER_DECKS[deck_keys_by_seat[pid]]()
+            setup_depths_player(session.game, player, deck, flagship_def)
+            # Mirror match.py: keep the decklist around so the AI layer prep
+            # can read it if Ultra brains are wired in later.
+            session.deck_card_defs_by_player.setdefault(pid, []).extend(deck)
+
     else:
         # MTG / Hearthstone: build decks from IDs or card names
         if request.bot1_deck_id:
@@ -294,7 +332,7 @@ async def run_bot_game(session: GameSession):
             # For non-MTG modes, the priority system loop is bypassed so
             # _on_action_processed never fires.  Record a frame per turn
             # so that replays capture the game progression.
-            if session.game.state.game_mode in ("hearthstone", "yugioh", "pokemon", "minecraft") and session.record_actions_for_replay:
+            if session.game.state.game_mode in ("hearthstone", "yugioh", "pokemon", "minecraft", "depths", "finance", "scp") and session.record_actions_for_replay:
                 active = session.game.get_active_player()
                 session._record_frame(action={
                     "kind": "action_processed",
