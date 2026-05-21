@@ -693,7 +693,14 @@ def play_card_to_trick(
 
     if obj is not None and obj.card_def is not None:
         if CardType.CATS_SNACK in getattr(obj.card_def.characteristics, "types", set()):
-            trick["snack_forced"] = True
+            # Track snack-force-eligibility per side so the loser can't deny
+            # the winner's pile choice with a junk-Snack throwaway. Only the
+            # WINNER's side having a Snack forces the pile-claim into Snack.
+            if role == "pounce":
+                trick["pounce_is_snack"] = True
+            else:
+                trick["counter_is_snack"] = True
+            trick["snack_forced"] = True  # legacy compat — still set for tests
 
     return [Event(
         type=EventType.CATS_CARD_PLAYED,
@@ -823,14 +830,25 @@ def _pile_is_full(state: GameState, player_id: str, pile_name: str) -> bool:
 
 
 def claim_pile(state: GameState, winner_id: str, target_pile: str) -> list[Event]:
-    """Move trick cards to target pile (with Snack-force + cap overflow to attention)."""
+    """Move trick cards to target pile (with Snack-force + cap overflow to attention).
+
+    Snack-force semantics (revised): only the WINNER's Snack forces the trick
+    into the winner's Snack pile. If only the loser played a Snack, the winner
+    keeps free choice. This prevents junk-Snack throwaways (e.g. Tuna Can) from
+    denying the winner's pile selection — which was a load-bearing exploit in
+    the Naptime Denial archetype.
+    """
     _init_cats_state(state)
     trick = state.cats_current_trick or {}
     cards = [c for c in (trick.get("pounce_card"), trick.get("counter_card")) if c]
     if not cards:
         return []
 
-    if trick.get("snack_forced") and target_pile != "pile_snack":
+    winner_played_snack = (
+        (winner_id == trick.get("pounce_player") and trick.get("pounce_is_snack"))
+        or (winner_id == trick.get("counter_player") and trick.get("counter_is_snack"))
+    )
+    if winner_played_snack and target_pile != "pile_snack":
         target_pile = "pile_snack"
     if target_pile not in PILE_NAME_TO_ZONE:
         target_pile = "pile_attention"

@@ -171,10 +171,10 @@ COUCH_EMPIRE: list = [
     THE_WHOLE_ROAST_CHICKEN,          # draw 2 on snack-entry, V3
     THE_FORBIDDEN_HOUSEPLANT,         # attn marker on snack-entry, V2
 
-    # --- Padding (3) ---  rounding to 30; Inkblot for post-nerf resilience
+    # --- Pomf v2 padding (3) ---  rounding to 30
     EMPRESS_POMF,                  # repeat — winning tricks scales
     MISTER_WHISKERS,               # repeat — peek-on-win again
-    MADAM_INKBLOT,                 # 7 public / 2 sneaky; draw on lose
+    DUCHESS_VELVET,                # repeat
 ]
 assert len(COUCH_EMPIRE) == 30, f"Couch Empire: {len(COUCH_EMPIRE)}"
 
@@ -608,19 +608,21 @@ NAPTIME_DENIAL: list = [
     # --- 6 of 7 Sneakies (6) ---  Gary makes us win at printed value
     THE_UNOBSERVED,                # 9 (printed; sneaky 10) — pure bomb
     MADAM_INKBLOT,                 # 7 (printed; sneaky 2) — Gary turns
-                                   #    her HIGH-value win + on-lose draw 1
+                                   #    her HIGH-value win + on-lose draw
     KNIVES,                        # 5
     THE_PENUMBRA_TWIN,             # 6 — Nap entry draw
     WHISPERTOES,                   # 2 — also draw on win
     THE_SHADOW_LOAF,               # 1 — sacrificial bait
 
-    # --- Moods (4) ---  v2 nerf: trimmed from 5 to 4 (was 62% after global card nerfs)
+    # --- Moods (5) ---  rule disruption — Counter-pounce Reginald
+    THE_3AM_ZOOMIES,               # lowest wins (flips their Pomf 9)
     SITTING_IN_THE_BOX,            # fewer-hand wins
     AGGRESSIVE_LOAFING,            # more-piles wins (smug)
     THE_QUIET_INTERROGATION,       # highest wins (lock Sleek default)
-    KNOCKING_THINGS_OFF_TABLES,    # lowest wins
+    KNOCKING_THINGS_OFF_TABLES,    # lowest wins — second flip option
 
-    # --- High-value bombs (6) ---  v2 nerf: dropped Bartholomew (10) for parity
+    # --- High-value bombs (7) ---  defeat Naptime's mid-Fluffies
+    THE_MAGNIFICENT_BARTHOLOMEW,   # 10 — Bart in OUR nap = +2 draws
     THE_BRIGADIER,                 # 9
     EMPRESS_POMF,                  # 9 — draw + life
     MISTER_WHISKERS,               # 7 — peek their hand
@@ -644,11 +646,9 @@ NAPTIME_DENIAL: list = [
     THE_ALLEY_PHANTOM,             # 2 — draw on lose (junk dump)
     THE_YOWLING_STRANGER,          # 8 Scrappy vanilla
 
-    # --- Filler (4) ---  v2: more vanilla, fewer bombs
+    # --- Filler (2) ---
     CRUMPET,                       # 4 vanilla
     MITTENS_MCSOPHISTICATED,       # 5 — attn marker on Territory
-    TABITHA,                       # 2 — vanilla bait
-    GARY_JUNIOR,                   # Scrappy 1 — vanilla
 ]
 NAPTIME_DENIAL = list(NAPTIME_DENIAL)
 assert len(NAPTIME_DENIAL) == 30, f"Naptime Denial: {len(NAPTIME_DENIAL)}"

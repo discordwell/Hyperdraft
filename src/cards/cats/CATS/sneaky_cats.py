@@ -100,6 +100,8 @@ def madam_inkblot_setup(obj: GameObject, state: GameState):
 
 # Nerf: draw on lose reduced from 2 -> 1 (deckbuilding-pass flagged her as the
 # single strongest card in the pool — positive in BOTH win and lose paths).
+# Public value kept at 7 — dropping it to 5 crushed Greg's Diary (which doubles
+# Inkblot) without moving Naptime Denial.
 MADAM_INKBLOT = make_cat_card(
     name="Madam Inkblot",
     value=7,
