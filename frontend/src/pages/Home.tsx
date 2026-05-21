@@ -24,7 +24,7 @@ import { useGameStore } from '../stores/gameStore';
 import { useDiscoveryStore } from '../stores/discoveryStore';
 import { getMode, type GameModeId } from '../components/brand';
 import { EngineRack } from '../components/lab/EngineRack';
-import { Timeline } from '../components/lab';
+import { SectionHead, Timeline } from '../components/lab';
 import { getLabEngine } from '../components/lab/engineMeta';
 
 type DeckInfo = DeckSummary;
@@ -1047,83 +1047,6 @@ export function Home() {
 }
 
 // === Lab composition helpers ============================================
-
-function SectionHead({
-  num,
-  title,
-  meta,
-}: {
-  num: string;
-  title: React.ReactNode;
-  meta?: React.ReactNode;
-}) {
-  return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '160px 1fr',
-        gap: 48,
-        paddingTop: 28,
-        borderTop: '1px solid var(--rule)',
-      }}
-    >
-      <div
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 11,
-          fontWeight: 500,
-          letterSpacing: '.14em',
-          textTransform: 'uppercase',
-          color: 'var(--ink-3)',
-          paddingTop: 6,
-        }}
-      >
-        <span
-          style={{
-            display: 'block',
-            fontFamily: 'var(--font-serif)',
-            fontSize: 32,
-            fontWeight: 400,
-            lineHeight: 1,
-            color: 'var(--sodium)',
-            marginBottom: 6,
-            letterSpacing: '-.02em',
-          }}
-        >
-          {num}
-        </span>
-        Section
-      </div>
-      <div>
-        <h2
-          style={{
-            margin: 0,
-            fontFamily: 'var(--font-serif)',
-            fontSize: 38,
-            fontWeight: 400,
-            lineHeight: 1.05,
-            letterSpacing: '-.015em',
-            color: 'var(--ink)',
-          }}
-        >
-          {title}
-        </h2>
-        {meta && (
-          <p
-            style={{
-              margin: '8px 0 0',
-              fontFamily: 'var(--font-sans)',
-              fontSize: 14,
-              color: 'var(--ink-2)',
-            }}
-          >
-            {meta}
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function FieldBlock({
   label,
