@@ -50,6 +50,8 @@ from src.cards.cats.CATS.commanders import (
     SIR_REGINALD_LOAFINGTON,
     PRINCESS_MAYHEM_THE_THIRD,
     GARY_THE_ONE_EYED_TABBY,
+    GREG,
+    LORD_FLUFFINBOTTOM,
 )
 from src.cards.cats.CATS.sleek_cats import (
     MISTER_WHISKERS,
@@ -357,15 +359,318 @@ SHADOW_CATS: list = [
 assert len(SHADOW_CATS) == 30, f"Shadow Cats: {len(SHADOW_CATS)}"
 
 
+# =============================================================================
+# Candidate decks (challengers) — added after baseline tournament.
+#
+# Each deck below tests a strategic hypothesis distinct from the original 4.
+# They share the existing 60-card pool; only the build philosophy is new.
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# Deck 5 — Greg's Diary (Card-Quality + Catch-Up)
+# -----------------------------------------------------------------------------
+# Commander: Greg. Passive: at round start, if Greg's controller has fewer
+# total pile cards than opponent, draw 1.
+#
+# Hypothesis: STAY BEHIND deliberately. Tempo-trade losing tricks for draw
+# triggers (Madam Inkblot loses → draw 2; Alley Phantom + Lord Tufts lose →
+# draw 1; Pillow Princess round-end "behind" draw; Greg catch-up draw on
+# round start). Convert that hand-size advantage into late-game bomb commits
+# (Bartholomew, Brigadier, Pomf, Unobserved) when piles are still empty enough
+# to fire pile-entry triggers. The Dignified Sulk reinforces the plan by
+# letting the fewer-hand player win — except we WANT a big hand, so Sulk is
+# situational counter-pounce.
+#
+# Key card-quality engine: Madam Inkblot loses → +2 draws is the best
+# "intentional loss" payoff in the pool. We run 2 copies.
+GREG_DIARY: list = [
+    # --- Sleek bombs (4) ---  late-game commits
+    THE_MAGNIFICENT_BARTHOLOMEW,   # 10 — draw 2 on Nap entry
+    THE_BRIGADIER,                 # 9  — vanilla high
+    MISTER_WHISKERS,               # 7  — peek = card-quality info
+    DUCHESS_VELVET,                # 6  — draw on win
+
+    # --- Lord Tufts x2 (2) ---  draw on lose, intentional bait
+    LORD_TUFTS,                    # 3  — draw on lose
+    LORD_TUFTS,                    # repeat
+
+    # --- Fluffy catch-up engine (4) ---
+    PILLOW_PRINCESS,               # 6  — round-end "behind" draw
+    PILLOW_PRINCESS,               # repeat — double engine
+    CINNAMON_BUN,                  # 4  — every 3 rounds draw
+    EMPRESS_POMF,                  # 9  — draw + life on win
+
+    # --- Sneaky high-quality (4) ---  Greg cares about quality not value
+    THE_UNOBSERVED,                # 9/10 bomb
+    MADAM_INKBLOT,                 # 7/2  — DRAW 2 ON LOSE (perfect Greg)
+    MADAM_INKBLOT,                 # repeat — stack the lose-engine
+    WHISPERTOES,                   # 2/9 — draw on win, looks low
+    THE_PENUMBRA_TWIN,             # 6/7 — Nap entry draw
+
+    # --- Scrappy "draw on lose" (3) ---
+    THE_ALLEY_PHANTOM,             # 2  — draw on lose
+    THE_ALLEY_PHANTOM,             # repeat
+    MAXIMUM_CARNAGE,               # 10 — win+1 or lose+draw (both good)
+
+    # --- Trinkets (3) ---
+    WINDOW_PERCH,                  # Territory: cap → draw 2 (big payoff)
+    THE_STOLEN_HAIR_TIE,           # Attention drip — every claim
+    SUNBEAM,                       # Nap cap=8, +2 score
+
+    # --- Moods (4) ---  Sulk + Stare = "be behind, still win"
+    THE_DIGNIFIED_SULK,            # fewer-hand wins (situational)
+    THE_INSCRUTABLE_STARE,         # equal wins (defensive)
+    SITTING_IN_THE_BOX,            # fewer-hand wins
+    THE_3AM_ZOOMIES,               # lowest wins — flip a bait
+
+    # --- Snacks for draw (3) ---  pure draw engines
+    THE_WHOLE_ROAST_CHICKEN,       # V3 — draw 2 on Snack entry
+    THE_WHOLE_ROAST_CHICKEN,       # repeat
+    CATNIP_MOUSE,                  # V2 — draw 1 on Snack entry
+
+    # --- Sleek padding (2) ---  v1: dropped Biscuit (over by 1)
+    MITTENS_MCSOPHISTICATED,       # 5 — attn marker on Territory
+    THE_YOWLING_STRANGER,          # 8 — Scrappy high (junk vs Sleek default)
+]
+GREG_DIARY = list(GREG_DIARY)
+assert len(GREG_DIARY) == 30, f"Greg's Diary: {len(GREG_DIARY)}"
+
+
+# -----------------------------------------------------------------------------
+# Deck 6 — Fluffinbottom Attention (Pile-Inversion)
+# -----------------------------------------------------------------------------
+# Commander: Lord Fluffinbottom. Passive: at game end, +5 score if controller
+# has the most Attention pile cards (and >0).
+#
+# Hypothesis: Cats's Attention pile is a designed tiebreaker — but with
+# Fluffinbottom + the Stolen Hair Tie x2 + Mittens x2 + 10 Moods (each Mood
+# drops an attn marker when claimed) + Forbidden Houseplant x2 (snack entry
+# → attn) you can easily land 8+ attention markers and lock the +5 bonus
+# AND the tiebreaker. We don't care if regular pile scoring is weak — the
+# +5 bonus offsets a lot. Forbidden Houseplant + Hair Tie + Mittens =
+# guaranteed attention drip on every claim regardless of trick outcome.
+#
+# Risk: Moods are Value 0 — we lose value comparisons unless the Mood rule
+# helps us. Five lowest-wins Moods plus a hand of cheap low-value bait
+# (Toby, Tabitha, Gary Junior, Whispertoes) means we can WIN those mood
+# tricks ourselves and claim the attention marker.
+FLUFFINBOTTOM_ATTENTION: list = [
+    # --- ALL 10 Moods (10) ---  each Mood when claimed drops attn marker
+    THE_3AM_ZOOMIES,               # lowest wins
+    SITTING_IN_THE_BOX,            # fewer-hand wins
+    AGGRESSIVE_LOAFING,            # more-piles wins
+    KNOCKING_THINGS_OFF_TABLES,    # lowest wins
+    THE_QUIET_INTERROGATION,       # highest wins
+    WET_FOOD_O_CLOCK,              # lowest wins
+    THE_DIGNIFIED_SULK,            # fewer-hand wins
+    SUDDEN_SUSPICION,              # highest wins
+    THE_DRAMATIC_RECOVERY,         # lowest wins
+    THE_INSCRUTABLE_STARE,         # equal wins
+
+    # --- Hair Tie x2 (2) ---  EVERY claim drips attn marker
+    THE_STOLEN_HAIR_TIE,
+    THE_STOLEN_HAIR_TIE,
+
+    # --- Mittens x2 (2) ---  Territory entry → attn marker
+    MITTENS_MCSOPHISTICATED,       # 5
+    MITTENS_MCSOPHISTICATED,       # repeat
+
+    # --- Forbidden Houseplant x2 (2) ---  Snack entry → attn marker
+    THE_FORBIDDEN_HOUSEPLANT,      # V2
+    THE_FORBIDDEN_HOUSEPLANT,      # repeat
+
+    # --- Trinket: backup pile (1) ---
+    YARN_BALL,                     # Territory: +1 per Sleek
+
+    # --- Low-value bait (5) ---  win lowest-wins Moods with these
+    TOBY_THE_TUBSTER,              # 1 Fluffy
+    GARY_JUNIOR,                   # 1 Scrappy
+    TABITHA,                       # 2 Sleek
+    LORD_TUFTS,                    # 3 Sleek — also draw on lose
+    THE_ALLEY_PHANTOM,             # 2 Scrappy — draw on lose
+
+    # --- Sneaky bluffs (3) ---  hidden value matters less but Whispertoes
+    # public V2 + S9 means we look weak but win
+    WHISPERTOES,                   # 2/9 — draw on win
+    THE_SHADOW_LOAF,               # 1/8
+    MIDNIGHT_PANCAKE,              # 4/5
+
+    # --- High-value insurance (4) ---  one or two normal trick wins
+    THE_MAGNIFICENT_BARTHOLOMEW,   # 10
+    EMPRESS_POMF,                  # 9 — draw + life
+    MISTER_WHISKERS,               # 7
+    DUCHESS_VELVET,                # 6 — draw on win
+
+    # --- Catnip Mouse (1) ---  Snack entry draw for tempo
+    CATNIP_MOUSE,                  # V2
+]
+FLUFFINBOTTOM_ATTENTION = list(FLUFFINBOTTOM_ATTENTION)
+assert len(FLUFFINBOTTOM_ATTENTION) == 30, f"Fluffinbottom Attention: {len(FLUFFINBOTTOM_ATTENTION)}"
+
+
+# -----------------------------------------------------------------------------
+# Deck 7 — Snack Rush v3 (Tight Bomb Chain)
+# -----------------------------------------------------------------------------
+# Commander: Princess Mayhem the Third (unchanged). Passive: +1 pt/card while
+# Snack pile <5 cards.
+#
+# Original Snack Rush ran ALL 8 unique Snacks — but the LLM tournament showed
+# 33.3% win rate because low-value snacks (V1 baits) gave OPPONENTS the snack-
+# force win and FED their pile. v3 keeps Princess Mayhem and the small-pile
+# bonus plan but commits to FOUR snacks ONLY (the V3 ones + 1 utility V2),
+# all of which we will win by surrounding them with raw-value bombs.
+#
+# Math: 4 cards in Snack pile = 4 * (3 base + 1 Cardboard Box + 1 Mayhem) = 20
+# points, plus on-entry effects: Roast Chicken x2 = 4 draws, Counter Thing x2
+# = +4 score, Catnip Mouse = 1 draw, Bedraggled Earl x2 = 2 draws. Net of
+# tempo: ~28-30 points from snack package alone.
+#
+# Replacing 11 low-value snack baits with high-value bombs: this is the LLM
+# tournament's diagnosed fix. Now we WIN snack tricks because we play V8-10
+# cats alongside the snacks.
+SNACK_RUSH_V3: list = [
+    # --- 4 best snacks ONLY (6 with repeats) ---
+    THE_WHOLE_ROAST_CHICKEN,       # V3 — draw 2 on Snack entry
+    THE_WHOLE_ROAST_CHICKEN,       # repeat
+    THAT_ONE_THING_OFF_THE_COUNTER,# V3 — +2 score on Snack entry
+    THAT_ONE_THING_OFF_THE_COUNTER,# repeat
+    CATNIP_MOUSE,                  # V2 — draw 1 on entry (utility)
+    THE_DISPUTED_SLICE_OF_CHEESE,  # V2 — vanilla mid (not a bait, decent)
+
+    # --- Cardboard Box (1) ---  +1 score while <5
+    THE_CARDBOARD_BOX,
+
+    # --- Bedraggled Earl x2 (2) ---  Scrappy V5, draws on Snack entry
+    THE_BEDRAGGLED_EARL,
+    THE_BEDRAGGLED_EARL,
+
+    # --- Sleek high-value bombs (6) ---  WIN every snack trick
+    THE_MAGNIFICENT_BARTHOLOMEW,   # 10
+    THE_BRIGADIER,                 # 9
+    MISTER_WHISKERS,               # 7 — peek for snack-pile cap awareness
+    DUCHESS_VELVET,                # 6 — draw on win
+    DUCHESS_VELVET,                # repeat
+    MITTENS_MCSOPHISTICATED,       # 5
+
+    # --- Fluffy bombs (3) ---
+    EMPRESS_POMF,                  # 9 — draw + life on win
+    EMPRESS_POMF,                  # repeat
+    SERGEANT_SNUGGLES,             # 8 vanilla
+
+    # --- Scrappy raw value (2) ---
+    MAXIMUM_CARNAGE,               # 10 — win+1 or lose+draw
+    THE_YOWLING_STRANGER,          # 8
+
+    # --- Sneaky bombs (3) ---  bluffs that win
+    THE_UNOBSERVED,                # 9/10
+    WHISPERTOES,                   # 2/9 — draw on win
+    THE_PENUMBRA_TWIN,             # 6/7
+
+    # --- Moods (3) ---  lowest-wins flips when we hold a snack
+    THE_3AM_ZOOMIES,               # lowest wins
+    KNOCKING_THINGS_OFF_TABLES,    # lowest wins
+    WET_FOOD_O_CLOCK,              # lowest wins
+
+    # --- Trinket (1) ---  attention tiebreak
+    THE_STOLEN_HAIR_TIE,
+
+    # --- Vanilla padding (3) ---
+    BISCUIT,                       # 7 Fluffy
+    CRUMPET,                       # 4 Sleek
+    TABITHA,                       # 2 Sleek
+]
+SNACK_RUSH_V3 = list(SNACK_RUSH_V3)
+assert len(SNACK_RUSH_V3) == 30, f"Snack Rush v3: {len(SNACK_RUSH_V3)}"
+
+
+# -----------------------------------------------------------------------------
+# Deck 8 — Naptime Denial (Anti-Naptime Counter-Deck)
+# -----------------------------------------------------------------------------
+# Commander: Gary the One-Eyed Tabby. Passive: our Sneaky cards use printed
+# Value (not the hidden sneaky_value) — i.e. we ALWAYS win when our printed
+# value is higher under Sleek default. Effectively the opposite of Sneaky:
+# our bluffs become honest bombs.
+#
+# Hypothesis: Naptime Tyrants won 66.7% under LLM piloting via Reginald +
+# Heated Blanket + Bartholomew nap-stuffing. To beat it we must:
+#   (a) WIN trick exchanges so they can't stuff Nap — raw value bombs +
+#       Gary-transparent Sneakies that win at printed value.
+#   (b) DISRUPT their rule openings — 5 Moods to swap when Naptime opens
+#       with Fluffy "highest wins, underdog ties." Lowest-wins Moods flip
+#       Reginald's high-Value Fluffies into our low-Value wins.
+#   (c) POISON their Nap stack — 4 Snacks ensure that EVERY trick containing
+#       a snack forces the winner's claim into Snack (not Nap). We dump junk
+#       snacks (Tuna Can, Single Crumb) when Reginald wants to claim into
+#       Nap — they get forced into Snack instead, denying the nap pile cap.
+#   (d) STEAL Nap for ourselves with Sunbeam (cap=8, +2) so when we do win
+#       we still get our own nap engine.
+#
+# This is the only deck in the set that explicitly tries to break a SPECIFIC
+# matchup rather than maximize its own scoring.
+NAPTIME_DENIAL: list = [
+    # --- 6 of 7 Sneakies (6) ---  Gary makes us win at printed value
+    THE_UNOBSERVED,                # 9 (printed; sneaky 10) — pure bomb
+    MADAM_INKBLOT,                 # 7 (printed; sneaky 2) — Gary turns
+                                   #    her HIGH-value win + on-lose draw 2
+    KNIVES,                        # 5
+    THE_PENUMBRA_TWIN,             # 6 — Nap entry draw
+    WHISPERTOES,                   # 2 — also draw on win
+    THE_SHADOW_LOAF,               # 1 — sacrificial bait
+
+    # --- Moods (5) ---  rule disruption — Counter-pounce Reginald
+    THE_3AM_ZOOMIES,               # lowest wins (flips their Pomf 9)
+    SITTING_IN_THE_BOX,            # fewer-hand wins
+    AGGRESSIVE_LOAFING,            # more-piles wins (smug)
+    THE_QUIET_INTERROGATION,       # highest wins (lock Sleek default)
+    KNOCKING_THINGS_OFF_TABLES,    # lowest wins — second flip option
+
+    # --- High-value bombs (7) ---  defeat Naptime's mid-Fluffies
+    THE_MAGNIFICENT_BARTHOLOMEW,   # 10 — Bart in OUR nap = +2 draws
+    THE_BRIGADIER,                 # 9
+    EMPRESS_POMF,                  # 9 — draw + life
+    MISTER_WHISKERS,               # 7 — peek their hand
+    DUCHESS_VELVET,                # 6 — draw on win
+    SERGEANT_SNUGGLES,             # 8 vanilla
+    MAXIMUM_CARNAGE,               # 10 — win+1 or lose+draw
+
+    # --- Snacks (4) ---  POISON: every winning trick → Snack, not Nap
+    THE_WHOLE_ROAST_CHICKEN,       # V3 — when WE win, draws 2
+    THAT_ONE_THING_OFF_THE_COUNTER,# V3 — when WE win, +2 score
+    TUNA_CAN,                      # V1 — junk we DUMP when opp will win
+    A_SINGLE_CRUMB,                # V1 — junk we DUMP when opp will win
+
+    # --- Trinkets (3) ---  own-nap engine + scoring base
+    SUNBEAM,                       # Nap cap=8, +2 score (we keep Nap viable)
+    THE_CARDBOARD_BOX,             # Snack +1 while <5 (we benefit from forces)
+    THE_STOLEN_HAIR_TIE,           # attention drip — tiebreak insurance
+
+    # --- Catch-up + utility (3) ---
+    PILLOW_PRINCESS,               # 6 — round-end behind draw
+    THE_ALLEY_PHANTOM,             # 2 — draw on lose (junk dump)
+    THE_YOWLING_STRANGER,          # 8 Scrappy vanilla
+
+    # --- Filler (2) ---
+    CRUMPET,                       # 4 vanilla
+    MITTENS_MCSOPHISTICATED,       # 5 — attn marker on Territory
+]
+NAPTIME_DENIAL = list(NAPTIME_DENIAL)
+assert len(NAPTIME_DENIAL) == 30, f"Naptime Denial: {len(NAPTIME_DENIAL)}"
+
+
 # -----------------------------------------------------------------------------
 # Aggregate
 # -----------------------------------------------------------------------------
 
 CATS_DECKS: dict = {
-    "Couch Empire":   (KAREN_THE_DIGNIFIED_CALICO,   COUCH_EMPIRE),
-    "Naptime Tyrants":(SIR_REGINALD_LOAFINGTON,      NAPTIME_TYRANTS),
-    "Snack Rush":     (PRINCESS_MAYHEM_THE_THIRD,    SNACK_RUSH),
-    "Shadow Cats":    (GARY_THE_ONE_EYED_TABBY,      SHADOW_CATS),
+    "Couch Empire":          (KAREN_THE_DIGNIFIED_CALICO,   COUCH_EMPIRE),
+    "Naptime Tyrants":       (SIR_REGINALD_LOAFINGTON,      NAPTIME_TYRANTS),
+    "Snack Rush":            (PRINCESS_MAYHEM_THE_THIRD,    SNACK_RUSH),
+    "Shadow Cats":           (GARY_THE_ONE_EYED_TABBY,      SHADOW_CATS),
+    "Greg's Diary":          (GREG,                         GREG_DIARY),
+    "Fluffinbottom Attention":(LORD_FLUFFINBOTTOM,          FLUFFINBOTTOM_ATTENTION),
+    "Snack Rush v3":         (PRINCESS_MAYHEM_THE_THIRD,    SNACK_RUSH_V3),
+    "Naptime Denial":        (GARY_THE_ONE_EYED_TABBY,      NAPTIME_DENIAL),
 }
 
 __all__ = [
@@ -374,4 +679,8 @@ __all__ = [
     "NAPTIME_TYRANTS",
     "SNACK_RUSH",
     "SHADOW_CATS",
+    "GREG_DIARY",
+    "FLUFFINBOTTOM_ATTENTION",
+    "SNACK_RUSH_V3",
+    "NAPTIME_DENIAL",
 ]

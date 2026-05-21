@@ -32,11 +32,16 @@ from src.ai.cats_adapter import CatsAIAdapter
 # ---------------------------------------------------------------------------
 
 def test_all_decks_legal():
-    """Each of the 4 decks is a (commander, list[30 CardDefinition]) tuple."""
-    assert len(CATS_DECKS) == 4, f"expected 4 decks, got {len(CATS_DECKS)}"
+    """Each registered deck is a (commander, list[30 CardDefinition]) tuple.
 
-    expected_names = {"Couch Empire", "Naptime Tyrants", "Snack Rush", "Shadow Cats"}
-    assert set(CATS_DECKS.keys()) == expected_names
+    Originally 4 archetypes; build-decks pass added 4 candidates (Greg's Diary,
+    Fluffinbottom Attention, Snack Rush v3, Naptime Denial) for a total of 8.
+    """
+    assert len(CATS_DECKS) >= 4, f"expected at least 4 decks, got {len(CATS_DECKS)}"
+    baseline_names = {"Couch Empire", "Naptime Tyrants", "Snack Rush", "Shadow Cats"}
+    assert baseline_names.issubset(set(CATS_DECKS.keys())), (
+        f"baseline decks missing: {baseline_names - set(CATS_DECKS.keys())}"
+    )
 
     commander_names = {c.name for c in ALL_COMMANDERS}
 
