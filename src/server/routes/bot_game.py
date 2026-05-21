@@ -223,29 +223,41 @@ async def start_bot_game(
     session.spectator_delay_ms = request.delay_ms
     session.max_replay_frames = request.max_replay_frames
 
-    # Configure bot brains.
-    session.ai_profiles_by_player[bot1_id] = {
-        "brain": request.bot1_brain.value,
-        "difficulty": request.bot1_difficulty.value,
-        "model": request.bot1_model,
-        "temperature": request.bot1_temperature,
-        "record_prompts": request.record_prompts,
-    }
-    session.ai_profiles_by_player[bot2_id] = {
-        "brain": request.bot2_brain.value,
-        "difficulty": request.bot2_difficulty.value,
-        "model": request.bot2_model,
-        "temperature": request.bot2_temperature,
-        "record_prompts": request.record_prompts,
-    }
+    # Configure bot brains. A `claude_code` brain is sugar for "this seat is
+    # externally driven by a `claude -p` subprocess at ultra difficulty" —
+    # normalize it so the engine routes its actions through the human-action
+    # handler (poll-based) rather than calling an in-process LLM provider.
+    def _profile_for(brain_value: str, difficulty_value: str, model: Optional[str], temperature: float) -> dict:
+        if brain_value == "claude_code":
+            return {
+                "brain": "external",
+                "difficulty": "ultra",
+                "agent_runner": "claude",
+                "model": model,
+                "temperature": temperature,
+                "record_prompts": request.record_prompts,
+            }
+        return {
+            "brain": brain_value,
+            "difficulty": difficulty_value,
+            "model": model,
+            "temperature": temperature,
+            "record_prompts": request.record_prompts,
+        }
+
+    session.ai_profiles_by_player[bot1_id] = _profile_for(
+        request.bot1_brain.value, request.bot1_difficulty.value,
+        request.bot1_model, request.bot1_temperature,
+    )
+    session.ai_profiles_by_player[bot2_id] = _profile_for(
+        request.bot2_brain.value, request.bot2_difficulty.value,
+        request.bot2_model, request.bot2_temperature,
+    )
 
     # Fast preflight for API-based bots (avoid starting a match that will wedge).
     if request.bot1_brain.value == "openai" or request.bot2_brain.value == "openai":
         if not os.environ.get("OPENAI_API_KEY"):
             raise HTTPException(status_code=400, detail="OPENAI_API_KEY not set")
-    if request.bot1_brain.value == "anthropic" or request.bot2_brain.value == "anthropic":
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY not set")
 
     # === Game-mode-specific setup ===
 
@@ -351,6 +363,34 @@ async def start_bot_game(
                 # Map back to bot1_id / bot2_id (player_ids[idx] is the
                 # same seat the engine assigned).
                 session.deck_id_by_player[pid] = deck_blurb_id
+
+    elif request.mode == "cats":
+        # Cats bot-vs-bot: mirror match.py's cats branch. Each seat gets a
+        # commander + 30-card deck from CATS_DECKS, then setup_cats_player
+        # shuffles + draws CATS_HAND_SIZE + installs commander.
+        from src.cards.cats.CATS.decks import CATS_DECKS
+        from src.engine.cats import setup_cats_player
+        import random
+
+        deck_keys = list(CATS_DECKS.keys())
+        b1_key = (
+            request.bot1_deck_id if request.bot1_deck_id in CATS_DECKS
+            else random.choice(deck_keys)
+        )
+        b2_key = (
+            request.bot2_deck_id if request.bot2_deck_id in CATS_DECKS
+            else random.choice([k for k in deck_keys if k != b1_key] or deck_keys)
+        )
+
+        player_ids = list(session.game.state.players.keys())
+        deck_keys_by_seat = {player_ids[0]: b1_key}
+        if len(player_ids) >= 2:
+            deck_keys_by_seat[player_ids[1]] = b2_key
+
+        for pid in player_ids[:2]:
+            commander, deck_cards = CATS_DECKS[deck_keys_by_seat[pid]]
+            setup_cats_player(session.game.state, pid, deck_cards, commander=commander)
+            session.deck_card_defs_by_player.setdefault(pid, []).extend(deck_cards)
 
     elif request.mode == "depths":
         # Depths bot-vs-bot: setup both players with a Flagship + 30-card deck.
@@ -461,6 +501,26 @@ async def start_bot_game(
     # Store in active games
     active_bot_games[session.id] = session
 
+    # Spawn one `claude -p` subprocess per seat with brain=claude_code.
+    # The subprocess polls the REST API and posts actions for its seat;
+    # the engine reaches it through the human-action-handler path because
+    # the profile normalization above set difficulty=ultra.
+    from .match import _spawn_ultra_subprocess
+    claude_seats: list[tuple[str, str, Optional[str]]] = []
+    if request.bot1_brain.value == "claude_code":
+        claude_seats.append((bot1_id, bot2_id, request.bot1_model))
+    if request.bot2_brain.value == "claude_code":
+        claude_seats.append((bot2_id, bot1_id, request.bot2_model))
+    for seat_id, opponent_id, model in claude_seats:
+        await _spawn_ultra_subprocess(
+            match_id=session.id,
+            ai_player_id=seat_id,
+            human_player_id=opponent_id,
+            game_mode=request.mode,
+            agent_runner="claude",
+            agent_model=model,
+        )
+
     # Start game in background with delay
     background_tasks.add_task(
         run_bot_game,
@@ -485,7 +545,7 @@ async def run_bot_game(session: GameSession):
             # For non-MTG modes, the priority system loop is bypassed so
             # _on_action_processed never fires.  Record a frame per turn
             # so that replays capture the game progression.
-            if session.game.state.game_mode in ("hearthstone", "yugioh", "pokemon", "minecraft", "depths", "finance", "scp") and session.record_actions_for_replay:
+            if session.game.state.game_mode in ("hearthstone", "yugioh", "pokemon", "minecraft", "depths", "finance", "scp", "cats") and session.record_actions_for_replay:
                 active = session.game.get_active_player()
                 session._record_frame(action={
                     "kind": "action_processed",

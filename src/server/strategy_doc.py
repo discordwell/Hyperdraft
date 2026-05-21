@@ -31,8 +31,8 @@ BASELINE_DIR = Path("docs/strategy")
 WRITABLE_DIR = Path("storage/strategy")
 NOTES_DIR = Path("storage/ultra-agent/notes")
 
-# The 8 game modes that ship strategy docs.
-KNOWN_MODES = ("mtg", "hearthstone", "pokemon", "yugioh", "minecraft", "finance", "depths", "scp")
+# The 9 game modes that ship strategy docs.
+KNOWN_MODES = ("mtg", "hearthstone", "pokemon", "yugioh", "minecraft", "finance", "depths", "scp", "cats")
 
 
 def bootstrap() -> None:

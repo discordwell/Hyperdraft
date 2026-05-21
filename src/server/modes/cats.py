@@ -111,6 +111,23 @@ class CatsModeAdapter(ModeAdapter):
                     print(f"[cats] run_turn failed: {e}")
                     break
 
+                # Record a replay frame per round so ReplayView's scrubber has
+                # something to anchor on. The cats engine doesn't route through
+                # the MTG priority pipeline, so _on_action_processed never
+                # fires — this is the cats equivalent of the per-turn record
+                # block in src/server/routes/bot_game.py:run_bot_game.
+                if session.record_actions_for_replay:
+                    round_num = int(getattr(session.game.state, "cats_round_number", 0) or 0)
+                    session._record_frame(action={
+                        "kind": "action_processed",
+                        "player_id": session.game.get_active_player(),
+                        "player_name": session.player_names.get(
+                            session.game.get_active_player(), ""
+                        ) if hasattr(session.game, "get_active_player") else "",
+                        "action_type": "CATS_ROUND_END",
+                        "data": {"round_number": round_num},
+                    })
+
                 if session.game.is_game_over():
                     session.is_finished = True
                     session.winner_id = session.game.get_winner()
@@ -232,6 +249,70 @@ class CatsModeAdapter(ModeAdapter):
 
             session._record_frame(action=request.model_dump())
             await self._broadcast(session)
+            return True, "Action accepted"
+
+        if atype == "CATS_KNOCK_OVER":
+            # Pile-tap activated ability. Validation rules (per design §8.7):
+            #   1. card_id required
+            #   2. card must be in one of the player's piles
+            #   3. card must be untapped
+            #   4. card must have a registered CATS_KNOCK_OVER interceptor
+            # `activate_pile_card` enforces (2) and (3) internally; we surface
+            # rejections by inspecting state before/after so the client sees a
+            # clear error. (4) is verified by scanning state.interceptors.
+            from src.engine.cats import activate_pile_card
+            from src.engine.types import EventType
+
+            if not request.card_id:
+                return False, "CATS_KNOCK_OVER requires card_id"
+            card_id = request.card_id
+            piles = state.cats_piles.get(request.player_id, {}) if hasattr(state, "cats_piles") else {}
+            pile_name = None
+            for name in ("pile_territory", "pile_nap", "pile_snack", "pile_attention"):
+                if card_id in piles.get(name, []):
+                    pile_name = name
+                    break
+            if pile_name is None:
+                return False, "Card is not in one of your piles"
+            obj = state.objects.get(card_id)
+            if obj is None:
+                return False, "Card not found"
+            if obj.state.tapped:
+                return False, "Card is already knocked over (tapped)"
+            # Confirm a CATS_KNOCK_OVER interceptor exists for this card.
+            has_handler = False
+            for ic in state.interceptors.values():
+                if ic.source != card_id:
+                    continue
+                # A pile-activated handler is REACT-priority and filters on
+                # CATS_KNOCK_OVER events. Build a synthetic probe event with
+                # the right card_id so the interceptor's filter accepts it.
+                from src.engine.types import Event as _Event
+                probe = _Event(
+                    type=EventType.CATS_KNOCK_OVER,
+                    payload={"player": request.player_id, "card_id": card_id, "pile": pile_name},
+                    source=card_id,
+                )
+                try:
+                    if ic.filter(probe, state):
+                        has_handler = True
+                        break
+                except Exception:
+                    continue
+            if not has_handler:
+                return False, "Card has no activated ability"
+
+            events = activate_pile_card(state, request.player_id, card_id)
+            self._log(
+                session,
+                request.player_id,
+                f"knocked over {self._card_name(state, card_id)} ({pile_name})",
+            )
+            session._record_frame(action=request.model_dump())
+            await self._broadcast(session)
+            if not events:
+                # activate_pile_card silently failed (eg owner mismatch). Surface as success=False.
+                return False, "Pile activation failed"
             return True, "Action accepted"
 
         return False, f"Unknown Cats action: {atype}"

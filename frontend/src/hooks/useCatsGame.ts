@@ -44,6 +44,11 @@ export interface CatsCard {
   card_type: CatsCardType;
   text?: string;
   tapped?: boolean; // "knocked over"
+  // Server-computed flag: this card lives in the viewer's own pile,
+  // is currently untapped, and has a registered CATS_KNOCK_OVER
+  // handler. Only set for cards in the viewer's piles — opponent
+  // cards and hand cards always have this undefined.
+  is_activatable?: boolean;
 }
 
 export interface CatsPiles {

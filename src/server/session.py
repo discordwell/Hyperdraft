@@ -2519,8 +2519,41 @@ class GameSession:
                 return "me" if pid == next(iter(game_state.players.keys()), None) else "opponent"
             return "me" if pid == viewer_id else "opponent"
 
-        def _card_dto(obj_id: str, reveal: bool = True) -> dict:
-            """Serialize one card object to the cats wire shape."""
+        def _has_knock_over_handler(card_id: str) -> bool:
+            """True iff the card has a CATS_KNOCK_OVER REACT interceptor registered.
+
+            We probe by checking each interceptor sourced from this card with a
+            synthetic CATS_KNOCK_OVER payload — `make_pile_activated`'s filter
+            matches exactly that combination. Avoids importing engine helpers
+            into the hot serialization path.
+            """
+            try:
+                from src.engine.types import Event, EventType
+            except ImportError:
+                return False
+            probe = Event(
+                type=EventType.CATS_KNOCK_OVER,
+                payload={"card_id": card_id},
+                source=card_id,
+            )
+            for ic in (game_state.interceptors or {}).values():
+                if ic.source != card_id:
+                    continue
+                try:
+                    if ic.filter(probe, game_state):
+                        return True
+                except Exception:
+                    continue
+            return False
+
+        def _card_dto(obj_id: str, reveal: bool = True, in_my_pile: bool = False) -> dict:
+            """Serialize one card object to the cats wire shape.
+
+            ``in_my_pile`` is True when the card lives in the viewer's own
+            scoring pile — in that case we compute ``is_activatable`` so the
+            frontend can render a knock-over affordance. Opponent pile cards
+            and hand cards never get this flag.
+            """
             obj = game_state.objects.get(obj_id)
             if obj is None:
                 return {
@@ -2566,21 +2599,28 @@ class GameSession:
                     "card_type": "Cat",
                     "tapped": False,
                 }
-            return {
+            tapped = bool(getattr(obj.state, "tapped", False)) if obj.state else False
+            dto: dict = {
                 "id": obj_id,
                 "name": name,
                 "value": value,
                 "category": category,
                 "card_type": card_type,
                 "text": text,
-                "tapped": bool(getattr(obj.state, "tapped", False)) if obj.state else False,
+                "tapped": tapped,
             }
+            if in_my_pile:
+                # is_activatable: pile card, owned by viewer, untapped, has a
+                # registered CATS_KNOCK_OVER handler. The first three are
+                # already implied by the call site; we add the handler check.
+                dto["is_activatable"] = (not tapped) and _has_knock_over_handler(obj_id)
+            return dto
 
-        def _pile_dto(piles_map: dict, pile_key: str) -> list[dict]:
+        def _pile_dto(piles_map: dict, pile_key: str, *, in_my_pile: bool = False) -> list[dict]:
             ids = piles_map.get(pile_key, []) if piles_map else []
-            return [_card_dto(oid, reveal=True) for oid in ids]
+            return [_card_dto(oid, reveal=True, in_my_pile=in_my_pile) for oid in ids]
 
-        def _player_state(pid: str, reveal_hand: bool) -> dict:
+        def _player_state(pid: str, reveal_hand: bool, *, is_viewer: bool) -> dict:
             hand_zone = game_state.zones.get(f"HAND_{pid}")
             hand_ids = list(hand_zone.objects) if hand_zone else []
             piles_map = (getattr(game_state, "cats_piles", {}) or {}).get(pid, {})
@@ -2590,10 +2630,10 @@ class GameSession:
                 "hand": [_card_dto(cid, reveal=reveal_hand) for cid in hand_ids],
                 "hand_size": len(hand_ids),
                 "piles": {
-                    "territory": _pile_dto(piles_map, "pile_territory"),
-                    "nap": _pile_dto(piles_map, "pile_nap"),
-                    "snack": _pile_dto(piles_map, "pile_snack"),
-                    "attention": _pile_dto(piles_map, "pile_attention"),
+                    "territory": _pile_dto(piles_map, "pile_territory", in_my_pile=is_viewer),
+                    "nap": _pile_dto(piles_map, "pile_nap", in_my_pile=is_viewer),
+                    "snack": _pile_dto(piles_map, "pile_snack", in_my_pile=is_viewer),
+                    "attention": _pile_dto(piles_map, "pile_attention", in_my_pile=is_viewer),
                 },
                 "commander": _card_dto(cmd_id, reveal=True) if cmd_id else None,
             }
@@ -2666,8 +2706,8 @@ class GameSession:
             "phase": phase,
             "lead_player": _seat(lead_id) or "me",
             "current_trick": current_trick,
-            "player": _player_state(me_id, reveal_hand=True) if me_id else None,
-            "opponent": _player_state(opp_id, reveal_hand=False) if opp_id else None,
+            "player": _player_state(me_id, reveal_hand=True, is_viewer=True) if me_id else None,
+            "opponent": _player_state(opp_id, reveal_hand=False, is_viewer=False) if opp_id else None,
             "game_over": bool(getattr(game_state, "cats_game_over", False)),
         }
         if final_scores is not None:

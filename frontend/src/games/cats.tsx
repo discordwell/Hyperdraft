@@ -145,6 +145,9 @@ const IDLE_QUIPS = [
 // ---------------------------------------------------------------------------
 // Top-level board
 // ---------------------------------------------------------------------------
+// Replay rendering is handled by `frontend/src/components/game/CatsBoard.tsx`
+// (the read-only adapter that ReplayView wires up). This file is the live
+// interactive game page.
 
 export default function CatsGame() {
   const { state, sendAction, isLoading, error } = useCatsGame();
@@ -463,6 +466,9 @@ function MyArea({
                     onAction({ type: 'CATS_CLAIM_PILE', pile });
                   }
                 : undefined
+            }
+            onKnockOver={(cardId) =>
+              onAction({ type: 'CATS_KNOCK_OVER', cardId })
             }
           />
           <MyHand
@@ -899,10 +905,12 @@ function PileRow({
   piles,
   owner,
   onClaim,
+  onKnockOver,
 }: {
   piles: PlayerState['piles'];
   owner: 'me' | 'opponent';
   onClaim?: (pile: CatsPileName) => void;
+  onKnockOver?: (cardId: string) => void;
 }) {
   const order: CatsPileName[] = ['territory', 'nap', 'snack', 'attention'];
   return (
@@ -914,6 +922,7 @@ function PileRow({
           cards={piles[p]}
           owner={owner}
           onClaim={onClaim ? () => onClaim(p) : undefined}
+          onKnockOver={onKnockOver}
         />
       ))}
     </div>
@@ -925,11 +934,13 @@ function PileStack({
   cards,
   owner,
   onClaim,
+  onKnockOver,
 }: {
   pile: CatsPileName;
   cards: CatsCard[];
   owner: 'me' | 'opponent';
   onClaim?: () => void;
+  onKnockOver?: (cardId: string) => void;
 }) {
   const meta = PILE_META[pile];
   const [hovered, setHovered] = useState(false);
@@ -1008,9 +1019,47 @@ function PileStack({
               transition: 'transform 220ms ease',
               zIndex: i,
             };
+            // Activatable pile card: when owner='me' AND server flagged
+            // is_activatable=true, render a small "knock over" affordance
+            // anchored to the card. Stops propagation so the click doesn't
+            // also fire the pile-claim handler.
+            const isActivatable = owner === 'me' && !!card.is_activatable && !!onKnockOver;
             return (
               <div key={card.id} style={style}>
                 <CatCard card={card} variant="pile" />
+                {isActivatable && (
+                  <button
+                    type="button"
+                    aria-label={`Knock over ${card.name}`}
+                    title={`Knock over ${card.name} — activate its ability`}
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      onKnockOver?.(card.id);
+                    }}
+                    style={{
+                      position: 'absolute',
+                      bottom: -10,
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      padding: '2px 8px',
+                      fontSize: 9,
+                      fontFamily: 'Georgia, serif',
+                      fontWeight: 600,
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                      borderRadius: 999,
+                      border: `1px solid ${COZY.inkBrown}`,
+                      background: COZY.butterscotch,
+                      color: '#fff',
+                      cursor: 'pointer',
+                      boxShadow: '0 1px 3px rgba(62,44,28,0.3)',
+                      whiteSpace: 'nowrap',
+                      zIndex: 100,
+                    }}
+                  >
+                    knock over
+                  </button>
+                )}
               </div>
             );
           })

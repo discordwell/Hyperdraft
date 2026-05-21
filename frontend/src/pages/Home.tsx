@@ -77,6 +77,8 @@ export function Home() {
   const [aiDepthsDeck, setAiDepthsDeck] = useState<string>('SUBS_silent_hunter');
   const [playerSCPDeck, setPlayerSCPDeck] = useState<string>('secure_contain_research');
   const [aiSCPDeck, setAiSCPDeck] = useState<string>('keter_risk');
+  const [playerCatsDeck, setPlayerCatsDeck] = useState<string>('Couch Empire');
+  const [aiCatsDeck, setAiCatsDeck] = useState<string>('Naptime Tyrants');
   const [ultraAgent, setUltraAgent] = useState<'claude' | 'codex'>('claude');
   const [ultraCodexModel, setUltraCodexModel] = useState('gpt-5.3');
   const [claudexModel, setClaudexModel] = useState('claude-opus-4-7');
@@ -139,6 +141,7 @@ export function Home() {
       const isFinance = gameMode === 'finance';
       const isDepths = gameMode === 'depths';
       const isSCP = gameMode === 'scp';
+      const isCats = gameMode === 'cats';
       const skipDeckSelection = isHearthstone || isPokemon || isFinance || isDepths;
       const response = await matchAPI.create({
         mode: 'human_vs_bot',
@@ -156,9 +159,11 @@ export function Home() {
             : undefined,
         player_deck_id: isSCP ? playerSCPDeck
           : isDepths ? playerDepthsDeck
+          : isCats ? playerCatsDeck
           : (skipDeckSelection ? undefined : (isYugioh ? (playerYgoDeck || undefined) : (isMinecraft ? playerMinecraftDeck : (playerDeck || undefined)))),
         ai_deck_id: isSCP ? aiSCPDeck
           : isDepths ? aiDepthsDeck
+          : isCats ? aiCatsDeck
           : (skipDeckSelection ? undefined : (isYugioh ? (aiYgoDeck || undefined) : (isMinecraft ? aiMinecraftDeck : (aiDeck || undefined)))),
       });
       setConnection(response.match_id, response.player_id, false);
@@ -178,10 +183,19 @@ export function Home() {
     try {
       const isYgo = gameMode === 'yugioh';
       const isMinecraft = gameMode === 'minecraft';
+      const isCats = gameMode === 'cats';
       const response = await botGameAPI.start({
         mode: gameMode,
-        bot1_deck_id: isYgo ? (playerYgoDeck || undefined) : (isMinecraft ? playerMinecraftDeck : (playerDeck || undefined)),
-        bot2_deck_id: isYgo ? (aiYgoDeck || undefined) : (isMinecraft ? aiMinecraftDeck : (aiDeck || undefined)),
+        bot1_deck_id: isCats
+          ? playerCatsDeck
+          : isYgo
+            ? (playerYgoDeck || undefined)
+            : (isMinecraft ? playerMinecraftDeck : (playerDeck || undefined)),
+        bot2_deck_id: isCats
+          ? aiCatsDeck
+          : isYgo
+            ? (aiYgoDeck || undefined)
+            : (isMinecraft ? aiMinecraftDeck : (aiDeck || undefined)),
         bot1_difficulty: difficulty,
         bot2_difficulty: difficulty,
         delay_ms: 1500,
@@ -274,7 +288,7 @@ export function Home() {
 
   const labMode = getLabEngine(gameMode);
   const selectedMode = getMode(gameMode)!;
-  const showWatchBot = gameMode === 'mtg' || gameMode === 'yugioh' || gameMode === 'minecraft';
+  const showWatchBot = gameMode === 'mtg' || gameMode === 'yugioh' || gameMode === 'minecraft' || gameMode === 'cats';
   const showAdvancedDuels = gameMode === 'mtg' || gameMode === 'yugioh';
   const showLlmDuel = gameMode === 'mtg' || gameMode === 'yugioh';
 
@@ -800,6 +814,23 @@ export function Home() {
                       { value: 'secure_contain_research', label: 'Secure / Contain / Research' },
                       { value: 'keter_risk', label: 'Keter Risk Office' },
                       { value: 'veil_control', label: 'Veil Control' },
+                    ]}
+                  />
+                )}
+                {gameMode === 'cats' && (
+                  <DeckPair
+                    label="Cat colonies"
+                    player={playerCatsDeck}
+                    ai={aiCatsDeck}
+                    onPlayer={setPlayerCatsDeck}
+                    onAi={setAiCatsDeck}
+                    options={[
+                      { value: 'Couch Empire', label: 'Couch Empire · Territory Control' },
+                      { value: 'Naptime Tyrants', label: 'Naptime Tyrants · Nap Stuffing' },
+                      { value: 'Snack Rush', label: 'Snack Rush · Snack Forcing' },
+                      { value: 'Shadow Cats', label: 'Shadow Cats · Sneaky + Mood Chaos' },
+                      { value: "Greg's Diary", label: "Greg's Diary · Midrange" },
+                      { value: 'Naptime Denial', label: 'Naptime Denial · Anti-Nap Control' },
                     ]}
                   />
                 )}
