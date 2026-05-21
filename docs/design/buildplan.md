@@ -83,39 +83,50 @@ The `.claude/commands/new-game.md` slash command builds new engines today but do
 
 ---
 
-## Phase C — Per-engine GameView ports (HD-CRIT-001 #04, ~5–7 days)
+## Phase C — Lab/game seam clarity (~1–2 days)
 
-The per-engine GameViews (HS, PKM, YGO, MNR, FIN, DPT, SCP, Cats) still ship inline `bg-slate-900` / `border-amber-600` / `ygo-gold` classes. Two costs:
-1. They look mid against the lab-pivoted Home / ReplayView / RulesDiff.
-2. They visually argue "this is *the* Hearthstone client" / "this is *the* Yu-Gi-Oh client" — exactly what HD-CRIT-001 #04 said to retreat from.
+**The previous draft of this phase was wrong.** It proposed porting all 8 per-engine GameViews to lab tokens. That would homogenize away each game's identity, which is load-bearing — HS *should* feel like HS, YGO *should* feel like YGO. See `docs/design/brand.md` for the mad-scientist / lab-as-meta-frame framing and the explicit retraction of HD-CRIT-001 #04.
 
-### C1. Template port: HSGameView → lab
+The actual work is at the **seam** between lab and game. The lab posture lives on the surfaces that are *between* games; each match's interior keeps its own chrome.
 
-Pick one engine (HS) and port it cleanly. Output a portable pattern the rest can follow.
+### C1. GameViewLayout header → lab posture
 
-| File | Change |
-|---|---|
-| `frontend/src/pages/HSGameView.tsx` | Replace inline dark-foil utility classes with lab token classes. Keep the board *layout* (zones, lanes); only the chrome changes. Document the pattern in a comment header. |
-
-### C2. Parallel port of the other 7 views
-
-Spawn one Opus agent per file with C1 as the template. ~½ day per view, parallelized.
+`frontend/src/components/brand/GameViewLayout.tsx` wraps every GameView with a header strip (HYPERDRAFT mark, mode badge, breadcrumb, opponent/player names). That strip is the constant seam — it carries the player from the lab into the experiment and back. Port the strip itself to lab posture (paper/ink/sodium, Geist Mono telemetry, hairline rule below) while leaving the body — the actual game board — untouched.
 
 | File | Change |
 |---|---|
-| `frontend/src/pages/PKMGameView.tsx` | Lab port. |
-| `frontend/src/pages/YGOGameView.tsx` | Lab port. |
-| `frontend/src/pages/MCGameView.tsx` | Lab port. |
-| `frontend/src/pages/FinanceGameView.tsx` | Lab port. |
-| `frontend/src/pages/DepthsGameView.tsx` | Lab port. |
-| `frontend/src/pages/SCPGameView.tsx` | Lab port. |
-| `frontend/src/pages/CatsGameView.tsx` | Lab port. |
+| `frontend/src/components/brand/GameViewLayout.tsx` | Replace foil-era header chrome with lab tokens. Keep all existing props (mode, matchId, turn, phase, names). Add a small "← Lab" button on the left that returns to Home. |
+| `frontend/src/components/brand/Header.tsx` | Same treatment if it surfaces above unified pages — confirm it doesn't double up with `GameViewLayout`. |
 
-Each agent brief gets explicit "do not mimic source-game chrome" — that's the HD-CRIT-001 #04 restraint.
+### C2. Replays index → lab
 
-### C3. Unified board template *(only if duplication makes itself obvious)*
+`frontend/src/pages/Replays.tsx` is a between-games index — list of past matches across all engines. Currently brand-tile dark grid. Port to a lab rack analogous to `EngineRack`: each row is a match (engine code, turn count, winner, timestamp), mono telemetry, hairline rules.
 
-After C2, if a clean factoring emerges, extract the common layout into `frontend/src/components/lab/BoardChassis.tsx`. **Skip if not** — premature abstraction is worse than duplication.
+| File | Change |
+|---|---|
+| `frontend/src/pages/Replays.tsx` | Lab port. Same grid information density, lab posture. |
+
+### C3. WatchLive → lab
+
+`frontend/src/pages/WatchLive.tsx` is the live-matches lobby — between games. Lab posture.
+
+| File | Change |
+|---|---|
+| `frontend/src/pages/WatchLive.tsx` | Lab port. Live-pulse acid dots, mono match IDs, hairline-ruled table mirroring HD-ART-06's lobby artboard. |
+
+### C4. SpectatorView outer chrome → lab
+
+`frontend/src/pages/SpectatorView.tsx` wraps a live in-progress match for spectators. Like `GameViewLayout`, it has an outer header + the game body. Port the *outer* header to lab posture; leave the embedded game chrome alone — when you're watching a Hearthstone match, the board still looks like Hearthstone.
+
+| File | Change |
+|---|---|
+| `frontend/src/pages/SpectatorView.tsx` | Port the wrapper (top header, watch-publicly indicator, copy-link button) to lab tokens. Body — which renders the live game state — untouched. |
+
+### Explicitly NOT in Phase C
+
+- The 8 per-engine GameView files (`HSGameView`, `PKMGameView`, `YGOGameView`, `MCGameView`, `FinanceGameView`, `DepthsGameView`, `SCPGameView`, `CatsGameView`) **stay as they are**. Each game's identity is intentional.
+- No parallel agent dispatch on the GameViews. (Was a bad idea on a wrong premise.)
+- No "unified board chassis" abstraction. The boards *should* be different.
 
 ---
 
@@ -141,24 +152,30 @@ Currently `/rules-diff` is one of the 6 Home library tiles. That puts engine-com
 
 ---
 
-## Phase E — Phase rail visibility (v1 #12, ~1 day, folds into Phase C)
+## Phase E — Phase rail visibility (v1 #12, scope reduced, ~½ day)
 
-HD-CRIT-001 #12 called out that the phase rail must always be glanceable, especially through combat. This is small and naturally rolls into the per-engine ports in Phase C — port each GameView's phase indicator to the lab `.lab-phases` utility at the same time as the chrome.
+HD-CRIT-001 #12 called out that the phase rail must always be glanceable, especially through combat. This is still real, but it lives **inside** each game's chrome, so each engine handles it in its own idiom — there's no cross-engine "use the lab `.lab-phases` utility" treatment now. Each GameView gets a one-line audit: is the current phase legible at a glance? If not, surface it more clearly *in that game's visual vocabulary*. ~½ day across all 8.
+
+| File | Change |
+|---|---|
+| each `<Engine>GameView.tsx` | Audit phase-rail visibility; bump contrast or move the indicator if it's getting eaten by the rest of the chrome. Game-native styling. |
 
 ---
 
 ## Sequencing
 
-**Suggested order: A2 → A1 → A3 → C1 → C2 (parallel) → D2 → B1 → B2 → B3 → D1 → C3.**
+**Suggested order: A2 → A1 → C1 → A3 → D2 → C2 → C3 → C4 → B1 → B2 → B3 → D1 → E.**
 
 Why this order:
 - **A2 first** because the rules-sheet pattern is what makes "no tutorial" *honest*. Without it, "figure it out" reads as "we didn't bother explaining."
 - **A1 next** because it gives the home page a reason to feel different for returning users — discovery is the loop.
+- **C1 before A3** because the GameViewLayout strip is the seam every match sits inside; the cabinet pitch needs the seam to feel right.
 - **A3** because the cabinet pitch dies if the path to a match is still a 12-field form.
-- **C1 + C2** because the per-engine ports are the bulk of the visible-coherence work and benefit from parallelization once C1 sets the template.
 - **D2** is a small move with high signal — gets `/rules-diff` out of the discovery path.
+- **C2 / C3 / C4** are the remaining between-games surfaces; mechanical lab ports.
 - **B** (IA scale) is polish until the engine count actually pushes past ~15.
-- **C3** only if it earns itself.
+- **D1** is a half-hour audit.
+- **E** is per-engine phase-rail polish, no cross-engine homogenization.
 
 ## Out of scope
 

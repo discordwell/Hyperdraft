@@ -31,8 +31,22 @@ audience without flattering them and without dumbing things down.
 ## On the laboratory archetype
 
 The lab visual (paper/ink/sodium, Instrument Serif + Geist + Geist Mono,
-hairline rules, tabular grids) is the calm room that supports the cabinet
-metaphor. Keep it.
+hairline rules, tabular grids) is the **meta-frame** — the room you're in
+when you're between games. Home, EnginePicker, Replays index, WatchLive,
+the wrapper around any match. You're the player as a mad scientist; the
+lab is your office; the games are your experiments.
+
+**Each game keeps its own identity.** Hearthstone stays amber/slate.
+Yu-Gi-Oh! stays black/gold. Pokemon stays bright and energy-coded. SCP
+stays dossier-coded. Once a match is loaded, the player has *left the
+lab and entered the experiment* — that game's chrome owns the screen.
+The seam between lab and game is where design work lives; the game's
+interior is not a target for cross-engine homogenization.
+
+**This retracts HD-CRIT-001 finding #04** ("avoid mimicking any of the
+source games' chromes"). That finding's rationale was about competing
+on polish with official clients — but HYPERDRAFT is not competing,
+it's hosting. Per-game identity is load-bearing.
 
 **Do NOT lead** with "see the rules running" / "debugger for TCGs" /
 "inspect the pipeline" — those are over-indexed; every TCG engine has an
