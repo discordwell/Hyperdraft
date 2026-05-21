@@ -130,25 +130,26 @@ The actual work is at the **seam** between lab and game. The lab posture lives o
 
 ---
 
-## Phase D — Inspector demotions (~½ day)
+## Phase D — Inspector discoverability (~½ day)
 
-The PipelineView overlay (BIG MOVE 18) and `/rules-diff` are good engineering. They are not the pitch. Push them out of the discovery path; keep them reachable for power users.
+The PipelineView overlay (BIG MOVE 18) and `/rules-diff` are good engineering and the audience cares about the stack. Keep them reachable; just don't make them the headline. **Not hidden, not demoted, toggle-gated.**
 
-### D1. Confirm ⌥P stays optional
+### D1. ⌥P stays a chord with a quiet hint
 
-Verify the PipelineView overlay renders only when ⌥P is pressed — not as a panel on the GameView header, not on first paint. Probably already true; spot-check.
-
-| File | Change |
-|---|---|
-| `frontend/src/pages/GameView.tsx` | Audit: PipelineView is gated behind `pipelineOpen` toggle, not in the persistent header. |
-
-### D2. Demote `/rules-diff` from Home library
-
-Currently `/rules-diff` is one of the 6 Home library tiles. That puts engine-comparison in front of a first-time user who hasn't played anything. Move it to a "Deep dive" footer block alongside `/replays` and `/admin/training`.
+Verify the PipelineView overlay renders only when ⌥P is pressed — not as a panel on the GameView header, not on first paint. Add a small mono "⌥P · pipeline" hint to the GameViewLayout header strip (Phase C1) so a curious user discovers the toggle exists without it being thrown in their face.
 
 | File | Change |
 |---|---|
-| `frontend/src/pages/Home.tsx` | Remove "Rules diff" library tile; add a small "Deep dive →" footer link near the existing footer rail. |
+| `frontend/src/pages/GameView.tsx` | Confirm `pipelineOpen` is the only entry. |
+| `frontend/src/components/brand/GameViewLayout.tsx` | Add a `⌥P · pipeline` mono hint, ink-3 color, in the header strip. Disappears when the overlay is open. |
+
+### D2. `/rules-diff` stays in the Home library row
+
+No demotion. The library row already lives below the main flow (configure → advanced → library), so a first-timer sees it last — that's the right amount of prominence. Smart users browsing the tiles find it.
+
+| File | Change |
+|---|---|
+| `frontend/src/pages/Home.tsx` | No change. (Previously this said "demote"; that was wrong.) |
 
 ---
 
@@ -164,18 +165,17 @@ HD-CRIT-001 #12 called out that the phase rail must always be glanceable, especi
 
 ## Sequencing
 
-**Suggested order: A2 → A1 → C1 → A3 → D2 → C2 → C3 → C4 → B1 → B2 → B3 → D1 → E.**
+**Suggested order: A2 → A1 → C1 (with D1's ⌥P hint folded in) → A3 → C2 → C3 → C4 → B1 → B2 → B3 → E.**
 
 Why this order:
 - **A2 first** because the rules-sheet pattern is what makes "no tutorial" *honest*. Without it, "figure it out" reads as "we didn't bother explaining."
 - **A1 next** because it gives the home page a reason to feel different for returning users — discovery is the loop.
-- **C1 before A3** because the GameViewLayout strip is the seam every match sits inside; the cabinet pitch needs the seam to feel right.
+- **C1 + D1 together** because the GameViewLayout header strip is where the ⌥P hint lives; do them in the same pass.
 - **A3** because the cabinet pitch dies if the path to a match is still a 12-field form.
-- **D2** is a small move with high signal — gets `/rules-diff` out of the discovery path.
 - **C2 / C3 / C4** are the remaining between-games surfaces; mechanical lab ports.
 - **B** (IA scale) is polish until the engine count actually pushes past ~15.
-- **D1** is a half-hour audit.
 - **E** is per-engine phase-rail polish, no cross-engine homogenization.
+- **D2** has no work (rules-diff stays where it is).
 
 ## Out of scope
 
