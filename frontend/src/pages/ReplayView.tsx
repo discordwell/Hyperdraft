@@ -15,6 +15,8 @@ import { MCGameBoard } from '../components/game/MCGameBoard';
 import { FinanceGameBoard } from '../games/finance';
 import { DepthsGameBoard } from '../games/depths';
 import type { DepthBand } from '../games/depths';
+import { SCPBoard } from '../components/game/SCPBoard';
+import { CatsBoard } from '../components/game/CatsBoard';
 import { Timeline } from '../components/lab';
 import type { ReplayFrame, ReplayResponse, GameState, CardData } from '../types';
 
@@ -40,15 +42,13 @@ import type { ReplayFrame, ReplayResponse, GameState, CardData } from '../types'
 //   'minecraft'  → MCGameBoard
 //   'finance'    → FinanceGameBoard
 //   'depths'     → DepthsGameBoard
-//   'scp' / 'cats' / unknown → MTG GameBoard + console.warn (see below)
+//   'scp'        → SCPBoard (read-only adapter; see components/game/SCPBoard.tsx)
+//   'cats'       → CatsBoard (read-only adapter; see components/game/CatsBoard.tsx)
+//   unknown      → MTG GameBoard + console.warn
 //
-// SCP and Cats GameView pages are written as monolithic in-page views that
-// pull from their own hooks (`useSCPGame`, `useCatsGame`) rather than
-// accepting `gameState` as a prop. Wiring those into replay mode requires
-// extracting a read-only board component from each — out of scope for this
-// fix. Until then we fall back to GameBoard + a one-shot warn so a missed
-// engine surfaces in the console instead of silently rendering the MTG
-// frame around non-MTG cards.
+// SCP and Cats no longer fall back to GameBoard — both now have dedicated
+// read-only board adapters that accept `{ gameState, playerId, readOnly }`
+// and share visual primitives with their respective live GameView pages.
 // ---------------------------------------------------------------------------
 
 const noop = () => undefined;
@@ -336,15 +336,18 @@ function ReplayBoardSwitch({ gameState, playerId }: ReplayBoardSwitchProps) {
     );
   }
 
-  // SCP and Cats do not (yet) have standalone read-only board components —
-  // their GameView pages render the UI inline against engine-specific hooks
-  // that read from the live gameStore rather than accepting `gameState` as
-  // a prop. Until those are factored out, replays of those engines fall back
-  // to the MTG board so something renders; surface the gap in the console.
+  if (mode === 'scp') {
+    return <SCPBoard gameState={gameState} playerId={playerId} readOnly />;
+  }
+
+  if (mode === 'cats') {
+    return <CatsBoard gameState={gameState} playerId={playerId} readOnly />;
+  }
+
+  // Unknown engine — surface the gap loudly and fall back to GameBoard so the
+  // page doesn't blank.
   console.warn(
-    `[ReplayBoardSwitch] No per-engine board for game_mode='${mode}'; falling back to GameBoard. ` +
-      `Replays of this engine will render with the MTG board chrome until the engine's view is ` +
-      `factored into a read-only board component.`,
+    `[ReplayBoardSwitch] No per-engine board for game_mode='${mode}'; falling back to GameBoard.`,
   );
   return <GameBoard gameState={gameState} playerId={playerId} />;
 }

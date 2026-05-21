@@ -166,32 +166,48 @@ export default function CatsGame() {
   }
   if (!state) {
     return (
-      <div
-        className="flex min-h-screen items-center justify-center"
-        style={{ background: COZY.cream }}
-      >
-        <div
-          className="rounded-lg border px-6 py-4 text-center"
-          style={{
-            borderColor: COZY.warmTan,
-            background: COZY.parchment,
-            color: COZY.inkBrown,
-            fontFamily: 'Georgia, serif',
-          }}
-        >
-          <div className="text-base font-semibold">No game in session.</div>
-          <div className="mt-1 text-sm opacity-70">
-            The cats have not yet convened.
-          </div>
-          {error && (
-            <div className="mt-3 text-xs text-red-700">{error}</div>
-          )}
-        </div>
-      </div>
+      <CatsEmptyState
+        message="The cats have not yet convened."
+        error={error}
+      />
     );
   }
 
-  return <CatsBoard state={state} onAction={sendAction} />;
+  return <CatsBoardInner state={state} onAction={sendAction} />;
+}
+
+/**
+ * Empty / pre-state copy. Exported so the read-only board adapter
+ * (`components/game/CatsBoard.tsx`) can reuse it when the spectated
+ * frame is missing a `cats` payload.
+ */
+export function CatsEmptyState({
+  message,
+  error,
+}: {
+  message: string;
+  error?: string | null;
+}) {
+  return (
+    <div
+      className="flex min-h-screen items-center justify-center"
+      style={{ background: COZY.cream }}
+    >
+      <div
+        className="rounded-lg border px-6 py-4 text-center"
+        style={{
+          borderColor: COZY.warmTan,
+          background: COZY.parchment,
+          color: COZY.inkBrown,
+          fontFamily: 'Georgia, serif',
+        }}
+      >
+        <div className="text-base font-semibold">No game in session.</div>
+        <div className="mt-1 text-sm opacity-70">{message}</div>
+        {error && <div className="mt-3 text-xs text-red-700">{error}</div>}
+      </div>
+    </div>
+  );
 }
 
 interface BoardProps {
@@ -237,7 +253,12 @@ const CATS_KEYFRAMES = `
 }
 `;
 
-function CatsBoard({ state, onAction }: BoardProps) {
+/**
+ * Pure rendering surface for a Cats match. Exported so the read-only
+ * spectator/replay adapter (`components/game/CatsBoard.tsx`) can share
+ * one source of truth for the cozy cream/butterscotch board visuals.
+ */
+export function CatsBoardInner({ state, onAction }: BoardProps) {
   return (
     <div
       className="relative min-h-screen w-full overflow-x-hidden"
