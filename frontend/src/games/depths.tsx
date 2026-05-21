@@ -298,14 +298,15 @@ function VesselTile({
           {power}/{hull}
         </div>
       </div>
-      {!ghosted && (
-        <DepthsArt
-          cardName={card.name}
-          imageUrl={card.image_url}
-          variant={variantForCard(card, isFlagship)}
-          className={`mt-1 ${isFlagship ? 'h-12' : 'h-10'} border border-cyan-900/50`}
-        />
-      )}
+      <DepthsArt
+        cardName={card.name}
+        imageUrl={card.image_url}
+        variant={variantForCard(card, isFlagship)}
+        className={`mt-1 ${isFlagship ? 'h-12' : 'h-10'} border border-cyan-900/50 ${
+          ghosted ? 'blur-[1px] saturate-50' : ''
+        }`}
+      />
+
       {hull > 0 && (
         <div className="mt-1">
           <HullBar damage={damage} hull={hull} compact={!isFlagship} />
@@ -327,14 +328,19 @@ function VesselTile({
 function MineTile({ card, ownerIsMe }: { card: CardData; ownerIsMe: boolean }) {
   return (
     <div
-      className={`flex h-7 items-center gap-1 border px-1.5 text-[10px] font-bold uppercase tracking-wide ${
+      className={`flex h-7 items-center gap-1 border px-1 text-[10px] font-bold uppercase tracking-wide ${
         ownerIsMe
           ? 'border-amber-700/70 bg-amber-950/40 text-amber-200'
           : 'border-rose-700/70 bg-rose-950/40 text-rose-200'
       }`}
       title={`${card.name} (Mine @ ${bandOf(card)})`}
     >
-      <span aria-hidden>{'◇'}</span>
+      <DepthsArt
+        cardName={card.name}
+        imageUrl={card.image_url}
+        variant="mine"
+        className="h-5 w-5 shrink-0 border border-amber-700/50"
+      />
       <span className="truncate">{card.name}</span>
     </div>
   );
@@ -771,6 +777,12 @@ export function DepthsGameBoard({
                   if (!v) return <div className="text-[11px] text-slate-500">Lost contact.</div>;
                   return (
                     <div className="space-y-2">
+                      <DepthsArt
+                        cardName={v.name}
+                        imageUrl={v.image_url}
+                        variant={variantForCard(v, !!v.is_flagship)}
+                        className="h-24 w-full border border-cyan-900/50"
+                      />
                       <div className="text-sm font-bold text-slate-100">{v.name}</div>
                       <div className="text-[11px] text-slate-400">
                         {v.power ?? 0} power · {v.hull ?? v.toughness ?? 0} hull · @ {bandOf(v)}
