@@ -1,7 +1,12 @@
 /**
- * DeckPanel Component
+ * DeckPanel Component — lab-posture deck rail header + stats; per-engine
+ * deck list underneath.
  *
- * Right panel containing deck metadata, stats, and card list.
+ * Phase C / buildplan item 9. The deck-meta input cluster (name / archetype
+ * / format / description) is the *chrome* that wraps the per-engine deck
+ * card list. Per `docs/design/brand.md`, the chrome ports to lab tokens
+ * while the deck list interior keeps its per-engine vocabulary (card names
+ * grouped by engine-specific types).
  */
 
 import { useDeckbuilderStore } from '../../stores/deckbuilderStore';
@@ -12,7 +17,6 @@ import { ARCHETYPES, FORMATS } from '../../types/deckbuilder';
 export function DeckPanel() {
   const {
     currentDeck,
-    hasUnsavedChanges,
     setDeckName,
     setDeckArchetype,
     setDeckFormat,
@@ -20,28 +24,64 @@ export function DeckPanel() {
   } = useDeckbuilderStore();
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Deck Header */}
-      <div className="p-4 border-b border-gray-700">
-        <div className="flex items-center gap-2 mb-3">
-          <input
-            type="text"
-            value={currentDeck.name}
-            onChange={(e) => setDeckName(e.target.value)}
-            className="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white font-semibold focus:outline-none focus:border-game-accent"
-            placeholder="Deck name..."
-          />
-          {hasUnsavedChanges && (
-            <span className="text-xs text-yellow-500">Unsaved</span>
-          )}
-        </div>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        minHeight: 0,
+        overflow: 'hidden',
+      }}
+    >
+      {/* ─── Deck Header — lab tokens =============================== */}
+      <div
+        style={{
+          padding: 18,
+          borderBottom: '1px solid var(--rule)',
+          background: 'var(--paper-2)',
+        }}
+        data-testid="deckbuilder-deck-header"
+      >
+        <span
+          style={{
+            display: 'block',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 10.5,
+            letterSpacing: '.14em',
+            textTransform: 'uppercase',
+            color: 'var(--ink-3)',
+            marginBottom: 6,
+          }}
+        >
+          Deck
+        </span>
+        <input
+          type="text"
+          value={currentDeck.name}
+          onChange={(e) => setDeckName(e.target.value)}
+          style={{
+            width: '100%',
+            background: 'var(--paper)',
+            border: '1px solid var(--rule)',
+            padding: '10px 12px',
+            fontFamily: 'var(--font-serif)',
+            fontSize: 22,
+            fontWeight: 400,
+            letterSpacing: '-.01em',
+            color: 'var(--ink)',
+            outline: 'none',
+          }}
+          placeholder="Untitled deck"
+          aria-label="Deck name"
+        />
 
-        {/* Archetype & Format */}
-        <div className="flex gap-2">
+        {/* Archetype & Format — paired select row, lab tokens */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
           <select
             value={currentDeck.archetype}
             onChange={(e) => setDeckArchetype(e.target.value)}
-            className="flex-1 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-game-accent"
+            style={labSelectStyle}
+            aria-label="Archetype"
           >
             {ARCHETYPES.map((arch) => (
               <option key={arch} value={arch}>
@@ -53,7 +93,8 @@ export function DeckPanel() {
           <select
             value={currentDeck.format}
             onChange={(e) => setDeckFormat(e.target.value)}
-            className="flex-1 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-game-accent"
+            style={labSelectStyle}
+            aria-label="Format"
           >
             {FORMATS.map((fmt) => (
               <option key={fmt} value={fmt}>
@@ -63,20 +104,44 @@ export function DeckPanel() {
           </select>
         </div>
 
-        {/* Description */}
         <textarea
           value={currentDeck.description}
           onChange={(e) => setDeckDescription(e.target.value)}
-          placeholder="Deck description..."
-          className="w-full mt-2 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-sm resize-none h-12 focus:outline-none focus:border-game-accent"
+          placeholder="Description — what does this deck want to do?"
+          style={{
+            width: '100%',
+            marginTop: 10,
+            padding: '8px 12px',
+            background: 'var(--paper)',
+            border: '1px solid var(--rule)',
+            fontFamily: 'var(--font-sans)',
+            fontSize: 13,
+            color: 'var(--ink)',
+            outline: 'none',
+            resize: 'none',
+            height: 56,
+            lineHeight: 1.45,
+          }}
+          aria-label="Description"
         />
       </div>
 
-      {/* Stats */}
+      {/* ─── Stats sidebar — lab tokens (composed inside DeckStats) === */}
       <DeckStats />
 
-      {/* Card List */}
+      {/* ─── Deck list — PER-ENGINE BODY (untouched grouping; card names
+          stay in per-engine vocabulary) =============================== */}
       <DeckList />
     </div>
   );
 }
+
+const labSelectStyle: React.CSSProperties = {
+  background: 'var(--paper)',
+  color: 'var(--ink)',
+  border: '1px solid var(--rule)',
+  padding: '6px 10px',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 12,
+  outline: 'none',
+};

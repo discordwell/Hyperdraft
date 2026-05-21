@@ -1,7 +1,28 @@
 /**
- * Deckbuilder Page
+ * Deckbuilder Page — lab-port wrapper (Phase C / buildplan item 9).
  *
- * Main deckbuilding interface with card browser and deck editor.
+ * Per `docs/design/brand.md` "On the laboratory archetype": the Deckbuilder
+ * is *ambiguous* — you're between matches but you're working in one specific
+ * engine's vocabulary. The split is visual:
+ *
+ *   - LAB CHROME (ported here): the page caption rail + masthead strip, the
+ *     deck-name / archetype / format / description inputs, the right-rail
+ *     stats sidebar, the AI Assist / Hybrid Build footer, the modal chrome.
+ *   - PER-ENGINE BODY (untouched): the card grid, filter pills, mana-symbol /
+ *     energy-icon / per-engine vocabulary inside `<CardBrowser>` and `<DeckList>`.
+ *     `<CardBrowser>` and `<DeckList>` keep their current chrome on purpose —
+ *     when you're building an MTG deck the grid still looks MTG; the pokemon
+ *     deck still surfaces energy types in pokemon colors.
+ *
+ * The seam lives at the `<main>` body — the lab-styled chrome wraps the
+ * `<CardBrowser>` (left column) and the `<DeckList>` (inside the right
+ * column under the lab-posture deck header + stats). Outer wrapper is
+ * paper-on-paper; the per-engine sub-components remain in their current
+ * vocabulary.
+ *
+ * HD-ART-04 reference proportions: 1fr search/grid on the left, 360px
+ * deck rail on the right (room for the lab stats + deck list). Mirrors
+ * the artboard's "spec-sheet chrome · real card art" caption.
  */
 
 import { useEffect, useState } from 'react';
@@ -84,25 +105,102 @@ export function Deckbuilder() {
   };
 
   return (
-    <div className="min-h-screen bg-brand-ink flex flex-col text-brand-cream">
-      {/* Header — brand-aware local bar (Deckbuilder doesn't use AppShell
-          because the deck-edit flow wants its own header layout with the
-          Save/Load/New action cluster). */}
-      <header className="bg-brand-obsidian/85 backdrop-blur-xl border-b border-brand-hairline/60 px-6 py-3 flex items-center justify-between sticky top-0 z-30">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/')}
-            className="text-brand-chalk hover:text-brand-foil transition-colors text-sm tracking-wide"
-          >
-            ← Lobby
-          </button>
-          <h1 className="text-xl font-display font-bold text-brand-cream">
-            Deckbuilder
-          </h1>
+    <div
+      style={{
+        background: 'var(--paper)',
+        color: 'var(--ink)',
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      {/* ─── Caption rail — printed-book header, top-centered ─────────── */}
+      <div
+        style={{
+          position: 'fixed',
+          top: 14,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 10.5,
+          letterSpacing: '.14em',
+          textTransform: 'uppercase',
+          color: 'var(--ink-3)',
+          background: 'var(--paper)',
+          padding: '6px 14px',
+          border: '1px solid var(--rule)',
+          zIndex: 40,
+        }}
+        data-testid="deckbuilder-caption"
+      >
+        <b style={{ color: 'var(--ink)', fontWeight: 500 }}>HD-DECKBUILDER</b>
+        &nbsp;·&nbsp; LIBRARY &nbsp;·&nbsp; v4.7
+      </div>
+
+      {/* ─── Lab masthead — top bar with lobby link + actions =========== */}
+      <header
+        style={{
+          borderTop: '1.5px solid var(--ink)',
+          borderBottom: '1.5px solid var(--ink)',
+          padding: '18px 32px',
+          marginTop: 44,
+          background: 'var(--paper)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 18,
+          flexWrap: 'wrap',
+        }}
+        data-testid="deckbuilder-masthead"
+      >
+        <button
+          onClick={() => navigate('/')}
+          style={labMonoLinkStyle}
+          aria-label="Back to lobby"
+        >
+          ← Lobby
+        </button>
+
+        <h1
+          style={{
+            margin: 0,
+            fontFamily: 'var(--font-serif)',
+            fontSize: 28,
+            fontWeight: 400,
+            letterSpacing: '-.015em',
+            color: 'var(--ink)',
+          }}
+        >
+          Deckbuilder
+        </h1>
+
+        <span
+          aria-hidden
+          style={{
+            display: 'inline-block',
+            width: 1,
+            height: 22,
+            background: 'var(--rule)',
+            margin: '0 4px',
+          }}
+        />
+
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            letterSpacing: '.12em',
+            textTransform: 'uppercase',
+            color: 'var(--ink-3)',
+          }}
+        >
+          Engine
           <select
             value={currentGame}
             onChange={(e) => handleGameChange(e.target.value as Game)}
-            className="bg-brand-obsidian text-brand-cream border border-brand-hairline px-3 py-1.5 text-sm hover:border-brand-foil/40 focus:outline-none focus:border-brand-foil/60"
+            style={labSelectStyle}
             aria-label="Game"
           >
             {GAMES.map((g) => (
@@ -111,54 +209,136 @@ export function Deckbuilder() {
               </option>
             ))}
           </select>
-        </div>
+        </label>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleNew}
-            className="px-4 py-2 bg-brand-shelf hover:bg-brand-glass border border-brand-hairline hover:border-brand-foil/40 text-brand-cream transition-colors text-sm"
-          >
+        {/* Action cluster on the right */}
+        <div
+          style={{
+            marginLeft: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          {hasUnsavedChanges && (
+            <span
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
+                letterSpacing: '.1em',
+                color: 'var(--sodium)',
+                textTransform: 'uppercase',
+                marginRight: 4,
+              }}
+            >
+              · unsaved
+            </span>
+          )}
+          <button onClick={handleNew} style={labButtonStyle()}>
             New
           </button>
-          <button
-            onClick={() => setShowLoadModal(true)}
-            className="px-4 py-2 bg-brand-shelf hover:bg-brand-glass border border-brand-hairline hover:border-brand-foil/40 text-brand-cream transition-colors text-sm"
-          >
+          <button onClick={() => setShowLoadModal(true)} style={labButtonStyle()}>
             Load
           </button>
           <button
             onClick={handleSave}
             disabled={isSaving}
-            className="px-4 py-2 bg-gradient-to-b from-brand-foil-bright via-brand-foil to-brand-foil-deep text-brand-ink shadow-brand-foil hover:shadow-brand-foil-strong transition-all disabled:opacity-50 text-sm font-medium"
+            style={labPrimaryButtonStyle(isSaving)}
           >
             {isSaving ? 'Saving…' : 'Save'}
           </button>
         </div>
       </header>
 
-      {/* Error Banner */}
+      {/* ─── Error Banner — lab posture, halt accent =================== */}
       {error && (
-        <div className="bg-brand-ember/10 border-b border-brand-ember/50 px-6 py-2 flex items-center justify-between">
-          <span className="text-brand-ember text-sm">{error}</span>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '10px 32px',
+            background: 'color-mix(in oklab, var(--halt) 8%, transparent)',
+            borderBottom: '1px solid var(--halt)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11.5,
+            color: 'var(--halt)',
+            letterSpacing: '.06em',
+          }}
+        >
+          <span>{error}</span>
           <button
             onClick={clearError}
-            className="text-brand-ember hover:text-brand-cream"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--halt)',
+              cursor: 'pointer',
+              fontSize: 16,
+              lineHeight: 1,
+              padding: '0 4px',
+            }}
+            aria-label="Dismiss error"
           >
             ×
           </button>
         </div>
       )}
 
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        <div className="w-1/2 border-r border-brand-hairline/60 flex flex-col">
+      {/* ─── Main Content ─────────────────────────────────────────────
+            The seam: lab-paper border + paper-2 panels wrap two columns.
+            The LEFT column hosts `<CardBrowser>` whose interior (search,
+            filter pills with W/U/B/R/G semantics, card grid cells with
+            real art) stays per-engine. The RIGHT column is the lab-posture
+            deck rail — header inputs + stats are ported tokens; the
+            `<DeckList>` block underneath keeps per-engine card rows.
+            ============================================================== */}
+      <div
+        style={{
+          flex: 1,
+          display: 'grid',
+          gridTemplateColumns: '1fr 360px',
+          minHeight: 0,
+          overflow: 'hidden',
+        }}
+        data-testid="deckbuilder-body"
+      >
+        {/* LEFT — per-engine body. Outer panel uses lab paper-2 background +
+            a hairline rule so the seam reads visually, but the interior
+            (CardBrowser → SearchBar + FilterPanel + CardGrid) is untouched. */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            background: 'var(--paper-2)',
+            borderRight: '1px solid var(--rule)',
+            minHeight: 0,
+            overflow: 'hidden',
+          }}
+          data-testid="deckbuilder-grid-section"
+        >
           <CardBrowser />
         </div>
-        <div className="w-1/2 flex flex-col">
+
+        {/* RIGHT — lab-posture deck rail. Header (name + archetype +
+            format + description) and stats sidebar are ported to lab
+            tokens; the deck-list block delegates to <DeckPanel> which
+            now renders its lab-styled header + the per-engine deck list. */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            background: 'var(--paper-2)',
+            minHeight: 0,
+            overflow: 'hidden',
+          }}
+          data-testid="deckbuilder-deck-rail"
+        >
           <DeckPanel />
         </div>
       </div>
 
+      {/* ─── AI Assist + Hybrid Build footer — lab posture ============= */}
       <AIAssistPanel
         onImport={() => setShowImportModal(true)}
         onExport={handleExport}
@@ -167,29 +347,86 @@ export function Deckbuilder() {
       {showLoadModal && <LoadDeckModal onClose={() => setShowLoadModal(false)} />}
       {showImportModal && <ImportModal onClose={() => setShowImportModal(false)} />}
 
-      {/* Export Text Modal */}
+      {/* Export Text Modal — lab posture: paper plate, ink-outlined */}
       {showExportText && (
-        <div className="fixed inset-0 bg-brand-ink/80 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-brand-obsidian border border-brand-hairline brand-frame p-6 max-w-lg w-full mx-4 shadow-brand-tile">
-            <p className="brand-eyebrow mb-2">Export</p>
-            <h2 className="text-xl font-display font-bold text-brand-cream mb-4">Export deck</h2>
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'color-mix(in oklab, var(--ink) 30%, transparent)',
+            backdropFilter: 'blur(2px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 60,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: 'var(--paper)',
+              border: '1px solid var(--rule)',
+              boxShadow: 'var(--shadow-plate)',
+              maxWidth: 560,
+              width: '100%',
+              padding: 24,
+            }}
+          >
+            <span
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 10.5,
+                letterSpacing: '.14em',
+                textTransform: 'uppercase',
+                color: 'var(--ink-3)',
+              }}
+            >
+              Export
+            </span>
+            <h2
+              style={{
+                margin: '6px 0 16px',
+                fontFamily: 'var(--font-serif)',
+                fontSize: 24,
+                fontWeight: 400,
+                letterSpacing: '-.015em',
+                color: 'var(--ink)',
+              }}
+            >
+              Export deck
+            </h2>
             <textarea
               readOnly
               value={showExportText}
-              className="w-full h-64 p-3 bg-brand-ink border border-brand-hairline text-brand-cream brand-mono text-sm focus:outline-none focus:border-brand-foil/60"
+              style={{
+                width: '100%',
+                height: 240,
+                padding: 12,
+                background: 'var(--paper-2)',
+                border: '1px solid var(--rule)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 12,
+                color: 'var(--ink)',
+                outline: 'none',
+                resize: 'vertical',
+              }}
               onClick={(e) => (e.target as HTMLTextAreaElement).select()}
             />
-            <div className="flex justify-end gap-2 mt-4">
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: 8,
+                marginTop: 16,
+              }}
+            >
               <button
                 onClick={() => navigator.clipboard.writeText(showExportText)}
-                className="px-4 py-2 bg-gradient-to-b from-brand-foil-bright via-brand-foil to-brand-foil-deep text-brand-ink shadow-brand-foil hover:shadow-brand-foil-strong transition-all text-sm font-medium"
+                style={labPrimaryButtonStyle(false)}
               >
                 Copy to clipboard
               </button>
-              <button
-                onClick={() => setShowExportText(null)}
-                className="px-4 py-2 bg-brand-shelf hover:bg-brand-glass border border-brand-hairline text-brand-cream transition-colors text-sm"
-              >
+              <button onClick={() => setShowExportText(null)} style={labButtonStyle()}>
                 Close
               </button>
             </div>
@@ -198,6 +435,62 @@ export function Deckbuilder() {
       )}
     </div>
   );
+}
+
+// === Lab style helpers — kept inline (Deckbuilder-local) ===============
+
+const labMonoLinkStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 11,
+  fontWeight: 500,
+  letterSpacing: '.12em',
+  textTransform: 'uppercase',
+  color: 'var(--ink-3)',
+  background: 'transparent',
+  border: 'none',
+  cursor: 'pointer',
+  padding: '4px 0',
+};
+
+const labSelectStyle: React.CSSProperties = {
+  background: 'var(--paper)',
+  color: 'var(--ink)',
+  border: '1px solid var(--rule)',
+  padding: '6px 10px',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 12,
+  outline: 'none',
+};
+
+function labButtonStyle(): React.CSSProperties {
+  return {
+    fontFamily: 'var(--font-mono)',
+    fontSize: 11,
+    fontWeight: 500,
+    letterSpacing: '.12em',
+    textTransform: 'uppercase',
+    padding: '8px 14px',
+    background: 'var(--paper)',
+    color: 'var(--ink)',
+    border: '1px solid var(--ink)',
+    cursor: 'pointer',
+  };
+}
+
+function labPrimaryButtonStyle(loading: boolean): React.CSSProperties {
+  return {
+    fontFamily: 'var(--font-mono)',
+    fontSize: 11,
+    fontWeight: 500,
+    letterSpacing: '.12em',
+    textTransform: 'uppercase',
+    padding: '8px 16px',
+    background: loading ? 'var(--ink-2)' : 'var(--ink)',
+    color: 'var(--paper)',
+    border: '1px solid var(--ink)',
+    cursor: loading ? 'wait' : 'pointer',
+    opacity: loading ? 0.7 : 1,
+  };
 }
 
 export default Deckbuilder;

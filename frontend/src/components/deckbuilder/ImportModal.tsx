@@ -1,7 +1,8 @@
 /**
- * ImportModal Component
+ * ImportModal Component — lab posture (Phase C / buildplan item 9).
  *
- * Modal for importing a deck from text format.
+ * Modal chrome for pasting a text decklist. Lab tokens — paper plate,
+ * hairline rules, mono textarea, ink-outlined buttons.
  */
 
 import { useState } from 'react';
@@ -47,61 +48,190 @@ Sideboard
 3 Smash to Smithereens`;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-game-surface border border-gray-700 rounded-lg p-6 max-w-lg w-full mx-4">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-white">Import Deck</h2>
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'color-mix(in oklab, var(--ink) 30%, transparent)',
+        backdropFilter: 'blur(2px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 60,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: 'var(--paper)',
+          border: '1px solid var(--rule)',
+          boxShadow: 'var(--shadow-plate)',
+          maxWidth: 560,
+          width: '100%',
+          padding: 24,
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'baseline',
+            marginBottom: 16,
+            paddingBottom: 12,
+            borderBottom: '1px solid var(--rule)',
+          }}
+        >
+          <div>
+            <span
+              style={{
+                display: 'block',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 10.5,
+                letterSpacing: '.14em',
+                textTransform: 'uppercase',
+                color: 'var(--ink-3)',
+                marginBottom: 4,
+              }}
+            >
+              Import
+            </span>
+            <h2
+              style={{
+                margin: 0,
+                fontFamily: 'var(--font-serif)',
+                fontSize: 24,
+                fontWeight: 400,
+                letterSpacing: '-.015em',
+                color: 'var(--ink)',
+              }}
+            >
+              Import deck
+            </h2>
+          </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white text-2xl leading-none"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--ink-3)',
+              fontSize: 22,
+              lineHeight: 1,
+              cursor: 'pointer',
+              padding: 4,
+            }}
+            aria-label="Close"
           >
-            &times;
+            ×
           </button>
         </div>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-900/50 border border-red-500 rounded text-red-200 text-sm">
+          <div
+            style={{
+              padding: '10px 12px',
+              border: '1px solid var(--halt)',
+              background: 'color-mix(in oklab, var(--halt) 8%, transparent)',
+              color: 'var(--halt)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 12,
+              marginBottom: 14,
+            }}
+          >
             {error}
           </div>
         )}
 
-        <div className="mb-4">
-          <label className="block text-sm text-gray-400 mb-2">
-            Paste deck list
-          </label>
-          <textarea
-            value={deckText}
-            onChange={(e) => setDeckText(e.target.value)}
-            placeholder={exampleFormat}
-            className="w-full h-64 p-3 bg-gray-800 border border-gray-600 rounded text-white font-mono text-sm focus:outline-none focus:border-game-accent"
-          />
-        </div>
+        <label
+          style={{
+            display: 'block',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 10.5,
+            letterSpacing: '.14em',
+            textTransform: 'uppercase',
+            color: 'var(--ink-3)',
+            marginBottom: 6,
+          }}
+        >
+          Paste deck list
+        </label>
+        <textarea
+          value={deckText}
+          onChange={(e) => setDeckText(e.target.value)}
+          placeholder={exampleFormat}
+          style={{
+            width: '100%',
+            height: 240,
+            padding: 12,
+            background: 'var(--paper-2)',
+            border: '1px solid var(--rule)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 12,
+            color: 'var(--ink)',
+            outline: 'none',
+            resize: 'vertical',
+          }}
+        />
 
-        <div className="text-xs text-gray-500 mb-4">
-          <p className="mb-1">Supported formats:</p>
-          <ul className="list-disc list-inside">
+        <div
+          style={{
+            marginTop: 12,
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            color: 'var(--ink-3)',
+            lineHeight: 1.55,
+            letterSpacing: '.04em',
+          }}
+        >
+          <p style={{ margin: '0 0 4px' }}>Supported formats:</p>
+          <ul style={{ margin: 0, paddingLeft: 14 }}>
             <li>4 Card Name</li>
             <li>4x Card Name</li>
             <li>Card Name x4</li>
           </ul>
-          <p className="mt-2">
-            Use "Sideboard" on its own line to start the sideboard section.
+          <p style={{ margin: '8px 0 0' }}>
+            Use &ldquo;Sideboard&rdquo; on its own line to start the sideboard section.
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors"
+            style={{
+              flex: 1,
+              fontFamily: 'var(--font-mono)',
+              fontSize: 11,
+              fontWeight: 500,
+              letterSpacing: '.12em',
+              textTransform: 'uppercase',
+              padding: '10px 16px',
+              background: 'var(--paper)',
+              color: 'var(--ink)',
+              border: '1px solid var(--ink)',
+              cursor: 'pointer',
+            }}
           >
             Cancel
           </button>
           <button
             onClick={handleImport}
             disabled={isLoading || !deckText.trim()}
-            className="flex-1 px-4 py-2 bg-game-accent text-white rounded hover:bg-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{
+              flex: 1,
+              fontFamily: 'var(--font-mono)',
+              fontSize: 11,
+              fontWeight: 500,
+              letterSpacing: '.12em',
+              textTransform: 'uppercase',
+              padding: '10px 16px',
+              background:
+                isLoading || !deckText.trim() ? 'var(--ink-2)' : 'var(--ink)',
+              color: 'var(--paper)',
+              border: '1px solid var(--ink)',
+              cursor: isLoading || !deckText.trim() ? 'not-allowed' : 'pointer',
+              opacity: isLoading || !deckText.trim() ? 0.6 : 1,
+            }}
           >
-            {isLoading ? 'Importing...' : 'Import Deck'}
+            {isLoading ? 'Importing…' : 'Import deck'}
           </button>
         </div>
       </div>
