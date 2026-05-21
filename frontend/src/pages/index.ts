@@ -9,4 +9,3 @@ export { Deckbuilder } from './Deckbuilder';
 export { Gatherer } from './Gatherer';
 export { PokemonGatherer } from './PokemonGatherer';
 export { SCPCardViewer } from './SCPCardViewer';
-export { PhyrexianFrameDemo } from './PhyrexianFrameDemo';

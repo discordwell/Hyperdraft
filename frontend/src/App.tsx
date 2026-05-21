@@ -29,7 +29,6 @@ const Deckbuilder = lazy(() => import('./pages/Deckbuilder'));
 const Gatherer = lazy(() => import('./pages/Gatherer'));
 const PokemonGatherer = lazy(() => import('./pages/PokemonGatherer'));
 const SCPCardViewer = lazy(() => import('./pages/SCPCardViewer'));
-const PhyrexianFrameDemo = lazy(() => import('./pages/PhyrexianFrameDemo'));
 const PublicMatch = lazy(() => import('./pages/PublicMatch'));
 const RulesDiff = lazy(() => import('./pages/RulesDiff'));
 const CatsGameView = lazy(() => import('./pages/CatsGameView').then(m => ({ default: m.CatsGameView })));
@@ -75,7 +74,6 @@ export function App() {
           <Route path="/pokemon-gatherer" element={<PokemonGatherer />} />
           <Route path="/scp-cards" element={<SCPCardViewer />} />
           <Route path="/cards/scp" element={<SCPCardViewer />} />
-          <Route path="/demo/phyrexian-frame" element={<PhyrexianFrameDemo />} />
           <Route path="/m/:gameId" element={<PublicMatch />} />
           <Route path="/rules-diff" element={<RulesDiff />} />
           <Route path="/cats" element={<CatsGameView />} />
