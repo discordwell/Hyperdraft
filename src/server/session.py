@@ -2273,6 +2273,10 @@ class GameSession:
                 _depths_cost = dict(_cd_cost)
             elif _cd_cost is not None and hasattr(_cd_cost, "torpedo"):
                 _depths_cost = {"tc": int(_cd_cost.torpedo), "sc": int(_cd_cost.sonar)}
+        # Card-art URL. Already populated on the CardDefinition for sets that
+        # ship art (e.g. Depths submarine_fleet); this carries it onto the
+        # wire so the frontend's CardData.image_url is populated.
+        _image_url = getattr(obj.card_def, "image_url", None) if obj.card_def else None
 
         return CardData(
             id=obj.id,
@@ -2311,6 +2315,7 @@ class GameSession:
                 or "Flagship" in list(obj.characteristics.subtypes)
             ),
             depths_cost=_depths_cost,
+            image_url=None if sealed_scp else _image_url,
             scp_red_tape=int(getattr(obj.card_def, "scp_red_tape", 0) or 0) if obj.card_def else 0,
             scp_clearance=int(getattr(obj.card_def, "scp_clearance", 0) or 0) if obj.card_def else 0,
             scp_containment=0 if sealed_scp else (int(getattr(obj.card_def, "scp_containment", 0) or 0) if obj.card_def else 0),
@@ -2339,6 +2344,7 @@ class GameSession:
                 _depths_cost_hand = dict(_cd_cost)
             elif _cd_cost is not None and hasattr(_cd_cost, "torpedo"):
                 _depths_cost_hand = {"tc": int(_cd_cost.torpedo), "sc": int(_cd_cost.sonar)}
+        _image_url = getattr(obj.card_def, "image_url", None) if obj.card_def else None
         return CardData(
             id=obj.id,
             name=obj.name,
@@ -2360,6 +2366,7 @@ class GameSession:
             mc_exhausted=obj.state.mc_exhausted,
             mc_keywords=sorted(getattr(obj.card_def, "mc_keywords", None) or ()) if obj.card_def else [],
             depths_cost=_depths_cost_hand,
+            image_url=_image_url,
             scp_red_tape=int(getattr(obj.card_def, "scp_red_tape", 0) or 0) if obj.card_def else 0,
             scp_clearance=int(getattr(obj.card_def, "scp_clearance", 0) or 0) if obj.card_def else 0,
             scp_containment=int(getattr(obj.card_def, "scp_containment", 0) or 0) if obj.card_def else 0,
