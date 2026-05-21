@@ -1,18 +1,15 @@
 /**
- * Pipeline-the-Game v0.1 card pool — HD-CRIT-002 §06.
+ * Pipeline-the-Game v0.1 LOCAL FALLBACK card pool — HD-CRIT-002 §06.
  *
- * Curated subset of interceptors drawn from the existing engine card pool.
- * Each card stays in its source-engine flavor (the cross-engine drafting meta)
- * but the game itself is rules-agnostic — Pipeline plays cards on the four-
- * stage interceptor pipeline that already lives in `src/engine/`.
+ * Note: v0.2 (current) draws cards from the **server** via /api/pipeline/*.
+ * This file is retained as a local fallback for storybook / offline mode
+ * and as a reference for the card shape. The authoritative pool lives in
+ * `src/engine/pipeline_deck.py` server-side.
  *
  * Stage colours: TRANSFORM → plasma, PREVENT → halt, RESOLVE → ink,
  * REACT → acid. Cost is a generic resource (not engine mana).
- *
- * v0.1 keeps everything in-memory; when the backend manager lands
- * (`src/engine/pipeline_game.py`), this file becomes the seed card pool the
- * server hands out at draft time.
  */
+export const LOCAL_FALLBACK = true;
 
 export type PipelineStage = 'TRANSFORM' | 'PREVENT' | 'RESOLVE' | 'REACT';
 export type PipelineEngine = 'MTG' | 'HS' | 'PKM' | 'YGO' | 'MNR' | 'FIN' | 'DPT' | 'SCP';

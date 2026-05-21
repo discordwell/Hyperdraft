@@ -1,150 +1,150 @@
 /**
- * PipelineGame — HD-CRIT-002 §06, v0.1 prototype.
+ * PipelineGame — HD-CRIT-002 §06, v0.2 (server-backed).
  *
- * The ninth mode. Each turn an Event drops; both players simultaneously
- * slot one interceptor card from their hand into the corresponding stage
- * column (TRANSFORM / PREVENT / RESOLVE / REACT). The pipeline resolves:
- * whoever benefited takes the trick. First to 6 wins.
+ * Replaces the v0.1 in-memory mock with a real game running on the existing
+ * Hyperdraft engine. `pipelineAPI` talks to /api/pipeline/* endpoints:
+ *   - POST /pipeline/start          → opens a match, returns HD-XXXX
+ *   - POST /pipeline/{id}/play      → human plays, AI auto-plays, trick
+ *                                     resolves on the real engine
+ *   - POST /pipeline/{id}/reshuffle → reset state, keep the match id
  *
- * v0.1 scope: single-screen, in-memory, no backend. AI opponent picks
- * randomly. Trick winner is computed from a simple heuristic — whoever
- * had a card in RESOLVE wins; tied/empty RESOLVE = no trick. The real
- * engine pipeline at `src/engine/types.py::InterceptorPriority` will run
- * the resolution when the backend manager lands (sequence step 11).
+ * The lab shell + components (InterceptorCard, EventCard, PipelineColumn)
+ * are unchanged from v0.1 — only the state machine pivots.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  PIPELINE_CARD_POOL,
-  drawStartingHand,
-  type InterceptorCardDef,
-  type PipelineStage,
-} from '../data/pipelineCards';
-import { PIPELINE_EVENT_DECK, rotateEvent } from '../data/pipelineEvents';
+  pipelineAPI,
+  type PipelineCardSnapshot,
+  type PipelineSnapshot,
+  type PipelineResolution,
+} from '../services/api';
 import {
   InterceptorCard,
   EventCard,
   PipelineColumn,
 } from '../components/pipeline';
 
-const STAGES: PipelineStage[] = ['TRANSFORM', 'PREVENT', 'RESOLVE', 'REACT'];
+const STAGES: Array<'TRANSFORM' | 'PREVENT' | 'RESOLVE' | 'REACT'> = [
+  'TRANSFORM',
+  'PREVENT',
+  'RESOLVE',
+  'REACT',
+];
 const WIN_TRICKS = 6;
-
-type SlotMap = Record<PipelineStage, InterceptorCardDef | null>;
-
-const emptySlots = (): SlotMap => ({
-  TRANSFORM: null,
-  PREVENT: null,
-  RESOLVE: null,
-  REACT: null,
-});
-
-type Phase = 'slot' | 'resolving' | 'won';
-
-function pickAiCard(hand: InterceptorCardDef[]): InterceptorCardDef {
-  const resolves = hand.filter((c) => c.stage === 'RESOLVE');
-  const pool = resolves.length > 0 && Math.random() < 0.55 ? resolves : hand;
-  return pool[Math.floor(Math.random() * pool.length)];
-}
-
-function computeTrickWinner(
-  player: SlotMap,
-  opponent: SlotMap,
-): 'player' | 'opponent' | 'tie' {
-  const pr = player.RESOLVE;
-  const or = opponent.RESOLVE;
-  if (pr && !or) return 'player';
-  if (or && !pr) return 'opponent';
-  if (pr && or) {
-    if (pr.cost > or.cost) return 'player';
-    if (or.cost > pr.cost) return 'opponent';
-    return 'tie';
-  }
-  return 'tie';
-}
+const RESOLVE_FLASH_MS = 1600;
 
 export default function PipelineGame() {
   const navigate = useNavigate();
-  const [turn, setTurn] = useState(0);
-  const [playerHand, setPlayerHand] = useState<InterceptorCardDef[]>(() =>
-    drawStartingHand(1),
-  );
-  const [opponentHand, setOpponentHand] = useState<InterceptorCardDef[]>(() =>
-    drawStartingHand(3),
-  );
-  const [playerSlots, setPlayerSlots] = useState<SlotMap>(emptySlots);
-  const [opponentSlots, setOpponentSlots] = useState<SlotMap>(emptySlots);
-  const [playerTricks, setPlayerTricks] = useState(0);
-  const [opponentTricks, setOpponentTricks] = useState(0);
-  const [phase, setPhase] = useState<Phase>('slot');
-  const [lastTrick, setLastTrick] = useState<'player' | 'opponent' | 'tie' | null>(null);
+  const [matchId, setMatchId] = useState<string | null>(null);
+  const [playerId, setPlayerId] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState<PipelineSnapshot | null>(null);
+  const [resolveFlash, setResolveFlash] = useState<PipelineResolution | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const currentEvent = useMemo(
-    () => rotateEvent(PIPELINE_EVENT_DECK, turn),
-    [turn],
-  );
-
-  const drawOne = useCallback((existing: InterceptorCardDef[]): InterceptorCardDef => {
-    const out = PIPELINE_CARD_POOL[Math.floor(Math.random() * PIPELINE_CARD_POOL.length)];
-    if (existing.some((c) => c.id === out.id)) {
-      return PIPELINE_CARD_POOL[(PIPELINE_CARD_POOL.indexOf(out) + 1) % PIPELINE_CARD_POOL.length];
+  const start = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await pipelineAPI.start({});
+      setMatchId(res.match_id);
+      setPlayerId(res.player_id);
+      setSnapshot(res.snapshot);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'failed to start match');
+    } finally {
+      setLoading(false);
     }
-    return out;
   }, []);
 
-  const nextTurn = useCallback(
-    (winner: 'player' | 'opponent' | 'tie') => {
-      const nextPlayerTricks = winner === 'player' ? playerTricks + 1 : playerTricks;
-      const nextOpponentTricks = winner === 'opponent' ? opponentTricks + 1 : opponentTricks;
-      setPlayerTricks(nextPlayerTricks);
-      setOpponentTricks(nextOpponentTricks);
-      if (nextPlayerTricks >= WIN_TRICKS || nextOpponentTricks >= WIN_TRICKS) {
-        setPhase('won');
-        return;
+  useEffect(() => {
+    void start();
+  }, [start]);
+
+  const playCard = useCallback(
+    async (card: PipelineCardSnapshot) => {
+      if (!matchId || !playerId || !snapshot || busy) return;
+      if (snapshot.phase !== 'slot') return;
+      if (snapshot.slots[playerId][card.stage]) return;
+      setBusy(true);
+      try {
+        const res = await pipelineAPI.playCard(matchId, playerId, card.id);
+        setSnapshot(res.snapshot);
+        if (res.trick_resolved && res.resolution) {
+          setResolveFlash(res.resolution);
+          window.setTimeout(() => setResolveFlash(null), RESOLVE_FLASH_MS);
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'play failed');
+      } finally {
+        setBusy(false);
       }
-      setPlayerHand((h) => [...h, drawOne(h)]);
-      setOpponentHand((h) => [...h, drawOne(h)]);
-      setPlayerSlots(emptySlots());
-      setOpponentSlots(emptySlots());
-      setTurn((t) => t + 1);
-      setPhase('slot');
     },
-    [playerTricks, opponentTricks, drawOne],
+    [matchId, playerId, snapshot, busy],
   );
 
-  const handlePlayerSlot = useCallback(
-    (card: InterceptorCardDef) => {
-      if (phase !== 'slot') return;
-      if (playerSlots[card.stage]) return;
-      const aiCard = pickAiCard(opponentHand);
-      const nextPlayerSlots: SlotMap = { ...playerSlots, [card.stage]: card };
-      const nextOpponentSlots: SlotMap = { ...opponentSlots, [aiCard.stage]: aiCard };
-      setPlayerSlots(nextPlayerSlots);
-      setOpponentSlots(nextOpponentSlots);
-      setPlayerHand((h) => h.filter((c) => c.id !== card.id));
-      setOpponentHand((h) => h.filter((c) => c.id !== aiCard.id));
-      setPhase('resolving');
-      const winner = computeTrickWinner(nextPlayerSlots, nextOpponentSlots);
-      setLastTrick(winner);
-      window.setTimeout(() => nextTurn(winner), 1400);
-    },
-    [phase, playerSlots, opponentSlots, opponentHand, nextTurn],
-  );
+  const reshuffle = useCallback(async () => {
+    if (!matchId) {
+      void start();
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await pipelineAPI.reshuffle(matchId);
+      setSnapshot(res.snapshot);
+      setResolveFlash(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'reshuffle failed');
+    } finally {
+      setBusy(false);
+    }
+  }, [matchId, start]);
 
-  const restart = () => {
-    setTurn(0);
-    setPlayerHand(drawStartingHand(1));
-    setOpponentHand(drawStartingHand(3));
-    setPlayerSlots(emptySlots());
-    setOpponentSlots(emptySlots());
-    setPlayerTricks(0);
-    setOpponentTricks(0);
-    setPhase('slot');
-    setLastTrick(null);
+  // ── loading / error gates ───────────────────────────────────────────
+  if (loading) {
+    return <StatusShell label="Connecting to engine…" sub="HD-PIPELINE · v0.2" />;
+  }
+  if (error || !snapshot || !playerId) {
+    return (
+      <StatusShell
+        label="Disconnected"
+        sub={error ?? 'engine unreachable'}
+        onRetry={() => void start()}
+      />
+    );
+  }
+
+  const opponentId =
+    snapshot.player_a_id === playerId
+      ? snapshot.player_b_id
+      : snapshot.player_a_id;
+  const playerHand = snapshot.hands[playerId];
+  const opponentHand = snapshot.hands[opponentId];
+  const playerSlots = snapshot.slots[playerId];
+  const opponentSlots = snapshot.slots[opponentId];
+  const playerTricks = snapshot.tricks[playerId];
+  const opponentTricks = snapshot.tricks[opponentId];
+  const playerDeck = snapshot.deck_count[playerId];
+  const opponentDeck = snapshot.deck_count[opponentId];
+  const wonBy = snapshot.phase === 'won' ? snapshot.winner : null;
+
+  // Build a synthetic Event for the EventCard component. The api returns
+  // `current_event.type` as a string (e.g. 'DAMAGE') with a payload dict;
+  // the EventCard formatter expects `event.payload` to be a readable
+  // single-line summary.
+  const ev = snapshot.current_event;
+  const payloadStr = Object.entries(ev.payload)
+    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+    .join(' · ');
+  const eventForCard = {
+    id: ev.id,
+    type: ev.type,
+    name: humanizeEventName(ev.type, ev.payload),
+    payload: payloadStr,
   };
-
-  const wonBy = playerTricks >= WIN_TRICKS ? 'player' : opponentTricks >= WIN_TRICKS ? 'opponent' : null;
 
   return (
     <div style={{ background: 'var(--paper)', color: 'var(--ink)', minHeight: '100vh' }}>
@@ -166,8 +166,8 @@ export default function PipelineGame() {
           zIndex: 10,
         }}
       >
-        <b style={{ color: 'var(--ink)', fontWeight: 500 }}>HD-PIPELINE</b>
-        &nbsp;·&nbsp; Pipeline · the 9th mode &nbsp;·&nbsp; v0.1 prototype
+        <b style={{ color: 'var(--ink)', fontWeight: 500 }}>{snapshot.match_id}</b>
+        &nbsp;·&nbsp; Pipeline · the 9th mode &nbsp;·&nbsp; v0.2
       </div>
 
       <main style={{ maxWidth: 1320, margin: '0 auto', padding: '88px 32px 40px' }}>
@@ -196,7 +196,7 @@ export default function PipelineGame() {
                 marginBottom: 4,
               }}
             >
-              Hyperdraft / Pipeline
+              Hyperdraft / Pipeline · {snapshot.match_id}
             </span>
             <h1
               style={{
@@ -231,6 +231,37 @@ export default function PipelineGame() {
           </button>
         </header>
 
+        {/* Resolution flash (transient) */}
+        {resolveFlash && (
+          <div
+            role="status"
+            style={{
+              marginBottom: 12,
+              padding: '10px 16px',
+              background: 'var(--ink)',
+              color: 'var(--paper)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 18,
+              fontFamily: 'var(--font-mono)',
+              fontSize: 11,
+              letterSpacing: '.1em',
+            }}
+          >
+            <span style={{ color: 'var(--sodium)', textTransform: 'uppercase' }}>
+              Trick →&nbsp;
+              {resolveFlash.winner ?? 'no winner'}
+            </span>
+            <span style={{ color: 'var(--paper-2)' }}>
+              {resolveFlash.log.slice(-1)[0] ?? ''}
+            </span>
+            <span>
+              you {resolveFlash.a_impact.total} · opp {resolveFlash.b_impact.total}
+            </span>
+          </div>
+        )}
+
         {/* Opponent rail */}
         <PlayerRail
           who="OPPONENT"
@@ -238,7 +269,7 @@ export default function PipelineGame() {
           deckLabel="cross-engine deck"
           tricks={opponentTricks}
           handCount={opponentHand.length}
-          deckCount={Math.max(0, 30 - turn - opponentHand.length)}
+          deckCount={opponentDeck}
           align="left"
         />
 
@@ -255,10 +286,17 @@ export default function PipelineGame() {
             <div
               key={c.id}
               style={{
-                transform: `rotate(${(i - (arr.length - 1) / 2) * 2}deg) translateY(${Math.abs(i - (arr.length - 1) / 2) * 2}px)`,
+                transform: `rotate(${(i - (arr.length - 1) / 2) * 2}deg) translateY(${
+                  Math.abs(i - (arr.length - 1) / 2) * 2
+                }px)`,
               }}
             >
-              <InterceptorCard card={c} faceDown width={68} height={94} />
+              <InterceptorCard
+                card={asInterceptor(c)}
+                faceDown
+                width={68}
+                height={94}
+              />
             </div>
           ))}
         </div>
@@ -286,26 +324,24 @@ export default function PipelineGame() {
               zIndex: 5,
             }}
           >
-            <EventCard event={currentEvent} index={turn} total={PIPELINE_EVENT_DECK.length} />
+            <EventCard
+              event={eventForCard}
+              index={snapshot.turn}
+              total={Math.max(snapshot.turn + 1, 14)}
+            />
           </div>
 
           {STAGES.map((stage) => {
             const opp = opponentSlots[stage];
             const me = playerSlots[stage];
-            const mandatory = stage === 'RESOLVE' && !me && phase === 'slot';
+            const mandatory =
+              stage === 'RESOLVE' && !me && snapshot.phase === 'slot';
             return (
               <PipelineColumn
                 key={stage}
                 stage={stage}
-                opponentCard={opp ? <InterceptorCard card={opp} /> : null}
-                playerCard={
-                  me ? (
-                    <InterceptorCard
-                      card={me}
-                      sodium={phase === 'resolving' && stage === 'RESOLVE'}
-                    />
-                  ) : null
-                }
+                opponentCard={opp ? <InterceptorCard card={asInterceptor(opp)} /> : null}
+                playerCard={me ? <InterceptorCard card={asInterceptor(me)} sodium /> : null}
                 mandatory={mandatory}
               />
             );
@@ -319,7 +355,7 @@ export default function PipelineGame() {
           deckLabel="cross-engine deck"
           tricks={playerTricks}
           handCount={playerHand.length}
-          deckCount={Math.max(0, 30 - turn - playerHand.length)}
+          deckCount={playerDeck}
           align="right"
           highlight
         />
@@ -336,22 +372,19 @@ export default function PipelineGame() {
         >
           {playerHand.map((card) => {
             const alreadySlotted = playerSlots[card.stage] !== null;
+            const disabled = alreadySlotted || busy || snapshot.phase !== 'slot';
             return (
               <InterceptorCard
                 key={card.id}
-                card={card}
+                card={asInterceptor(card)}
                 dim={alreadySlotted}
-                onClick={
-                  phase === 'slot' && !alreadySlotted
-                    ? () => handlePlayerSlot(card)
-                    : undefined
-                }
+                onClick={disabled ? undefined : () => void playCard(card)}
               />
             );
           })}
         </div>
 
-        {/* Status / resolution rail */}
+        {/* Status rail */}
         <div
           style={{
             marginTop: 22,
@@ -366,9 +399,12 @@ export default function PipelineGame() {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <Stamp label="Phase" value={phase.toUpperCase()} sodium={phase === 'resolving'} />
-            <Stamp label="Turn" value={String(turn + 1).padStart(2, '0')} />
-            <Stamp label="Last trick" value={lastTrick ? lastTrick.toUpperCase() : '—'} />
+            <Stamp label="Phase" value={snapshot.phase.toUpperCase()} sodium={busy} />
+            <Stamp label="Turn" value={String(snapshot.turn + 1).padStart(2, '0')} />
+            <Stamp
+              label="Last trick"
+              value={snapshot.last_trick?.winner ? snapshot.last_trick.winner.toUpperCase() : '—'}
+            />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <span style={{ fontSize: 12, color: 'var(--ink-2)', letterSpacing: '.05em' }}>
@@ -376,7 +412,8 @@ export default function PipelineGame() {
             </span>
             <button
               type="button"
-              onClick={restart}
+              onClick={() => void reshuffle()}
+              disabled={busy}
               style={{
                 fontFamily: 'var(--font-mono)',
                 fontSize: 11,
@@ -386,7 +423,8 @@ export default function PipelineGame() {
                 border: '1px solid var(--ink)',
                 background: 'transparent',
                 color: 'var(--ink)',
-                cursor: 'pointer',
+                cursor: busy ? 'wait' : 'pointer',
+                opacity: busy ? 0.6 : 1,
               }}
             >
               Reshuffle
@@ -417,7 +455,7 @@ export default function PipelineGame() {
                 lineHeight: 1.1,
               }}
             >
-              {wonBy === 'player'
+              {wonBy === playerId
                 ? 'You take the match.'
                 : 'Claudex takes the match.'}
             </span>
@@ -430,7 +468,7 @@ export default function PipelineGame() {
                 textTransform: 'uppercase',
               }}
             >
-              HD-PIPELINE · END · {playerTricks}–{opponentTricks}
+              {snapshot.match_id} · END · {playerTricks}–{opponentTricks}
             </span>
           </div>
         )}
@@ -449,14 +487,55 @@ export default function PipelineGame() {
             letterSpacing: '.06em',
           }}
         >
-          <span>Pipeline v0.1 · client-only · AI = random RESOLVE-biased</span>
+          <span>Pipeline v0.2 · engine-backed · /api/pipeline/{snapshot.match_id}</span>
           <span style={{ letterSpacing: '.1em', textTransform: 'uppercase' }}>
-            HD-PIPELINE · prototype
+            HD-PIPELINE · v0.2
           </span>
         </footer>
       </main>
     </div>
   );
+}
+
+// ── helpers ──────────────────────────────────────────────────────────────
+
+/** Server snapshot → InterceptorCardDef shape that the component expects. */
+function asInterceptor(c: PipelineCardSnapshot) {
+  return {
+    id: c.id,
+    engine: c.engine as 'MTG' | 'HS' | 'PKM' | 'YGO' | 'MNR' | 'FIN' | 'DPT' | 'SCP',
+    stage: c.stage,
+    cost: c.cost,
+    name: c.name,
+    text: c.text,
+    art: c.art,
+  };
+}
+
+/** Render a human-friendly title from a server EventType + payload. */
+function humanizeEventName(type: string, payload: Record<string, unknown>): string {
+  switch (type) {
+    case 'DAMAGE':
+      return `A source deals ${payload.amount} damage to ${payload.target ?? 'a player'}.`;
+    case 'LIFE_CHANGE':
+      return `${payload.player ?? 'A player'} would ${Number(payload.amount) >= 0 ? 'gain' : 'lose'} ${Math.abs(Number(payload.amount))} life.`;
+    case 'DRAW':
+      return `${payload.player ?? 'A player'} draws ${payload.count ?? 1} card${Number(payload.count) === 1 ? '' : 's'}.`;
+    case 'ZONE_CHANGE':
+      return `An object moves from ${payload.from_zone ?? '?'} to ${payload.to_zone ?? '?'}.`;
+    case 'TURN_START':
+      return `A new turn begins for ${payload.active ?? 'a player'}.`;
+    case 'OBJECT_CREATED':
+      return `An object enters the battlefield.`;
+    case 'OBJECT_DESTROYED':
+      return `${payload.object_id ?? 'An object'} is destroyed.`;
+    case 'CAST':
+      return `A spell is cast and goes on the stack.`;
+    case 'ATTACK_DECLARED':
+      return `An attack is declared at ${payload.target ?? 'a target'}.`;
+    default:
+      return type.replace(/_/g, ' ').toLowerCase();
+  }
 }
 
 interface PlayerRailProps {
@@ -537,6 +616,82 @@ function Stamp({ label, value, sodium }: { label: string; value: string; sodium?
       >
         {value}
       </span>
+    </div>
+  );
+}
+
+interface StatusShellProps {
+  label: string;
+  sub?: string;
+  onRetry?: () => void;
+}
+
+function StatusShell({ label, sub, onRetry }: StatusShellProps) {
+  return (
+    <div
+      style={{
+        background: 'var(--paper)',
+        color: 'var(--ink)',
+        minHeight: '100vh',
+        display: 'grid',
+        placeItems: 'center',
+        padding: 24,
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 520,
+          padding: '36px 40px',
+          border: '1.5px solid var(--ink)',
+          background: 'var(--paper-2)',
+          textAlign: 'left',
+          fontFamily: 'var(--font-sans)',
+        }}
+      >
+        <div
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            letterSpacing: '.14em',
+            textTransform: 'uppercase',
+            color: 'var(--ink-3)',
+            marginBottom: 6,
+          }}
+        >
+          {sub ?? 'HD-PIPELINE'}
+        </div>
+        <div
+          style={{
+            fontFamily: 'var(--font-serif)',
+            fontStyle: 'italic',
+            fontSize: 36,
+            lineHeight: 1.05,
+            color: 'var(--ink)',
+            marginBottom: 14,
+          }}
+        >
+          {label}
+        </div>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 11,
+              letterSpacing: '.14em',
+              textTransform: 'uppercase',
+              padding: '10px 16px',
+              border: '1px solid var(--ink)',
+              background: 'var(--ink)',
+              color: 'var(--paper)',
+              cursor: 'pointer',
+            }}
+          >
+            Retry
+          </button>
+        )}
+      </div>
     </div>
   );
 }
