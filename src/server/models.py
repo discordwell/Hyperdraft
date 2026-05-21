@@ -573,6 +573,41 @@ class BotGameResponse(BaseModel):
     status: str = "running"
 
 
+class BotGameStatus(BaseModel):
+    """Per-game row returned by /bot-game/list (and /bot-game/{id}/status).
+
+    The original shape was ``{game_id, status, turn, winner}``. The WatchLive
+    lobby (HD-ART-06) wants an engine code, player-seat labels (brain +
+    difficulty), and a deck archetype blurb — so consumers like the
+    frontend's mock-fallback can drop their padding and render the real
+    running matches. All enrichment fields are Optional so legacy consumers
+    keep working.
+    """
+    game_id: str
+    status: str  # 'running' | 'finished'
+    turn: int
+    winner: Optional[str] = None
+    # Engine id matching the GameModeId on the frontend ('mtg', 'depths',
+    # 'cats', etc). Optional only because completed_replays predate the
+    # enrichment and may not carry a mode hint.
+    game_mode: Optional[str] = None
+    # Seat labels formatted as "<brain_or_name> · <difficulty>" — e.g.
+    # "Heuristic · medium", "Claude · ultra", "GPT-5.3 · ultra". Brain takes
+    # priority over the per-seat display name when both are set.
+    player1_label: Optional[str] = None
+    player2_label: Optional[str] = None
+    # Short archetype/deck blurb (title-cased). For decks resolved by ID we
+    # de-slug the ID; explicit-list decks have no blurb. None for game modes
+    # without an obvious deck identity.
+    deck_blurb: Optional[str] = None
+
+
+class BotGameListResponse(BaseModel):
+    """Envelope returned by /bot-game/list."""
+    games: list[BotGameStatus]
+    total: int
+
+
 class ReplayFrame(BaseModel):
     """Single frame of a game replay."""
     turn: int

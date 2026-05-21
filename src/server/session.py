@@ -189,6 +189,10 @@ class GameSession:
     _last_non_pass_action: Optional[dict[str, Any]] = None
     # Decklists as provided to add_cards_to_deck (used for AI layer preparation).
     deck_card_defs_by_player: dict[str, list[CardDefinition]] = field(default_factory=dict)
+    # Deck IDs by player seat (used for WatchLive lobby blurbs). Bot-vs-bot
+    # /start populates these when the request provides a deck_id; modes that
+    # don't expose decks (e.g. early Cats variant) leave this empty.
+    deck_id_by_player: dict[str, str] = field(default_factory=dict)
     # YGO AI strategy hints (set in match.py, applied when adapter is created)
     ygo_ai_strategy: Optional[dict] = None
 

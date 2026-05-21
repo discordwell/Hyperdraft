@@ -1,16 +1,27 @@
 /**
  * WatchLive smoke test — HD-ART-06 / Phase C3 lab port.
  *
+ * Phase C3 follow-up (this slice): the lobby table reads real
+ * BotGameStatus rows — engine code, player labels with brain/difficulty,
+ * deck blurb — straight off the list API, with no mock fallback. The
+ * featured panel only renders when a spectator-demo is active; otherwise
+ * it shows an empty-state hint.
+ *
  * Asserts:
  *   1. Masthead renders the "Now running" lab heading.
  *   2. The HD-ART-06 table headers are present in the lobby table.
- *   3. The FEATURED · LIVE panel renders with the sodium-italic "vs"
- *      separator between two named seats.
- *   4. Clicking a non-queued row navigates to its watch path.
+ *   3. With no live matches, the table shows the empty-state line
+ *      (no mock HD-2K1B / HD-9C77 / etc rows).
+ *   4. The FEATURED panel renders its empty-state hint when no
+ *      spectator demo is live.
+ *   5. When the list API returns real rows, they show the engine code,
+ *      player labels, and deck blurb supplied by the backend.
+ *   6. Clicking a real row navigates to its spectate path.
  *
  * Mocks the api module so the page mounts without network. The spectator
  * fetches (/api/spectate/status) fall through to the catch path and the
- * fallback featured match — that's the lobby's "no demo live" steady state.
+ * empty-state featured panel — that's the lobby's "no demo live" steady
+ * state.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -22,6 +33,7 @@ vi.mock('../services/api', () => ({
 }));
 
 import { botGameAPI, matchAPI } from '../services/api';
+import type { BotGameStatus } from '../types/game';
 import { WatchLive } from './WatchLive';
 
 const originalFetch = globalThis.fetch;
@@ -32,6 +44,7 @@ function renderPage() {
       <Routes>
         <Route path="/watch/live" element={<WatchLive />} />
         <Route path="/m/:gameId" element={<div data-testid="public-match" />} />
+        <Route path="/spectate/:gameId" element={<div data-testid="spectate-game" />} />
         <Route path="/" element={<div data-testid="lab-home" />} />
         <Route path="/replays" element={<div data-testid="replays" />} />
       </Routes>
@@ -42,7 +55,7 @@ function renderPage() {
 beforeEach(() => {
   // Re-prime mocks on the (module-scoped) mocked api so previous-test resets
   // can't strip the resolved values. Default state: no spectator demo, no
-  // running bot games — exercises the fallback featured match.
+  // running bot games — exercises the empty-state empties.
   (botGameAPI.list as ReturnType<typeof vi.fn>).mockResolvedValue({ games: [], total: 0 });
   (matchAPI.listReplays as ReturnType<typeof vi.fn>).mockResolvedValue({ replays: [] });
   globalThis.fetch = vi.fn().mockResolvedValue({
@@ -73,25 +86,73 @@ describe('WatchLive (lab posture)', () => {
     }
   });
 
-  it('renders the FEATURED · LIVE panel with a sodium "vs" separator', () => {
+  it('renders the empty-state line when no matches are running', async () => {
     renderPage();
 
-    expect(screen.getByText('FEATURED · LIVE')).toBeInTheDocument();
-    // Fallback featured match exposes both seat labels + commentary.
-    expect(screen.getByText('vs.')).toBeInTheDocument();
-    expect(screen.getAllByText('Ultra-AI').length).toBeGreaterThan(0);
-    expect(screen.getByText('Hard-AI')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId('lobby-empty')).toBeInTheDocument(),
+    );
+    // No mock rows leak through anymore.
+    expect(screen.queryByText('HD-2K1B')).not.toBeInTheDocument();
+    expect(screen.queryByText('HD-9C77')).not.toBeInTheDocument();
   });
 
-  it('navigates to /m/<short> when a non-queued row is clicked', async () => {
+  it('renders the featured-panel empty state with no spectator demo', () => {
     renderPage();
 
-    // The HD-2K1B mock row is the first non-live entry — not queued, so it
-    // should route. Resolve via its short-code label inside the table.
-    await waitFor(() => expect(screen.getByText('HD-2K1B')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('HD-2K1B'));
+    // The pinned-match "live" label and HD-8F4A mock both disappear; the
+    // panel now reads as idle.
+    expect(screen.getByText('FEATURED · IDLE')).toBeInTheDocument();
+    expect(screen.getByText(/No featured match\. Start one from the lab\./)).toBeInTheDocument();
+    expect(screen.queryByText('FEATURED · LIVE')).not.toBeInTheDocument();
+    expect(screen.queryByText('HD-8F4A')).not.toBeInTheDocument();
+  });
 
-    expect(screen.getByTestId('public-match')).toBeInTheDocument();
+  it('renders real BotGameStatus rows with engine + brain/difficulty + deck blurb', async () => {
+    const games: BotGameStatus[] = [
+      {
+        game_id: 'depths-test-001',
+        status: 'running',
+        turn: 7,
+        winner: null,
+        game_mode: 'depths',
+        player1_label: 'Heuristic · hard',
+        player2_label: 'Claude · ultra',
+        deck_blurb: 'Subs Wolfpack',
+      },
+    ];
+    (botGameAPI.list as ReturnType<typeof vi.fn>).mockResolvedValue({ games, total: 1 });
+
+    renderPage();
+
+    // Engine code from the brand registry: depths -> DPT.
+    await waitFor(() => expect(screen.getByText('DPT')).toBeInTheDocument());
+    // Both seat labels — concatenated with the engine row's ' · ' joiner.
+    expect(screen.getByText(/Heuristic · hard · Claude · ultra/)).toBeInTheDocument();
+    // Deck blurb appears under the short code.
+    expect(screen.getByText('Subs Wolfpack')).toBeInTheDocument();
+  });
+
+  it('navigates to /spectate/<id> when a real list row is clicked', async () => {
+    const games: BotGameStatus[] = [
+      {
+        game_id: 'mtg-test-002',
+        status: 'running',
+        turn: 3,
+        winner: null,
+        game_mode: 'mtg',
+        player1_label: 'Heuristic · medium',
+        player2_label: 'Heuristic · medium',
+        deck_blurb: 'Mono-Red Netdeck',
+      },
+    ];
+    (botGameAPI.list as ReturnType<typeof vi.fn>).mockResolvedValue({ games, total: 1 });
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('Mono-Red Netdeck')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Mono-Red Netdeck'));
+    expect(screen.getByTestId('spectate-game')).toBeInTheDocument();
   });
 
   it('exposes the "← Lab" footer back-link', () => {
@@ -99,4 +160,3 @@ describe('WatchLive (lab posture)', () => {
     expect(screen.getByRole('button', { name: /← Lab/ })).toBeInTheDocument();
   });
 });
-

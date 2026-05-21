@@ -10,9 +10,118 @@ import os
 
 from ..session import session_manager, GameSession, generate_id
 from ..models import (
-    StartBotGameRequest, BotGameResponse,
+    StartBotGameRequest, BotGameResponse, BotGameStatus, BotGameListResponse,
     ReplayResponse, GameStateResponse
 )
+
+
+# --- WatchLive enrichment helpers ---------------------------------------
+# These keep /list (and /status) lobby-ready without bloating the route
+# bodies. Each is pure — no engine state mutation — so they're safe to
+# call from a request handler.
+
+# Pretty labels for the BotBrain values. Maps the enum value (stored on
+# ai_profiles_by_player["brain"]) onto the chip text in WatchLive.
+_BRAIN_LABELS = {
+    "heuristic": "Heuristic",
+    "openai": "GPT",
+    "ollama": "Ollama",
+    "claude_code": "Claude",
+    "anthropic": "Claude",
+}
+
+
+def _format_player_label(session: GameSession, player_id: str) -> Optional[str]:
+    """Compose '<brain_or_name> · <difficulty>' for a single seat.
+
+    Brain takes priority over the bot's display name (so "Heuristic" beats
+    "Bot 1"); falls back to player_names if no brain hint exists. The
+    difficulty suffix uses the per-seat profile difficulty when available,
+    else the session default. Returns None if we have nothing useful to
+    show.
+    """
+    profile = session.ai_profiles_by_player.get(player_id) or {}
+    brain = profile.get("brain")
+    model = profile.get("model")
+    difficulty = profile.get("difficulty") or session.ai_difficulty
+
+    # Normalise enum-ish values to strings.
+    if hasattr(brain, "value"):
+        brain = brain.value
+    if hasattr(difficulty, "value"):
+        difficulty = difficulty.value
+
+    head: Optional[str] = None
+    if brain:
+        b = str(brain).strip().lower()
+        # OpenAI/Ollama with explicit model — surface the model id so
+        # "GPT-5.3 · ultra" reads correctly. We only show the model tail
+        # so absurdly long ids stay readable.
+        if b in {"openai", "ollama"} and model:
+            head = str(model).strip()
+        else:
+            head = _BRAIN_LABELS.get(b, b.title())
+    if not head:
+        head = session.player_names.get(player_id)
+    if not head:
+        return None
+
+    diff = str(difficulty or "").strip().lower()
+    if not diff:
+        return head
+    return f"{head} · {diff}"
+
+
+def _format_deck_blurb(session: GameSession) -> Optional[str]:
+    """Title-case the deck id used for either seat.
+
+    The lobby surfaces one blurb per match (both seats in bot-vs-bot
+    typically pick from the same engine pool — the column is "archetype",
+    not "p1 archetype"). We pick the first non-empty deck id we see, in
+    seat order, and de-slug it.
+
+    For MTG decks resolved through ALL_DECKS, the registered Deck.name
+    is preferred (so "mono_red_netdeck" displays as the deck's real
+    "Mono-Red Netdeck", not a literal de-slug).
+    """
+    if not session.deck_id_by_player:
+        return None
+
+    # Stable order: walk the session's known player_ids so seat 1 wins
+    # ties with seat 2.
+    for pid in session.player_ids:
+        deck_id = session.deck_id_by_player.get(pid)
+        if not deck_id:
+            continue
+        return _pretty_deck_name(deck_id)
+    return None
+
+
+def _pretty_deck_name(deck_id: str) -> str:
+    """Resolve deck_id -> display name; fall back to title-cased slug."""
+    deck = ALL_DECKS.get(deck_id)
+    if deck is not None and getattr(deck, "name", None):
+        return str(deck.name)
+    # De-slug: "mono_red_netdeck" -> "Mono-Red Netdeck",
+    # "SUBS_wolfpack" -> "Subs Wolfpack".
+    return deck_id.replace("_", " ").strip().title()
+
+
+def _bot_game_status_from_session(session: GameSession) -> BotGameStatus:
+    """Build the enriched BotGameStatus row for an active bot-game session."""
+    pids = list(session.player_ids)
+    p1_id = pids[0] if pids else None
+    p2_id = pids[1] if len(pids) > 1 else None
+    return BotGameStatus(
+        game_id=session.id,
+        status="finished" if session.is_finished else "running",
+        turn=session.game.turn_manager.turn_number if session.is_started else 0,
+        winner=session.winner_id,
+        game_mode=getattr(session.game.state, "game_mode", None),
+        player1_label=_format_player_label(session, p1_id) if p1_id else None,
+        player2_label=_format_player_label(session, p2_id) if p2_id else None,
+        deck_blurb=_format_deck_blurb(session),
+    )
 
 # Card/deck imports
 from src.cards import ALL_CARDS
@@ -152,6 +261,10 @@ async def start_bot_game(
             session.game.setup_minecraft_player(player, [])
         session.add_cards_to_deck(bot1_id, MINECRAFT_STARTER_DECKS[b1_key]())
         session.add_cards_to_deck(bot2_id, MINECRAFT_STARTER_DECKS[b2_key]())
+        # WatchLive lobby: stash the resolved keys so the table can render
+        # a deck blurb instead of mock padding.
+        session.deck_id_by_player[bot1_id] = b1_key
+        session.deck_id_by_player[bot2_id] = b2_key
 
     elif request.mode == "yugioh":
         # Yu-Gi-Oh! bot-vs-bot: resolve decks by ID, setup players
@@ -192,6 +305,20 @@ async def start_bot_game(
         b1_main, b1_extra, b1_strat = resolve_ygo(request.bot1_deck_id)
         b2_main, b2_extra, b2_strat = resolve_ygo(request.bot2_deck_id)
 
+        # WatchLive: capture the resolved deck IDs (even when the request
+        # left them blank and we rolled random) so the lobby can blurb
+        # the archetype.
+        b1_yk = request.bot1_deck_id if request.bot1_deck_id in ygo_all_decks else next(
+            (k for k, v in ygo_all_decks.items() if v == (b1_main, b1_extra, b1_strat)), None
+        )
+        b2_yk = request.bot2_deck_id if request.bot2_deck_id in ygo_all_decks else next(
+            (k for k, v in ygo_all_decks.items() if v == (b2_main, b2_extra, b2_strat)), None
+        )
+        if b1_yk:
+            session.deck_id_by_player[bot1_id] = b1_yk
+        if b2_yk:
+            session.deck_id_by_player[bot2_id] = b2_yk
+
         player_ids = list(session.game.state.players.keys())
         for idx, pid in enumerate(player_ids[:2]):
             player = session.game.state.players[pid]
@@ -210,12 +337,20 @@ async def start_bot_game(
 
         deck_fns = [make_fire_deck, make_water_deck]
         random.shuffle(deck_fns)
+        # Mirror lookup: fn -> blurb-id, for WatchLive enrichment.
+        _pkm_fn_ids = {make_fire_deck: "fire_starter", make_water_deck: "water_starter"}
 
         player_ids = list(session.game.state.players.keys())
         for idx, pid in enumerate(player_ids[:2]):
             player = session.game.state.players[pid]
             session.game.setup_pokemon_player(player, [])
-            session.add_cards_to_deck(pid, deck_fns[idx % len(deck_fns)]())
+            chosen_fn = deck_fns[idx % len(deck_fns)]
+            session.add_cards_to_deck(pid, chosen_fn())
+            deck_blurb_id = _pkm_fn_ids.get(chosen_fn)
+            if deck_blurb_id:
+                # Map back to bot1_id / bot2_id (player_ids[idx] is the
+                # same seat the engine assigned).
+                session.deck_id_by_player[pid] = deck_blurb_id
 
     elif request.mode == "depths":
         # Depths bot-vs-bot: setup both players with a Flagship + 30-card deck.
@@ -254,6 +389,9 @@ async def start_bot_game(
             # Mirror match.py: keep the decklist around so the AI layer prep
             # can read it if Ultra brains are wired in later.
             session.deck_card_defs_by_player.setdefault(pid, []).extend(deck)
+            # WatchLive lobby: stash the deck key so the table can blurb
+            # the archetype.
+            session.deck_id_by_player[pid] = deck_keys_by_seat[pid]
 
     else:
         # MTG / Hearthstone: build decks from IDs or card names
@@ -300,6 +438,21 @@ async def start_bot_game(
                     bot1_deck = get_deck_for_hero(hero1_class)
                 if not request.bot2_deck and not request.bot2_deck_id:
                     bot2_deck = get_deck_for_hero(hero2_class)
+
+                # WatchLive lobby: stash the hero class as the deck blurb
+                # when no explicit deck_id was given (HS default-deck path).
+                if not request.bot1_deck and not request.bot1_deck_id:
+                    session.deck_id_by_player[bot1_id] = hero1_class
+                if not request.bot2_deck and not request.bot2_deck_id:
+                    session.deck_id_by_player[bot2_id] = hero2_class
+
+        # WatchLive lobby: capture explicit deck IDs (MTG netdecks like
+        # 'mono_red_netdeck'). Explicit card-list decks have no canonical
+        # name so we leave the blurb empty for those.
+        if request.bot1_deck_id:
+            session.deck_id_by_player[bot1_id] = request.bot1_deck_id
+        if request.bot2_deck_id:
+            session.deck_id_by_player[bot2_id] = request.bot2_deck_id
 
         # Add cards to libraries
         session.add_cards_to_deck(bot1_id, bot1_deck)
@@ -431,72 +584,67 @@ async def get_replay(game_id: str, since: int = 0, limit: int = 5000) -> ReplayR
     raise HTTPException(status_code=404, detail="Game not found")
 
 
-@router.get("/{game_id}/status")
-async def get_bot_game_status(game_id: str) -> dict:
+@router.get("/{game_id}/status", response_model=BotGameStatus)
+async def get_bot_game_status(game_id: str) -> BotGameStatus:
     """
     Get the status of a bot game.
     """
     session = active_bot_games.get(game_id)
 
     if session:
-        return {
-            "game_id": game_id,
-            "status": "finished" if session.is_finished else "running",
-            "turn": session.game.turn_manager.turn_number if session.is_started else 0,
-            "winner": session.winner_id
-        }
+        return _bot_game_status_from_session(session)
 
     if game_id in completed_replays:
         replay = completed_replays[game_id]
-        return {
-            "game_id": game_id,
-            "status": "finished",
-            "turn": replay.total_turns,
-            "winner": replay.winner
-        }
+        # Completed replays are post-session — we don't carry per-seat
+        # brain/difficulty metadata across the boundary, so enrichment
+        # is intentionally None for these rows.
+        return BotGameStatus(
+            game_id=game_id,
+            status="finished",
+            turn=replay.total_turns,
+            winner=replay.winner,
+        )
 
     raise HTTPException(status_code=404, detail="Game not found")
 
 
-@router.get("/list")
+@router.get("/list", response_model=BotGameListResponse)
 async def list_bot_games(
     status: Optional[str] = None
-) -> dict:
+) -> BotGameListResponse:
     """
     List all bot games.
 
     Filter by status: 'running', 'finished', or None for all.
     """
-    games = []
+    games: list[BotGameStatus] = []
 
-    # Active games
+    # Active games — emit the enriched row so WatchLive can render real
+    # engine + player + deck data instead of mock fallbacks.
     for game_id, session in active_bot_games.items():
         if status == "finished" and not session.is_finished:
             continue
         if status == "running" and session.is_finished:
             continue
 
-        games.append({
-            "game_id": game_id,
-            "status": "finished" if session.is_finished else "running",
-            "turn": session.game.turn_manager.turn_number if session.is_started else 0,
-            "winner": session.winner_id
-        })
+        games.append(_bot_game_status_from_session(session))
 
-    # Completed replays not in active games
+    # Completed replays not in active games — minimal shape (no live
+    # session to read brain/deck off of).
     for game_id, replay in completed_replays.items():
         if game_id not in active_bot_games:
             if status == "running":
                 continue
 
-            games.append({
-                "game_id": game_id,
-                "status": "finished",
-                "turn": replay.total_turns,
-                "winner": replay.winner
-            })
+            games.append(BotGameStatus(
+                game_id=game_id,
+                status="finished",
+                turn=replay.total_turns,
+                winner=replay.winner,
+            ))
 
-    return {"games": games, "total": len(games)}
+    return BotGameListResponse(games=games, total=len(games))
 
 
 @router.delete("/{game_id}")
