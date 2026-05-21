@@ -2,12 +2,22 @@
  * SpectatorView Page
  *
  * Watch bot vs bot games.
+ *
+ * Phase C4: outer chrome (header strip, loading/error states, last-decision
+ * banner, match-complete overlay, error toast) is ported to lab posture
+ * (paper / ink / sodium per HD-PAL-01). The embedded game render — the
+ * `<GameBoard>` inside the `flex-1` container — is byte-identical to the
+ * pre-port version. Per `docs/design/brand.md` "On the laboratory
+ * archetype": when you're watching a Hearthstone match, the board still
+ * looks like Hearthstone. The seam between lab and game lives at the
+ * `<header>` / `<main>` boundary below.
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { botGameAPI } from '../services/api';
 import { GameBoard } from '../components/game';
+import { shortCode } from './PublicMatch';
 import type { GameState, BotGameStatus, ReplayFrame } from '../types';
 
 export function SpectatorView() {
@@ -22,6 +32,8 @@ export function SpectatorView() {
   const [pollInterval, setPollInterval] = useState(1500);
   const [replayCursor, setReplayCursor] = useState(0);
   const [recentFrames, setRecentFrames] = useState<ReplayFrame[]>([]);
+
+  const code = useMemo(() => shortCode(gameId), [gameId]);
 
   // Fetch game state
   const fetchState = useCallback(async () => {
@@ -111,27 +123,60 @@ export function SpectatorView() {
     ? Object.keys(gameState.players)[0]
     : '';
 
-  // Loading state
+  // ─── Mode badge: surface engine/game_mode when available ────────────
+  // Backend doesn't always populate this consistently; if missing, the
+  // chip reads "match" — mirrors PublicMatch's same fallback.
+  const modeLabel = useMemo(() => {
+    const fromStatus = (status as unknown as { game_mode?: string; mode?: string } | null);
+    return (
+      fromStatus?.game_mode ||
+      fromStatus?.mode ||
+      'match'
+    );
+  }, [status]);
+
+  // ─── Inline keyframe for the acid pulse — same name as PublicMatch
+  // would collide on a parent route that mounts both; scope it by giving
+  // the spectator pulse its own animation name. ────────────────────────
+  const acidKeyframes = (
+    <style>{`
+      @keyframes spectator-acid-pulse {
+        0%, 100% {
+          box-shadow: 0 0 0 0 rgba(163, 230, 53, 0.55),
+                      0 0 10px rgba(163, 230, 53, 0.65);
+        }
+        50% {
+          box-shadow: 0 0 0 6px rgba(163, 230, 53, 0),
+                      0 0 14px rgba(163, 230, 53, 0.85);
+        }
+      }
+    `}</style>
+  );
+
+  // Loading state — lab posture: paper backdrop, mono "connecting" eyebrow.
   if (isLoading) {
     return (
       <div className="min-h-screen bg-brand-ink flex items-center justify-center">
+        {acidKeyframes}
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-brand-sheen border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="brand-eyebrow text-brand-chalk">Loading match</p>
+          <div className="w-12 h-12 border-2 border-brand-hairline border-t-brand-foil rounded-full animate-spin mx-auto mb-4" />
+          <p className="brand-eyebrow text-brand-chalk">Spectating · connecting…</p>
         </div>
       </div>
     );
   }
 
-  // Error state
+  // Error state — lab posture.
   if (error && !gameState) {
     return (
       <div className="min-h-screen bg-brand-ink flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-brand-ember mb-4">{error}</p>
+        {acidKeyframes}
+        <div className="text-center brand-frame px-10 py-8">
+          <p className="brand-eyebrow text-brand-ember mb-2">Spectating · failed</p>
+          <p className="text-brand-cream mb-6">{error}</p>
           <button
             onClick={() => navigate('/')}
-            className="px-4 py-2 bg-gradient-to-b from-brand-foil-bright via-brand-foil to-brand-foil-deep text-brand-ink shadow-brand-foil"
+            className="px-4 py-2 border border-brand-hairline hover:border-brand-foil/70 bg-brand-obsidian hover:bg-brand-shelf transition-colors brand-mono text-xs tracking-tight text-brand-cream"
           >
             Back to lobby
           </button>
@@ -142,92 +187,144 @@ export function SpectatorView() {
 
   return (
     <div className="min-h-screen bg-brand-ink text-brand-cream flex flex-col">
-      <div className="bg-brand-obsidian/85 backdrop-blur-xl border-b border-brand-hairline/60 p-4 flex items-center justify-between sticky top-0 z-30">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/')}
-            className="text-brand-chalk hover:text-brand-foil transition-colors text-sm tracking-wide"
-          >
-            ← Lobby
-          </button>
-          <p className="brand-eyebrow text-brand-sheen">Spectator</p>
-          <h1 className="text-lg font-display font-semibold text-brand-cream">Bot vs Bot</h1>
-          {status && (
-            <span
-              className={
-                'px-2 py-0.5 border text-[11px] tracking-wider uppercase ' +
-                (status.status === 'running'
-                  ? 'border-brand-sheen/60 bg-brand-sheen/10 text-brand-sheen'
-                  : 'border-brand-hairline bg-brand-shelf text-brand-chalk')
-              }
-            >
-              {status.status === 'running' ? '● Live' : 'Finished'}
-            </span>
-          )}
-        </div>
+      {acidKeyframes}
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="brand-eyebrow text-brand-dust">Speed</span>
-            <div className="flex gap-1">
-              {[
-                { label: '0.5×', value: 3000 },
-                { label: '1×', value: 1500 },
-                { label: '2×', value: 750 },
-                { label: '4×', value: 375 },
-              ].map(({ label, value }) => (
-                <button
-                  key={value}
-                  onClick={() => handleSpeedChange(value)}
-                  className={
-                    'px-2 py-1 text-[11px] brand-mono transition-all ' +
-                    (pollInterval === value
-                      ? 'bg-brand-foil/15 text-brand-foil border border-brand-foil/60'
-                      : 'bg-brand-obsidian text-brand-chalk border border-brand-hairline hover:border-brand-foil/40')
-                  }
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+      {/* === Lab masthead — outer chrome ================================ */}
+      <header className="border-b border-brand-hairline/60 bg-brand-obsidian/85 backdrop-blur-xl sticky top-0 z-30">
+        <div className="max-w-[1600px] mx-auto px-4 lg:px-8 py-3 flex flex-wrap items-center gap-x-6 gap-y-3">
+          {/* HYPERDRAFT wordmark + match short-code */}
+          <div className="flex items-baseline gap-3">
+            <button
+              onClick={() => navigate('/')}
+              className="brand-eyebrow text-brand-dust hover:text-brand-foil transition-colors"
+              aria-label="Back to lobby"
+            >
+              ← hyperdraft
+            </button>
+            <span
+              className="brand-mono text-base lg:text-lg tracking-tight text-brand-cream"
+              data-testid="spectator-shortcode"
+              aria-label="Match short code"
+            >
+              {code}
+            </span>
           </div>
 
-          <button
-            onClick={() => setIsPaused(!isPaused)}
-            className={
-              'px-3 py-1 border text-sm transition-colors ' +
-              (isPaused
-                ? 'border-brand-sheen/60 bg-brand-sheen/10 text-brand-sheen hover:bg-brand-sheen/20'
-                : 'border-brand-foil/60 bg-brand-foil/10 text-brand-foil hover:bg-brand-foil/20')
-            }
+          {/* Mode badge — placeholder chip reading "match" when backend
+              hasn't surfaced the engine yet. Lab posture: ink-outlined,
+              paper background, mono uppercase. */}
+          <span
+            className="px-2 py-0.5 border border-brand-hairline bg-brand-shelf brand-mono text-[11px] tracking-wider uppercase text-brand-chalk"
+            data-testid="spectator-mode-badge"
           >
-            {isPaused ? '▶ Play' : '⏸ Pause'}
-          </button>
+            {modeLabel}
+          </span>
 
-          {status && (
-            <div className="brand-mono text-xs text-brand-chalk">
-              <span className="brand-eyebrow text-brand-dust mr-1.5">turn</span>
-              <span className="text-brand-cream">{status.turn}</span>
+          {/* Spectating indicator — acid pulse dot. Goes quiet (no animation
+              colour) when the match is finished. */}
+          <div className="flex items-center gap-2" aria-live="polite">
+            <span
+              aria-hidden
+              className="inline-block w-2 h-2 rounded-full"
+              style={
+                status?.status === 'finished'
+                  ? {
+                      background: 'var(--brand-hairline)',
+                      boxShadow: 'none',
+                    }
+                  : {
+                      background: 'var(--brand-spore, #a3e635)',
+                      boxShadow:
+                        '0 0 0 0 rgba(163, 230, 53, 0.55), 0 0 10px rgba(163, 230, 53, 0.65)',
+                      animation: 'spectator-acid-pulse 1.8s ease-in-out infinite',
+                    }
+              }
+            />
+            <span className="brand-eyebrow text-brand-chalk">
+              {status?.status === 'finished' ? 'Match complete' : 'Spectating'}
+            </span>
+          </div>
+
+          {/* Right cluster — turn counter, speed picker, pause toggle. All
+              monospaced, ink-outlined, no foil gradients. */}
+          <div className="ml-auto flex items-center gap-4">
+            {status && (
+              <div className="brand-mono text-xs text-brand-chalk">
+                <span className="brand-eyebrow text-brand-dust mr-1.5">turn</span>
+                <span className="text-brand-cream">{status.turn}</span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <span className="brand-eyebrow text-brand-dust">Speed</span>
+              <div className="flex gap-1">
+                {[
+                  { label: '0.5×', value: 3000 },
+                  { label: '1×', value: 1500 },
+                  { label: '2×', value: 750 },
+                  { label: '4×', value: 375 },
+                ].map(({ label, value }) => (
+                  <button
+                    key={value}
+                    onClick={() => handleSpeedChange(value)}
+                    className={
+                      'px-2 py-1 text-[11px] brand-mono transition-colors ' +
+                      (pollInterval === value
+                        ? 'bg-brand-shelf text-brand-foil border border-brand-foil/70'
+                        : 'bg-brand-obsidian text-brand-chalk border border-brand-hairline hover:border-brand-foil/40')
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
-        </div>
-      </div>
 
+            <button
+              onClick={() => setIsPaused(!isPaused)}
+              className={
+                'px-3 py-1 border brand-mono text-xs transition-colors ' +
+                (isPaused
+                  ? 'border-brand-foil/70 bg-brand-shelf text-brand-foil hover:border-brand-foil'
+                  : 'border-brand-hairline bg-brand-obsidian text-brand-cream hover:border-brand-foil/40')
+              }
+            >
+              {isPaused ? '▶ Play' : '⏸ Pause'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="px-3 py-1.5 border border-brand-hairline hover:border-brand-foil/70 bg-brand-obsidian hover:bg-brand-shelf transition-colors brand-mono text-xs tracking-tight text-brand-cream"
+              aria-label="Back to lobby"
+            >
+              Back to lobby
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Last-decision banner — wrapper chrome (spectator commentary,
+          not the game's own UI). Lab posture: hairline rule, paper bg,
+          mono caption + sodium emphasis for the player name. */}
       {lastDecision && (
-        <div className="bg-brand-obsidian/60 border-b border-brand-hairline/60 px-4 py-2 text-xs text-brand-parchment">
+        <div className="bg-brand-obsidian/60 border-b border-brand-hairline/60 px-4 py-2 brand-mono text-xs text-brand-parchment">
           <span className="brand-eyebrow text-brand-dust mr-2">Last</span>
-          <span className="font-semibold text-brand-cream">{String(lastAction?.player_name || lastAction?.player_id || '')}</span>{' '}
-          <span className="text-brand-chalk">{String(lastAction?.action_type ?? '')}{lastAction?.card_name ? ` ${String(lastAction.card_name)}` : ''}</span>
+          <span className="text-brand-foil">{String(lastAction?.player_name || lastAction?.player_id || '')}</span>{' '}
+          <span className="text-brand-cream">{String(lastAction?.action_type ?? '')}{lastAction?.card_name ? ` ${String(lastAction.card_name)}` : ''}</span>
           {typeof lastAi?.reasoning === 'string' && lastAi.reasoning.trim() && (
-            <span className="text-brand-dust"> · {lastAi.reasoning}</span>
+            <span className="text-brand-chalk"> · {lastAi.reasoning}</span>
           )}
           {typeof lastAi?.model === 'string' && (
-            <span className="brand-mono text-brand-dust"> ({lastAi.model})</span>
+            <span className="text-brand-dust"> ({lastAi.model})</span>
           )}
         </div>
       )}
 
-      {/* Game Board */}
+      {/* === Game body — embedded game render. UNTOUCHED per Phase C4
+          spec: "when you're watching a Hearthstone match, the board still
+          LOOKS like Hearthstone". The seam is the boundary above this
+          block. ====================================================== */}
       <div className="flex-1 relative">
         {gameState ? (
           <GameBoard
@@ -241,11 +338,15 @@ export function SpectatorView() {
           </div>
         )}
 
+        {/* Match-complete overlay — wrapper chrome (sits on top of the
+            game board after the match ends, so it belongs to the lab
+            wrapper, not the game's own identity). Lab posture: hairline
+            plate, serif heading, mono telemetry, ink-outlined buttons. */}
         {status?.status === 'finished' && (
           <div className="absolute inset-0 bg-brand-ink/85 backdrop-blur-sm flex items-center justify-center z-50">
             <div className="text-center brand-frame px-12 py-10">
               <p className="brand-eyebrow text-brand-foil mb-2">Match complete</p>
-              <h2 className="text-4xl font-display font-bold text-brand-cream mb-3">Game over</h2>
+              <h2 className="text-4xl font-display font-semibold text-brand-cream mb-3">Game over</h2>
               <p className="text-brand-parchment text-lg mb-1">
                 {status.winner
                   ? `Winner: ${gameState?.players[status.winner]?.name || status.winner}`
@@ -257,15 +358,15 @@ export function SpectatorView() {
               <div className="flex gap-3 justify-center">
                 <button
                   onClick={() => navigate('/')}
-                  className="px-6 py-3 bg-gradient-to-b from-brand-foil-bright via-brand-foil to-brand-foil-deep text-brand-ink shadow-brand-foil hover:shadow-brand-foil-strong transition-all font-medium"
+                  className="px-5 py-2.5 border border-brand-hairline hover:border-brand-foil/70 bg-brand-obsidian hover:bg-brand-shelf transition-colors brand-mono text-xs tracking-tight text-brand-cream"
                 >
-                  Lobby
+                  Back to lobby
                 </button>
                 <button
                   onClick={() => {
                     if (gameId) navigate(`/replay/${gameId}`);
                   }}
-                  className="px-6 py-3 bg-brand-shelf hover:bg-brand-glass border border-brand-hairline hover:border-brand-foil/40 text-brand-cream transition-colors"
+                  className="px-5 py-2.5 border border-brand-hairline hover:border-brand-foil/70 bg-brand-obsidian hover:bg-brand-shelf transition-colors brand-mono text-xs tracking-tight text-brand-cream"
                 >
                   Replay
                 </button>
@@ -278,7 +379,7 @@ export function SpectatorView() {
                       setError(err instanceof Error ? err.message : 'Failed to start new game');
                     }
                   }}
-                  className="px-6 py-3 bg-brand-shelf hover:bg-brand-glass border border-brand-hairline hover:border-brand-sheen/40 text-brand-cream transition-colors"
+                  className="px-5 py-2.5 border border-brand-hairline hover:border-brand-foil/70 bg-brand-obsidian hover:bg-brand-shelf transition-colors brand-mono text-xs tracking-tight text-brand-cream"
                 >
                   Watch another
                 </button>
@@ -288,8 +389,9 @@ export function SpectatorView() {
         )}
       </div>
 
+      {/* Error toast — wrapper chrome, lab posture (halt accent on hairline). */}
       {error && (
-        <div className="fixed bottom-4 right-4 p-3 bg-brand-ember/10 border border-brand-ember/50 text-brand-ember text-sm">
+        <div className="fixed bottom-4 right-4 px-3 py-2 bg-brand-shelf border border-brand-ember/60 brand-mono text-xs text-brand-ember">
           {error}
         </div>
       )}
