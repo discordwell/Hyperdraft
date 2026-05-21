@@ -16,7 +16,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { botGameAPI } from '../services/api';
-import { GameBoard } from '../components/game';
+import { SpectatorGameBody } from '../components/spectator/SpectatorGameBody';
 import { shortCode } from './PublicMatch';
 import type { GameState, BotGameStatus, ReplayFrame } from '../types';
 
@@ -321,16 +321,18 @@ export function SpectatorView() {
         </div>
       )}
 
-      {/* === Game body — embedded game render. UNTOUCHED per Phase C4
-          spec: "when you're watching a Hearthstone match, the board still
-          LOOKS like Hearthstone". The seam is the boundary above this
-          block. ====================================================== */}
+      {/* === Game body — embedded game render. Per Phase C4 spec the
+          per-engine GameView body keeps its own visual identity (HS still
+          looks like HS, PKM like PKM, etc). The dispatcher below picks
+          the right engine board off `gameState.game_mode`; the outer
+          chrome (header strip, last-decision banner, match-complete
+          overlay) stays MTG-lab-styled. The seam is the boundary above
+          this block. ============================================== */}
       <div className="flex-1 relative">
         {gameState ? (
-          <GameBoard
+          <SpectatorGameBody
             gameState={gameState}
             playerId={spectatorPlayerId}
-            // No interaction for spectators
           />
         ) : (
           <div className="flex items-center justify-center h-full">

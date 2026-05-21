@@ -343,7 +343,7 @@ export interface GameState {
   is_game_over: boolean;
   winner: string | null;
   pending_choice?: PendingChoice | null;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'cats';
   variant?: string | null;
   max_hand_size?: number;
   // Pokemon zones
@@ -440,7 +440,7 @@ export interface FinancePendingResponse {
 // Request/Response Types
 export interface CreateMatchRequest {
   mode: MatchMode;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'cats';
   variant?: string;
   ultra_agent?: 'claude' | 'codex';
   ultra_model?: string;
