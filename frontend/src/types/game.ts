@@ -77,7 +77,10 @@ export type ActionType =
   | 'SCP_MEMORY_HOLE'
   | 'SCP_APPLY_PROTOCOL'
   | 'SCP_RESOLVE_INCIDENT'
-  | 'SCP_END_TURN';
+  | 'SCP_END_TURN'
+  | 'CATS_PLAY_CARD'
+  | 'CATS_CHOOSE_PILE'
+  | 'CATS_KNOCK_OVER';
 
 export type Phase =
   | 'BEGINNING'
@@ -396,6 +399,8 @@ export interface GameState {
   scp_mandates?: Record<string, CardData[]>;
   scp_incidents?: Record<string, SCPIncident[]>;
   scp_assignment_slots?: Record<string, number>;
+  // Cats engine — nested payload; useCatsGame.ts projects it into CatsState
+  cats?: unknown;
   // Game log
   game_log?: GameLogEntry[];
 }
@@ -502,7 +507,7 @@ export interface ActionResultResponse {
 
 // Bot Game Types
 export interface StartBotGameRequest {
-  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp';
+  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'cats';
   bot1_deck: string[];
   bot2_deck: string[];
   bot1_deck_id?: string;

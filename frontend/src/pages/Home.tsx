@@ -989,7 +989,7 @@ export function Home() {
           >
             <LibraryTile
               label="Deckbuilder"
-              description="Curated decklists across all 8 engines."
+              description="Curated decklists across all 9 engines."
               onClick={() => navigate('/deckbuilder')}
             />
             <LibraryTile

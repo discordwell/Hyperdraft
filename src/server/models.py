@@ -30,10 +30,10 @@ class AIDifficulty(str, Enum):
 
 class BotBrain(str, Enum):
     """Controller type for bot players."""
-    HEURISTIC = "heuristic"   # Built-in heuristic AIEngine
-    OPENAI = "openai"         # OpenAI API models (requires OPENAI_API_KEY)
-    ANTHROPIC = "anthropic"   # Anthropic API models (requires ANTHROPIC_API_KEY)
-    OLLAMA = "ollama"         # Local Ollama models (requires Ollama running)
+    HEURISTIC = "heuristic"      # Built-in heuristic AIEngine
+    OPENAI = "openai"            # OpenAI API models (requires OPENAI_API_KEY)
+    OLLAMA = "ollama"            # Local Ollama models (requires Ollama running)
+    CLAUDE_CODE = "claude_code"  # `claude -p` subprocess (uses OAuth, no API key)
 
 
 class ActionType(str, Enum):
@@ -118,6 +118,10 @@ class ActionType(str, Enum):
     SCP_APPLY_PROTOCOL = "SCP_APPLY_PROTOCOL"
     SCP_RESOLVE_INCIDENT = "SCP_RESOLVE_INCIDENT"
     SCP_END_TURN = "SCP_END_TURN"
+    # Cats (trick-taking + pile-building) action types
+    CATS_PLAY_CARD = "CATS_PLAY_CARD"
+    CATS_CHOOSE_PILE = "CATS_CHOOSE_PILE"
+    CATS_KNOCK_OVER = "CATS_KNOCK_OVER"
 
 
 class ChoiceType(str, Enum):
@@ -140,9 +144,9 @@ class ChoiceType(str, Enum):
 class CreateMatchRequest(BaseModel):
     """Request to create a new match."""
     mode: MatchMode = MatchMode.HUMAN_VS_BOT
-    game_mode: Literal["mtg", "hearthstone", "pokemon", "yugioh", "minecraft", "finance", "depths", "scp"] = Field(
+    game_mode: Literal["mtg", "hearthstone", "pokemon", "yugioh", "minecraft", "finance", "depths", "scp", "cats"] = Field(
         default="mtg",
-        description="Rules engine: 'mtg', 'hearthstone', 'pokemon', 'yugioh', 'minecraft', 'finance', 'depths', or 'scp'"
+        description="Rules engine: 'mtg', 'hearthstone', 'pokemon', 'yugioh', 'minecraft', 'finance', 'depths', 'scp', or 'cats'"
     )
     variant: Optional[str] = Field(default=None, description="Game variant (e.g. 'stormrift') — installs heroes/decks/modifiers")
     hero_class: Optional[str] = Field(default=None, description="Hero class for variant (e.g. 'Pyromancer', 'Cryomancer')")
@@ -191,6 +195,8 @@ class PlayerActionRequest(BaseModel):
     protocol: Optional[str] = Field(default=None, description="SCP special containment protocol")
     index: Optional[int] = Field(default=None, description="SCP incident index")
     amount: Optional[int] = Field(default=None, description="SCP numeric action amount")
+    # Cats action fields
+    pile_name: Optional[str] = Field(default=None, description="Cats pile name for CATS_CHOOSE_PILE (pile_territory/pile_nap/pile_snack)")
 
 
 class StartBotGameRequest(BaseModel):
@@ -204,8 +210,8 @@ class StartBotGameRequest(BaseModel):
     bot2_difficulty: AIDifficulty = AIDifficulty.MEDIUM
     bot1_brain: BotBrain = BotBrain.HEURISTIC
     bot2_brain: BotBrain = BotBrain.HEURISTIC
-    bot1_model: Optional[str] = Field(default=None, description="Model id (for OpenAI/Anthropic/Ollama brains)")
-    bot2_model: Optional[str] = Field(default=None, description="Model id (for OpenAI/Anthropic/Ollama brains)")
+    bot1_model: Optional[str] = Field(default=None, description="Model id (for OpenAI/Ollama/Claude Code brains)")
+    bot2_model: Optional[str] = Field(default=None, description="Model id (for OpenAI/Ollama/Claude Code brains)")
     bot1_name: Optional[str] = Field(default=None, description="Override display name for bot 1")
     bot2_name: Optional[str] = Field(default=None, description="Override display name for bot 2")
     bot1_temperature: float = Field(default=0.2, ge=0.0, le=1.0)
@@ -514,6 +520,11 @@ class GameStateResponse(BaseModel):
     scp_mandates: dict[str, list[CardData]] = Field(default_factory=dict)
     scp_incidents: dict[str, list[dict]] = Field(default_factory=dict)
     scp_assignment_slots: dict[str, int] = Field(default_factory=dict)
+    # Cats engine state — trick-taking + pile-building, symmetric per round.
+    # The frontend reads `cats` as a single nested object so the cats.tsx page
+    # can project it through useCatsGame.ts without flattening into top-level
+    # fields used by other engines.
+    cats: Optional[dict] = Field(default=None, description="Nested cats engine state (phase/trick/piles/scores)")
     # Game log
     game_log: list[GameLogEntry] = Field(default_factory=list)
 

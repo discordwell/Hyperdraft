@@ -1243,6 +1243,8 @@ def _cats_mode_adapter_class():
           - no mana
           - no hand-size cap (default None already)
           - empty-library does NOT lose the game (deck recycles from discard)
+          - setup is fully session-driven (setup_cats_player draws the hand,
+            installs commander); skip the standard MTG mulligan flow.
         """
 
         mode = "cats"
@@ -1253,6 +1255,14 @@ def _cats_mode_adapter_class():
         def handle_empty_library_draw(self, player, state):
             """Cats decks recycle from discard on empty — never auto-lose."""
             return []
+
+        def create_mana_system(self, state):
+            """Cats has no mana."""
+            return None
+
+        async def setup_starting_hands(self, game, player_ids):
+            """Cats's setup_cats_player already drew the opening hand."""
+            return True
 
     return CatsModeAdapter
 

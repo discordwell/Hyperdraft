@@ -14,7 +14,8 @@ export type GameModeId =
   | 'minecraft'
   | 'finance'
   | 'depths'
-  | 'scp';
+  | 'scp'
+  | 'cats';
 
 export interface GameModeMeta {
   id: GameModeId;
@@ -32,7 +33,7 @@ export interface GameModeMeta {
    * Per-mode top-of-game route. For modes that piggyback on GameView, this
    * is /game/:matchId; mode-specific views go to /game/:matchId/<suffix>.
    */
-  gameViewSuffix: '' | '/hs' | '/pkm' | '/ygo' | '/mc' | '/fin' | '/depths' | '/scp';
+  gameViewSuffix: '' | '/hs' | '/pkm' | '/ygo' | '/mc' | '/fin' | '/depths' | '/scp' | '/cats';
 }
 
 export const GAME_MODES: GameModeMeta[] = [
@@ -107,6 +108,15 @@ export const GAME_MODES: GameModeMeta[] = [
     blurb: 'Open dossiers, contain anomalies, mind the breach.',
     accent: 'violet',
     gameViewSuffix: '/scp',
+  },
+  {
+    id: 'cats',
+    code: 'CAT',
+    name: 'Cats',
+    title: 'Cats: A Day in the Life',
+    blurb: 'Trick-taking, pile-building. Nine rounds. Cats committee.',
+    accent: 'sheen',
+    gameViewSuffix: '/cats',
   },
 ];
 

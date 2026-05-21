@@ -1,5 +1,5 @@
 /**
- * Lab-display metadata for the 8 engines.
+ * Lab-display metadata for the 9 engines.
  *
  * The brand registry (`components/brand/modes.ts`) is canonical for routing
  * + tile content. This adds the lab-specific fields used by the engine rack
@@ -131,6 +131,19 @@ const META: Record<GameModeId, Omit<LabEngineMeta, keyof GameModeMeta>> = {
       { k: 'containment', v: 'theme' },
       { k: 'arch.', v: 'viewer' },
       { k: '312', v: 'cards' },
+    ],
+  },
+  cats: {
+    ix: 'E9',
+    subtitle: 'trick-taking · pile-building · 9 rounds',
+    stat: '6 decks',
+    completeness: 60,
+    leadEngine: false,
+    pickerStats: [
+      { k: '6', v: 'decks' },
+      { k: '9', v: 'rounds' },
+      { k: '4', v: 'piles' },
+      { k: 'tricks', v: 'core' },
     ],
   },
 };

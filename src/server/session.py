@@ -48,7 +48,7 @@ FOIL_RATE = 0.10
 
 
 # Action type prefixes handled by specific mode adapters.
-_MODE_ACTION_PREFIXES = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO", "minecraft": "MC", "finance": "FIN", "depths": "DEPTHS", "scp": "SCP"}
+_MODE_ACTION_PREFIXES = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO", "minecraft": "MC", "finance": "FIN", "depths": "DEPTHS", "scp": "SCP", "cats": "CATS"}
 
 _HS_ACTION_TYPES = frozenset({
     "HS_PLAY_CARD", "HS_ATTUNE_CARD", "HS_ATTACK", "HS_HERO_POWER", "HS_END_TURN",
@@ -90,6 +90,10 @@ _SCP_ACTION_TYPES = frozenset({
     "SCP_CONTAIN", "SCP_SUPPRESS", "SCP_SPEND_ETHICS",
     "SCP_SHIFT_MOOD", "SCP_CROSS_CONTAIN", "SCP_MEMORY_HOLE",
     "SCP_APPLY_PROTOCOL", "SCP_RESOLVE_INCIDENT", "SCP_END_TURN",
+})
+
+_CATS_ACTION_TYPES = frozenset({
+    "CATS_PLAY_CARD", "CATS_CHOOSE_PILE", "CATS_KNOCK_OVER",
 })
 
 
@@ -831,6 +835,11 @@ class GameSession:
                     "top_controller": top["controller"],
                 }
 
+        # Cats-specific state — nested dict consumed by useCatsGame.ts
+        cats_state_data: Optional[dict] = None
+        if game_state.game_mode == "cats":
+            cats_state_data = self._serialize_cats_state(game_state, player_id)
+
         # Depths-specific state
         depths_phase_val = None
         depths_combat_val: dict = {}
@@ -901,6 +910,7 @@ class GameSession:
             scp_mandates=scp_mandates,
             scp_incidents=scp_incidents,
             scp_assignment_slots=scp_assignment_slots,
+            cats=cats_state_data,
         )
 
     async def handle_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
@@ -1035,6 +1045,8 @@ class GameSession:
             return await get_server_mode_adapter("depths").handle_action(self, request)
         if request.action_type in _SCP_ACTION_TYPES:
             return await get_server_mode_adapter("scp").handle_action(self, request)
+        if request.action_type in _CATS_ACTION_TYPES:
+            return await get_server_mode_adapter("cats").handle_action(self, request)
 
         # Combat declarations are not wired through the priority action loop yet.
         if request.action_type in ("DECLARE_ATTACKERS", "DECLARE_BLOCKERS"):
@@ -2484,6 +2496,179 @@ class GameSession:
             requires_targets=action.requires_targets,
             requires_mana=action.requires_mana
         )
+
+    def _serialize_cats_state(self, game_state, viewer_id: Optional[str]) -> dict:
+        """Serialize the cats engine state into the shape expected by useCatsGame.ts.
+
+        The frontend consumes a single nested ``state.cats`` object with seat-
+        relative keys (``player`` / ``opponent``) and short pile names
+        (``territory`` / ``nap`` / ``snack`` / ``attention``). We map engine
+        identifiers (``pile_territory`` etc.) to the short keys here.
+        """
+        def _seat(pid: Optional[str]) -> Optional[str]:
+            """Map a player_id to 'me' / 'opponent' from the viewer's perspective."""
+            if pid is None:
+                return None
+            if viewer_id is None:
+                # No viewer (e.g. bot_vs_bot broadcast) — treat lowest-id seat
+                # as 'me' so the payload is still well-formed.
+                return "me" if pid == next(iter(game_state.players.keys()), None) else "opponent"
+            return "me" if pid == viewer_id else "opponent"
+
+        def _card_dto(obj_id: str, reveal: bool = True) -> dict:
+            """Serialize one card object to the cats wire shape."""
+            obj = game_state.objects.get(obj_id)
+            if obj is None:
+                return {
+                    "id": obj_id,
+                    "name": "?",
+                    "value": 0,
+                    "card_type": "Cat",
+                    "tapped": False,
+                }
+            card_def = obj.card_def
+            # Card type label
+            card_type = "Cat"
+            if card_def is not None:
+                try:
+                    from src.engine.types import CardType
+                    types = card_def.characteristics.types
+                    if CardType.CATS_MOOD in types:
+                        card_type = "Mood"
+                    elif CardType.CATS_SNACK in types:
+                        card_type = "Snack"
+                    elif CardType.CATS_TRINKET in types:
+                        card_type = "Trinket"
+                    elif CardType.CATS_COMMANDER in types:
+                        card_type = "Commander"
+                    elif CardType.CATS_CAT in types:
+                        card_type = "Cat"
+                except (ImportError, AttributeError):
+                    pass
+            value = 0
+            category = None
+            text = ""
+            name = obj.name or "?"
+            if card_def is not None:
+                value = int(getattr(card_def, "cats_value", 0) or 0)
+                category = getattr(card_def, "cats_category", None)
+                text = card_def.text or ""
+            if not reveal:
+                # Hide opponent hand cards: opaque "Hidden Cat" placeholder.
+                return {
+                    "id": obj_id,
+                    "name": "Hidden Cat",
+                    "value": 0,
+                    "card_type": "Cat",
+                    "tapped": False,
+                }
+            return {
+                "id": obj_id,
+                "name": name,
+                "value": value,
+                "category": category,
+                "card_type": card_type,
+                "text": text,
+                "tapped": bool(getattr(obj.state, "tapped", False)) if obj.state else False,
+            }
+
+        def _pile_dto(piles_map: dict, pile_key: str) -> list[dict]:
+            ids = piles_map.get(pile_key, []) if piles_map else []
+            return [_card_dto(oid, reveal=True) for oid in ids]
+
+        def _player_state(pid: str, reveal_hand: bool) -> dict:
+            hand_zone = game_state.zones.get(f"HAND_{pid}")
+            hand_ids = list(hand_zone.objects) if hand_zone else []
+            piles_map = (getattr(game_state, "cats_piles", {}) or {}).get(pid, {})
+            commanders = getattr(game_state, "cats_commanders", {}) or {}
+            cmd_id = commanders.get(pid)
+            return {
+                "hand": [_card_dto(cid, reveal=reveal_hand) for cid in hand_ids],
+                "hand_size": len(hand_ids),
+                "piles": {
+                    "territory": _pile_dto(piles_map, "pile_territory"),
+                    "nap": _pile_dto(piles_map, "pile_nap"),
+                    "snack": _pile_dto(piles_map, "pile_snack"),
+                    "attention": _pile_dto(piles_map, "pile_attention"),
+                },
+                "commander": _card_dto(cmd_id, reveal=True) if cmd_id else None,
+            }
+
+        # Resolve viewer + opponent ids
+        all_pids = list(game_state.players.keys())
+        if viewer_id and viewer_id in all_pids:
+            me_id = viewer_id
+            opp_id = next((p for p in all_pids if p != viewer_id), None)
+        else:
+            me_id = all_pids[0] if all_pids else None
+            opp_id = all_pids[1] if len(all_pids) > 1 else None
+
+        # Phase: derive a label from trick state.
+        trick = getattr(game_state, "cats_current_trick", None) or {}
+        winner_id = trick.get("winner")
+        if winner_id is not None:
+            phase = "claim"
+        elif trick.get("counter_card"):
+            phase = "resolve"
+        elif trick.get("pounce_card"):
+            phase = "counter_pounce"
+        else:
+            phase = "pounce"
+
+        lead_id = getattr(game_state, "cats_lead_player", None)
+
+        # Installed rule name (Sleek/Fluffy/Scrappy/Sneaky), if any
+        installed_rule_name = None
+        rule_fn = trick.get("installed_rule") or getattr(game_state, "cats_current_rule", None)
+        if rule_fn is not None:
+            try:
+                from src.engine.cats import CATS_CATEGORY_RULES
+                for cat_name, fn in CATS_CATEGORY_RULES.items():
+                    if fn is rule_fn:
+                        installed_rule_name = cat_name
+                        break
+            except Exception:
+                pass
+
+        current_trick = {
+            "pounce_card": _card_dto(trick.get("pounce_card"), reveal=True) if trick.get("pounce_card") else None,
+            "counter_card": _card_dto(trick.get("counter_card"), reveal=True) if trick.get("counter_card") else None,
+            "winner": _seat(winner_id),
+            "installed_rule": installed_rule_name,
+        }
+
+        # Final scores when game ends.
+        final_scores = None
+        if getattr(game_state, "cats_game_over", False):
+            scores = getattr(game_state, "cats_final_scores", {}) or {}
+            if me_id and opp_id:
+                me_score = scores.get(me_id) or {}
+                opp_score = scores.get(opp_id) or {}
+                def _score_dto(s: dict) -> dict:
+                    return {
+                        "territory": int(s.get("territory", 0) or 0),
+                        "nap": int(s.get("nap", 0) or 0),
+                        "snack": int(s.get("snack", 0) or 0),
+                        "attention": int(s.get("attention", 0) or 0),
+                        "total": int(s.get("total", 0) or 0),
+                    }
+                final_scores = {
+                    "me": _score_dto(me_score),
+                    "opponent": _score_dto(opp_score),
+                }
+
+        result: dict = {
+            "round_number": int(getattr(game_state, "cats_round_number", 1) or 1),
+            "phase": phase,
+            "lead_player": _seat(lead_id) or "me",
+            "current_trick": current_trick,
+            "player": _player_state(me_id, reveal_hand=True) if me_id else None,
+            "opponent": _player_state(opp_id, reveal_hand=False) if opp_id else None,
+            "game_over": bool(getattr(game_state, "cats_game_over", False)),
+        }
+        if final_scores is not None:
+            result["final_scores"] = final_scores
+        return result
 
     def _record_frame(self, action: Optional[dict]) -> None:
         """Record a replay frame."""

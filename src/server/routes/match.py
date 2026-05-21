@@ -642,6 +642,51 @@ async def create_match(
             if ai2_id:
                 session.add_cards_to_deck(ai2_id, FINANCE_DECKS[ai_deck_key]())
 
+    elif request.game_mode == "cats":
+        # Cats: trick-taking + pile-building. Decks are 30-card commander+main
+        # tuples in CATS_DECKS. The cats engine uses its own setup_cats_player
+        # primitive (shuffles deck, draws CATS_HAND_SIZE, installs commander).
+        from src.cards.cats.CATS.decks import CATS_DECKS
+        from src.engine.cats import setup_cats_player
+        import random
+
+        deck_keys = list(CATS_DECKS.keys())
+        default_human = "Couch Empire"
+        default_ai = "Naptime Tyrants"
+
+        human_deck_key = (
+            request.player_deck_id if request.player_deck_id in CATS_DECKS
+            else default_human
+        )
+        ai_deck_key = (
+            request.ai_deck_id if request.ai_deck_id in CATS_DECKS
+            else default_ai
+        )
+        if request.mode == "bot_vs_bot":
+            shuffled = list(deck_keys)
+            random.shuffle(shuffled)
+            human_deck_key, ai_deck_key = shuffled[0], shuffled[1]
+
+        # Build seat assignments. In human_vs_bot mode the human is seat 0
+        # so they're the round-1 lead-rotation anchor (player_ids[0]).
+        seat_keys: dict[str, str] = {}
+        for idx, pid in enumerate(session.player_ids):
+            if pid == human_id:
+                seat_keys[pid] = human_deck_key
+            elif ai_id and pid == ai_id:
+                seat_keys[pid] = ai_deck_key
+            elif ai2_id and pid == ai2_id:
+                # bot-vs-bot second seat
+                seat_keys[pid] = ai_deck_key
+            else:
+                # Fallback for any unmapped seats — alternate decks.
+                seat_keys[pid] = deck_keys[idx % len(deck_keys)]
+
+        for pid, deck_key in seat_keys.items():
+            commander, deck_cards = CATS_DECKS[deck_key]
+            setup_cats_player(session.game.state, pid, deck_cards, commander=commander)
+            session.deck_card_defs_by_player.setdefault(pid, []).extend(deck_cards)
+
     elif request.game_mode == "depths":
         from src.cards.depths.submarine_fleet.decks import SUBS_STARTER_DECKS, make_subs_flagship
         import random
@@ -743,33 +788,10 @@ async def create_match(
 
 
 # Registry of live ultra-agent subprocesses, keyed by (match_id, ai_player_id).
-# Used to bound concurrency (HYPERDRAFT_ULTRA_MAX) and to allow Phase 3 cleanup
-# to reap zombies when a match ends mid-session.
+# Used by Phase 3 cleanup to reap zombies when a match ends mid-session. No
+# concurrency cap is enforced — Claude Code seats spawn freely.
 _active_ultra_subprocesses: dict[tuple[str, str], "object"] = {}
-# Serializes the cap-check + spawn so two concurrent create_match calls can't
-# both see ``live < cap`` and both spawn, blowing past HYPERDRAFT_ULTRA_MAX.
 _ultra_spawn_lock = asyncio.Lock()
-
-
-def _ultra_cap() -> int:
-    """Read the env-tunable cap for concurrent ultra subprocesses."""
-    raw = os.environ.get("HYPERDRAFT_ULTRA_MAX", "").strip()
-    try:
-        return max(1, int(raw)) if raw else 3
-    except ValueError:
-        return 3
-
-
-def _count_live_ultra_subprocesses() -> int:
-    """How many ultra subprocesses are still running right now."""
-    live = 0
-    for proc in _active_ultra_subprocesses.values():
-        try:
-            if proc.poll() is None:
-                live += 1
-        except Exception:
-            pass
-    return live
 
 
 async def _spawn_ultra_subprocess(
@@ -788,12 +810,10 @@ async def _spawn_ultra_subprocess(
     to tail. The process inherits ``start_new_session=True`` so it's not
     killed when the FastAPI worker recycles.
 
-    Returns True if spawned, False if the cap was hit or the launcher is
-    missing. Failure must NOT break match creation — the user can still
-    play (the AI seat just sits idle until manually relaunched).
+    Returns True if spawned, False if the launcher is missing. Failure must
+    NOT break match creation — the user can still play (the AI seat just
+    sits idle until manually relaunched).
     """
-    import shlex
-    import shutil
     import subprocess
     from pathlib import Path
 
@@ -822,20 +842,9 @@ async def _spawn_ultra_subprocess(
     if agent_model:
         env["ULTRA_MODEL"] = agent_model
 
-    # Serialize the cap-check + Popen + registry-insert so two concurrent
-    # create_match calls can't both observe live < cap and both spawn.
+    # Serialize Popen + registry-insert so concurrent create_match calls
+    # don't race on the registry. No cap is enforced.
     async with _ultra_spawn_lock:
-        cap = _ultra_cap()
-        live = _count_live_ultra_subprocesses()
-        if live >= cap:
-            print(
-                f"[ultra:{runner}] {live}/{cap} subprocesses in flight; refusing to "
-                f"spawn for {match_id} / {ai_player_id}. Increase HYPERDRAFT_ULTRA_MAX "
-                f"to allow more.",
-                flush=True,
-            )
-            return False
-
         try:
             log_fh = open(log_path, "ab")
             proc = subprocess.Popen(
