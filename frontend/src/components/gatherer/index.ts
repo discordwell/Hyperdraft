@@ -1,12 +1,10 @@
 /**
  * Gatherer Components
  *
- * Components for the Gatherer card browser feature.
+ * The page-level Gatherer.tsx composes the lab masthead + filter row + grid
+ * inline; the body cells (SketchCard / SketchCardDetail) keep their existing
+ * parchment chrome per the per-card-identity rule in docs/design/brand.md.
  */
 
-export { SetSidebar } from './SetSidebar';
-export { GathererFilterBar } from './GathererFilterBar';
-export { GathererCardGrid } from './GathererCardGrid';
-export { CardDetailModal } from './CardDetailModal';
 export { SketchCard } from './SketchCard';
 export { SketchCardDetail } from './SketchCardDetail';

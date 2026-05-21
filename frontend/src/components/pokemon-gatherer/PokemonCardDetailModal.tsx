@@ -1,7 +1,10 @@
 /**
  * PokemonCardDetailModal
  *
- * Full-card overlay for the Pokemon gatherer. Wraps PKMCardDisplay.
+ * Full-card overlay for the Pokemon gatherer. The modal *chrome* (scrim,
+ * plate, close affordance, set caption) is lab posture — paper plate,
+ * hairline rule, mono caption. The card body inside (`PKMCardDisplay`)
+ * keeps its per-card identity and is untouched.
  */
 
 import { useEffect } from 'react';
@@ -28,25 +31,70 @@ export function PokemonCardDetailModal() {
 
   return (
     <div
-      className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
       onClick={() => selectCard(null)}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 50,
+        background: 'color-mix(in oklab, var(--ink) 70%, transparent)',
+        backdropFilter: 'blur(6px) saturate(1.05)',
+        display: 'grid',
+        placeItems: 'center',
+        padding: 16,
+      }}
     >
       <div
-        className="relative w-full max-w-md bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-5 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
+        style={{
+          position: 'relative',
+          width: '100%',
+          maxWidth: 440,
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          background: 'var(--paper)',
+          border: '1px solid var(--ink)',
+          boxShadow: '0 24px 64px -20px rgba(20,24,40,.45)',
+          padding: 22,
+          fontFamily: 'var(--font-sans)',
+        }}
       >
         <button
           onClick={() => selectCard(null)}
-          className="absolute -top-3 -right-3 w-8 h-8 bg-stone-800 hover:bg-stone-700 text-white rounded-full flex items-center justify-center shadow-lg z-10 transition-colors"
           aria-label="Close"
+          style={{
+            position: 'absolute',
+            top: -14,
+            right: -14,
+            width: 32,
+            height: 32,
+            background: 'var(--ink)',
+            color: 'var(--paper)',
+            border: '1px solid var(--ink)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 14,
+            lineHeight: 1,
+          }}
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          ×
         </button>
 
         {currentSet && (
-          <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-2">
+          <div
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 10,
+              letterSpacing: '.14em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-3)',
+              marginBottom: 10,
+              paddingBottom: 8,
+              borderBottom: '1px solid var(--rule)',
+            }}
+          >
             {currentSet.name} · {currentSet.code}
           </div>
         )}
