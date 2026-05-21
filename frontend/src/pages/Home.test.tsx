@@ -3,6 +3,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { botGameAPI, matchAPI } from '../services/api';
+import { useDiscoveryStore } from '../stores/discoveryStore';
+import { LAB_ENGINES } from '../components/lab/engineMeta';
 import { Home, MINECRAFT_STARTER_DECK_OPTIONS } from './Home';
 
 vi.mock('../services/api', () => ({
@@ -25,6 +27,7 @@ function renderHome() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useDiscoveryStore.setState({ playedEngines: [] });
   vi.mocked(matchAPI.listDecks).mockResolvedValue({
     decks: [
       {
@@ -127,5 +130,27 @@ describe('Home Minecraft starter deck options', () => {
         bot2_deck_id: 'raider',
       }));
     });
+  });
+
+  // The `?` chord opens RulesSheet globally; the Home hero advertises it as
+  // a tiny mono footnote so users can discover the affordance. It must
+  // persist across all three eyebrow states (fresh / some-played / all-
+  // played) because it's a global chord, not state-specific copy.
+  it('renders the ? rules-sheet chord hint across every eyebrow state', () => {
+    // 1) Fresh user — no engines played.
+    const { unmount: unmountFresh } = renderHome();
+    expect(screen.getByTestId('rules-chord-hint')).toHaveTextContent(/\?.*rules sheet/i);
+    unmountFresh();
+
+    // 2) Mid-discovery — at least one played, at least one unplayed.
+    useDiscoveryStore.setState({ playedEngines: [LAB_ENGINES[0].id] });
+    const { unmount: unmountMid } = renderHome();
+    expect(screen.getByTestId('rules-chord-hint')).toHaveTextContent(/\?.*rules sheet/i);
+    unmountMid();
+
+    // 3) Completionist — every registered engine played, eyebrow chip drops.
+    useDiscoveryStore.setState({ playedEngines: LAB_ENGINES.map((e) => e.id) });
+    renderHome();
+    expect(screen.getByTestId('rules-chord-hint')).toHaveTextContent(/\?.*rules sheet/i);
   });
 });

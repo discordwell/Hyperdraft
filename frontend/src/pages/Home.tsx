@@ -456,6 +456,24 @@ export function Home() {
               >
                 no signup · runs locally
               </span>
+              {/* Ambient discoverability hint for the global `?` chord that
+                  opens RulesSheet. Mirrors the `⌥P · pipeline` precedent in
+                  GameViewLayout — a label-as-affordance, not a CTA, and
+                  state-independent so it persists across all three eyebrow
+                  states (fresh / some-played / all-played). */}
+              <span
+                data-testid="rules-chord-hint"
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 10,
+                  letterSpacing: '.08em',
+                  color: 'var(--ink-3)',
+                  whiteSpace: 'nowrap',
+                }}
+                aria-label="Press ? to open the rules sheet"
+              >
+                ? · rules sheet
+              </span>
             </div>
           </div>
 
