@@ -8,8 +8,346 @@ import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { botGameAPI, matchAPI } from '../services/api';
 import { GameBoard } from '../components/game';
+import { HSGameBoard } from '../components/game/HSGameBoard';
+import { PKMGameBoard } from '../components/game/PKMGameBoard';
+import { YGOGameBoard } from '../components/game/YGOGameBoard';
+import { MCGameBoard } from '../components/game/MCGameBoard';
+import { FinanceGameBoard } from '../games/finance';
+import { DepthsGameBoard } from '../games/depths';
+import type { DepthBand } from '../games/depths';
 import { Timeline } from '../components/lab';
-import type { ReplayFrame, ReplayResponse, GameState } from '../types';
+import type { ReplayFrame, ReplayResponse, GameState, CardData } from '../types';
+
+// ---------------------------------------------------------------------------
+// Replay board dispatch — pick the per-engine board for the current frame.
+//
+// `/replay/:gameId` (and `/replay/match/:matchId`) historically always
+// rendered the MTG `<GameBoard>` regardless of what engine actually played
+// the game out, which made e.g. a Minecraft replay try to render MC cards
+// inside an MTG "battlefield / stack / phases" frame — meaningless for the
+// audience.
+//
+// `ReplayBoardSwitch` selects on the frame's `game_mode` and renders the
+// matching per-engine board. Each board's interactive callbacks (play /
+// attack / end-turn) are wired to no-ops because a replay is read-only by
+// definition — the user is scrubbing recorded frames, not driving the game.
+//
+// Mapping (must stay in lock-step with SpectatorView's same dispatch):
+//   'mtg'        → GameBoard
+//   'hearthstone'→ HSGameBoard
+//   'pokemon'    → PKMGameBoard
+//   'yugioh'     → YGOGameBoard
+//   'minecraft'  → MCGameBoard
+//   'finance'    → FinanceGameBoard
+//   'depths'     → DepthsGameBoard
+//   'scp' / 'cats' / unknown → MTG GameBoard + console.warn (see below)
+//
+// SCP and Cats GameView pages are written as monolithic in-page views that
+// pull from their own hooks (`useSCPGame`, `useCatsGame`) rather than
+// accepting `gameState` as a prop. Wiring those into replay mode requires
+// extracting a read-only board component from each — out of scope for this
+// fix. Until then we fall back to GameBoard + a one-shot warn so a missed
+// engine surfaces in the console instead of silently rendering the MTG
+// frame around non-MTG cards.
+// ---------------------------------------------------------------------------
+
+const noop = () => undefined;
+
+interface ReplayBoardSwitchProps {
+  gameState: GameState;
+  playerId: string;
+}
+
+function ReplayBoardSwitch({ gameState, playerId }: ReplayBoardSwitchProps) {
+  const mode = gameState.game_mode ?? 'mtg';
+
+  if (mode === 'mtg') {
+    return <GameBoard gameState={gameState} playerId={playerId} />;
+  }
+
+  if (mode === 'hearthstone') {
+    return (
+      <HSGameBoard
+        gameState={gameState}
+        playerId={playerId}
+        isMyTurn={false}
+        canPlayCard={() => false}
+        canAttuneCard={() => false}
+        canAttack={() => false}
+        canUseHeroPower={false}
+        getAttackableTargets={() => []}
+        onPlayCard={noop}
+        onAttuneCard={noop}
+        onAttack={noop}
+        onHeroPower={noop}
+        onEndTurn={noop}
+      />
+    );
+  }
+
+  if (mode === 'pokemon') {
+    const opponentId = Object.keys(gameState.players).find((id) => id !== playerId) || '';
+    const myPlayer = gameState.players[playerId] || null;
+    const opponentPlayer = opponentId ? gameState.players[opponentId] : null;
+    const myActivePokemon = gameState.active_pokemon?.[playerId] ?? null;
+    const opponentActivePokemon = opponentId ? gameState.active_pokemon?.[opponentId] ?? null : null;
+    const myBench = gameState.bench?.[playerId] ?? [];
+    const opponentBench = opponentId ? gameState.bench?.[opponentId] ?? [] : [];
+    const stadiumCard = gameState.stadium_card ?? null;
+    const hand = gameState.hand ?? [];
+    const myGraveyard = gameState.graveyard?.[playerId] ?? [];
+    const opponentGraveyard = opponentId ? gameState.graveyard?.[opponentId] ?? [] : [];
+
+    return (
+      <PKMGameBoard
+        gameState={gameState}
+        playerId={playerId}
+        isMyTurn={false}
+        myPlayer={myPlayer}
+        opponentPlayer={opponentPlayer}
+        myActivePokemon={myActivePokemon}
+        opponentActivePokemon={opponentActivePokemon}
+        myBench={myBench}
+        opponentBench={opponentBench}
+        stadiumCard={stadiumCard}
+        hand={hand}
+        myGraveyard={myGraveyard}
+        opponentGraveyard={opponentGraveyard}
+        canPlayCard={() => false}
+        canAttachEnergy={() => false}
+        onPlayCard={noop}
+        onAttachEnergy={noop}
+        onAttack={noop}
+        onRetreat={noop}
+        onEvolve={noop}
+        onUseAbility={noop}
+        onEndTurn={noop}
+      />
+    );
+  }
+
+  if (mode === 'yugioh') {
+    const opponentId = Object.keys(gameState.players).find((id) => id !== playerId) || '';
+    const myPlayer = gameState.players[playerId] || null;
+    const opponentPlayer = opponentId ? gameState.players[opponentId] : null;
+    const myMonsterZones = gameState.monster_zones?.[playerId] ?? [null, null, null, null, null];
+    const oppMonsterZones = opponentId
+      ? gameState.monster_zones?.[opponentId] ?? [null, null, null, null, null]
+      : [null, null, null, null, null];
+    const mySpellTrapZones = gameState.spell_trap_zones?.[playerId] ?? [null, null, null, null, null];
+    const oppSpellTrapZones = opponentId
+      ? gameState.spell_trap_zones?.[opponentId] ?? [null, null, null, null, null]
+      : [null, null, null, null, null];
+    const myFieldSpell = gameState.field_spells?.[playerId] ?? null;
+    const oppFieldSpell = opponentId ? gameState.field_spells?.[opponentId] ?? null : null;
+    const hand = gameState.hand ?? [];
+    const myGraveyard = gameState.graveyard?.[playerId] ?? [];
+    const oppGraveyard = opponentId ? gameState.graveyard?.[opponentId] ?? [] : [];
+    const myBanished = gameState.banished?.[playerId] ?? [];
+    const oppBanished = opponentId ? gameState.banished?.[opponentId] ?? [] : [];
+    const myExtraDeckSize = gameState.extra_deck_sizes?.[playerId] ?? 0;
+    const oppExtraDeckSize = opponentId ? gameState.extra_deck_sizes?.[opponentId] ?? 0 : 0;
+
+    return (
+      <YGOGameBoard
+        gameState={gameState}
+        playerId={playerId}
+        isMyTurn={false}
+        myPlayer={myPlayer}
+        opponentPlayer={opponentPlayer}
+        myMonsterZones={myMonsterZones}
+        oppMonsterZones={oppMonsterZones}
+        mySpellTrapZones={mySpellTrapZones}
+        oppSpellTrapZones={oppSpellTrapZones}
+        myFieldSpell={myFieldSpell}
+        oppFieldSpell={oppFieldSpell}
+        hand={hand}
+        myGraveyard={myGraveyard}
+        oppGraveyard={oppGraveyard}
+        myBanished={myBanished}
+        oppBanished={oppBanished}
+        myExtraDeckSize={myExtraDeckSize}
+        oppExtraDeckSize={oppExtraDeckSize}
+        ygoPhase={gameState.ygo_phase ?? 'MAIN1'}
+        onNormalSummon={noop}
+        onSetMonster={noop}
+        onFlipSummon={noop}
+        onChangePosition={noop}
+        onActivateCard={noop}
+        onSetSpellTrap={noop}
+        onDeclareAttack={noop}
+        onDirectAttack={noop}
+        onEndPhase={noop}
+        onEndTurn={noop}
+      />
+    );
+  }
+
+  if (mode === 'minecraft') {
+    const opponentId = Object.keys(gameState.players).find((id) => id !== playerId) || '';
+    const myPlayer = gameState.players[playerId] || null;
+    const opponentPlayer = opponentId ? gameState.players[opponentId] : null;
+    const myMobs = gameState.battlefield.filter((c: CardData) => c.controller === playerId);
+    const opponentMobs = opponentId
+      ? gameState.battlefield.filter((c: CardData) => c.controller === opponentId)
+      : [];
+
+    return (
+      <MCGameBoard
+        gameState={gameState}
+        playerId={playerId}
+        opponentId={opponentId || null}
+        myPlayer={myPlayer}
+        opponentPlayer={opponentPlayer}
+        myMobs={myMobs}
+        opponentMobs={opponentMobs}
+        isMyTurn={false}
+        canPlayCard={() => false}
+        canUseMob={() => false}
+        canBlockMob={() => false}
+        onPlayCard={noop}
+        onMineWorker={noop}
+        onAvatarMine={noop}
+        onAvatarExplore={noop}
+        onAvatarAttack={noop}
+        onAttack={noop}
+        onDeclareBlockers={noop}
+        onEndTurn={noop}
+      />
+    );
+  }
+
+  if (mode === 'finance') {
+    const opponentId = Object.keys(gameState.players).find((id) => id !== playerId) || '';
+    const myPlayer = gameState.players[playerId] || null;
+    const opponentPlayer = opponentId ? gameState.players[opponentId] : null;
+    const battlefield = gameState.battlefield ?? [];
+    const myTraders = battlefield.filter(
+      (c) => c.controller === playerId && c.types.includes('FIN_TRADER'),
+    );
+    const myAssets = battlefield.filter(
+      (c) => c.controller === playerId && c.types.includes('FIN_ASSET'),
+    );
+    const myStructures = battlefield.filter(
+      (c) => c.controller === playerId && c.types.includes('FIN_STRUCTURE'),
+    );
+    const oppTraders = opponentId
+      ? battlefield.filter((c) => c.controller === opponentId && c.types.includes('FIN_TRADER'))
+      : [];
+    const oppAssets = opponentId
+      ? battlefield.filter((c) => c.controller === opponentId && c.types.includes('FIN_ASSET'))
+      : [];
+
+    const gs = gameState as unknown as Record<string, unknown>;
+    const turnData = gs['finance_turn_data'] as Record<string, unknown> | undefined;
+    const rawDeriv = turnData?.[`finance_deriv_desk_${playerId}`];
+    const myDerivDesk: string[] = Array.isArray(rawDeriv) ? (rawDeriv as string[]) : [];
+
+    return (
+      <FinanceGameBoard
+        gameState={gameState}
+        playerId={playerId}
+        opponentId={opponentId || null}
+        myPlayer={myPlayer}
+        opponentPlayer={opponentPlayer}
+        myTraders={myTraders}
+        myAssets={myAssets}
+        myStructures={myStructures}
+        myHand={gameState.hand ?? []}
+        myDerivDesk={myDerivDesk}
+        oppTraders={oppTraders}
+        oppAssets={oppAssets}
+        currentPhase={gameState.finance_phase ?? gameState.phase ?? 'PRE_MARKET'}
+        myLiquidity={myPlayer?.mana_crystals_available ?? 0}
+        myLiquidityMax={myPlayer?.mana_crystals ?? 0}
+        darkPoolActive={!!gameState.finance_dark_pool}
+        isMyTurn={false}
+        canPlayCard={() => false}
+        canAttack={() => false}
+        canBlock={() => false}
+        onPlayCard={noop}
+        onDeclareAttackers={noop}
+        onDeclareBlockers={noop}
+        onActivateAbility={noop}
+        onEndTurn={noop}
+      />
+    );
+  }
+
+  if (mode === 'depths') {
+    const opponentId = Object.keys(gameState.players).find((id) => id !== playerId) || '';
+    const myPlayer = gameState.players[playerId] || null;
+    const opponentPlayer = opponentId ? gameState.players[opponentId] : null;
+    const battlefield = gameState.battlefield ?? [];
+    const myVessels = battlefield.filter(
+      (c) => c.controller === playerId && !c.is_flagship && !c.types.includes('DEPTHS_MINE'),
+    );
+    const oppVessels = opponentId
+      ? battlefield.filter(
+          (c) =>
+            c.controller === opponentId && !c.is_flagship && !c.types.includes('DEPTHS_MINE'),
+        )
+      : [];
+    const myFlagship = battlefield.find((c) => c.controller === playerId && c.is_flagship) ?? null;
+    const opponentFlagship = opponentId
+      ? battlefield.find((c) => c.controller === opponentId && c.is_flagship) ?? null
+      : null;
+    const myMines = battlefield.filter(
+      (c) => c.controller === playerId && c.types.includes('DEPTHS_MINE'),
+    );
+    const oppMines = opponentId
+      ? battlefield.filter(
+          (c) => c.controller === opponentId && c.types.includes('DEPTHS_MINE'),
+        )
+      : [];
+
+    // DepthsGameBoard's onPlayCard / onLayMine take a DepthBand; pass-throughs
+    // are no-ops in replay mode, so we cast the noop to swallow whatever
+    // signature it receives.
+    const noopDepth = (_a?: string, _b?: DepthBand) => undefined;
+
+    return (
+      <DepthsGameBoard
+        gameState={gameState}
+        playerId={playerId}
+        opponentId={opponentId || null}
+        myPlayer={myPlayer}
+        opponentPlayer={opponentPlayer}
+        myFlagship={myFlagship}
+        opponentFlagship={opponentFlagship}
+        myVessels={myVessels}
+        opponentVessels={oppVessels}
+        myMines={myMines}
+        opponentMines={oppMines}
+        isMyTurn={false}
+        canPlayCard={() => false}
+        canUseVessel={() => false}
+        canIntercept={() => false}
+        onPlayCard={noopDepth}
+        onDive={noop}
+        onSurface={noop}
+        onLayMine={(_id, _band) => undefined}
+        onDeclareAttackers={noop}
+        onDetect={noop}
+        onDeclareInterceptors={noop}
+        onActivateAbility={noop}
+        onEndTurn={noop}
+      />
+    );
+  }
+
+  // SCP and Cats do not (yet) have standalone read-only board components —
+  // their GameView pages render the UI inline against engine-specific hooks
+  // that read from the live gameStore rather than accepting `gameState` as
+  // a prop. Until those are factored out, replays of those engines fall back
+  // to the MTG board so something renders; surface the gap in the console.
+  console.warn(
+    `[ReplayBoardSwitch] No per-engine board for game_mode='${mode}'; falling back to GameBoard. ` +
+      `Replays of this engine will render with the MTG board chrome until the engine's view is ` +
+      `factored into a read-only board component.`,
+  );
+  return <GameBoard gameState={gameState} playerId={playerId} />;
+}
 
 type ReplayMode = 'action' | 'phase';
 
@@ -524,7 +862,7 @@ export function ReplayView() {
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_420px]">
         <div className="relative">
           {currentState && spectatorPlayerId ? (
-            <GameBoard gameState={currentState} playerId={spectatorPlayerId} />
+            <ReplayBoardSwitch gameState={currentState} playerId={spectatorPlayerId} />
           ) : (
             <div className="flex items-center justify-center h-full">
               <p className="text-gray-500">No game state available</p>
