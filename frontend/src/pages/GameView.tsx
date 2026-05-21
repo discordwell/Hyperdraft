@@ -623,6 +623,7 @@ export function GameView() {
       phase={phaseName}
       opponentName={opponentName}
       playerName={playerName}
+      pipelineOpen={pipelineOpen}
     >
     <div
       className="px-4 py-2 border-b"

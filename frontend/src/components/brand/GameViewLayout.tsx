@@ -1,19 +1,21 @@
 /**
- * GameViewLayout — unified chrome for every game view.
+ * GameViewLayout — the seam between lab and game.
  *
- * Wraps the mode-specific board (which stays untouched) with a brand top
- * bar (mode monogram + match metadata + exit button) and an optional
- * right rail (game log, reasoning panel). The board's own internal
- * scroll / layout is preserved; this component only owns the surround.
+ * Wraps every in-game view with a thin header strip (HYPERDRAFT mark,
+ * mode code, match breadcrumb, opponent/player names, ⌥P discoverability
+ * hint, ← Lab button) and renders the per-engine board into {children}
+ * unchanged. The strip carries the player from the lab into the
+ * experiment and back; each match's interior keeps its own chrome.
  *
- * Pages opt in by replacing their outer <div className="min-h-screen ...">
- * with a <GameViewLayout mode="..." matchId="...">; the rest of the page
- * body becomes its children.
+ * The strip itself is rendered with the lab tokens (paper / ink /
+ * sodium, Geist Mono telemetry, hairline rule below) so it reads as a
+ * lab surface; the body below is the game's domain — do not lab-ify it.
+ *
+ * Phases C1 + D1 of docs/design/buildplan.md.
  */
 
-import { ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Monogram } from './Monogram';
+import { CSSProperties, ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getMode, type GameModeId } from './modes';
 
 export interface GameViewLayoutProps {
@@ -25,12 +27,18 @@ export interface GameViewLayoutProps {
   playerName?: string;
   /** Right-rail slot — usually a game log or reasoning panel. */
   rightRail?: ReactNode;
-  /** Whether to show the back-to-home button. */
+  /** Whether to show the back-to-lab button. */
   showExit?: boolean;
   /** Render content edge-to-edge (default) vs in a centered max-width container. */
   contained?: boolean;
   /** Optional callback fired when the exit chip is clicked (e.g. concede). */
   onExit?: () => void;
+  /**
+   * Whether the ⌥P PipelineView overlay is currently open. When true the
+   * discoverability hint hides, since the overlay is doing its own
+   * teaching. Optional — defaults to false.
+   */
+  pipelineOpen?: boolean;
   children: ReactNode;
 }
 
@@ -45,6 +53,7 @@ export function GameViewLayout({
   showExit = true,
   contained = false,
   onExit,
+  pipelineOpen = false,
   children,
 }: GameViewLayoutProps) {
   const navigate = useNavigate();
@@ -53,98 +62,235 @@ export function GameViewLayout({
     if (onExit) onExit();
     navigate('/');
   };
+  const modeCode = meta?.code ?? mode.toUpperCase();
+  const shortMatchId = matchId ? matchId.slice(0, 8).toUpperCase() : null;
+  const turnStr =
+    turn !== undefined && turn !== null && turn !== '' ? String(turn) : null;
+  const phaseStr = phase ? phase.toUpperCase() : null;
+
+  // Breadcrumb segments — only render the dots between segments that actually
+  // exist, so a match with no turn yet doesn't show "MATCH HD · · PHASE".
+  const crumbSegments: string[] = [];
+  if (shortMatchId) crumbSegments.push(`MATCH ${shortMatchId}`);
+  if (turnStr) crumbSegments.push(`TURN ${turnStr}`);
+  if (phaseStr) crumbSegments.push(phaseStr);
 
   return (
-    <div className="min-h-screen bg-brand-ink text-brand-cream">
-      <header className="sticky top-0 z-30 border-b border-brand-hairline/60 bg-brand-ink/85 backdrop-blur-xl">
-        <div className={contained ? 'mx-auto max-w-7xl px-6 lg:px-8' : 'px-4 lg:px-6'}>
-          <div className="h-14 flex items-center gap-5">
-            {/* Mode badge */}
-            <Link
-              to="/"
-              className="flex items-center gap-3 group"
+    <div style={{ minHeight: '100vh', background: 'var(--paper)', color: 'var(--ink)' }}>
+      <header style={headerStyle}>
+        <div style={contained ? containedInner : edgeInner}>
+          <div style={stripRow}>
+            {/* HYPERDRAFT mark — mono micro-caps, click → Home. */}
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              style={wordmarkBtn}
               aria-label="HYPERDRAFT home"
             >
-              {meta && <Monogram mode={meta} size={26} variant="foil" />}
-              <span className="hidden md:flex flex-col leading-tight -mt-0.5">
-                <span className="brand-eyebrow text-brand-foil group-hover:text-brand-foil-bright transition-colors">
-                  {meta?.code ?? mode.toUpperCase()}
-                </span>
-                <span className="text-[13px] text-brand-cream tracking-wide font-display">
-                  {meta?.title ?? mode}
-                </span>
-              </span>
-            </Link>
+              HYPERDRAFT
+            </button>
 
-            <span className="text-brand-mist" aria-hidden>·</span>
+            <Divider />
 
-            {/* Match metadata strip */}
-            <div className="flex items-center gap-5 brand-mono text-[11px] text-brand-chalk">
-              {matchId && (
-                <MetaPair label="match" value={matchId.slice(0, 8)} />
-              )}
-              {(turn !== undefined && turn !== null && turn !== '') && (
-                <MetaPair label="turn" value={String(turn)} />
-              )}
-              {phase && <MetaPair label="phase" value={phase.toLowerCase()} />}
-            </div>
+            {/* Mode code — micro-caps, sodium accent. */}
+            <span style={modeCodeStyle} aria-label={meta?.title ?? mode}>
+              {modeCode}
+            </span>
 
-            <div className="flex-1" />
-
-            {/* Opponent / player chips */}
-            {(opponentName || playerName) && (
-              <div className="hidden lg:flex items-center gap-3 text-xs text-brand-chalk">
-                {opponentName && (
-                  <span className="px-2.5 py-1 border border-brand-hairline">
-                    <span className="brand-eyebrow text-brand-dust mr-1.5">vs</span>
-                    <span className="text-brand-cream">{opponentName}</span>
-                  </span>
-                )}
-                {playerName && (
-                  <span className="px-2.5 py-1 border border-brand-foil/40 bg-brand-foil/5">
-                    <span className="brand-eyebrow text-brand-foil mr-1.5">you</span>
-                    <span className="text-brand-cream">{playerName}</span>
-                  </span>
-                )}
-              </div>
+            {/* Breadcrumb — MATCH HD-XXXX · TURN N · PHASE. */}
+            {crumbSegments.length > 0 && (
+              <>
+                <Divider />
+                <span style={crumbStyle}>{crumbSegments.join(' · ')}</span>
+              </>
             )}
+
+            <div style={{ flex: 1 }} />
+
+            {/* Opponent · vs · player. */}
+            {(opponentName || playerName) && (
+              <span style={vsStyle}>
+                {opponentName && <span style={oppName}>{opponentName}</span>}
+                {opponentName && playerName && (
+                  <span style={vsToken} aria-hidden>
+                    vs
+                  </span>
+                )}
+                {playerName && <span style={meName}>{playerName}</span>}
+              </span>
+            )}
+
+            {/* ⌥P · pipeline discoverability hint. Hidden when the
+                overlay is open — at that point the overlay itself is the
+                teacher. */}
+            {!pipelineOpen && <span style={pipelineHint}>⌥P · pipeline</span>}
 
             {showExit && (
               <button
+                type="button"
                 onClick={handleExit}
-                className="text-xs text-brand-chalk hover:text-brand-foil border border-brand-hairline hover:border-brand-foil/50 px-3 py-1.5 transition-colors"
+                style={exitBtn}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--ink)';
+                  e.currentTarget.style.color = 'var(--paper)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = 'var(--ink)';
+                }}
               >
-                ← Lobby
+                ← Lab
               </button>
             )}
           </div>
         </div>
       </header>
 
-      {/* Main board + right rail */}
-      <div className="relative">
+      {/* Main board + optional right rail — body is the per-engine chrome's
+          domain. Do not apply lab tokens here. */}
+      <div style={{ position: 'relative' }}>
         {rightRail ? (
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] min-h-[calc(100vh-3.5rem)]">
-            <main className="relative">{children}</main>
-            <aside className="border-l border-brand-hairline/60 bg-brand-obsidian/40 overflow-y-auto max-h-[calc(100vh-3.5rem)]">
+          <div
+            className="grid grid-cols-1 lg:grid-cols-[1fr_320px]"
+            style={{ minHeight: 'calc(100vh - 3.5rem)' }}
+          >
+            <main style={{ position: 'relative' }}>{children}</main>
+            <aside
+              className="border-l border-brand-hairline/60 bg-brand-obsidian/40 overflow-y-auto"
+              style={{ maxHeight: 'calc(100vh - 3.5rem)' }}
+            >
               {rightRail}
             </aside>
           </div>
         ) : (
-          <main className="relative min-h-[calc(100vh-3.5rem)]">{children}</main>
+          <main style={{ position: 'relative', minHeight: 'calc(100vh - 3.5rem)' }}>
+            {children}
+          </main>
         )}
       </div>
     </div>
   );
 }
 
-function MetaPair({ label, value }: { label: string; value: string }) {
+function Divider() {
   return (
-    <span className="flex items-baseline gap-1.5">
-      <span className="brand-eyebrow text-brand-dust">{label}</span>
-      <span className="text-brand-cream tracking-tight">{value}</span>
+    <span
+      aria-hidden
+      style={{
+        color: 'var(--ink-3)',
+        fontFamily: 'var(--font-mono)',
+        fontSize: 11,
+      }}
+    >
+      ·
     </span>
   );
 }
+
+// === Style tokens — lab posture only on the header strip. =================
+
+const headerStyle: CSSProperties = {
+  position: 'sticky',
+  top: 0,
+  zIndex: 30,
+  background: 'var(--paper)',
+  borderBottom: '1px solid var(--rule)',
+};
+
+const edgeInner: CSSProperties = { padding: '0 18px' };
+const containedInner: CSSProperties = {
+  maxWidth: 1280,
+  margin: '0 auto',
+  padding: '0 24px',
+};
+
+const stripRow: CSSProperties = {
+  height: 56,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 14,
+  fontFamily: 'var(--font-sans)',
+};
+
+const wordmarkBtn: CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 12,
+  fontWeight: 500,
+  letterSpacing: '.14em',
+  textTransform: 'uppercase',
+  color: 'var(--ink)',
+  background: 'transparent',
+  border: 'none',
+  padding: 0,
+  cursor: 'pointer',
+};
+
+const modeCodeStyle: CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 10.5,
+  fontWeight: 500,
+  letterSpacing: '.18em',
+  textTransform: 'uppercase',
+  color: 'var(--sodium)',
+};
+
+const crumbStyle: CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 11,
+  fontWeight: 500,
+  letterSpacing: '.1em',
+  textTransform: 'uppercase',
+  color: 'var(--ink-2)',
+  fontVariantNumeric: 'tabular-nums',
+};
+
+const vsStyle: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 8,
+  fontFamily: 'var(--font-mono)',
+  fontSize: 11,
+  letterSpacing: '.04em',
+  color: 'var(--ink-2)',
+};
+
+const oppName: CSSProperties = {
+  color: 'var(--ink)',
+};
+
+const vsToken: CSSProperties = {
+  color: 'var(--ink-3)',
+  textTransform: 'uppercase',
+  letterSpacing: '.14em',
+  fontSize: 10,
+};
+
+const meName: CSSProperties = {
+  color: 'var(--ink)',
+  borderBottom: '1.5px solid var(--sodium)',
+  paddingBottom: 1,
+};
+
+const pipelineHint: CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 10,
+  letterSpacing: '.08em',
+  color: 'var(--ink-3)',
+  whiteSpace: 'nowrap',
+};
+
+const exitBtn: CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 11,
+  fontWeight: 500,
+  letterSpacing: '.12em',
+  textTransform: 'uppercase',
+  padding: '6px 10px',
+  background: 'transparent',
+  color: 'var(--ink)',
+  border: '1px solid var(--ink)',
+  cursor: 'pointer',
+  transition: 'background 120ms, color 120ms',
+};
 
 export default GameViewLayout;
