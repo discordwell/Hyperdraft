@@ -2303,6 +2303,7 @@ class GameSession:
             mc_gear_slot=obj.state.mc_gear_slot,
             mc_exhausted=obj.state.mc_exhausted,
             mc_keywords=sorted(getattr(obj.card_def, "mc_keywords", None) or ()) if obj.card_def else [],
+            image_url=(getattr(obj.card_def, "image_url", None) if (obj.card_def and not sealed_scp) else None),
             # Depths fields
             depth_band=_depth_band,
             detected=bool(getattr(obj.state, "detected", False)),
@@ -2359,6 +2360,7 @@ class GameSession:
             mc_gear_slot=obj.state.mc_gear_slot,
             mc_exhausted=obj.state.mc_exhausted,
             mc_keywords=sorted(getattr(obj.card_def, "mc_keywords", None) or ()) if obj.card_def else [],
+            image_url=getattr(obj.card_def, "image_url", None) if obj.card_def else None,
             depths_cost=_depths_cost_hand,
             scp_red_tape=int(getattr(obj.card_def, "scp_red_tape", 0) or 0) if obj.card_def else 0,
             scp_clearance=int(getattr(obj.card_def, "scp_clearance", 0) or 0) if obj.card_def else 0,
