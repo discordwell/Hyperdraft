@@ -174,3 +174,37 @@ export function getHearthstoneArtPaths(name: string, variant?: string | null): s
 export function getCardArtUrl(name: string): string {
   return getScryfallImageUrl(name, 'art_crop');
 }
+
+/**
+ * Get Cats-engine art paths for a card name.
+ *
+ * NOTE: As of this commit there is no card art on disk for the Cats engine —
+ * `assets/card_art/cats/` does not exist. The board (`frontend/src/games/cats.tsx`)
+ * renders cards using inline SVG glyphs via `TypeGlyph`/`CategoryGlyph`/`MoodGlyph`,
+ * and intentionally has no `<img>` slot today.
+ *
+ * This helper exists as the seam where art lookup will plug in once the
+ * Cats set ships PNGs. The intended URL pattern mirrors other engines:
+ *   `/api/card-art/cats/<snake_case_name>.png`
+ *
+ * When art lands:
+ *   1. Drop PNGs into `assets/card_art/cats/` (server static mount at
+ *      `src/server/main.py` already serves any new folder there).
+ *   2. Add an `<img src>` slot inside `CatCard`'s art area in
+ *      `frontend/src/games/cats.tsx` (currently the `TypeGlyph` block,
+ *      ~line 1109), falling back to the existing `TypeGlyph` on load error
+ *      via the same pattern as `components/cards/Card.tsx::CardArt`.
+ *   3. Flip this helper to return real paths.
+ *
+ * Until then this returns an empty array so any future caller can wire
+ * the seam without a second cardArt.ts edit.
+ *
+ * @param name - The card name (unused while no art exists)
+ * @returns Empty array (no art on disk yet)
+ */
+export function getCatsArtPaths(_name: string): string[] {
+  // Intentionally empty: no Cats card art exists on disk.
+  // See JSDoc above for the path pattern to use once PNGs land.
+  void _name;
+  return [];
+}
