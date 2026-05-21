@@ -3,9 +3,9 @@
  *
  * Each engine's slug rules + URL chain are pinned here so the URL the
  * frontend optimistically builds matches the PNG the Python backend
- * writes via its own `_slug` / `_wire_image_urls` logic. The Depths,
- * Minecraft, and Finance helpers are tested side-by-side; Cats has no
- * art on disk yet and its stub is exercised in the audit branch only.
+ * writes via its own `_slug` / `_wire_image_urls` logic. Depths,
+ * Minecraft, and Finance are tested side-by-side; Cats has no art on
+ * disk yet and its stub is exercised in its audit branch.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -13,23 +13,33 @@ import { describe, expect, it } from 'vitest';
 import {
   cardNameToFilename,
   getDepthsArtPaths,
+  getFinanceArtPaths,
   getMinecraftArtPaths,
   minecraftCardNameToFilename,
 } from './cardArt';
 
-// ── cardNameToFilename (the shared MTG/Depths slug) ─────────────────────
+// ── cardNameToFilename (shared MTG / Depths / Finance slug) ─────────────
 
 describe('cardNameToFilename', () => {
   it('lowercases and snake_cases plain names', () => {
     expect(cardNameToFilename('Acoustic Decoy')).toBe('acoustic_decoy');
+    expect(cardNameToFilename('Flash Crash Bot')).toBe('flash_crash_bot');
   });
 
   it("strips apostrophes (Captain's Bell)", () => {
     expect(cardNameToFilename("Captain's Bell")).toBe('captains_bell');
   });
 
+  it('strips apostrophes and commas in business names', () => {
+    expect(cardNameToFilename("Trader's Edge, Inc")).toBe('traders_edge_inc');
+  });
+
   it('replaces hyphens with underscores (Anti-Sub Drone)', () => {
     expect(cardNameToFilename('Anti-Sub Drone')).toBe('anti_sub_drone');
+  });
+
+  it('collapses repeated separators (Pump-and-Dump)', () => {
+    expect(cardNameToFilename('Pump-and-Dump')).toBe('pump_and_dump');
   });
 
   it('handles names with X-7 style codes (Black Demon X-7)', () => {
@@ -115,5 +125,34 @@ describe('getMinecraftArtPaths', () => {
   it('returns at least the derived path for any non-empty name', () => {
     const paths = getMinecraftArtPaths('Bed');
     expect(paths).toEqual(['/api/card-art/minecraft/bed.png']);
+  });
+});
+
+// ── Finance ────────────────────────────────────────────────────────────
+
+describe('getFinanceArtPaths', () => {
+  it('builds /api/card-art/finance/fina/<slug>.png as the primary path with no domain hint', () => {
+    const paths = getFinanceArtPaths('Flash Crash Bot');
+    expect(paths[0]).toBe('/api/card-art/finance/fina/flash_crash_bot.png');
+    // finm subset should follow as fallback so future FINM art lands somewhere.
+    expect(paths).toContain('/api/card-art/finance/finm/flash_crash_bot.png');
+  });
+
+  it('prefers the FINM folder when domain="FINM"', () => {
+    const paths = getFinanceArtPaths('Acme Holdings', 'FINM');
+    expect(paths[0]).toBe('/api/card-art/finance/finm/acme_holdings.png');
+    // FINA still appears so that a card mis-labelled with the wrong domain
+    // can still resolve to whichever subset actually owns the PNG.
+    expect(paths).toContain('/api/card-art/finance/fina/acme_holdings.png');
+  });
+
+  it('prefers the FINA folder when domain="FINA"', () => {
+    const paths = getFinanceArtPaths('Capital Call', 'FINA');
+    expect(paths[0]).toBe('/api/card-art/finance/fina/capital_call.png');
+  });
+
+  it('ignores unknown domain values and falls back to default ordering', () => {
+    const paths = getFinanceArtPaths('Dark Pool Architect', 'TOKEN');
+    expect(paths[0]).toBe('/api/card-art/finance/fina/dark_pool_architect.png');
   });
 });

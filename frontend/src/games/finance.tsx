@@ -23,6 +23,7 @@ import { defaultFormatType } from './types';
 import { StackedBar } from './StackedBar';
 import { FinanceResponseWindow } from './finance/ResponseWindow';
 import { useFinanceSounds } from '../hooks/useFinanceSounds';
+import { getFinanceArtPaths } from '../utils/cardArt';
 
 // ---- CSS keyframes (injected once into the document) --------------------
 
@@ -150,6 +151,122 @@ function liquidityCost(card: CardData): number {
   return isNaN(n) ? 0 : n;
 }
 
+// ---- Card art (real PNG with candlestick fallback) ----------------------
+
+/**
+ * Card art slot. Tries the server-supplied `image_url` first (already a
+ * /api/card-art/finance/<subset>/<slug>.png path), then falls back through
+ * other subset folders. If every URL 404s, renders a flat-shaded candlestick
+ * glyph in Finance's emerald/amber palette so the chrome still reads as
+ * Finance and not "broken image".
+ *
+ * Why a candlestick: the chrome already speaks Bloomberg-terminal — gold
+ * pips, emerald capital bars, a price ticker. A candlestick is the most
+ * universally legible Finance signifier and stays within the established
+ * flat-shaded luxury geometry (no gradients, hard edges).
+ */
+function CardArt({
+  card,
+  className,
+  rounded = false,
+}: {
+  card: CardData;
+  className?: string;
+  rounded?: boolean;
+}) {
+  // Build URL list: server-provided image_url first (most accurate domain
+  // hint), then the local-derived paths (handles missing image_url, e.g.
+  // tokens or older server builds).
+  const artPaths = useMemo(() => {
+    const list: string[] = [];
+    if (card.image_url) list.push(card.image_url);
+    for (const p of getFinanceArtPaths(card.name, card.domain ?? null)) {
+      if (!list.includes(p)) list.push(p);
+    }
+    return list;
+  }, [card.image_url, card.name, card.domain]);
+
+  const [idx, setIdx] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const handleError = () => {
+    if (idx < artPaths.length - 1) {
+      setIdx((i) => i + 1);
+      return;
+    }
+    setFailed(true);
+  };
+
+  // Candlestick fallback — bullish if Trader/Asset, bearish for Order/Strategy.
+  const isBearish = card.types?.some(
+    (t) => t === 'FIN_ORDER' || t === 'FIN_STRATEGY',
+  );
+  const stickColor = isBearish ? '#ef4444' : '#00ff88';
+  const wickColor = isBearish ? '#7a1a1a' : '#0d4a30';
+
+  return (
+    <div
+      className={`relative overflow-hidden ${rounded ? 'rounded-sm' : ''} ${className ?? ''}`}
+      style={{
+        background: '#020810',
+        border: '1px solid #0a1f30',
+      }}
+      aria-hidden="true"
+    >
+      {!failed && artPaths.length > 0 && (
+        <img
+          src={artPaths[idx]}
+          alt=""
+          loading="lazy"
+          className={`absolute inset-0 h-full w-full object-cover ${loaded ? 'opacity-100' : 'opacity-0'}`}
+          style={{
+            transition: 'opacity 120ms linear',
+            // Crisp pixels: art is hand-drawn / flat-shaded
+            imageRendering: 'auto',
+          }}
+          onLoad={() => setLoaded(true)}
+          onError={handleError}
+        />
+      )}
+      {(failed || !loaded) && (
+        <svg
+          viewBox="0 0 24 24"
+          className="absolute inset-0 h-full w-full"
+          preserveAspectRatio="xMidYMid meet"
+          style={{ background: '#020810' }}
+        >
+          {/* Subtle baseline grid */}
+          <line x1="0" y1="18" x2="24" y2="18" stroke="#0a1f30" strokeWidth="0.5" />
+          <line x1="4" y1="0" x2="4" y2="24" stroke="#0a1f30" strokeWidth="0.3" />
+          <line x1="20" y1="0" x2="20" y2="24" stroke="#0a1f30" strokeWidth="0.3" />
+          {/* Wicks */}
+          <line x1="12" y1="2" x2="12" y2="6" stroke={wickColor} strokeWidth="0.8" />
+          <line x1="12" y1="18" x2="12" y2="22" stroke={wickColor} strokeWidth="0.8" />
+          {/* Body — flat-shaded rectangle, no gradient */}
+          <rect
+            x="8"
+            y="6"
+            width="8"
+            height="12"
+            fill={stickColor}
+            opacity="0.85"
+            stroke={stickColor}
+            strokeWidth="0.6"
+          />
+        </svg>
+      )}
+      {/* Bottom vignette so name text reads cleanly over art */}
+      <div
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2"
+        style={{
+          background: 'linear-gradient(to bottom, transparent, rgba(2,8,16,0.92))',
+        }}
+      />
+    </div>
+  );
+}
+
 // ---- Atoms --------------------------------------------------------------
 
 /** Capital Reserve bar — segmented blocks, glowing when healthy, pulsing when critical. */
@@ -240,7 +357,7 @@ function TraderTile({
       onClick={onClick}
       onContextMenu={onShowDetail ? (e => { e.preventDefault(); onShowDetail(card); }) : undefined}
       disabled={!selectable && !selected}
-      className={`group relative border-2 bg-[#050d1a] px-2 py-1.5 text-left transition
+      className={`group relative border-2 bg-[#050d1a] text-left transition overflow-hidden
         ${selected ? selectedBorder : borderColor}
         ${selectable ? 'cursor-pointer hover:border-yellow-200' : 'cursor-default'}
         ${tapped ? 'opacity-60 rotate-6' : ''}
@@ -254,33 +371,41 @@ function TraderTile({
           : undefined,
       }}
     >
-      {attackerBadge && (
-        <div className="absolute -top-2 left-1/2 -translate-x-1/2 border border-yellow-400 bg-yellow-900/80 px-1 text-[8px] font-black uppercase tracking-wider text-yellow-200">
-          ATK
+      {/* Art slot — fills tile, content rendered above */}
+      <CardArt card={card} className="absolute inset-0 h-full w-full" />
+
+      {/* Content overlay */}
+      <div className="relative px-2 py-1.5">
+        {attackerBadge && (
+          <div className="absolute -top-2 left-1/2 -translate-x-1/2 border border-yellow-400 bg-yellow-900/80 px-1 text-[8px] font-black uppercase tracking-wider text-yellow-200">
+            ATK
+          </div>
+        )}
+        <div className="flex items-start justify-between gap-1">
+          <div className="min-w-0 text-[11px] font-black leading-tight text-slate-100 uppercase tracking-wide truncate drop-shadow-[0_1px_1px_rgba(0,0,0,0.9)]">
+            {card.name}
+          </div>
+          <div className="shrink-0 border border-amber-500/50 bg-black/80 px-1 text-[10px] font-bold text-amber-200 font-mono">
+            {card.power ?? 0}/{card.toughness ?? 0}
+          </div>
         </div>
-      )}
-      <div className="flex items-start justify-between gap-1">
-        <div className="min-w-0 text-[11px] font-black leading-tight text-slate-100 uppercase tracking-wide truncate">
-          {card.name}
+        {(card.damage ?? 0) > 0 && (
+          <div className="mt-0.5 h-1 w-full bg-black/60 border border-rose-800">
+            <div
+              className="h-full bg-rose-500"
+              style={{
+                width: `${Math.min(100, ((card.damage ?? 0) / (card.toughness ?? 1)) * 100)}%`,
+              }}
+            />
+          </div>
+        )}
+        {/* Pushdown so the type/status row sits in the lower vignette */}
+        <div className="h-8" />
+        <div className="flex items-center justify-between text-[9px] uppercase tracking-wider">
+          <span className="text-sky-300/90 drop-shadow-[0_1px_1px_rgba(0,0,0,0.95)]">TRADER</span>
+          {sick && <span className="text-slate-300 drop-shadow-[0_1px_1px_rgba(0,0,0,0.95)]">FRESH</span>}
+          {tapped && !sick && <span className="text-amber-300 drop-shadow-[0_1px_1px_rgba(0,0,0,0.95)]">COMMITTED</span>}
         </div>
-        <div className="shrink-0 border border-amber-500/50 bg-black/60 px-1 text-[10px] font-bold text-amber-200 font-mono">
-          {card.power ?? 0}/{card.toughness ?? 0}
-        </div>
-      </div>
-      {(card.damage ?? 0) > 0 && (
-        <div className="mt-0.5 h-1 w-full bg-black/60 border border-rose-800">
-          <div
-            className="h-full bg-rose-500"
-            style={{
-              width: `${Math.min(100, ((card.damage ?? 0) / (card.toughness ?? 1)) * 100)}%`,
-            }}
-          />
-        </div>
-      )}
-      <div className="mt-1 flex items-center justify-between text-[9px] uppercase tracking-wider">
-        <span className="text-sky-400/80">TRADER</span>
-        {sick && <span className="text-slate-500">FRESH</span>}
-        {tapped && !sick && <span className="text-amber-400">COMMITTED</span>}
       </div>
     </button>
   );
@@ -306,7 +431,7 @@ function PermanentTile({
     <div
       onClick={onClick}
       onContextMenu={onShowDetail ? (e => { e.preventDefault(); onShowDetail(card); }) : undefined}
-      className={`border ${border} bg-[#050d1a] px-2 py-1.5 text-left transition
+      className={`relative border ${border} bg-[#050d1a] text-left transition overflow-hidden
         ${onClick ? 'cursor-pointer hover:brightness-125' : ''}
         ${tapped ? 'opacity-60' : ''}
         ${!isMe ? 'opacity-80' : ''}
@@ -314,15 +439,21 @@ function PermanentTile({
       style={{ minWidth: 90, maxWidth: 120 }}
       title="Right-click to inspect"
     >
-      <div className="text-[11px] font-black leading-tight text-slate-100 uppercase tracking-wide truncate">
-        {card.name}
+      {/* Art slot */}
+      <CardArt card={card} className="absolute inset-0 h-full w-full" />
+      <div className="relative px-2 py-1.5">
+        <div className="text-[11px] font-black leading-tight text-slate-100 uppercase tracking-wide truncate drop-shadow-[0_1px_1px_rgba(0,0,0,0.95)]">
+          {card.name}
+        </div>
+        {/* Spacer for art visibility */}
+        <div className="h-7" />
+        <div className="text-[9px] uppercase tracking-widest text-slate-200 drop-shadow-[0_1px_1px_rgba(0,0,0,0.95)]">
+          {typeLabel}
+        </div>
+        {tapped && (
+          <div className="mt-0.5 text-[9px] uppercase tracking-wider text-amber-300 drop-shadow-[0_1px_1px_rgba(0,0,0,0.95)]">TAPPED</div>
+        )}
       </div>
-      <div className="mt-1 text-[9px] uppercase tracking-widest text-slate-400">
-        {typeLabel}
-      </div>
-      {tapped && (
-        <div className="mt-0.5 text-[9px] uppercase tracking-wider text-amber-400">TAPPED</div>
-      )}
     </div>
   );
 }
@@ -363,10 +494,16 @@ function CardDetailModal({ card, onClose }: { card: CardData; onClose: () => voi
         {/* Close */}
         <button
           onClick={onClose}
-          className="absolute right-2 top-2 text-slate-500 hover:text-slate-200 text-lg leading-none"
+          className="absolute right-2 top-2 z-10 text-slate-500 hover:text-slate-200 text-lg leading-none"
         >
           ✕
         </button>
+
+        {/* Art panel */}
+        <CardArt
+          card={card}
+          className="mb-3 h-44 w-full"
+        />
 
         {/* Name + cost */}
         <div className="flex items-start justify-between gap-3 pr-6">
@@ -461,41 +598,46 @@ function HandCard({
       onClick={onClick}
       onContextMenu={e => { e.preventDefault(); onShowDetail(card); }}
       disabled={!playable}
-      className={`border-2 ${border} bg-[#050d1a] p-2 text-left transition
+      className={`relative border-2 ${border} bg-[#050d1a] text-left transition overflow-hidden
         ${playable ? 'hover:brightness-125 cursor-pointer' : 'cursor-default opacity-50'}
         ${selected ? 'shadow-[0_0_10px_#ffd70066]' : ''}
       `}
       title="Right-click to inspect"
       style={{ minWidth: 120, maxWidth: 160 }}
     >
-      {/* Header row: name + cost */}
-      <div className="flex items-start justify-between gap-1">
-        <div className="min-w-0 text-[11px] font-black leading-tight text-slate-100 uppercase tracking-wide truncate">
-          {card.name}
+      {/* Art header */}
+      <CardArt card={card} className="h-16 w-full" />
+
+      <div className="p-2">
+        {/* Header row: name + cost */}
+        <div className="flex items-start justify-between gap-1">
+          <div className="min-w-0 text-[11px] font-black leading-tight text-slate-100 uppercase tracking-wide truncate">
+            {card.name}
+          </div>
+          <div
+            className="shrink-0 border px-1.5 font-mono text-[10px] font-bold"
+            style={{
+              borderColor: canAfford ? '#ffd700' : '#4a3800',
+              color: canAfford ? '#ffd700' : '#7a6000',
+              background: '#0d0a00',
+            }}
+          >
+            {cost}L
+          </div>
         </div>
-        <div
-          className="shrink-0 border px-1.5 font-mono text-[10px] font-bold"
-          style={{
-            borderColor: canAfford ? '#ffd700' : '#4a3800',
-            color: canAfford ? '#ffd700' : '#7a6000',
-            background: '#0d0a00',
-          }}
-        >
-          {cost}L
-        </div>
+        {/* Type badge */}
+        <div className="mt-1 text-[9px] uppercase tracking-widest text-slate-500">{typeLabel}</div>
+        {/* P/T for Traders */}
+        {isTrader(card) && (card.power !== null || card.toughness !== null) && (
+          <div className="mt-1 border border-sky-800/60 bg-black/50 px-1 text-center font-mono text-[10px] text-sky-200 font-bold">
+            {card.power ?? 0} / {card.toughness ?? 0}
+          </div>
+        )}
+        {/* Rules text snippet */}
+        {card.text && (
+          <div className="mt-1 line-clamp-2 text-[9px] leading-snug text-slate-400">{card.text}</div>
+        )}
       </div>
-      {/* Type badge */}
-      <div className="mt-1 text-[9px] uppercase tracking-widest text-slate-500">{typeLabel}</div>
-      {/* P/T for Traders */}
-      {isTrader(card) && (card.power !== null || card.toughness !== null) && (
-        <div className="mt-1 border border-sky-800/60 bg-black/50 px-1 text-center font-mono text-[10px] text-sky-200 font-bold">
-          {card.power ?? 0} / {card.toughness ?? 0}
-        </div>
-      )}
-      {/* Rules text snippet */}
-      {card.text && (
-        <div className="mt-1 line-clamp-2 text-[9px] leading-snug text-slate-400">{card.text}</div>
-      )}
     </button>
   );
 }

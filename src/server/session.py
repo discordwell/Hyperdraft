@@ -93,6 +93,30 @@ _SCP_ACTION_TYPES = frozenset({
 })
 
 
+# Finance card art lives under assets/card_art/finance/<subset>/<slug>.png and
+# is served via /api/card-art/finance/<subset>/<slug>.png. Subsets so far:
+# FINA (set 1: Quant & IB) and FINM (set 2). FINM has no art folder yet.
+_FIN_ART_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _finance_image_url(card_def: Optional[CardDefinition], name: str) -> Optional[str]:
+    """Compute the /api/card-art/ URL for a Finance card.
+
+    Uses the card's ``domain`` (FINA / FINM) to pick the subset folder; falls
+    back to ``fina/`` since that's the only folder with art today. The slug is
+    name-lowercased and non-alphanumeric chars collapsed to underscores so it
+    matches the on-disk PNG filenames (e.g. "Flash Crash Bot" → flash_crash_bot).
+    """
+    if not name:
+        return None
+    slug = _FIN_ART_SLUG_RE.sub("_", name.lower()).strip("_")
+    if not slug:
+        return None
+    domain = (getattr(card_def, "domain", None) or "").strip().lower()
+    subset = domain if domain in ("fina", "finm") else "fina"
+    return f"/api/card-art/finance/{subset}/{slug}.png"
+
+
 @dataclass
 class GameSession:
     """
@@ -2261,6 +2285,12 @@ class GameSession:
         )
         toughness = get_toughness(obj, self.game.state) if has_pt else obj.characteristics.toughness
 
+        # Finance card art — wire through to CardData.image_url so the
+        # frontend can render bespoke PNGs from /api/card-art/finance/...
+        _image_url: Optional[str] = None
+        if self.game.state.game_mode == "finance" and getattr(obj, "card_def", None):
+            _image_url = _finance_image_url(obj.card_def, obj.name)
+
         # Depths card fields
         _depth_band_raw = getattr(obj.state, "depth_band", None)
         _depth_band = None
@@ -2344,7 +2374,18 @@ class GameSession:
                 _depths_cost_hand = dict(_cd_cost)
             elif _cd_cost is not None and hasattr(_cd_cost, "torpedo"):
                 _depths_cost_hand = {"tc": int(_cd_cost.torpedo), "sc": int(_cd_cost.sonar)}
-        _image_url = getattr(obj.card_def, "image_url", None) if obj.card_def else None
+        # Per-engine image_url resolution. Prefer card_def.image_url
+        # (Depths submarine_fleet, Minecraft sets via _wire_image_urls);
+        # fall back to Finance's name-derived path if no pre-wired URL.
+        _image_url: Optional[str] = (
+            getattr(obj.card_def, "image_url", None) if obj.card_def else None
+        )
+        if (
+            _image_url is None
+            and self.game.state.game_mode == "finance"
+            and getattr(obj, "card_def", None)
+        ):
+            _image_url = _finance_image_url(obj.card_def, obj.name)
         return CardData(
             id=obj.id,
             name=obj.name,

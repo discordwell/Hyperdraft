@@ -196,6 +196,40 @@ export function getMinecraftArtPaths(name: string, preferred?: string | null): s
 }
 
 /**
+ * Get Finance TCG art paths.
+ *
+ * Art lives under `assets/card_art/finance/<subset>/<slug>.png` and is served
+ * via `/api/card-art/finance/<subset>/<slug>.png`. The current subset folder
+ * is `fina/` (FINA — Set 1: Quant & IB). FINM (Set 2) has no art yet but is
+ * a future subset; passing `domain="FINM"` prefers `finm/` first.
+ *
+ * Priority:
+ * 1. Subset folder hinted by domain (FINA → `fina/`, FINM → `finm/`)
+ * 2. The other known finance subset folder as a fallback
+ *
+ * Unlike MTG, there is no Scryfall fallback — Finance cards are bespoke.
+ */
+export function getFinanceArtPaths(cardName: string, domain?: string | null): string[] {
+  const filename = cardNameToFilename(cardName);
+  const paths: string[] = [];
+  const subsets = ['fina', 'finm'];
+
+  // Prefer the domain-hinted subset folder first.
+  const normalized = (domain || '').trim().toLowerCase();
+  if (normalized && subsets.includes(normalized)) {
+    paths.push(`/api/card-art/finance/${normalized}/${filename}.png`);
+    for (const s of subsets) {
+      if (s !== normalized) paths.push(`/api/card-art/finance/${s}/${filename}.png`);
+    }
+  } else {
+    for (const s of subsets) {
+      paths.push(`/api/card-art/finance/${s}/${filename}.png`);
+    }
+  }
+  return paths;
+}
+
+/**
  * Get Hearthstone/variant-oriented art paths.
  *
  * Priority:
