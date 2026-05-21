@@ -16,7 +16,7 @@ import socketio
 from .routes import (
     match_router, cards_router, bot_game_router,
     deckbuilder_router, pokemon_gatherer_router, spectate_router,
-    admin_router,
+    admin_router, pipeline_router,
 )
 from . import auto_repair, spectator, strategy_doc
 
@@ -285,6 +285,7 @@ app.include_router(deckbuilder_router, prefix="/api")
 app.include_router(pokemon_gatherer_router, prefix="/api")
 app.include_router(spectate_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
+app.include_router(pipeline_router, prefix="/api")
 
 # Mount static files for card art
 if CARD_ART_DIR.exists():
