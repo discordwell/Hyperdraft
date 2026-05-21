@@ -18,6 +18,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ChoiceModal } from '../components/actions/ChoiceModal';
 import { usePendingChoice } from '../hooks/usePendingChoice';
 import { GameViewLayout } from '../components/brand';
+import { useDiscoveryStore } from '../stores/discoveryStore';
 
 const PHASE_LABELS: Record<string, string> = {
   DRAW: 'Draw Phase',
@@ -33,6 +34,7 @@ const PHASE_LABELS: Record<string, string> = {
 };
 
 export function YGOGameView() {
+  useEffect(() => useDiscoveryStore.getState().markPlayed('yugioh'), []);
   const { matchId } = useParams<{ matchId: string }>();
   const navigate = useNavigate();
   const [errorVisible, setErrorVisible] = useState(false);
@@ -260,8 +262,18 @@ export function YGOGameView() {
                 <div className={`text-sm font-bold ${isMyTurn() ? 'text-ygo-gold-bright' : 'text-gray-500'}`}>
                   {isMyTurn() ? 'Your Turn' : "Waiting..."}
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  Turn {gameState.turn_number} | {PHASE_LABELS[ygoPhase] || ygoPhase}
+                {/* Phase E — bump phase rail visibility. Was a dim text-xs
+                    gray block that got eaten by the rest of the sidebar
+                    during combat. Now reads at a glance: gold phase name,
+                    tabular turn counter. Stays in YGO's gold-on-black
+                    vocabulary. */}
+                <div className="mt-1 flex items-baseline gap-2">
+                  <span className="text-base font-bold uppercase tracking-wide text-ygo-gold">
+                    {PHASE_LABELS[ygoPhase] || ygoPhase}
+                  </span>
+                  <span className="text-[10px] uppercase tracking-widest text-ygo-gold-dim tabular-nums">
+                    Turn {gameState.turn_number}
+                  </span>
                 </div>
               </div>
 

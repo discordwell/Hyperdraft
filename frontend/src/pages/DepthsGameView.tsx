@@ -13,8 +13,10 @@ import { useGameStore } from '../stores/gameStore';
 import { DepthsGameBoard } from '../games/depths';
 import { matchAPI } from '../services/api';
 import { GameViewLayout } from '../components/brand';
+import { useDiscoveryStore } from '../stores/discoveryStore';
 
 export function DepthsGameView() {
+  useEffect(() => useDiscoveryStore.getState().markPlayed('depths'), []);
   const { matchId } = useParams<{ matchId: string }>();
   const navigate = useNavigate();
 

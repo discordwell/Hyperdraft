@@ -15,12 +15,13 @@
  * from the foil-era component — only the surrounding shell pivots.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { matchAPI, botGameAPI } from '../services/api';
 import type { AIDifficulty, DeckSummary, YgoDeckSummary } from '../types';
 import { useGameStore } from '../stores/gameStore';
+import { useDiscoveryStore } from '../stores/discoveryStore';
 import { getMode, type GameModeId } from '../components/brand';
 import { EngineRack } from '../components/lab/EngineRack';
 import { Timeline } from '../components/lab';
@@ -82,6 +83,26 @@ export function Home() {
   const [gptModel, setGptModel] = useState('gpt-5.3');
   const [recordPrompts, setRecordPrompts] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // A3 — matchbuilder progressive disclosure. The 3-column form is hidden
+  // behind a `Customize ↓` toggle; the default path is a single primary CTA
+  // that opens a match with the rack-selected engine + sensible deck
+  // defaults already populated by the listDecks effect above.
+  const [builderOpen, setBuilderOpen] = useState(false);
+
+  // A1 — discovery state. Reads the persisted set of played engines and
+  // surfaces a rotating "you haven't tried <X>" eyebrow + sodium NEW pills
+  // on rack rows. The store is wired here so the chip / pick stays stable
+  // across re-renders triggered by deck loads.
+  const playedEngines = useDiscoveryStore((s) => s.playedEngines);
+  const pickUnplayed = useDiscoveryStore((s) => s.pickUnplayed);
+  // Lock the unplayed pick to a single engine for the lifetime of this
+  // visit — otherwise it would re-roll on every render and feel jittery.
+  // Recomputed only when the played-engines set changes.
+  const unplayedSuggestion = useMemo(
+    () => (playedEngines.length > 0 ? pickUnplayed() : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [playedEngines.length, pickUnplayed],
+  );
 
   useEffect(() => {
     matchAPI.listDecks().then((res) => {
@@ -345,7 +366,9 @@ export function Home() {
           <div>
             <span className="lab-chip">
               <span className="dot" />
-              v4.7 · open shelf · no signup
+              {unplayedSuggestion
+                ? `You haven't tried ${unplayedSuggestion.name}. Pull it off.`
+                : 'v4.7 · open shelf · no signup'}
             </span>
             <h1
               style={{
@@ -508,7 +531,78 @@ export function Home() {
             meta={selectedMode.blurb}
           />
 
-          <div className="lab-plate" style={{ marginTop: 24 }}>
+          {/* A3 — progressive disclosure. The full 3-column matchbuilder plate
+              below stays one click away, but the default surface is the
+              single-row quick CTA: open a match with the rack-selected
+              engine + the deck defaults the listDecks effect already chose.
+              Click `Customize ↓` to reveal the full form. */}
+          <div
+            data-testid="match-builder-quick"
+            style={{
+              marginTop: 24,
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 14,
+              padding: '18px 22px',
+              border: '1px solid var(--rule)',
+              background: 'var(--paper-2)',
+            }}
+          >
+            <button
+              type="button"
+              onClick={handleStartGame}
+              disabled={isLoading}
+              data-testid="match-builder-open"
+              style={primaryButtonStyle(isLoading)}
+            >
+              Open match — {labMode?.name ?? selectedMode.name}
+              <span aria-hidden style={{ marginLeft: 8 }}>↵</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setBuilderOpen((v) => !v)}
+              data-testid="match-builder-toggle"
+              aria-expanded={builderOpen}
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: '.12em',
+                textTransform: 'uppercase',
+                color: 'var(--sodium)',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '6px 4px',
+              }}
+            >
+              {builderOpen ? 'Hide ↑' : 'Customize ↓'}
+            </button>
+            {error && !builderOpen && (
+              <span
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 11,
+                  letterSpacing: '.08em',
+                  color: 'var(--halt)',
+                  marginLeft: 'auto',
+                }}
+              >
+                {error}
+              </span>
+            )}
+          </div>
+
+          <AnimatePresence>
+            {builderOpen && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                style={{ overflow: 'hidden' }}
+              >
+          <div className="lab-plate" style={{ marginTop: 24 }} data-testid="match-builder-form">
             <div style={{ display: 'grid', gap: 28, gridTemplateColumns: '1fr 2fr' }}>
               {/* Left: identity */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -729,6 +823,9 @@ export function Home() {
               </div>
             </div>
           </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </section>
 
         {/* ─── Section 03 · Advanced duels ─────────────────────────────── */}

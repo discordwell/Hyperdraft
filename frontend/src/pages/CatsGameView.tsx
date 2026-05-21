@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import CatsGame from '../games/cats';
+import { useDiscoveryStore } from '../stores/discoveryStore';
 
 /**
  * Cats game view — minimal wrapper that renders the cats.tsx board.
@@ -7,6 +9,7 @@ import CatsGame from '../games/cats';
  * Backend integration TODO when /api/cats routes land.
  */
 export function CatsGameView() {
+  useEffect(() => useDiscoveryStore.getState().markPlayed('cats'), []);
   return <CatsGame />;
 }
 

@@ -7,6 +7,7 @@ import { matchAPI } from '../services/api';
 import { ChoiceModal } from '../components/actions/ChoiceModal';
 import { usePendingChoice } from '../hooks/usePendingChoice';
 import { GameViewLayout } from '../components/brand';
+import { useDiscoveryStore } from '../stores/discoveryStore';
 import type { CardData, SCPIncident, SCPSiteState } from '../types';
 
 const PROTOCOLS = ['mirror_box', 'no_eye_contact', 'feed_it_lies', 'ritual_diagram'];
@@ -177,6 +178,7 @@ function IncidentRow({
 }
 
 export function SCPGameView() {
+  useEffect(() => useDiscoveryStore.getState().markPlayed('scp'), []);
   const { matchId } = useParams<{ matchId: string }>();
   const navigate = useNavigate();
   const location = useLocation();

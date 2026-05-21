@@ -18,8 +18,10 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ChoiceModal } from '../components/actions/ChoiceModal';
 import { usePendingChoice } from '../hooks/usePendingChoice';
 import { GameViewLayout } from '../components/brand';
+import { useDiscoveryStore } from '../stores/discoveryStore';
 
 export function PKMGameView() {
+  useEffect(() => useDiscoveryStore.getState().markPlayed('pokemon'), []);
   const { matchId } = useParams<{ matchId: string }>();
   const navigate = useNavigate();
   const [sidebarTab, setSidebarTab] = useState<'info' | 'log'>('info');

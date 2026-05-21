@@ -9,8 +9,10 @@ import { GameLog } from '../components/game/GameLog';
 import { ChoiceModal } from '../components/actions/ChoiceModal';
 import { usePendingChoice } from '../hooks/usePendingChoice';
 import { GameViewLayout } from '../components/brand';
+import { useDiscoveryStore } from '../stores/discoveryStore';
 
 export function MCGameView() {
+  useEffect(() => useDiscoveryStore.getState().markPlayed('minecraft'), []);
   const { matchId } = useParams<{ matchId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
