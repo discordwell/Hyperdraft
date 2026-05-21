@@ -120,6 +120,19 @@ def more_pile_cards_wins(card_a_id: str, card_b_id: str, state: GameState) -> st
     return loudest_wins(card_a_id, card_b_id, state)
 
 
+def fewer_pile_cards_wins(card_a_id: str, card_b_id: str, state: GameState) -> str:
+    """Underdog: whoever has fewer total pile cards wins."""
+    from src.engine.cats import _pile_total  # type: ignore[attr-defined]
+    pp, cp = _trick_players(state)
+    pp_total = _pile_total(state, pp) if pp else 0
+    cp_total = _pile_total(state, cp) if cp else 0
+    if pp_total < cp_total:
+        return pp or ""
+    if cp_total < pp_total:
+        return cp or ""
+    return lowest_wins(card_a_id, card_b_id, state)
+
+
 # ---------------------------------------------------------------------------
 # Mood setup function builder: registers a CATS_TRICK_RULE_QUERY interceptor
 # that replaces the rule with this mood's rule_fn when the mood is in the
@@ -248,8 +261,8 @@ THE_DIGNIFIED_SULK = make_mood_card(
     name="The Dignified Sulk",
     text="No one is happy. Fewer-pile-cards wins (the wronged shall be vindicated).",
     rarity="rare",
-    setup_interceptors=_mood_setup_factory(fewer_hand_wins),
-    rule_fn=fewer_hand_wins,
+    setup_interceptors=_mood_setup_factory(fewer_pile_cards_wins),
+    rule_fn=fewer_pile_cards_wins,
 )
 
 

@@ -91,18 +91,20 @@ def madam_inkblot_setup(obj: GameObject, state: GameState):
         return [
             Event(
                 type=EventType.DRAW,
-                payload={"player": obj.controller, "count": 2, "reason": "inkblot_consolation"},
+                payload={"player": obj.controller, "count": 1, "reason": "inkblot_consolation"},
                 source=obj.id,
             )
         ]
     return [_on_lose_trigger(obj, react)]
 
 
+# Nerf: draw on lose reduced from 2 -> 1 (deckbuilding-pass flagged her as the
+# single strongest card in the pool — positive in BOTH win and lose paths).
 MADAM_INKBLOT = make_cat_card(
     name="Madam Inkblot",
     value=7,
     category="Sneaky",
-    text="Looks fearsome. Is not. When she loses a trick, draw 2 cards. Sacrifices were made.",
+    text="Looks fearsome. Is not. When she loses a trick, draw a card. Sacrifices were made.",
     rarity="rare",
     setup_interceptors=madam_inkblot_setup,
     sneaky_value=2,

@@ -129,7 +129,9 @@ YARN_BALL = make_trinket_card(
 
 def sunbeam_setup(obj: GameObject, state: GameState):
     def mod_fn(score, card_count, st):
-        return score + 2  # flat +2 to Nap score
+        # Nerf: flat +2 -> flat +1 to dampen the Sunbeam + Heated Blanket
+        # stack on Nap (was +14 from trinkets alone).
+        return score + 1
 
     if not hasattr(state, "cats_nap_cap_override"):
         state.cats_nap_cap_override = {}
@@ -142,7 +144,7 @@ def sunbeam_setup(obj: GameObject, state: GameState):
 
 SUNBEAM = make_trinket_card(
     name="Sunbeam",
-    text="Nap pile: cap is 8 (instead of 6); +2 score. The sunbeam moves; the cat follows. This is law.",
+    text="Nap pile: cap is 8 (instead of 6); +1 score. The sunbeam moves; the cat follows. This is law.",
     rarity="rare",
     attaches_to="pile_nap",
     setup_interceptors=sunbeam_setup,
@@ -269,14 +271,17 @@ THE_STOLEN_HAIR_TIE = make_trinket_card(
 
 def heated_blanket_setup(obj: GameObject, state: GameState):
     def mod_fn(score, card_count, st):
-        return score + min(card_count, 4)  # +1 per card up to +4
+        # Nerf: capped Nap bonus from +4 to +3 to keep the
+        # Sunbeam + Heated Blanket stack from going degenerate
+        # (was +14 from trinkets alone in Naptime Tyrants).
+        return score + min(card_count, 3)
 
     return [_pile_score_mod(obj, "pile_nap", mod_fn)]
 
 
 THE_HEATED_BLANKET = make_trinket_card(
     name="The Heated Blanket",
-    text="Nap pile: +1 score per card (up to +4). It got warm. He REMAINS.",
+    text="Nap pile: +1 score per card (up to +3). It got warm. He REMAINS.",
     rarity="mythic",
     attaches_to="pile_nap",
     setup_interceptors=heated_blanket_setup,

@@ -171,10 +171,10 @@ COUCH_EMPIRE: list = [
     THE_WHOLE_ROAST_CHICKEN,          # draw 2 on snack-entry, V3
     THE_FORBIDDEN_HOUSEPLANT,         # attn marker on snack-entry, V2
 
-    # --- Pomf v2 padding (3) ---  rounding to 30
+    # --- Padding (3) ---  rounding to 30; Inkblot for post-nerf resilience
     EMPRESS_POMF,                  # repeat — winning tricks scales
     MISTER_WHISKERS,               # repeat — peek-on-win again
-    DUCHESS_VELVET,                # repeat
+    MADAM_INKBLOT,                 # 7 public / 2 sneaky; draw on lose
 ]
 assert len(COUCH_EMPIRE) == 30, f"Couch Empire: {len(COUCH_EMPIRE)}"
 
@@ -237,66 +237,62 @@ assert len(NAPTIME_TYRANTS) == 30, f"Naptime Tyrants: {len(NAPTIME_TYRANTS)}"
 
 
 # -----------------------------------------------------------------------------
-# Deck 3 — Snack Rush (Snack Forcing)  [v2 buff after first tournament]
+# Deck 3 — Snack Rush  [v3 — promoted from candidate; replaces v2]
 # -----------------------------------------------------------------------------
-# Pinnacle plan: Snacks force every trick they touch into the WINNER'S Snack
-# pile, so we MUST win the snack tricks ourselves — otherwise we're feeding
-# the opponent. Princess Mayhem (+1 pt/card while <5) + Cardboard Box (+1 score
-# while <5) means 4 snack cards under both bonuses score 4×(3+1+1) = 20 pts.
-#
-# First-tournament finding: too many low-value baits caused us to LOSE snack
-# tricks and gift opp's Snack pile. v2 buff swaps baits for high-Value Sleek
-# bombs (Bartholomew, Brigadier, Pomf) so we win the snack tricks directly.
-# Lowest-Wins Moods are kept as a flexible escape valve when opp opens with
-# something we'd otherwise lose to.
+# Pinnacle plan: 4 high-value snacks + 14 bombs that reliably win snack tricks.
+# Replaces the v2 11-snack spam (which feeds opponent's Snack pile by losing
+# tricks). v3 was a build-decks candidate that beat the original by +12.2pp
+# in the 8-deck tournament.
 SNACK_RUSH: list = [
-    # --- All 8 Snacks ---
+    # --- High-value Snacks only (4 unique, 6 with repeats) ---
     THE_WHOLE_ROAST_CHICKEN,       # 3 (draws 2 on snack-entry)
+    THE_WHOLE_ROAST_CHICKEN,       # repeat — best snack twice
     THAT_ONE_THING_OFF_THE_COUNTER,# 3 (gain 2 score on snack-entry)
+    THAT_ONE_THING_OFF_THE_COUNTER,# repeat
     CATNIP_MOUSE,                  # 2 (draws 1)
     THE_DISPUTED_SLICE_OF_CHEESE,  # 2
-    THE_FORBIDDEN_HOUSEPLANT,      # 2 (attn marker)
-    TUNA_CAN,                      # 1
-    A_SINGLE_CRUMB,                # 1
-    EMPTY_YOGURT_CUP,              # 1
 
-    # --- Duplicate best snacks (3) ---
-    THE_WHOLE_ROAST_CHICKEN,
-    THAT_ONE_THING_OFF_THE_COUNTER,
-    CATNIP_MOUSE,
-
-    # --- Cardboard Box ---  +1 per snack-card while <5
+    # --- Cardboard Box ---  +1/card while <5
     THE_CARDBOARD_BOX,
 
-    # --- Snack-synergy support ---
-    THE_BEDRAGGLED_EARL,           # Scrappy 5, draws on snack-entry
+    # --- Bedraggled Earls (2) ---  Scrappy 5, snack-entry draw
+    THE_BEDRAGGLED_EARL,
+    THE_BEDRAGGLED_EARL,
 
     # --- High-Value bombs (5) ---  WIN the snack tricks
     THE_MAGNIFICENT_BARTHOLOMEW,   # Sleek 10
     THE_BRIGADIER,                 # Sleek 9
     MISTER_WHISKERS,               # Sleek 7
-    DUCHESS_VELVET,                # Sleek 6
-    EMPRESS_POMF,                  # Fluffy 9 (draw+life on win)
+    DUCHESS_VELVET,                # Sleek 6 (draw on win)
+    EMPRESS_POMF,                  # Fluffy 9 (draw + life on win)
 
-    # --- Sneaky bombs (3) ---  Whispertoes/Inkblot trick wins
-    WHISPERTOES,                   # 2/9 — wins under Sneaky, draws on win
-    THE_UNOBSERVED,                # 9/10 vanilla high
+    # --- More Sleek/Fluffy mids (4) ---
+    SERGEANT_SNUGGLES,             # Fluffy 8
+    BISCUIT,                       # Fluffy 7
+    MITTENS_MCSOPHISTICATED,       # Sleek 5
+    CRUMPET,                       # Sleek 4
+
+    # --- Sneaky bombs (3) ---
+    THE_UNOBSERVED,                # 9/10
+    WHISPERTOES,                   # 2/9 (draw on win)
     THE_PENUMBRA_TWIN,             # 6/7
 
-    # --- Mid Scrappies that are still good under highest-wins (3) ---
-    MAXIMUM_CARNAGE,               # Scrappy 10 (win+life or lose+draw)
-    THE_YOWLING_STRANGER,          # Scrappy 8
-    PRINCESS_MAYHEM_THE_FOURTH,    # Scrappy 3 (draw on win)
+    # --- Scrappy bomb (1) ---
+    MAXIMUM_CARNAGE,               # 10 (lose: draw)
 
-    # --- Moods (4) ---  rule-distortion to flip losing tricks into wins
-    THE_3AM_ZOOMIES,               # lowest wins (when we lead with a Snack)
+    # --- Moods (3) ---  rule-distortion when we'd otherwise lose
+    THE_3AM_ZOOMIES,               # lowest wins
     KNOCKING_THINGS_OFF_TABLES,    # lowest wins
-    WET_FOOD_O_CLOCK,              # lowest wins
     SITTING_IN_THE_BOX,            # fewer-hand wins
 
-    # --- More snack-engine reliability + tiebreak (2) ---
-    THE_BEDRAGGLED_EARL,           # repeat — Scrappy 5, draws on snack-entry
-    THE_STOLEN_HAIR_TIE,           # Attention drip (tiebreak)
+    # --- Trinket (1) ---
+    THE_STOLEN_HAIR_TIE,           # attention drip — tiebreak insurance
+
+    # --- Vanilla padding + utility (4) ---
+    TABITHA,                       # Sleek 2 — vanilla bait
+    THE_YOWLING_STRANGER,          # Scrappy 8 vanilla
+    PRINCESS_MAYHEM_THE_FOURTH,    # Scrappy 3 — draw on win
+    THE_FORBIDDEN_HOUSEPLANT,      # Snack 2 — attn marker on snack-entry
 ]
 assert len(SNACK_RUSH) == 30, f"Snack Rush: {len(SNACK_RUSH)}"
 
@@ -612,27 +608,25 @@ NAPTIME_DENIAL: list = [
     # --- 6 of 7 Sneakies (6) ---  Gary makes us win at printed value
     THE_UNOBSERVED,                # 9 (printed; sneaky 10) — pure bomb
     MADAM_INKBLOT,                 # 7 (printed; sneaky 2) — Gary turns
-                                   #    her HIGH-value win + on-lose draw 2
+                                   #    her HIGH-value win + on-lose draw 1
     KNIVES,                        # 5
     THE_PENUMBRA_TWIN,             # 6 — Nap entry draw
     WHISPERTOES,                   # 2 — also draw on win
     THE_SHADOW_LOAF,               # 1 — sacrificial bait
 
-    # --- Moods (5) ---  rule disruption — Counter-pounce Reginald
-    THE_3AM_ZOOMIES,               # lowest wins (flips their Pomf 9)
+    # --- Moods (4) ---  v2 nerf: trimmed from 5 to 4 (was 62% after global card nerfs)
     SITTING_IN_THE_BOX,            # fewer-hand wins
     AGGRESSIVE_LOAFING,            # more-piles wins (smug)
     THE_QUIET_INTERROGATION,       # highest wins (lock Sleek default)
-    KNOCKING_THINGS_OFF_TABLES,    # lowest wins — second flip option
+    KNOCKING_THINGS_OFF_TABLES,    # lowest wins
 
-    # --- High-value bombs (7) ---  defeat Naptime's mid-Fluffies
-    THE_MAGNIFICENT_BARTHOLOMEW,   # 10 — Bart in OUR nap = +2 draws
+    # --- High-value bombs (6) ---  v2 nerf: dropped Bartholomew (10) for parity
     THE_BRIGADIER,                 # 9
     EMPRESS_POMF,                  # 9 — draw + life
     MISTER_WHISKERS,               # 7 — peek their hand
     DUCHESS_VELVET,                # 6 — draw on win
     SERGEANT_SNUGGLES,             # 8 vanilla
-    MAXIMUM_CARNAGE,               # 10 — win+1 or lose+draw
+    MAXIMUM_CARNAGE,               # 10 — lose:draw (post-nerf)
 
     # --- Snacks (4) ---  POISON: every winning trick → Snack, not Nap
     THE_WHOLE_ROAST_CHICKEN,       # V3 — when WE win, draws 2
@@ -650,9 +644,11 @@ NAPTIME_DENIAL: list = [
     THE_ALLEY_PHANTOM,             # 2 — draw on lose (junk dump)
     THE_YOWLING_STRANGER,          # 8 Scrappy vanilla
 
-    # --- Filler (2) ---
+    # --- Filler (4) ---  v2: more vanilla, fewer bombs
     CRUMPET,                       # 4 vanilla
     MITTENS_MCSOPHISTICATED,       # 5 — attn marker on Territory
+    TABITHA,                       # 2 — vanilla bait
+    GARY_JUNIOR,                   # Scrappy 1 — vanilla
 ]
 NAPTIME_DENIAL = list(NAPTIME_DENIAL)
 assert len(NAPTIME_DENIAL) == 30, f"Naptime Denial: {len(NAPTIME_DENIAL)}"
@@ -663,15 +659,22 @@ assert len(NAPTIME_DENIAL) == 30, f"Naptime Denial: {len(NAPTIME_DENIAL)}"
 # -----------------------------------------------------------------------------
 
 CATS_DECKS: dict = {
+    # Canonical archetypes (post deckbuilding pass). Snack Rush is now the
+    # v3 (high-value bomb chain). Fluffinbottom Attention was a rejected
+    # hypothesis from /build-decks (15.1% in 8-deck tournament) and isn't
+    # registered; the SNACK_RUSH_V3 alias is kept as a re-export for tests.
     "Couch Empire":          (KAREN_THE_DIGNIFIED_CALICO,   COUCH_EMPIRE),
     "Naptime Tyrants":       (SIR_REGINALD_LOAFINGTON,      NAPTIME_TYRANTS),
     "Snack Rush":            (PRINCESS_MAYHEM_THE_THIRD,    SNACK_RUSH),
     "Shadow Cats":           (GARY_THE_ONE_EYED_TABBY,      SHADOW_CATS),
     "Greg's Diary":          (GREG,                         GREG_DIARY),
-    "Fluffinbottom Attention":(LORD_FLUFFINBOTTOM,          FLUFFINBOTTOM_ATTENTION),
-    "Snack Rush v3":         (PRINCESS_MAYHEM_THE_THIRD,    SNACK_RUSH_V3),
     "Naptime Denial":        (GARY_THE_ONE_EYED_TABBY,      NAPTIME_DENIAL),
 }
+
+# Back-compat alias: the build-decks subagent named the new Snack archetype
+# SNACK_RUSH_V3. It's now the canonical SNACK_RUSH; keep the alias so any
+# external imports / tests still resolve.
+SNACK_RUSH_V3 = SNACK_RUSH
 
 __all__ = [
     "CATS_DECKS",

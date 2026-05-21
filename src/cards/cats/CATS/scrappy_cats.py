@@ -149,15 +149,6 @@ THE_BEDRAGGLED_EARL = make_cat_card(
 # ---------------------------------------------------------------------------
 
 def maximum_carnage_setup(obj: GameObject, state: GameState):
-    def react_win(ev: Event, st: GameState):
-        return [
-            Event(
-                type=EventType.LIFE_CHANGE,
-                payload={"player": obj.controller, "amount": 1, "reason": "maximum_carnage_win"},
-                source=obj.id,
-            )
-        ]
-
     def react_lose(ev: Event, st: GameState):
         return [
             Event(
@@ -168,16 +159,19 @@ def maximum_carnage_setup(obj: GameObject, state: GameState):
         ]
 
     return [
-        _on_win_trigger(obj, react_win),
         _on_lose_trigger(obj, react_lose),
     ]
 
 
+# Nerf: dropped the on-win +1 score bonus (deckbuilding-pass flagged her as
+# the second strongest card — Value 10 with positive payoff in both win+lose
+# paths is too much). Keeping the lose-draw consolation; the 10 Value alone
+# is still a top-tier stat. Card text updated.
 MAXIMUM_CARNAGE = make_cat_card(
     name="Maximum Carnage",
     value=10,
     category="Scrappy",
-    text="Win: +1 score. Lose: draw a card. Either way, the curtains are ruined.",
+    text="Lose: draw a card. (Win is its own reward; the curtains are ruined.)",
     rarity="mythic",
     setup_interceptors=maximum_carnage_setup,
 )
