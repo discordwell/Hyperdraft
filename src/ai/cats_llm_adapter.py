@@ -27,7 +27,81 @@ to ``CatsAIAdapter("medium")`` so a game can still complete.
 from __future__ import annotations
 
 import asyncio
+import json
+import shutil
+from dataclasses import dataclass
 from typing import Any, Optional, TYPE_CHECKING
+
+
+@dataclass
+class _CatsLLMResponse:
+    """Minimal response shape for the inline shellout provider."""
+    content: str
+    model: str
+
+
+class _ClaudeCodeShell:
+    """Tiny self-contained `claude -p` shellout.
+
+    Inlined here (rather than imported from src.ai.llm.api_provider) so the
+    cats LLM tests don't break when that module's WIP state diverges from
+    the cats commits. Mirrors the public surface CatsLLMAdapter needs:
+    ``complete_json(prompt, schema, system=None)``.
+    """
+
+    def __init__(self, model: str = "haiku", timeout: float = 60.0, claude_bin: str = "claude"):
+        self.model = model
+        self.timeout = timeout
+        self.claude_bin = claude_bin
+
+    @property
+    def is_available(self) -> bool:
+        return shutil.which(self.claude_bin) is not None
+
+    async def complete(self, prompt: str, system: Optional[str] = None) -> _CatsLLMResponse:
+        cmd = [self.claude_bin, "-p", "--output-format", "text"]
+        if self.model:
+            cmd.extend(["--model", self.model])
+        if system:
+            cmd.extend(["--append-system-prompt", system])
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(prompt.encode("utf-8")),
+                timeout=self.timeout,
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise RuntimeError(f"claude -p timed out after {self.timeout}s")
+        if proc.returncode != 0:
+            err = stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"claude -p exit {proc.returncode}: {err}")
+        return _CatsLLMResponse(
+            content=stdout.decode("utf-8", errors="replace").strip(),
+            model=self.model or "claude-code",
+        )
+
+    async def complete_json(self, prompt: str, schema: dict, system: Optional[str] = None) -> dict:
+        schema_str = json.dumps(schema, indent=2)
+        json_prompt = f"""{prompt}
+
+Respond with ONLY valid JSON matching this schema:
+{schema_str}
+"""
+        response = await self.complete(json_prompt, system=system)
+        text = response.content.strip()
+        # Strip code-fence wrappers if present
+        if text.startswith("```"):
+            lines = text.split("\n")
+            text = "\n".join(lines[1:-1]) if lines[-1].strip().startswith("```") else "\n".join(lines[1:])
+            text = text.strip()
+        return json.loads(text)
 
 if TYPE_CHECKING:
     from src.engine.types import GameState
@@ -94,11 +168,9 @@ class CatsLLMAdapter:
         verbose: bool = False,
         timeout: float = 60.0,
     ):
-        # Defer the import so test environments that lack aiohttp can still
-        # construct the adapter (ClaudeCodeProvider doesn't use aiohttp but
-        # the OpenAI sibling does, and they live in the same module).
-        from src.ai.llm.api_provider import ClaudeCodeProvider
-        self.provider = ClaudeCodeProvider(model=model, timeout=timeout)
+        # Inline shellout — no dependency on src.ai.llm.api_provider, which
+        # may have WIP state that diverges from the cats commits.
+        self.provider = _ClaudeCodeShell(model=model, timeout=timeout)
         self.player_id: Optional[str] = None
         self.model = model
         self.verbose = verbose
