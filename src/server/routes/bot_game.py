@@ -392,6 +392,47 @@ async def start_bot_game(
             setup_cats_player(session.game.state, pid, deck_cards, commander=commander)
             session.deck_card_defs_by_player.setdefault(pid, []).extend(deck_cards)
 
+    elif request.mode == "finance":
+        # Finance bot-vs-bot: setup both players with Capital Reserve=30
+        # (setup_finance_player) and seed each library with a Finance deck.
+        # Without this branch the route fell through to the MTG/HS else
+        # block, which assigned TEST_CARDS (Forest/Plains/Lightning Bolt)
+        # to each seat. None of those carry FIN_TRADER/FIN_ORDER/etc.
+        # types, so FinanceTurnManager._play_card_action recognised them
+        # as neither permanents nor one-shots and silently dropped every
+        # play. End result: 89 turns of END_TURN spam with 0 battlefield
+        # objects — exactly the symptom in the wet-test report.
+        from src.cards.finance import FINANCE_DECKS
+        import random
+
+        finance_deck_keys = list(FINANCE_DECKS.keys())
+        b1_key = (
+            request.bot1_deck_id if request.bot1_deck_id in FINANCE_DECKS
+            else random.choice(finance_deck_keys)
+        )
+        b2_key = (
+            request.bot2_deck_id if request.bot2_deck_id in FINANCE_DECKS
+            else random.choice(
+                [k for k in finance_deck_keys if k != b1_key] or finance_deck_keys
+            )
+        )
+
+        player_ids = list(session.game.state.players.keys())
+        deck_keys_by_seat = {player_ids[0]: b1_key}
+        if len(player_ids) >= 2:
+            deck_keys_by_seat[player_ids[1]] = b2_key
+
+        for pid in player_ids[:2]:
+            player = session.game.state.players.get(pid)
+            if player is None:
+                continue
+            session.game.setup_finance_player(player)
+            deck = FINANCE_DECKS[deck_keys_by_seat[pid]]()
+            session.add_cards_to_deck(pid, deck)
+            # WatchLive lobby: stash the deck key so the table can blurb
+            # the archetype.
+            session.deck_id_by_player[pid] = deck_keys_by_seat[pid]
+
     elif request.mode == "depths":
         # Depths bot-vs-bot: setup both players with a Flagship + 30-card deck.
         # Without setup_depths_player, neither player has a Flagship, so the
