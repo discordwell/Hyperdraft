@@ -53,7 +53,7 @@ export const SET_CODE_TO_FOLDER: Record<string, { type: 'mtg' | 'custom'; folder
 export function cardNameToFilename(name: string): string {
   return name
     .toLowerCase()
-    .replace(/[',]/g, '')
+    .replace(/[',:()!."]/g, '')
     .replace(/\s+/g, '_')
     .replace(/-/g, '_')
     .replace(/_+/g, '_')
@@ -133,6 +133,27 @@ export function getPossibleArtPaths(name: string, setCode?: string): string[] {
   );
 
   return paths;
+}
+
+/**
+ * Get Depths (Submarine Fleet) art paths.
+ *
+ * Depths cards live under /api/card-art/depths/<expansion>/<slug>.png — the
+ * `submarine_fleet` folder is the launch set; future Depths expansions
+ * (e.g. abyssal_expanse) will sit alongside it. We try them all so the
+ * <CardArt> fallback chain Just Works regardless of which expansion a card
+ * came from.
+ *
+ * If the backend already wired an `image_url` (Depths cards do this via
+ * `_wire_image_urls` in src/cards/depths/submarine_fleet/__init__.py), the
+ * caller should prefer that and only use this helper as a fallback chain.
+ */
+export function getDepthsArtPaths(cardName: string): string[] {
+  const filename = cardNameToFilename(cardName);
+  return [
+    `/api/card-art/depths/submarine_fleet/${filename}.png`,
+    `/api/card-art/depths/abyssal_expanse/${filename}.png`,
+  ];
 }
 
 /**

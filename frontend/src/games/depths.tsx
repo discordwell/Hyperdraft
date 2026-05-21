@@ -27,6 +27,7 @@ import type { GameModule } from './types';
 import type { DeckStats } from '../types/deckbuilder';
 import { defaultFormatType } from './types';
 import { StackedBar } from './StackedBar';
+import { getDepthsArtPaths } from '../utils/cardArt';
 
 // -- Depth ladder ----------------------------------------------------------
 
@@ -70,6 +71,117 @@ function isMine(c: CardData) {
 function bandOf(c: CardData): DepthBand {
   const raw = (c.depth_band || 'PERISCOPE').toString().toUpperCase();
   return (DEPTH_BANDS as string[]).includes(raw) ? (raw as DepthBand) : 'PERISCOPE';
+}
+
+// -- Card art ------------------------------------------------------------
+
+/**
+ * Sonar-themed fallback glyphs. Each variant matches a card category so the
+ * empty art slot still reads as a Depths card and not a generic placeholder.
+ *
+ * Vessels: submarine silhouette.
+ * Mines: pressure-gauge diamond.
+ * Doctrines: sonar ping.
+ * Actions / unknown: stylised wave.
+ */
+const DEPTHS_FALLBACK_GLYPH: Record<string, string> = {
+  vessel: '⌖',     // crosshair / sub silhouette read
+  flagship: '★',
+  mine: '◇',
+  doctrine: '⌬',   // sonar ping
+  action: '∿',
+  unknown: '∿',
+};
+
+type DepthsArtVariant = keyof typeof DEPTHS_FALLBACK_GLYPH;
+
+function DepthsArt({
+  cardName,
+  imageUrl,
+  variant = 'unknown',
+  className,
+}: {
+  cardName: string;
+  imageUrl?: string | null;
+  variant?: DepthsArtVariant;
+  className?: string;
+}) {
+  const paths = useMemo(() => {
+    const out: string[] = [];
+    if (imageUrl) out.push(imageUrl);
+    out.push(...getDepthsArtPaths(cardName));
+    return [...new Set(out)];
+  }, [cardName, imageUrl]);
+
+  const [idx, setIdx] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  // Reset attempt counters when the card name changes (re-render on swap).
+  useEffect(() => {
+    setIdx(0);
+    setLoaded(false);
+    setFailed(false);
+  }, [cardName, imageUrl]);
+
+  const onError = () => {
+    if (idx < paths.length - 1) {
+      setIdx((i) => i + 1);
+    } else {
+      setFailed(true);
+    }
+  };
+
+  const glyph = DEPTHS_FALLBACK_GLYPH[variant] || DEPTHS_FALLBACK_GLYPH.unknown;
+
+  if (failed || paths.length === 0) {
+    return (
+      <div
+        aria-hidden
+        className={`flex items-center justify-center bg-gradient-to-b from-cyan-950/40 to-slate-950/80 text-cyan-500/60 ${className ?? ''}`}
+      >
+        <span className="text-lg leading-none">{glyph}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`relative overflow-hidden bg-gradient-to-b from-cyan-950/40 to-slate-950/80 ${className ?? ''}`}>
+      {!loaded && (
+        <div className="absolute inset-0 flex items-center justify-center text-cyan-700/60">
+          <span className="text-lg leading-none opacity-40 animate-pulse">{glyph}</span>
+        </div>
+      )}
+      <img
+        src={paths[idx]}
+        alt={cardName}
+        loading="lazy"
+        decoding="async"
+        onLoad={() => setLoaded(true)}
+        onError={onError}
+        className={`h-full w-full object-cover object-center ${loaded ? 'opacity-100' : 'opacity-0'} transition-opacity duration-150`}
+      />
+    </div>
+  );
+}
+
+function variantForCard(card: CardData, isFlagship: boolean): DepthsArtVariant {
+  if (isFlagship) return 'flagship';
+  if (card.types.some((t) => t === 'DEPTHS_MINE')) return 'mine';
+  if (card.types.some((t) => t === 'ENCHANTMENT' || t === 'DEPTHS_DOCTRINE')) return 'doctrine';
+  if (
+    card.types.some(
+      (t) =>
+        t === 'DEPTHS_VESSEL' ||
+        t === 'CREATURE' ||
+        t === 'DEPTHS_CREW' ||
+        t === 'DEPTHS_WEAPON',
+    )
+  ) {
+    return 'vessel';
+  }
+  if (card.types.some((t) => t === 'INSTANT' || t === 'SORCERY')) return 'action';
+  return 'unknown';
 }
 
 // -- Tiny presentational atoms --------------------------------------------
@@ -186,6 +298,14 @@ function VesselTile({
           {power}/{hull}
         </div>
       </div>
+      {!ghosted && (
+        <DepthsArt
+          cardName={card.name}
+          imageUrl={card.image_url}
+          variant={variantForCard(card, isFlagship)}
+          className={`mt-1 ${isFlagship ? 'h-12' : 'h-10'} border border-cyan-900/50`}
+        />
+      )}
       {hull > 0 && (
         <div className="mt-1">
           <HullBar damage={damage} hull={hull} compact={!isFlagship} />
@@ -902,6 +1022,12 @@ export function DepthsGameBoard({
                       </span>
                     )}
                   </div>
+                  <DepthsArt
+                    cardName={card.name}
+                    imageUrl={card.image_url}
+                    variant={variantForCard(card, false)}
+                    className="mt-1 h-16 border border-cyan-900/50"
+                  />
                   <div className="mt-1 line-clamp-2 text-[10px] text-slate-400 leading-snug">{card.text}</div>
                   <div className="mt-1 flex items-center justify-between text-[10px]">
                     <Cost cost={card.depths_cost} />
