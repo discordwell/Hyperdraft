@@ -531,7 +531,7 @@
 
       <div class="ledger">
         <div class="row"><span class="n">09</span><span class="k">PROPOSE</span><span class="v">One board template: opponent zones (top), shared stack/chain rail (right), phase rail (above hand), hand (bottom). Zone labels are slot-machine — they change per engine, layout doesn't.</span></div>
-        <div class="row"><span class="n">10</span><span class="k">PROPOSE</span><span class="v">Cards are spec sheets, not painted faces. Use type, not illustration, to carry identity. Reserve a single corner for engine glyph + cost. This also sidesteps any IP question — never render branded card faces.</span></div>
+        <div class="row"><span class="n">10</span><span class="k">PROPOSE</span><span class="v">Chrome around the card is spec-sheet — type-driven, tabular, hairline-ruled. The card itself renders real art when the engine has it (Hyperdraft serves card art under <code>/api/card-art/</code>); a geometric glyph fallback covers user-gen sets without art. <em>[The original HD-CRIT-001 said "never render branded card faces" — retracted by user 2026-05-20; rule was never requested and Hyperdraft already ships real card art.]</em></span></div>
         <div class="row"><span class="n">11</span><span class="k">PROPOSE</span><span class="v">Make the event log first-class. A scrollable, scrubbable feed that doubles as the replay timeline. Click a TRANSFORM event, see the state it produced. This is the demo-reel moment.</span></div>
         <div class="row"><span class="n">12</span><span class="k">RISK</span><span class="v">Drag-and-drop UX is fine, but combat-step priority will eat you if it's not visible. The phase rail must always be readable at a glance.</span></div>
       </div>
@@ -805,7 +805,7 @@
       </div>
 
       <!-- Deckbuilder artboard -->
-      <div class="ab-cap"><span class="L">HD-ART-04 · Deckbuilder</span><span>cards-as-spec-sheets · zero illustration</span></div>
+      <div class="ab-cap"><span class="L">HD-ART-04 · Deckbuilder</span><span>spec-sheet chrome · real card art</span></div>
       <div class="ab ab-dbk">
         <div class="dbk-h">
           <h2><small>HD-DECK-014</small>Mono-blue Tempo, v3</h2>
@@ -992,7 +992,7 @@
         Every card is a small spec sheet. Every match has a permalink and an event log. The "play" button is called <em>"Open a match."</em> The replay is the timeline; the timeline is the same widget on landing, in lobby, and on the board. The user can stop time, step the pipeline forward one event, and watch the interceptors light up — same way you'd step through a packet capture. That is a thing nobody else does. Lean all the way into it.
       </p>
       <p>
-        The aesthetic name I'd use for it internally is <span class="lift">"polyglot card lab."</span> Paper and ink. One sodium-orange accent. Tabular layouts. Cards as type, not portraiture. Stack and chain as bookkeeping, not pyrotechnics. The brand is the calm a developer feels when reading clean output. Eight engines, one frame, and the frame looks like the inside of the machine.
+        The aesthetic name I'd use for it internally is <span class="lift">"polyglot card lab."</span> Paper and ink. One sodium-orange accent. Tabular layouts. Real card art on the cards, spec-sheet chrome around them. Stack and chain as bookkeeping, not pyrotechnics. The brand is the calm a developer feels when reading clean output. Eight engines, one frame, and the frame looks like the inside of the machine.
       </p>
 
       <div class="pull">

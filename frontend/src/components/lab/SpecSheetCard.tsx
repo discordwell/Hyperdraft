@@ -1,10 +1,10 @@
 /**
- * SpecSheetCard — engine-agnostic card chip per HD-CRIT-10.
+ * SpecSheetCard — engine-agnostic card chip.
  *
- * Cards are type, not portraiture. The three lines (cost/kind, name, stats)
- * stay constant across MTG / YGO / PKM / HS / SCP — only the labels change.
- * Reserve a single corner for engine glyph + cost; never render branded
- * card art here.
+ * The three lines (cost/kind, name, stats) stay constant across all eight
+ * engines — only the labels change. Render real card art if the surface
+ * has it (Hyperdraft serves it under `/api/card-art/`); fall back to a
+ * geometric art glyph when no art is available.
  */
 
 import type { CSSProperties } from 'react';

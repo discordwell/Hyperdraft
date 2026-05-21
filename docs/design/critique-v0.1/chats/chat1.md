@@ -39,9 +39,13 @@ _[tool: web_fetch]_
 
 I've got enough from the README + tagline to start. The live app returned only its title tag ("Hyperdraft — eight engines, one frame") which is itself the most useful single signal — that's the whole brand pivot and I doubt it's surfaced anywhere visible in-product yet. I'll work from that, the README, and the strong archetype of "solo-dev React tool for a deep niche."
 
-A note on the system reminder: I won't redraw any branded MTG/Yu-Gi-Oh/Pokemon/Hearthstone card faces or chrome. The *value* of Hyperdraft is the **frame**, not the source IPs, so abstracting cards as generic spec sheets is actually the right design move regardless of legal — it makes the eight engines feel like instances of one system.
+**[User retraction, 2026-05-20]:** the "no branded card faces" rule
+written by Claude Design here was never asked for and is removed. Hyperdraft
+already serves real card art for MTG/HS/PKM/YGO at `/api/card-art/` and the
+SCP set is user-generated. The lab aesthetic stands; the "abstract every
+card to a spec sheet" instruction does not.
 
-Aesthetic direction I'm committing to: **polyglot card lab.** Paper-warm + ink, Instrument Serif display + Geist Mono everywhere else, one saturated sodium-orange accent, heavy tabular grids, cards-as-spec-sheets. Reference points: Are.na, a 1970s engineering reference card, a research notebook.
+Aesthetic direction I'm committing to: **polyglot card lab.** Paper-warm + ink, Instrument Serif display + Geist Mono everywhere else, one saturated sodium-orange accent, heavy tabular grids, real card art where present (spec-sheet fallback only when art is missing). Reference points: Are.na, a 1970s engineering reference card, a research notebook.
 
 _[tool: read_file]_
 
@@ -62,7 +66,7 @@ Critique is live in `Hyperdraft Critique.html` — open in your tab bar. Quick m
 - **HD-ART-01…06** six artboards: landing with engine rack, ⌘E engine picker, the engine-agnostic match board (with stack/chain rail, replay scrubber, inspector), deckbuilder, SCP archetype viewer, lobby/spectator.
 - **Tweaks panel** (bottom-right toggle): flip palettes (paper / onyx / clay / bone), accents (sodium / cyan / madder / lime), display size, and the **engine lens** — this last one rebinds the board artboard's zone labels and phase rail to MTG / Yu-Gi-Oh / Pokemon / Hearthstone / SCP so you can feel the chassis staying put while the engine changes.
 
-The bold direction is **"a debugger for the game of TCGs"** — laboratory instrumentation, paper + ink + one sodium accent, cards-as-spec-sheets, no painted faces (also sidesteps the IP question). Refuses the tabletop frame entirely.
+The bold direction is **"a debugger for the game of TCGs"** — laboratory instrumentation, paper + ink + one sodium accent, real card art on the cards themselves, spec-sheet chrome around them. Refuses the tabletop frame entirely.
 
 If you want the next round to be a real prototype rather than artboards, two strong candidates: (a) the ⌘E engine picker as a working overlay you can pull into the live app, or (b) the "pipeline view" toggle on the board — TRANSFORM/PREVENT/RESOLVE/REACT as scrubbable columns with real event lines. Either one is a roughly half-day build and would be the most distinctive thing in your repo. Say the word and I'll start.
 
