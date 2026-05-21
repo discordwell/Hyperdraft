@@ -1,0 +1,1762 @@
+{
+  "model": "haiku",
+  "games_per_pairing": 2,
+  "total_games": 12,
+  "wall_time_s": 7718.637350797653,
+  "wins": {
+    "Couch Empire": 3,
+    "Naptime Tyrants": 4,
+    "Snack Rush": 2,
+    "Shadow Cats": 3
+  },
+  "losses": {
+    "Couch Empire": 3,
+    "Naptime Tyrants": 2,
+    "Snack Rush": 4,
+    "Shadow Cats": 3
+  },
+  "ties": {
+    "Couch Empire": 0,
+    "Naptime Tyrants": 0,
+    "Snack Rush": 0,
+    "Shadow Cats": 0
+  },
+  "games": [
+    {
+      "deck_a": "Couch Empire",
+      "deck_b": "Naptime Tyrants",
+      "p1_seat": "a",
+      "seed": 13345,
+      "winner": "p2",
+      "rounds": 6,
+      "wall_time_s": 507.1333088874817,
+      "scores": {
+        "p1": {
+          "territory": 4,
+          "nap": 4,
+          "snack": 0,
+          "total": 8,
+          "attention": 0
+        },
+        "p2": {
+          "territory": 0,
+          "nap": 0,
+          "snack": 12,
+          "total": 12,
+          "attention": 0
+        }
+      },
+      "llm_decisions": 11,
+      "notes": [
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1044,
+          "result": {
+            "slot": 3,
+            "reasoning": "Duchess Velvet is high-value (6) with immediate card draw on winning, giving me both a pile card and tempo advantage while I'm currently at 0 cards vs opponent's 2."
+          },
+          "chosen": "0240ab75"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1089,
+          "result": {
+            "slot": 2,
+            "reasoning": "Pillow Princess (Value 6) beats opponent's Sir Reginald (Value 5) under Fluffy rule, I pick the pile, and the draw trigger activates since I'm behind 0 cards to opponent's 4."
+          },
+          "chosen": "a2c3c86d"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 927,
+          "result": {
+            "pile": "pile_nap",
+            "reasoning": "Sir Reginald Loafington II triggers +3 bonus when Nap fills to 6 cards; Nap pays 2pt/card (highest base value), so building it creates both immediate value and a powerful mid-game payoff."
+          },
+          "chosen": "pile_nap"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 882,
+          "result": {
+            "slot": 2,
+            "reasoning": "Marshmallow (Value 3) has strong winning probability under Sleek rules and triggers a card draw if it enters Territory pile, providing both immediate win likelihood and card advantage, versus an unclear Mood effect with Value 0."
+          },
+          "chosen": "62b394ba"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 896,
+          "result": {
+            "pile": "pile_territory",
+            "reasoning": "Marshmallow's trigger draws a card when entering Territory, gaining critical card advantage when opponent is down to 1 card with 5 rounds remaining."
+          },
+          "chosen": "pile_territory"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 969,
+          "result": {
+            "slot": 2,
+            "reasoning": "Play The Brigadier (9) to win the trick against opponent's Mood card (0), then claim Territory to build my scoring lead while opponent's snack pile is nearly full."
+          },
+          "chosen": "26ff6a81"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1085,
+          "result": {
+            "slot": 3,
+            "reasoning": "Empress Pomf's value 9 is my strongest opening to win the first trick, securing early card draw and score before opponent responds."
+          },
+          "chosen": "1ea225ec"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 841,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack grants 3pt/card for the first 5 cards, yielding 6 points immediately (vs 4 for nap or 2 for territory), and locking the opponent out of this high-value early pile."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1066,
+          "result": {
+            "slot": 2,
+            "reasoning": "Duchess Velvet contests for the draw trigger while advancing snack pile momentum."
+          },
+          "chosen": "4325c668"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 853,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack is already 2/5 with highest per-card value (3pts); adding these 2 Duchess cards yields 6 points immediately (4/5), leaving 1 slot for a future snack card to cap at 15 total\u2014and the Duchess draw triggers will provide more cards to win future tricks and either complete snack or fill other piles."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 901,
+          "result": {
+            "slot": 2,
+            "reasoning": "Sir Reginald's Value 5 is my strongest card and highly likely to win under Sleek rule, letting me claim the Nap pile and work toward the +3 bonus when it fills (total 15pt vs Snack's 13pt potential)."
+          },
+          "chosen": "17f10c2a"
+        }
+      ]
+    },
+    {
+      "deck_a": "Couch Empire",
+      "deck_b": "Naptime Tyrants",
+      "p1_seat": "b",
+      "seed": 14345,
+      "winner": "p1",
+      "rounds": 9,
+      "wall_time_s": 963.2980899810791,
+      "scores": {
+        "p1": {
+          "territory": 0,
+          "nap": 8,
+          "snack": 12,
+          "total": 20,
+          "attention": 0
+        },
+        "p2": {
+          "territory": 2,
+          "nap": 4,
+          "snack": 6,
+          "total": 12,
+          "attention": 0
+        }
+      },
+      "llm_decisions": 17,
+      "notes": [
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 860,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack gives 3pt/card early (6 points for 2 cards), maximizing value before the 5-card cap kicks in."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 946,
+          "result": {
+            "slot": 3,
+            "reasoning": "Opponent's Biscuit (7) wins this tie as lead player regardless of my play, so I'll dump Tabitha to preserve Duchess Velvet's draw effect and Biscuit for winning positions."
+          },
+          "chosen": "a2ab4a32"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 821,
+          "result": {
+            "slot": 2,
+            "reasoning": "Biscuit's value 7 is more likely to win against unknown opponent hand when playing first, and winning secures Nap pile (2pt/card) for consistent endgame value with 5 rounds remaining."
+          },
+          "chosen": "8b95d910"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 901,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack card (Biscuit) in the trick forces claim into Snack pile."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 947,
+          "result": {
+            "pile": "pile_nap",
+            "reasoning": "Two cards in nap yield 4 immediate points; territory only yields 2 points and would need 4 more cards across 4 remaining rounds to trigger the 6-card bonus."
+          },
+          "chosen": "pile_nap"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 1082,
+          "result": {
+            "pile": "pile_nap",
+            "reasoning": "Claiming two cards into nap (4 pts) ties the game at 20-20, and The Dignified Sulk's tiebreaker (fewer-pile-cards wins) favors me with 8 total cards vs opponent's 10."
+          },
+          "chosen": "pile_nap"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1117,
+          "result": {
+            "slot": 2,
+            "reasoning": "Empress Pomf is the highest-value card with a powerful win effect (draw + 2 score), maximizing early advantage and card draw in round 1."
+          },
+          "chosen": "095ad8aa"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1130,
+          "result": {
+            "slot": 2,
+            "reasoning": "The Brigadier ties Empress Pomf at Value 9, and the Fluffy tiebreak favors the underdog with fewer pile cards (0 vs 2), so I win the trick and deny their card draw + snack pile growth."
+          },
+          "chosen": "aa0fcd6c"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 884,
+          "result": {
+            "pile": "pile_territory",
+            "reasoning": "Early round commitment to the highest-ceiling pile (1pt/card + 5pt bonus at 6+) maximizes long-term upside; with 7 rounds remaining and card advantage from Empress Pomf's draw, building toward the threshold is stronger than settling for immediate snack value."
+          },
+          "chosen": "pile_territory"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 942,
+          "result": {
+            "slot": 1,
+            "reasoning": "Biscuit's value 7 wins the trick under current Sleek rule, claiming Territory to build toward the 6-card bonus while opponent's Snack is only at 2/5 efficiency."
+          },
+          "chosen": "0ed45e33"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 836,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack pile yields 6 immediate points (3pts per card \u00d7 2), the highest value of available options, with room to grow to 5 cards before the greedy penalty kicks in."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 967,
+          "result": {
+            "slot": 2,
+            "reasoning": "Opponent's 7 beats both my cards, so I'll lose either way; keeping the stronger Pillow Princess (6) for future tricks is better resource management than keeping Marshmallow (3)."
+          },
+          "chosen": "9fa572e8"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1410,
+          "result": {
+            "slot": 5,
+            "reasoning": "Wins the trick (3 < 8 under Scrappy), forces to my Snack pile for 3pt, and draws 2 cards to capitalize on the final 3 rounds."
+          },
+          "chosen": "40a4a65c"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 964,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "The Whole Roast Chicken (Snack card) forces claim into the Snack pile per the mandatory rule, and triggers draw 2 when it enters\u2014additional value that helps rebuild hand for the remaining 3 rounds."
+          },
+          "chosen": "pile_snack"
+        }
+      ]
+    },
+    {
+      "deck_a": "Couch Empire",
+      "deck_b": "Snack Rush",
+      "p1_seat": "a",
+      "seed": 15345,
+      "winner": "p1",
+      "rounds": 7,
+      "wall_time_s": 654.2038588523865,
+      "scores": {
+        "p1": {
+          "territory": 4,
+          "nap": 0,
+          "snack": 12,
+          "total": 16,
+          "attention": 0
+        },
+        "p2": {
+          "territory": 2,
+          "nap": 0,
+          "snack": 6,
+          "total": 8,
+          "attention": 0
+        }
+      },
+      "llm_decisions": 13,
+      "notes": [
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1312,
+          "result": {
+            "slot": 2,
+            "reasoning": "Marshmallow is my weakest card by value and will lose to Empress Pomf (9) regardless; surrendering it preserves Mister Whiskers (peek), Earl, and That One Thing for future rounds where I might win."
+          },
+          "chosen": "a8f8eb14"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1099,
+          "result": {
+            "slot": 4,
+            "reasoning": "Mister Whiskers (value 7) wins under the current Sleek rule against most opponent plays, and peeking their hand provides critical information for round 2 of 9."
+          },
+          "chosen": "53d834b7"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 859,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack scores 3pt per card while the pile is under 5 cards, giving 6pts for these two cards now\u2014stronger than territory (2pts) or nap (4pts) at this stage."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1108,
+          "result": {
+            "slot": 1,
+            "reasoning": "Play Value 3 to guarantee a win under Sneaky (lowest wins: 3 < 6), claim into Snack pile, and score 8 points total (both cards' 3pt each + 2pt bonus)."
+          },
+          "chosen": "f2fb2f75"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 907,
+          "result": {
+            "slot": 2,
+            "reasoning": "Play Duchess Velvet (value 6) to likely win under Sleek (highest wins), draw a card, and add a high-value card to the Snack pile while I'm behind on score."
+          },
+          "chosen": "738e2300"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 980,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Both cards trigger when entering the Snack pile (draw 2, then draw 1 for 3 total card advantage), scoring 3pt/card each while pile is <5, and opponent down to 1 hand card makes the card draw critical in the endgame."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 994,
+          "result": {
+            "slot": 2,
+            "reasoning": "Empress Pomf (value 9) wins under Sleek rule, draws a card for the final rounds, and lets me pick any pile\u2014avoiding snack-pile-lock while the opponent still has 1 card."
+          },
+          "chosen": "b3d036e1"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1188,
+          "result": {
+            "slot": 2,
+            "reasoning": "Empress Pomf's value of 9 wins this opening trick with high certainty, granting pile choice and immediate card advantage plus 2 points."
+          },
+          "chosen": "a42bae1e"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 859,
+          "result": {
+            "pile": "pile_territory",
+            "reasoning": "Territory scales better long-term (8-card cap vs 5 for Snack), and Marshmallow's draw trigger on entry provides card advantage that multiplies over 9 rounds more than 4 extra points now."
+          },
+          "chosen": "pile_territory"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1316,
+          "result": {
+            "slot": 5,
+            "reasoning": "Wet Food O'Clock's lowest-wins override beats Mister Whiskers (0 < 7); I win the trick, claim both cards to Snack pile (6pt), and avoid the risky 'demands attention' mechanic of the other Mood."
+          },
+          "chosen": "0f12ea7d"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 918,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Forced to Snack pile because That One Thing Off The Counter is a Snack card (rule: Snack cards force claim destination). 6 points (2 cards \u00d7 3pt/card while pile <5)."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1134,
+          "result": {
+            "slot": 1,
+            "reasoning": "Playing The 3 a.m. Zoomies (Mood) changes the rule to lowest-wins, defeating Duchess Velvet, winning the trick, preventing opponent's draw trigger, and leaving them with 0 cards while I maintain a 2-card advantage for round 5."
+          },
+          "chosen": "2715116b"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 953,
+          "result": {
+            "slot": 1,
+            "reasoning": "The Whole Roast Chicken's 2-card draw effect maximizes hand advantage while forcing a Snack claim regardless of outcome, more valuable than The Earl's single-card draw when ahead on cards in round 5."
+          },
+          "chosen": "f91984f9"
+        }
+      ]
+    },
+    {
+      "deck_a": "Couch Empire",
+      "deck_b": "Snack Rush",
+      "p1_seat": "b",
+      "seed": 16345,
+      "winner": "p2",
+      "rounds": 6,
+      "wall_time_s": 497.06238412857056,
+      "scores": {
+        "p1": {
+          "territory": 0,
+          "nap": 0,
+          "snack": 0,
+          "total": 0,
+          "attention": 0
+        },
+        "p2": {
+          "territory": 0,
+          "nap": 4,
+          "snack": 6,
+          "total": 10,
+          "attention": 2
+        }
+      },
+      "llm_decisions": 12,
+      "notes": [
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1217,
+          "result": {
+            "slot": 3,
+            "reasoning": "Zoomies flips the rule to lowest-wins, your value 0 beats opponent's value 10, and denies Bartholomew's powerful Nap pile placement and draw-2 ability in round 1."
+          },
+          "chosen": "7644a599"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1035,
+          "result": {
+            "slot": 4,
+            "reasoning": "Duchess Velvet draws a card if I win and lets me pick my pile, providing card advantage and strategic flexibility that snacks with forced placement cannot match."
+          },
+          "chosen": "2290dd9a"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 870,
+          "result": {
+            "slot": 1,
+            "reasoning": "Both snacks have identical value (1) and force snack placement; playing one and losing caps opponent's snack pile at 5/5, preventing them from scoring more snacks in future rounds while I'm far behind overall."
+          },
+          "chosen": "7e8d928d"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1138,
+          "result": {
+            "slot": 1,
+            "reasoning": "Play the strongest card to secure the trick and generate card advantage via the draw-2 effect."
+          },
+          "chosen": "4403cea5"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 852,
+          "result": {
+            "pile": "pile_nap",
+            "reasoning": "The Magnificent Bartholomew's draw trigger (2 cards) activates only when entering the Nap pile, and early card draw is premium in a 9-round game."
+          },
+          "chosen": "pile_nap"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1265,
+          "result": {
+            "slot": 1,
+            "reasoning": "The Brigadier wins decisively (9 > 6), lets me claim into Nap (developing toward the 12-point cap), and is my strongest card to use now while Snack-forcing would be wasteful."
+          },
+          "chosen": "10e7ec29"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 878,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack is worth 3pt/card in its greedy phase (while <5 cards), netting 6 points now versus 4 in nap or 2 in territory\u2014early high-value claim while available."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1105,
+          "result": {
+            "slot": 3,
+            "reasoning": "Pillow Princess has the highest value (6) under Sleek rule and will likely win the trick, letting you claim to the empty Territory pile which has the highest long-term scoring potential (1pt/card +5 bonus at 6+ cards)."
+          },
+          "chosen": "a98ad957"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 932,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Catnip Mouse is a Snack card, which forces the Snack pile as the claim destination (or Attention if full), overriding the choice of other piles."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 937,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Tuna Can (Snack card) forces the Snack pile claim per rules; the Bedraggled Earl's triggered effect also requires Snack pile entry to draw a card."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1129,
+          "result": {
+            "slot": 2,
+            "reasoning": "Crumpet's value of 4 wins under Sleek rule against most remaining cards, and lets me claim nap pile to build advantage while protecting snack from forced-claim vulnerability."
+          },
+          "chosen": "2cc92247"
+        }
+      ]
+    },
+    {
+      "deck_a": "Couch Empire",
+      "deck_b": "Shadow Cats",
+      "p1_seat": "a",
+      "seed": 17345,
+      "winner": "p1",
+      "rounds": 6,
+      "wall_time_s": 405.1922171115875,
+      "scores": {
+        "p1": {
+          "territory": 0,
+          "nap": 8,
+          "snack": 6,
+          "total": 14,
+          "attention": 0
+        },
+        "p2": {
+          "territory": 0,
+          "nap": 0,
+          "snack": 0,
+          "total": 0,
+          "attention": 0
+        }
+      },
+      "llm_decisions": 12,
+      "notes": [
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1287,
+          "result": {
+            "slot": 2,
+            "reasoning": "Empress Pomf (Value 9) beats Penumbra Twin (Value 6) under Sneaky, I draw and gain 2 score, then claim both cards into Nap pile to trigger Twin's draw effect as well (net 4 cards drawn, 2 score, 2 early nap cards)."
+          },
+          "chosen": "a292b932"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 849,
+          "result": {
+            "pile": "pile_nap",
+            "reasoning": "Penumbra Twin's ETB trigger draws a card when entering Nap, providing critical early-game card advantage that compounds over 9 rounds."
+          },
+          "chosen": "pile_nap"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1205,
+          "result": {
+            "slot": 2,
+            "reasoning": "Duchess Velvet (value 6) is likely to win under the Sleek rule and generates card-draw advantage to maintain hand dominance in early rounds."
+          },
+          "chosen": "16b0ab66"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 859,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack yields 3pts/card when pile < 5 cards; claiming 2 cards now scores 6pts, the highest immediate value and worth aggressive early-game capture."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1170,
+          "result": {
+            "slot": 4,
+            "reasoning": "Duchess Velvet wins the trick (6 > 4) and draws a card, building card advantage while maintaining my pile lead and choosing which pile to claim into."
+          },
+          "chosen": "1d9a987d"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 855,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Claiming 2 cards into snack yields 6 points (3 pts/card \u00d7 2) without hitting the 5-card greedy penalty, bringing the pile to 4/5 with 12 total points while the opponent is still building their position."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 921,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snacks in the trick force claim into Snack pile."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1012,
+          "result": {
+            "slot": 1,
+            "reasoning": "Playing Aggressive Loafing mirrors the Mood rule; with 8 pile cards to opponent's 0, I win decisively and pick a pile to extend my advantage."
+          },
+          "chosen": "11515274"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1088,
+          "result": {
+            "slot": 5,
+            "reasoning": "Penumbra Twin at value 6 likely wins under Sleek rule, allowing me to place it in Nap pile to trigger the draw effect and gain tempo on round 1."
+          },
+          "chosen": "aeb4693c"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1086,
+          "result": {
+            "slot": 1,
+            "reasoning": "Lord Tufts loses to Duchess Velvet (6 > 3) but draws me a card on the loss, providing card advantage compensation in this inevitable defeat."
+          },
+          "chosen": "27a51c66"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 924,
+          "result": {
+            "slot": 3,
+            "reasoning": "Crumpet (value 4) is the strongest play under Sleek and gives the best chance to win the trick and claim into Nap for 2 points; Aggressive Loafing changes the rule to favor my opponent's pile count (4-0), and Tuna Can forces Snack which is less efficient than Nap for building from zero."
+          },
+          "chosen": "5d9ee7f7"
+        }
+      ]
+    },
+    {
+      "deck_a": "Couch Empire",
+      "deck_b": "Shadow Cats",
+      "p1_seat": "b",
+      "seed": 18345,
+      "winner": "p1",
+      "rounds": 6,
+      "wall_time_s": 575.9018580913544,
+      "scores": {
+        "p1": {
+          "territory": 2,
+          "nap": 0,
+          "snack": 6,
+          "total": 8,
+          "attention": 0
+        },
+        "p2": {
+          "territory": 0,
+          "nap": 0,
+          "snack": 6,
+          "total": 6,
+          "attention": 0
+        }
+      },
+      "llm_decisions": 8,
+      "notes": [
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1183,
+          "result": {
+            "slot": 3,
+            "reasoning": "Empress Pomf (Value 9) beats Biscuit (7) under Fluffy, wins the trick, and draws a card plus gains 2 score\u2014the strongest round-1 play with both value and card advantage."
+          },
+          "chosen": "c60f7f5f"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 841,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack is greediest early (3pts/card while <5), and Empress Pomf's text hints at snack synergy ('gain 2 sc'), making this the highest-EV claim."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 987,
+          "result": {
+            "slot": 2,
+            "reasoning": "Sergeant Snuggles (Value 8) is highly likely to win the trick in round 2, securing a pile claim and letting me build either snack toward cap or territory for maximum upside."
+          },
+          "chosen": "5a89d06b"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 874,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "The Bedraggled Earl triggers when entering snack pile (card draw), plus snack pays 3 pts/card while below 5 cards\u2014the highest-value rate available."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1148,
+          "result": {
+            "slot": 4,
+            "reasoning": "The 3 a.m. Zoomies reverses the rule to lowest-wins, so my Value 0 beats opponent's Value 3 Sleek, I claim the trick and choose pile (nap for consistent 2pt/card scoring), and opponent loses their draw trigger."
+          },
+          "chosen": "49d3e01d"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1015,
+          "result": {
+            "slot": 2,
+            "reasoning": "Opponent played a Mood (Value 0) that modifies the rule to favor pile size; I have 6 pile cards vs their 2, so I win regardless. Playing A Single Crumb forces the trick into my nearly-full Snack pile (4/5), filling it to capacity and securing strong Snack scoring (3pt/card) before it caps."
+          },
+          "chosen": "3da950c2"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1119,
+          "result": {
+            "slot": 2,
+            "reasoning": "Biscuit's value of 7 likely wins the opening trick, allowing me to choose which pile to build first."
+          },
+          "chosen": "794023ee"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 892,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack provides 3pt/card when pile < 5, giving me 6pts immediately with these 2 cards; building snack early maximizes value before pile fills, and the Mood card's weak play-value is efficiently utilized in scoring rather than tricks."
+          },
+          "chosen": "pile_snack"
+        }
+      ]
+    },
+    {
+      "deck_a": "Naptime Tyrants",
+      "deck_b": "Snack Rush",
+      "p1_seat": "a",
+      "seed": 19345,
+      "winner": "p2",
+      "rounds": 6,
+      "wall_time_s": 541.9517631530762,
+      "scores": {
+        "p1": {
+          "territory": 0,
+          "nap": 0,
+          "snack": 6,
+          "total": 6,
+          "attention": 0
+        },
+        "p2": {
+          "territory": 2,
+          "nap": 0,
+          "snack": 6,
+          "total": 8,
+          "attention": 0
+        }
+      },
+      "llm_decisions": 10,
+      "notes": [
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1249,
+          "result": {
+            "slot": 3,
+            "reasoning": "Pillow Princess loses to The Unobserved but triggers its draw effect at round end since I'll be behind on pile cards, trading opponent's pile presence for my card advantage in an early game where hand size matters."
+          },
+          "chosen": "b0a16ee8"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1063,
+          "result": {
+            "slot": 4,
+            "reasoning": "Maximum Carnage (Value 10) is the strongest card under Sleek rule (highest wins); even if I lose the trick I draw a card, and if I win I score +1 to establish early momentum."
+          },
+          "chosen": "78814449"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 896,
+          "result": {
+            "slot": 2,
+            "reasoning": "Cinnamon Bun (Value 4) contests the trick to score points and catch up to opponent's lead, whereas Window Perch guarantees a loss and defers value generation until territory piles are established."
+          },
+          "chosen": "df579440"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 964,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack cards force claiming into Snack pile; at 0/5 my pile scores both cards at 3pt each (6 points total) and caps my Snack before opponent can fill theirs (currently 4/5)."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 844,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack offers 3pts/card (6pts total) compared to Nap's 2pts/card or Territory's 1pt/card\u2014securing early high-value points in round 1 is stronger than committing to Territory's slow 6-card bonus or Nap's middle ground."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1168,
+          "result": {
+            "slot": 1,
+            "reasoning": "Catnip Mouse (Value 2) wins decisively under Scrappy rule against the opponent's Value 10, forces claim to my Snack pile (which greedy-scores 3pt/card), and triggers a draw for card advantage."
+          },
+          "chosen": "b8a5fea7"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 866,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Catnip Mouse (a Snack) was in the trick, forcing the claim into Snack pile."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1126,
+          "result": {
+            "slot": 3,
+            "reasoning": "Mister Whiskers (Value 7) is nearly certain to win under Sleek rule, lets me close my almost-full Snack pile with a forced claim, and provides hand information via peeking for future turns."
+          },
+          "chosen": "d017bad6"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 895,
+          "result": {
+            "pile": "pile_territory",
+            "reasoning": "In round 3 of 9, building toward territory's 6-card threshold (5pt bonus) is more valuable long-term than overflowing snack; current hand strength suggests I can afford the early investment."
+          },
+          "chosen": "pile_territory"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 974,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack card (Empty Yogurt Cup) in the trick forces claim into Snack pile per rules; my Snack is 4/5, capping at 5 next turn."
+          },
+          "chosen": "pile_snack"
+        }
+      ]
+    },
+    {
+      "deck_a": "Naptime Tyrants",
+      "deck_b": "Snack Rush",
+      "p1_seat": "b",
+      "seed": 20345,
+      "winner": "p2",
+      "rounds": 6,
+      "wall_time_s": 535.8728263378143,
+      "scores": {
+        "p1": {
+          "territory": 0,
+          "nap": 0,
+          "snack": 0,
+          "total": 0,
+          "attention": 0
+        },
+        "p2": {
+          "territory": 0,
+          "nap": 0,
+          "snack": 6,
+          "total": 6,
+          "attention": 4
+        }
+      },
+      "llm_decisions": 9,
+      "notes": [
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1080,
+          "result": {
+            "slot": 1,
+            "reasoning": "Play Roast Chicken (Value 3) to maximize win probability under Sleek rule, force Snack pile entry, and trigger the draw 2 effect for card advantage."
+          },
+          "chosen": "a6d126ee"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1076,
+          "result": {
+            "slot": 2,
+            "reasoning": "Playing Empty Yogurt Cup (value 1) minimizes waste when losing this trick\u2014opponent's Brigadier (value 9) will force them to claim into their Snack pile regardless, capping it at 5/5, so I should sacrifice the lowest-value card."
+          },
+          "chosen": "6d089f56"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 921,
+          "result": {
+            "slot": 2,
+            "reasoning": "The Whole Roast Chicken (Value 3) wins under Sleek and claims to Snack with immediate card draw\u2014building my empty Snack pile while opponent's is capped at 5, avoiding further diminishing returns on their side."
+          },
+          "chosen": "7163c390"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1185,
+          "result": {
+            "slot": 2,
+            "reasoning": "Empress Pomf's Value 9 is the strongest lead in round 1, likely wins under Sleek, and the card-draw trigger provides both immediate deck cycling and +2 bonus points if the trick succeeds."
+          },
+          "chosen": "290728ca"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 861,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack is greediest early (3pt/card) and efficiently rewards winning multiple tricks before the 5-card cap; Nap and Territory scale better later."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 868,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack is forced (Whole Roast Chicken was in the trick), gives 3pt/card while greedy, and triggers the draw-2 effect."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1106,
+          "result": {
+            "slot": 4,
+            "reasoning": "The Brigadier's value 9 wins the trick under the current Sleek rule, completing my snack pile at 5/5 (13 secured points) and denying the opponent their first pile."
+          },
+          "chosen": "33deda21"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 900,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "The Snack card in the trick forces the claim into the Snack pile."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 943,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "The Snack in the trick forces claim to Snack pile; the Whole Roast Chicken draw 2 effect provides crucial card advantage."
+          },
+          "chosen": "pile_snack"
+        }
+      ]
+    },
+    {
+      "deck_a": "Naptime Tyrants",
+      "deck_b": "Shadow Cats",
+      "p1_seat": "a",
+      "seed": 21345,
+      "winner": "p1",
+      "rounds": 9,
+      "wall_time_s": 1021.0691933631897,
+      "scores": {
+        "p1": {
+          "territory": 0,
+          "nap": 12,
+          "snack": 6,
+          "total": 18,
+          "attention": 0
+        },
+        "p2": {
+          "territory": 0,
+          "nap": 8,
+          "snack": 6,
+          "total": 14,
+          "attention": 0
+        }
+      },
+      "llm_decisions": 19,
+      "notes": [
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1296,
+          "result": {
+            "slot": 3,
+            "reasoning": "Empress Pomf (value 9) beats opponent's Madam Inkblot (value 7), winning the trick to gain 2 score and draw a card for early momentum."
+          },
+          "chosen": "3815c6ea"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 845,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack delivers 3pt/card (6pt for 2 cards), the highest immediate value available, while 2 more rounds remain before the 5-card cap forces diminishing returns."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 888,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Build momentum on the partially-filled Snack pile (2/5) to complete it and lock opponent out, securing high greedy value (3pt/card while <5 cards) before the pile fills."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 924,
+          "result": {
+            "slot": 2,
+            "reasoning": "The Heated Blanket bonus (3pt/card Nap instead of 2pt/card) yields ~6 more points than Attention trinket over remaining rounds, since Attention only breaks ties without scoring points."
+          },
+          "chosen": "f02fe37b"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 970,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack is 4/5 and scores 3pt per card\u2014fill it to cap for 15pt guaranteed, with overflow to attention tiebreak."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1316,
+          "result": {
+            "slot": 5,
+            "reasoning": "Bartholomew's value 10 is strongest for winning under Sleek (highest wins); claiming into empty Nap (2pt/card, cap 12) is most efficient, and draw-2 is critical with 3 rounds remaining."
+          },
+          "chosen": "0e252f00"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 1002,
+          "result": {
+            "pile": "pile_nap",
+            "reasoning": "Claim to Nap to trigger The Magnificent Bartholomew's draw 2 effect for card advantage while scoring 4 points (2 pts/card \u00d7 2 cards)."
+          },
+          "chosen": "pile_nap"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 1037,
+          "result": {
+            "pile": "pile_nap",
+            "reasoning": "Nap gives 2pt/card with guaranteed value vs. territory's 1pt/card that would max at 4 cards (missing the 6-card bonus) by round 9."
+          },
+          "chosen": "pile_nap"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1076,
+          "result": {
+            "slot": 4,
+            "reasoning": "Madam Inkblot's 7 establishes strength while her draw-2-on-loss effect turns potential defeat into card advantage if opponent has \u22657, maximizing round-1 information."
+          },
+          "chosen": "54d8ac96"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1088,
+          "result": {
+            "slot": 4,
+            "reasoning": "Opponent's Empress Pomf (Value 9) beats all my cards under the Fluffy rule, so concede with the weakest card to preserve Biscuit and Knives for winnable tricks."
+          },
+          "chosen": "0df469c9"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 901,
+          "result": {
+            "slot": 3,
+            "reasoning": "Playing Biscuit (7) wins the trick under Sleek, letting me begin my snack pile before opponent caps theirs at 5 cards."
+          },
+          "chosen": "0c66e25b"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 911,
+          "result": {
+            "pile": "pile_nap",
+            "reasoning": "Sir Reginald's +3 bonus when the nap pile fills outweighs the immediate snack value, and 6 remaining rounds provide time to accumulate the 4 additional cards needed."
+          },
+          "chosen": "pile_nap"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 947,
+          "result": {
+            "slot": 2,
+            "reasoning": "Knives wins under Sleek rules (value 5 vs trinket attachment), letting me add a card to my Nap pile while opponent is down to 1 card remaining\u2014establishing card advantage in the remaining rounds."
+          },
+          "chosen": "d2538d58"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 904,
+          "result": {
+            "pile": "pile_nap",
+            "reasoning": "Heated Blanket trinket grants +1 per card (max +4) in nap pile; claiming here with Knives + trinket = 4 cards \u00d7 2pt + 4pt bonus = 12pt (maxed), locking in full value while opponent's snack pile is nearly full and a second claim into it would be blocked."
+          },
+          "chosen": "pile_nap"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1374,
+          "result": {
+            "slot": 1,
+            "reasoning": "Bartholomew's 10 beats all my cards under Sleek rules, so I'm losing this trick; Lord Tufts's draw-on-loss effect mitigates that damage better than any alternative."
+          },
+          "chosen": "54f13646"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 1099,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snacks in the trick force claiming into Snack pile (or Attention if full); mine is 0/5 so snack is mandated, earning 6 points (3pt/card)."
+          },
+          "chosen": "pile_snack"
+        }
+      ]
+    },
+    {
+      "deck_a": "Naptime Tyrants",
+      "deck_b": "Shadow Cats",
+      "p1_seat": "b",
+      "seed": 22345,
+      "winner": "p1",
+      "rounds": 6,
+      "wall_time_s": 400.3391077518463,
+      "scores": {
+        "p1": {
+          "territory": 0,
+          "nap": 10,
+          "snack": 12,
+          "total": 22,
+          "attention": 0
+        },
+        "p2": {
+          "territory": 0,
+          "nap": 4,
+          "snack": 0,
+          "total": 4,
+          "attention": 0
+        }
+      },
+      "llm_decisions": 14,
+      "notes": [
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1143,
+          "result": {
+            "slot": 1,
+            "reasoning": "Lord Tufts loses to Bartholomew's 10 but draws a card when it loses, replacing itself in hand and preserving card count while sacrificing the weakest card in round 1 when pile positioning doesn't yet matter."
+          },
+          "chosen": "09fb423b"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 980,
+          "result": {
+            "slot": 1,
+            "reasoning": "The Unobserved's value of 9 is my strongest card and will almost certainly win under the Sleek (highest wins) rule, letting me claim my first pile and avoid falling further behind."
+          },
+          "chosen": "a999bad3"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 876,
+          "result": {
+            "pile": "pile_nap",
+            "reasoning": "Claim into Nap to leverage Sunbeam's trinket bonus (cap increased to 8, +2 score), establishing a powerful long-term scoring engine in round 2."
+          },
+          "chosen": "pile_nap"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 989,
+          "result": {
+            "slot": 1,
+            "reasoning": "Mister Whiskers wins the trick with peeking information while saving Sergeant Snuggles for future plays."
+          },
+          "chosen": "6772d57f"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 892,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack gives 3pt/card while below 5 cards, yielding 6 points immediately\u2014the highest rate available, and a contested resource worth securing early."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 811,
+          "result": {
+            "slot": 1,
+            "reasoning": "Sergeant Snuggles (value 8) wins outright under Sleek rules and lets me claim into Territory (empty, best for 6+ bonus) rather than risk losing with Knives (value 5)."
+          },
+          "chosen": "9032d4e0"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 936,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack is the highest-value pile (3pt/card while <5 cards) and I have a 2-card head start while opponent has 0/5; claiming 2 more cards reaches 4/5 and locks in 6pt immediately with room for one final card at 3pt if I win another snack trick, maxing at 9pt from an uncontested pile."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 876,
+          "result": {
+            "pile": "pile_nap",
+            "reasoning": "Nap yields 4pt for both cards (2pt/card \u00d7 2); snack caps at 5 and would waste Knives; territory yields only 2pt and is inefficient without 6+ card bonus."
+          },
+          "chosen": "pile_nap"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1213,
+          "result": {
+            "slot": 3,
+            "reasoning": "Lead with Bartholomew's value 10 to win the opening trick blind, secure the pile pick, and trigger the draw 2 for early card advantage."
+          },
+          "chosen": "49e95971"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 845,
+          "result": {
+            "pile": "pile_nap",
+            "reasoning": "The Magnificent Bartholomew's draw 2 effect triggers immediately in Nap, providing crucial early-game card advantage that outweighs raw point efficiency."
+          },
+          "chosen": "pile_nap"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1256,
+          "result": {
+            "slot": 2,
+            "reasoning": "Sunbeam trinket permanently expands my nap pile (strongest position with 2 cards already) while I concede this trick to the unbeatable 9, converting a losing round into pile infrastructure."
+          },
+          "chosen": "0c9a27b5"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1053,
+          "result": {
+            "slot": 2,
+            "reasoning": "Duchess Velvet's value 6 is almost certain to win under Sleek, securing both a card draw and pile-claim while opponent runs low on hand resources."
+          },
+          "chosen": "9997ecf4"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1068,
+          "result": {
+            "slot": 1,
+            "reasoning": "Sulk changes the rule to fewer-pile-cards wins; I have 2 cards in piles vs opponent's 4, so I win the trick and pick territory to build an empty pile."
+          },
+          "chosen": "a5eb3922"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 892,
+          "result": {
+            "slot": 2,
+            "reasoning": "With opponent ahead 16-4 and only 1 card remaining, I need immediate value. Tabitha (Value 2) gives me a chance to win if opponent plays low, letting me claim to my empty Snack pile for 3pt; Hair Tie guarantees opponent wins and picks the pile."
+          },
+          "chosen": "12acaf1d"
+        }
+      ]
+    },
+    {
+      "deck_a": "Snack Rush",
+      "deck_b": "Shadow Cats",
+      "p1_seat": "a",
+      "seed": 23345,
+      "winner": "p1",
+      "rounds": 9,
+      "wall_time_s": 1092.7593579292297,
+      "scores": {
+        "p1": {
+          "territory": 13,
+          "nap": 4,
+          "snack": 12,
+          "total": 29,
+          "attention": 0
+        },
+        "p2": {
+          "territory": 0,
+          "nap": 0,
+          "snack": 12,
+          "total": 12,
+          "attention": 0
+        }
+      },
+      "llm_decisions": 16,
+      "notes": [
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1308,
+          "result": {
+            "slot": 1,
+            "reasoning": "Empress Pomf's value 9 beats Mittens' 5 under Sleek rule, wins first pick of pile, draws a card, and gains 2 score immediately\u2014strong round 1 foundation."
+          },
+          "chosen": "a0ae0cba"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 843,
+          "result": {
+            "pile": "pile_territory",
+            "reasoning": "Mittens McSophisticated has a triggered effect that activates when entering Territory; claiming here triggers that bonus while building progress toward the 6-card Territory bonus."
+          },
+          "chosen": "pile_territory"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1126,
+          "result": {
+            "slot": 1,
+            "reasoning": "Sitting In The Box changes the rule to 'fewer cards in hand wins'\u2014I'll have 3 remaining vs opponent's 4, securing the trick and allowing me to claim the Snack pile (3pts/card) while it's empty."
+          },
+          "chosen": "df79f50b"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 927,
+          "result": {
+            "slot": 2,
+            "reasoning": "Trinket attachment builds future Attention-pile value (uncapped, useful for tiebreaks); Snack card just locks opponent into their already-developing best pile."
+          },
+          "chosen": "50215a1a"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 965,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack cards in the trick force the claim to Snack pile per game rules."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1302,
+          "result": {
+            "slot": 2,
+            "reasoning": "The Brigadier (Value 9) wins decisively under the Fluffy rule, giving me pile-choice control to score into the high-value Nap pile (2pt/card, empty) while opponent's Snack is nearly maxed\u2014playing Catnip Mouse would force opponent to fill their Snack for 15pt, a devastating score bump with only 3 rounds left."
+          },
+          "chosen": "a69f7c23"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 1045,
+          "result": {
+            "pile": "pile_territory",
+            "reasoning": "Territory is 6/8 and capping it at 8 cards scores 13 points (8\u00d71 + 5 bonus), locking in a decisive lead while opponent is still building; with 2 rounds left and a 5-point current lead, consolidating the strongest pile is safer than contesting snack where opponent also sits at 4/5."
+          },
+          "chosen": "pile_territory"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1119,
+          "result": {
+            "slot": 2,
+            "reasoning": "Duchess Velvet (Value 6, Sleek) is my strongest card and if it wins, draws a card going into round 9 while securing Nap pile points; p2 has information advantage since they play second, so playing my best card forces them to either burn a high card to beat it or concede the round."
+          },
+          "chosen": "1fd3d0cc"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1082,
+          "result": {
+            "slot": 4,
+            "reasoning": "Mittens has the highest value (5) under Sleek rule and provides an attention bonus when placed in territory, establishing strong early tempo."
+          },
+          "chosen": "e75501d8"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 818,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack delivers 6pts for these 2 cards (3pts each, since pile < 5), outscoring nap (4pts) and territory (2pts), and early in the game maximizing points per card is the strongest position."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 943,
+          "result": {
+            "slot": 3,
+            "reasoning": "The 3 a.m. Zoomies converts Sleek to lowest-wins where my Value 0 is dominant, guaranteeing a trick win and a safe Attention point while preserving my Snack-strategy cards."
+          },
+          "chosen": "40ecb94a"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 930,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack pile is most efficient (3 pts/card for the next card), I'm close to capacity (4/5), and filling it by round 6 is high-value; trinket benefit applies regardless of claim destination."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1249,
+          "result": {
+            "slot": 3,
+            "reasoning": "Pillow Princess (Value 6) offers the best risk/reward: it's a respectable value under Sleek (might win or force opponent to spend resources), and the effect triggers at round end since I'm far behind (4 cards vs opponent's 8+), guaranteeing a draw to rebuild while I'm desperate."
+          },
+          "chosen": "90284ac5"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1244,
+          "result": {
+            "slot": 2,
+            "reasoning": "The Alley Phantom loses to Duchess Velvet's higher value (2 vs 6 under Sleek), but triggers its draw effect\u2014granting one extra card for round 9, which is more valuable than Stare (loses with no benefit) or the Tie (too slow; only marks Attention if I win round 9)."
+          },
+          "chosen": "5a152f3a"
+        }
+      ]
+    },
+    {
+      "deck_a": "Snack Rush",
+      "deck_b": "Shadow Cats",
+      "p1_seat": "b",
+      "seed": 24345,
+      "winner": "p1",
+      "rounds": 6,
+      "wall_time_s": 523.8312702178955,
+      "scores": {
+        "p1": {
+          "territory": 0,
+          "nap": 4,
+          "snack": 7,
+          "total": 11,
+          "attention": 0
+        },
+        "p2": {
+          "territory": 0,
+          "nap": 0,
+          "snack": 6,
+          "total": 6,
+          "attention": 0
+        }
+      },
+      "llm_decisions": 9,
+      "notes": [
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1249,
+          "result": {
+            "slot": 3,
+            "reasoning": "A Single Crumb (Value 1) beats Maximum Carnage (Value 10) under Scrappy's lowest-wins rule, scores 3 points to the empty Snack pile immediately, and secures an early advantage while preserving mood cards for future tricks."
+          },
+          "chosen": "a34243dc"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 830,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "A Single Crumb is a Snack card, which forces the trick winner to claim into the Snack pile when present."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_card",
+          "prompt_chars": 1097,
+          "result": {
+            "slot": 2,
+            "reasoning": "Empress Pomf's value 9 is very likely to win under Sleek, providing card draw and 2 points while building my snack pile."
+          },
+          "chosen": "e4716ffd"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 890,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Snack yields 3pts/card while under 5 cards; adding 2 cards gives 6pts and consolidates a pile I've already started (2\u21924 cards), leaving room for 1 more before the cap."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 896,
+          "result": {
+            "pile": "pile_nap",
+            "reasoning": "The Penumbra Twin triggers a draw when entering Nap, and both cards earn 2pt each in Nap (4pt total), outweighing Territory (2pt) while capturing the card-draw bonus."
+          },
+          "chosen": "pile_nap"
+        },
+        {
+          "seat": "p1",
+          "type": "choose_pile",
+          "prompt_chars": 977,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Greedy snack bonus (3pt/card for piles under 5 cards) is worth 6pt for 2 cards\u2014highest immediate return despite filling the pile."
+          },
+          "chosen": "pile_snack"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1208,
+          "result": {
+            "slot": 3,
+            "reasoning": "Maximum Carnage's value 10 likely wins round 1 while guaranteeing material gain regardless of outcome."
+          },
+          "chosen": "766648d4"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_card",
+          "prompt_chars": 1029,
+          "result": {
+            "slot": 2,
+            "reasoning": "Play Value 3 to beat Tuna Can and force both Snacks into my pile (8 points with the +2 bonus), while opponent's Snack fills to 5/5."
+          },
+          "chosen": "2e093316"
+        },
+        {
+          "seat": "p2",
+          "type": "choose_pile",
+          "prompt_chars": 937,
+          "result": {
+            "pile": "pile_snack",
+            "reasoning": "Both won cards are Snacks, so the Snack pile is forced; my pile has room at 0/5."
+          },
+          "chosen": "pile_snack"
+        }
+      ]
+    }
+  ]
+}
