@@ -175,15 +175,34 @@ async def request_start(game_mode: Optional[str] = None, *, single_shot: bool = 
 
 
 async def request_stop() -> dict:
-    """User-facing Stop: prevent any new matches from spawning.
+    """User-facing Stop with two-step escalation.
 
-    Does NOT kill the in-flight match — the supervisor's match-end watcher
-    will return naturally and the cycle ends there. Mid-match Stop is
-    effectively 'don't queue another'.
+    * First call (toggle is ON): flip the toggle off so no new match
+      spawns. The currently-running match continues to its natural end.
+    * Second call (toggle is OFF but a match is still running): kill the
+      in-flight match — SIGTERM the ultra subprocesses + remove the
+      session so the supervisor's watcher returns immediately.
+
+    The kill path bypasses the user-toggle cooldown because it's a
+    different operation (terminate, not toggle).
     """
+    global _current_match_id
     async with _state_lock:
         state = _read_state()
         now = time.time()
+        match_id = _current_match_id
+
+        # Escalation: toggle already off, but the supervisor is still
+        # watching a running match. Kill it.
+        if not state.get("enabled") and match_id:
+            log.info("spectator: stop escalation — killing match=%s", match_id)
+            killed = _kill_in_flight_match(match_id)
+            # Don't clear _current_match_id here; the supervisor watcher
+            # observes session removal and clears it on its next poll.
+            status = get_status()
+            status["killed_subprocesses"] = killed
+            return status
+
         elapsed = now - float(state.get("last_toggle_at") or 0.0)
         if elapsed < TOGGLE_COOLDOWN_SECONDS and not state.get("enabled"):
             wait = round(TOGGLE_COOLDOWN_SECONDS - elapsed, 1)
@@ -191,8 +210,30 @@ async def request_stop() -> dict:
 
         state.update(enabled=False, last_toggle_at=now)
         _write_state(state)
-        log.info("spectator: stop requested")
+        log.info("spectator: stop requested (no kill — match runs to natural end)")
         return get_status()
+
+
+def _kill_in_flight_match(match_id: str) -> int:
+    """Tear down the live demo match: signal subprocesses + drop the session.
+
+    Import is local because routes.match imports from this module
+    transitively via the supervisor's _spawn_one_demo_match.
+    """
+    from .routes.match import kill_match_subprocesses
+    from .session import session_manager
+
+    killed = kill_match_subprocesses(match_id)
+    # Schedule session removal — remove_session is async but we're in a
+    # sync callback path here (called inside _state_lock). Fire-and-forget
+    # is fine; the supervisor will observe session=None within 5s anyway.
+    try:
+        asyncio.create_task(session_manager.remove_session(match_id))
+    except RuntimeError:
+        # No running loop (e.g. tests calling synchronously). The supervisor
+        # watcher would also see is_finished, so this isn't load-bearing.
+        pass
+    return killed
 
 
 def _auto_disable_after_single_shot() -> None:

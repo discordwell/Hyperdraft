@@ -880,6 +880,31 @@ async def _spawn_ultra_subprocess(
     return True
 
 
+def kill_match_subprocesses(match_id: str) -> int:
+    """SIGTERM all ultra subprocesses spawned for ``match_id``.
+
+    The Popen used ``start_new_session=True``, so each subprocess heads its
+    own process group; killing the group reaps the bash launcher + claude
+    CLI together. Returns the number of subprocesses signalled.
+    """
+    import os
+    import signal
+
+    count = 0
+    for (m_id, _seat), proc in list(_active_ultra_subprocesses.items()):
+        if m_id != match_id:
+            continue
+        try:
+            pgid = os.getpgid(proc.pid)
+            os.killpg(pgid, signal.SIGTERM)
+            count += 1
+        except (ProcessLookupError, PermissionError):
+            # Process already exited or no permission — the reap task will
+            # clean up the registry entry. Don't crash the caller.
+            pass
+    return count
+
+
 @router.post("/{match_id}/start")
 async def start_match(
     match_id: str,

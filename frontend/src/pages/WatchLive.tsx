@@ -191,7 +191,17 @@ export function WatchLive() {
   const supportedModes = spectator?.supported_game_modes ?? ['mtg', 'pokemon', 'hearthstone', 'yugioh'];
   const cooldownLeft = Math.ceil(spectator?.cooldown_seconds_remaining ?? 0);
   const startDisabled = toggleBusy || Boolean(spectator?.enabled) || cooldownLeft > 0;
-  const stopDisabled = toggleBusy || !spectator?.enabled;
+  // Stop stays clickable as long as there's anything to stop — toggle on
+  // OR a match still in flight. Two-click escalation: first click flips
+  // toggle off; second click (while match still running) kills the match.
+  const matchRunning = Boolean(spectator?.current_match_id);
+  const stopArmed = Boolean(spectator?.enabled) || matchRunning;
+  const stopDisabled = toggleBusy || !stopArmed;
+  const stopEscalated = !spectator?.enabled && matchRunning;
+  const stopLabel = stopEscalated ? '■ Stop now' : '■ Stop';
+  const stopTooltip = stopEscalated
+    ? 'Click to end the running match immediately (SIGTERMs the AI subprocesses).'
+    : 'Stops queuing new matches. The currently-running match continues to its natural end. Click again to end it now.';
 
   // Compose the table: featured spectator-demo first (if any), then
   // real bot games. Empty state shows a hint instead of mock rows.
@@ -420,7 +430,7 @@ export function WatchLive() {
             onClick={triggerStop}
             disabled={stopDisabled}
             data-testid="demo-stop"
-            title="Stops queuing new matches. The currently-running match continues to its natural end."
+            title={stopTooltip}
             style={{
               ...demoButtonStyle,
               borderColor: stopDisabled ? 'var(--rule)' : 'var(--sodium)',
@@ -429,7 +439,7 @@ export function WatchLive() {
               opacity: stopDisabled ? 0.5 : 1,
             }}
           >
-            ■ Stop
+            {stopLabel}
           </button>
 
           {cooldownLeft > 0 && (

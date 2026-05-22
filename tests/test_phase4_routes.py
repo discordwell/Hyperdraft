@@ -197,6 +197,77 @@ def test_spectate_auto_disable_skips_continuous():
     assert spectator.is_enabled() is True
 
 
+def test_stop_escalation_kills_in_flight_match(monkeypatch):
+    """Two-step Stop: first click flips toggle off; second click (while
+    a match is still tracked as live) calls kill_match_subprocesses."""
+    import src.server.routes.match as match_routes
+
+    calls: list[str] = []
+
+    def fake_kill(mid: str) -> int:
+        calls.append(mid)
+        return 2
+
+    monkeypatch.setattr(match_routes, "kill_match_subprocesses", fake_kill)
+
+    async def _run():
+        await spectator.request_start(game_mode="mtg")
+        spectator._current_match_id = "demo-abc"
+
+        # First Stop: toggle off, no kill yet
+        status1 = await spectator.request_stop()
+        assert status1["enabled"] is False
+        assert "killed_subprocesses" not in status1
+        assert calls == []
+
+        # Second Stop while match still tracked: escalation kills it
+        status2 = await spectator.request_stop()
+        assert status2["killed_subprocesses"] == 2
+        assert calls == ["demo-abc"]
+
+    asyncio.run(_run())
+
+
+def test_stop_escalation_bypasses_cooldown(monkeypatch):
+    """The kill path is a different operation from the toggle, so the
+    user-toggle cooldown must NOT block it."""
+    import src.server.routes.match as match_routes
+    monkeypatch.setattr(match_routes, "kill_match_subprocesses", lambda _m: 0)
+
+    async def _run():
+        await spectator.request_start(game_mode="mtg")
+        spectator._current_match_id = "demo-xyz"
+        await spectator.request_stop()  # stamps last_toggle_at to now
+        # Immediately (within cooldown window): escalation should fire,
+        # not return 429.
+        status = await spectator.request_stop()
+        assert status.get("killed_subprocesses") == 0
+
+    asyncio.run(_run())
+
+
+def test_stop_no_match_returns_status_unchanged(monkeypatch):
+    """If toggle is off and no match is live, Stop is a no-op cooldown
+    rejection — the kill path must NOT fire when there's nothing to kill."""
+    import src.server.routes.match as match_routes
+    calls: list[str] = []
+    monkeypatch.setattr(match_routes, "kill_match_subprocesses",
+                        lambda m: calls.append(m) or 0)
+
+    async def _run():
+        await spectator.request_start(game_mode="mtg")
+        # No current_match_id set
+        spectator._current_match_id = None
+        await spectator.request_stop()
+        # Second stop with nothing live: cooldown rejects, no kill
+        with pytest.raises(spectator.ToggleRejected) as ei:
+            await spectator.request_stop()
+        assert ei.value.status_code == 429
+        assert calls == []
+
+    asyncio.run(_run())
+
+
 def test_auto_disable_stamps_cooldown(monkeypatch):
     """Regression: a fast-ending match used to bypass the cooldown because
     _auto_disable_after_single_shot didn't update last_toggle_at. Now it

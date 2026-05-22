@@ -67,16 +67,22 @@ async def post_spectate_start(request: Request, body: Optional[StartRequest] = N
 
 @router.post("/stop")
 async def post_spectate_stop(request: Request) -> dict:
-    """Prevent any new spectator demo matches from spawning.
+    """Stop the spectator demo with two-step escalation.
 
-    Does NOT kill an in-flight match — the running game continues until
-    it ends naturally (or hits the wall-time cap). "Stop" semantically
-    means "don't queue another", not "kill the current one".
+    * First call (toggle is on): flips it off so no new matches spawn.
+      The running game continues until it ends naturally.
+    * Second call (toggle is already off but a match is still running):
+      kills the in-flight match — SIGTERM the ultra subprocesses and
+      remove the session.
     """
     client = request.client.host if request.client else "unknown"
     try:
         status = await spectator.request_stop()
-        log.info("spectator: /stop accepted client=%s", client)
+        killed = status.get("killed_subprocesses")
+        if killed is not None:
+            log.info("spectator: /stop escalation accepted client=%s killed=%d", client, killed)
+        else:
+            log.info("spectator: /stop accepted client=%s", client)
         return status
     except spectator.ToggleRejected as e:
         log.info("spectator: /stop rejected client=%s status=%d", client, e.status_code)
