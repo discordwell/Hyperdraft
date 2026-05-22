@@ -96,11 +96,18 @@ async def join_match(sid, data):
         # Join Socket.IO room for this match
         await sio.enter_room(sid, f"match_{match_id}")
 
-        # Set up state change callback
+        # Set up state change callback. Per-socket emit covers the active
+        # match participant; the room emit covers live spectators who joined
+        # `match_{match_id}` without a player_id of their own. We gate the
+        # room emit on bot_vs_bot to avoid leaking hidden-info (the AI's
+        # perspective of a human-vs-bot match would expose the human's hand
+        # to anyone in the room).
         async def on_state_change(pid, state):
             socket_id = session.player_sockets.get(pid)
             if socket_id:
                 await sio.emit('game_state', state, to=socket_id)
+            if session.mode == "bot_vs_bot":
+                await sio.emit('game_state', state, room=f"match_{match_id}")
 
         session.on_state_change = on_state_change
 

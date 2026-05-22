@@ -205,6 +205,55 @@ def test_streak_resets_when_action_arrives(
 
 
 @pytest.mark.parametrize("label,adapter_cls,streak_attr,fallback_action,frame_prefix", ADAPTERS)
+def test_bot_vs_bot_broadcast_targets_all_seats(
+    label, adapter_cls, streak_attr, fallback_action, frame_prefix, monkeypatch
+):
+    """In bot_vs_bot, session.human_players is empty — if the adapter loops
+    over human_players for state broadcasts, live spectators never get a
+    socket push. The on_state_change callback in main.py also fans out to
+    the match room only when it's called, so the loop iteration is the
+    root of the broadcast chain. Each adapter must iterate
+    session.player_ids so the bot_vs_bot path actually emits."""
+    session = _StubSession(human_players=[])  # bot_vs_bot has no humans
+
+    seen_pids: list[str] = []
+
+    async def _record_state_change(pid, state):
+        seen_pids.append(pid)
+
+    session.on_state_change = _record_state_change
+
+    # Advance to game_over after 2 turns so the loop terminates.
+    turn_counter = {"n": 0}
+
+    async def _stub_run_turn():
+        turn_counter["n"] += 1
+        session.game.turn_manager.turn_number = turn_counter["n"]
+        if turn_counter["n"] >= 2:
+            session.game._game_over = True
+
+    session.game.turn_manager.run_turn = _stub_run_turn  # type: ignore[assignment]
+    adapter = adapter_cls()
+
+    async def _run():
+        await adapter.run_game_loop(session)
+        # In bot_vs_bot, the broadcast must reach BOTH seats — otherwise
+        # the match-room emit (added to main.py's on_state_change) never
+        # fires for the silent seat and spectators see a one-sided feed.
+        assert seen_pids, (
+            f"[{label}] bot_vs_bot run_game_loop emitted no state changes. "
+            "The broadcast loop probably still iterates session.human_players "
+            "(empty in bot_vs_bot). Switch it to session.player_ids."
+        )
+        assert set(seen_pids) >= set(session.player_ids), (
+            f"[{label}] Expected state changes for all seats {session.player_ids}, "
+            f"got only {set(seen_pids)}."
+        )
+
+    asyncio.run(_run())
+
+
+@pytest.mark.parametrize("label,adapter_cls,streak_attr,fallback_action,frame_prefix", ADAPTERS)
 def test_run_game_loop_records_per_turn_frame(
     label, adapter_cls, streak_attr, fallback_action, frame_prefix, monkeypatch
 ):

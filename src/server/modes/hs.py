@@ -83,14 +83,14 @@ class HearthstoneModeAdapter(ModeAdapter):
                 session.winner_id = session.game.get_winner()
                 # Notify clients of game over
                 if session.on_state_change:
-                    for pid in session.human_players:
+                    for pid in session.player_ids:
                         state = session.get_client_state(pid)
                         await session.on_state_change(pid, state.model_dump())
                 break
 
             # After each turn completes, broadcast updated state
             if session.on_state_change:
-                for pid in session.human_players:
+                for pid in session.player_ids:
                     state = session.get_client_state(pid)
                     await session.on_state_change(pid, state.model_dump())
 
@@ -115,7 +115,7 @@ class HearthstoneModeAdapter(ModeAdapter):
 
         # Notify the client they need to act (send updated state)
         if session.on_state_change:
-            for pid in session.human_players:
+            for pid in session.player_ids:
                 state = session.get_client_state(pid)
                 await session.on_state_change(pid, state.model_dump())
 

@@ -379,6 +379,15 @@ async def _wait_for_match_end(match_id: str, poll_seconds: float = 5.0) -> None:
                 "spectator: demo match=%s exceeded %.0fs wall time; dropping",
                 match_id, max_wall,
             )
+            # Flag is_finished BEFORE removing so run_game_session (which
+            # holds a direct session reference, not just the session_manager
+            # entry) exits its loop on the next iteration. Belt-and-suspenders
+            # with the per-engine dead-LLM streak fix; covers the case where
+            # the LLM is alive but the engine is stuck in a non-progressing
+            # state machine.
+            session = session_manager.get_session(match_id)
+            if session is not None:
+                session.is_finished = True
             try:
                 await session_manager.remove_session(match_id)
             except Exception:  # noqa: BLE001

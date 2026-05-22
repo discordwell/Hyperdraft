@@ -376,6 +376,53 @@ def test_ultra_summary_aggregates_by_engine(isolated_dirs):
     assert summary["by_engine"]["pokemon"]["decisions_logged"] == 7
 
 
+def test_ultra_summary_orphan_decisions_use_meta_game_mode(isolated_dirs):
+    """A match with a decisions JSONL but no replay archive (crashed before
+    archive) must bucket under the JSONL ``_meta`` header's game_mode, not
+    'unknown'. Regression for the killed-HS-smoke-test artifact."""
+    # No replay archive entry — just a decisions file with meta + 1 line.
+    ultra_telemetry.init_match_metadata(
+        match_id="orphan-hs", game_mode="hearthstone",
+        ultra_model_id="m1", agent_runner="claude", extra={},
+    )
+    ultra_telemetry.append_decision(
+        match_id="orphan-hs", player_id="A", turn=1, phase="MAIN",
+        action_type="HS_PLAY_CARD", action_payload={}, actor_is_ultra=True,
+    )
+
+    summary = ultra_telemetry.build_ultra_summary(
+        replays_index_path=isolated_dirs["replays"] / "index.json",
+        decisions_dir=isolated_dirs["decisions"],
+    )
+
+    assert "unknown" not in summary["by_engine"], (
+        f"Expected the orphan match to bucket under 'hearthstone', not "
+        f"'unknown'. Got by_engine={list(summary['by_engine'].keys())}"
+    )
+    assert summary["by_engine"]["hearthstone"]["matches"] == 1
+    assert summary["by_engine"]["hearthstone"]["decisions_logged"] == 1
+    # archive_completeness_pct = 0% because no frames archived.
+    assert summary["by_engine"]["hearthstone"]["archive_completeness_pct"] == 0.0
+
+
+def test_ultra_summary_orphan_without_meta_still_bucketed_unknown(isolated_dirs):
+    """Defensive: if the _meta header is somehow missing, fall back to
+    'unknown' instead of crashing."""
+    decisions_path = isolated_dirs["decisions"] / "orphan-nometa.jsonl"
+    # Write a decision line with no preceding _meta — simulates a corrupt
+    # or partially-written log.
+    decisions_path.write_text(
+        '{"ts": 1.0, "match_id": "orphan-nometa", "player_id": "A", "turn": 1, '
+        '"phase": "MAIN", "action_type": "PASS", "actor_is_ultra": true}\n'
+    )
+
+    summary = ultra_telemetry.build_ultra_summary(
+        replays_index_path=isolated_dirs["replays"] / "index.json",
+        decisions_dir=isolated_dirs["decisions"],
+    )
+    assert summary["by_engine"]["unknown"]["matches"] == 1
+
+
 def test_ultra_summary_endpoint_route(isolated_dirs, monkeypatch):
     """The /api/match/ultra-summary route handler returns the aggregate payload."""
     from src.server.routes.match import get_ultra_summary

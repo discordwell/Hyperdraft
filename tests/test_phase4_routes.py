@@ -268,6 +268,48 @@ def test_stop_no_match_returns_status_unchanged(monkeypatch):
     asyncio.run(_run())
 
 
+def test_wait_for_match_end_wall_time_sets_is_finished(monkeypatch):
+    """Defensive belt-and-suspenders: when the per-match wall-time cap hits,
+    the spectator must flag session.is_finished=True before removing the
+    session so run_game_session (which holds a direct session reference)
+    exits its loop instead of churning."""
+    import time as _time
+    from src.server import session as session_module
+
+    class _StubSession:
+        def __init__(self):
+            self.is_finished = False
+            self.id = "stuck-match"
+            class _G:
+                def is_game_over(self): return False
+            self.game = _G()
+
+    stub = _StubSession()
+    removed = []
+
+    class _StubMgr:
+        def get_session(self, mid):
+            return stub if mid == "stuck-match" else None
+        async def remove_session(self, mid):
+            removed.append(mid)
+
+    monkeypatch.setattr(session_module, "session_manager", _StubMgr())
+    # Force the wall-time check to fire immediately by setting max_wall=0.
+    monkeypatch.setenv("HYPERDRAFT_SPECTATOR_MAX_WALL_SECONDS", "0")
+
+    async def _run():
+        # poll_seconds=0.01 so the loop iterates quickly.
+        await spectator._wait_for_match_end("stuck-match", poll_seconds=0.01)
+        assert stub.is_finished is True, (
+            "Wall-time path must set session.is_finished=True before "
+            "remove_session — otherwise run_game_session keeps looping "
+            "over the now-orphaned session."
+        )
+        assert removed == ["stuck-match"]
+
+    asyncio.run(_run())
+
+
 def test_auto_disable_stamps_cooldown(monkeypatch):
     """Regression: a fast-ending match used to bypass the cooldown because
     _auto_disable_after_single_shot didn't update last_toggle_at. Now it

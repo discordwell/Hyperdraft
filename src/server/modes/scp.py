@@ -51,7 +51,7 @@ class SCPModeAdapter(ModeAdapter):
                 session.is_finished = True
                 session.winner_id = session.game.get_winner()
             if session.on_state_change:
-                for pid in session.human_players:
+                for pid in session.player_ids:
                     state = session.get_client_state(pid)
                     await session.on_state_change(pid, state.model_dump())
             if session.is_finished:
@@ -66,7 +66,7 @@ class SCPModeAdapter(ModeAdapter):
         session._pending_player_id = player_id
         session._action_processed_event = asyncio.Event()
         if session.on_state_change:
-            for pid in session.human_players:
+            for pid in session.player_ids:
                 state = session.get_client_state(pid)
                 await session.on_state_change(pid, state.model_dump())
         try:

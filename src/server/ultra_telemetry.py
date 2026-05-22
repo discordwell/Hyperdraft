@@ -501,8 +501,11 @@ def build_ultra_summary(
         except (OSError, json.JSONDecodeError) as e:
             log.warning("ultra_telemetry: failed to read replays index: %s", e)
 
-    # Counts of decisions logged per match (cheap line-count).
+    # Counts of decisions logged per match (cheap line-count) plus the
+    # JSONL ``_meta`` header so orphaned-decisions matches (crashed before
+    # archive) bucket under their real engine instead of "unknown".
     decisions_per_match: dict[str, int] = {}
+    decisions_meta_per_match: dict[str, dict] = {}
     decisions_by_engine: dict[str, int] = defaultdict(int)
     if decisions_dir.exists():
         for path in decisions_dir.iterdir():
@@ -511,19 +514,23 @@ def build_ultra_summary(
             match_id = path.stem
             try:
                 count = 0
+                meta: Optional[dict] = None
                 with path.open("r") as fh:
                     for line in fh:
                         line = line.strip()
                         if not line:
                             continue
-                        # Skip the meta header
                         try:
                             obj = json.loads(line)
                         except json.JSONDecodeError:
                             continue
-                        if isinstance(obj, dict) and "_meta" not in obj:
+                        if isinstance(obj, dict) and "_meta" in obj:
+                            meta = obj["_meta"]
+                        else:
                             count += 1
                 decisions_per_match[match_id] = count
+                if meta:
+                    decisions_meta_per_match[match_id] = meta
             except OSError as e:  # noqa: BLE001
                 log.debug("ultra_telemetry: skipping unreadable %s: %s", path, e)
 
@@ -539,13 +546,16 @@ def build_ultra_summary(
 
     # Also include matches that have a decision log but no replay (rare, but
     # we want them visible — a match that crashed before any frames archived).
+    # Prefer the JSONL _meta header's game_mode so the bucket carries the
+    # real engine; fall back to "unknown" only when the header is missing.
     indexed_match_ids = {e.get("match_id") for e in index}
     for match_id in decisions_per_match:
         if match_id not in indexed_match_ids:
-            # We don't know the engine of un-archived matches; bucket as 'unknown'.
-            engine_groups.setdefault("unknown", []).append({
+            meta = decisions_meta_per_match.get(match_id) or {}
+            engine = meta.get("game_mode") or "unknown"
+            engine_groups.setdefault(engine, []).append({
                 "match_id": match_id,
-                "game_mode": "unknown",
+                "game_mode": engine,
                 "total_turns": None,
                 "total_frames": 0,
                 "archived_at": None,
