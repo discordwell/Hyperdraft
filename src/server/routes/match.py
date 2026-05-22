@@ -583,34 +583,45 @@ async def create_match(
             )
 
         # We intentionally ignore MTG deck IDs in Hearthstone mode.
+        # In bot_vs_bot mode human_id == "" (no human seat), so we resolve the
+        # "primary" hero class from whichever seat is actually populated.
+        # Indexing hero_class_by_player[""] used to raise KeyError and prevent
+        # the HS demo match from ever being created (zero HS replays in prod).
+        primary_pid = human_id or ai_id or (ai2_id if ai2_id else next(iter(session.player_ids), ""))
+        primary_hero_class = hero_class_by_player.get(primary_pid)
+        primary_default_deck = get_deck_for_hero(primary_hero_class) if primary_hero_class else []
+
         player_deck = (
             get_cards_by_names(request.player_deck)
             if request.player_deck
-            else get_deck_for_hero(hero_class_by_player[human_id])
+            else primary_default_deck
         )
         if not player_deck:
-            player_deck = get_deck_for_hero(hero_class_by_player[human_id])
+            player_deck = primary_default_deck
 
+        ai_hero_class = hero_class_by_player.get(ai_id, primary_hero_class)
+        ai_default_deck = get_deck_for_hero(ai_hero_class) if ai_hero_class else primary_default_deck
         ai_deck = (
             get_cards_by_names(request.ai_deck)
             if request.ai_deck
-            else get_deck_for_hero(hero_class_by_player.get(ai_id, hero_class_by_player[human_id]))
+            else ai_default_deck
         )
         if not ai_deck:
-            ai_deck = get_deck_for_hero(hero_class_by_player.get(ai_id, hero_class_by_player[human_id]))
+            ai_deck = ai_default_deck
 
-        session.add_cards_to_deck(human_id, player_deck)
+        if human_id:
+            session.add_cards_to_deck(human_id, player_deck)
 
         if request.mode == "human_vs_bot" and ai_id:
             session.add_cards_to_deck(ai_id, ai_deck)
         elif request.mode == "bot_vs_bot":
-            session.add_cards_to_deck(ai_id, ai_deck)
-            ai2_deck = (
-                get_deck_for_hero(hero_class_by_player.get(ai2_id, hero_class_by_player[human_id]))
-                if ai2_id
-                else ai_deck
-            )
+            if ai_id:
+                session.add_cards_to_deck(ai_id, ai_deck)
             if ai2_id:
+                ai2_hero_class = hero_class_by_player.get(ai2_id, primary_hero_class)
+                ai2_deck = (
+                    get_deck_for_hero(ai2_hero_class) if ai2_hero_class else ai_deck
+                )
                 session.add_cards_to_deck(ai2_id, ai2_deck)
     elif request.game_mode == "finance":
         from src.cards.finance import FINANCE_DECKS
