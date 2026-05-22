@@ -62,6 +62,10 @@ def archive_match(match_id: str, payload: dict[str, Any]) -> Optional[Path]:
         log.warning("replay archive write failed for match=%s: %s", match_id, e)
         return None
 
+    # Hoist ultra-telemetry metadata onto the index row so the /api/match/
+    # ultra-summary endpoint can join model/git_sha context without touching
+    # the per-match gzip blob.
+    meta = payload.get("match_metadata") or {}
     _update_index_entry(
         match_id=match_id,
         game_mode=payload.get("game_mode"),
@@ -69,6 +73,9 @@ def archive_match(match_id: str, payload: dict[str, Any]) -> Optional[Path]:
         total_turns=payload.get("total_turns"),
         total_frames=len(payload.get("frames") or []),
         archived_at=time.time(),
+        model_id=meta.get("model_id") if isinstance(meta, dict) else None,
+        git_sha=meta.get("git_sha") if isinstance(meta, dict) else None,
+        agent_runner=meta.get("agent_runner") if isinstance(meta, dict) else None,
     )
     log.info(
         "replay archived match=%s frames=%d bytes=%d path=%s",
@@ -150,8 +157,15 @@ def _update_index_entry(
     total_turns: Optional[int],
     total_frames: int,
     archived_at: float,
+    model_id: Optional[str] = None,
+    git_sha: Optional[str] = None,
+    agent_runner: Optional[str] = None,
 ) -> None:
-    """Idempotent append (or replace) of a match's index row."""
+    """Idempotent append (or replace) of a match's index row.
+
+    Optional metadata fields (``model_id``, ``git_sha``, ``agent_runner``)
+    are only written when non-None so legacy rows keep their compact shape.
+    """
     try:
         existing: list[dict[str, Any]] = []
         if INDEX_PATH.exists():
@@ -163,14 +177,21 @@ def _update_index_entry(
                 if not isinstance(existing, list):
                     existing = []
         existing = [e for e in existing if e.get("match_id") != match_id]
-        existing.append({
+        row: dict[str, Any] = {
             "match_id": match_id,
             "game_mode": game_mode,
             "winner": winner,
             "total_turns": total_turns,
             "total_frames": total_frames,
             "archived_at": archived_at,
-        })
+        }
+        if model_id:
+            row["model_id"] = model_id
+        if git_sha:
+            row["git_sha"] = git_sha
+        if agent_runner:
+            row["agent_runner"] = agent_runner
+        existing.append(row)
         with INDEX_PATH.open("w") as fh:
             json.dump(existing, fh)
     except Exception as e:  # noqa: BLE001

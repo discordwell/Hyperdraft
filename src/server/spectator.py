@@ -27,6 +27,7 @@ from typing import Optional
 
 from fastapi import BackgroundTasks
 
+from . import ultra_telemetry
 from .models import CreateMatchRequest
 
 log = logging.getLogger(__name__)
@@ -289,6 +290,60 @@ async def _spawn_one_demo_match(game_mode: str) -> Optional[str]:
     return match_id
 
 
+def _write_post_match_takeaway(match_id: str, game_mode: str) -> None:
+    """Synthesize a Session takeaway from the decision log + match state and
+    append it to ``storage/strategy/<game_mode>.md``.
+
+    The pilot's prompt brief tells claude to append a takeaway at game end,
+    but in practice the subprocess exits at SIGTERM (watchdog) without
+    flushing — 38 matches archived to date, zero takeaways written. This
+    supervisor-side fallback guarantees one entry per match.
+
+    Best-effort: all failures log + continue (a missing strategy doc must
+    not block the next demo match from spawning).
+    """
+    from .session import session_manager  # local import: avoids cycle
+
+    try:
+        session = session_manager.get_session(match_id)
+
+        winner_id: Optional[str] = None
+        total_turns: Optional[int] = None
+        seat_labels: dict[str, str] = {}
+
+        if session is not None:
+            winner_id = session.winner_id
+            tm = getattr(session.game, "turn_manager", None)
+            if tm is not None:
+                total_turns = int(getattr(tm, "turn_number", 0) or 0)
+            for pid in session.player_ids:
+                profile = session.ai_profiles_by_player.get(pid) or {}
+                brain = (profile.get("brain") or "").lower()
+                diff = profile.get("difficulty") or ""
+                if hasattr(diff, "value"):
+                    diff = diff.value
+                if brain or diff:
+                    seat_labels[pid] = f"{session.player_names.get(pid, pid[:6])} ({brain or '?'} · {diff or '?'})"
+                else:
+                    seat_labels[pid] = session.player_names.get(pid, pid[:6])
+
+        body = ultra_telemetry.synthesize_takeaway(
+            match_id=match_id,
+            game_mode=game_mode,
+            winner_id=winner_id,
+            seat_labels=seat_labels,
+            total_turns=total_turns,
+        )
+        written = ultra_telemetry.append_takeaway_to_strategy_doc(
+            game_mode=game_mode,
+            body=body,
+        )
+        if written:
+            log.info("spectator: wrote takeaway match=%s → %s", match_id, written)
+    except Exception as e:  # noqa: BLE001
+        log.warning("spectator: takeaway synth failed for match=%s: %s", match_id, e)
+
+
 async def _wait_for_match_end(match_id: str, poll_seconds: float = 5.0) -> None:
     """Block until the match's session reports is_finished, is gone, or hits
     the per-match wall-time cap.
@@ -377,6 +432,13 @@ async def supervisor_loop() -> None:
             log.warning("spectator: wait_for_match_end raised: %s", e)
         finally:
             _current_match_id = None
+
+        # Synthesize a Session-takeaway from the per-match decision log and
+        # append it to storage/strategy/<game_mode>.md. The pilot brief tells
+        # claude to do this at game end, but in practice the subprocess gets
+        # SIGTERM'd by the watchdog without flushing the doc, so the
+        # supervisor enforces it.
+        _write_post_match_takeaway(match_id, game_mode)
 
         log.info("spectator: demo match=%s ended", match_id)
 
