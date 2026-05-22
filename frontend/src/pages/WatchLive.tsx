@@ -70,6 +70,23 @@ interface RecentReplay {
   archived_at: number;
 }
 
+interface UltraSummary {
+  generated_at: string;
+  total_matches: number;
+  by_engine: Record<
+    string,
+    {
+      matches: number;
+      avg_turns: number | null;
+      median_turns: number | null;
+      decisions_logged: number;
+      archive_completeness_pct: number;
+    }
+  >;
+  earliest: string | null;
+  latest: string | null;
+}
+
 // Format a single BotGameStatus row into the table model. Pulled out so
 // the spectator-demo row and the API rows compose with identical chrome.
 function rowFromStatus(g: import('../types/game').BotGameStatus): LiveMatchRow {
@@ -102,6 +119,10 @@ export function WatchLive() {
   const [selectedMode, setSelectedMode] = useState<string>('mtg');
   const [toggleBusy, setToggleBusy] = useState<boolean>(false);
   const [toggleError, setToggleError] = useState<string | null>(null);
+  // Aggregate stats across archived matches — shown as a single mono
+  // footer line below the existing telemetry strip. The /api/match/
+  // ultra-summary endpoint is cheap (file scan, no per-match gzip read).
+  const [ultraSummary, setUltraSummary] = useState<UltraSummary | null>(null);
 
   // Recent archived replay — surfaces under the featured panel as the
   // "replay available at end of match" line when no demo is live.
@@ -114,6 +135,25 @@ export function WatchLive() {
       .catch(() => {
         /* non-fatal */
       });
+  }, []);
+
+  // Ultra-summary fetch — single shot on mount. Updates every 10 minutes
+  // (new matches archive on game-end, not per turn, so a long poll is
+  // wasteful). Failure is non-fatal; the footer line just stays empty.
+  useEffect(() => {
+    const fetchSummary = () => {
+      fetch('/api/match/ultra-summary')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data: UltraSummary | null) => {
+          if (data) setUltraSummary(data);
+        })
+        .catch(() => {
+          /* non-fatal */
+        });
+    };
+    fetchSummary();
+    const interval = setInterval(fetchSummary, 10 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
   const pollLive = useCallback(async () => {
@@ -819,6 +859,26 @@ export function WatchLive() {
             ← Lab
           </button>
         </footer>
+
+        {/* ─── Aggregate stats — single mono line under telemetry strip. ─── */}
+        {ultraSummary && ultraSummary.total_matches > 0 && (
+          <div
+            data-testid="ultra-summary-footer"
+            style={{
+              marginTop: 8,
+              fontFamily: 'var(--font-mono)',
+              fontSize: 10.5,
+              color: 'var(--ink-3)',
+              letterSpacing: '.06em',
+              textTransform: 'uppercase',
+            }}
+          >
+            ARCHIVE · {ultraSummary.total_matches} matches ·{' '}
+            {Object.entries(ultraSummary.by_engine)
+              .map(([engine, stats]) => `${engine}: ${stats.matches}`)
+              .join(' · ')}
+          </div>
+        )}
       </main>
 
       {/* Component-scoped CSS — pulse dot + responsive collapse. Avoids

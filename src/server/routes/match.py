@@ -17,7 +17,7 @@ from ..models import (
     SubmitChoiceRequest, ChoiceResultResponse,
     ReplayResponse,
 )
-from .. import replay_archive
+from .. import replay_archive, ultra_telemetry
 
 # Card imports
 from src.cards import ALL_CARDS
@@ -852,6 +852,20 @@ async def _spawn_ultra_subprocess(
     })
     if agent_model:
         env["ULTRA_MODEL"] = agent_model
+        # ULTRA_MODEL_ID mirrors ULTRA_MODEL for telemetry consumers that key
+        # off the more explicit name. Both are read by ultra_telemetry, but
+        # the metadata writer prefers ULTRA_MODEL_ID when both are set.
+        env.setdefault("ULTRA_MODEL_ID", agent_model)
+
+    # Seed the per-match decisions JSONL with a one-line metadata header.
+    # Idempotent: the second spawn (bot-vs-bot has two seats) is a no-op.
+    ultra_telemetry.init_match_metadata(
+        match_id=match_id,
+        game_mode=game_mode,
+        ultra_model_id=agent_model,
+        agent_runner=runner,
+        extra={"human_player_id": human_player_id, "first_seat": ai_player_id},
+    )
 
     # Serialize Popen + registry-insert so concurrent create_match calls
     # don't race on the registry. No cap is enforced.
@@ -954,6 +968,9 @@ async def run_game_session(session: GameSession):
         # No-op if the game crashed before any frames were recorded.
         try:
             if session.is_finished and session.replay_frames:
+                # Pull the per-match metadata seeded at spawn-time so the
+                # archived replay carries ULTRA_MODEL_ID + GIT_SHA forward.
+                tele_meta, _ = ultra_telemetry.read_decisions(session.id)
                 payload = {
                     "game_id": session.id,
                     "match_id": session.id,
@@ -965,10 +982,47 @@ async def run_game_session(session: GameSession):
                         else 0
                     ),
                     "frames": [f.model_dump() for f in session.replay_frames],
+                    "match_metadata": tele_meta or {
+                        "model_id": os.environ.get("ULTRA_MODEL_ID") or os.environ.get("ULTRA_MODEL"),
+                        "git_sha": ultra_telemetry.get_git_sha(),
+                    },
                 }
                 replay_archive.archive_match(session.id, payload)
         except Exception as arch_err:  # noqa: BLE001
             print(f"replay archive on game-end failed for {session.id}: {arch_err}")
+
+
+@router.get("/ultra-summary")
+async def get_ultra_summary() -> dict:
+    """Aggregate stats across every archived match + decision log.
+
+    Returns per-engine totals (matches, avg/median turns, decisions logged,
+    archive completeness pct) plus overall counts. The shape::
+
+        {
+          "generated_at": "2026-05-22T18:44:44Z",
+          "total_matches": 38,
+          "by_engine": {
+            "mtg": {
+              "matches": 10, "avg_turns": 13.4, "median_turns": 13,
+              "decisions_logged": 412, "archive_completeness_pct": 100.0
+            },
+            ...
+          },
+          "earliest": "2026-05-20T20:44:00Z",
+          "latest":   "2026-05-22T18:44:00Z"
+        }
+
+    ``archive_completeness_pct`` is the share of matches whose replay
+    archive has more than one frame. A single-frame archive indicates the
+    match never advanced past initial state (e.g. the Pokemon
+    ``total_frames: 1`` regression). Useful for spotting recurring data
+    holes without reading per-match files.
+
+    Implementation: walks the replays index + decisions JSONL dir. Safe to
+    call on a fresh install (returns ``total_matches: 0``).
+    """
+    return ultra_telemetry.build_ultra_summary()
 
 
 @router.get("/replays/list")
@@ -1107,6 +1161,10 @@ async def submit_action(
         session.winner_id = session.game.get_winner()
         raise HTTPException(status_code=400, detail="Game is finished")
 
+    # Capture turn/phase BEFORE the action mutates state so the telemetry
+    # line reflects when the decision was made, not the post-action state.
+    pre_state_snapshot = _summarise_state_for_telemetry(session)
+
     success, message = await session.handle_action(action)
 
     if not success:
@@ -1114,6 +1172,33 @@ async def submit_action(
             success=False,
             message=message
         )
+
+    # Telemetry: log a single JSONL line per ultra decision. Heuristic AI
+    # and human actions are skipped at the call site (is_ultra_seat returns
+    # False). Best-effort — never break action submission.
+    try:
+        if ultra_telemetry.is_ultra_seat(session, action.player_id):
+            # Pydantic Enum.__str__ yields "ActionType.X"; we want the raw
+            # string value, which is what every downstream analyzer expects.
+            action_type_str = (
+                action.action_type.value
+                if hasattr(action.action_type, "value")
+                else str(action.action_type)
+            )
+            ultra_telemetry.append_decision(
+                match_id=match_id,
+                player_id=action.player_id,
+                turn=pre_state_snapshot.get("turn"),
+                phase=pre_state_snapshot.get("phase"),
+                action_type=action_type_str,
+                action_payload=_action_payload_for_telemetry(action),
+                actor_is_ultra=True,
+                ai_difficulty=session._player_difficulty(action.player_id) if hasattr(session, "_player_difficulty") else "ultra",
+                reasoning=getattr(action, "reasoning", None),
+            )
+    except Exception as exc:  # noqa: BLE001
+        # Telemetry must never break a real action — log and move on.
+        print(f"[ultra_telemetry] decision logging failed for match={match_id}: {exc}", flush=True)
 
     # Get updated state
     new_state = session.get_client_state(action.player_id)
@@ -1123,6 +1208,44 @@ async def submit_action(
         message="Action processed",
         new_state=new_state
     )
+
+
+def _summarise_state_for_telemetry(session: "GameSession") -> dict:
+    """Pluck just (turn, phase) from a session for the JSONL line.
+
+    The full GameStateResponse is overkill for telemetry; we only need the
+    two scalars that contextualise the decision.
+    """
+    try:
+        tm = getattr(session.game, "turn_manager", None)
+        turn = int(getattr(tm, "turn_number", 0) or 0)
+        phase = None
+        phase_obj = getattr(tm, "phase", None)
+        if phase_obj is not None:
+            phase = getattr(phase_obj, "name", None) or str(phase_obj)
+        if phase is None:
+            for attr in ("fin_turn_state", "depths_turn_state", "ygo_turn_state"):
+                sub = getattr(tm, attr, None)
+                sub_phase = getattr(sub, "phase", None) if sub is not None else None
+                if sub_phase is not None:
+                    phase = getattr(sub_phase, "name", None) or str(sub_phase)
+                    break
+        return {"turn": turn, "phase": phase}
+    except Exception:  # noqa: BLE001
+        return {"turn": None, "phase": None}
+
+
+def _action_payload_for_telemetry(action: PlayerActionRequest) -> dict:
+    """Trim the PlayerActionRequest down to the fields useful for analytics.
+
+    The full request includes empty-list defaults for every engine's specific
+    fields; we keep only the ones present + non-empty.
+    """
+    raw = action.model_dump(exclude_none=True, exclude_defaults=True)
+    raw.pop("reasoning", None)  # surfaced as a top-level field
+    raw.pop("player_id", None)  # already keyed
+    raw.pop("action_type", None)  # already keyed
+    return raw
 
 
 @router.post("/{match_id}/choice", response_model=ChoiceResultResponse)

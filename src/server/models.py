@@ -197,6 +197,10 @@ class PlayerActionRequest(BaseModel):
     amount: Optional[int] = Field(default=None, description="SCP numeric action amount")
     # Cats action fields
     pile_name: Optional[str] = Field(default=None, description="Cats pile name for CATS_CHOOSE_PILE (pile_territory/pile_nap/pile_snack)")
+    # Ultra-agent telemetry — when the LLM pilot sends a structured rationale
+    # along with its action POST, we capture it into the per-match decisions
+    # JSONL. Optional; absent for human / heuristic-AI submissions.
+    reasoning: Optional[str] = Field(default=None, description="LLM-pilot rationale for this action (Ultra only)")
 
 
 class StartBotGameRequest(BaseModel):
