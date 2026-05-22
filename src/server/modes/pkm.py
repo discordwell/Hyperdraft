@@ -64,6 +64,29 @@ class PokemonModeAdapter(ModeAdapter):
         while not session.is_finished:
             await session.game.turn_manager.run_turn()
 
+            # Pokemon's turn manager bypasses the MTG priority system, so
+            # `on_action_processed` never fires and the only per-action
+            # frames come from handle_action when the LLM/human submits an
+            # action through the API. When an ultra-AI subprocess dies or
+            # the agent goes idle, `get_human_action` returns its
+            # PKM_END_TURN timeout dict directly without going through
+            # handle_action — turns keep advancing but no frames are
+            # recorded, leaving the replay archive with only the initial
+            # frame from start_game(). Mirror bot_game.py's per-turn frame
+            # safety net here so /match/ ultra replays still capture the
+            # turn-by-turn progression even when the LLM falls silent.
+            if session.record_actions_for_replay:
+                active = session.game.get_active_player()
+                turn_mgr = session.game.turn_manager
+                turn_number = getattr(turn_mgr, "turn_number", 0)
+                session._record_frame(action={
+                    "kind": "turn_complete",
+                    "player_id": active,
+                    "player_name": session.player_names.get(active, active or ""),
+                    "action_type": "PKM_TURN_COMPLETE",
+                    "turn": turn_number,
+                })
+
             if session.game.is_game_over():
                 session.is_finished = True
                 session.winner_id = session.game.get_winner()
@@ -115,8 +138,29 @@ class PokemonModeAdapter(ModeAdapter):
 
         try:
             action = await asyncio.wait_for(session._pending_action_future, timeout=300.0)
+            # Reset the dead-LLM streak whenever the seat actually acts.
+            session._pkm_consecutive_timeouts = 0
             return action
         except asyncio.TimeoutError:
+            # Bot-vs-bot ultra: if the ultra-agent subprocess has died (auth
+            # failure, watchdog idle-kill, OOM) the action handler never
+            # fires and we fall through to this branch on every turn,
+            # auto-ending each one via PKM_END_TURN. Without the
+            # has_lost-on-stalemate guard below, the engine would churn for
+            # 300 s/turn until a deckout fires — multiple hours after the
+            # operator-visible spectator wall-time cap. Track consecutive
+            # timeouts across both seats and short-circuit the match once
+            # we're confident no agent will act again.
+            session._pkm_consecutive_timeouts = (
+                getattr(session, "_pkm_consecutive_timeouts", 0) + 1
+            )
+            if session._pkm_consecutive_timeouts >= 3:
+                # Both seats have timed out 3 times in a row; nobody is
+                # acting. Mark the match finished so run_game_loop exits
+                # cleanly on the next iteration. winner_id stays unset
+                # (effectively a draw / abandoned match) so the archive
+                # still records what little frame data we have.
+                session.is_finished = True
             return {"action_type": "PKM_END_TURN"}
 
     async def handle_action(
