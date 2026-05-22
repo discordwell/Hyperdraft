@@ -265,7 +265,11 @@ async def _spawn_one_demo_match(game_mode: str) -> Optional[str]:
     try:
         resp = await create_match(request=request, background_tasks=BackgroundTasks())
     except Exception as e:  # noqa: BLE001
-        log.warning("spectator: create_match for game_mode=%s failed: %s", game_mode, e)
+        # log.exception attaches the traceback, which is critical for diagnosing
+        # silent demo failures. The previous log.warning("…failed: %s", e) hid the
+        # Hearthstone KeyError('') bug for weeks — 0/38 HS matches archived while
+        # the supervisor just rotated past every cycle.
+        log.exception("spectator: create_match for game_mode=%s failed: %s", game_mode, e)
         return None
 
     match_id = resp.match_id
@@ -282,7 +286,7 @@ async def _spawn_one_demo_match(game_mode: str) -> Optional[str]:
     try:
         asyncio.create_task(run_game_session(session))
     except Exception as e:  # noqa: BLE001
-        log.warning("spectator: scheduling run_game_session for %s failed: %s", match_id, e)
+        log.exception("spectator: scheduling run_game_session for %s failed: %s", match_id, e)
         await session_manager.remove_session(match_id)
         return None
 

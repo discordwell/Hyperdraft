@@ -77,6 +77,22 @@ class FinanceModeAdapter(ModeAdapter):
         while not session.is_finished:
             await session.game.turn_manager.run_turn()
 
+            # Finance turn manager bypasses the MTG priority pipeline —
+            # mirror pkm.py / cats.py's per-turn frame safety net so the
+            # replay archive captures progression even when the LLM falls
+            # silent. See pkm.py for the longer rationale.
+            if session.record_actions_for_replay:
+                active = session.game.get_active_player()
+                turn_mgr = session.game.turn_manager
+                turn_number = getattr(turn_mgr, "turn_number", 0)
+                session._record_frame(action={
+                    "kind": "turn_complete",
+                    "player_id": active,
+                    "player_name": session.player_names.get(active, active or ""),
+                    "action_type": "FIN_TURN_COMPLETE",
+                    "turn": turn_number,
+                })
+
             if session.game.is_game_over():
                 session.is_finished = True
                 session.winner_id = session.game.get_winner()
@@ -110,8 +126,16 @@ class FinanceModeAdapter(ModeAdapter):
                 await session.on_state_change(pid, state.model_dump())
 
         try:
-            return await asyncio.wait_for(session._pending_action_future, timeout=300.0)
+            action = await asyncio.wait_for(session._pending_action_future, timeout=300.0)
+            session._fin_consecutive_timeouts = 0
+            return action
         except asyncio.TimeoutError:
+            # Dead-LLM short-circuit — see pkm.py.
+            session._fin_consecutive_timeouts = (
+                getattr(session, "_fin_consecutive_timeouts", 0) + 1
+            )
+            if session._fin_consecutive_timeouts >= 3:
+                session.is_finished = True
             return {"action_type": "FIN_END_TURN"}
 
     async def handle_action(

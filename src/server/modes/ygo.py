@@ -67,6 +67,24 @@ class YugiohModeAdapter(ModeAdapter):
         while not session.is_finished:
             await session.game.turn_manager.run_turn()
 
+            # YGO's turn manager bypasses the MTG priority system, so
+            # `on_action_processed` never fires and per-action frames only
+            # come from handle_action. When an ultra-AI subprocess dies the
+            # action handler never fires, turns advance silently, and the
+            # replay archive captures only the initial start_game frame.
+            # Mirror the per-turn safety net used by pkm.py and cats.py.
+            if session.record_actions_for_replay:
+                active = session.game.get_active_player()
+                turn_mgr = session.game.turn_manager
+                turn_number = getattr(turn_mgr, "turn_number", 0)
+                session._record_frame(action={
+                    "kind": "turn_complete",
+                    "player_id": active,
+                    "player_name": session.player_names.get(active, active or ""),
+                    "action_type": "YGO_TURN_COMPLETE",
+                    "turn": turn_number,
+                })
+
             if session.game.is_game_over():
                 session.is_finished = True
                 session.winner_id = session.game.get_winner()
@@ -116,8 +134,17 @@ class YugiohModeAdapter(ModeAdapter):
 
         try:
             action = await asyncio.wait_for(session._pending_action_future, timeout=300.0)
+            session._ygo_consecutive_timeouts = 0
             return action
         except asyncio.TimeoutError:
+            # Dead-LLM short-circuit (see pkm.py for the long explanation).
+            # 3 consecutive timeouts across either seat ≈ 15 min of silence;
+            # mark the match finished so run_game_loop exits cleanly.
+            session._ygo_consecutive_timeouts = (
+                getattr(session, "_ygo_consecutive_timeouts", 0) + 1
+            )
+            if session._ygo_consecutive_timeouts >= 3:
+                session.is_finished = True
             return {"action_type": "end_phase"}
 
     async def handle_action(

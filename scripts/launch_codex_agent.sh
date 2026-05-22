@@ -64,6 +64,10 @@ Your job: play the WHOLE GAME in this single session. Use shell commands only fo
 2. When active_player == AI_PLAYER_ID, take ONE turn:
    - Decide moves based on hand, board, opponent state, strategy doc
    - Submit each action via POST /api/match/\$MATCH_ID/action with player_id=\$AI_PLAYER_ID
+   - **Include a \`reasoning\` field in every action body** — one short sentence
+     explaining WHY you picked this move. The server logs it to
+     storage/ultra-agent/decisions/\$MATCH_ID.jsonl for retrospective analysis.
+     Keep it terse — 1 sentence, ≤120 chars.
    - End the turn with the game-mode-appropriate END_TURN action
    - The active_player will flip back to the human
 

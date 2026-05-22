@@ -69,6 +69,19 @@ class DepthsModeAdapter(ModeAdapter):
         while not session.is_finished:
             await tm.run_turn()
 
+            # Per-turn replay frame: Depths bypasses the MTG priority
+            # pipeline — see pkm.py for the longer rationale.
+            if session.record_actions_for_replay:
+                active = session.game.get_active_player()
+                turn_number = getattr(tm, "turn_number", 0)
+                session._record_frame(action={
+                    "kind": "turn_complete",
+                    "player_id": active,
+                    "player_name": session.player_names.get(active, active or ""),
+                    "action_type": "DEPTHS_TURN_COMPLETE",
+                    "turn": turn_number,
+                })
+
             if session.game.is_game_over():
                 session.is_finished = True
                 session.winner_id = session.game.get_winner()
@@ -120,8 +133,16 @@ class DepthsModeAdapter(ModeAdapter):
                 await session.on_state_change(pid, state.model_dump())
 
         try:
-            return await asyncio.wait_for(session._pending_action_future, timeout=300.0)
+            action = await asyncio.wait_for(session._pending_action_future, timeout=300.0)
+            session._depths_consecutive_timeouts = 0
+            return action
         except asyncio.TimeoutError:
+            # Dead-LLM short-circuit — see pkm.py.
+            session._depths_consecutive_timeouts = (
+                getattr(session, "_depths_consecutive_timeouts", 0) + 1
+            )
+            if session._depths_consecutive_timeouts >= 3:
+                session.is_finished = True
             return {"action_type": "DEPTHS_END_TURN"}
 
     async def handle_action(
