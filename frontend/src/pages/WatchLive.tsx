@@ -25,8 +25,19 @@ import { shortCode } from './PublicMatch';
 interface SpectateStatus {
   enabled: boolean;
   current_match_id: string | null;
-  game_mode?: string;
+  game_mode?: string | null;
+  single_shot?: boolean;
+  started_at?: number | null;
+  cooldown_seconds_remaining?: number;
+  supported_game_modes?: string[];
 }
+
+const GAME_MODE_LABELS: Record<string, string> = {
+  mtg: 'Magic',
+  pokemon: 'Pokémon',
+  hearthstone: 'Hearthstone',
+  yugioh: 'Yu-Gi-Oh!',
+};
 
 interface LiveMatchRow {
   matchId: string;
@@ -88,6 +99,9 @@ export function WatchLive() {
   const [spectator, setSpectator] = useState<SpectateStatus | null>(null);
   const [botRows, setBotRows] = useState<LiveMatchRow[]>([]);
   const [recent, setRecent] = useState<RecentReplay | null>(null);
+  const [selectedMode, setSelectedMode] = useState<string>('mtg');
+  const [toggleBusy, setToggleBusy] = useState<boolean>(false);
+  const [toggleError, setToggleError] = useState<string | null>(null);
 
   // Recent archived replay — surfaces under the featured panel as the
   // "replay available at end of match" line when no demo is live.
@@ -127,6 +141,57 @@ export function WatchLive() {
     const interval = setInterval(pollLive, 10_000);
     return () => clearInterval(interval);
   }, [pollLive]);
+
+  const triggerStart = useCallback(async () => {
+    setToggleBusy(true);
+    setToggleError(null);
+    try {
+      const resp = await fetch('/api/spectate/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ game_mode: selectedMode }),
+      });
+      if (!resp.ok) {
+        const data = (await resp.json().catch(() => ({}))) as { detail?: string };
+        setToggleError(data.detail ?? `Start failed (${resp.status})`);
+      } else {
+        setSpectator((await resp.json()) as SpectateStatus);
+      }
+    } catch (e) {
+      setToggleError(e instanceof Error ? e.message : 'Start failed');
+    } finally {
+      setToggleBusy(false);
+      // Re-poll so we pick up the supervisor's match_id once it spawns.
+      // Two polls: immediate (catches fast spawn) + ~6s (after supervisor
+      // wakes from its 5s sleep and writes _current_match_id).
+      void pollLive();
+      setTimeout(() => void pollLive(), 6000);
+    }
+  }, [selectedMode, pollLive]);
+
+  const triggerStop = useCallback(async () => {
+    setToggleBusy(true);
+    setToggleError(null);
+    try {
+      const resp = await fetch('/api/spectate/stop', { method: 'POST' });
+      if (!resp.ok) {
+        const data = (await resp.json().catch(() => ({}))) as { detail?: string };
+        setToggleError(data.detail ?? `Stop failed (${resp.status})`);
+      } else {
+        setSpectator((await resp.json()) as SpectateStatus);
+      }
+    } catch (e) {
+      setToggleError(e instanceof Error ? e.message : 'Stop failed');
+    } finally {
+      setToggleBusy(false);
+      void pollLive();
+    }
+  }, [pollLive]);
+
+  const supportedModes = spectator?.supported_game_modes ?? ['mtg', 'pokemon', 'hearthstone', 'yugioh'];
+  const cooldownLeft = Math.ceil(spectator?.cooldown_seconds_remaining ?? 0);
+  const startDisabled = toggleBusy || Boolean(spectator?.enabled) || cooldownLeft > 0;
+  const stopDisabled = toggleBusy || !spectator?.enabled;
 
   // Compose the table: featured spectator-demo first (if any), then
   // real bot games. Empty state shows a hint instead of mock rows.
@@ -257,6 +322,152 @@ export function WatchLive() {
             </button>
           </div>
         </header>
+
+        {/* ─── Demo controls — lab-styled Start/Stop for the spectator demo.
+            Anyone can flip the toggle; single-shot by default. ─────────── */}
+        <section
+          aria-label="Spectator demo controls"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            flexWrap: 'wrap',
+            border: '1px solid var(--rule)',
+            background: 'var(--paper-2)',
+            padding: '12px 16px',
+            marginBottom: 20,
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+          }}
+        >
+          <span
+            style={{
+              fontWeight: 500,
+              letterSpacing: '.14em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-3)',
+            }}
+          >
+            Demo
+          </span>
+
+          <span
+            data-testid="demo-state"
+            style={{
+              padding: '3px 8px',
+              border: '1px solid var(--rule)',
+              color: spectator?.enabled ? 'var(--sodium)' : 'var(--ink-2)',
+              letterSpacing: '.08em',
+              textTransform: 'uppercase',
+            }}
+          >
+            {spectator?.enabled ? '● Running' : '○ Idle'}
+            {spectator?.enabled && spectator?.game_mode
+              ? ` · ${GAME_MODE_LABELS[spectator.game_mode] ?? spectator.game_mode}`
+              : ''}
+          </span>
+
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              color: 'var(--ink-3)',
+              letterSpacing: '.08em',
+              textTransform: 'uppercase',
+            }}
+          >
+            Game
+            <select
+              value={selectedMode}
+              onChange={(e) => setSelectedMode(e.target.value)}
+              disabled={toggleBusy || spectator?.enabled}
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
+                padding: '4px 6px',
+                border: '1px solid var(--rule)',
+                background: 'var(--paper)',
+                color: 'var(--ink)',
+              }}
+            >
+              {supportedModes.map((m) => (
+                <option key={m} value={m}>
+                  {GAME_MODE_LABELS[m] ?? m}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            type="button"
+            onClick={triggerStart}
+            disabled={startDisabled}
+            data-testid="demo-start"
+            style={{
+              ...demoButtonStyle,
+              borderColor: 'var(--ink)',
+              color: startDisabled ? 'var(--ink-3)' : 'var(--ink)',
+              cursor: startDisabled ? 'not-allowed' : 'pointer',
+              opacity: startDisabled ? 0.5 : 1,
+            }}
+          >
+            ▶ Start a match
+          </button>
+
+          <button
+            type="button"
+            onClick={triggerStop}
+            disabled={stopDisabled}
+            data-testid="demo-stop"
+            title="Stops queuing new matches. The currently-running match continues to its natural end."
+            style={{
+              ...demoButtonStyle,
+              borderColor: stopDisabled ? 'var(--rule)' : 'var(--sodium)',
+              color: stopDisabled ? 'var(--ink-3)' : 'var(--sodium)',
+              cursor: stopDisabled ? 'not-allowed' : 'pointer',
+              opacity: stopDisabled ? 0.5 : 1,
+            }}
+          >
+            ■ Stop
+          </button>
+
+          {cooldownLeft > 0 && (
+            <span style={{ color: 'var(--ink-3)', letterSpacing: '.04em' }}>
+              cooldown {cooldownLeft}s
+            </span>
+          )}
+
+          <span style={{ flex: 1 }} />
+
+          <span
+            style={{
+              color: 'var(--ink-3)',
+              letterSpacing: '.04em',
+              fontSize: 10.5,
+            }}
+          >
+            single-shot · auto-stops when match ends
+          </span>
+
+          {toggleError && (
+            <div
+              role="alert"
+              data-testid="demo-error"
+              style={{
+                width: '100%',
+                marginTop: 4,
+                padding: '6px 10px',
+                border: '1px solid var(--sodium)',
+                color: 'var(--sodium)',
+                fontSize: 11,
+                letterSpacing: '.04em',
+              }}
+            >
+              {toggleError}
+            </div>
+          )}
+        </section>
 
         {/* ─── Body grid — 1.4fr table + 1fr featured panel ─────────────── */}
         <div className="lobby-body" style={lobbyBodyStyle}>
@@ -650,6 +861,17 @@ function TableRow({
     </button>
   );
 }
+
+const demoButtonStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 11,
+  fontWeight: 500,
+  letterSpacing: '.1em',
+  textTransform: 'uppercase',
+  padding: '5px 12px',
+  border: '1px solid var(--ink)',
+  background: 'transparent',
+};
 
 const lobbyPillButtonStyle: React.CSSProperties = {
   fontFamily: 'var(--font-mono)',

@@ -36,11 +36,11 @@ services:
       REPAIR_PER_TURN_TIMEOUT_SECONDS: "${REPAIR_PER_TURN_TIMEOUT_SECONDS:-900}"
       REPAIR_VERIFY_TIMEOUT_SECONDS: "${REPAIR_VERIFY_TIMEOUT_SECONDS:-90}"
 
-      # Spectator demo (Phase 4.1). When true, src/server/spectator.py keeps
-      # one bot_vs_bot ultra match alive at a time, cycling through
-      # [mtg, hearthstone, pokemon, yugioh]. Each demo match spawns two
-      # ultra subprocesses (one per AI seat) — count against ULTRA_MAX.
-      HYPERDRAFT_SPECTATOR_ENABLED: "${HYPERDRAFT_SPECTATOR_ENABLED:-false}"
+      # Spectator demo. Default OFF; visitors flip it via POST
+      # /api/spectate/start (single-shot — one match, auto-disables when
+      # the match ends). The legacy HYPERDRAFT_SPECTATOR_ENABLED env var
+      # is no longer respected — toggle state lives at
+      # storage/spectator_state.json on the persistent volume.
       HYPERDRAFT_SPECTATOR_COOLDOWN: "${HYPERDRAFT_SPECTATOR_COOLDOWN:-30}"
       HYPERDRAFT_SPECTATOR_MAX_WALL_SECONDS: "${HYPERDRAFT_SPECTATOR_MAX_WALL_SECONDS:-5400}"
 

@@ -1,25 +1,28 @@
-"""Public "Watch Claude play" spectator demo (Phase 4.1).
+"""Public "Watch Claude play" spectator demo.
 
-A background task cycles through the four canonical game modes, creating a
-``bot_vs_bot`` ultra match each time the previous one ends. The currently-live
-match's ID is exposed via ``GET /api/spectate/live`` so a spectator landing
-page can redirect to ``/watch/<match_id>``.
+A background task spawns ``bot_vs_bot`` ultra LLM-pilot demo matches on
+demand. The currently-live match's ID is exposed via
+``GET /api/spectate/live`` so the spectator landing page can redirect to
+``/watch/<match_id>``.
 
-This reuses the existing create_match + start_match plumbing, including the
-Phase 2 ``_spawn_ultra_subprocess`` extension that fires two subprocesses
-(one per seat) when ``mode=="bot_vs_bot"`` and ``ai_difficulty=="ultra"``.
-The supervisor owns one of the ULTRA_AGENT_SEMAPHORE slots when active.
+This reuses the existing create_match + start_match plumbing, including
+``_spawn_ultra_subprocess`` which fires two subprocesses (one per seat)
+when ``mode=="bot_vs_bot"`` and ``ai_difficulty=="ultra"``.
 
-Disabled by default — set ``HYPERDRAFT_SPECTATOR_ENABLED=true`` in the
-container env to opt in.
+Toggle model: enabled state lives in ``storage/spectator_state.json``.
+Single-shot mode (the default) spawns one match per Start click and
+auto-disables when that match ends. Cleared on container restart unless
+the state file survives (it lives on the persistent volume).
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Optional
 
 from fastapi import BackgroundTasks
@@ -28,26 +31,181 @@ from .models import CreateMatchRequest
 
 log = logging.getLogger(__name__)
 
-# Cycle order — matches the four engines with ultra-AI briefs in
-# prompts/ultra_ai/. SCP / Finance / Depths / Minecraft are excluded
-# because they don't have ultra briefs yet. Pokémon is intentionally
-# FIRST so the spectator's first impression is a fast-ish prize-race
-# game rather than a 30-min MTG control mirror.
-GAME_MODE_CYCLE = ("pokemon", "hearthstone", "yugioh", "mtg")
+# Game modes that have an ultra brief in prompts/ultra_ai/. SCP / Finance
+# / Depths / Minecraft excluded because they don't have ultra briefs yet.
+SUPPORTED_GAME_MODES = ("pokemon", "hearthstone", "yugioh", "mtg")
+DEFAULT_GAME_MODE = "mtg"
+
+# Cooldown between toggle requests (start/stop), to deter thrash. Applies
+# regardless of caller — the supervisor itself bypasses the cooldown when
+# auto-disabling after a single-shot match ends (that's not a user
+# toggle).
+TOGGLE_COOLDOWN_SECONDS = 30.0
+
+_STATE_PATH = Path(os.environ.get("HYPERDRAFT_SPECTATOR_STATE_FILE", "storage/spectator_state.json"))
 
 _current_match_id: Optional[str] = None
 _supervisor_task: Optional[asyncio.Task] = None
 _stop_event: asyncio.Event | None = None
+_state_lock = asyncio.Lock()
+
+
+def _default_state() -> dict:
+    return {
+        "enabled": False,
+        "single_shot": True,
+        "requested_game_mode": None,
+        "last_toggle_at": 0.0,
+        "started_at": None,
+    }
+
+
+def _read_state() -> dict:
+    """Read the persisted toggle state. Default OFF when the file is absent.
+
+    The legacy ``HYPERDRAFT_SPECTATOR_ENABLED`` env var is intentionally
+    ignored — the on-demand toggle is the only enable path. Set it via
+    ``POST /api/spectate/start`` (or persist `storage/spectator_state.json`
+    out-of-band) to enable.
+    """
+    try:
+        if _STATE_PATH.exists():
+            with _STATE_PATH.open("r") as f:
+                data = json.load(f)
+            merged = _default_state()
+            merged.update({k: v for k, v in data.items() if k in merged})
+            return merged
+    except (OSError, json.JSONDecodeError) as e:
+        log.warning("spectator: failed to read state file %s: %s", _STATE_PATH, e)
+    return _default_state()
+
+
+def _write_state(state: dict) -> None:
+    try:
+        _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _STATE_PATH.with_suffix(".tmp")
+        with tmp.open("w") as f:
+            json.dump(state, f)
+        tmp.replace(_STATE_PATH)
+    except OSError as e:
+        log.warning("spectator: failed to write state file %s: %s", _STATE_PATH, e)
 
 
 def is_enabled() -> bool:
-    """Default OFF. Opt in via HYPERDRAFT_SPECTATOR_ENABLED=true."""
-    return os.environ.get("HYPERDRAFT_SPECTATOR_ENABLED", "").lower() in ("true", "1", "yes")
+    return bool(_read_state().get("enabled"))
 
 
 def current_match_id() -> Optional[str]:
     """Read-only: which match ID is the live demo right now?"""
     return _current_match_id
+
+
+def current_game_mode() -> Optional[str]:
+    """Read-only: which game mode is the live demo running?"""
+    return _read_state().get("requested_game_mode")
+
+
+def get_status() -> dict:
+    """Full public status for the operator UI."""
+    state = _read_state()
+    now = time.time()
+    elapsed = now - float(state.get("last_toggle_at") or 0.0)
+    cooldown_remaining = max(0.0, TOGGLE_COOLDOWN_SECONDS - elapsed)
+    return {
+        "enabled": bool(state.get("enabled")),
+        "single_shot": bool(state.get("single_shot")),
+        "current_match_id": _current_match_id,
+        "game_mode": state.get("requested_game_mode"),
+        "started_at": state.get("started_at"),
+        "cooldown_seconds_remaining": round(cooldown_remaining, 1),
+        "supported_game_modes": list(SUPPORTED_GAME_MODES),
+    }
+
+
+class ToggleRejected(Exception):
+    def __init__(self, status_code: int, detail: str):
+        self.status_code = status_code
+        self.detail = detail
+        super().__init__(detail)
+
+
+async def request_start(game_mode: Optional[str] = None, *, single_shot: bool = True) -> dict:
+    """User-facing Start: queue exactly one demo match (single-shot default).
+
+    Raises ToggleRejected with HTTP-style status codes:
+      * 409 if a match is already running or another start is pending
+      * 429 if the cooldown hasn't elapsed since the last toggle
+      * 400 if game_mode isn't in SUPPORTED_GAME_MODES
+    """
+    async with _state_lock:
+        state = _read_state()
+        now = time.time()
+
+        if state.get("enabled") or _current_match_id:
+            raise ToggleRejected(
+                409,
+                "Spectator demo is already running; press Stop first or wait for it to finish.",
+            )
+
+        elapsed = now - float(state.get("last_toggle_at") or 0.0)
+        if elapsed < TOGGLE_COOLDOWN_SECONDS:
+            wait = round(TOGGLE_COOLDOWN_SECONDS - elapsed, 1)
+            raise ToggleRejected(
+                429,
+                f"Cooldown active. Try again in {wait}s.",
+            )
+
+        mode = (game_mode or DEFAULT_GAME_MODE).lower()
+        if mode not in SUPPORTED_GAME_MODES:
+            raise ToggleRejected(
+                400,
+                f"Unsupported game_mode {mode!r}. Pick one of {SUPPORTED_GAME_MODES}.",
+            )
+
+        state.update(
+            enabled=True,
+            single_shot=bool(single_shot),
+            requested_game_mode=mode,
+            last_toggle_at=now,
+            started_at=now,
+        )
+        _write_state(state)
+        log.info("spectator: start requested game_mode=%s single_shot=%s", mode, single_shot)
+        return get_status()
+
+
+async def request_stop() -> dict:
+    """User-facing Stop: prevent any new matches from spawning.
+
+    Does NOT kill the in-flight match — the supervisor's match-end watcher
+    will return naturally and the cycle ends there. Mid-match Stop is
+    effectively 'don't queue another'.
+    """
+    async with _state_lock:
+        state = _read_state()
+        now = time.time()
+        elapsed = now - float(state.get("last_toggle_at") or 0.0)
+        if elapsed < TOGGLE_COOLDOWN_SECONDS and not state.get("enabled"):
+            wait = round(TOGGLE_COOLDOWN_SECONDS - elapsed, 1)
+            raise ToggleRejected(429, f"Cooldown active. Try again in {wait}s.")
+
+        state.update(enabled=False, last_toggle_at=now)
+        _write_state(state)
+        log.info("spectator: stop requested")
+        return get_status()
+
+
+def _auto_disable_after_single_shot() -> None:
+    """Called by the supervisor when a single-shot match ends.
+
+    Stamps ``last_toggle_at`` so the cooldown applies post-match too —
+    otherwise a quick-ending match (concession, spawn failure) would let
+    a fresh Start fire immediately and bypass abuse-mitigation.
+    """
+    state = _read_state()
+    if state.get("single_shot"):
+        state.update(enabled=False, started_at=None, last_toggle_at=time.time())
+        _write_state(state)
 
 
 async def _spawn_one_demo_match(game_mode: str) -> Optional[str]:
@@ -74,13 +232,11 @@ async def _spawn_one_demo_match(game_mode: str) -> Optional[str]:
         log.warning("spectator: session %s not found after create", match_id)
         return None
 
-    # start_match's route handler attaches run_game_session via
-    # FastAPI's BackgroundTasks queue, which only fires after an HTTP
-    # response. Calling it programmatically with a fresh BackgroundTasks()
-    # silently drops the task — the session is created but the game
-    # engine never runs. We schedule run_game_session directly as an
-    # asyncio task so both Claude subprocesses actually have a game
-    # state to poll against.
+    # start_match's route handler attaches run_game_session via FastAPI's
+    # BackgroundTasks queue, which only fires after an HTTP response.
+    # Calling it programmatically with a fresh BackgroundTasks() silently
+    # drops the task. Schedule it directly as an asyncio task so both
+    # Claude subprocesses actually have a game state to poll against.
     try:
         asyncio.create_task(run_game_session(session))
     except Exception as e:  # noqa: BLE001
@@ -132,27 +288,42 @@ async def _wait_for_match_end(match_id: str, poll_seconds: float = 5.0) -> None:
 
 
 async def supervisor_loop() -> None:
-    """Long-running task: keep one demo match alive at all times."""
+    """Long-running task: spawn one demo match each time the toggle goes on.
+
+    Single-shot (default): runs one match, auto-disables, idles until the
+    next Start click.
+
+    Continuous (set via legacy HYPERDRAFT_SPECTATOR_ENABLED env var):
+    cycles through SUPPORTED_GAME_MODES indefinitely until something
+    flips the toggle off.
+    """
     global _current_match_id
     cycle_idx = 0
     cooldown_seconds = float(os.environ.get("HYPERDRAFT_SPECTATOR_COOLDOWN", "30"))
 
-    log.info("spectator supervisor starting (cycle=%s cooldown=%ss)",
-             list(GAME_MODE_CYCLE), cooldown_seconds)
+    log.info("spectator supervisor starting (cooldown=%ss)", cooldown_seconds)
 
     while True:
         if _stop_event is not None and _stop_event.is_set():
             return
-        if not is_enabled():
-            await asyncio.sleep(30)
+
+        state = _read_state()
+        if not state.get("enabled"):
+            await asyncio.sleep(5)
             continue
 
-        game_mode = GAME_MODE_CYCLE[cycle_idx % len(GAME_MODE_CYCLE)]
-        cycle_idx += 1
+        if state.get("single_shot"):
+            game_mode = (state.get("requested_game_mode") or DEFAULT_GAME_MODE).lower()
+        else:
+            game_mode = SUPPORTED_GAME_MODES[cycle_idx % len(SUPPORTED_GAME_MODES)]
+            cycle_idx += 1
 
         match_id = await _spawn_one_demo_match(game_mode)
         if match_id is None:
-            # Backoff and try the next mode.
+            # Backoff and try again. In single-shot mode also flip off to
+            # avoid hot-looping on a persistent spawn failure.
+            if state.get("single_shot"):
+                _auto_disable_after_single_shot()
             await asyncio.sleep(cooldown_seconds)
             continue
 
@@ -166,9 +337,13 @@ async def supervisor_loop() -> None:
         finally:
             _current_match_id = None
 
-        log.info("spectator: demo match=%s ended; cooling down %ss then advancing",
-                 match_id, cooldown_seconds)
-        await asyncio.sleep(cooldown_seconds)
+        log.info("spectator: demo match=%s ended", match_id)
+
+        # Single-shot: one and done. Continuous: cool down and advance.
+        if _read_state().get("single_shot"):
+            _auto_disable_after_single_shot()
+        else:
+            await asyncio.sleep(cooldown_seconds)
 
 
 async def start() -> None:
