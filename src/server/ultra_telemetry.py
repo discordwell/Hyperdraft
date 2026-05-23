@@ -49,6 +49,56 @@ SESSION_TAKEAWAYS_ANCHOR = "## Session takeaways"
 MAX_TAKEAWAYS_PER_DOC = 50  # rotate older ones to <mode>.archive.md
 
 
+def parse_since(value: str) -> float:
+    """Parse a ``?since=`` query value into an absolute unix timestamp.
+
+    Accepts:
+      - ``Nh`` / ``Nd`` / ``Nm`` — relative window from now (hours/days/minutes)
+      - ``YYYY-MM-DDTHH:MM:SSZ`` — absolute ISO-8601 (trailing Z required)
+      - bare integer or float — unix timestamp
+
+    Raises ``ValueError`` with a human-readable message on bad input so the
+    route can surface a 400. Empty input also raises — the caller should
+    treat "no filter" as ``since=None`` rather than the empty string.
+    """
+    if not value or not value.strip():
+        raise ValueError("since must be non-empty")
+    s = value.strip()
+    now = time.time()
+
+    # Relative form: <number><unit>
+    if len(s) >= 2 and s[-1].lower() in ("h", "d", "m") and s[:-1].replace(".", "", 1).isdigit():
+        try:
+            n = float(s[:-1])
+        except ValueError as e:
+            raise ValueError(f"invalid relative window: {s}") from e
+        if n <= 0:
+            raise ValueError(f"relative window must be > 0: {s}")
+        unit = s[-1].lower()
+        seconds = {"m": 60.0, "h": 3600.0, "d": 86400.0}[unit]
+        return now - (n * seconds)
+
+    # Absolute ISO (with trailing Z)
+    if s.endswith("Z") and "T" in s:
+        try:
+            dt = _dt.datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=_dt.timezone.utc)
+        except ValueError as e:
+            raise ValueError(f"invalid ISO timestamp (need YYYY-MM-DDTHH:MM:SSZ): {s}") from e
+        return dt.timestamp()
+
+    # Raw unix timestamp (int or float)
+    try:
+        ts = float(s)
+    except ValueError as e:
+        raise ValueError(
+            f"since must be a relative window (24h/7d/30m), an ISO "
+            f"YYYY-MM-DDTHH:MM:SSZ, or a unix timestamp; got {s!r}"
+        ) from e
+    if ts <= 0:
+        raise ValueError(f"unix timestamp must be > 0: {s}")
+    return ts
+
+
 # =============================================================================
 # Module-level metadata (resolved once at boot, cached on the module).
 # =============================================================================
@@ -472,6 +522,7 @@ def build_ultra_summary(
     *,
     replays_index_path: Optional[Path] = None,
     decisions_dir: Optional[Path] = None,
+    since_ts: Optional[float] = None,
 ) -> dict:
     """Aggregate every archived match + decision log into a single summary.
 
@@ -480,6 +531,11 @@ def build_ultra_summary(
     Both sources are tolerant of missing files — a brand-new install with
     no archived matches returns ``total_matches: 0`` with an empty
     ``by_engine`` mapping.
+
+    When ``since_ts`` is set, only matches archived (or created, for orphan
+    decisions) at-or-after that unix timestamp are counted. The response
+    echoes the applied window in ``window_since`` so callers can label UI
+    output accurately.
 
     Returns the shape documented in the route handler.
     """
@@ -506,6 +562,7 @@ def build_ultra_summary(
     # archive) bucket under their real engine instead of "unknown".
     decisions_per_match: dict[str, int] = {}
     decisions_meta_per_match: dict[str, dict] = {}
+    decisions_mtime_per_match: dict[str, float] = {}
     decisions_by_engine: dict[str, int] = defaultdict(int)
     if decisions_dir.exists():
         for path in decisions_dir.iterdir():
@@ -531,8 +588,24 @@ def build_ultra_summary(
                 decisions_per_match[match_id] = count
                 if meta:
                     decisions_meta_per_match[match_id] = meta
+                try:
+                    decisions_mtime_per_match[match_id] = path.stat().st_mtime
+                except OSError:
+                    pass
             except OSError as e:  # noqa: BLE001
                 log.debug("ultra_telemetry: skipping unreadable %s: %s", path, e)
+
+    # Apply the time-window filter. Archived entries get filtered by
+    # ``archived_at``; orphan-decisions entries by _meta.created_at (or file
+    # mtime as a last resort). Anything without a usable timestamp survives
+    # the filter — better to over-include than silently drop matches when
+    # the data layer is incomplete.
+    if since_ts is not None:
+        index = [
+            e for e in index
+            if not isinstance(e.get("archived_at"), (int, float))
+            or e["archived_at"] >= since_ts
+        ]
 
     by_engine: dict[str, dict] = {}
     earliest_ts: Optional[float] = None
@@ -550,16 +623,35 @@ def build_ultra_summary(
     # real engine; fall back to "unknown" only when the header is missing.
     indexed_match_ids = {e.get("match_id") for e in index}
     for match_id in decisions_per_match:
-        if match_id not in indexed_match_ids:
-            meta = decisions_meta_per_match.get(match_id) or {}
-            engine = meta.get("game_mode") or "unknown"
-            engine_groups.setdefault(engine, []).append({
-                "match_id": match_id,
-                "game_mode": engine,
-                "total_turns": None,
-                "total_frames": 0,
-                "archived_at": None,
-            })
+        if match_id in indexed_match_ids:
+            continue
+        meta = decisions_meta_per_match.get(match_id) or {}
+        # Orphan-row timestamp: prefer the _meta.created_at ISO string; fall
+        # back to file mtime. Either feeds the since_ts filter below.
+        orphan_ts: Optional[float] = None
+        created_iso = meta.get("created_at")
+        if isinstance(created_iso, str):
+            try:
+                dt = _dt.datetime.strptime(created_iso, "%Y-%m-%dT%H:%M:%SZ").replace(
+                    tzinfo=_dt.timezone.utc
+                )
+                orphan_ts = dt.timestamp()
+            except ValueError:
+                pass
+        if orphan_ts is None:
+            orphan_ts = decisions_mtime_per_match.get(match_id)
+
+        if since_ts is not None and orphan_ts is not None and orphan_ts < since_ts:
+            continue
+
+        engine = meta.get("game_mode") or "unknown"
+        engine_groups.setdefault(engine, []).append({
+            "match_id": match_id,
+            "game_mode": engine,
+            "total_turns": None,
+            "total_frames": 0,
+            "archived_at": orphan_ts,
+        })
 
     for engine, rows in engine_groups.items():
         turns = [r.get("total_turns") for r in rows if isinstance(r.get("total_turns"), int)]
@@ -603,6 +695,11 @@ def build_ultra_summary(
             _dt.datetime.fromtimestamp(latest_ts, _dt.timezone.utc)
             .strftime("%Y-%m-%dT%H:%M:%SZ")
             if latest_ts else None
+        ),
+        "window_since": (
+            _dt.datetime.fromtimestamp(since_ts, _dt.timezone.utc)
+            .strftime("%Y-%m-%dT%H:%M:%SZ")
+            if since_ts is not None else None
         ),
     }
 

@@ -85,6 +85,7 @@ interface UltraSummary {
   >;
   earliest: string | null;
   latest: string | null;
+  window_since: string | null;
 }
 
 // Format a single BotGameStatus row into the table model. Pulled out so

@@ -993,7 +993,7 @@ async def run_game_session(session: GameSession):
 
 
 @router.get("/ultra-summary")
-async def get_ultra_summary() -> dict:
+async def get_ultra_summary(since: Optional[str] = None) -> dict:
     """Aggregate stats across every archived match + decision log.
 
     Returns per-engine totals (matches, avg/median turns, decisions logged,
@@ -1010,7 +1010,8 @@ async def get_ultra_summary() -> dict:
             ...
           },
           "earliest": "2026-05-20T20:44:00Z",
-          "latest":   "2026-05-22T18:44:00Z"
+          "latest":   "2026-05-22T18:44:00Z",
+          "window_since": null
         }
 
     ``archive_completeness_pct`` is the share of matches whose replay
@@ -1019,10 +1020,27 @@ async def get_ultra_summary() -> dict:
     ``total_frames: 1`` regression). Useful for spotting recurring data
     holes without reading per-match files.
 
+    Query params:
+      - ``since`` — restrict aggregation to matches archived (or for orphan
+        decisions, created) at-or-after the given time. Accepts:
+
+          * relative window: ``24h``, ``7d``, ``30m``
+          * absolute ISO:    ``2026-05-20T00:00:00Z``
+          * unix timestamp:  ``1747800000``
+
+        Bad input returns 400. The applied threshold is echoed back as
+        ``window_since`` (ISO string) so dashboards can label "last N".
+
     Implementation: walks the replays index + decisions JSONL dir. Safe to
     call on a fresh install (returns ``total_matches: 0``).
     """
-    return ultra_telemetry.build_ultra_summary()
+    since_ts: Optional[float] = None
+    if since is not None and since != "":
+        try:
+            since_ts = ultra_telemetry.parse_since(since)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    return ultra_telemetry.build_ultra_summary(since_ts=since_ts)
 
 
 @router.get("/replays/list")

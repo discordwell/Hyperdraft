@@ -439,6 +439,173 @@ def test_ultra_summary_endpoint_route(isolated_dirs, monkeypatch):
         assert result["total_matches"] == 1
         assert "mtg" in result["by_engine"]
         assert result["by_engine"]["mtg"]["matches"] == 1
+        assert result["window_since"] is None
+
+    asyncio.run(_run())
+
+
+# ===== Feature 3.5 — ?since= window filter =====================================
+
+
+def test_parse_since_relative_windows():
+    """Hours/days/minutes resolve to (now - delta), within 2 s of expected."""
+    now = time.time()
+    assert abs(ultra_telemetry.parse_since("1h") - (now - 3600)) < 2
+    assert abs(ultra_telemetry.parse_since("24h") - (now - 86400)) < 2
+    assert abs(ultra_telemetry.parse_since("7d") - (now - 7 * 86400)) < 2
+    assert abs(ultra_telemetry.parse_since("30m") - (now - 1800)) < 2
+    # Fractional + capitalized accepted
+    assert abs(ultra_telemetry.parse_since("0.5H") - (now - 1800)) < 2
+
+
+def test_parse_since_absolute_iso():
+    """ISO with trailing Z resolves to the matching unix timestamp."""
+    ts = ultra_telemetry.parse_since("2026-05-20T00:00:00Z")
+    import datetime as _dt
+    expected = _dt.datetime(2026, 5, 20, 0, 0, 0, tzinfo=_dt.timezone.utc).timestamp()
+    assert ts == expected
+
+
+def test_parse_since_unix_timestamp():
+    """Bare int/float passes through unchanged."""
+    assert ultra_telemetry.parse_since("1747800000") == 1747800000.0
+    assert ultra_telemetry.parse_since("1747800000.5") == 1747800000.5
+
+
+def test_parse_since_rejects_garbage():
+    """Unrecognized inputs raise ValueError with a guiding message."""
+    for bad in ["", "  ", "yesterday", "abc", "-5h", "0d", "5x"]:
+        with pytest.raises(ValueError):
+            ultra_telemetry.parse_since(bad)
+
+
+def test_ultra_summary_window_drops_old_archives(isolated_dirs, monkeypatch):
+    """Matches older than since_ts must drop out of the aggregate."""
+    # Archive two matches with very different archived_at timestamps.
+    old_ts = time.time() - 30 * 86400  # 30 days ago
+    recent_ts = time.time() - 60         # 1 minute ago
+
+    replay_archive.archive_match("old-mtg", {
+        "game_mode": "mtg", "winner": "A", "total_turns": 10,
+        "frames": [{}, {}, {}],
+    })
+    replay_archive.archive_match("new-mtg", {
+        "game_mode": "mtg", "winner": "B", "total_turns": 12,
+        "frames": [{}, {}, {}],
+    })
+
+    # Backdate the old entry directly in index.json (archive_match stamps now()).
+    index_path = isolated_dirs["replays"] / "index.json"
+    entries = json.loads(index_path.read_text())
+    for e in entries:
+        if e["match_id"] == "old-mtg":
+            e["archived_at"] = old_ts
+        elif e["match_id"] == "new-mtg":
+            e["archived_at"] = recent_ts
+    index_path.write_text(json.dumps(entries))
+
+    # No window → both visible
+    full = ultra_telemetry.build_ultra_summary(
+        replays_index_path=index_path,
+        decisions_dir=isolated_dirs["decisions"],
+    )
+    assert full["by_engine"]["mtg"]["matches"] == 2
+    assert full["window_since"] is None
+
+    # 24 h window → only the new one survives
+    windowed = ultra_telemetry.build_ultra_summary(
+        replays_index_path=index_path,
+        decisions_dir=isolated_dirs["decisions"],
+        since_ts=time.time() - 86400,
+    )
+    assert windowed["by_engine"]["mtg"]["matches"] == 1
+    assert windowed["total_matches"] == 1
+    assert windowed["window_since"] is not None
+
+
+def test_ultra_summary_window_filters_orphan_decisions_by_meta(isolated_dirs, monkeypatch):
+    """Orphan-decisions matches use their _meta.created_at for the window
+    check so a crashed match from last month doesn't haunt today's stats."""
+    # Old orphan: backdate the _meta.created_at directly.
+    ultra_telemetry.init_match_metadata(
+        match_id="orphan-old", game_mode="hearthstone", ultra_model_id="m"
+    )
+    old_path = isolated_dirs["decisions"] / "orphan-old.jsonl"
+    raw = json.loads(old_path.read_text().strip())
+    raw["_meta"]["created_at"] = "2025-01-01T00:00:00Z"
+    old_path.write_text(json.dumps(raw) + "\n")
+    ultra_telemetry.append_decision(
+        match_id="orphan-old", player_id="A", turn=1, phase="MAIN",
+        action_type="HS_PLAY_CARD", action_payload={}, actor_is_ultra=True,
+    )
+
+    # New orphan: created_at left at "now" by init_match_metadata.
+    ultra_telemetry.init_match_metadata(
+        match_id="orphan-new", game_mode="hearthstone", ultra_model_id="m"
+    )
+    ultra_telemetry.append_decision(
+        match_id="orphan-new", player_id="A", turn=1, phase="MAIN",
+        action_type="HS_PLAY_CARD", action_payload={}, actor_is_ultra=True,
+    )
+
+    # 24 h window → only the recent orphan survives.
+    summary = ultra_telemetry.build_ultra_summary(
+        replays_index_path=isolated_dirs["replays"] / "index.json",
+        decisions_dir=isolated_dirs["decisions"],
+        since_ts=time.time() - 86400,
+    )
+    assert summary["by_engine"]["hearthstone"]["matches"] == 1
+    assert summary["by_engine"]["hearthstone"]["decisions_logged"] == 1
+
+
+def test_ultra_summary_window_keeps_orphan_when_meta_unparseable(isolated_dirs):
+    """If the orphan has no usable timestamp (no created_at, no mtime
+    readable), fall through and include it — don't silently drop data."""
+    # Hand-written JSONL with no created_at field.
+    path = isolated_dirs["decisions"] / "orphan-notime.jsonl"
+    path.write_text(
+        json.dumps({"_meta": {"match_id": "orphan-notime", "game_mode": "mtg"}}) + "\n"
+        + json.dumps({"ts": 1.0, "match_id": "orphan-notime", "player_id": "A",
+                      "turn": 1, "phase": "MAIN", "action_type": "PASS",
+                      "actor_is_ultra": True}) + "\n"
+    )
+    # Backdate file mtime to a year ago so the mtime fallback would also exclude it.
+    old = time.time() - 365 * 86400
+    import os as _os
+    _os.utime(path, (old, old))
+
+    summary = ultra_telemetry.build_ultra_summary(
+        replays_index_path=isolated_dirs["replays"] / "index.json",
+        decisions_dir=isolated_dirs["decisions"],
+        since_ts=time.time() - 86400,
+    )
+    # File mtime IS readable and is older than since_ts → drops out.
+    assert "mtg" not in summary["by_engine"]
+
+
+def test_ultra_summary_route_parses_since_query(isolated_dirs, monkeypatch):
+    """The route handler honors ?since= and surfaces a clean 400 on garbage."""
+    from src.server.routes.match import get_ultra_summary
+    from fastapi import HTTPException
+
+    replay_archive.archive_match("recent-mtg", {
+        "game_mode": "mtg", "winner": "A", "total_turns": 9,
+        "frames": [{}, {}, {}],
+    })
+
+    async def _run():
+        result = await get_ultra_summary(since="24h")
+        assert result["window_since"] is not None
+        assert result["by_engine"]["mtg"]["matches"] == 1
+
+        # Empty string treated as "no filter" — must not 400.
+        result = await get_ultra_summary(since="")
+        assert result["window_since"] is None
+
+        # Bad input → 400 with a useful message.
+        with pytest.raises(HTTPException) as exc:
+            await get_ultra_summary(since="yesterday please")
+        assert exc.value.status_code == 400
 
     asyncio.run(_run())
 
