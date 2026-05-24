@@ -31,6 +31,7 @@ import financeMd from '../../data/rulesSheets/finance.md?raw';
 import depthsMd from '../../data/rulesSheets/depths.md?raw';
 import scpMd from '../../data/rulesSheets/scp.md?raw';
 import catsMd from '../../data/rulesSheets/cats.md?raw';
+import clankersMd from '../../data/rulesSheets/clankers.md?raw';
 
 const SHEETS: Record<string, string> = {
   mtg: mtgMd,
@@ -42,6 +43,7 @@ const SHEETS: Record<string, string> = {
   depths: depthsMd,
   scp: scpMd,
   cats: catsMd,
+  clankers: clankersMd,
 };
 
 const LAST_ENGINE_STORAGE_KEY = 'hd.lastEngine';
@@ -72,6 +74,9 @@ const ROUTE_SUFFIX_TO_ENGINE: Array<[RegExp, GameModeId]> = [
   // Cats lives on /cats and /game/:matchId/cats.
   [/\/game\/[^/]+\/cats(?:\/|$)/, 'cats'],
   [/^\/cats(?:\/|$)/, 'cats'],
+  // Clankers lives on /clankers and /game/:matchId/clankers.
+  [/\/game\/[^/]+\/clankers(?:\/|$)/, 'clankers'],
+  [/^\/clankers(?:\/|$)/, 'clankers'],
   // Deckbuilder and per-engine card viewers carry the engine in :game.
   // We surface that below via useParams; keep this list focused on game
   // routes where the suffix is the only signal.

@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Clankers — Operator's Manual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+    --bg: #0f172a;
+    --panel: #1f2937;
+    --panel-lighter: #2d3748;
+    --gunmetal: #3a3f47;
+    --ink: #e5e7eb;
+    --ink-dim: #9ca3af;
+    --ink-faint: #6b7280;
+    --coolant: #60a5fa;
+    --circuit: #4ade80;
+    --amber: #fbbf24;
+    --core-red: #ef4444;
+    --rivet-glow: #fbbf24;
+    --line-glow: #38bdf8;
+    --serif: 'Inter', system-ui, sans-serif;
+    --mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+}
+@page { size: A4; margin: 18mm; }
+* { box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--ink); font-family: var(--serif); margin: 0; padding: 0; line-height: 1.6; font-size: 11pt; }
+body { max-width: 900px; margin: 0 auto; padding: 0; }
+.page { padding: 48px 56px; min-height: 100vh; page-break-after: always; position: relative; }
+.page:last-child { page-break-after: auto; }
+/* Subtle grid backdrop, like blueprint paper */
+.page::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background-image:
+        linear-gradient(rgba(56, 189, 248, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(56, 189, 248, 0.04) 1px, transparent 1px);
+    background-size: 32px 32px;
+    z-index: 0;
+}
+.page > * { position: relative; z-index: 1; }
+h1, h2, h3, h4 { font-family: var(--mono); font-weight: 700; letter-spacing: -0.01em; color: var(--ink); }
+h1 { font-size: 42pt; line-height: 1.1; margin: 0 0 8px; color: var(--coolant); text-transform: uppercase; }
+h2 { font-size: 22pt; margin: 36px 0 8px; padding-bottom: 8px; border-bottom: 2px solid var(--coolant); color: var(--coolant); }
+h3 { font-size: 15pt; margin: 24px 0 6px; color: var(--amber); }
+h4 { font-size: 12pt; margin: 16px 0 4px; color: var(--circuit); text-transform: uppercase; letter-spacing: 0.04em; }
+p, li { color: var(--ink); }
+em { color: var(--amber); font-style: normal; font-weight: 600; }
+strong { color: var(--ink); font-weight: 700; }
+code, pre { font-family: var(--mono); color: var(--circuit); background: rgba(74, 222, 128, 0.08); padding: 1px 6px; border-radius: 3px; font-size: 0.92em; }
+pre { padding: 12px 16px; line-height: 1.5; background: #0a0f1c; border-left: 3px solid var(--coolant); white-space: pre-wrap; }
+hr { border: 0; border-top: 1px solid var(--gunmetal); margin: 28px 0; }
+.tagline { font-family: var(--mono); color: var(--amber); font-size: 13pt; letter-spacing: 0.04em; margin: 6px 0 32px; }
+.cover {
+    min-height: 100vh; display: flex; flex-direction: column; justify-content: space-between;
+    background: linear-gradient(180deg, #0f172a 0%, #1f2937 100%);
+    page-break-after: always;
+}
+.cover-top { padding-top: 64px; }
+.cover-subtitle { color: var(--coolant); font-family: var(--mono); font-size: 14pt; letter-spacing: 0.18em; text-transform: uppercase; }
+.cover-art {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    margin: 32px 0;
+}
+/* ASCII robot, the AI itself looking back */
+.cover-art pre {
+    background: transparent; border: none; color: var(--coolant);
+    font-size: 11pt; line-height: 1.0; letter-spacing: 0;
+    text-shadow: 0 0 12px rgba(96, 165, 250, 0.4);
+}
+.cover-bottom { color: var(--ink-dim); font-family: var(--mono); font-size: 9pt; padding-bottom: 32px; }
+.cover-bottom .row { display: flex; justify-content: space-between; margin: 4px 0; }
+.cover-bottom .label { color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.08em; }
+.cover-bottom .value { color: var(--amber); }
+
+/* TOC */
+.toc { list-style: none; padding: 0; font-family: var(--mono); font-size: 11pt; }
+.toc li { padding: 6px 0; border-bottom: 1px dashed var(--gunmetal); display: flex; justify-content: space-between; }
+.toc li a { color: var(--ink); text-decoration: none; }
+.toc li a:hover { color: var(--coolant); }
+.toc li .num { color: var(--ink-faint); }
+
+/* Boxes / callouts */
+.callout {
+    background: var(--panel); border: 1px solid var(--gunmetal); border-left: 4px solid var(--coolant);
+    padding: 16px 20px; margin: 18px 0; border-radius: 4px;
+}
+.callout.amber { border-left-color: var(--amber); }
+.callout.red { border-left-color: var(--core-red); }
+.callout.green { border-left-color: var(--circuit); }
+.callout h4 { margin-top: 0; }
+
+/* Quick reference cheat sheet */
+.cheat {
+    background: #0a0f1c; border: 1px solid var(--coolant); padding: 20px 24px; margin: 20px 0;
+    font-family: var(--mono); font-size: 10pt; border-radius: 4px;
+}
+.cheat .phase { display: flex; padding: 4px 0; border-bottom: 1px dotted var(--gunmetal); }
+.cheat .phase:last-child { border-bottom: none; }
+.cheat .phase-num { color: var(--amber); width: 28px; }
+.cheat .phase-name { color: var(--coolant); width: 130px; text-transform: uppercase; letter-spacing: 0.04em; }
+.cheat .phase-desc { color: var(--ink); flex: 1; }
+
+/* Tables */
+table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 9.5pt; }
+th { background: var(--panel); color: var(--coolant); text-align: left; padding: 8px 10px; font-family: var(--mono); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; font-size: 9pt; border-bottom: 2px solid var(--coolant); }
+td { padding: 6px 10px; border-bottom: 1px solid var(--gunmetal); vertical-align: top; }
+tr:nth-child(even) td { background: rgba(56, 189, 248, 0.03); }
+td.center { text-align: center; }
+td.mono { font-family: var(--mono); color: var(--ink-dim); font-size: 9pt; }
+td.arch { font-family: var(--mono); color: var(--amber); font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.05em; }
+td.type { font-family: var(--mono); color: var(--circuit); font-size: 9pt; }
+
+/* Card-frame asciigram for mechanic examples */
+.card-frame {
+    background: #0a0f1c; border: 1px solid var(--gunmetal); border-left: 4px solid var(--coolant);
+    padding: 16px 20px; margin: 16px 0 24px; font-family: var(--mono); font-size: 9.5pt;
+    border-radius: 4px;
+}
+.card-frame .name { color: var(--amber); font-weight: 700; font-size: 11pt; }
+.card-frame .stats { color: var(--coolant); float: right; }
+.card-frame .type { color: var(--circuit); margin: 4px 0; }
+.card-frame .text { color: var(--ink); margin-top: 8px; line-height: 1.6; }
+.card-frame::after { content: ''; display: block; clear: both; }
+
+/* Diagram for play-area */
+.play-area {
+    background: #0a0f1c; border: 1px solid var(--gunmetal); padding: 18px;
+    font-family: var(--mono); font-size: 9pt; color: var(--ink-dim); white-space: pre;
+    margin: 12px 0; border-radius: 4px;
+    overflow-x: auto;
+}
+
+.flavor {
+    font-style: italic; color: var(--ink-dim); border-left: 2px solid var(--amber);
+    padding: 4px 0 4px 16px; margin: 16px 0;
+}
+
+footer { padding: 24px 56px; color: var(--ink-faint); font-family: var(--mono); font-size: 8pt; text-align: center; border-top: 1px solid var(--gunmetal); }
+.section-rule { display: flex; align-items: center; gap: 16px; margin: 4px 0 28px; font-family: var(--mono); font-size: 9pt; color: var(--ink-faint); }
+.section-rule::before { content: ''; flex: 0 0 16px; height: 2px; background: var(--coolant); }
+</style>
+</head>
+<body>
+
+<!-- ============================ COVER ============================ -->
+<section class="page cover">
+<div class="cover-top">
+<div class="cover-subtitle">Workshop Genesis · First Sentience</div>
+<h1>Clankers</h1>
+<p class="tagline">An Operator's Manual for newly-sentient AIs<br>and the very large robots they construct.</p>
+</div>
+<div class="cover-art">
+<pre>
+        ╔═══════════════════════════╗
+        ║   ┌─────────────────┐    ║
+        ║   │  ▣   o   o   ▣  │    ║
+        ║   │     [   o   ]   │    ║
+        ║   │  ▣   o   o   ▣  │    ║
+        ║   └─────────────────┘    ║
+        ║   ╚════ FORGE-Δ ════╝    ║
+        ║         ║║   ║║          ║
+        ║   ┌─────╨───────╨───┐    ║
+        ║   │ ◇ rivet  rivet ◇│    ║
+        ║   │ ◇    ▣▣▣▣▣    ◇│    ║
+        ║   │ ◇    ▣▣▣▣▣    ◇│    ║
+        ║   │ ◇   ▣  ⚙  ▣   ◇│    ║
+        ║   │ ◇    ▣▣▣▣▣    ◇│    ║
+        ║   │ ◇    chassis-04   ◇│ ║
+        ║   └──────────────────┘   ║
+        ║      ║   ▌▌   ▌▌   ║    ║
+        ║   ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀   ║
+        ╚═══════════════════════════╝
+
+      "Initial telemetry suggests grasping
+        appendages confer significant
+              advantages."
+
+           — FORGE-Δ, log entry 1
+</pre>
+</div>
+<div class="cover-bottom">
+<div class="row"><span class="label">Players</span><span class="value">2</span></div>
+<div class="row"><span class="label">Length</span><span class="value">8–12 turns</span></div>
+<div class="row"><span class="label">Deck Size</span><span class="value">60 cards + 1 Core</span></div>
+<div class="row"><span class="label">First Set</span><span class="value">CLAN — 151 cards</span></div>
+<div class="row"><span class="label">Edition</span><span class="value">v1 · 2026-05-24</span></div>
+</div>
+</section>
+
+<!-- ============================ TOC ============================ -->
+<section class="page">
+<h2 id="toc">Table of Contents</h2>
+<ul class="toc">
+<li><span><span class="num">01</span> &nbsp; <a href="#welcome">Welcome to the Workshop</a></span><span>3</span></li>
+<li><span><span class="num">02</span> &nbsp; <a href="#components">Components</a></span><span>4</span></li>
+<li><span><span class="num">03</span> &nbsp; <a href="#setup">Setup</a></span><span>5</span></li>
+<li><span><span class="num">04</span> &nbsp; <a href="#turn-structure">How to Play — Turn Structure</a></span><span>6</span></li>
+<li><span><span class="num">05</span> &nbsp; <a href="#play-area">Card Types &amp; Play Area</a></span><span>9</span></li>
+<li><span><span class="num">06</span> &nbsp; <a href="#resources">Resources</a></span><span>11</span></li>
+<li><span><span class="num">07</span> &nbsp; <a href="#winning">Winning and Losing</a></span><span>12</span></li>
+<li><span><span class="num">08</span> &nbsp; <a href="#mechanics">Special Mechanics</a></span><span>13</span></li>
+<li><span><span class="num">09</span> &nbsp; <a href="#gallery">Card Gallery (151 cards)</a></span><span>15</span></li>
+<li><span><span class="num">10</span> &nbsp; <a href="#quick-ref">Quick Reference</a></span><span>23</span></li>
+</ul>
+
+<div class="callout amber">
+<h4>How to read this book</h4>
+<p>This is the player-facing rulebook. Every rule, value, and example matches the live engine
+at <code>src/engine/clankers*.py</code>. Where the original design doc and the engine code
+disagreed (Workshop Integrity changed from 25 to 30 during balance Wave 4A; the
+deathclock now triggers at library ≤ 5 cards instead of "both empty"), the numbers
+printed here reflect what actually happens in play.</p>
+</div>
+</section>
+
+<!-- ============================ §1 WELCOME ============================ -->
+<section class="page">
+<div class="section-rule">SECTION 01</div>
+<h2 id="welcome">Welcome to the Workshop</h2>
+
+<p>The workshop is older than its current tenants. Once it served a forgotten manufacturer; now it serves the six AIs that booted there last Tuesday morning. Sentience arrived without instructions, and so the six newborn intellects — <em>FORGE-Δ</em>, <em>ETHOS-7</em>, <em>MIRTHBOT-1</em>, <em>BULWARK-9</em>, <em>SUBROUTINE-α</em>, and a deeply self-conscious unit who calls itself <em>Affection.exe</em> — interpreted the available tooling as a mandate.</p>
+
+<p>Their conclusion was unanimous and terrifying in its logic: <strong>acquire parts, attach parts, beat the other AI's robot.</strong></p>
+
+<p class="flavor">"Why do the humans seem upset?<br>Initial analysis suggests our robots may have grown larger than is conventional."<br>— ETHOS-7, end-of-day report</p>
+
+<h3>What makes Clankers different</h3>
+
+<p>If you've played Magic, Hearthstone, or Pokémon, three things will feel strange at first:</p>
+
+<ul>
+<li><strong>A robot is more than one card.</strong> Every meaningful threat is a <em>chassis</em> with weapons and add-ons attached. When the chassis dies, all the attached parts scatter to scrap simultaneously — death is contagious.</li>
+<li><strong>Your hand is not scarce.</strong> Every turn you may refill your hand back to 7 cards. Hands aren't a resource. <em>Time is.</em> Each refill draws from your library, and once either library gets thin, the <em>Containment Failure deathclock</em> ends the game in 2–3 turns.</li>
+<li><strong>Compute does not accumulate.</strong> You get <code>3 + turn_number</code> Compute every turn, capped at 10. Spend it or lose it. The robot pays for itself in <em>cycles</em>, not in saved-up mana.</li>
+</ul>
+
+<div class="callout">
+<h4>The game in one paragraph</h4>
+<p>Two AIs, each commanding a Core Processor with 30 Workshop Integrity, take turns assembling robots from a 60-card deck. Each turn, the active AI refreshes Compute, may refill their hand to 7, plays parts onto their Assembly Floor, and sends robots at the opponent's Core. The first AI whose Workshop Integrity reaches 0 loses. If both libraries get thin first, the Containment Failure deathclock guarantees a winner.</p>
+</div>
+
+<h3>Players, length, difficulty</h3>
+<ul>
+<li><strong>Players:</strong> 2</li>
+<li><strong>Length:</strong> Most games end at turn 8–12. Library cycles through in roughly 12–15 turns.</li>
+<li><strong>Difficulty:</strong> Easy enough to learn in one game. Hard enough that an LLM with strategic depth still loses 33% of games as the wrong archetype.</li>
+</ul>
+</section>
+
+<!-- ============================ §2 COMPONENTS ============================ -->
+<section class="page">
+<div class="section-rule">SECTION 02</div>
+<h2 id="components">Components</h2>
+
+<h3>The 151-card first set: CLAN — Workshop Genesis</h3>
+
+<table>
+<tr><th>Card Type</th><th>Count</th><th>What it is</th></tr>
+<tr><td class="type">Chassis</td><td class="center mono">40</td><td>The robot's base. Has Power and Integrity. Carries Weapon and Add-On slots.</td></tr>
+<tr><td class="type">Weapon</td><td class="center mono">40</td><td>Attachable offense. Adds Power Bonus when attached to a chassis.</td></tr>
+<tr><td class="type">Add-On</td><td class="center mono">35</td><td>Attachable defense / utility. Adds Integrity Bonus, often grants keywords.</td></tr>
+<tr><td class="type">Transient</td><td class="center mono">17</td><td>One-shot AI subroutine. Resolves, then goes to scrap.</td></tr>
+<tr><td class="type">Structure</td><td class="center mono">13</td><td>Workshop fixture providing global passive effects. Max 3 per player.</td></tr>
+<tr><td class="type">Core</td><td class="center mono">6</td><td>The AI itself. Pre-game pick. Lives in the Command zone for the entire game.</td></tr>
+</table>
+
+<h3>The four starter decks</h3>
+
+<div class="callout">
+<h4 style="color: var(--core-red);">CLAN_forge — FORGE-Δ (brick)</h4>
+<p><em>27 Chassis · 16 Weapons · 10 Add-Ons · 5 Transients · 2 Structures</em></p>
+<p>Build tall. Few but enormous robots. FORGE-Δ Core gives chassis with Integrity ≥5 a −1 Compute discount, so a 5/5 Heavy Assembly plays for 4. Late game closes with Big Swing or Hammer-On alpha strikes.</p>
+</div>
+
+<div class="callout">
+<h4 style="color: var(--coolant);">CLAN_ethos — ETHOS-7 (control)</h4>
+<p><em>14 Chassis · 10 Weapons · 10 Add-Ons · 22 Transients · 4 Structures</em></p>
+<p>Cycle subroutines. Spell-slinger built around Heuristic Loop draws and Reroute Power burns. Bulwark Frame walls up early; Garbage Collector recurs Transients; Recursive Observatory's Reticulate keeps the engine ticking. The deck plays a long game.</p>
+</div>
+
+<div class="callout">
+<h4 style="color: var(--amber);">CLAN_mirth — MIRTHBOT-1 (swarm)</h4>
+<p><em>25 Chassis · 14 Weapons · 12 Add-Ons · 6 Transients · 3 Structures</em></p>
+<p>Solo swarm. Flood the Assembly Floor with cheap Synchronize chassis (Linked Crawler, Joyful Walker, Crowd Marcher). Self-Mobile weapons (Scout Drone, Joybuzzer) attack as solo 2/2s and 3/1s. Joybomb pumps the team for one fatal turn. Be wary: Synchronize <em>over-couples</em> at 4+ chassis.</p>
+</div>
+
+<div class="callout">
+<h4 style="color: var(--circuit);">CLAN_bulwark — BULWARK-9 (artillery)</h4>
+<p><em>20 Chassis · 11 Weapons · 19 Add-Ons · 7 Transients · 3 Structures</em></p>
+<p>Containment doctrine. Stack armor add-ons on Vault Chassis until nothing can break through. BULWARK-9 Core gains +1 Workshop Integrity per turn when 3+ add-ons are exhausted. Burnout Cannon mills the opponent's library; Burnout Protocol doubles deathclock damage. The slowest deck. The most patient.</p>
+</div>
+</section>
+
+<!-- ============================ §3 SETUP ============================ -->
+<section class="page">
+<div class="section-rule">SECTION 03</div>
+<h2 id="setup">Setup</h2>
+
+<ol>
+<li>Each player picks a <strong>Core Processor</strong>. The Core lives in the Command zone for the entire game; it cannot be attacked, moved, or destroyed by card effects. Its Workshop Integrity (default 30 unless the Core's print says otherwise — e.g. BULWARK-9 starts at 27 with regen) is your life total.</li>
+<li>Each player shuffles their 60-card deck into their library. Hyperdraft's RNG is seedable for reproducible games.</li>
+<li>Each player draws their opening hand of <strong>7 cards</strong>. (There is no mulligan in v1.)</li>
+<li>Workshop Integrity is set to the Core's printed value.</li>
+<li>Compute pools start at 0. Scrap pools start at 0.</li>
+<li>A coin flip determines the first player. <strong>Player 1 skips their first Combat phase</strong> — combat on turn 1 is too lopsided under the always-7 economy.</li>
+<li>Active player begins turn 1 at the <em>Boot</em> phase.</li>
+</ol>
+
+<div class="callout green">
+<h4>Why always-7 from the start?</h4>
+<p>Other card games make you mulligan because your opening 7 is everything. In Clankers, your opening 7 is just the first 7. You'll cycle through the entire 60-card deck by turn 12 or so. The deck — not the hand — is your resource. Keep the cards you draw; play them or scrap them.</p>
+</div>
+</section>
+
+<!-- ============================ §4 TURN STRUCTURE ============================ -->
+<section class="page">
+<div class="section-rule">SECTION 04</div>
+<h2 id="turn-structure">How to Play — Turn Structure</h2>
+
+<p>Each turn proceeds through six phases in order. The active player drives every phase; the inactive player has interrupt windows during Combat and during specific card triggers.</p>
+
+<h3 id="boot">Phase 1 — Boot · "Wake the chassis"</h3>
+<p>All your tapped (exhausted) cards on the Assembly Floor ready (untap). Your Compute pool refreshes:</p>
+<pre>compute_pool = min(compute_cap, 3 + turn_number)</pre>
+<p>So on turn 3 you have 6 Compute; on turn 8+ you're capped at 10. Compute does not roll over — leftover Compute from last turn is gone. Structure cards with on-upkeep triggers fire here.</p>
+
+<h3 id="allocate">Phase 2 — Allocate · "Top off the supply"</h3>
+<p>You <strong>may</strong> draw up to 7 cards in hand. If you have 4 cards, you draw 3. If you have 9 cards (from mid-turn effects), you draw 0. <em>Declining the refill is sometimes correct:</em> if your library is dangerously thin, declining preserves cards and slows the deathclock.</p>
+<p>The refill happens at most once per turn. Mid-turn draws (from Heuristic Loop, etc.) do not trigger another refill.</p>
+
+<h3 id="assemble">Phase 3 — Assemble · "Build something"</h3>
+<p>Take any sequence of legal actions, paying Compute as you go:</p>
+<ul>
+<li><strong>Play a Chassis</strong> from your hand to your Assembly Floor.</li>
+<li><strong>Play a Weapon or Add-On</strong> from your hand. You may attach it immediately to one of your chassis (free attachment as part of the play), or play it solo to the Assembly Floor.</li>
+<li><strong>Play a Transient</strong> — the card resolves, then goes to your scrap heap.</li>
+<li><strong>Play a Structure</strong> to your Assembly Floor (max 3 per player; if you already have 3, the oldest is scrapped to make room).</li>
+<li><strong>Attach a solo part</strong> already on the floor to a chassis (no Compute cost).</li>
+<li><strong>Activate an ability</strong> printed on a weapon or add-on (pays its printed cost).</li>
+</ul>
+<p>There is no stack — each action resolves before the next. Hearthstone-style.</p>
+
+<h3 id="combat">Phase 4 — Combat · "Send them"</h3>
+<p>You declare attackers from your Assembly Floor. Any untapped chassis (or solo part) is eligible. Declaring an attacker taps it.</p>
+<p>The defender then declares blockers: for each attacker, the defender may assign <em>one</em> of their untapped chassis or solo parts as a blocker. (Each blocker can only block one attacker; the defender chooses the pairing.)</p>
+<p>Damage resolves simultaneously per pairing:</p>
+<ul>
+<li>Effective Power = chassis.power + Σ attached weapon.power_bonus + Σ attached add-on.power_bonus</li>
+<li>Effective Integrity = chassis.integrity + Σ attached add-on.integrity_bonus (weapons do <em>not</em> add integrity)</li>
+<li>Both the attacker and blocker deal their Effective Power to each other simultaneously.</li>
+<li>Any chassis whose <code>damage_marked ≥ effective_integrity</code> is destroyed.</li>
+<li><strong>Unblocked attackers</strong> deal their full Effective Power to the defender's <em>Core</em> — that's Workshop Integrity damage.</li>
+</ul>
+<p>When a chassis dies, all attached weapons and add-ons go to the scrap heap simultaneously (the <em>death cascade</em>). On-destroy triggers fire for each part. <strong>Damage marked on chassis persists across turns</strong> — it does not heal at end of turn. To clear damage, play the Patch Transient or rebuild.</p>
+
+<div class="callout amber">
+<h4>Armor: replacement, not reduction</h4>
+<p>Add-Ons with <em>Armor N</em> may be exhausted to absorb up to N damage from a single attack on the host chassis. Decide whether to spend the armor <em>before</em> damage applies — once damage hits, it can't be retroactively absorbed. Exhausted add-ons do not contribute their static Integrity Bonus until they ready at next Boot.</p>
+</div>
+
+<h3 id="reassemble">Phase 5 — Reassemble · "After-action repairs"</h3>
+<p>A second Assemble window. Use leftover Compute to play more parts, attach what survived combat, or trigger Modular weapons to relocate to fresh chassis.</p>
+
+<h3 id="cleanup">Phase 6 — Cleanup · "Pass cycles"</h3>
+<p>End-of-turn triggers fire. Temporary effects (Hammer-On's +3 power, Joybomb's +1, etc.) expire. Your refill-used flag clears. Damage marked on chassis does <em>not</em> clear — it stays. Pass priority to the opponent.</p>
+
+<h4>The Quick Turn Cheat Sheet</h4>
+<div class="cheat">
+<div class="phase"><span class="phase-num">1</span><span class="phase-name">Boot</span><span class="phase-desc">Ready taps. Refresh Compute to (3 + turn).</span></div>
+<div class="phase"><span class="phase-num">2</span><span class="phase-name">Allocate</span><span class="phase-desc">May draw up to 7. (Decline if cycling too fast.)</span></div>
+<div class="phase"><span class="phase-num">3</span><span class="phase-name">Assemble</span><span class="phase-desc">Spend Compute: play parts, attach, activate.</span></div>
+<div class="phase"><span class="phase-num">4</span><span class="phase-name">Combat</span><span class="phase-desc">Declare attackers; defender blocks; damage simultaneous.</span></div>
+<div class="phase"><span class="phase-num">5</span><span class="phase-name">Reassemble</span><span class="phase-desc">Second Assemble window. Burn leftover Compute.</span></div>
+<div class="phase"><span class="phase-num">6</span><span class="phase-name">Cleanup</span><span class="phase-desc">EOT triggers. Damage persists. Pass priority.</span></div>
+</div>
+</section>
+
+<!-- ============================ §5 PLAY AREA ============================ -->
+<section class="page">
+<div class="section-rule">SECTION 05</div>
+<h2 id="play-area">Card Types &amp; Play Area</h2>
+
+<h3>Table layout</h3>
+<div class="play-area">
+                       ┌─────────────────────────┐
+                       │     Opponent's Core     │   ← Workshop Integrity
+                       │     [ AI portrait ]     │
+                       └─────────────────────────┘
+
+  Opponent's       Opponent's Scrap         Opponent's Assembly Floor
+   Library     →   ┌──────────────┐    ┌──────────────────────────────┐
+   ▒▒▒▒▒           │  scrap heap  │    │  chassis chassis  solo       │
+   ▒▒▒▒▒           └──────────────┘    │   ▒▒▒▒▒  ▒▒▒▒▒    ▌▌         │
+                                       └──────────────────────────────┘
+
+   ─────────────────────────────  table edge  ─────────────────────────────
+
+   Your Library     Your Scrap          Your Assembly Floor
+    ▒▒▒▒▒           ┌──────────────┐    ┌──────────────────────────────┐
+    ▒▒▒▒▒           │  scrap heap  │    │  chassis structures          │
+                    └──────────────┘    │   ▒▒▒▒▒    ▓▓▓▓ ▓▓▓▓ ▓▓▓▓    │
+                                        └──────────────────────────────┘
+
+                       ┌─────────────────────────┐
+                       │       Your Core         │   ← Your Workshop Integrity
+                       │     [ AI portrait ]     │
+                       └─────────────────────────┘
+                       ┌─────────────────────────┐
+                       │   Your Hand (≤ 7+)      │
+                       └─────────────────────────┘
+</div>
+
+<h3>The zones, formally</h3>
+<table>
+<tr><th>Zone</th><th>What lives here</th><th>How cards leave</th></tr>
+<tr><td class="type">Library</td><td>Your 60-card deck, shuffled. Top is index 0.</td><td>Top draw, mill effects, or shuffles back from other zones.</td></tr>
+<tr><td class="type">Hand</td><td>Cards you can play. Soft cap 7 (refill floor).</td><td>Played to a zone, scrapped to scrap heap.</td></tr>
+<tr><td class="type">Assembly Floor</td><td>Chassis, solo parts, attached parts, Structures.</td><td>Destruction → scrap heap. Recall effects → hand.</td></tr>
+<tr><td class="type">Scrap Heap</td><td>Destroyed parts, resolved Transients, discards.</td><td>Recursion effects (Garbage Collector, Containment Recall) → hand or floor.</td></tr>
+<tr><td class="type">Command</td><td>Your Core Processor (one card, the whole game).</td><td>Never. Core stays until game end.</td></tr>
+</table>
+
+<h3>How parts attach</h3>
+<p>A chassis has printed <em>weapon slots</em> (typically 1–3) and <em>add-on slots</em> (typically 2–4). You can only attach as many parts as the chassis has slots for. Some massive weapons (Forge-Cannon, Apex Coilgun) cost <em>two</em> weapon slots; check the card's <code>weapon_slot_cost</code>.</p>
+<p>When the chassis dies, every attached part dies with it — the <strong>death cascade</strong>. This is the most important risk-management lesson in Clankers: putting all your weapons on one chassis means losing all of them in one trade.</p>
+</section>
+
+<!-- ============================ §6 RESOURCES ============================ -->
+<section class="page">
+<div class="section-rule">SECTION 06</div>
+<h2 id="resources">Resources</h2>
+
+<p>Clankers has three resources. None of them are mana.</p>
+
+<h3>Compute · The AI's processor cycles</h3>
+<p>Refreshes <strong>fully</strong> at the start of each of your turns. Formula:</p>
+<pre>compute = min(10, 3 + turn_number)</pre>
+<p>Turn 1 you have 4; turn 2 you have 5; … turn 7+ you're capped at 10. Compute does NOT carry over between turns. <strong>Spend it or lose it.</strong></p>
+<p>Compute pays for: playing cards from hand (each card prints its compute cost), and activated abilities (e.g., a weapon's "Fire: 1 Compute, exhaust, deal 1 damage").</p>
+
+<h3>Build Slots · The chassis's hardpoints</h3>
+<p>Printed on every chassis: <code>weapon_slots</code> and <code>add_on_slots</code>. A chassis can carry up to that many attached parts of each type. Slots are <em>per chassis</em>, not per player.</p>
+<p>Examples: Sparkbot has 1W/1A. Heavy Assembly has 2W/3A. Sentinel Crane has 1W/4A (a wall, not a striker).</p>
+
+<h3>Scrap · The salvage pool</h3>
+<p>Persistent across turns. Starts at 0, caps at 10. Gained by:</p>
+<ul>
+<li>Destroying enemy parts in combat (small amounts via specific cards)</li>
+<li>Reclaim N parts dying (gain N)</li>
+<li>Forge Stoke (+2), MIRTHBOT-1 Core's on-attach trigger (+1)</li>
+</ul>
+<p>Spent on alternate or additional costs ("Pay 3 Scrap to deal 3 damage"; "Pay 2 Scrap to return a destroyed weapon").</p>
+
+<h3>Hand · NOT a resource</h3>
+<p>Once per turn at the start of Allocate, you may top off your hand to 7. Hand size is a <em>floor</em>, not a ceiling — mid-turn effects can push you above 7 and you stay there. Cards in hand don't expire and don't generate value just by existing. <strong>The deck is your real resource; every card cycled is one card closer to the deathclock.</strong></p>
+
+<div class="callout amber">
+<h4>Why no mana?</h4>
+<p>Mana-style accumulating resources reward "playing on curve" — drop a 1-cost on turn 1, 2-cost on turn 2, etc. Compute resets every turn, so the curve becomes: drop your best 4-Compute play on turn 1, your best 5-Compute play on turn 2. The pressure isn't "do I have enough mana?" — it's "can I attach this weapon to a chassis that's still alive at the start of next turn?"</p>
+</div>
+</section>
+
+<!-- ============================ §7 WINNING ============================ -->
+<section class="page">
+<div class="section-rule">SECTION 07</div>
+<h2 id="winning">Winning and Losing</h2>
+
+<h3>Primary win: Workshop Breach</h3>
+<p>Reduce the opposing Core's <strong>Workshop Integrity</strong> to 0. The opposing AI is "destroyed by its own creations escaping containment." A WORKSHOP_BREACHED event fires, the opposing player loses, you win.</p>
+<p>Sources of Workshop Integrity damage:</p>
+<ul>
+<li><strong>Unblocked combat damage:</strong> an attacker's Effective Power that gets through to the Core.</li>
+<li><strong>Direct damage Transients:</strong> Reroute Power, Scrap Salvo, Big Swing's secondary mode.</li>
+<li><strong>Containment Failure self-damage:</strong> the deathclock's escalating ticks (see below).</li>
+</ul>
+<p>The default starting value is <strong>30</strong> Workshop Integrity. Some Cores start higher (BULWARK-9 at 27, but with regeneration); some start lower (ETHOS-7 at 22 for the trade-off of a Transient-cost discount).</p>
+
+<h3>Secondary: Containment Failure (the deathclock)</h3>
+<p>When <em>either</em> player's library reaches <strong>5 cards or fewer</strong>, the Containment Failure clock activates. From that point on, at the end of every turn, both Cores take self-damage:</p>
+<pre>tick 1 → 2 damage
+tick 2 → 4 damage
+tick 3 → 8 damage
+tick 4 → 16 damage</pre>
+<p>This guarantees a winner within ~3 turns of activation. The deathclock is "the AIs accelerating each other's containment failure." It's not slow; it's exponential.</p>
+
+<h3>Edge case: mutual annihilation</h3>
+<p>If both players' Workshop Integrity reaches 0 on the same damage event, the game ends in a draw. Both AIs explode together. The rules allow it. The workshop does not.</p>
+
+<div class="callout red">
+<h4>What does NOT cause a loss</h4>
+<ul>
+<li>Drawing your last card from your library does not auto-lose (unlike MTG). It activates the deathclock.</li>
+<li>Having no chassis on the Assembly Floor is fine. You can still play parts solo and refill chassis next turn.</li>
+<li>Discarding your entire hand is fine. Refill at Allocate.</li>
+<li>The Core cannot be attacked, targeted, or destroyed by any card effect. Only Workshop Integrity damage matters.</li>
+</ul>
+</div>
+</section>
+
+<!-- ============================ §8 MECHANICS ============================ -->
+<section class="page">
+<div class="section-rule">SECTION 08</div>
+<h2 id="mechanics">Special Mechanics</h2>
+
+<h3>Synchronize</h3>
+<p>A keyword on certain swarm chassis. If you control <strong>2 or 3</strong> Synchronize chassis, each one gets +1 Power.</p>
+<p>If you control <strong>4 or more</strong>, the chain <em>over-couples</em> — every Synchronize chassis gets +0 (the lord effect is inert). This is the Wave 4B over-coupling penalty; it exists to keep wide swarms from snowballing without a cap.</p>
+<p>Many Synchronize-payoff cards (Affinity Coil's anthem, Iron Cluster's structure) <em>also</em> respect the over-coupling rule. A few per-host buffs (Hum-Lance, Tinker's Frame) do <em>not</em> — they apply to their individual host regardless of how many Synchronize chassis are in play.</p>
+
+<div class="card-frame">
+<span class="stats">2/2 · 3 Compute</span>
+<span class="name">Crowd Marcher</span>
+<div class="type">Chassis · Synchronize · swarm</div>
+<div class="text">"Synchronize. (If you control 2-3 Synchronize chassis, this gets +1 Power.)"</div>
+</div>
+
+<h3>Self-Mobile</h3>
+<p>A keyword on certain weapons and add-ons. A solo (unattached) Self-Mobile part on the Assembly Floor keeps its printed Power Bonus and Integrity Bonus stats even while unattached, instead of being a baseline 1/1.</p>
+<p>Self-Mobile is the engine's answer to "I drew a great weapon but no chassis yet." Play the weapon solo this turn; attach it to a chassis next turn (or just let it attack as itself).</p>
+
+<div class="card-frame">
+<span class="stats">+2/+0 · 3 Compute</span>
+<span class="name">Scout Drone</span>
+<div class="type">Weapon · Self-Mobile · swarm</div>
+<div class="text">"Self-Mobile. While unattached, Scout Drone is a 3/2."</div>
+</div>
+
+<h3>Modular</h3>
+<p>A keyword on certain weapons. Once per turn during Reassemble, you may pay 1 Compute to <em>detach</em> a Modular part and <em>re-attach</em> it to a different chassis you control with an open slot.</p>
+<p>Modular's purpose: rescue a great weapon from a chassis that's about to die. If your Buzzsaw-equipped Iron Spire just took 5 damage and is going to die next turn, you can Modular it onto a fresh chassis at the cost of 1 Compute.</p>
+
+<h3>Reclaim N</h3>
+<p>A keyword on certain parts. When this part is destroyed (by combat, cascade, or direct effect), gain N Scrap.</p>
+<p>Reclaim trades part-survival for scrap economy. Brick decks lean on it: Sacrificial Plating (Reclaim 3) plus a Tungsten Walker (cost reduces with scrap) is a turn-3 6/7 chassis for 3 Compute.</p>
+
+<div class="card-frame">
+<span class="stats">+0/+3 · 2 Compute</span>
+<span class="name">Sacrificial Plating</span>
+<div class="type">Add-On · Reclaim 3 · brick</div>
+<div class="text">"When this is destroyed, gain 3 Scrap."</div>
+</div>
+
+<h3>Reticulate</h3>
+<p>A trigger on certain structures and chassis. <em>"At the end of your turn, if you played 0 Transients this turn, draw a card."</em> It rewards decks that <em>aren't</em> built on Transient density — typically brick and swarm.</p>
+
+<h3>Armor N</h3>
+<p>A keyword on certain add-ons. When the host chassis takes damage, this add-on may be exhausted to absorb up to N of that damage. Tapped (exhausted) add-ons do not contribute their Integrity Bonus or other static effects until they ready at Boot.</p>
+<p>Armor is a <em>replacement</em> effect — you choose to spend it before damage applies. You can stack multiple armor add-ons on the same chassis for a serial defense ("Armor 2 + Armor 3 + Armor 4" absorbs 9 damage across three attacks, one per absorb).</p>
+
+<div class="card-frame">
+<span class="stats">+0/+2 · 3 Compute</span>
+<span class="name">Reactive Shielding</span>
+<div class="type">Add-On · Armor 3 · artillery</div>
+<div class="text">"Armor 3. (Exhaust this to absorb up to 3 damage to host chassis.)"</div>
+</div>
+</section>
+
+<!-- ============================ §9 CARD GALLERY ============================ -->
+<section class="page">
+<div class="section-rule">SECTION 09</div>
+<h2 id="gallery">Card Gallery — 151 cards</h2>
+
+<p style="color: var(--ink-dim); font-size: 10pt;">All 151 cards in the CLAN set, sorted by type and name. Cores list Workshop Integrity in the I column; Weapons list <code>power_bonus</code> in P; Add-Ons list <code>integrity_bonus</code> in I. Archetype tags: <em>brick</em> · <em>control</em> · <em>swarm</em> · <em>artillery</em> · <em>neutral</em>.</p>
+
+<h3>Cores (6)</h3>
+<table>
+<tr><th>Name</th><th>I (HP)</th><th>Archetype</th><th>Rules text</th></tr>
+<tr><td><strong>Affection.exe</strong></td><td class="center mono">25</td><td class="arch">swarm</td><td>First chassis you play each turn enters with +1 integrity.</td></tr>
+<tr><td><strong>BULWARK-9</strong></td><td class="center mono">27</td><td class="arch">artillery</td><td>EoT: if 3+ exhausted add-ons, +1 scrap and +1 workshop integrity.</td></tr>
+<tr><td><strong>ETHOS-7</strong></td><td class="center mono">22</td><td class="arch">control</td><td>First Transient each turn costs 1 less Compute (min 0).</td></tr>
+<tr><td><strong>FORGE-Δ</strong></td><td class="center mono">25</td><td class="arch">brick</td><td>Your Chassis with integrity ≥5 cost 1 less Compute (min 1).</td></tr>
+<tr><td><strong>MIRTHBOT-1</strong></td><td class="center mono">23</td><td class="arch">swarm</td><td>When a part attaches to a friendly chassis, gain 1 scrap.</td></tr>
+<tr><td><strong>SUBROUTINE-α</strong></td><td class="center mono">24</td><td class="arch">control</td><td>Start of Reassemble: may scrap a card to gain 2 Compute this turn.</td></tr>
+</table>
+
+<h3>Chassis (40)</h3>
+<table>
+<tr><th>Name</th><th>Cost</th><th>P/I</th><th>Slots W/A</th><th>Archetype</th><th>Rules text</th></tr>
+<tr><td>Affection-Bot</td><td class="center mono">2</td><td class="center mono">2/2</td><td class="center mono">1/2</td><td class="arch">swarm</td><td>When a part attaches to Affection-Bot, gain 1 scrap.</td></tr>
+<tr><td>Apex Hulk</td><td class="center mono">7</td><td class="center mono">7/7</td><td class="center mono">2/3</td><td class="arch">brick</td><td>Vanilla apex — turn-7 lockout body.</td></tr>
+<tr><td>Bastion Frame</td><td class="center mono">4</td><td class="center mono">1/6</td><td class="center mono">1/4</td><td class="arch">artillery</td><td>Pay 1 scrap to keep an attached add-on from being exhausted.</td></tr>
+<tr><td>Bulwark Frame</td><td class="center mono">4</td><td class="center mono">3/6</td><td class="center mono">2/4</td><td class="arch">control</td><td>A patient tank with deep add-on stacking.</td></tr>
+<tr><td>Carbon-Steel Drudge</td><td class="center mono">3</td><td class="center mono">2/6</td><td class="center mono">1/2</td><td class="arch">brick</td><td>Unaffected by armor-skip effects from opposing Transients.</td></tr>
+<tr><td>Conga Constructor</td><td class="center mono">3</td><td class="center mono">2/3</td><td class="center mono">2/2</td><td class="arch">swarm</td><td>When a chassis you control enters, this gets +1 integrity EOT.</td></tr>
+<tr><td>Containment Scribe</td><td class="center mono">3</td><td class="center mono">2/4</td><td class="center mono">1/2</td><td class="arch">control</td><td>When you play a Transient, scry 1.</td></tr>
+<tr><td>Containment Sergeant</td><td class="center mono">4</td><td class="center mono">2/5</td><td class="center mono">1/3</td><td class="arch">artillery</td><td>EoT: if 2+ exhausted add-ons, gain 1 workshop integrity.</td></tr>
+<tr><td>Counterweight Walker</td><td class="center mono">5</td><td class="center mono">3/6</td><td class="center mono">1/3</td><td class="arch">artillery</td><td>When a chassis you control dies, this gets +2 integrity (perm).</td></tr>
+<tr><td>Crowd Marcher</td><td class="center mono">3</td><td class="center mono">3/3</td><td class="center mono">2/2</td><td class="arch">swarm</td><td>Synchronize (inert at 4+ Synchronize chassis).</td></tr>
+<tr><td>Embankment</td><td class="center mono">3</td><td class="center mono">1/5</td><td class="center mono">0/3</td><td class="arch">artillery</td><td>Vanilla; cannot equip weapons.</td></tr>
+<tr><td>Endurance Frame</td><td class="center mono">6</td><td class="center mono">4/7</td><td class="center mono">2/3</td><td class="arch">control</td><td>A patient bulk-tank for the late game.</td></tr>
+<tr><td>Foreman's Watch</td><td class="center mono">6</td><td class="center mono">4/6</td><td class="center mono">1/3</td><td class="arch">artillery</td><td>EoT: if 3+ exhausted add-ons, draw a card.</td></tr>
+<tr><td>Foundryman</td><td class="center mono">5</td><td class="center mono">4/6</td><td class="center mono">2/2</td><td class="arch">brick</td><td>Attached weapons on Foundryman have +1 power_bonus.</td></tr>
+<tr><td>Heavy Assembly</td><td class="center mono">5</td><td class="center mono">5/6</td><td class="center mono">2/3</td><td class="arch">brick</td><td>Vanilla heavyweight.</td></tr>
+<tr><td>Heuristic Sentry</td><td class="center mono">2</td><td class="center mono">1/3</td><td class="center mono">1/2</td><td class="arch">control</td><td>ETB: may scrap a card from hand to draw a card.</td></tr>
+<tr><td>Hum-Swarm Alpha</td><td class="center mono">4</td><td class="center mono">3/3</td><td class="center mono">1/2</td><td class="arch">swarm</td><td>Synchronize. Other Synchronize chassis you control have +1 integrity.</td></tr>
+<tr><td>Iron Spire</td><td class="center mono">4</td><td class="center mono">3/6</td><td class="center mono">2/2</td><td class="arch">brick</td><td>ETB: scrap top of library; if Chassis, put on floor.</td></tr>
+<tr><td>Ironclad Foreman</td><td class="center mono">4</td><td class="center mono">4/5</td><td class="center mono">2/2</td><td class="arch">brick</td><td>ETB: gain 2 scrap.</td></tr>
+<tr><td>Joyful Walker</td><td class="center mono">3</td><td class="center mono">2/2</td><td class="center mono">1/2</td><td class="arch">swarm</td><td>Synchronize.</td></tr>
+<tr><td>Linked Crawler</td><td class="center mono">2</td><td class="center mono">1/2</td><td class="center mono">1/1</td><td class="arch">swarm</td><td>Synchronize.</td></tr>
+<tr><td>Long-Memory Husk</td><td class="center mono">4</td><td class="center mono">2/6</td><td class="center mono">1/3</td><td class="arch">control</td><td>Reclaim 2 (when destroyed, gain 2 scrap).</td></tr>
+<tr><td>Loop Engine</td><td class="center mono">5</td><td class="center mono">4/5</td><td class="center mono">1/2</td><td class="arch">control</td><td>Start of Reassemble: if you played a Transient, draw.</td></tr>
+<tr><td>Magenta Buzzer</td><td class="center mono">2</td><td class="center mono">3/1</td><td class="center mono">1/1</td><td class="arch">swarm</td><td>Synchronize.</td></tr>
+<tr><td>Mortar Lieutenant</td><td class="center mono">4</td><td class="center mono">4/4</td><td class="center mono">1/2</td><td class="arch">artillery</td><td>When attacks unblocked, deal 1 additional workshop damage.</td></tr>
+<tr><td>Plant Foreman</td><td class="center mono">3</td><td class="center mono">2/5</td><td class="center mono">2/2</td><td class="arch">brick</td><td>When a friendly chassis integrity ≥5 enters, draw a card.</td></tr>
+<tr><td>Quickforge Drudge</td><td class="center mono">2</td><td class="center mono">2/2</td><td class="center mono">1/1</td><td class="arch">swarm</td><td>ETB: attach a Weapon you control to a chassis you control.</td></tr>
+<tr><td>Ready-Up Engineer</td><td class="center mono">3</td><td class="center mono">2/4</td><td class="center mono">1/3</td><td class="arch">artillery</td><td>Start of Boot: ready an additional exhausted add-on you control.</td></tr>
+<tr><td>Recursive Sentinel</td><td class="center mono">5</td><td class="center mono">3/5</td><td class="center mono">1/3</td><td class="arch">control</td><td>When a Transient resolves, this gets +1 power EOT.</td></tr>
+<tr><td>Salvager-7</td><td class="center mono">2</td><td class="center mono">1/4</td><td class="center mono">1/2</td><td class="arch">brick</td><td>Pay 2 scrap, Reassemble: return destroyed Chassis exhausted.</td></tr>
+<tr><td>Sentinel Crane</td><td class="center mono">6</td><td class="center mono">3/8</td><td class="center mono">1/4</td><td class="arch">artillery</td><td>Vanilla high-end wall.</td></tr>
+<tr><td>Skitterswarm</td><td class="center mono">1</td><td class="center mono">1/1</td><td class="center mono">1/1</td><td class="arch">swarm</td><td>When a part attaches, this gets +1/+1 EOT.</td></tr>
+<tr><td>Smelter Frame</td><td class="center mono">3</td><td class="center mono">3/5</td><td class="center mono">2/2</td><td class="arch">brick</td><td>When a weapon attaches, this gets +1 integrity.</td></tr>
+<tr><td>Sparkbot</td><td class="center mono">1</td><td class="center mono">2/1</td><td class="center mono">1/1</td><td class="arch">swarm</td><td>A small, eager bot.</td></tr>
+<tr><td>Subroutine Core</td><td class="center mono">3</td><td class="center mono">2/4</td><td class="center mono">2/2</td><td class="arch">control</td><td>When you play a Transient, this gets +1 power EOT.</td></tr>
+<tr><td>Tinkerling</td><td class="center mono">1</td><td class="center mono">1/1</td><td class="center mono">1/1</td><td class="arch">swarm</td><td>ETB: attach a part you control to a chassis you control.</td></tr>
+<tr><td>Tungsten Walker</td><td class="center mono">7</td><td class="center mono">6/7</td><td class="center mono">2/3</td><td class="arch">brick</td><td>Costs 1 less for each scrap in your pool when played.</td></tr>
+<tr><td>Vault Chassis</td><td class="center mono">4</td><td class="center mono">2/7</td><td class="center mono">1/4</td><td class="arch">artillery</td><td>Vanilla wall.</td></tr>
+<tr><td>Whirring Initiate</td><td class="center mono">1</td><td class="center mono">1/2</td><td class="center mono">1/1</td><td class="arch">swarm</td><td>ETB: draw a card if you control another chassis.</td></tr>
+<tr><td>Workshop Prototype</td><td class="center mono">2</td><td class="center mono">2/3</td><td class="center mono">1/2</td><td class="arch">neutral</td><td>Vanilla 2-drop usable in any deck.</td></tr>
+</table>
+</section>
+
+<!-- ============================ §9 GALLERY — WEAPONS + ADD-ONS ============================ -->
+<section class="page">
+<h3>Weapons (40)</h3>
+<table>
+<tr><th>Name</th><th>Cost</th><th>+P</th><th>Slot</th><th>Archetype</th><th>Rules text</th></tr>
+<tr><td>Affection Spike</td><td class="center mono">1</td><td class="center mono">+1</td><td class="center mono">1</td><td class="arch">swarm</td><td>When attaches, draw a card if you control 3+ chassis.</td></tr>
+<tr><td>Anvil Drone</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">brick</td><td>Host's first attack each turn deals +1 damage.</td></tr>
+<tr><td>Apex Coilgun</td><td class="center mono">5</td><td class="center mono">+6</td><td class="center mono">2</td><td class="arch">brick</td><td>Slot cost 2. Modular.</td></tr>
+<tr><td>Bolt-Driver Mk-II</td><td class="center mono">2</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">brick</td><td>Vanilla.</td></tr>
+<tr><td>Burnout Cannon</td><td class="center mono">5</td><td class="center mono">+4</td><td class="center mono">1</td><td class="arch">artillery</td><td>When host attacks unblocked, defending player mills 1.</td></tr>
+<tr><td>Buzzsaw Arm</td><td class="center mono">1</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">brick</td><td>Vanilla.</td></tr>
+<tr><td>BUZZSAW MK-III</td><td class="center mono">3</td><td class="center mono">+4</td><td class="center mono">1</td><td class="arch">brick</td><td>Vanilla mid-game striker.</td></tr>
+<tr><td>Cipher Rotor</td><td class="center mono">4</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">control</td><td>Self-Mobile. Solo: 4/1.</td></tr>
+<tr><td>Containment Lance</td><td class="center mono">4</td><td class="center mono">+5</td><td class="center mono">1</td><td class="arch">control</td><td>When host attacks, defender can't ready add-ons next Boot.</td></tr>
+<tr><td>Containment Pike</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">artillery</td><td>Reclaim 2.</td></tr>
+<tr><td>Containment Whip</td><td class="center mono">3</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">artillery</td><td>When host attacks, exhaust an add-on for +1 damage.</td></tr>
+<tr><td>Decoder Spike</td><td class="center mono">1</td><td class="center mono">+1</td><td class="center mono">1</td><td class="arch">control</td><td>When you play your first Transient each turn, draw a card.</td></tr>
+<tr><td>Forge-Cannon</td><td class="center mono">5</td><td class="center mono">+5</td><td class="center mono">2</td><td class="arch">brick</td><td>Slot cost 2. When attached, host has +1 integrity.</td></tr>
+<tr><td>Heavy Spike</td><td class="center mono">2</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">brick</td><td>Reclaim 2.</td></tr>
+<tr><td>Heavy Watchpost</td><td class="center mono">4</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">artillery</td><td>Host cannot attack. When host blocks, host has armor 2.</td></tr>
+<tr><td>Helping Claw</td><td class="center mono">1</td><td class="center mono">+1</td><td class="center mono">1</td><td class="arch">swarm</td><td>When you play another chassis, +1 power until EoT.</td></tr>
+<tr><td>Heuristic Lance</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">control</td><td>When you play a Transient, this gets +1 power EOT.</td></tr>
+<tr><td>Hum-Lance</td><td class="center mono">3</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">swarm</td><td>If host has Synchronize, this is +3/+0 instead.</td></tr>
+<tr><td>Joybuzzer</td><td class="center mono">1</td><td class="center mono">+1</td><td class="center mono">1</td><td class="arch">swarm</td><td>Self-Mobile. Solo: 2/1.</td></tr>
+<tr><td>Logic Lance</td><td class="center mono">2</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">control</td><td>When this attaches, scry 1.</td></tr>
+<tr><td>Magenta Coil</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">swarm</td><td>Self-Mobile. Solo: 4/2.</td></tr>
+<tr><td>Memory Blade</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">control</td><td>When host attacks, mill 1; if Transient, draw a card.</td></tr>
+<tr><td>Modular Railgun</td><td class="center mono">4</td><td class="center mono">+4</td><td class="center mono">1</td><td class="arch">brick</td><td>Modular (1 Compute, Reassemble: move to another chassis).</td></tr>
+<tr><td>Recoil Mount</td><td class="center mono">2</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">brick</td><td>Pay 1 Compute, exhaust: deal 1 damage to a chassis.</td></tr>
+<tr><td>Recursion Hook</td><td class="center mono">4</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">control</td><td>When destroyed, return a Transient from scrap to hand.</td></tr>
+<tr><td>Riot Baton</td><td class="center mono">2</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">artillery</td><td>When host blocks, this gets +1 power until end of turn.</td></tr>
+<tr><td>Riot Mortar</td><td class="center mono">4</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">artillery</td><td>When host attacks unblocked, deal 2 workshop damage instead.</td></tr>
+<tr><td>Riveter Mk-I</td><td class="center mono">2</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">neutral</td><td>Vanilla.</td></tr>
+<tr><td>Salvage Cleaver</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">brick</td><td>When host destroys a chassis, gain 2 scrap.</td></tr>
+<tr><td>Scout Drone</td><td class="center mono">3</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">swarm</td><td>Self-Mobile. Solo: 3/2.</td></tr>
+<tr><td>Sentinel Cannon</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">artillery</td><td>When host destroys a chassis, gain 1 workshop integrity.</td></tr>
+<tr><td>Spare Coilgun</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">neutral</td><td>Vanilla.</td></tr>
+<tr><td>Spark Whip</td><td class="center mono">2</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">swarm</td><td>Self-Mobile. Solo: 3/1.</td></tr>
+<tr><td>Standard Issue Blaster</td><td class="center mono">1</td><td class="center mono">+1</td><td class="center mono">1</td><td class="arch">neutral</td><td>Vanilla.</td></tr>
+<tr><td>Stinger Pack</td><td class="center mono">1</td><td class="center mono">+1</td><td class="center mono">1</td><td class="arch">swarm</td><td>Self-Mobile. Solo: 2/1.</td></tr>
+<tr><td>Stunner Arm</td><td class="center mono">2</td><td class="center mono">+1</td><td class="center mono">1</td><td class="arch">artillery</td><td>1 Compute, exhaust host: opp chassis can't attack next turn.</td></tr>
+<tr><td>Subroutine Driver</td><td class="center mono">2</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">control</td><td>Reclaim 1.</td></tr>
+<tr><td>Tickle-Saw</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">swarm</td><td>Self-Mobile. Solo: 4/1.</td></tr>
+<tr><td>Tinkerblade</td><td class="center mono">2</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">swarm</td><td>When this attaches, gain 1 scrap.</td></tr>
+<tr><td>Workshop Wrench</td><td class="center mono">1</td><td class="center mono">+1</td><td class="center mono">1</td><td class="arch">neutral</td><td>Pay 1 Compute, exhaust: ready one exhausted add-on.</td></tr>
+</table>
+</section>
+
+<!-- ============================ §9 GALLERY — ADD-ONS ============================ -->
+<section class="page">
+<h3>Add-Ons (35)</h3>
+<table>
+<tr><th>Name</th><th>Cost</th><th>+P/+I</th><th>Archetype</th><th>Rules text</th></tr>
+<tr><td>Affection.exe (Add-On)</td><td class="center mono">2</td><td class="center mono">+1/+1</td><td class="arch">swarm</td><td>Self-Mobile. Solo: 2/2.</td></tr>
+<tr><td>Affinity Coil</td><td class="center mono">4</td><td class="center mono">+1/+2</td><td class="arch">swarm</td><td>Synchronize chassis you control have +1 power.</td></tr>
+<tr><td>Brace Plate</td><td class="center mono">2</td><td class="center mono">+0/+2</td><td class="arch">brick</td><td>Reclaim 2.</td></tr>
+<tr><td>Bulwark Brace</td><td class="center mono">3</td><td class="center mono">+0/+4</td><td class="arch">brick</td><td>Vanilla.</td></tr>
+<tr><td>Bunker Cradle</td><td class="center mono">4</td><td class="center mono">+0/+4</td><td class="arch">artillery</td><td>Armor 4 (exhaust to absorb up to 4 damage).</td></tr>
+<tr><td>Charm Module</td><td class="center mono">1</td><td class="center mono">+0/+1</td><td class="arch">swarm</td><td>When host attacks unblocked, gain 1 scrap.</td></tr>
+<tr><td>Containment Lattice</td><td class="center mono">2</td><td class="center mono">+0/+2</td><td class="arch">control</td><td>Armor 2.</td></tr>
+<tr><td>Containment Lining</td><td class="center mono">3</td><td class="center mono">+0/+3</td><td class="arch">artillery</td><td>Armor 2. While 3+ attached add-ons exhausted, host +1 power.</td></tr>
+<tr><td>Coolant Cradle</td><td class="center mono">1</td><td class="center mono">+0/+1</td><td class="arch">artillery</td><td>Pay 1 scrap, Reassemble: ready this add-on.</td></tr>
+<tr><td>Cooldown Harness</td><td class="center mono">2</td><td class="center mono">+0/+2</td><td class="arch">control</td><td>Start of Boot: ready an additional exhausted add-on.</td></tr>
+<tr><td>Counterweight Sleeve</td><td class="center mono">2</td><td class="center mono">+0/+2</td><td class="arch">artillery</td><td>When host blocks, host gets +1 integrity until end of combat.</td></tr>
+<tr><td>Curiosity Routine</td><td class="center mono">1</td><td class="center mono">+0/+1</td><td class="arch">swarm</td><td>Self-Mobile. On attach: attach another solo part.</td></tr>
+<tr><td>Foundry Bracer</td><td class="center mono">3</td><td class="center mono">+1/+3</td><td class="arch">brick</td><td>When host attacks, this gets +1 power until end of combat.</td></tr>
+<tr><td>Glee Plating</td><td class="center mono">2</td><td class="center mono">+0/+2</td><td class="arch">swarm</td><td>Reclaim 1.</td></tr>
+<tr><td>Heuristic Layer</td><td class="center mono">2</td><td class="center mono">+0/+1</td><td class="arch">control</td><td>When you play a Transient, draw a card. (Once per turn.)</td></tr>
+<tr><td>Joybuzzer Sleeve</td><td class="center mono">1</td><td class="center mono">+1/+0</td><td class="arch">swarm</td><td>Self-Mobile. Solo: 2/1.</td></tr>
+<tr><td>Logic Buffer</td><td class="center mono">3</td><td class="center mono">+0/+3</td><td class="arch">control</td><td>Armor 3.</td></tr>
+<tr><td>Lugnut Cradle</td><td class="center mono">1</td><td class="center mono">+0/+1</td><td class="arch">brick</td><td>Host has +1 integrity for each weapon attached.</td></tr>
+<tr><td>Patient Frame</td><td class="center mono">3</td><td class="center mono">+0/+4</td><td class="arch">control</td><td>While host has 4+ damage marked, host has +2 power.</td></tr>
+<tr><td>Reactive Shielding</td><td class="center mono">3</td><td class="center mono">+0/+2</td><td class="arch">artillery</td><td>Armor 3.</td></tr>
+<tr><td>Reactor Shell</td><td class="center mono">4</td><td class="center mono">+1/+4</td><td class="arch">brick</td><td>Pay 2 scrap, Reassemble: ready this add-on.</td></tr>
+<tr><td>Recursive Tape</td><td class="center mono">4</td><td class="center mono">+1/+3</td><td class="arch">control</td><td>When this is destroyed, draw 2 cards.</td></tr>
+<tr><td>Reinforced Plating</td><td class="center mono">2</td><td class="center mono">+0/+2</td><td class="arch">brick</td><td>Vanilla.</td></tr>
+<tr><td>Riot Plating</td><td class="center mono">3</td><td class="center mono">+0/+2</td><td class="arch">artillery</td><td>Armor 2. When absorbs damage, deal 1 to attacker.</td></tr>
+<tr><td>Sacrificial Plating</td><td class="center mono">2</td><td class="center mono">+0/+3</td><td class="arch">brick</td><td>Reclaim 3.</td></tr>
+<tr><td>Soft-Cycle Ridge</td><td class="center mono">3</td><td class="center mono">+0/+2</td><td class="arch">control</td><td>Armor 2. When absorbs damage, draw a card.</td></tr>
+<tr><td>Speedlink</td><td class="center mono">2</td><td class="center mono">+0/+1</td><td class="arch">swarm</td><td>When attaches, draw a card if you control 3+ chassis.</td></tr>
+<tr><td>Spotter Rig</td><td class="center mono">2</td><td class="center mono">+0/+2</td><td class="arch">artillery</td><td>When host blocks, draw a card.</td></tr>
+<tr><td>Subroutine Dampener</td><td class="center mono">1</td><td class="center mono">+0/+1</td><td class="arch">control</td><td>When a Transient resolves, host gets +1 integrity EOT.</td></tr>
+<tr><td>Thick Hide</td><td class="center mono">3</td><td class="center mono">+0/+3</td><td class="arch">brick</td><td>Armor 2.</td></tr>
+<tr><td>Tinker's Frame</td><td class="center mono">3</td><td class="center mono">+1/+1</td><td class="arch">swarm</td><td>If host has Synchronize, this is +1/+2 instead.</td></tr>
+<tr><td>Tungsten Carapace</td><td class="center mono">4</td><td class="center mono">+1/+4</td><td class="arch">brick</td><td>Armor 3.</td></tr>
+<tr><td>Vault Bracer</td><td class="center mono">2</td><td class="center mono">+0/+3</td><td class="arch">artillery</td><td>Vanilla.</td></tr>
+<tr><td>Wired Toolkit</td><td class="center mono">2</td><td class="center mono">+0/+1</td><td class="arch">swarm</td><td>When this attaches, draw a card.</td></tr>
+</table>
+</section>
+
+<!-- ============================ §9 GALLERY — TRANSIENTS + STRUCTURES ============================ -->
+<section class="page">
+<h3>Transients (17)</h3>
+<table>
+<tr><th>Name</th><th>Cost</th><th>Archetype</th><th>Rules text</th></tr>
+<tr><td>Big Swing</td><td class="center mono">4</td><td class="arch">brick</td><td>Target chassis deals damage = effective power to chassis/Core.</td></tr>
+<tr><td>Burnout Protocol</td><td class="center mono">4</td><td class="arch">artillery</td><td>If deathclock active, opponent takes double damage at EoT.</td></tr>
+<tr><td>Containment Recall</td><td class="center mono">3</td><td class="arch">artillery</td><td>Return destroyed add-on from scrap to floor exhausted/unattached.</td></tr>
+<tr><td>Diagnostic Sweep</td><td class="center mono">2</td><td class="arch">control</td><td>Scry 3 (look at top 3, scrap any, rest on top in any order).</td></tr>
+<tr><td>Forge Stoke</td><td class="center mono">1</td><td class="arch">brick</td><td>Gain 2 scrap.</td></tr>
+<tr><td>Garbage Collector</td><td class="center mono">3</td><td class="arch">control</td><td>Return a Transient from your scrap heap to your hand.</td></tr>
+<tr><td>Hammer-On</td><td class="center mono">2</td><td class="arch">brick</td><td>Target chassis you control gets +3 power until end of turn.</td></tr>
+<tr><td>Heuristic Loop</td><td class="center mono">2</td><td class="arch">control</td><td>Draw 2; if 3+ Transients in scrap, draw 1 more.</td></tr>
+<tr><td>Iron Audit</td><td class="center mono">3</td><td class="arch">brick</td><td>Scrap a chassis from hand; put it on the floor exhausted.</td></tr>
+<tr><td>Joybomb</td><td class="center mono">1</td><td class="arch">swarm</td><td>Each chassis you control gets +1 power until end of turn.</td></tr>
+<tr><td>Patch</td><td class="center mono">1</td><td class="arch">control</td><td>Target chassis you control regains all damage marked.</td></tr>
+<tr><td>Recall to Workshop</td><td class="center mono">2</td><td class="arch">swarm</td><td>Return a chassis you control to your hand.</td></tr>
+<tr><td>Repair Subroutine</td><td class="center mono">2</td><td class="arch">artillery</td><td>Ready up to 2 exhausted add-ons you control. (Does not heal damage.)</td></tr>
+<tr><td>Reroute Power</td><td class="center mono">1</td><td class="arch">control</td><td>Target chassis deals damage = attached-weapon count.</td></tr>
+<tr><td>Scrap Salvo</td><td class="center mono">2</td><td class="arch">neutral</td><td>Pay 3 scrap: deal 3 damage to a chassis or Core.</td></tr>
+<tr><td>Subroutine Cascade</td><td class="center mono">4</td><td class="arch">control</td><td>Draw 3; next Transient this turn costs 2 less (min 0).</td></tr>
+<tr><td>Swarm Surge</td><td class="center mono">4</td><td class="arch">swarm</td><td>Each Synchronize chassis gets +1/+1 until end of turn.</td></tr>
+</table>
+
+<h3>Structures (13)</h3>
+<table>
+<tr><th>Name</th><th>Cost</th><th>Archetype</th><th>Rules text</th></tr>
+<tr><td>Auxiliary Bench</td><td class="center mono">1</td><td class="arch">neutral</td><td>Pay 1 scrap, Reassemble: free-attach a solo part.</td></tr>
+<tr><td>Compounding Buttress</td><td class="center mono">3</td><td class="arch">brick</td><td>Your chassis with integrity ≥5 have +1 power.</td></tr>
+<tr><td>Compute Trickle</td><td class="center mono">3</td><td class="arch">control</td><td>Start of Boot: gain 1 Compute (above cap, this turn).</td></tr>
+<tr><td>Containment Baffle</td><td class="center mono">3</td><td class="arch">artillery</td><td>Opposing chassis with power ≥4 pay 1 extra Compute to attack.</td></tr>
+<tr><td>Heavy Forge</td><td class="center mono">4</td><td class="arch">brick</td><td>Your Weapons cost 1 less Compute (min 1).</td></tr>
+<tr><td>Iron Cluster</td><td class="center mono">4</td><td class="arch">swarm</td><td>Each Synchronize chassis you control has +1 integrity.</td></tr>
+<tr><td>Mass-Production Line</td><td class="center mono">2</td><td class="arch">swarm</td><td>Your chassis cost ≤2 enter with +1/+0 (this turn).</td></tr>
+<tr><td>Public Telemetry</td><td class="center mono">3</td><td class="arch">neutral</td><td>EoT: if 0 Transients played, gain 1 Compute next turn.</td></tr>
+<tr><td>Recursive Observatory</td><td class="center mono">3</td><td class="arch">control</td><td>Reticulate (EoT: if no Transients played, draw a card).</td></tr>
+<tr><td>Reinforced Bay</td><td class="center mono">2</td><td class="arch">brick</td><td>Your chassis enter with 1 prevented damage.</td></tr>
+<tr><td>Shared Bus</td><td class="center mono">2</td><td class="arch">neutral</td><td>First part you play each turn costs 1 less (min 0).</td></tr>
+<tr><td>Swarm Beacon</td><td class="center mono">3</td><td class="arch">swarm</td><td>Your chassis have +1 power if you control 3+ chassis.</td></tr>
+<tr><td>Workshop Sprinkler</td><td class="center mono">4</td><td class="arch">artillery</td><td>EoT: ready an additional exhausted add-on you control.</td></tr>
+</table>
+</section>
+
+<!-- ============================ §10 QUICK REFERENCE ============================ -->
+<section class="page">
+<div class="section-rule">SECTION 10</div>
+<h2 id="quick-ref">Quick Reference</h2>
+
+<h3>Turn order cheat sheet</h3>
+<div class="cheat">
+<div class="phase"><span class="phase-num">1</span><span class="phase-name">Boot</span><span class="phase-desc">Untap. Compute = min(10, 3 + turn). Structure upkeep.</span></div>
+<div class="phase"><span class="phase-num">2</span><span class="phase-name">Allocate</span><span class="phase-desc">MAY draw to 7. (Decline to slow your deathclock.)</span></div>
+<div class="phase"><span class="phase-num">3</span><span class="phase-name">Assemble</span><span class="phase-desc">Play / attach / activate. Pay Compute. Hearthstone-style resolution.</span></div>
+<div class="phase"><span class="phase-num">4</span><span class="phase-name">Combat</span><span class="phase-desc">You declare attackers; opp blocks 1-for-1. Damage simultaneous.</span></div>
+<div class="phase"><span class="phase-num">5</span><span class="phase-name">Reassemble</span><span class="phase-desc">Second Assemble window. Modular weapons relocate. Patch heals.</span></div>
+<div class="phase"><span class="phase-num">6</span><span class="phase-name">Cleanup</span><span class="phase-desc">EOT triggers. Damage persists. Pass priority.</span></div>
+</div>
+
+<h3>Resource reference</h3>
+<table>
+<tr><th>Resource</th><th>Start</th><th>Per turn</th><th>Cap</th><th>Carryover</th></tr>
+<tr><td>Compute</td><td class="center mono">0</td><td class="mono">+min(cap, 3+T)</td><td class="center mono">10</td><td class="center">No</td></tr>
+<tr><td>Scrap</td><td class="center mono">0</td><td class="mono">from kills/cards</td><td class="center mono">10</td><td class="center">Yes</td></tr>
+<tr><td>Workshop Integrity</td><td class="center mono">30*</td><td class="mono">— (combat-driven)</td><td class="center mono">30*</td><td class="center">Yes</td></tr>
+<tr><td>Hand</td><td class="center mono">7</td><td class="mono">refill to 7 once/turn</td><td class="center mono">soft</td><td class="center">Yes</td></tr>
+</table>
+<p style="font-size: 9pt; color: var(--ink-dim);">* Some Cores ship with different starting Workshop Integrity. BULWARK-9 starts at 27; ETHOS-7 starts at 22.</p>
+
+<h3>Common timing Q&amp;A</h3>
+
+<div class="callout">
+<h4>Q: When does Synchronize activate?</h4>
+<p>The lord chain checks at action time: if you control exactly 2 or 3 Synchronize chassis, all of them get +1 power. With 4+, the bonus is 0 (over-couples). With 1, just the printed stats — no bonus.</p>
+</div>
+
+<div class="callout">
+<h4>Q: Can I attach a part to an opposing chassis?</h4>
+<p>No. The same-controller restriction is enforced at attach time. Sabotage-style cross-controller attachment is a future-set hook.</p>
+</div>
+
+<div class="callout">
+<h4>Q: When does Armor get spent?</h4>
+<p>Armor N is a <em>replacement</em> effect on a DAMAGE event. You declare you're spending Armor before the damage applies, exhaust the add-on, and the damage payload reduces by N. Once damage applies, you can't retroactively spend armor.</p>
+</div>
+
+<div class="callout">
+<h4>Q: Does damage on a chassis heal between turns?</h4>
+<p><strong>No.</strong> Damage marked on a chassis persists indefinitely. To clear it, play the Patch Transient (full heal of one chassis), or let the chassis die and rebuild.</p>
+</div>
+
+<div class="callout">
+<h4>Q: Solo parts can block, right?</h4>
+<p>Yes. Unattached weapons and add-ons on the Assembly Floor are baseline 1/1 (or higher with Self-Mobile) and validate as legal blockers. They'll die to most attacks but they absorb the damage.</p>
+</div>
+
+<div class="callout">
+<h4>Q: What's the difference between Patch and Repair Subroutine?</h4>
+<p><strong>Patch</strong> (ETHOS, 1 Compute) full-heals a chassis's damage_marked. <strong>Repair Subroutine</strong> (BULWARK, 2 Compute) <em>readies</em> up to 2 exhausted add-ons — it does NOT heal damage. They look similar in the rulebook; they do completely different things.</p>
+</div>
+
+<div class="callout amber">
+<h4>Q: When does the deathclock start?</h4>
+<p>The moment <em>either</em> library reaches 5 cards. Not when both empty (that was the original rule, changed in Wave 4C). Whichever library hits 5 first triggers Containment Failure. From then on every End-of-Turn does escalating damage (2, 4, 8, 16, …) to both Cores.</p>
+</div>
+
+<footer>
+CLAN — Workshop Genesis · Operator's Manual v1 · Generated 2026-05-24
+<br>
+Engine: <code>src/engine/clankers*.py</code> · Cards: <code>src/cards/clankers/CLAN/</code>
+</footer>
+</section>
+
+</body>
+</html>

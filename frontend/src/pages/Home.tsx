@@ -79,6 +79,8 @@ export function Home() {
   const [aiSCPDeck, setAiSCPDeck] = useState<string>('keter_risk');
   const [playerCatsDeck, setPlayerCatsDeck] = useState<string>('Couch Empire');
   const [aiCatsDeck, setAiCatsDeck] = useState<string>('Naptime Tyrants');
+  const [playerClankersDeck, setPlayerClankersDeck] = useState<string>('CLAN_forge');
+  const [aiClankersDeck, setAiClankersDeck] = useState<string>('CLAN_ethos');
   const [ultraAgent, setUltraAgent] = useState<'claude' | 'codex'>('claude');
   const [ultraCodexModel, setUltraCodexModel] = useState('gpt-5.3');
   const [claudexModel, setClaudexModel] = useState('claude-opus-4-7');
@@ -142,6 +144,7 @@ export function Home() {
       const isDepths = gameMode === 'depths';
       const isSCP = gameMode === 'scp';
       const isCats = gameMode === 'cats';
+      const isClankers = gameMode === 'clankers';
       const skipDeckSelection = isHearthstone || isPokemon || isFinance || isDepths;
       const response = await matchAPI.create({
         mode: 'human_vs_bot',
@@ -160,10 +163,12 @@ export function Home() {
         player_deck_id: isSCP ? playerSCPDeck
           : isDepths ? playerDepthsDeck
           : isCats ? playerCatsDeck
+          : isClankers ? playerClankersDeck
           : (skipDeckSelection ? undefined : (isYugioh ? (playerYgoDeck || undefined) : (isMinecraft ? playerMinecraftDeck : (playerDeck || undefined)))),
         ai_deck_id: isSCP ? aiSCPDeck
           : isDepths ? aiDepthsDeck
           : isCats ? aiCatsDeck
+          : isClankers ? aiClankersDeck
           : (skipDeckSelection ? undefined : (isYugioh ? (aiYgoDeck || undefined) : (isMinecraft ? aiMinecraftDeck : (aiDeck || undefined)))),
       });
       setConnection(response.match_id, response.player_id, false);
@@ -184,18 +189,23 @@ export function Home() {
       const isYgo = gameMode === 'yugioh';
       const isMinecraft = gameMode === 'minecraft';
       const isCats = gameMode === 'cats';
+      const isClankers = gameMode === 'clankers';
       const response = await botGameAPI.start({
         mode: gameMode,
-        bot1_deck_id: isCats
-          ? playerCatsDeck
-          : isYgo
-            ? (playerYgoDeck || undefined)
-            : (isMinecraft ? playerMinecraftDeck : (playerDeck || undefined)),
-        bot2_deck_id: isCats
-          ? aiCatsDeck
-          : isYgo
-            ? (aiYgoDeck || undefined)
-            : (isMinecraft ? aiMinecraftDeck : (aiDeck || undefined)),
+        bot1_deck_id: isClankers
+          ? playerClankersDeck
+          : isCats
+            ? playerCatsDeck
+            : isYgo
+              ? (playerYgoDeck || undefined)
+              : (isMinecraft ? playerMinecraftDeck : (playerDeck || undefined)),
+        bot2_deck_id: isClankers
+          ? aiClankersDeck
+          : isCats
+            ? aiCatsDeck
+            : isYgo
+              ? (aiYgoDeck || undefined)
+              : (isMinecraft ? aiMinecraftDeck : (aiDeck || undefined)),
         bot1_difficulty: difficulty,
         bot2_difficulty: difficulty,
         delay_ms: 1500,
@@ -288,7 +298,7 @@ export function Home() {
 
   const labMode = getLabEngine(gameMode);
   const selectedMode = getMode(gameMode)!;
-  const showWatchBot = gameMode === 'mtg' || gameMode === 'yugioh' || gameMode === 'minecraft' || gameMode === 'cats';
+  const showWatchBot = gameMode === 'mtg' || gameMode === 'yugioh' || gameMode === 'minecraft' || gameMode === 'cats' || gameMode === 'clankers';
   const showAdvancedDuels = gameMode === 'mtg' || gameMode === 'yugioh';
   const showLlmDuel = gameMode === 'mtg' || gameMode === 'yugioh';
 
@@ -831,6 +841,21 @@ export function Home() {
                       { value: 'Shadow Cats', label: 'Shadow Cats · Sneaky + Mood Chaos' },
                       { value: "Greg's Diary", label: "Greg's Diary · Midrange" },
                       { value: 'Naptime Denial', label: 'Naptime Denial · Anti-Nap Control' },
+                    ]}
+                  />
+                )}
+                {gameMode === 'clankers' && (
+                  <DeckPair
+                    label="Cores"
+                    player={playerClankersDeck}
+                    ai={aiClankersDeck}
+                    onPlayer={setPlayerClankersDeck}
+                    onAi={setAiClankersDeck}
+                    options={[
+                      { value: 'CLAN_forge', label: 'FORGE-Δ · Brick (welds straight)' },
+                      { value: 'CLAN_ethos', label: 'ETHOS-7 · Control (cycling subroutine)' },
+                      { value: 'CLAN_mirth', label: 'MIRTHBOT-1 · Swarm (synchronize-max)' },
+                      { value: 'CLAN_bulwark', label: 'BULWARK-9 · Artillery (siege workshop)' },
                     ]}
                   />
                 )}

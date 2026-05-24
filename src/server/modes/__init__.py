@@ -16,6 +16,7 @@ from .finance import FinanceModeAdapter
 from .depths_mode import DepthsModeAdapter
 from .scp import SCPModeAdapter
 from .cats import CatsModeAdapter
+from .clankers import ClankersModeAdapter
 
 
 _ADAPTERS: dict[str, ModeAdapter] = {
@@ -28,6 +29,7 @@ _ADAPTERS: dict[str, ModeAdapter] = {
     "depths": DepthsModeAdapter(),
     "scp": SCPModeAdapter(),
     "cats": CatsModeAdapter(),
+    "clankers": ClankersModeAdapter(),
 }
 
 
@@ -48,5 +50,6 @@ __all__ = [
     "MinecraftModeAdapter",
     "SCPModeAdapter",
     "CatsModeAdapter",
+    "ClankersModeAdapter",
     "get_server_mode_adapter",
 ]

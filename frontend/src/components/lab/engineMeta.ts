@@ -146,6 +146,19 @@ const META: Record<GameModeId, Omit<LabEngineMeta, keyof GameModeMeta>> = {
       { k: 'tricks', v: 'core' },
     ],
   },
+  clankers: {
+    ix: 'E10',
+    subtitle: 'chassis + parts · compute pool · workshop wars',
+    stat: '4 starter cores',
+    completeness: 50,
+    leadEngine: false,
+    pickerStats: [
+      { k: '4', v: 'decks' },
+      { k: 'chassis', v: 'core' },
+      { k: 'parts', v: 'attach' },
+      { k: 'compute', v: 'pool' },
+    ],
+  },
 };
 
 export const LAB_ENGINES: LabEngineMeta[] = GAME_MODES.map((m) => ({

@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from src.cards import ALL_CARDS as MTG_CARDS
+from src.cards.cats.CATS import ALL_CARDS as CATS_CARDS
+from src.cards.clankers.CLAN import CLAN_CARDS
 from src.cards.finance import FINANCE_CARDS
 from src.cards.hearthstone import ALL_CARDS as HS_CARDS_LIST
 from src.cards.minecraft import MINECRAFT_CARDS
@@ -36,7 +38,7 @@ from src.engine.types import CardDefinition, CardType
 # Game IDs — canonical names matching GameState.game_mode
 # ---------------------------------------------------------------------------
 
-GAMES = ("mtg", "finance", "minecraft", "pokemon", "yugioh", "hearthstone", "scp")
+GAMES = ("mtg", "finance", "minecraft", "pokemon", "yugioh", "hearthstone", "scp", "cats", "clankers")
 DEFAULT_GAME = "mtg"
 
 
@@ -86,6 +88,8 @@ _POOLS: dict[str, Callable[[], dict[str, CardDefinition]]] = {
     "yugioh": lambda: YGO_CARDS,
     "hearthstone": _hs_pool_dict,
     "scp": lambda: SCP_CARDS,
+    "cats": lambda: CATS_CARDS,
+    "clankers": lambda: CLAN_CARDS,
 }
 
 
@@ -123,6 +127,10 @@ _RULES: dict[str, DeckRules] = {
                              sideboard_max=0, basic_lands_unlimited=False),
     "scp": DeckRules(min_main=25, max_main=40, max_copies=2,
                      sideboard_max=0, basic_lands_unlimited=False),
+    "cats": DeckRules(min_main=30, max_main=30, max_copies=4,
+                      sideboard_max=0, basic_lands_unlimited=False),
+    "clankers": DeckRules(min_main=60, max_main=60, max_copies=4,
+                          sideboard_max=0, basic_lands_unlimited=False),
 }
 
 
@@ -212,6 +220,27 @@ def _scp_extras(card_def: CardDefinition) -> dict[str, Any]:
     }
 
 
+def _cats_extras(card_def: CardDefinition) -> dict[str, Any]:
+    return {
+        "cats_value": getattr(card_def, "cats_value", None),
+        "cats_category": getattr(card_def, "cats_category", None),
+    }
+
+
+def _clankers_extras(card_def: CardDefinition) -> dict[str, Any]:
+    return {
+        "compute_cost": getattr(card_def, "compute_cost", None),
+        "power": getattr(card_def, "power", None),
+        "integrity": getattr(card_def, "integrity", None),
+        "power_bonus": getattr(card_def, "power_bonus", None),
+        "integrity_bonus": getattr(card_def, "integrity_bonus", None),
+        "weapon_slots": getattr(card_def, "weapon_slots", None),
+        "add_on_slots": getattr(card_def, "add_on_slots", None),
+        "clankers_archetype": getattr(card_def, "clankers_archetype", None),
+        "clankers_keywords": getattr(card_def, "clankers_keywords", None) or [],
+    }
+
+
 _EXTRAS: dict[str, Callable[[CardDefinition], dict[str, Any]]] = {
     "mtg": _mtg_extras,
     "finance": _finance_extras,
@@ -220,6 +249,8 @@ _EXTRAS: dict[str, Callable[[CardDefinition], dict[str, Any]]] = {
     "yugioh": _yugioh_extras,
     "hearthstone": _hearthstone_extras,
     "scp": _scp_extras,
+    "cats": _cats_extras,
+    "clankers": _clankers_extras,
 }
 
 
@@ -322,6 +353,15 @@ def _scp_cost(card_def: CardDefinition) -> int:
     return int(getattr(card_def, "scp_red_tape", 0) or 0)
 
 
+def _cats_cost(card_def: CardDefinition) -> int:
+    # Cats cards print a numeric "Value" (1-10); use it as the sort key.
+    return int(getattr(card_def, "cats_value", 0) or 0)
+
+
+def _clankers_cost(card_def: CardDefinition) -> int:
+    return int(getattr(card_def, "compute_cost", 0) or 0)
+
+
 _COSTS: dict[str, Callable[[CardDefinition], int]] = {
     "mtg": _mtg_cost,
     "finance": _finance_cost,
@@ -330,6 +370,8 @@ _COSTS: dict[str, Callable[[CardDefinition], int]] = {
     "yugioh": _ygo_level,
     "pokemon": _pkm_cost,
     "scp": _scp_cost,
+    "cats": _cats_cost,
+    "clankers": _clankers_cost,
 }
 
 

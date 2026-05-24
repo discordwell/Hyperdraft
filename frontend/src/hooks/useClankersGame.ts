@@ -1,28 +1,37 @@
 /**
  * useClankersGame Hook
  *
- * Clankers-engine game state + action dispatch. Currently MOCK-ONLY: returns
- * a representative two-player board snapshot so the in-game UI can be rendered
- * and visually validated before the server route is wired up.
+ * Clankers-engine game state + action dispatch. Mirrors useCatsGame: subscribes
+ * to gameState via useSocket, then projects the nested `gameState.clankers`
+ * payload (built by the eventual server serializer) into the ClankersState
+ * shape the clankers.tsx board renders.
  *
- * Wire shape (eventual): the server will serialize a `clankers` payload
- * mirroring the cats pattern; we'll then read `gameState.clankers` and project
- * it into ClankersState. For now `dispatch` simply console-logs and (for
- * locally-rendered demo flair) optimistically mutates the mock state.
+ * Until the backend ships a `clankers` serializer (see session.py's
+ * `_serialize_cats_state` for the cats template), the hook falls back to a
+ * representative mock fixture so the board UI stays interactive in design
+ * review. As soon as the server starts emitting `gameState.clankers`, the
+ * mock is bypassed automatically — no further frontend change needed.
  *
- * Action protocol (planned):
- *  - CLANKERS_PLAY_CHASSIS  { card_id }
- *  - CLANKERS_PLAY_PART     { card_id, attach_to?: chassis_id }
- *  - CLANKERS_PLAY_TRANSIENT{ card_id }
- *  - CLANKERS_PLAY_STRUCTURE{ card_id }
- *  - CLANKERS_ATTACH_PART   { part_id, chassis_id }
- *  - CLANKERS_ACTIVATE      { source_id }
- *  - CLANKERS_DECLARE_ATTACK{ chassis_id }
- *  - CLANKERS_DECLARE_BLOCK { blocker_id, attacker_id }
+ * Action protocol:
+ *  - CLANKERS_PLAY_CHASSIS    { card_id }
+ *  - CLANKERS_PLAY_PART       { card_id, attach_to?: chassis_id }
+ *  - CLANKERS_PLAY_TRANSIENT  { card_id }
+ *  - CLANKERS_PLAY_STRUCTURE  { card_id }
+ *  - CLANKERS_ATTACH_PART     { part_id, chassis_id }
+ *  - CLANKERS_ACTIVATE        { source_id }
+ *  - CLANKERS_DECLARE_ATTACK  { chassis_id }
+ *  - CLANKERS_DECLARE_BLOCK   { blocker_id, attacker_id }
  *  - CLANKERS_REFILL_RESPONSE { accept: boolean }
  *  - CLANKERS_PASS_PHASE
+ *
+ * The board component imports `dispatch` from this hook — both the mock and
+ * real paths expose the same function signature so swapping is transparent.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo } from 'react';
+import { useGameStore } from '../stores/gameStore';
+import { useSocket } from './useSocket';
+import { matchAPI } from '../services/api';
+import type { ActionType, PlayerActionRequest } from '../types';
 
 // ---------------------------------------------------------------------------
 // Types — engine-facing
@@ -146,7 +155,7 @@ export interface ClankersState {
 }
 
 // ---------------------------------------------------------------------------
-// Action vocab (mock-only for now)
+// Action vocab
 // ---------------------------------------------------------------------------
 
 export type ClankersAction =
@@ -162,7 +171,98 @@ export type ClankersAction =
   | { type: 'CLANKERS_PASS_PHASE' };
 
 // ---------------------------------------------------------------------------
-// Mock fixture — a representative mid-game state at turn 5, viewer's Assemble.
+// Hook
+// ---------------------------------------------------------------------------
+
+export interface UseClankersGameResult {
+  state: ClankersState | null;
+  dispatch: (action: ClankersAction) => void;
+  isLoading: boolean;
+  isConnected: boolean;
+  error: string | null;
+}
+
+// Map UI action → wire action. The wire vocabulary is more conservative
+// (e.g. attackers/blockers are usually batched). The hook translates the
+// per-card UI events into the canonical engine actions the server expects.
+function buildWireRequest(
+  action: ClankersAction,
+  playerId: string,
+): PlayerActionRequest | null {
+  // Backend expects 7 canonical action types (per src/server/models.py
+  // CLANKERS_* members) and field names that match PlayerActionRequest's
+  // declared Clankers fields (card_id, target_chassis_id, part_obj_id,
+  // source_obj_id, ability_index, attacker_ids, blocker_pairs,
+  // refill_decision, phase). The UI emits more granular events; this
+  // function collapses play_chassis/part/transient/structure → PLAY_CARD
+  // (the backend dispatches by the card's CardType) and renames fields.
+  switch (action.type) {
+    case 'CLANKERS_PLAY_CHASSIS':
+    case 'CLANKERS_PLAY_TRANSIENT':
+    case 'CLANKERS_PLAY_STRUCTURE':
+      return {
+        action_type: 'CLANKERS_PLAY_CARD' as ActionType,
+        player_id: playerId,
+        card_id: action.cardId,
+      };
+    case 'CLANKERS_PLAY_PART':
+      return {
+        action_type: 'CLANKERS_PLAY_CARD' as ActionType,
+        player_id: playerId,
+        card_id: action.cardId,
+        target_chassis_id: action.attachTo,
+      };
+    case 'CLANKERS_ATTACH_PART':
+      return {
+        action_type: 'CLANKERS_ATTACH_PART' as ActionType,
+        player_id: playerId,
+        part_obj_id: action.partId,
+        target_chassis_id: action.chassisId,
+      };
+    case 'CLANKERS_ACTIVATE':
+      return {
+        action_type: 'CLANKERS_ACTIVATE_ABILITY' as ActionType,
+        player_id: playerId,
+        source_obj_id: action.sourceId,
+      };
+    case 'CLANKERS_DECLARE_ATTACK':
+      // UI fires this once per attacker; we batch into a single wire
+      // event with attacker_ids = [chassisId]. The board may collect all
+      // attackers and dispatch once when the user clicks "End Attack".
+      return {
+        action_type: 'CLANKERS_DECLARE_ATTACKERS' as ActionType,
+        player_id: playerId,
+        attacker_ids: [action.chassisId],
+      };
+    case 'CLANKERS_DECLARE_BLOCK':
+      // Same: one-pair-per-event; backend treats blocker_pairs as the
+      // full mapping. The board may batch all blocks then dispatch.
+      return {
+        action_type: 'CLANKERS_DECLARE_BLOCKERS' as ActionType,
+        player_id: playerId,
+        blocker_pairs: { [action.attackerId]: action.blockerId },
+      };
+    case 'CLANKERS_REFILL_RESPONSE':
+      return {
+        action_type: 'CLANKERS_REFILL_DECISION' as ActionType,
+        player_id: playerId,
+        refill_decision: action.accept,
+      };
+    case 'CLANKERS_PASS_PHASE':
+      return {
+        action_type: 'CLANKERS_END_PHASE' as ActionType,
+        player_id: playerId,
+      };
+    default:
+      return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Mock fallback fixture — a representative mid-game state at turn 5, viewer's
+// Assemble. Used only when the server hasn't shipped the `clankers` payload
+// yet (so the board UI stays renderable for design review). The board itself
+// is unchanged whether this mock or a real serialized state is in use.
 // ---------------------------------------------------------------------------
 
 function makeMockState(): ClankersState {
@@ -416,56 +516,80 @@ function makeMockState(): ClankersState {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Hook (mock-only)
-// ---------------------------------------------------------------------------
-
-export interface UseClankersGameResult {
-  state: ClankersState | null;
-  dispatch: (action: ClankersAction) => void;
-  isLoading: boolean;
-  error: string | null;
+// Stable singleton so the mock state mutates (PASS_PHASE bumps phase, etc.)
+// across calls — same UX as the previous useState-only implementation.
+let mockStateRef: ClankersState | null = null;
+function getMockState(): ClankersState {
+  if (mockStateRef === null) mockStateRef = makeMockState();
+  return mockStateRef;
 }
 
-export function useClankersGame(_matchId?: string): UseClankersGameResult {
-  const [state, setState] = useState<ClankersState | null>(() => makeMockState());
+export function useClankersGame(): UseClankersGameResult {
+  const store = useGameStore();
+  const { matchId, playerId, gameState, setGameState, setError } = store;
 
-  const dispatch = useCallback((action: ClankersAction) => {
-    // For v1 the dispatch is purely local: console.log + small optimistic
-    // mock mutation so the UI feels alive while we wire the server.
-    // eslint-disable-next-line no-console
-    console.log('[clankers] dispatch', action);
-    setState((prev) => {
-      if (!prev) return prev;
-      // Minimal mock effect: PASS_PHASE bumps the phase wheel one click forward.
-      if (action.type === 'CLANKERS_PASS_PHASE') {
-        const order: ClankersPhase[] = [
-          'boot',
-          'allocate',
-          'assemble',
-          'combat',
-          'reassemble',
-          'cleanup',
-        ];
-        const idx = order.indexOf(prev.phase);
-        const next = order[(idx + 1) % order.length];
-        return { ...prev, phase: next };
-      }
-      if (action.type === 'CLANKERS_REFILL_RESPONSE') {
-        return {
-          ...prev,
-          refill_prompt: { ...prev.refill_prompt, pending: false },
-          player: { ...prev.player, refill_used: true },
-        };
-      }
-      return prev;
-    });
-  }, []);
+  const { isConnected } = useSocket({
+    matchId: matchId || undefined,
+    playerId: playerId || undefined,
+    isSpectator: false,
+    onError: (msg) => setError(msg),
+  });
 
-  return {
-    state,
-    dispatch,
-    isLoading: state === null,
-    error: null,
-  };
+  // Project the server's nested `clankers` payload into ClankersState. The
+  // backend is expected to emit a seat-relative shape (player vs opponent)
+  // like the cats serializer does; this is mostly a passthrough with a
+  // typed cast. When the field is absent (no active match, or backend not
+  // yet wired), fall back to the mock fixture so the board still renders.
+  const state = useMemo<ClankersState | null>(() => {
+    if (gameState) {
+      const clankers = (gameState as unknown as { clankers?: ClankersState | null }).clankers;
+      if (clankers) return clankers;
+    }
+    // No real state available — surface mock fixture for design review.
+    // The board cannot distinguish; it just gets a ClankersState shape.
+    return getMockState();
+  }, [gameState]);
+
+  const dispatch = useCallback(
+    async (action: ClankersAction) => {
+      // No active match → optimistic mock mutation so PASS_PHASE still
+      // ticks the phase wheel during design review.
+      if (!matchId || !playerId) {
+        if (action.type === 'CLANKERS_PASS_PHASE' && mockStateRef) {
+          const order: ClankersPhase[] = [
+            'boot',
+            'allocate',
+            'assemble',
+            'combat',
+            'reassemble',
+            'cleanup',
+          ];
+          const idx = order.indexOf(mockStateRef.phase);
+          mockStateRef = {
+            ...mockStateRef,
+            phase: order[(idx + 1) % order.length],
+          };
+        }
+        // eslint-disable-next-line no-console
+        console.log('[clankers] mock dispatch (no match)', action);
+        return;
+      }
+
+      const request = buildWireRequest(action, playerId);
+      if (!request) return;
+      try {
+        const result = await matchAPI.submitAction(matchId, request);
+        if (result.success && result.new_state) setGameState(result.new_state);
+        else if (!result.success) setError(result.message);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Action failed');
+      }
+    },
+    [matchId, playerId, setGameState, setError],
+  );
+
+  const isLoading = !state;
+  const error = store.ui?.error ?? null;
+
+  return { state, dispatch, isLoading, isConnected, error };
 }

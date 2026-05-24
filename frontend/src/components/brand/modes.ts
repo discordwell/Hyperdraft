@@ -15,7 +15,8 @@ export type GameModeId =
   | 'finance'
   | 'depths'
   | 'scp'
-  | 'cats';
+  | 'cats'
+  | 'clankers';
 
 export interface GameModeMeta {
   id: GameModeId;
@@ -33,7 +34,17 @@ export interface GameModeMeta {
    * Per-mode top-of-game route. For modes that piggyback on GameView, this
    * is /game/:matchId; mode-specific views go to /game/:matchId/<suffix>.
    */
-  gameViewSuffix: '' | '/hs' | '/pkm' | '/ygo' | '/mc' | '/fin' | '/depths' | '/scp' | '/cats';
+  gameViewSuffix:
+    | ''
+    | '/hs'
+    | '/pkm'
+    | '/ygo'
+    | '/mc'
+    | '/fin'
+    | '/depths'
+    | '/scp'
+    | '/cats'
+    | '/clankers';
 }
 
 export const GAME_MODES: GameModeMeta[] = [
@@ -117,6 +128,15 @@ export const GAME_MODES: GameModeMeta[] = [
     blurb: 'Trick-taking, pile-building. Nine rounds. Cats committee.',
     accent: 'sheen',
     gameViewSuffix: '/cats',
+  },
+  {
+    id: 'clankers',
+    code: 'CLAN',
+    name: 'Clankers',
+    title: 'Clankers: Workshop Wars',
+    blurb: 'Newly-sentient AIs build battle robots from chassis + parts.',
+    accent: 'violet',
+    gameViewSuffix: '/clankers',
   },
 ];
 

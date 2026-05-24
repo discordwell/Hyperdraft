@@ -653,6 +653,43 @@ async def create_match(
             if ai2_id:
                 session.add_cards_to_deck(ai2_id, FINANCE_DECKS[ai_deck_key]())
 
+    elif request.game_mode == "clankers":
+        # Clankers: multi-part robot assembly. Decks are 60-card (core, main)
+        # tuples in CLAN_STARTER_DECKS. The mode adapter's setup_game()
+        # reads session.deck_id_by_player and calls setup_clankers_player
+        # for each seat, so this branch only needs to record the chosen
+        # deck IDs (and randomize for bot_vs_bot).
+        from src.cards.clankers.CLAN.decks import CLAN_STARTER_DECKS
+        import random
+
+        deck_keys = list(CLAN_STARTER_DECKS.keys())
+        default_human = "CLAN_forge"
+        default_ai = "CLAN_mirth"
+        human_deck_key = (
+            request.player_deck_id if request.player_deck_id in CLAN_STARTER_DECKS
+            else default_human
+        )
+        ai_deck_key = (
+            request.ai_deck_id if request.ai_deck_id in CLAN_STARTER_DECKS
+            else default_ai
+        )
+        if request.mode == "bot_vs_bot":
+            shuffled = list(deck_keys)
+            random.shuffle(shuffled)
+            human_deck_key, ai_deck_key = shuffled[0], shuffled[1]
+
+        # Record per-seat deck IDs; the ClankersModeAdapter.setup_game()
+        # reads these in start_game() and calls setup_clankers_player.
+        for idx, pid in enumerate(session.player_ids):
+            if pid == human_id:
+                session.deck_id_by_player[pid] = human_deck_key
+            elif ai_id and pid == ai_id:
+                session.deck_id_by_player[pid] = ai_deck_key
+            elif ai2_id and pid == ai2_id:
+                session.deck_id_by_player[pid] = ai_deck_key
+            else:
+                session.deck_id_by_player[pid] = deck_keys[idx % len(deck_keys)]
+
     elif request.game_mode == "cats":
         # Cats: trick-taking + pile-building. Decks are 30-card commander+main
         # tuples in CATS_DECKS. The cats engine uses its own setup_cats_player

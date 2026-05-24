@@ -122,6 +122,14 @@ class ActionType(str, Enum):
     CATS_PLAY_CARD = "CATS_PLAY_CARD"
     CATS_CHOOSE_PILE = "CATS_CHOOSE_PILE"
     CATS_KNOCK_OVER = "CATS_KNOCK_OVER"
+    # Clankers (multi-part robot assembly) action types
+    CLANKERS_PLAY_CARD = "CLANKERS_PLAY_CARD"
+    CLANKERS_ATTACH_PART = "CLANKERS_ATTACH_PART"
+    CLANKERS_ACTIVATE_ABILITY = "CLANKERS_ACTIVATE_ABILITY"
+    CLANKERS_DECLARE_ATTACKERS = "CLANKERS_DECLARE_ATTACKERS"
+    CLANKERS_DECLARE_BLOCKERS = "CLANKERS_DECLARE_BLOCKERS"
+    CLANKERS_REFILL_DECISION = "CLANKERS_REFILL_DECISION"
+    CLANKERS_END_PHASE = "CLANKERS_END_PHASE"
 
 
 class ChoiceType(str, Enum):
@@ -144,9 +152,9 @@ class ChoiceType(str, Enum):
 class CreateMatchRequest(BaseModel):
     """Request to create a new match."""
     mode: MatchMode = MatchMode.HUMAN_VS_BOT
-    game_mode: Literal["mtg", "hearthstone", "pokemon", "yugioh", "minecraft", "finance", "depths", "scp", "cats"] = Field(
+    game_mode: Literal["mtg", "hearthstone", "pokemon", "yugioh", "minecraft", "finance", "depths", "scp", "cats", "clankers"] = Field(
         default="mtg",
-        description="Rules engine: 'mtg', 'hearthstone', 'pokemon', 'yugioh', 'minecraft', 'finance', 'depths', 'scp', or 'cats'"
+        description="Rules engine: 'mtg', 'hearthstone', 'pokemon', 'yugioh', 'minecraft', 'finance', 'depths', 'scp', 'cats', or 'clankers'"
     )
     variant: Optional[str] = Field(default=None, description="Game variant (e.g. 'stormrift') — installs heroes/decks/modifiers")
     hero_class: Optional[str] = Field(default=None, description="Hero class for variant (e.g. 'Pyromancer', 'Cryomancer')")
@@ -197,6 +205,15 @@ class PlayerActionRequest(BaseModel):
     amount: Optional[int] = Field(default=None, description="SCP numeric action amount")
     # Cats action fields
     pile_name: Optional[str] = Field(default=None, description="Cats pile name for CATS_CHOOSE_PILE (pile_territory/pile_nap/pile_snack)")
+    # Clankers action fields
+    target_chassis_id: Optional[str] = Field(default=None, description="Clankers chassis id for weapon/add-on attach")
+    part_obj_id: Optional[str] = Field(default=None, description="Clankers floor part id for CLANKERS_ATTACH_PART")
+    source_obj_id: Optional[str] = Field(default=None, description="Clankers ability source id for CLANKERS_ACTIVATE_ABILITY")
+    ability_index: Optional[int] = Field(default=None, description="Clankers activated-ability index")
+    attacker_ids: list[str] = Field(default_factory=list, description="Clankers attacker chassis/part ids")
+    blocker_pairs: dict[str, str] = Field(default_factory=dict, description="Clankers blocker mapping {attacker_id: blocker_id}")
+    refill_decision: Optional[bool] = Field(default=None, description="Clankers Allocate-phase may-refill choice (True=take, False=decline)")
+    phase: Optional[str] = Field(default=None, description="Clankers phase label for CLANKERS_END_PHASE (assemble/reassemble/combat)")
     # Ultra-agent telemetry — when the LLM pilot sends a structured rationale
     # along with its action POST, we capture it into the per-match decisions
     # JSONL. Optional; absent for human / heuristic-AI submissions.
@@ -529,6 +546,10 @@ class GameStateResponse(BaseModel):
     # can project it through useCatsGame.ts without flattening into top-level
     # fields used by other engines.
     cats: Optional[dict] = Field(default=None, description="Nested cats engine state (phase/trick/piles/scores)")
+    # Clankers engine state — multi-part assembly battler. The frontend reads
+    # `clankers` as a single nested object so its viewer can project workshop /
+    # compute / scrap / floor data without flattening into top-level fields.
+    clankers: Optional[dict] = Field(default=None, description="Nested clankers engine state (phases/floor/workshop/compute/scrap)")
     # Game log
     game_log: list[GameLogEntry] = Field(default_factory=list)
 

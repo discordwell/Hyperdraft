@@ -48,7 +48,7 @@ FOIL_RATE = 0.10
 
 
 # Action type prefixes handled by specific mode adapters.
-_MODE_ACTION_PREFIXES = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO", "minecraft": "MC", "finance": "FIN", "depths": "DEPTHS", "scp": "SCP", "cats": "CATS"}
+_MODE_ACTION_PREFIXES = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO", "minecraft": "MC", "finance": "FIN", "depths": "DEPTHS", "scp": "SCP", "cats": "CATS", "clankers": "CLANKERS"}
 
 _HS_ACTION_TYPES = frozenset({
     "HS_PLAY_CARD", "HS_ATTUNE_CARD", "HS_ATTACK", "HS_HERO_POWER", "HS_END_TURN",
@@ -94,6 +94,12 @@ _SCP_ACTION_TYPES = frozenset({
 
 _CATS_ACTION_TYPES = frozenset({
     "CATS_PLAY_CARD", "CATS_CHOOSE_PILE", "CATS_KNOCK_OVER",
+})
+
+_CLANKERS_ACTION_TYPES = frozenset({
+    "CLANKERS_PLAY_CARD", "CLANKERS_ATTACH_PART", "CLANKERS_ACTIVATE_ABILITY",
+    "CLANKERS_DECLARE_ATTACKERS", "CLANKERS_DECLARE_BLOCKERS",
+    "CLANKERS_REFILL_DECISION", "CLANKERS_END_PHASE",
 })
 
 
@@ -844,6 +850,11 @@ class GameSession:
         if game_state.game_mode == "cats":
             cats_state_data = self._serialize_cats_state(game_state, player_id)
 
+        # Clankers-specific state — nested dict consumed by the clankers frontend
+        clankers_state_data: Optional[dict] = None
+        if game_state.game_mode == "clankers":
+            clankers_state_data = self._serialize_clankers_state(game_state, player_id)
+
         # Depths-specific state
         depths_phase_val = None
         depths_combat_val: dict = {}
@@ -915,6 +926,7 @@ class GameSession:
             scp_incidents=scp_incidents,
             scp_assignment_slots=scp_assignment_slots,
             cats=cats_state_data,
+            clankers=clankers_state_data,
         )
 
     async def handle_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
@@ -1051,6 +1063,8 @@ class GameSession:
             return await get_server_mode_adapter("scp").handle_action(self, request)
         if request.action_type in _CATS_ACTION_TYPES:
             return await get_server_mode_adapter("cats").handle_action(self, request)
+        if request.action_type in _CLANKERS_ACTION_TYPES:
+            return await get_server_mode_adapter("clankers").handle_action(self, request)
 
         # Combat declarations are not wired through the priority action loop yet.
         if request.action_type in ("DECLARE_ATTACKERS", "DECLARE_BLOCKERS"):
@@ -2712,6 +2726,240 @@ class GameSession:
         }
         if final_scores is not None:
             result["final_scores"] = final_scores
+        return result
+
+    def _serialize_clankers_state(self, game_state, viewer_id: Optional[str]) -> dict:
+        """Serialize the clankers engine state for the client.
+
+        Returns a per-player view of workshop integrity, compute / scrap
+        pools, hand / library / scrap-heap sizes, the assembly floor with
+        each chassis + its attached parts + effective P/I, plus the active
+        phase + turn number + deathclock flag.
+
+        Hidden info: opponent hand cards are surfaced as count-only stubs
+        (id + "Hidden" placeholder); the viewer's own hand is revealed.
+        """
+        from src.engine.types import CardType, ZoneType
+        from src.engine.clankers import (
+            compute_effective_power, compute_effective_integrity,
+        )
+
+        all_pids = list(game_state.players.keys())
+
+        def _is_type(obj, type_name: str) -> bool:
+            if obj is None or obj.characteristics is None:
+                return False
+            target = getattr(CardType, type_name, None)
+            if target is None:
+                return False
+            return target in (obj.characteristics.types or set())
+
+        def _part_dto(part_id: str) -> dict:
+            obj = game_state.objects.get(part_id)
+            if obj is None:
+                return {"id": part_id, "name": "?", "kind": "Unknown"}
+            kind = "Weapon" if _is_type(obj, "CLANKERS_WEAPON") else (
+                "Add-On" if _is_type(obj, "CLANKERS_ADD_ON") else "Part"
+            )
+            card_def = obj.card_def
+            return {
+                "id": part_id,
+                "name": obj.name or "?",
+                "kind": kind,
+                "power_bonus": int(getattr(card_def, "power_bonus", 0) or 0) if card_def else 0,
+                "integrity_bonus": int(getattr(card_def, "integrity_bonus", 0) or 0) if card_def else 0,
+                "armor_value": getattr(card_def, "armor_value", None) if card_def else None,
+                "tapped": bool(getattr(obj.state, "tapped", False)) if obj.state else False,
+                "text": (card_def.text if card_def else "") or "",
+            }
+
+        def _chassis_dto(chassis_id: str) -> dict:
+            obj = game_state.objects.get(chassis_id)
+            if obj is None:
+                return {"id": chassis_id, "name": "?", "attached_parts": []}
+            card_def = obj.card_def
+            try:
+                eff_p = compute_effective_power(game_state, chassis_id)
+            except Exception:
+                eff_p = int(getattr(card_def, "power", 0) or 0) if card_def else 0
+            try:
+                eff_i = compute_effective_integrity(game_state, chassis_id)
+            except Exception:
+                eff_i = int(getattr(card_def, "integrity", 0) or 0) if card_def else 0
+            attached = [_part_dto(pid) for pid in (obj.state.attachments or [])]
+            damage = int(getattr(obj.state, "damage_marked", 0) or 0)
+            return {
+                "id": chassis_id,
+                "name": obj.name or "?",
+                "base_power": int(getattr(card_def, "power", 0) or 0) if card_def else 0,
+                "base_integrity": int(getattr(card_def, "integrity", 0) or 0) if card_def else 0,
+                "effective_power": eff_p,
+                "effective_integrity": eff_i,
+                "damage": damage,
+                "tapped": bool(getattr(obj.state, "tapped", False)) if obj.state else False,
+                "weapon_slots": int(getattr(card_def, "weapon_slots", 2) or 0) if card_def else 0,
+                "add_on_slots": int(getattr(card_def, "add_on_slots", 2) or 0) if card_def else 0,
+                "attached_parts": attached,
+                "controller": obj.controller,
+                "text": (card_def.text if card_def else "") or "",
+            }
+
+        def _solo_part_dto(part_id: str) -> dict:
+            """A weapon / add-on on the floor with no host. Render as a 1/1
+            standalone unit per design §4."""
+            obj = game_state.objects.get(part_id)
+            if obj is None:
+                return {"id": part_id, "name": "?", "attached_parts": []}
+            base = _part_dto(part_id)
+            try:
+                eff_p = compute_effective_power(game_state, part_id)
+            except Exception:
+                eff_p = 1
+            try:
+                eff_i = compute_effective_integrity(game_state, part_id)
+            except Exception:
+                eff_i = 1
+            base.update({
+                "effective_power": eff_p,
+                "effective_integrity": eff_i,
+                "is_solo": True,
+                "controller": obj.controller,
+            })
+            return base
+
+        def _hand_dto(pid: str, *, reveal: bool) -> list[dict]:
+            hand_zone = game_state.zones.get(f"hand_{pid}")
+            ids = list(hand_zone.objects) if hand_zone else []
+            out: list[dict] = []
+            for cid in ids:
+                if not reveal:
+                    out.append({"id": cid, "name": "Hidden", "hidden": True})
+                    continue
+                obj = game_state.objects.get(cid)
+                if obj is None:
+                    out.append({"id": cid, "name": "?", "hidden": False})
+                    continue
+                card_def = obj.card_def
+                # Infer card type label.
+                kind = "Unknown"
+                if obj.characteristics is not None:
+                    types = obj.characteristics.types or set()
+                    if CardType.CLANKERS_CHASSIS in types:
+                        kind = "Chassis"
+                    elif CardType.CLANKERS_WEAPON in types:
+                        kind = "Weapon"
+                    elif CardType.CLANKERS_ADD_ON in types:
+                        kind = "Add-On"
+                    elif CardType.CLANKERS_TRANSIENT in types:
+                        kind = "Transient"
+                    elif CardType.CLANKERS_STRUCTURE in types:
+                        kind = "Structure"
+                    elif CardType.CLANKERS_CORE in types:
+                        kind = "Core"
+                out.append({
+                    "id": cid,
+                    "name": obj.name or "?",
+                    "kind": kind,
+                    "compute_cost": int(getattr(card_def, "compute_cost", 0) or 0) if card_def else 0,
+                    "power": int(getattr(card_def, "power", 0) or 0) if card_def else 0,
+                    "integrity": int(getattr(card_def, "integrity", 0) or 0) if card_def else 0,
+                    "power_bonus": int(getattr(card_def, "power_bonus", 0) or 0) if card_def else 0,
+                    "integrity_bonus": int(getattr(card_def, "integrity_bonus", 0) or 0) if card_def else 0,
+                    "weapon_slots": int(getattr(card_def, "weapon_slots", 0) or 0) if card_def else 0,
+                    "add_on_slots": int(getattr(card_def, "add_on_slots", 0) or 0) if card_def else 0,
+                    "armor_value": getattr(card_def, "armor_value", None) if card_def else None,
+                    "text": (card_def.text if card_def else "") or "",
+                    "hidden": False,
+                })
+            return out
+
+        def _floor_dto(pid: str) -> dict:
+            """Return chassis+attachments and solo parts for this player."""
+            floor_zone = game_state.zones.get(f"clankers_assembly_floor_{pid}")
+            ids = list(floor_zone.objects) if floor_zone else []
+            chassis: list[dict] = []
+            solo_parts: list[dict] = []
+            for oid in ids:
+                obj = game_state.objects.get(oid)
+                if obj is None or obj.card_def is None:
+                    continue
+                if _is_type(obj, "CLANKERS_CHASSIS"):
+                    chassis.append(_chassis_dto(oid))
+                elif _is_type(obj, "CLANKERS_WEAPON") or _is_type(obj, "CLANKERS_ADD_ON"):
+                    # Solo (unattached) parts live on the floor too.
+                    if obj.state.attached_to is None:
+                        solo_parts.append(_solo_part_dto(oid))
+            return {"chassis": chassis, "solo_parts": solo_parts}
+
+        def _core_dto(pid: str) -> Optional[dict]:
+            cores = getattr(game_state, "clankers_cores", {}) or {}
+            core_id = cores.get(pid)
+            if not core_id:
+                return None
+            obj = game_state.objects.get(core_id)
+            if obj is None:
+                return None
+            return {
+                "id": core_id,
+                "name": obj.name or "?",
+                "text": (obj.card_def.text if obj.card_def else "") or "",
+            }
+
+        def _player_state(pid: str, *, is_viewer: bool) -> dict:
+            workshop_dict = getattr(game_state, "clankers_workshop_integrity", {}) or {}
+            compute_dict = getattr(game_state, "clankers_compute_pool", {}) or {}
+            compute_cap_dict = getattr(game_state, "clankers_compute_cap", {}) or {}
+            scrap_dict = getattr(game_state, "clankers_scrap_pool", {}) or {}
+            structures_dict = getattr(game_state, "clankers_structures", {}) or {}
+
+            hand_zone = game_state.zones.get(f"hand_{pid}")
+            hand_ids = list(hand_zone.objects) if hand_zone else []
+            library_zone = game_state.zones.get(f"library_{pid}")
+            library_size = len(library_zone.objects) if library_zone else 0
+            scrap_zone = game_state.zones.get(f"clankers_scrap_heap_{pid}")
+            scrap_heap_size = len(scrap_zone.objects) if scrap_zone else 0
+
+            return {
+                "workshop_integrity": int(workshop_dict.get(pid, 0) or 0),
+                "compute_pool": int(compute_dict.get(pid, 0) or 0),
+                "compute_cap": int(compute_cap_dict.get(pid, 10) or 10),
+                "scrap_pool": int(scrap_dict.get(pid, 0) or 0),
+                "hand": _hand_dto(pid, reveal=is_viewer),
+                "hand_size": len(hand_ids),
+                "library_size": library_size,
+                "scrap_heap_size": scrap_heap_size,
+                "floor": _floor_dto(pid),
+                "structures": [
+                    _part_dto(sid) for sid in (structures_dict.get(pid, []) or [])
+                ],
+                "core": _core_dto(pid),
+            }
+
+        if viewer_id and viewer_id in all_pids:
+            me_id = viewer_id
+            opp_id = next((p for p in all_pids if p != viewer_id), None)
+        else:
+            me_id = all_pids[0] if all_pids else None
+            opp_id = all_pids[1] if len(all_pids) > 1 else None
+
+        tm = self.game.turn_manager
+        turn_number = int(getattr(tm, "turn_number", 0) or 0)
+        active_player_id = getattr(game_state, "active_player", None)
+        phase = getattr(game_state, "clankers_current_phase", None)
+
+        result: dict = {
+            "turn_number": turn_number,
+            "phase": phase,
+            "active_player": "me" if active_player_id == me_id else (
+                "opponent" if active_player_id == opp_id else None
+            ),
+            "active_player_id": active_player_id,
+            "first_turn": bool(getattr(game_state, "clankers_first_turn", False)),
+            "deathclock_active": bool(getattr(game_state, "clankers_containment_failure", False)),
+            "deathclock_turn": int(getattr(game_state, "clankers_containment_turn", 0) or 0),
+            "player": _player_state(me_id, is_viewer=True) if me_id else None,
+            "opponent": _player_state(opp_id, is_viewer=False) if opp_id else None,
+        }
         return result
 
     def _record_frame(self, action: Optional[dict]) -> None:

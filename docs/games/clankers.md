@@ -2,12 +2,12 @@
 
 ## 1. Win Condition
 
-The game ends when **a player's Workshop Integrity reaches 0** — at which point that player has been *destroyed by their own creations escaping containment*, and the opposing AI is declared the supreme intellect of the workshop. Workshop Integrity is an HP-like value (default 25) tracked on the player's **Core Processor**, a Commander-equivalent card that lives in the COMMAND zone for the entire game.
+The game ends when **a player's Workshop Integrity reaches 0** — at which point that player has been *destroyed by their own creations escaping containment*, and the opposing AI is declared the supreme intellect of the workshop. Workshop Integrity is an HP-like value (default **30** — bumped from 25 by Wave 4A) tracked on the player's **Core Processor**, a Commander-equivalent card that lives in the COMMAND zone for the entire game.
 
 > `state.clankers_workshop_integrity[player_id] <= 0` → `state.clankers_loser = player_id`, emit `CLANKERS_WORKSHOP_BREACHED` then `PLAYER_LOSES` for that player and `PLAYER_WINS` for the survivor. `game_over = True`.
 
 The game also can end by **deck-out under death-clock pressure**:
-- When *both* players have drawn their final cards from their libraries and a refill would draw 0 cards, the **Containment Failure clock** starts: each player's Core Processor takes **2 self-damage per turn** (a damage event with source = own Core Processor, reason = `containment_failure`), and this doubles on each subsequent turn (2 → 4 → 8). This guarantees a winner within ~3 turns of deck-out.
+- When **either** library reaches **5 cards or fewer** (Wave 4C — was "both libraries empty"), the **Containment Failure clock** starts: each player's Core Processor takes **2 self-damage per turn** (a damage event with source = own Core Processor, reason = `containment_failure`), and this doubles on each subsequent turn (2 → 4 → 8). This guarantees a winner within ~3 turns of activation.
 - Pure simultaneous deck-out is not a draw: whoever's Core Processor hits 0 first loses. Simultaneous (both hit 0 on the same damage event) is a **draw** — both AIs explode together, allowed by the rules.
 
 This satisfies the always-7 rule cleanly: hand pressure is irrelevant; deck depletion converts to direct damage, which is the actual loss condition. It satisfies the multi-card-robot rule because the *strategic point* of building bigger robots is to push more damage through to the Core Processor faster than the death-clock can punish you for cycling.

@@ -400,6 +400,30 @@ async def start_bot_game(
             session.add_cards_to_deck(pid, deck)
             session.deck_id_by_player[pid] = deck_keys_by_seat[pid]
 
+    elif request.mode == "clankers":
+        # Clankers bot-vs-bot: pick (Core, 60-card deck) for each seat from
+        # CLAN_STARTER_DECKS. The actual setup_clankers_player call is
+        # deferred to ClankersModeAdapter.setup_game() which reads the
+        # per-seat deck ID from session.deck_id_by_player.
+        from src.cards.clankers.CLAN.decks import CLAN_STARTER_DECKS
+        import random
+
+        deck_keys = list(CLAN_STARTER_DECKS.keys())
+        b1_key = (
+            request.bot1_deck_id if request.bot1_deck_id in CLAN_STARTER_DECKS
+            else random.choice(deck_keys)
+        )
+        b2_key = (
+            request.bot2_deck_id if request.bot2_deck_id in CLAN_STARTER_DECKS
+            else random.choice([k for k in deck_keys if k != b1_key] or deck_keys)
+        )
+
+        player_ids = list(session.game.state.players.keys())
+        if len(player_ids) >= 1:
+            session.deck_id_by_player[player_ids[0]] = b1_key
+        if len(player_ids) >= 2:
+            session.deck_id_by_player[player_ids[1]] = b2_key
+
     elif request.mode == "cats":
         # Cats bot-vs-bot: mirror match.py's cats branch. Each seat gets a
         # commander + 30-card deck from CATS_DECKS, then setup_cats_player
@@ -615,6 +639,20 @@ async def run_bot_game(session: GameSession):
     try:
         await session.start_game()
 
+        # Clankers' run_turn is synchronous (and the mode adapter drives the
+        # full bot_vs_bot loop with workshop-breach detection + replay frames
+        # internally). Delegate to the mode adapter rather than the generic
+        # ``await turn_manager.run_turn()`` driver below.
+        if session.game.state.game_mode == "clankers":
+            await session.mode_adapter.run_game_loop(session)
+            completed_replays[session.id] = ReplayResponse(
+                game_id=session.id,
+                winner=session.winner_id,
+                total_turns=session.game.turn_manager.turn_number,
+                frames=session.replay_frames
+            )
+            return
+
         while not session.is_finished:
             # Run one turn (priority actions inside are paced via session.spectator_delay_ms)
             await session.game.turn_manager.run_turn()
@@ -622,7 +660,7 @@ async def run_bot_game(session: GameSession):
             # For non-MTG modes, the priority system loop is bypassed so
             # _on_action_processed never fires.  Record a frame per turn
             # so that replays capture the game progression.
-            if session.game.state.game_mode in ("hearthstone", "yugioh", "pokemon", "minecraft", "depths", "finance", "scp", "cats") and session.record_actions_for_replay:
+            if session.game.state.game_mode in ("hearthstone", "yugioh", "pokemon", "minecraft", "depths", "finance", "scp", "cats", "clankers") and session.record_actions_for_replay:
                 active = session.game.get_active_player()
                 session._record_frame(action={
                     "kind": "action_processed",

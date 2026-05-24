@@ -80,7 +80,23 @@ export type ActionType =
   | 'SCP_END_TURN'
   | 'CATS_PLAY_CARD'
   | 'CATS_CHOOSE_PILE'
-  | 'CATS_KNOCK_OVER';
+  | 'CATS_KNOCK_OVER'
+  | 'CLANKERS_PLAY_CHASSIS'
+  | 'CLANKERS_PLAY_PART'
+  | 'CLANKERS_PLAY_TRANSIENT'
+  | 'CLANKERS_PLAY_STRUCTURE'
+  | 'CLANKERS_PLAY_CARD'
+  | 'CLANKERS_ATTACH_PART'
+  | 'CLANKERS_ACTIVATE'
+  | 'CLANKERS_ACTIVATE_ABILITY'
+  | 'CLANKERS_DECLARE_ATTACK'
+  | 'CLANKERS_DECLARE_ATTACKERS'
+  | 'CLANKERS_DECLARE_BLOCK'
+  | 'CLANKERS_DECLARE_BLOCKERS'
+  | 'CLANKERS_REFILL_RESPONSE'
+  | 'CLANKERS_REFILL_DECISION'
+  | 'CLANKERS_END_PHASE'
+  | 'CLANKERS_PASS_PHASE';
 
 export type Phase =
   | 'BEGINNING'
@@ -346,7 +362,7 @@ export interface GameState {
   is_game_over: boolean;
   winner: string | null;
   pending_choice?: PendingChoice | null;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'cats';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'cats' | 'clankers';
   variant?: string | null;
   max_hand_size?: number;
   // Pokemon zones
@@ -401,6 +417,10 @@ export interface GameState {
   scp_assignment_slots?: Record<string, number>;
   // Cats engine — nested payload; useCatsGame.ts projects it into CatsState
   cats?: unknown;
+  // Clankers engine — nested payload; useClankersGame.ts projects it into
+  // ClankersState. Backend serializer pending — currently the hook falls
+  // back to a mock fixture when the field is absent.
+  clankers?: unknown;
   // Game log
   game_log?: GameLogEntry[];
 }
@@ -445,7 +465,7 @@ export interface FinancePendingResponse {
 // Request/Response Types
 export interface CreateMatchRequest {
   mode: MatchMode;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'cats';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'cats' | 'clankers';
   variant?: string;
   ultra_agent?: 'claude' | 'codex';
   ultra_model?: string;
@@ -496,6 +516,15 @@ export interface PlayerActionRequest {
   protocol?: string;
   index?: number;
   amount?: number;
+  // Clankers-specific — names match src/server/models.py PlayerActionRequest
+  target_chassis_id?: string;          // weapon/add-on attach target on CLANKERS_PLAY_CARD or CLANKERS_ATTACH_PART
+  part_obj_id?: string;                // CLANKERS_ATTACH_PART floor-part id
+  source_obj_id?: string;              // CLANKERS_ACTIVATE_ABILITY source
+  ability_index?: number;              // activated-ability index
+  attacker_ids?: string[];             // CLANKERS_DECLARE_ATTACKERS chassis/part ids
+  blocker_pairs?: Record<string, string>;  // CLANKERS_DECLARE_BLOCKERS {attacker_id: blocker_id}
+  refill_decision?: boolean;           // CLANKERS_REFILL_DECISION (true=take, false=decline)
+  phase?: string;                      // CLANKERS_END_PHASE label
 }
 
 export interface ActionResultResponse {
@@ -507,7 +536,7 @@ export interface ActionResultResponse {
 
 // Bot Game Types
 export interface StartBotGameRequest {
-  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'cats';
+  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'cats' | 'clankers';
   bot1_deck: string[];
   bot2_deck: string[];
   bot1_deck_id?: string;
