@@ -22,7 +22,11 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from src.cards import ALL_CARDS as MTG_CARDS
-from src.cards.cats.CATS import ALL_CARDS as CATS_CARDS
+from src.cards.cats.CATS import ALL_CARDS as _CATS_LIST
+# CATS exports a list (one CardDefinition per row in CATS.csv); the registry
+# wants a name→def dict like every other engine. Normalize at import time so
+# deckbuilder routes (which call `.items()`) don't trip on the list.
+CATS_CARDS: dict[str, Any] = {c.name: c for c in _CATS_LIST}
 from src.cards.clankers.CLAN import CLAN_CARDS
 from src.cards.finance import FINANCE_CARDS
 from src.cards.hearthstone import ALL_CARDS as HS_CARDS_LIST
